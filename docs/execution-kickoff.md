@@ -25,17 +25,15 @@ Switch from document-only preparation to executable project skeleton.
 
 ## Fast local path
 
-1. `npm run typecheck:core`
-2. `npm run test:unit`
-3. `npm run test:trend` when the change touches scoring/read-model behavior
+1. `npm run algo:fast`
+2. `npm run algo:phase1` when the change touches truth-layer behavior
 
 ## Manual verification path
 
-1. `npm run typecheck`
-2. `npm run test`
+1. `npm run algo:full`
 3. `npm run db:migrate` (needs `DATABASE_URL`)
 4. `npm run worker:phase1:once` for mock-safe DB verification
-5. `npm run worker:phase1:once:live` only when live Reddit verification is required
+5. `set REDDIT_RUN_MODE=live&& npm run worker:phase1:once` only when live Reddit verification is required
 6. `npm run app:api`
 
 Then verify:

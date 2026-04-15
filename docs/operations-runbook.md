@@ -29,8 +29,7 @@ This was the confirmed fix in the current environment.
 
 ```bash
 npm install
-npm run typecheck:core
-npm run test:unit
+npm run algo:fast
 npm run db:migrate
 ```
 
@@ -49,7 +48,7 @@ npm run worker:phase1:once
 Optional live run:
 
 ```bash
-npm run worker:phase1:once:live
+set REDDIT_RUN_MODE=live&& npm run worker:phase1:once
 ```
 
 Manual one-shot chain (migrate + run once):
@@ -67,7 +66,7 @@ npm run verify:phase1:postgres
 Optional live verification:
 
 ```bash
-npm run verify:phase1:postgres:live
+npm run algo:live:verify
 ```
 
 Start API:
@@ -137,8 +136,8 @@ For a successful live run, all four tables should increase from zero over time.
 
 ## Working policy
 
-- Routine edit loop: `typecheck:core` plus the narrowest relevant test script.
-- Full `typecheck` / `test`: use before freeze, handoff, or when the change spans multiple layers.
+- Routine algorithm edit loop: `algo:fast`, then `algo:phase1` only when the change touches truth-layer behavior.
+- Full pre-close gate: `algo:full`.
 - Live worker/API verification: manual only, because database, auth, network, and proxy state can fail independently of code correctness.
 
 4. Live run gets `401/403`

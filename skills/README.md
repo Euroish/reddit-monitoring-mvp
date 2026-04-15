@@ -28,14 +28,11 @@ Use for:
 
 Start with:
 
-1. `reddit-monitoring`
-2. `tool-design`
-3. `data-algo-social`
+1. `algorithm-dev-suite`
 
 Add when needed:
 
-4. `data-algo`
-5. `data-algo-system`
+2. `tool-design`
 
 Use for:
 
@@ -49,9 +46,7 @@ Use for:
 
 Start with:
 
-1. `reddit-monitoring`
-2. `reddit-trend-algo`
-3. `data-algo`
+1. `algorithm-dev-suite`
 
 Use for:
 
@@ -59,6 +54,19 @@ Use for:
 - threshold logic
 - anomaly/surge/trend explainability
 - conservative ranking-path optimization
+
+### Unified algorithm work
+
+Start with:
+
+1. `algorithm-dev-suite`
+
+Use for:
+
+- choosing between truth-layer and ranking-layer algorithm work
+- keeping future algorithm skill installs behind one project entrypoint
+- routing bounded support from `data-algo` / `data-algo-social` / `data-algo-system` / `reddit-trend-algo`
+- routing support guards from `signal-metric-design` / `synthetic-case-lab` / `read-model-contract-guard` / `worker-boundary-for-algorithm`
 
 ### Large-output context handling
 

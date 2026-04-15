@@ -22,34 +22,25 @@ Use this when you want Codex to stay focused instead of being buried under too m
 - `workers/*` owns collection execution and adaptive sampling behavior.
 - `application/services/*read-model*` owns website-facing aggregation from persisted truth.
 
-## Local commands
+## Default command surface
+
+For algorithm work, ignore the rest of `package.json` by default and use only:
 
 - `npm install`
-- `npm run typecheck:core` (fast local iteration for core runtime/worker/packages)
-- `npm run test:unit`
-- `npm run test:trend`
-- `npm run typecheck` (full repository gate)
-- `npm run test` (full repository gate)
-- `npm run smoke:reddit` (default mock mode, deterministic)
-- `npm run smoke:reddit:live` (attempts live Reddit fetch; may fail in restricted networks)
-- `npm run db:migrate` (requires `DATABASE_URL`)
-- `npm run worker:phase1:once` (official one-shot entry, default mock mode)
-- `npm run worker:phase1:once:live` (official live one-shot entry; requires `DATABASE_URL`)
-- `npm run worker:phase1:scheduler` (continuous loop, default mock mode, no boot run)
-- `npm run worker:phase1:scheduler:live` (continuous live loop; manual only)
-- `npm run app:api` (start minimal Phase-1 API)
-- `npm run phase1:manual-run` (manual migration + one worker run, default mock mode)
-- `npm run ops:prewarm:keyword-query` (prewarm cached keyword query sessions in PostgreSQL)
-- `npm run verify:phase1:postgres` (migrate + run + DB count summary, default mock mode)
-- `npm run verify:phase1:postgres:live` (manual live verification only)
-- `npm run trend:board:summary` (CLI trend board summary from PostgreSQL read model)
-- `npm run ops:prune:raw-events` (delete old rows from `raw_reddit_event`)
+- `npm run algo:fast`
+- `npm run algo:phase1`
+- `npm run algo:full`
+- `npm run algo:live:verify` only when live calibration is explicitly required
 
-## Development paths
+## Command policy
 
-- Fast local path: `npm run typecheck:core`, then `npm run test:unit` or a narrower script such as `npm run test:trend`.
-- Full release path: `npm run typecheck`, `npm run test`, then the relevant manual DB/API/live verification commands.
-- Manual-only commands: `db:migrate`, `worker:phase1:once:live`, `worker:phase1:scheduler:live`, `app:api`, and `verify:phase1:postgres:live` all depend on local env/network state and are not part of the routine edit loop.
+- Default algorithm loop: `algo:fast`
+- Wider truth-layer regression check: `algo:phase1`
+- Pre-close gate: `algo:full`
+- Live verification: manual-only and opt-in through `algo:live:verify`
+- Operational commands such as DB migration, worker boot, scheduler loops, API boot, cache prewarm, and prune tasks are not part of the routine algorithm loop. Treat them as runbook operations, not default development commands.
+
+All operational/manual commands live in [docs/operations-runbook.md](docs/operations-runbook.md).
 
 ## Runtime env
 
@@ -125,6 +116,13 @@ Use this when you want Codex to stay focused instead of being buried under too m
 - Unified frontend prompt: `prompts/frontend-dev-unified.md`
 - Design templates root: `awesome-design-md-main/design-md`
 - Default design template: `awesome-design-md-main/design-md/voltagent/DESIGN.md`
+
+## Algorithm Skill Entry
+
+- Unified algorithm skill: `skills/algorithm-dev-suite/SKILL.md`
+- Use it as the only project-facing entrypoint for algorithm work.
+- It routes truth-layer fixes through the current P1.5 branch before any later scoring/ranking expansion.
+- Its default command surface is `algo:fast -> algo:phase1 -> algo:full`, with `algo:live:verify` only by explicit need.
 
 ## Phase-1 API boundary
 
