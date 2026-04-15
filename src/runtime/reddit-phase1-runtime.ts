@@ -100,6 +100,7 @@ export function createRedditConnectorFromEnv(args: {
         : args.env.REDDIT_LIVE_PROVIDER,
     ),
     httpTransport: resolveRedditHttpTransport(args.env.REDDIT_HTTP_TRANSPORT),
+    httpTimeoutMs: parsePositiveInt(args.env.REDDIT_HTTP_TIMEOUT_MS, 12_000),
     accessToken: args.env.REDDIT_ACCESS_TOKEN,
     userAgent: args.env.REDDIT_USER_AGENT,
     apifyActorRunEndpoint: args.env.APIFY_REDDIT_ACTOR_RUN_ENDPOINT,

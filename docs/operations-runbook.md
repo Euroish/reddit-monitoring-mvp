@@ -69,6 +69,8 @@ Optional live verification:
 npm run algo:live:verify
 ```
 
+The live verify output includes the same readiness degradation summary used by `/readyz`, so Stage A checks can confirm whether `provider_data_stalled:*` appears without starting the API separately.
+
 Start API:
 
 ```bash

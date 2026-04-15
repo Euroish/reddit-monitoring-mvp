@@ -23,6 +23,7 @@ export interface CreateRedditConnectorOptions {
   accessToken?: string;
   userAgent?: string;
   httpTransport?: RedditHttpTransport;
+  httpTimeoutMs?: number;
   apifyActorRunEndpoint?: string;
   apifyToken?: string;
   apifyFallbackToHttp?: boolean;
@@ -95,5 +96,6 @@ function createHttpLiveConnector(options: CreateRedditConnectorOptions): RedditH
     accessToken: options.accessToken,
     userAgent: options.userAgent,
     transport: options.httpTransport,
+    timeoutMs: options.httpTimeoutMs,
   });
 }

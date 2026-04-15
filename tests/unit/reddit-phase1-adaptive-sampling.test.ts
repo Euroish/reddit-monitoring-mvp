@@ -16,6 +16,7 @@ import {
   InMemoryRawEventRepository,
   InMemorySubredditTrendPointRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
+import { PHASE1_SAMPLING_THRESHOLDS } from "../../src/workers/reddit-phase1-thresholds";
 import { runRedditPhase1Cycle } from "../../src/workers/reddit-phase1.worker";
 
 const nowIso = "2026-04-10T12:00:00.000Z";
@@ -309,6 +310,26 @@ test("adaptive sampling boosts on leading-edge velocity before surge fully forms
   assert.equal(limit, 24);
 });
 
+test("adaptive sampling for http-primary applies cold-start warmup without trend or health evidence", async () => {
+  const limit = await runCycleWithRecentPoints({
+    boostCooldownWindows: 0,
+    providerHint: "http",
+    points: [],
+  });
+
+  assert.equal(limit, 16);
+});
+
+test("adaptive sampling for generic provider applies smaller cold-start warmup", async () => {
+  const limit = await runCycleWithRecentPoints({
+    boostCooldownWindows: 0,
+    providerHint: "apify",
+    points: [],
+  });
+
+  assert.equal(limit, 12);
+});
+
 test("adaptive sampling for http-primary elevates on degraded transport evidence without trend points", async () => {
   const limit = await runCycleWithRecentPoints({
     boostCooldownWindows: 0,
@@ -367,6 +388,153 @@ test("adaptive sampling for http-primary elevates on timeout and circuit evidenc
   assert.equal(limit, 17);
 });
 
+test("adaptive sampling for http-primary treats exact timeout threshold as severe transport evidence", async () => {
+  const requestCount = 10;
+  const timeoutCount =
+    PHASE1_SAMPLING_THRESHOLDS.severeTransportFailure.timeoutRateMin.httpPrimary * requestCount;
+  const successCount = requestCount - timeoutCount;
+
+  const limit = await runCycleWithRecentPoints({
+    boostCooldownWindows: 0,
+    providerHint: "http",
+    points: [],
+    providerHealthRows: [
+      {
+        provider: "http",
+        requestCount,
+        successCount,
+        emptyResponseCount: 0,
+        fallbackCount: 0,
+        candidateCount: 24,
+        acceptedCount: 24,
+        filteredOutCount: 0,
+        duplicatePostCount: 0,
+        ingestLagSecondsSum: 0,
+        ingestLagSampleCount: 0,
+        providerDiffCount: 0,
+        providerDiffSampleCount: 0,
+        errorCount: requestCount - successCount,
+        rateLimitCount: 0,
+        timeoutCount,
+        circuitOpenCount: 0,
+      },
+    ],
+  });
+
+  assert.equal(limit, 17);
+});
+
+test("adaptive sampling for http-primary treats exact circuit-open threshold as severe transport evidence", async () => {
+  const requestCount = 25;
+  const circuitOpenCount =
+    PHASE1_SAMPLING_THRESHOLDS.severeTransportFailure.circuitOpenRateMin.httpPrimary *
+    requestCount;
+  const successCount = requestCount - circuitOpenCount;
+
+  const limit = await runCycleWithRecentPoints({
+    boostCooldownWindows: 0,
+    providerHint: "http",
+    points: [],
+    providerHealthRows: [
+      {
+        provider: "http",
+        requestCount,
+        successCount,
+        emptyResponseCount: 0,
+        fallbackCount: 0,
+        candidateCount: 24,
+        acceptedCount: 24,
+        filteredOutCount: 0,
+        duplicatePostCount: 0,
+        ingestLagSecondsSum: 0,
+        ingestLagSampleCount: 0,
+        providerDiffCount: 0,
+        providerDiffSampleCount: 0,
+        errorCount: requestCount - successCount,
+        rateLimitCount: 0,
+        timeoutCount: 0,
+        circuitOpenCount,
+      },
+    ],
+  });
+
+  assert.equal(limit, 17);
+});
+
+
+test("adaptive sampling for http-primary treats exact rate-limit threshold as severe transport evidence", async () => {
+  const requestCount = 50;
+  const rateLimitCount =
+    PHASE1_SAMPLING_THRESHOLDS.severeTransportFailure.rateLimitRateMin.httpPrimary *
+    requestCount;
+  const successCount = requestCount - rateLimitCount;
+
+  const limit = await runCycleWithRecentPoints({
+    boostCooldownWindows: 0,
+    providerHint: "http",
+    points: [],
+    providerHealthRows: [
+      {
+        provider: "http",
+        requestCount,
+        successCount,
+        emptyResponseCount: 0,
+        fallbackCount: 0,
+        candidateCount: 24,
+        acceptedCount: 24,
+        filteredOutCount: 0,
+        duplicatePostCount: 0,
+        ingestLagSecondsSum: 0,
+        ingestLagSampleCount: 0,
+        providerDiffCount: 0,
+        providerDiffSampleCount: 0,
+        errorCount: requestCount - successCount,
+        rateLimitCount,
+        timeoutCount: 0,
+        circuitOpenCount: 0,
+      },
+    ],
+  });
+
+  assert.equal(limit, 17);
+});
+
+test("adaptive sampling for http-primary treats exact error threshold as severe transport evidence", async () => {
+  const requestCount = 50;
+  const errorCount =
+    PHASE1_SAMPLING_THRESHOLDS.severeTransportFailure.errorRateMin.httpPrimary *
+    requestCount;
+  const successCount = requestCount - errorCount;
+
+  const limit = await runCycleWithRecentPoints({
+    boostCooldownWindows: 0,
+    providerHint: "http",
+    points: [],
+    providerHealthRows: [
+      {
+        provider: "http",
+        requestCount,
+        successCount,
+        emptyResponseCount: 0,
+        fallbackCount: 0,
+        candidateCount: 24,
+        acceptedCount: 24,
+        filteredOutCount: 0,
+        duplicatePostCount: 0,
+        ingestLagSecondsSum: 0,
+        ingestLagSampleCount: 0,
+        providerDiffCount: 0,
+        providerDiffSampleCount: 0,
+        errorCount,
+        rateLimitCount: 0,
+        timeoutCount: 0,
+        circuitOpenCount: 0,
+      },
+    ],
+  });
+
+  assert.equal(limit, 17);
+});
 test("adaptive sampling for http-primary elevates on stale-head duplicate and lag evidence", async () => {
   const limit = await runCycleWithRecentPoints({
     boostCooldownWindows: 0,
@@ -385,6 +553,116 @@ test("adaptive sampling for http-primary elevates on stale-head duplicate and la
         duplicatePostCount: 26,
         ingestLagSecondsSum: 630_000,
         ingestLagSampleCount: 3,
+        providerDiffCount: 0,
+        providerDiffSampleCount: 0,
+        errorCount: 0,
+        rateLimitCount: 0,
+        timeoutCount: 0,
+        circuitOpenCount: 0,
+      },
+    ],
+  });
+
+  assert.equal(limit, 18);
+});
+
+test("adaptive sampling for http-primary boosts on severe stale-head evidence", async () => {
+  const limit = await runCycleWithRecentPoints({
+    boostCooldownWindows: 2,
+    providerHint: "http",
+    points: [
+      trendPoint({
+        windowStart: "2026-04-10T10:00:00.000Z",
+        windowEnd: "2026-04-10T10:59:59.000Z",
+        surgeScore: 0.9,
+        heatChangePct: 0.4,
+        dispersionScore: 0.7,
+        highScorePostCount: 2,
+        sampledPostCount: 24,
+        impactMomentum: 0.4,
+      }),
+    ],
+    providerHealthRows: [
+      {
+        provider: "http",
+        requestCount: 3,
+        successCount: 3,
+        emptyResponseCount: 0,
+        fallbackCount: 0,
+        candidateCount: 40,
+        acceptedCount: 40,
+        filteredOutCount: 0,
+        duplicatePostCount: 38,
+        ingestLagSecondsSum: 600_000,
+        ingestLagSampleCount: 3,
+        providerDiffCount: 0,
+        providerDiffSampleCount: 0,
+        errorCount: 0,
+        rateLimitCount: 0,
+        timeoutCount: 0,
+        circuitOpenCount: 0,
+      },
+    ],
+  });
+
+  assert.equal(limit, 24);
+});
+
+test("adaptive sampling for http-primary treats exact severe stale-head thresholds as boost", async () => {
+  const requestCount = 20;
+  const duplicatePostCount =
+    PHASE1_SAMPLING_THRESHOLDS.staleHead.severeDuplicateRateMin.httpPrimary * requestCount;
+  const ingestLagSecondsPerRequest =
+    PHASE1_SAMPLING_THRESHOLDS.staleHead.severeIngestLagSecondsMin.httpPrimary;
+
+  const limit = await runCycleWithRecentPoints({
+    boostCooldownWindows: 0,
+    providerHint: "http",
+    points: [],
+    providerHealthRows: [
+      {
+        provider: "http",
+        requestCount,
+        successCount: requestCount,
+        emptyResponseCount: 0,
+        fallbackCount: 0,
+        candidateCount: requestCount,
+        acceptedCount: requestCount,
+        filteredOutCount: 0,
+        duplicatePostCount,
+        ingestLagSecondsSum: ingestLagSecondsPerRequest * requestCount,
+        ingestLagSampleCount: requestCount,
+        providerDiffCount: 0,
+        providerDiffSampleCount: 0,
+        errorCount: 0,
+        rateLimitCount: 0,
+        timeoutCount: 0,
+        circuitOpenCount: 0,
+      },
+    ],
+  });
+
+  assert.equal(limit, 24);
+});
+
+test("adaptive sampling for http-primary uses accepted-count fallback when candidate count is zero", async () => {
+  const limit = await runCycleWithRecentPoints({
+    boostCooldownWindows: 0,
+    providerHint: "http",
+    points: [],
+    providerHealthRows: [
+      {
+        provider: "http",
+        requestCount: 4,
+        successCount: 4,
+        emptyResponseCount: 0,
+        fallbackCount: 0,
+        candidateCount: 0,
+        acceptedCount: 20,
+        filteredOutCount: 0,
+        duplicatePostCount: 20,
+        ingestLagSecondsSum: 21_600,
+        ingestLagSampleCount: 4,
         providerDiffCount: 0,
         providerDiffSampleCount: 0,
         errorCount: 0,
@@ -447,3 +725,58 @@ test("adaptive sampling for http-primary elevates on provider switch instability
 
   assert.equal(limit, 18);
 });
+
+test("adaptive sampling for http-primary treats exact provider switch thresholds as instability", async () => {
+  const requestCount = 10;
+  const switchShareCount =
+    PHASE1_SAMPLING_THRESHOLDS.switchInstability.providerSwitchShareMin.httpPrimary * requestCount;
+
+  const limit = await runCycleWithRecentPoints({
+    boostCooldownWindows: 0,
+    providerHint: "http",
+    points: [],
+    providerHealthRows: [
+      {
+        provider: "http",
+        requestCount: requestCount - switchShareCount,
+        successCount: requestCount - switchShareCount,
+        emptyResponseCount: 0,
+        fallbackCount: 0,
+        candidateCount: 24,
+        acceptedCount: 24,
+        filteredOutCount: 0,
+        duplicatePostCount: 0,
+        ingestLagSecondsSum: 0,
+        ingestLagSampleCount: 0,
+        providerDiffCount: 2,
+        providerDiffSampleCount: 15,
+        errorCount: 0,
+        rateLimitCount: 0,
+        timeoutCount: 0,
+        circuitOpenCount: 0,
+      },
+      {
+        provider: "apify",
+        requestCount: switchShareCount,
+        successCount: switchShareCount,
+        emptyResponseCount: 0,
+        fallbackCount: 0,
+        candidateCount: 6,
+        acceptedCount: 6,
+        filteredOutCount: 0,
+        duplicatePostCount: 0,
+        ingestLagSecondsSum: 0,
+        ingestLagSampleCount: 0,
+        providerDiffCount: 0,
+        providerDiffSampleCount: 0,
+        errorCount: 0,
+        rateLimitCount: 0,
+        timeoutCount: 0,
+        circuitOpenCount: 0,
+      },
+    ],
+  });
+
+  assert.equal(limit, 18);
+});
+

@@ -19,6 +19,7 @@ import {
   DEFAULT_REDDIT_POST_LIMIT_BASE,
   DEFAULT_REDDIT_POST_LIMIT_BOOST,
 } from "./reddit-phase1-defaults";
+import { PHASE1_SAMPLING_THRESHOLDS } from "./reddit-phase1-thresholds";
 
 export interface RedditPhase1WorkerDependencies {
   monitorTargetRepository: MonitorTargetRepository;
@@ -84,6 +85,11 @@ interface SamplingDecision {
   signals: SamplingSignals;
 }
 
+interface ResolvedSamplingPlan {
+  limit: number;
+  tier: SamplingTier;
+}
+
 interface SamplingSignals {
   coverageGap: number;
   surge: number;
@@ -113,9 +119,6 @@ interface SamplingHealthEvidence {
   providerSwitchShare: number;
 }
 
-const TARGET_SAMPLE_RELIABILITY = 0.85;
-const ELEVATED_PRESSURE_MIN = 0.38;
-const BOOST_PRESSURE_MIN = 0.78;
 const DEFAULT_SAMPLING_HEALTH_LOOKBACK_MINUTES = 45;
 
 function toCanonicalSubredditName(value: string): string {
@@ -179,9 +182,12 @@ export async function runRedditPhase1Cycle(
 
   for (const target of targets) {
     try {
-      const postLimit =
+      const postSamplingPlan: ResolvedSamplingPlan =
         fixedPostLimit != null
-          ? Math.max(1, fixedPostLimit)
+          ? {
+              limit: Math.max(1, fixedPostLimit),
+              tier: "base",
+            }
           : await resolvePostSamplingLimit({
               targetId: target.id,
               nowIso,
@@ -201,6 +207,7 @@ export async function runRedditPhase1Cycle(
               providerHealthWindowRepository: deps.providerHealthWindowRepository,
               subredditTrendPointRepository: deps.subredditTrendPointRepository,
             });
+      const postLimit = postSamplingPlan.limit;
       const subreddit = target.canonicalName.replace(/^r\//, "");
       const baseInput = {
         targetId: target.id,
@@ -235,6 +242,7 @@ export async function runRedditPhase1Cycle(
         {
           ...baseInput,
           limit: postLimit,
+          samplingTier: postSamplingPlan.tier,
           mode: crawlMode,
           providerHint,
           candidateFilter: {
@@ -319,12 +327,18 @@ async function resolvePostSamplingLimit(args: {
   disableAdaptiveSampling: boolean;
   providerHealthWindowRepository?: ProviderHealthWindowRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
-}): Promise<number> {
+}): Promise<ResolvedSamplingPlan> {
   if (args.disableAdaptiveSampling) {
-    return args.basePostLimit;
+    return {
+      limit: args.basePostLimit,
+      tier: "base",
+    };
   }
   if (args.mode === "backfill") {
-    return args.boostPostLimit;
+    return {
+      limit: args.boostPostLimit,
+      tier: "boost",
+    };
   }
 
   const trendFromIso = new Date(
@@ -348,7 +362,20 @@ async function resolvePostSamplingLimit(args: {
     }),
   ]);
   if (recentPoints.length === 0 && !healthEvidence) {
-    return args.basePostLimit;
+    const coldStartDecision = buildColdStartSamplingDecision({
+      basePostLimit: args.basePostLimit,
+      boostPostLimit: args.boostPostLimit,
+      providerHint: args.providerHint,
+    });
+    logSamplingDecision({
+      nowIso: args.nowIso,
+      targetId: args.targetId,
+      decision: coldStartDecision,
+    });
+    return {
+      limit: coldStartDecision.limit,
+      tier: coldStartDecision.tier,
+    };
   }
 
   const decision = buildSamplingDecision({
@@ -369,7 +396,10 @@ async function resolvePostSamplingLimit(args: {
     targetId: args.targetId,
     decision,
   });
-  return decision.limit;
+  return {
+    limit: decision.limit,
+    tier: decision.tier,
+  };
 }
 
 function hasRecentBoost(args: {
@@ -397,8 +427,97 @@ function buildSamplingDecision(args: {
   const latestPoint = args.points[args.points.length - 1];
   const recentSupport = args.points.slice(-3);
   const httpPrimary = isHttpPrimaryProvider(args.providerHint);
-  const elevatedPressureMin = httpPrimary ? 0.34 : ELEVATED_PRESSURE_MIN;
-  const boostPressureMin = httpPrimary ? 0.68 : BOOST_PRESSURE_MIN;
+  const thresholds = httpPrimary
+    ? {
+        elevatedPressureMin: PHASE1_SAMPLING_THRESHOLDS.elevatedPressureMin.httpPrimary,
+        boostPressureMin: PHASE1_SAMPLING_THRESHOLDS.boostPressureMin.httpPrimary,
+        strongLeadingEdgePulseMin:
+          PHASE1_SAMPLING_THRESHOLDS.strongLeadingEdge.pulseMin.httpPrimary,
+        strongLeadingEdgeActivePostRatioMin:
+          PHASE1_SAMPLING_THRESHOLDS.strongLeadingEdge.activePostRatioMin.httpPrimary,
+        sustainedCoverageGapMin:
+          PHASE1_SAMPLING_THRESHOLDS.sustainedCoverageStress.coverageGapMin.httpPrimary,
+        severeTimeoutRateMin:
+          PHASE1_SAMPLING_THRESHOLDS.severeTransportFailure.timeoutRateMin.httpPrimary,
+        severeCircuitOpenRateMin:
+          PHASE1_SAMPLING_THRESHOLDS.severeTransportFailure.circuitOpenRateMin.httpPrimary,
+        severeRateLimitRateMin:
+          PHASE1_SAMPLING_THRESHOLDS.severeTransportFailure.rateLimitRateMin.httpPrimary,
+        severeErrorRateMin:
+          PHASE1_SAMPLING_THRESHOLDS.severeTransportFailure.errorRateMin.httpPrimary,
+        stressedTransportPressureMin:
+          PHASE1_SAMPLING_THRESHOLDS.stressedTransport.pressureMin.httpPrimary,
+        staleHeadPressureMin: PHASE1_SAMPLING_THRESHOLDS.staleHead.pressureMin.httpPrimary,
+        staleHeadDuplicateRateMin:
+          PHASE1_SAMPLING_THRESHOLDS.staleHead.duplicateRateMin.httpPrimary,
+        staleHeadIngestLagSecondsMin:
+          PHASE1_SAMPLING_THRESHOLDS.staleHead.ingestLagSecondsMin.httpPrimary,
+        severeStaleHeadDuplicateRateMin:
+          PHASE1_SAMPLING_THRESHOLDS.staleHead.severeDuplicateRateMin.httpPrimary,
+        severeStaleHeadIngestLagSecondsMin:
+          PHASE1_SAMPLING_THRESHOLDS.staleHead.severeIngestLagSecondsMin.httpPrimary,
+        switchInstabilityMin:
+          PHASE1_SAMPLING_THRESHOLDS.switchInstability.instabilityMin.httpPrimary,
+        providerSwitchShareMin:
+          PHASE1_SAMPLING_THRESHOLDS.switchInstability.providerSwitchShareMin.httpPrimary,
+        switchBoostLeadingPulseMin:
+          PHASE1_SAMPLING_THRESHOLDS.switchInstability.boostLeadingPulseMin.httpPrimary,
+        elevatedTransportPressureMin:
+          PHASE1_SAMPLING_THRESHOLDS.elevatedTier.transportPressureMin.httpPrimary,
+        elevatedLeadingPulseMin:
+          PHASE1_SAMPLING_THRESHOLDS.elevatedTier.leadingPulseMin.httpPrimary,
+        elevatedQualitySupportMin:
+          PHASE1_SAMPLING_THRESHOLDS.elevatedTier.qualitySupportMin.httpPrimary,
+        elevatedLimitBaseRatio:
+          PHASE1_SAMPLING_THRESHOLDS.elevatedTier.limitBaseRatio.httpPrimary,
+        elevatedLimitPressureScale:
+          PHASE1_SAMPLING_THRESHOLDS.elevatedTier.limitPressureScale.httpPrimary,
+      }
+    : {
+        elevatedPressureMin: PHASE1_SAMPLING_THRESHOLDS.elevatedPressureMin.generic,
+        boostPressureMin: PHASE1_SAMPLING_THRESHOLDS.boostPressureMin.generic,
+        strongLeadingEdgePulseMin:
+          PHASE1_SAMPLING_THRESHOLDS.strongLeadingEdge.pulseMin.generic,
+        strongLeadingEdgeActivePostRatioMin:
+          PHASE1_SAMPLING_THRESHOLDS.strongLeadingEdge.activePostRatioMin.generic,
+        sustainedCoverageGapMin:
+          PHASE1_SAMPLING_THRESHOLDS.sustainedCoverageStress.coverageGapMin.generic,
+        severeTimeoutRateMin:
+          PHASE1_SAMPLING_THRESHOLDS.severeTransportFailure.timeoutRateMin.generic,
+        severeCircuitOpenRateMin:
+          PHASE1_SAMPLING_THRESHOLDS.severeTransportFailure.circuitOpenRateMin.generic,
+        severeRateLimitRateMin:
+          PHASE1_SAMPLING_THRESHOLDS.severeTransportFailure.rateLimitRateMin.generic,
+        severeErrorRateMin:
+          PHASE1_SAMPLING_THRESHOLDS.severeTransportFailure.errorRateMin.generic,
+        stressedTransportPressureMin:
+          PHASE1_SAMPLING_THRESHOLDS.stressedTransport.pressureMin.generic,
+        staleHeadPressureMin: PHASE1_SAMPLING_THRESHOLDS.staleHead.pressureMin.generic,
+        staleHeadDuplicateRateMin:
+          PHASE1_SAMPLING_THRESHOLDS.staleHead.duplicateRateMin.generic,
+        staleHeadIngestLagSecondsMin:
+          PHASE1_SAMPLING_THRESHOLDS.staleHead.ingestLagSecondsMin.generic,
+        severeStaleHeadDuplicateRateMin:
+          PHASE1_SAMPLING_THRESHOLDS.staleHead.severeDuplicateRateMin.generic,
+        severeStaleHeadIngestLagSecondsMin:
+          PHASE1_SAMPLING_THRESHOLDS.staleHead.severeIngestLagSecondsMin.generic,
+        switchInstabilityMin:
+          PHASE1_SAMPLING_THRESHOLDS.switchInstability.instabilityMin.generic,
+        providerSwitchShareMin:
+          PHASE1_SAMPLING_THRESHOLDS.switchInstability.providerSwitchShareMin.generic,
+        switchBoostLeadingPulseMin:
+          PHASE1_SAMPLING_THRESHOLDS.switchInstability.boostLeadingPulseMin.generic,
+        elevatedTransportPressureMin:
+          PHASE1_SAMPLING_THRESHOLDS.elevatedTier.transportPressureMin.generic,
+        elevatedLeadingPulseMin:
+          PHASE1_SAMPLING_THRESHOLDS.elevatedTier.leadingPulseMin.generic,
+        elevatedQualitySupportMin:
+          PHASE1_SAMPLING_THRESHOLDS.elevatedTier.qualitySupportMin.generic,
+        elevatedLimitBaseRatio:
+          PHASE1_SAMPLING_THRESHOLDS.elevatedTier.limitBaseRatio.generic,
+        elevatedLimitPressureScale:
+          PHASE1_SAMPLING_THRESHOLDS.elevatedTier.limitPressureScale.generic,
+      };
   const maxSurgeScore = Math.max(0, ...args.points.map((point) => point.surgeScore ?? 0));
   const latestHeatChange = Math.max(0, latestPoint?.heatChangePct ?? 0);
   const latestDispersion = latestPoint?.dispersionScore ?? 0;
@@ -411,7 +530,8 @@ function buildSamplingDecision(args: {
   const minRecentReliability =
     recentSupport.length > 0 ? Math.min(...recentSupport.map(resolveSampleReliability)) : 1;
   const coverageGap = clamp(
-    (TARGET_SAMPLE_RELIABILITY - minRecentReliability) / TARGET_SAMPLE_RELIABILITY,
+    (PHASE1_SAMPLING_THRESHOLDS.targetSampleReliability - minRecentReliability) /
+      PHASE1_SAMPLING_THRESHOLDS.targetSampleReliability,
     0,
     1,
   );
@@ -483,37 +603,45 @@ function buildSamplingDecision(args: {
     latestImpactMomentum >= args.boostImpactMomentumThreshold &&
     latestDispersion >= args.boostMinDispersion;
   const strongLeadingEdge =
-    leadingPulse >= (httpPrimary ? 0.62 : 0.72) &&
-    activePostRatio >= (httpPrimary ? 0.25 : 0.32) &&
-    (qualitySupport >= 0.25 || coverageGap >= 0.25);
+    leadingPulse >= thresholds.strongLeadingEdgePulseMin &&
+    activePostRatio >= thresholds.strongLeadingEdgeActivePostRatioMin &&
+    (qualitySupport >= PHASE1_SAMPLING_THRESHOLDS.strongLeadingEdge.qualitySupportMin ||
+      coverageGap >= PHASE1_SAMPLING_THRESHOLDS.strongLeadingEdge.coverageGapMin);
   const sustainedCoverageStress =
-    coverageGap >= (httpPrimary ? 0.18 : 0.28) &&
-    persistence >= 0.35 &&
-    latestReliability < TARGET_SAMPLE_RELIABILITY;
+    coverageGap >= thresholds.sustainedCoverageGapMin &&
+    persistence >= PHASE1_SAMPLING_THRESHOLDS.sustainedCoverageStress.persistenceMin &&
+    latestReliability < PHASE1_SAMPLING_THRESHOLDS.targetSampleReliability;
   const severeTransportFailure =
-    (args.healthEvidence?.timeoutRate ?? 0) >= (httpPrimary ? 0.2 : 0.26) ||
-    (args.healthEvidence?.circuitOpenRate ?? 0) >= (httpPrimary ? 0.08 : 0.12) ||
-    (args.healthEvidence?.rateLimitRate ?? 0) >= (httpPrimary ? 0.18 : 0.24) ||
-    (args.healthEvidence?.errorRate ?? 0) >= (httpPrimary ? 0.28 : 0.34);
+    (args.healthEvidence?.timeoutRate ?? 0) >= thresholds.severeTimeoutRateMin ||
+    (args.healthEvidence?.circuitOpenRate ?? 0) >= thresholds.severeCircuitOpenRateMin ||
+    (args.healthEvidence?.rateLimitRate ?? 0) >= thresholds.severeRateLimitRateMin ||
+    (args.healthEvidence?.errorRate ?? 0) >= thresholds.severeErrorRateMin;
   const stressedTransport =
-    transportPressure >= (httpPrimary ? 0.42 : 0.52) &&
-    (coverageGap >= 0.12 || leadingPulse >= 0.35);
+    transportPressure >= thresholds.stressedTransportPressureMin &&
+    (coverageGap >= PHASE1_SAMPLING_THRESHOLDS.stressedTransport.coverageGapMin ||
+      leadingPulse >= PHASE1_SAMPLING_THRESHOLDS.stressedTransport.leadingPulseMin);
   const staleHeadDetected =
-    staleHeadPressure >= (httpPrimary ? 0.52 : 0.6) &&
-    ((args.healthEvidence?.duplicateRate ?? 0) >= (httpPrimary ? 0.55 : 0.65) ||
-      (args.healthEvidence?.ingestLagSeconds ?? 0) >= (httpPrimary ? 5400 : 7200));
+    staleHeadPressure >= thresholds.staleHeadPressureMin &&
+    ((args.healthEvidence?.duplicateRate ?? 0) >= thresholds.staleHeadDuplicateRateMin ||
+      (args.healthEvidence?.ingestLagSeconds ?? 0) >=
+        thresholds.staleHeadIngestLagSecondsMin);
+  const severeStaleHeadDetected =
+    staleHeadDetected &&
+    (args.healthEvidence?.duplicateRate ?? 0) >= thresholds.severeStaleHeadDuplicateRateMin &&
+    (args.healthEvidence?.ingestLagSeconds ?? 0) >=
+      thresholds.severeStaleHeadIngestLagSecondsMin;
   const switchInstabilityDetected =
-    switchInstability >= (httpPrimary ? 0.18 : 0.24) &&
-    (args.healthEvidence?.providerSwitchShare ?? 0) >= (httpPrimary ? 0.2 : 0.26);
+    switchInstability >= thresholds.switchInstabilityMin &&
+    (args.healthEvidence?.providerSwitchShare ?? 0) >= thresholds.providerSwitchShareMin;
   const elevatedTransport = severeTransportFailure || stressedTransport;
 
   const elevatedLimit = resolveElevatedPostLimit(
     args.basePostLimit,
     args.boostPostLimit,
     clamp(
-      (httpPrimary ? 0.56 : 0.36) + pressure * (httpPrimary ? 0.28 : 0.3),
+      thresholds.elevatedLimitBaseRatio + pressure * thresholds.elevatedLimitPressureScale,
       0,
-      0.92,
+      PHASE1_SAMPLING_THRESHOLDS.elevatedTier.limitCap,
     ),
   );
 
@@ -550,6 +678,9 @@ function buildSamplingDecision(args: {
   }
   if (staleHeadPressure > 0) {
     reasons.push(`stale_head_pressure:${staleHeadPressure.toFixed(3)}`);
+  }
+  if (severeStaleHeadDetected) {
+    reasons.push("severe_stale_head");
   }
   if (switchInstability > 0) {
     reasons.push(`switch_instability:${switchInstability.toFixed(3)}`);
@@ -595,14 +726,15 @@ function buildSamplingDecision(args: {
   }
 
   if (
-    (strongSurge ||
+    severeStaleHeadDetected ||
+    ((strongSurge ||
       strongHeat ||
       strongImpact ||
       strongLeadingEdge ||
       stressedTransport ||
-      (switchInstabilityDetected && leadingPulse >= (httpPrimary ? 0.28 : 0.36)) ||
-      pressure >= boostPressureMin) &&
-    !cooling
+      (switchInstabilityDetected && leadingPulse >= thresholds.switchBoostLeadingPulseMin) ||
+      pressure >= thresholds.boostPressureMin) &&
+      !cooling)
   ) {
     return {
       limit: args.boostPostLimit,
@@ -619,12 +751,12 @@ function buildSamplingDecision(args: {
     elevatedTransport ||
     staleHeadDetected ||
     switchInstabilityDetected ||
-    transportPressure >= (httpPrimary ? 0.3 : 0.38) ||
-    pressure >= elevatedPressureMin ||
+    transportPressure >= thresholds.elevatedTransportPressureMin ||
+    pressure >= thresholds.elevatedPressureMin ||
     strongSurge ||
     strongLeadingEdge ||
-    leadingPulse >= (httpPrimary ? 0.38 : 0.48) ||
-    qualitySupport >= (httpPrimary ? 0.35 : 0.5)
+    leadingPulse >= thresholds.elevatedLeadingPulseMin ||
+    qualitySupport >= thresholds.elevatedQualitySupportMin
   ) {
     return {
       limit: elevatedLimit,
@@ -657,6 +789,31 @@ function resolveElevatedPostLimit(
   );
 }
 
+function buildColdStartSamplingDecision(args: {
+  basePostLimit: number;
+  boostPostLimit: number;
+  providerHint?: string;
+}): SamplingDecision {
+  const httpPrimary = isHttpPrimaryProvider(args.providerHint);
+  const extraPosts = httpPrimary
+    ? PHASE1_SAMPLING_THRESHOLDS.coldStart.extraPosts.httpPrimary
+    : PHASE1_SAMPLING_THRESHOLDS.coldStart.extraPosts.generic;
+  const limit = Math.min(args.boostPostLimit, args.basePostLimit + extraPosts);
+  const tier: SamplingTier = limit > args.basePostLimit ? "elevated" : "base";
+
+  return {
+    limit,
+    tier,
+    pressure: 0,
+    reasons: [
+      "cold_start_warmup",
+      `warmup_extra_posts:${extraPosts}`,
+    ],
+    providerProfile: httpPrimary ? "http_primary" : "generic",
+    signals: zeroSamplingSignals(),
+  };
+}
+
 function getScoreComponentNumber(point: SubredditTrendPoint, key: string): number {
   const value = point.scoreComponents?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -679,6 +836,23 @@ function average(values: number[]): number {
     return 0;
   }
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function zeroSamplingSignals(): SamplingSignals {
+  return {
+    coverageGap: 0,
+    surge: 0,
+    heat: 0,
+    impact: 0,
+    acceleration: 0,
+    persistence: 0,
+    qualitySupport: 0,
+    leadingPulse: 0,
+    transportPressure: 0,
+    staleHeadPressure: 0,
+    switchInstability: 0,
+    activePostRatio: 0,
+  };
 }
 
 async function resolveSamplingHealthEvidence(args: {
@@ -750,7 +924,11 @@ async function resolveSamplingHealthEvidence(args: {
     fetchSuccessRate: toRate(preferred.successCount, preferred.requestCount),
     emptyRate: toRate(preferred.emptyResponseCount, preferred.requestCount),
     fallbackRate: toRate(preferred.fallbackCount, preferred.requestCount),
-    duplicateRate: toDuplicateRate(preferred.duplicatePostCount, preferred.candidateCount),
+    duplicateRate: toDuplicateRate({
+      duplicatePostCount: preferred.duplicatePostCount,
+      candidateCount: preferred.candidateCount,
+      acceptedCount: preferred.acceptedCount,
+    }),
     ingestLagSeconds: toAverage(preferred.ingestLagSecondsSum, preferred.ingestLagSampleCount),
     providerDiffRate: toRate(preferred.providerDiffCount, preferred.providerDiffSampleCount),
     errorRate: toRate(preferred.errorCount, preferred.requestCount),
@@ -883,8 +1061,13 @@ function toAverage(total: number, count: number): number | null {
   return count > 0 ? total / count : null;
 }
 
-function toDuplicateRate(duplicatePostCount: number, candidateCount: number): number | null {
-  return candidateCount > 0 ? duplicatePostCount / candidateCount : null;
+function toDuplicateRate(args: {
+  duplicatePostCount: number;
+  candidateCount: number;
+  acceptedCount: number;
+}): number | null {
+  const denominator = args.candidateCount > 0 ? args.candidateCount : args.acceptedCount;
+  return denominator > 0 ? args.duplicatePostCount / denominator : null;
 }
 
 function pushHealthReasons(reasons: string[], healthEvidence: SamplingHealthEvidence): void {

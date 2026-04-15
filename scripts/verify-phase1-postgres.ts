@@ -1,4 +1,6 @@
+import { buildReadinessState } from "../apps/api/src/readyz-observability";
 import { PostgresClient } from "../src/storage/postgres/postgres-client";
+import { createPostgresRepositoryBundle } from "../src/storage/repositories/postgres/postgres-repository-bundle";
 import { runMigrations } from "../src/storage/schema/run-migrations";
 import { runPhase1OnceWithPostgres, type RunMode } from "../workers/reddit-phase1-once";
 
@@ -47,6 +49,7 @@ async function main(): Promise<void> {
 
   const db = new PostgresClient();
   try {
+    const repositories = createPostgresRepositoryBundle(db);
     const [rawEventCount, contentCount, metricsSnapshotCount, trendPointCount] = await Promise.all([
       queryCount(db, "raw_reddit_event"),
       queryCount(db, "content"),
@@ -70,6 +73,10 @@ async function main(): Promise<void> {
         LIMIT 6
       `,
     );
+    const readiness = await buildReadinessState({
+      repositories,
+      nowIso: runResult.nowIso,
+    });
 
     // eslint-disable-next-line no-console
     console.log(
@@ -84,6 +91,12 @@ async function main(): Promise<void> {
             content: contentCount,
             metrics_snapshot: metricsSnapshotCount,
             subreddit_trend_point: trendPointCount,
+          },
+          readiness: {
+            status: readiness.status,
+            checks: readiness.checks,
+            degradedReasons: readiness.degradedReasons,
+            observability: readiness.observability,
           },
           recentJobs: recentJobs.rows.map((job) => ({
             id: job.id,

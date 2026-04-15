@@ -80,6 +80,20 @@ test("createRedditConnectorFromEnv passes through http transport override", () =
   assert.equal((connector as any).transport, "powershell");
 });
 
+test("createRedditConnectorFromEnv passes through http timeout override", () => {
+  const connector = createRedditConnectorFromEnv({
+    env: {
+      REDDIT_HTTP_TIMEOUT_MS: "30000",
+      REDDIT_CB_ENABLED: "false",
+    },
+    mode: "live",
+    crawlMode: "live",
+  });
+
+  assert.equal(connector instanceof RedditHttpConnector, true);
+  assert.equal((connector as any).timeoutMs, 30000);
+});
+
 test("upsertActiveSubredditTarget normalizes canonical naming once", async () => {
   const monitorTargetRepository = new InMemoryMonitorTargetRepository();
   const result = await upsertActiveSubredditTarget({

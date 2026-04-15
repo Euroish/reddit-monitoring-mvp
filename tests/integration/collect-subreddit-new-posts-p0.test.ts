@@ -86,6 +86,26 @@ class ScriptedPostsConnector implements RedditConnector {
   }
 }
 
+function buildPostsBatch(args: {
+  subreddit: string;
+  prefix: string;
+  count: number;
+  baseCreatedUtc: number;
+}): RedditPostData[] {
+  return Array.from({ length: args.count }, (_, index) => ({
+    name: `t3_${args.prefix}_${index}`,
+    id: `${args.prefix}_${index}`,
+    subreddit: args.subreddit,
+    author: `user_${index}`,
+    title: `${args.prefix} title ${index}`,
+    permalink: `/r/${args.subreddit}/comments/${args.prefix}_${index}/post`,
+    created_utc: args.baseCreatedUtc + index,
+    score: 10 + (index % 7),
+    num_comments: 2 + (index % 5),
+    upvote_ratio: 0.7,
+  }));
+}
+
 test("collect subreddit new posts applies candidate filter and records provider health", async () => {
   const nowIso = "2026-04-10T12:00:00.000Z";
   const targetId = stableUuidFromString("reddit:target:r/datascience");
@@ -395,6 +415,80 @@ test("collect subreddit new posts live mode catches burst overflow pages in the 
   const providerRow = providerHealthWindowRepository.all()[0];
   assert.equal(providerRow?.requestCount, 3);
   assert.equal(providerRow?.candidateCount, 5);
+});
+
+test("collect subreddit new posts boost tier expands live overflow depth", async () => {
+  const targetId = stableUuidFromString("reddit:target:r/stale-head-boost");
+  const connector = new ScriptedPostsConnector([
+    {
+      nextCursor: "t3_cursor_1",
+      provider: "http",
+      posts: buildPostsBatch({
+        subreddit: "stale-head-boost",
+        prefix: "page1",
+        count: 40,
+        baseCreatedUtc: 1_712_752_000,
+      }),
+    },
+    {
+      nextCursor: "t3_cursor_2",
+      provider: "http",
+      posts: buildPostsBatch({
+        subreddit: "stale-head-boost",
+        prefix: "page2",
+        count: 40,
+        baseCreatedUtc: 1_712_752_100,
+      }),
+    },
+    {
+      nextCursor: "t3_cursor_3",
+      provider: "http",
+      posts: buildPostsBatch({
+        subreddit: "stale-head-boost",
+        prefix: "page3",
+        count: 40,
+        baseCreatedUtc: 1_712_752_200,
+      }),
+    },
+    {
+      provider: "http",
+      posts: buildPostsBatch({
+        subreddit: "stale-head-boost",
+        prefix: "page4",
+        count: 40,
+        baseCreatedUtc: 1_712_752_300,
+      }),
+    },
+  ]);
+  const rawEventRepository = new InMemoryRawEventRepository();
+  const providerHealthWindowRepository = new InMemoryProviderHealthWindowRepository();
+
+  await collectSubredditNewPostsJob(
+    {
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+      collectionJobRepository: new InMemoryCollectionJobRepository(),
+      crawlCursorRepository: new InMemoryCrawlCursorRepository(),
+      rawEventRepository,
+      accountRepository: new InMemoryAccountRepository(),
+      contentRepository: new InMemoryContentRepository(),
+      metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+      providerHealthWindowRepository,
+    },
+    {
+      targetId,
+      subreddit: "stale-head-boost",
+      nowIso: "2026-04-10T12:00:00.000Z",
+      mode: "live",
+      providerHint: "http",
+      limit: 40,
+      samplingTier: "boost",
+    },
+  );
+
+  assert.deepEqual(connector.seenAfter, [undefined, "t3_cursor_1", "t3_cursor_2", "t3_cursor_3"]);
+  assert.equal(rawEventRepository.all().length, 4);
+  assert.equal(providerHealthWindowRepository.all()[0]?.requestCount, 4);
 });
 
 test("collect subreddit new posts backfill mode uses crawl cursor with one-step rewind", async () => {

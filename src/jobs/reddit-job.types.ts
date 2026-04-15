@@ -13,8 +13,11 @@ export interface RedditPostCandidateFilterConfig {
   mode?: "and" | "or";
 }
 
+export type RedditSamplingTier = "base" | "elevated" | "boost";
+
 export interface RedditNewPostsJobPayload {
   postLimit?: number;
+  samplingTier?: RedditSamplingTier;
   providerHint?: string;
   candidateFilter?: RedditPostCandidateFilterConfig;
 }

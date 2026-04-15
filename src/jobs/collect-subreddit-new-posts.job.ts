@@ -20,10 +20,12 @@ import type {
   RedditCollectionJobInput,
   RedditNewPostsJobPayload,
   RedditPostCandidateFilterConfig,
+  RedditSamplingTier,
 } from "./reddit-job.types";
 
 export interface CollectSubredditNewPostsInput extends RedditCollectionJobInput {
   limit?: number;
+  samplingTier?: RedditSamplingTier;
   after?: string;
   mode?: CrawlMode;
   providerHint?: string;
@@ -50,6 +52,7 @@ export interface RunExistingSubredditNewPostsJobInput {
   subreddit: string;
   nowIso: string;
   limit?: number;
+  samplingTier?: RedditSamplingTier;
   mode?: CrawlMode;
   providerHint?: string;
   candidateFilter?: RedditPostCandidateFilterConfig;
@@ -92,6 +95,7 @@ export async function enqueueSubredditNewPostsJob(
     cursor: resolvedCursor,
     payload: toNewPostsJobPayload({
       postLimit: input.limit,
+      samplingTier: input.samplingTier,
       providerHint,
       candidateFilter: input.candidateFilter,
     }),
@@ -112,13 +116,14 @@ export async function collectSubredditNewPostsJob(
   const providerHint = resolveProviderHint(input.providerHint);
   await runExistingSubredditNewPostsJob(deps, {
     job: created,
-    subreddit: input.subreddit,
-    nowIso: input.nowIso,
-    limit: input.limit,
-    mode,
-    providerHint,
-    candidateFilter: input.candidateFilter,
-  });
+      subreddit: input.subreddit,
+      nowIso: input.nowIso,
+      limit: input.limit,
+      samplingTier: input.samplingTier,
+      mode,
+      providerHint,
+      candidateFilter: input.candidateFilter,
+    });
 }
 
 export async function runExistingSubredditNewPostsJob(
@@ -135,6 +140,7 @@ export async function runExistingSubredditNewPostsJob(
   const retryPolicy = resolveJobRetryPolicy();
   const payload = resolveNewPostsJobPayload(input.job.payload);
   const providerHint = resolveProviderHint(input.providerHint ?? payload.providerHint);
+  const samplingTier = input.samplingTier ?? payload.samplingTier;
   const mode = input.mode ?? input.job.crawlMode ?? "live";
   const collectionWindowMinutes = resolveCollectionWindowMinutes(mode);
   const windowStart = floorToWindow(input.job.scheduledAt, collectionWindowMinutes);
@@ -156,6 +162,7 @@ export async function runExistingSubredditNewPostsJob(
       redditConnector: deps.redditConnector,
       subreddit: input.subreddit,
       limit: requestedLimit,
+      samplingTier,
       after: input.job.cursor,
       mode,
       requestId: input.job.id,
@@ -446,6 +453,7 @@ function resolveNewPostsJobPayload(
       : undefined;
   return {
     postLimit: toOptionalPositiveNumber(payload.postLimit),
+    samplingTier: toSamplingTier(payload.samplingTier),
     providerHint: typeof payload.providerHint === "string" ? payload.providerHint : undefined,
     candidateFilter,
   };
@@ -455,6 +463,9 @@ function toNewPostsJobPayload(input: RedditNewPostsJobPayload): Record<string, u
   const payload: Record<string, unknown> = {};
   if (typeof input.postLimit === "number") {
     payload.postLimit = Math.max(1, Math.trunc(input.postLimit));
+  }
+  if (input.samplingTier) {
+    payload.samplingTier = input.samplingTier;
   }
   if (input.providerHint) {
     payload.providerHint = input.providerHint;
@@ -481,6 +492,13 @@ function toOptionalNonNegativeNumber(value: unknown): number | undefined {
     return undefined;
   }
   return Math.trunc(value);
+}
+
+function toSamplingTier(value: unknown): RedditSamplingTier | undefined {
+  if (value === "base" || value === "elevated" || value === "boost") {
+    return value;
+  }
+  return undefined;
 }
 
 function resolveProviderHint(value: string | undefined): string {
@@ -565,6 +583,7 @@ async function collectObservedPages(args: {
   redditConnector: RedditConnector;
   subreddit: string;
   limit: number;
+  samplingTier?: RedditSamplingTier;
   after?: string;
   mode: CrawlMode;
   requestId: string;
@@ -575,8 +594,9 @@ async function collectObservedPages(args: {
   let pageLimit = args.limit;
   let extraBudget =
     args.mode === "live"
-      ? Math.max(args.limit, resolveLiveOverflowLimit(args.limit))
+      ? Math.max(args.limit, resolveLiveOverflowExtraBudget(args.limit, args.samplingTier))
       : 0;
+  const maxLivePages = resolveLiveOverflowMaxPages(args.samplingTier);
 
   for (let pageIndex = 0; pageLimit > 0; pageIndex += 1) {
     const page = await args.redditConnector.collectSubredditPosts(
@@ -597,7 +617,12 @@ async function collectObservedPages(args: {
     }
 
     const returnedCount = page.raw.payload.data.children.length;
-    if (!page.nextCursor || returnedCount < pageLimit || extraBudget <= 0 || pageIndex >= 2) {
+    if (
+      !page.nextCursor ||
+      returnedCount < pageLimit ||
+      extraBudget <= 0 ||
+      pageIndex >= maxLivePages - 1
+    ) {
       break;
     }
 
@@ -609,8 +634,24 @@ async function collectObservedPages(args: {
   return pages;
 }
 
-function resolveLiveOverflowLimit(requestedLimit: number): number {
+function resolveLiveOverflowExtraBudget(
+  requestedLimit: number,
+  samplingTier: RedditSamplingTier | undefined,
+): number {
+  if (samplingTier === "boost") {
+    return Math.max(1, Math.ceil(requestedLimit * 3));
+  }
+  if (samplingTier === "elevated") {
+    return Math.max(1, Math.ceil(requestedLimit * 2));
+  }
   return Math.max(1, Math.ceil(requestedLimit * 1.5));
+}
+
+function resolveLiveOverflowMaxPages(samplingTier: RedditSamplingTier | undefined): number {
+  if (samplingTier === "boost") {
+    return 4;
+  }
+  return 3;
 }
 
 function resolveCandidateFilter(input: CollectSubredditNewPostsInput["candidateFilter"]) {
