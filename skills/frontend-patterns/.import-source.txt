@@ -1,0 +1,4 @@
+﻿source_repo=https://github.com/affaan-m/everything-claude-code.git
+source_branch=main
+source_path=.agents/skills/frontend-patterns
+imported_at_utc=2026-04-13T13:17:00.0603465Z

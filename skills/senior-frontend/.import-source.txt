@@ -1,0 +1,4 @@
+﻿source_repo=https://github.com/sickn33/antigravity-awesome-skills.git
+source_branch=main
+source_path=skills/senior-frontend
+imported_at_utc=2026-04-13T13:17:16.0329644Z

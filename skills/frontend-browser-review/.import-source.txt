@@ -1,0 +1,4 @@
+﻿source_repo=https://github.com/langfuse/langfuse.git
+source_branch=main
+source_path=.agents/skills/frontend-browser-review
+imported_at_utc=2026-04-13T13:17:09.0588086Z

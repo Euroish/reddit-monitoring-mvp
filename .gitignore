@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+.tmp*
+.algo-profile/
+.env
+.env.*
+*.log
+*.db
+*.sqlite

@@ -1,0 +1,4 @@
+source_repo=https://github.com/muratcankoylan/Agent-Skills-for-Context-Engineering.git
+source_branch=main
+source_path=skills/filesystem-context
+imported_at_utc=2026-04-14T09:00:00Z

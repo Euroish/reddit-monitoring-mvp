@@ -1,0 +1,154 @@
+# Repo Initial Structure
+
+```text
+package.json
+tsconfig.json
+.gitignore
+
+docs/
+  ADR-001-modular-monolith.md
+  architecture-sketch.md
+  architecture.md
+  execution-kickoff.md
+  mvp-brief.md
+  open-questions.md
+  data-model.md
+  collection-strategy.md
+  operations-runbook.md
+  reddit-mvp-phase1-plan.md
+  repo-structure.md
+  sql-repository-review.md
+
+context/
+  decision-log.md
+
+skills/
+  README.md
+  reddit-monitoring/
+    SKILL.md
+
+src/
+  application/
+    use-cases/
+      dispatch-reddit-phase1-run.use-case.ts
+      sync-subreddit-trend.use-case.ts
+      trigger-reddit-phase1-run.use-case.ts
+    services/
+  domain/
+    entities/
+      account.ts
+      collection-job.ts
+      content.ts
+      metrics-snapshot.ts
+      monitor-target.ts
+      subreddit-trend-point.ts
+    repositories/
+      account-repository.ts
+      collection-job-repository.ts
+      content-repository.ts
+      metrics-snapshot-repository.ts
+      monitor-target-repository.ts
+      raw-event-repository.ts
+      subreddit-trend-point-repository.ts
+    services/
+  connectors/
+    shared/
+      connector.interface.ts
+    reddit/
+      reddit-apify.connector.ts
+      reddit-connector.interface.ts
+      reddit-http.connector.ts
+      reddit-mock.connector.ts
+      reddit.mapper.ts
+      reddit-mapper.interface.ts
+      reddit.types.ts
+  storage/
+    postgres/
+      postgres-client.ts
+      postgres.constants.ts
+    repositories/
+      in-memory/
+        account-content.repositories.ts
+        cursor-and-provider.repositories.ts
+        in-memory.repositories.ts
+        keyword-query-session.repository.ts
+        metrics-and-queue.repositories.ts
+        raw-target-trend.repositories.ts
+      postgres/
+        postgres-account.repository.ts
+        postgres-collection-job.repository.ts
+        postgres-content.repository.ts
+        postgres-metrics-snapshot.repository.ts
+        postgres-monitor-target.repository.ts
+        postgres-raw-event.repository.ts
+        postgres-repository-bundle.ts
+        postgres-row-mappers.ts
+        postgres-sql.utils.ts
+        postgres-subreddit-trend-point.repository.ts
+    schema/
+      001_reddit_mvp_init.sql
+      002_repository_query_indexes.sql
+      012_collection_job_payload.sql
+      README.md
+      run-migrations.ts
+  jobs/
+    build-subreddit-trend-points.job.ts
+    build-subreddit-keyword-trend-daily.job.ts
+    collect-subreddit-about.job.ts
+    collect-subreddit-new-posts.job.ts
+    reddit-job.types.ts
+  runtime/
+    runtime-parsing.ts
+    reddit-phase1-runtime.ts
+  workers/
+    reddit-phase1.worker.ts
+    run-reddit-phase1-once.postgres.ts
+    run-reddit-phase1-once.postgres-mock.ts
+    smoke-reddit-phase1.ts
+  shared/
+    ids/
+      stable-id.ts
+    time/
+      windowing.ts
+    types/
+      common.ts
+
+tests/
+  unit/
+    api-validation.test.ts
+    postgres-sql.utils.test.ts
+    reddit-phase1-adaptive-sampling.test.ts
+  integration/
+    api-server-access.test.ts
+    api-server.helpers.ts
+    api-server-keyword-query.test.ts
+    api-server-readyz.test.ts
+    api-server-runs.test.ts
+    api-server-trends.test.ts
+    reddit-phase1-cycle.test.ts
+    reddit-phase1-target-filter.test.ts
+
+apps/
+  api/
+    src/
+      api-validation.ts
+      create-api-server.ts
+      server.ts
+
+workers/
+  reddit-phase1-once.ts
+  reddit-phase1-scheduler.ts
+  keyword-query-live-refresh-scheduler.ts
+
+packages/
+  contracts/
+    src/
+      http.ts
+
+scripts/
+  manual-phase1-run.ts
+  prewarm-keyword-query-cache.ts
+  prune-raw-events.ts
+  trend-board-summary.ts
+  verify-phase1-postgres.ts
+```
