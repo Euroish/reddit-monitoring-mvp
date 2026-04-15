@@ -57,10 +57,11 @@ test("resolveRedditPhase1CycleOptionsFromEnv keeps backfill provider and mock pr
   assert.equal(mock.providerHint, "mock");
 });
 
-test("phase1 mode and crawl mode resolvers stay permissive and stable", () => {
+test("phase1 mode and crawl mode resolvers default to mock for safe local iteration", () => {
   assert.equal(resolvePhase1RunMode("mock"), "mock");
   assert.equal(resolvePhase1RunMode("live"), "live");
-  assert.equal(resolvePhase1RunMode("unexpected"), "live");
+  assert.equal(resolvePhase1RunMode("unexpected"), "mock");
+  assert.equal(resolvePhase1RunMode(undefined), "mock");
   assert.equal(resolvePhase1CrawlMode("backfill"), "backfill");
   assert.equal(resolvePhase1CrawlMode("unexpected"), "live");
 });

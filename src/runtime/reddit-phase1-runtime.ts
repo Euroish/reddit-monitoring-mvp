@@ -53,7 +53,7 @@ export interface ResolveRedditPhase1CycleOptionsArgs {
 }
 
 export function resolvePhase1RunMode(value: string | undefined): Phase1RunMode {
-  return value === "mock" ? "mock" : "live";
+  return value === "live" ? "live" : "mock";
 }
 
 export function createPostgresPhase1Runtime(args: {

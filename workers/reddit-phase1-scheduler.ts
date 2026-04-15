@@ -248,7 +248,7 @@ async function materializeTouchedTargets(args: {
 
 async function main(): Promise<void> {
   const intervalMs = parseIntervalMs(process.env.PHASE1_SCHEDULER_INTERVAL_MS);
-  const runOnBoot = parseBooleanFlag(process.env.PHASE1_SCHEDULER_RUN_ON_START, true);
+  const runOnBoot = parseBooleanFlag(process.env.PHASE1_SCHEDULER_RUN_ON_START, false);
   const runnableJobLimit = parsePositiveInt(process.env.PHASE1_SCHEDULER_RUNNABLE_LIMIT, 20);
   const runMode = resolvePhase1RunMode(process.env.REDDIT_RUN_MODE);
   const subreddits = parseSubredditListFromEnv(process.env);

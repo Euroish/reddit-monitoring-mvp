@@ -1,6 +1,6 @@
 # Project Skills
 
-Execution authority: `obsidian-reddit专用/项目上下文存储/Codex Context/Projects/project.md`
+Execution authority: `obsidian-reddit专用/Projects/project.md`
 
 This file is static skill routing only.
 It must not duplicate active phase, next action, freeze state, or temporary task policy.

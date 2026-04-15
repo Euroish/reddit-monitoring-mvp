@@ -3,7 +3,7 @@
 Read only these files before starting work:
 
 1. `AGENTS.md`
-2. `obsidian-reddit专用/项目上下文存储/Codex Context/Projects/project.md`
+2. `obsidian-reddit专用/Projects/project.md`
 3. `PROJECT.md`
 4. `skills/README.md`
 5. `skills/reddit-monitoring/SKILL.md`
@@ -25,4 +25,4 @@ Use `context/decision-log.md` only when a historical decision must be read or a 
 - Do not treat this repo as a generic AI workflow experiment.
 - Do not mix GEO content operations with product development unless the task explicitly asks for both.
 - Do not create many new docs unless they directly help execution.
-- Do not turn “agent roles” into theatrical personas.
+- Do not turn "agent roles" into theatrical personas.

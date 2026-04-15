@@ -3,7 +3,7 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: P1.5-hardening-active
-updated_at: "2026-04-15 16:31:30"
+updated_at: "2026-04-15 17:52:55"
 repo_path: "E:\\vibe coding\\project"
 next_action: "Finish Stage A algorithm close-out by validating when combined `provider_data_stalled` appears in live runs, then freeze duplicate-heavy stale-head, cursor-stall, provider-switch, and readyz thresholds together before any Stage C ranking/anomaly expansion."
 tags:
@@ -209,3 +209,10 @@ tags:
 - Why now: The project needed a private remote so ChatGPT web can inspect the codebase through the GitHub connector without making the repository public.
 - Verify: `git credential-manager github list` returned `Euroish`. GitHub API created `https://github.com/Euroish/reddit-monitoring-mvp`. Final `git push` succeeded and local `main` matches `origin/main`.
 - Next: Open ChatGPT web, connect GitHub if needed, authorize `Euroish/reddit-monitoring-mvp`, then run repository analysis there against the private repo.
+
+### 2026-04-15 17:52:55
+
+- Scope: Closed the command-surface and state-source drift called out by `优化算法推进流程.md`. Phase-1 runtime defaults now fall back to `mock` unless `live` is explicit, both schedulers no longer run a cycle on boot by default, package scripts were narrowed to one official `worker:phase1:*` family with explicit fast/full test and typecheck lanes, startup/docs files were aligned to `Projects/project.md`, and the forbidden root planning triplet plus obsolete `src/workers/run-reddit-phase1-once.postgres*` entry wrappers were removed.
+- Why now: Stage A still needs live calibration, but the repo was making routine iteration look heavier and more ambiguous than it really is. That risked wasting cycles on duplicate entrypoints, environment-shaped false failures, and duplicate status files instead of truth-layer work.
+- Verify: `npm run typecheck:core` passed. `npm run test:unit` passed with `61/61`. `npm run typecheck` passed. `npm run test` passed with `97/97`.
+- Next: Use the cleaned mock-first command surface to continue Stage A live verification only where it adds truth, especially checking whether `provider_data_stalled` appears in real HTTP runs and whether any remaining `readyz` thresholds still need tightening before freeze.

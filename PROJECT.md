@@ -1,5 +1,8 @@
 # PROJECT
 
+This file is baseline product context only.
+Execution truth, current phase, and next action live only in `obsidian-reddit专用/Projects/project.md`.
+
 ## One-line goal
 
 Build a **Reddit single-source monitoring MVP** for content / topic / subreddit tracking.

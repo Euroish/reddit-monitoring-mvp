@@ -25,20 +25,31 @@ Use this when you want Codex to stay focused instead of being buried under too m
 ## Local commands
 
 - `npm install`
-- `npm run typecheck`
-- `npm run test`
+- `npm run typecheck:core` (fast local iteration for core runtime/worker/packages)
+- `npm run test:unit`
+- `npm run test:trend`
+- `npm run typecheck` (full repository gate)
+- `npm run test` (full repository gate)
 - `npm run smoke:reddit` (default mock mode, deterministic)
 - `npm run smoke:reddit:live` (attempts live Reddit fetch; may fail in restricted networks)
 - `npm run db:migrate` (requires `DATABASE_URL`)
-- `npm run worker:reddit:once` (requires `DATABASE_URL`, optional `REDDIT_ACCESS_TOKEN`)
-- `npm run worker:phase1:once` (new top-level worker entry)
-- `npm run worker:phase1:scheduler` (continuous collection loop, default 5m tick)
+- `npm run worker:phase1:once` (official one-shot entry, default mock mode)
+- `npm run worker:phase1:once:live` (official live one-shot entry; requires `DATABASE_URL`)
+- `npm run worker:phase1:scheduler` (continuous loop, default mock mode, no boot run)
+- `npm run worker:phase1:scheduler:live` (continuous live loop; manual only)
 - `npm run app:api` (start minimal Phase-1 API)
-- `npm run phase1:manual-run` (manual migration + one worker run)
+- `npm run phase1:manual-run` (manual migration + one worker run, default mock mode)
 - `npm run ops:prewarm:keyword-query` (prewarm cached keyword query sessions in PostgreSQL)
-- `npm run verify:phase1:postgres` (migrate + run + DB count summary, default `REDDIT_RUN_MODE=mock`)
+- `npm run verify:phase1:postgres` (migrate + run + DB count summary, default mock mode)
+- `npm run verify:phase1:postgres:live` (manual live verification only)
 - `npm run trend:board:summary` (CLI trend board summary from PostgreSQL read model)
 - `npm run ops:prune:raw-events` (delete old rows from `raw_reddit_event`)
+
+## Development paths
+
+- Fast local path: `npm run typecheck:core`, then `npm run test:unit` or a narrower script such as `npm run test:trend`.
+- Full release path: `npm run typecheck`, `npm run test`, then the relevant manual DB/API/live verification commands.
+- Manual-only commands: `db:migrate`, `worker:phase1:once:live`, `worker:phase1:scheduler:live`, `app:api`, and `verify:phase1:postgres:live` all depend on local env/network state and are not part of the routine edit loop.
 
 ## Runtime env
 
@@ -80,7 +91,8 @@ Use this when you want Codex to stay focused instead of being buried under too m
 - `REDDIT_POST_LIMIT_ADAPTIVE`: set `false` to disable adaptive sampling and always use baseline/fixed limit
 - `PHASE1_SCHEDULER_INTERVAL_MS`: scheduler polling interval, default `300000` (minimum `5000`)
 - Live `collect_subreddit_new_posts` now polls the head page on a 5m collection window; backfill keeps cursor-based paging on a 15m window.
-- `PHASE1_SCHEDULER_RUN_ON_START`: run one cycle immediately on boot (`true`/`false`)
+- `PHASE1_SCHEDULER_RUN_ON_START`: run one cycle immediately on boot (`false` default)
+- `KEYWORD_QUERY_LIVE_REFRESH_RUN_ON_START`: run keyword-query refresh immediately on boot (`false` default)
 - `COLLECTION_JOB_MAX_RETRIES`: per-job retry ceiling before dead-letter, default `2`
 - `COLLECTION_JOB_RETRY_BASE_MS`: base backoff delay, default `60000`
 - `COLLECTION_JOB_RETRY_MAX_MS`: max backoff delay, default `900000`

@@ -31,7 +31,7 @@ async function main(): Promise<void> {
   );
   const runOnBoot = parseBoolean(
     process.env.KEYWORD_QUERY_LIVE_REFRESH_RUN_ON_START,
-    true,
+    false,
   );
   const candidateLimit = parsePositiveInt(
     process.env.KEYWORD_QUERY_LIVE_REFRESH_CANDIDATE_LIMIT,

@@ -102,8 +102,6 @@ src/
     reddit-phase1-runtime.ts
   workers/
     reddit-phase1.worker.ts
-    run-reddit-phase1-once.postgres.ts
-    run-reddit-phase1-once.postgres-mock.ts
     smoke-reddit-phase1.ts
   shared/
     ids/

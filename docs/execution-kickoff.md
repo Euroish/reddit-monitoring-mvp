@@ -23,13 +23,20 @@ Switch from document-only preparation to executable project skeleton.
 5. Integration test
 - `tests/integration/reddit-phase1-cycle.test.ts`
 
-## First runnable chain
+## Fast local path
+
+1. `npm run typecheck:core`
+2. `npm run test:unit`
+3. `npm run test:trend` when the change touches scoring/read-model behavior
+
+## Manual verification path
 
 1. `npm run typecheck`
 2. `npm run test`
 3. `npm run db:migrate` (needs `DATABASE_URL`)
-4. `npm run worker:phase1:once`
-5. `npm run app:api`
+4. `npm run worker:phase1:once` for mock-safe DB verification
+5. `npm run worker:phase1:once:live` only when live Reddit verification is required
+6. `npm run app:api`
 
 Then verify:
 - `GET /healthz`
@@ -38,6 +45,6 @@ Then verify:
 ## Scope guard
 
 - no multi-source expansion now
-- scheduler automation is now available via `npm run worker:phase1:scheduler`
+- scheduler automation is available via `npm run worker:phase1:scheduler`, but continuous schedulers are manual-only and do not run a cycle on boot by default
 - no UI app now
 - no ranking/alert algorithm now

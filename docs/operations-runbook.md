@@ -29,7 +29,8 @@ This was the confirmed fix in the current environment.
 
 ```bash
 npm install
-npm run typecheck
+npm run typecheck:core
+npm run test:unit
 npm run db:migrate
 ```
 
@@ -39,14 +40,16 @@ Expected migration result:
 
 ## Run one collection cycle (PostgreSQL)
 
+`npm run worker:phase1:once` defaults to mock mode. Use it for safe DB-path validation first.
+
 ```bash
 npm run worker:phase1:once
 ```
 
-Optional deterministic DB-path validation without live Reddit:
+Optional live run:
 
 ```bash
-npm run worker:reddit:once:mock
+npm run worker:phase1:once:live
 ```
 
 Manual one-shot chain (migrate + run once):
@@ -64,7 +67,7 @@ npm run verify:phase1:postgres
 Optional live verification:
 
 ```bash
-REDDIT_RUN_MODE=live npm run verify:phase1:postgres
+npm run verify:phase1:postgres:live
 ```
 
 Start API:
@@ -131,6 +134,12 @@ For a successful live run, all four tables should increase from zero over time.
 - Cause: outbound routing/proxy path instability.
 - Action: enable TUN/full-tunnel mode and retry.
 - Windows fallback: if PowerShell can reach Reddit but Node live traffic still resets, set `REDDIT_HTTP_TRANSPORT=powershell` and rerun.
+
+## Working policy
+
+- Routine edit loop: `typecheck:core` plus the narrowest relevant test script.
+- Full `typecheck` / `test`: use before freeze, handoff, or when the change spans multiple layers.
+- Live worker/API verification: manual only, because database, auth, network, and proxy state can fail independently of code correctness.
 
 4. Live run gets `401/403`
 - Cause: token/user-agent policy issue.
