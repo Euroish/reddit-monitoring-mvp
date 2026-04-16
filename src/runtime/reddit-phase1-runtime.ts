@@ -4,6 +4,7 @@ import {
   createRedditConnector,
   resolveRedditHttpTransport,
   resolveRedditLiveProvider,
+  resolveRedditScraplingProfile,
   type CreateRedditConnectorOptions,
   type RedditRunMode,
 } from "../connectors/reddit/create-reddit-connector";
@@ -101,6 +102,16 @@ export function createRedditConnectorFromEnv(args: {
     ),
     httpTransport: resolveRedditHttpTransport(args.env.REDDIT_HTTP_TRANSPORT),
     httpTimeoutMs: parsePositiveInt(args.env.REDDIT_HTTP_TIMEOUT_MS, 12_000),
+    scraplingProfile: resolveRedditScraplingProfile(
+      args.env.REDDIT_SCRAPLING_PROFILE,
+    ),
+    scraplingPythonExecutable: args.env.REDDIT_SCRAPLING_PYTHON,
+    scraplingBridgeScriptPath: args.env.REDDIT_SCRAPLING_BRIDGE_SCRIPT,
+    scraplingTimeoutMs: parsePositiveInt(
+      args.env.REDDIT_SCRAPLING_TIMEOUT_MS,
+      parsePositiveInt(args.env.REDDIT_HTTP_TIMEOUT_MS, 12_000),
+    ),
+    scraplingMaxRetries: parsePositiveInt(args.env.REDDIT_SCRAPLING_MAX_RETRIES, 2),
     accessToken: args.env.REDDIT_ACCESS_TOKEN,
     userAgent: args.env.REDDIT_USER_AGENT,
     apifyActorRunEndpoint: args.env.APIFY_REDDIT_ACTOR_RUN_ENDPOINT,

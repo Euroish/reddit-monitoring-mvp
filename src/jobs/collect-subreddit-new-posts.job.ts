@@ -557,8 +557,11 @@ function resolveBackfillCursorProviders(providerHint: string): string[] {
   if (providerHint === "apify") {
     return ["apify", "http"];
   }
+  if (providerHint === "scrapling") {
+    return ["scrapling", "http"];
+  }
   if (providerHint === "reddit") {
-    return ["reddit", "apify", "http"];
+    return ["reddit", "scrapling", "apify", "http"];
   }
   return [providerHint];
 }

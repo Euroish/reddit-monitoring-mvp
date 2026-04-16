@@ -4,15 +4,18 @@ import {
   createRedditConnector,
   resolveRedditHttpTransport,
   resolveRedditLiveProvider,
+  resolveRedditScraplingProfile,
 } from "../../src/connectors/reddit/create-reddit-connector";
 import { RedditApifyConnector } from "../../src/connectors/reddit/reddit-apify.connector";
 import { RedditCircuitBreakerConnector } from "../../src/connectors/reddit/reddit-circuit-breaker.connector";
 import { RedditHttpConnector } from "../../src/connectors/reddit/reddit-http.connector";
 import { RedditMockConnector } from "../../src/connectors/reddit/reddit-mock.connector";
+import { RedditScraplingConnector } from "../../src/connectors/reddit/reddit-scrapling.connector";
 
 test("resolveRedditLiveProvider defaults to http", () => {
   assert.equal(resolveRedditLiveProvider(undefined), "http");
   assert.equal(resolveRedditLiveProvider("apify"), "apify");
+  assert.equal(resolveRedditLiveProvider("scrapling"), "scrapling");
   assert.equal(resolveRedditLiveProvider("http"), "http");
   assert.equal(resolveRedditLiveProvider("unexpected"), "http");
 });
@@ -22,6 +25,13 @@ test("resolveRedditHttpTransport defaults to auto", () => {
   assert.equal(resolveRedditHttpTransport("fetch"), "fetch");
   assert.equal(resolveRedditHttpTransport("powershell"), "powershell");
   assert.equal(resolveRedditHttpTransport("unexpected"), "auto");
+});
+
+test("resolveRedditScraplingProfile defaults to http", () => {
+  assert.equal(resolveRedditScraplingProfile(undefined), "http");
+  assert.equal(resolveRedditScraplingProfile("dynamic"), "dynamic");
+  assert.equal(resolveRedditScraplingProfile("stealth"), "stealth");
+  assert.equal(resolveRedditScraplingProfile("unexpected"), "http");
 });
 
 test("createRedditConnector uses http as live default", () => {
@@ -43,6 +53,14 @@ test("createRedditConnector supports explicit apify provider", () => {
     liveProvider: "apify",
   });
   assert.equal(connector instanceof RedditApifyConnector, true);
+});
+
+test("createRedditConnector supports explicit scrapling provider", () => {
+  const connector = createRedditConnector({
+    mode: "live",
+    liveProvider: "scrapling",
+  });
+  assert.equal(connector instanceof RedditScraplingConnector, true);
 });
 
 test("createRedditConnector keeps mock mode behavior", () => {

@@ -1,16 +1,17 @@
----
+﻿---
 title: "project"
 type: codex-project-workspace
 status: active
-stage: P1.5-hardening-active
-updated_at: "2026-04-16 00:40:24"
+stage: P1.6-http-scrapling-integration
+updated_at: "2026-04-16 12:16:03"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Use the now-frozen Stage A readyz and worker-sampling threshold semantics to complete Stage B exit proof. Focus on the remaining degraded-scenario boundary proofs and observability truth only; do not open Stage C ranking/anomaly expansion yet."
+next_action: "Define and apply target-level promotion thresholds using accumulated shadow snapshots, then prepare controlled rollout list where Scrapling can become primary with explicit fallback guarantees."
 tags:
 - codex
 - workspace
 - reddit
-- p1.5
+- http
+- scrapling
 ---
 # project
 
@@ -18,105 +19,127 @@ tags:
 
 - Repository: `E:\vibe coding\project`
 - Status: active
-- Product: `reddit analytics website`
-- Product CN label: `reddit 综合数据分析网站`
-- Product goal: build a durable Reddit analytics product around subreddit / keyword / market / pulse views
-- Phase: `P1.5 hardening active`
+- Product: `http-first analytics engine (Reddit currently primary source)`
+- Product goal: build a durable analytics product around pluggable HTTP acquisition, truthful observability, and explainable ranking/read models
+- Phase: `P1.6 Scrapling integration active`
 - Authority: `project.md` is the single execution source
 
 ## Product Positioning
 
-- This repo is one product, not a collector-only repo and not a one-off dashboard.
-- `P1` is the data plane. `P2` is the website-facing analytics and consumer layer.
-- Current mainline remains: `data truth -> observability truth -> website analytics reliability`
+- This repo remains one product; it is not split into a collector-only repo and a separate analytics repo.
+- `P1` remains the data plane and truth layer. `P2` remains website-facing analytics consumption.
+- Acquisition now has two lanes: baseline connector lane (existing TypeScript HTTP/APIFY path) and Scrapling lane (Python adaptive scraping lane).
 
 ## Current Decision
 
-- Keep the product identity fixed as a Reddit analytics website.
-- Keep `P2` codepaths as website consumer / validation layers, not a separate product track.
-- Continue `P1.5 hardening` until collection truth and observability truth are stable.
-- Treat `http` as the primary live collection path for current verification work; keep `apify` narrowed to fallback and comparison.
+- Set `HTTP scraping` as the current algorithm priority.
+- Integrate `D4Vinci/Scrapling` into the acquisition lane as the adaptive engine for dynamic/protected or unstable pages.
+- Keep existing `reddit-http` as the control path and fallback during rollout to preserve verified behavior.
+- Do not open Stage-C ranking/anomaly expansion while acquisition-parity proof is incomplete.
 
 ## Why This Decision
 
-- The highest risk is still truth loss in the collection layer, not missing website surface area.
-- The website already consumes `P1` trend / keyword / query outputs, so removing or bypassing `P2` would remove product-side validation.
-- A stable `P1` data plane is the prerequisite for trustworthy subreddit analytics, keyword analytics, and market views.
+- Verified Scrapling capabilities directly match current risk: adaptive selectors/parser behavior, multiple fetcher/session types (HTTP, dynamic browser, stealth anti-bot), and spider-level multi-session crawling.
+- Existing repo boundaries already support safe integration (`connector -> jobs -> provider_health_window -> sampling`).
+- The fastest correct path is additive integration with parity checks, not a rewrite.
 
-## P1.5 Scope
+## P1.6 Scope
 
-- Collection truth: `crawlMode`, `cursor`, `provider`, `fallback` semantics stay consistent.
-- Observability truth: `duplicate`, `lag`, `diff`, `fallback`, `degraded`, and cursor-stall metrics stay honest.
-- Safe algorithm upgrades are allowed when they remain contract-safe, testable, and bounded.
-- Regression guardrails must expand with every truth-layer fix.
+- Freeze a cross-runtime bridge contract (Node worker <-> Python Scrapling runner).
+- Add Scrapling as an acquisition provider lane with shadow-run and target-level rollout controls.
+- Map Scrapling outputs into existing `raw_event`, cursor, and `provider_health_window` semantics.
+- Keep current algorithms contract-safe while adding new HTTP observability signals.
 
-## P1.5 Must Fix First
+## P1.6 Must Fix First
 
-- No false pagination under `apify -> http` fallback.
-- No duplicate-rate distortion under all-duplicate or filtered windows.
-- No backfill tail-loop after EOF.
-- `readyz` and provider health must expose real evidence for cursor stall / provider switch / fallback elevation.
+- Deterministic bridge contract (`requestId`, URL, session profile, status/headers/body/meta, error code).
+- Comparable observability between baseline HTTP and Scrapling lanes.
+- Stable fallback order and retry boundaries (`scrapling -> http` for designated targets, explicit opt-out path).
+- Bounded verification commands for every integration step.
 
-## P1.5 Must Not Do
+## P1.6 Must Not Do
 
-- No removal of `P2` tables, API, or consumer paths.
-- No breaking API changes.
-- No uncontrolled framework rewrite.
-- No large speculative algorithm rewrite without bounded verification.
+- No big-bang rewrite of worker/job/repository boundaries.
+- No schema-breaking API changes.
+- No unverified algorithm tuning tied to a new connector without evidence snapshots.
 
-## P2 Policy During Freeze
+## P1.6 Exit Gate
 
-- Allowed: read-only validation, bugfixes, compatibility fixes, tests, docs.
-- Forbidden: new features, new recall pools, new precision loops, new product expansion.
-- Exit condition: all `P1.5` gates pass.
-
-## P1.5 Exit Gate
-
-- Provider / cursor / fallback semantics are unified.
-- Backfill can be shown to advance and stop cleanly at EOF.
-- Duplicate / lag / diff / fallback metrics stay stable under degraded scenarios.
-- Key regression scenarios are covered:
-  - empty page
-  - all-duplicate page
-  - rate limit
-  - timeout
-  - circuit open
-  - fallback
-  - cursor stall
-  - provider switch
-- `typecheck`, `test`, and relevant smoke / verify commands pass.
+- Stage `S0-S3` integration checklist is complete (contract, shadow parity, controlled promotion, regression coverage).
+- `readyz` degraded reasons remain explainable with Scrapling-enabled targets.
+- `npm run algo:phase1` and `npm run algo:full` pass after each stage.
+- Live verification shows parity or better on duplicate/lag/timeout truth for promoted targets.
 
 ## Current Focus
 
-- Fix risks where the system appears healthy but underlying data truth is distorted.
-- Upgrade live HTTP observability without breaking contracts.
-- Keep the website-facing analytics layer aligned with actual collection truth.
-- Keep all changes explainable, bounded, and regression-backed.
+- Define and freeze Scrapling bridge schema and session-profile routing (`http`, `dynamic`, `stealth`).
+- Add shadow-run evidence for selected targets before switching production acquisition paths.
+- Keep adaptive sampling and provider-health metrics comparable across lanes.
 
 ## Change Policy
 
-- `P1.5` allows: bugfix, observability correction, contract tightening, small tuning, bounded algorithm upgrade, tests, docs.
-- `P1.5` forbids: uncontrolled refactor, `P2` feature mixing, API breaking changes.
-- Each round should still converge on one main truth-layer theme.
+- Allowed: bounded provider integration, observability alignment, threshold-safe algorithm tuning, tests, docs.
+- Forbidden: uncontrolled refactor, website feature expansion during acquisition-parity work, API-breaking changes.
+- Each round should converge on one integration risk theme and produce explicit verify evidence.
 
 ## Algorithm Development Plan
 
-- Stage A `P1.5 close-out` (active): finish real-run calibration for duplicate-heavy stale-head behavior, cursor stall, provider switch, and `readyz` threshold alignment. Keep upgrades bounded, explainable, and contract-safe.
-- Stage B `P1.5 exit proof`: lock threshold semantics, prove the required degraded scenarios under test and live verification, and stop changing the collection truth model unless a real regression is found.
-- Stage C `P2 analytics algorithms` (after Stage B only): stabilize website-facing ranking and anomaly consumption, including market/growth ranking consistency, anomaly surfacing, and explain payload alignment with persisted truth.
-- Stage D `product automation` (after Stage C basics): add alert evaluation policy first, then delivery/notification channels later. Do not treat delivery as part of the current close-out path.
-- Planning rule: do not open Stage C or D work while Stage A/B still have truth-layer ambiguity.
+- Stage S0 `contract freeze` (active): define Node/Python bridge schema, error taxonomy, and fixture-based mapper tests.
+- Stage S1 `fetcher shadow lane`: run Scrapling fetcher lane in parallel for selected targets and compare with baseline HTTP truth metrics.
+- Stage S2 `session/spider lane`: enable multi-session crawling for difficult targets and keep pause/resume + proxy policy explicit.
+- Stage S3 `algorithm coupling`: tune sampling/health thresholds using Scrapling evidence without breaking existing contracts.
+- Stage S4 `post-parity expansion` (after S3 only): expand ranking/anomaly/product automation work.
+- Planning rule: do not open S4 while S0-S3 still have truth-layer ambiguity.
+
+## Process Flow Source
+
+- Canonical integration flow: `docs/scrapling-integration-flow.md`.
+- Keep this file as execution memory; store deep details in `docs/` and link from activity entries.
 
 ## Task Guide
 
 - Write all state updates back to this file.
 - Do not use `planning-with-files` in this repo.
 - Do not create or maintain `task_plan.md`, `findings.md`, or `progress.md` in project root.
-- Every task entry should include: `scope`, `why now`, `verify`, `next`.
-- If a task is `P2` feature work, defer it unless `P1.5` is closed.
-- Keep this file ASCII-first or clean UTF-8 only. Do not copy mojibake text forward.
+- Every task entry should include: `Scope`, `Why now`, `Verify`, `Next`.
+- Keep this file ASCII-first or clean UTF-8 only; do not copy mojibake text forward.
 
 ## Activity Log
+
+### 2026-04-16 12:16:03
+
+- Scope: Ran S1 shadow parity on a broader live sample set (`machinelearning,datascience`, 2 rounds) using the new `algo:shadow:compare` pipeline to validate non-single-point behavior.
+- Why now: Single-subreddit one-round evidence was not enough for promotion-gate confidence.
+- Verify: `npm run algo:shadow:compare` completed and wrote `docs/live-shadow-compare-2026-04-16T04-15-55-498Z.json`. Summary: `4/4` comparisons passed gate, average overlap `jaccard=1`, extracted delta `0`, lag delta `0`; both lanes had `successRate=1`.
+- Next: Convert current parity snapshots into explicit promotion criteria and rollout candidate list, then keep running shadow snapshots as regression evidence before promoting any target.
+
+### 2026-04-16 12:14:57
+
+- Scope: Implemented S1 shadow parity pipeline as executable code instead of manual ad-hoc checks. Added `src/application/services/shadow-parity.service.ts` (parity math + gate evaluation), new runnable script `scripts/live-shadow-compare.ts`, new command `npm run algo:shadow:compare`, unit coverage `tests/unit/shadow-parity.service.test.ts`, and runbook usage/env documentation updates.
+- Why now: Project state required side-by-side `http` vs `scrapling` evidence before provider promotion. Existing tooling only verified single Scrapling connectivity and could not quantify parity quality.
+- Verify: `npx tsx --test tests/unit/shadow-parity.service.test.ts` passed (`3/3`). `npm run typecheck` passed. Live run `npm run algo:shadow:compare` succeeded and wrote `docs/live-shadow-compare-2026-04-16T04-14-33-511Z.json` with one-target sample (`machinelearning`) showing gate pass (`jaccard=1`, extracted delta `0`, lag delta `0`). `npm run algo:full` passed with `128/128`.
+- Next: Execute S1 at scale (multiple subreddit sets + rounds), then convert observed parity distributions into explicit per-target promotion thresholds and fallback policies.
+
+### 2026-04-16 12:07:36
+
+- Scope: Completed runtime dependency activation for the new resident Scrapling lane and fixed bridge JSON extraction edge-case for Reddit JSON endpoints. Installed `scrapling[fetchers]` into the current Python environment and updated `scripts/scrapling_reddit_bridge.py` to parse JSON via `response.json()` fallback when body text is empty.
+- Why now: The framework integration was code-complete, but live verification still failed because Scrapling was not installed and JSON endpoint parsing used a text-only path.
+- Verify: `python -m pip install "scrapling[fetchers]"` succeeded (`scrapling 0.4.6`). `npm run algo:scrapling:verify` now succeeds with `status=200`, `provider=scrapling`, endpoint `/r/machinelearning/about.json`.
+- Next: Execute S1 shadow lane and store parity snapshots under `docs/` for selected targets before any provider promotion.
+
+### 2026-04-16 12:03:54
+
+- Scope: Landed first persistent framework-level Scrapling integration instead of docs-only planning. Added `src/connectors/reddit/reddit-scrapling.connector.ts` (new live provider), Python bridge `scripts/scrapling_reddit_bridge.py`, runtime/env wiring (`REDDIT_LIVE_PROVIDER=scrapling` and `REDDIT_SCRAPLING_*` controls), provider-selection updates in connector factory, backfill cursor-provider fallback alignment for `scrapling`, and adaptive-sampling provider-profile alignment (`scrapling` treated as http-primary thresholds). Added verification command `npm run algo:scrapling:verify` and updated runbook. Added focused unit tests for provider resolution/runtime passthrough/new connector behavior.
+- Why now: The objective changed to “Scrapling as resident acquisition capability with maximal in-framework fusion”. Existing state had only strategy docs and no executable provider lane.
+- Verify: `npm run algo:phase1` passed. `npx tsx --test tests/unit/create-reddit-connector.test.ts tests/unit/reddit-scrapling.connector.test.ts` passed. `npm run algo:full` passed with `125/125`. `npm run algo:scrapling:verify` executed and failed with `scrapling_not_installed` (bridge error path works as designed). Official Scrapling signatures/capabilities used for implementation were verified from project README + source/docs (Fetcher GET path, Dynamic/Stealth fetch APIs, and Python 3.10+ requirement) before coding.
+- Next: Install Scrapling fetcher dependency (`pip install "scrapling[fetchers]"`) and rerun `algo:scrapling:verify`; then execute S1 shadow lane with parity snapshots before any primary-provider promotion.
+
+### 2026-04-16 11:51:00
+
+- Scope: Reframed project execution from `P1.5 hardening` to `P1.6 HTTP + Scrapling integration`. Rewrote top-level project policy (`Summary`, `Current Decision`, `Scope`, `Exit Gate`, staged algorithm plan) and added canonical flow doc `docs/scrapling-integration-flow.md` to define additive integration (`connector -> jobs -> health -> sampling`) with Node/Python bridge, shadow rollout, and parity-first promotion.
+- Why now: Product priority changed to HTTP scraping and explicit Scrapling integration. Existing project state was still optimized for late-stage Reddit-only hardening and did not provide a direct execution model for cross-runtime acquisition integration.
+- Verify: Updated frontmatter (`stage`, `next_action`, `updated_at`) and strategy sections in `obsidian-reddit专用/Projects/project.md`. Added and reviewed `docs/scrapling-integration-flow.md` with staged checklist (`S0-S3`), runtime routing policy, observability mapping, and verification gates. External capability assumptions were grounded against Scrapling official README/docs before writeback.
+- Next: Execute Stage `S0 contract freeze` immediately: define concrete bridge schema + error taxonomy, then add fixture-based mapper tests before enabling any runtime provider switch.
 
 ### 2026-04-15 02:10
 
@@ -184,7 +207,7 @@ tags:
 
 ### 2026-04-15 13:05:00
 
-- Scope: Read `Projects/算法补充.md`, reconciled it against the current repo state, and converted the loose timeline discussion into an explicit four-stage algorithm plan in this file. The plan now separates `P1.5` truth-layer close-out from later `P2` ranking/anomaly work and from still-later alert automation.
+- Scope: Read `Projects/绠楁硶琛ュ厖.md`, reconciled it against the current repo state, and converted the loose timeline discussion into an explicit four-stage algorithm plan in this file. The plan now separates `P1.5` truth-layer close-out from later `P2` ranking/anomaly work and from still-later alert automation.
 - Why now: The supplemental note correctly distinguished "near-done P1.5 algorithm hardening" from "full product-grade algorithm completion", but that distinction was not yet encoded in the project execution source. Without writing it here, later sessions could reopen `P2` algorithm work too early.
 - Verify: Rechecked the current workspace state in `project.md`, the latest adaptive-sampling calibration entry, and supporting architecture docs that still mark ranking/anomaly/alert layers as later-stage responsibilities rather than current `P1.5` scope.
 - Next: Execute Stage A only. Keep the next algorithm round focused on duplicate-heavy stale-head, cursor-stall, provider-switch, and `readyz` threshold convergence; defer Stage C ranking/anomaly expansion until Stage B exit proof passes.
@@ -212,21 +235,21 @@ tags:
 
 ### 2026-04-15 17:52:55
 
-- Scope: Closed the command-surface and state-source drift called out by `优化算法推进流程.md`. Phase-1 runtime defaults now fall back to `mock` unless `live` is explicit, both schedulers no longer run a cycle on boot by default, package scripts were narrowed to one official `worker:phase1:*` family with explicit fast/full test and typecheck lanes, startup/docs files were aligned to `Projects/project.md`, and the forbidden root planning triplet plus obsolete `src/workers/run-reddit-phase1-once.postgres*` entry wrappers were removed.
+- Scope: Closed the command-surface and state-source drift called out by `浼樺寲绠楁硶鎺ㄨ繘娴佺▼.md`. Phase-1 runtime defaults now fall back to `mock` unless `live` is explicit, both schedulers no longer run a cycle on boot by default, package scripts were narrowed to one official `worker:phase1:*` family with explicit fast/full test and typecheck lanes, startup/docs files were aligned to `Projects/project.md`, and the forbidden root planning triplet plus obsolete `src/workers/run-reddit-phase1-once.postgres*` entry wrappers were removed.
 - Why now: Stage A still needs live calibration, but the repo was making routine iteration look heavier and more ambiguous than it really is. That risked wasting cycles on duplicate entrypoints, environment-shaped false failures, and duplicate status files instead of truth-layer work.
 - Verify: `npm run typecheck:core` passed. `npm run test:unit` passed with `61/61`. `npm run typecheck` passed. `npm run test` passed with `97/97`.
 - Next: Use the cleaned mock-first command surface to continue Stage A live verification only where it adds truth, especially checking whether `provider_data_stalled` appears in real HTTP runs and whether any remaining `readyz` thresholds still need tightening before freeze.
 
 ### 2026-04-15 19:31:15
 
-- Scope: Closed the remaining repo-level algorithm workflow gap from `算法工作推进建议.md` by adding `skills/algorithm-dev-suite/SKILL.md` as the single project-facing algorithm entrypoint. Updated `skills/README.md`, `00_START_HERE.md`, and `README.md` so algorithm work now routes through one suite before fanning out to `reddit-monitoring`, `data-algo-social`, `reddit-trend-algo`, `data-algo`, and `data-algo-system`.
+- Scope: Closed the remaining repo-level algorithm workflow gap from `绠楁硶宸ヤ綔鎺ㄨ繘寤鸿.md` by adding `skills/algorithm-dev-suite/SKILL.md` as the single project-facing algorithm entrypoint. Updated `skills/README.md`, `00_START_HERE.md`, and `README.md` so algorithm work now routes through one suite before fanning out to `reddit-monitoring`, `data-algo-social`, `reddit-trend-algo`, `data-algo`, and `data-algo-system`.
 - Why now: The repo already had multiple algorithm-related skills, but no unified entry comparable to `frontend-dev-suite`. Without a suite layer, future algorithm skill installs would keep fragmenting task routing and force repeated re-interpretation of stage boundaries.
 - Verify: Confirmed `algorithm-dev-suite` is referenced from startup and routing docs via `rg -n "algorithm-dev-suite" skills README.md 00_START_HERE.md`. No application code changed, so no additional typecheck/test run was needed for this round.
 - Next: When you install more algorithm skills, keep them behind `algorithm-dev-suite` as primary or secondary branches instead of exposing each new skill directly in startup docs.
 
 ### 2026-04-15 19:36:51
 
-- Scope: Executed the next skill-installation requirements from `skill安装.md` at the project-local level. Added `signal-metric-design`, `synthetic-case-lab`, `read-model-contract-guard`, and `worker-boundary-for-algorithm` under `skills/`, then wired them into `algorithm-dev-suite` so the suite now governs metric definition, synthetic-case validation, outward contract stability, and worker-boundary discipline for future algorithm tasks.
+- Scope: Executed the next skill-installation requirements from `skill瀹夎.md` at the project-local level. Added `signal-metric-design`, `synthetic-case-lab`, `read-model-contract-guard`, and `worker-boundary-for-algorithm` under `skills/`, then wired them into `algorithm-dev-suite` so the suite now governs metric definition, synthetic-case validation, outward contract stability, and worker-boundary discipline for future algorithm tasks.
 - Why now: The suite entrypoint existed, but it still lacked the narrow guard skills that actually keep algorithm work from drifting into blind parameter tuning, insufficient test coverage, silent API contract changes, or worker/scheduler rewrites.
 - Verify: Confirmed all four new skills exist under `skills/` and that `algorithm-dev-suite` references them via `rg -n "signal-metric-design|synthetic-case-lab|read-model-contract-guard|worker-boundary-for-algorithm" skills`.
 - Next: If you want these changes published, commit and push them. For future external skill installs, attach them under `algorithm-dev-suite` rather than exposing them as new startup entrypoints.
@@ -339,3 +362,11 @@ tags:
 - Why now: Live comparison snapshots showed hot-set runs with high `newPosts15m` but missing sampling decision observability (`tier=null`) and conservative first-run limits (`jobPostLimit=16`), which weakens early-window recall and evidence quality.
 - Verify: `npx tsx --test tests/unit/reddit-phase1-adaptive-sampling.test.ts` passed (20/20). `npm run algo:phase1` passed (30/30). Validation run `docs/live-multi-round-calibration-2026-04-16-cold-start-warmup-verify.json` now shows `tierNull=0`, `avgLimit=24`, `avgJobLimit=24`, and warmup-applied decisions across the full cold-start set.
 - Next: Keep this as the first partial upgrade. Next bounded optimization should target timeout-heavy long-tail subreddits (`television/soccer/nba` in this run) by separating connector-timeout resilience tuning from sampling-threshold tuning, then re-check staged evidence before threshold freeze.
+
+### 2026-04-16 11:43:28
+
+- Scope: Verified local Python runtime availability for this workspace and confirmed whether `Python 3.10+` is present.
+- Why now: User asked if this project can use Python 3.10+ and whether the environment is already installed.
+- Verify: `python --version` -> `Python 3.14.3`. `py -0p` lists `3.14`, `3.13t`, `3.13`. `where.exe python` resolves to `C:\Python314\python.exe` plus additional Python executables on `PATH`.
+- Next: Python requirement is satisfied; proceed with `python` (or pin explicitly with `py -3.14`) for any scripts in this repo.
+

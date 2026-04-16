@@ -15,6 +15,8 @@
     "algo:phase1": "npm run typecheck:core && npm run test:phase1",
     "algo:full": "npm run typecheck && npm run test",
     "algo:live:verify": "set REDDIT_RUN_MODE=live&& tsx scripts/verify-phase1-postgres.ts",
+    "algo:scrapling:verify": "tsx scripts/verify-scrapling-bridge.ts",
+    "algo:shadow:compare": "tsx scripts/live-shadow-compare.ts",
     "smoke:reddit": "tsx src/workers/smoke-reddit-phase1.ts",
     "db:migrate": "tsx src/storage/schema/run-migrations.ts",
     "worker:phase1:once": "tsx workers/reddit-phase1-once.ts",

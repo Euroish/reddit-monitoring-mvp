@@ -1108,7 +1108,12 @@ function pushHealthReasons(reasons: string[], healthEvidence: SamplingHealthEvid
 
 function isHttpPrimaryProvider(providerHint: string | undefined): boolean {
   const normalized = providerHint?.trim().toLowerCase();
-  return !normalized || normalized === "http" || normalized === "reddit";
+  return (
+    !normalized ||
+    normalized === "http" ||
+    normalized === "reddit" ||
+    normalized === "scrapling"
+  );
 }
 
 function logSamplingDecision(args: {

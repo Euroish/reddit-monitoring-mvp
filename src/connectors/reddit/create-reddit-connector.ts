@@ -6,15 +6,28 @@ import {
 import type { RedditConnector } from "./reddit-connector.interface";
 import { RedditHttpConnector, type RedditHttpTransport } from "./reddit-http.connector";
 import { RedditMockConnector } from "./reddit-mock.connector";
+import {
+  RedditScraplingConnector,
+  type RedditScraplingProfile,
+} from "./reddit-scrapling.connector";
 
 export type RedditRunMode = "mock" | "live";
-export type RedditLiveProvider = "http" | "apify";
+export type RedditLiveProvider = "http" | "apify" | "scrapling";
 
 export function resolveRedditHttpTransport(value: string | undefined): RedditHttpTransport {
   if (value === "fetch" || value === "powershell") {
     return value;
   }
   return "auto";
+}
+
+export function resolveRedditScraplingProfile(
+  value: string | undefined,
+): RedditScraplingProfile {
+  if (value === "dynamic" || value === "stealth") {
+    return value;
+  }
+  return "http";
 }
 
 export interface CreateRedditConnectorOptions {
@@ -24,6 +37,11 @@ export interface CreateRedditConnectorOptions {
   userAgent?: string;
   httpTransport?: RedditHttpTransport;
   httpTimeoutMs?: number;
+  scraplingProfile?: RedditScraplingProfile;
+  scraplingPythonExecutable?: string;
+  scraplingBridgeScriptPath?: string;
+  scraplingTimeoutMs?: number;
+  scraplingMaxRetries?: number;
   apifyActorRunEndpoint?: string;
   apifyToken?: string;
   apifyFallbackToHttp?: boolean;
@@ -36,7 +54,13 @@ export interface CreateRedditConnectorOptions {
 }
 
 export function resolveRedditLiveProvider(value: string | undefined): RedditLiveProvider {
-  return value === "apify" ? "apify" : "http";
+  if (value === "apify") {
+    return "apify";
+  }
+  if (value === "scrapling") {
+    return "scrapling";
+  }
+  return "http";
 }
 
 export function createRedditConnector(options: CreateRedditConnectorOptions): RedditConnector {
@@ -53,6 +77,8 @@ export function createRedditConnector(options: CreateRedditConnectorOptions): Re
 
   const fallbackConnector =
     provider === "apify"
+      ? createHttpLiveConnector(options)
+      : provider === "scrapling"
       ? createHttpLiveConnector(options)
       : undefined;
 
@@ -88,6 +114,10 @@ function createPrimaryLiveConnector(
     });
   }
 
+  if (provider === "scrapling") {
+    return createScraplingLiveConnector(options);
+  }
+
   return createHttpLiveConnector(options);
 }
 
@@ -97,5 +127,19 @@ function createHttpLiveConnector(options: CreateRedditConnectorOptions): RedditH
     userAgent: options.userAgent,
     transport: options.httpTransport,
     timeoutMs: options.httpTimeoutMs,
+  });
+}
+
+function createScraplingLiveConnector(
+  options: CreateRedditConnectorOptions,
+): RedditScraplingConnector {
+  return new RedditScraplingConnector({
+    accessToken: options.accessToken,
+    userAgent: options.userAgent,
+    profile: options.scraplingProfile,
+    pythonExecutable: options.scraplingPythonExecutable,
+    bridgeScriptPath: options.scraplingBridgeScriptPath,
+    timeoutMs: options.scraplingTimeoutMs ?? options.httpTimeoutMs,
+    maxRetries: options.scraplingMaxRetries,
   });
 }

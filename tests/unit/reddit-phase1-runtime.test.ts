@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { RedditHttpConnector } from "../../src/connectors/reddit/reddit-http.connector";
+import { RedditScraplingConnector } from "../../src/connectors/reddit/reddit-scrapling.connector";
 import {
   createRedditConnectorFromEnv,
   resolvePhase1CrawlMode,
@@ -92,6 +93,28 @@ test("createRedditConnectorFromEnv passes through http timeout override", () => 
 
   assert.equal(connector instanceof RedditHttpConnector, true);
   assert.equal((connector as any).timeoutMs, 30000);
+});
+
+test("createRedditConnectorFromEnv supports scrapling provider and profile", () => {
+  const connector = createRedditConnectorFromEnv({
+    env: {
+      REDDIT_LIVE_PROVIDER: "scrapling",
+      REDDIT_SCRAPLING_PROFILE: "stealth",
+      REDDIT_SCRAPLING_PYTHON: "py",
+      REDDIT_SCRAPLING_BRIDGE_SCRIPT: "scripts/custom_scrapling_bridge.py",
+      REDDIT_SCRAPLING_TIMEOUT_MS: "45000",
+      REDDIT_SCRAPLING_MAX_RETRIES: "4",
+      REDDIT_CB_ENABLED: "false",
+    },
+    mode: "live",
+    crawlMode: "live",
+  });
+
+  assert.equal(connector instanceof RedditScraplingConnector, true);
+  assert.equal((connector as any).profile, "stealth");
+  assert.equal((connector as any).pythonExecutable, "py");
+  assert.equal((connector as any).timeoutMs, 45000);
+  assert.equal((connector as any).maxRetries, 4);
 });
 
 test("upsertActiveSubredditTarget normalizes canonical naming once", async () => {

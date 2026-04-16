@@ -18,6 +18,18 @@ Optional env:
 - `REDDIT_USER_AGENT` (custom user-agent)
 - `REDDIT_RUN_SUBREDDIT` (default: `machinelearning`)
 - `REDDIT_HTTP_TRANSPORT` (`auto` default; on Windows use `powershell` if Node HTTP traffic is being reset while PowerShell requests still work)
+- `REDDIT_LIVE_PROVIDER` (`http` default, `apify`, or `scrapling`)
+- `REDDIT_SCRAPLING_PROFILE` (`http` default, `dynamic`, `stealth`)
+- `REDDIT_SCRAPLING_PYTHON` (Python executable path; default `python`)
+- `REDDIT_SCRAPLING_BRIDGE_SCRIPT` (override bridge script path; default `scripts/scrapling_reddit_bridge.py`)
+- `REDDIT_SCRAPLING_TIMEOUT_MS` (default follows `REDDIT_HTTP_TIMEOUT_MS`)
+- `REDDIT_SCRAPLING_MAX_RETRIES` (default `2`)
+
+If you use Scrapling provider, install Python dependency first:
+
+```bash
+pip install "scrapling[fetchers]"
+```
 
 ## Network prerequisite for live mode
 
@@ -68,6 +80,26 @@ Optional live verification:
 ```bash
 npm run algo:live:verify
 ```
+
+Scrapling bridge verification (single about-page request through Scrapling provider):
+
+```bash
+set REDDIT_LIVE_PROVIDER=scrapling&& npm run algo:scrapling:verify
+```
+
+Shadow parity comparison (`http` baseline vs `scrapling` shadow, writes snapshot to `docs/`):
+
+```bash
+set REDDIT_SHADOW_BASE_PROVIDER=http&& set REDDIT_SHADOW_PROVIDER=scrapling&& set REDDIT_SHADOW_SUBREDDITS=machinelearning,datascience&& npm run algo:shadow:compare
+```
+
+Optional shadow env:
+- `REDDIT_SHADOW_ROUNDS` (default `1`)
+- `REDDIT_SHADOW_POST_LIMIT` (default `25`)
+- `REDDIT_SHADOW_ROUND_PAUSE_MS` (default `0`)
+- `REDDIT_SHADOW_MIN_JACCARD` (default `0.35`)
+- `REDDIT_SHADOW_MAX_EXTRACTED_DELTA_ABS` (default `10`)
+- `REDDIT_SHADOW_REQUIRE_STATUS_MATCH` (default `true`)
 
 The live verify output includes the same readiness degradation summary used by `/readyz`, so Stage A checks can confirm whether `provider_data_stalled:*` appears without starting the API separately.
 
