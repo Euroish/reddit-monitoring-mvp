@@ -21,6 +21,9 @@ export class PostgresKeywordTrendDailyRepository implements KeywordTrendDailyRep
             row.targetId,
             row.day,
             row.keyword,
+            row.track,
+            row.normalizedQueryText,
+            row.queryScope,
             row.sampledPosts,
             row.matchedPosts,
             row.qualifiedMatchedPosts,
@@ -29,20 +32,24 @@ export class PostgresKeywordTrendDailyRepository implements KeywordTrendDailyRep
             row.matchedScoreSum,
             row.matchedCommentSum,
             row.keywordHeat,
+            row.algorithmVersion,
+            row.explainPayload,
             row.sourceType,
           );
         }
 
-        const placeholders = buildValuesPlaceholders(group.length, 12);
+        const placeholders = buildValuesPlaceholders(group.length, 17);
         await client.query(
           `
           INSERT INTO keyword_trend_daily (
-            target_id, day, keyword, sampled_posts, matched_posts, qualified_matched_posts,
+            target_id, day, keyword, track, normalized_query_text, query_scope,
+            sampled_posts, matched_posts, qualified_matched_posts,
             mention_rate, qualified_mention_rate, matched_score_sum, matched_comment_sum,
-            keyword_heat, source_type
+            keyword_heat, algorithm_version, explain_payload, source_type
           ) VALUES ${placeholders}
-          ON CONFLICT (target_id, day, keyword)
+          ON CONFLICT (target_id, day, track, normalized_query_text, query_scope)
           DO UPDATE SET
+            keyword = EXCLUDED.keyword,
             sampled_posts = EXCLUDED.sampled_posts,
             matched_posts = EXCLUDED.matched_posts,
             qualified_matched_posts = EXCLUDED.qualified_matched_posts,
@@ -51,6 +58,8 @@ export class PostgresKeywordTrendDailyRepository implements KeywordTrendDailyRep
             matched_score_sum = EXCLUDED.matched_score_sum,
             matched_comment_sum = EXCLUDED.matched_comment_sum,
             keyword_heat = EXCLUDED.keyword_heat,
+            algorithm_version = EXCLUDED.algorithm_version,
+            explain_payload = EXCLUDED.explain_payload,
             source_type = EXCLUDED.source_type,
             updated_at = NOW()
           `,
@@ -65,27 +74,53 @@ export class PostgresKeywordTrendDailyRepository implements KeywordTrendDailyRep
     fromDay: string;
     toDay: string;
     keywords?: string[];
+    tracks?: Array<"auto_keyword" | "explicit_query">;
+    queryScopes?: Array<"subreddit" | "global">;
     limit?: number;
   }): Promise<KeywordTrendDaily[]> {
     const keywords =
       args.keywords && args.keywords.length > 0
         ? args.keywords.map((item) => item.trim().toLowerCase()).filter(Boolean)
         : [];
+    const tracks = args.tracks && args.tracks.length > 0 ? args.tracks : null;
+    const queryScopes = args.queryScopes && args.queryScopes.length > 0 ? args.queryScopes : null;
 
-    if (keywords.length > 0) {
+    if (keywords.length > 0 || tracks || queryScopes) {
+      const predicates: string[] = [
+        "target_id = $1",
+        "day >= $2::date",
+        "day <= $3::date",
+      ];
+      const values: unknown[] = [args.targetId, args.fromDay, args.toDay];
+      let bindIndex = values.length + 1;
+      if (keywords.length > 0) {
+        predicates.push(
+          `(normalized_query_text = ANY($${bindIndex}::text[]) OR keyword = ANY($${bindIndex}::text[]))`,
+        );
+        values.push(keywords);
+        bindIndex += 1;
+      }
+      if (tracks) {
+        predicates.push(`track = ANY($${bindIndex}::keyword_trend_track_enum[])`);
+        values.push(tracks);
+        bindIndex += 1;
+      }
+      if (queryScopes) {
+        predicates.push(`query_scope = ANY($${bindIndex}::keyword_query_scope_enum[])`);
+        values.push(queryScopes);
+      }
+
       const result = await this.db.query<KeywordTrendDailyRow>(
         `
-        SELECT target_id, day, keyword, sampled_posts, matched_posts, qualified_matched_posts,
+        SELECT target_id, day, keyword, track, normalized_query_text, query_scope,
+               sampled_posts, matched_posts, qualified_matched_posts,
                mention_rate, qualified_mention_rate, matched_score_sum, matched_comment_sum,
-               keyword_heat, source_type, updated_at
+               keyword_heat, algorithm_version, explain_payload, source_type, updated_at
         FROM keyword_trend_daily
-        WHERE target_id = $1
-          AND day >= $2::date
-          AND day <= $3::date
-          AND keyword = ANY($4::text[])
-        ORDER BY keyword ASC, day ASC
+        WHERE ${predicates.join("\n          AND ")}
+        ORDER BY track ASC, normalized_query_text ASC, day ASC
         `,
-        [args.targetId, args.fromDay, args.toDay, keywords],
+        values,
       );
       return result.rows.map(mapKeywordTrendDaily);
     }
@@ -94,28 +129,30 @@ export class PostgresKeywordTrendDailyRepository implements KeywordTrendDailyRep
     const result = await this.db.query<KeywordTrendDailyRow>(
       `
       WITH top_keywords AS (
-        SELECT keyword
+        SELECT normalized_query_text
         FROM keyword_trend_daily
         WHERE target_id = $1
           AND day >= $2::date
           AND day <= $3::date
-        GROUP BY keyword
-        ORDER BY SUM(matched_posts) DESC, keyword ASC
+          AND track = 'auto_keyword'
+        GROUP BY normalized_query_text
+        ORDER BY SUM(matched_posts) DESC, normalized_query_text ASC
         LIMIT $4
       )
-      SELECT k.target_id, k.day, k.keyword, k.sampled_posts, k.matched_posts, k.qualified_matched_posts,
+      SELECT k.target_id, k.day, k.keyword, k.track, k.normalized_query_text, k.query_scope,
+             k.sampled_posts, k.matched_posts, k.qualified_matched_posts,
              k.mention_rate, k.qualified_mention_rate, k.matched_score_sum, k.matched_comment_sum,
-             k.keyword_heat, k.source_type, k.updated_at
+             k.keyword_heat, k.algorithm_version, k.explain_payload, k.source_type, k.updated_at
       FROM keyword_trend_daily k
-      INNER JOIN top_keywords t ON t.keyword = k.keyword
+      INNER JOIN top_keywords t ON t.normalized_query_text = k.normalized_query_text
       WHERE k.target_id = $1
         AND k.day >= $2::date
         AND k.day <= $3::date
-      ORDER BY k.keyword ASC, k.day ASC
+        AND k.track = 'auto_keyword'
+      ORDER BY k.track ASC, k.normalized_query_text ASC, k.day ASC
       `,
       [args.targetId, args.fromDay, args.toDay, limit],
     );
     return result.rows.map(mapKeywordTrendDaily);
   }
 }
-

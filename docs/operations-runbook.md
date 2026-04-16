@@ -229,7 +229,8 @@ For a successful live run, all four tables should increase from zero over time.
 
 ## Working policy
 
-- Routine algorithm edit loop: `algo:fast`, then `algo:phase1` only when the change touches truth-layer behavior.
+- Routine algorithm edit loop: `algo:fast`, then `algo:phase1` (unit-only truth-layer quick gate) when the change touches truth-layer behavior.
+- Run `algo:phase1:full` only when phase1 worker/runtime/api boundaries or phase1 integration behavior are touched.
 - Full pre-close gate: `algo:full`.
 - Live worker/API verification: manual only, because database, auth, network, and proxy state can fail independently of code correctness.
 

@@ -386,3 +386,94 @@ test("buildSubredditKeywordTrendDailyJob clamps sampled posts to observed posts 
   assert.equal(https?.mentionRate, 1);
   assert.equal(https?.qualifiedMentionRate, 1);
 });
+
+test("buildSubredditKeywordTrendDailyJob materializes explicit queries alongside auto keywords", async () => {
+  const targetId = stableUuidFromString("reddit:target:r/artificial");
+  const contentId = stableUuidFromString("reddit:content:t3_explicit_query");
+  const contentRepository = new InMemoryContentRepository();
+  const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const keywordTrendDailyRepository = new InMemoryKeywordTrendDailyRepository();
+  const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
+
+  await contentRepository.upsertMany([
+    {
+      id: contentId,
+      source: "reddit",
+      targetId,
+      externalId: "t3_explicit_query",
+      kind: "post",
+      title: "Large language model agent design notes",
+      bodyText: "artificial intelligence deployment checklist",
+      permalink: "/r/artificial/comments/explicit_query",
+      createdAtSource: "2026-04-13T10:00:00.000Z",
+      firstSeenAt: "2026-04-13T10:00:00.000Z",
+      lastSeenAt: "2026-04-13T10:00:00.000Z",
+    },
+  ]);
+
+  await metricsSnapshotRepository.appendMany([
+    {
+      snapshotAt: "2026-04-13T10:05:00.000Z",
+      source: "reddit",
+      targetId,
+      contentId,
+      granularity: "15m",
+      metricName: "score",
+      metricValue: 20,
+      collectionJobId: stableUuidFromString("job:explicit:score"),
+    },
+    {
+      snapshotAt: "2026-04-13T10:05:00.000Z",
+      source: "reddit",
+      targetId,
+      contentId,
+      granularity: "15m",
+      metricName: "num_comments",
+      metricValue: 15,
+      collectionJobId: stableUuidFromString("job:explicit:comments"),
+    },
+  ]);
+
+  const rows = await buildSubredditKeywordTrendDailyJob(
+    {
+      contentRepository,
+      metricsSnapshotRepository,
+      keywordTrendDailyRepository,
+      subredditDailyFactRepository,
+    },
+    {
+      targetId,
+      canonicalSubreddit: "r/artificial",
+      explicitQueries: ["llm agent", "global: ai"],
+      fromIso: "2026-04-13T00:00:00.000Z",
+      toIso: "2026-04-13T23:59:59.000Z",
+      qualityMinScore: 10,
+      qualityMinComments: 10,
+      maxKeywordsPerDay: 10,
+      maxExplicitQueriesPerDay: 10,
+    },
+  );
+
+  const autoAgent = rows.find(
+    (row) => row.track === "auto_keyword" && row.normalizedQueryText === "agent",
+  );
+  const explicitLlmAgent = rows.find(
+    (row) => row.track === "explicit_query" && row.normalizedQueryText === "llm agent",
+  );
+  const explicitAi = rows.find(
+    (row) => row.track === "explicit_query" && row.normalizedQueryText === "ai",
+  );
+
+  assert.ok(autoAgent);
+  assert.ok(explicitLlmAgent);
+  assert.ok(explicitAi);
+  assert.equal(explicitLlmAgent?.queryScope, "subreddit");
+  assert.equal(explicitAi?.queryScope, "global");
+  assert.equal(explicitLlmAgent?.matchedPosts, 1);
+  assert.equal(explicitAi?.matchedPosts, 1);
+  assert.equal(explicitLlmAgent?.algorithmVersion, "keyword_trend_v2_dual_track");
+  assert.equal(
+    explicitLlmAgent?.explainPayload["plannerVersion"],
+    "query_normalization_v2",
+  );
+});

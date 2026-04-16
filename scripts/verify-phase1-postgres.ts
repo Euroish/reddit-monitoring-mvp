@@ -1,4 +1,9 @@
 import { buildReadinessState } from "../apps/api/src/readyz-observability";
+import {
+  buildKeywordExplicitScopeByQuery,
+  resolveScopeProofQueries,
+  type ExplicitQueryScopeDistributionRow,
+} from "./verify-phase1-postgres.scope-proof";
 import { PostgresClient } from "../src/storage/postgres/postgres-client";
 import { createPostgresRepositoryBundle } from "../src/storage/repositories/postgres/postgres-repository-bundle";
 import { runMigrations } from "../src/storage/schema/run-migrations";
@@ -21,6 +26,12 @@ interface JobRow {
 
 interface RawEventHeaderRow {
   response_headers: Record<string, unknown> | null;
+}
+
+interface KeywordTrackDistributionRow {
+  track: "auto_keyword" | "explicit_query";
+  query_scope: "subreddit" | "global";
+  count: string;
 }
 
 async function queryCount(db: PostgresClient, tableName: string): Promise<number> {
@@ -59,6 +70,7 @@ async function main(): Promise<void> {
   const runMode = resolveRunMode(process.env.REDDIT_RUN_MODE);
   const subreddit = process.env.REDDIT_RUN_SUBREDDIT ?? "machinelearning";
   const canonicalName = toCanonicalSubredditName(subreddit);
+  const scopeProofQueries = resolveScopeProofQueries(process.env.VERIFY_KEYWORD_SCOPE_QUERIES);
 
   const appliedFiles = await runMigrations();
   const runResult = await runPhase1OnceWithPostgres({
@@ -175,15 +187,78 @@ async function main(): Promise<void> {
             ).slice(0, 15).map((row) => ({
               day: row.day,
               keyword: row.keyword,
+              normalizedQueryText: row.normalizedQueryText,
+              track: row.track,
+              queryScope: row.queryScope,
               sampledPosts: row.sampledPosts,
               matchedPosts: row.matchedPosts,
               qualifiedMatchedPosts: row.qualifiedMatchedPosts,
               mentionRate: row.mentionRate,
               qualifiedMentionRate: row.qualifiedMentionRate,
               keywordHeat: row.keywordHeat,
+              algorithmVersion: row.algorithmVersion,
+              sourceType: row.sourceType,
+            })),
+            explicitKeywordRows: (
+              await repositories.keywordTrendDailyRepository.listByTargetInRange({
+                targetId: target.id,
+                fromDay: previewFromDay,
+                toDay: previewToDay,
+                tracks: ["explicit_query"],
+                limit: 15,
+              })
+            ).slice(0, 15).map((row) => ({
+              day: row.day,
+              keyword: row.keyword,
+              normalizedQueryText: row.normalizedQueryText,
+              track: row.track,
+              queryScope: row.queryScope,
+              sampledPosts: row.sampledPosts,
+              matchedPosts: row.matchedPosts,
+              qualifiedMatchedPosts: row.qualifiedMatchedPosts,
+              mentionRate: row.mentionRate,
+              qualifiedMentionRate: row.qualifiedMentionRate,
+              keywordHeat: row.keywordHeat,
+              algorithmVersion: row.algorithmVersion,
               sourceType: row.sourceType,
             })),
           };
+
+    const keywordTrackDistribution = (
+      await db.query<KeywordTrackDistributionRow>(
+        `
+          SELECT track, query_scope, COUNT(*)::text AS count
+          FROM keyword_trend_daily
+          GROUP BY track, query_scope
+          ORDER BY track ASC, query_scope ASC
+        `,
+      )
+    ).rows.map((row) => ({
+      track: row.track,
+      queryScope: row.query_scope,
+      count: Number(row.count),
+    }));
+
+    const explicitScopeDistributionByQuery =
+      scopeProofQueries.length === 0
+        ? []
+        : (
+            await db.query<ExplicitQueryScopeDistributionRow>(
+              `
+                SELECT normalized_query_text, query_scope, COUNT(*)::text AS count
+                FROM keyword_trend_daily
+                WHERE track = 'explicit_query'
+                  AND normalized_query_text = ANY($1::text[])
+                GROUP BY normalized_query_text, query_scope
+                ORDER BY normalized_query_text ASC, query_scope ASC
+              `,
+              [scopeProofQueries],
+            )
+          ).rows;
+    const keywordExplicitScopeByQuery = buildKeywordExplicitScopeByQuery(
+      scopeProofQueries,
+      explicitScopeDistributionByQuery,
+    );
 
     // eslint-disable-next-line no-console
     console.log(
@@ -201,6 +276,9 @@ async function main(): Promise<void> {
             keyword_trend_daily: keywordTrendDailyCount,
             subreddit_trend_point: trendPointCount,
           },
+          scopeProofQueries,
+          keywordTrackDistribution,
+          keywordExplicitScopeByQuery,
           materializedPreview,
           readiness: {
             status: readiness.status,

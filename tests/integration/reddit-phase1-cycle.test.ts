@@ -9,6 +9,7 @@ import {
   InMemoryContentRepository,
   InMemoryMetricsSnapshotRepository,
   InMemoryMonitorTargetRepository,
+  InMemoryPostGrowthFactRepository,
   InMemoryRawEventRepository,
   InMemorySubredditDailyFactRepository,
   InMemorySubredditTrendPointRepository,
@@ -27,6 +28,7 @@ test("phase1 cycle writes raw, normalized and trend data", async () => {
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
+  const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
   const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
 
   await monitorTargetRepository.upsert({
@@ -49,6 +51,7 @@ test("phase1 cycle writes raw, normalized and trend data", async () => {
       contentRepository,
       metricsSnapshotRepository,
       subredditDailyFactRepository,
+      postGrowthFactRepository,
       subredditTrendPointRepository,
       redditConnector: new RedditMockConnector(),
       redditMapper: new DefaultRedditMapper(),
@@ -62,5 +65,6 @@ test("phase1 cycle writes raw, normalized and trend data", async () => {
   assert.equal(contentRepository.all().length, 2);
   assert.equal(metricsSnapshotRepository.all().length, 9);
   assert.equal(subredditDailyFactRepository.all().length > 0, true);
+  assert.equal(postGrowthFactRepository.all().length > 0, true);
   assert.equal(subredditTrendPointRepository.all().length, 1);
 });

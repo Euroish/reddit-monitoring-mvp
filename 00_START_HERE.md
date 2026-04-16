@@ -21,7 +21,7 @@ Use `context/decision-log.md` only when a historical decision must be read or a 
 - When uncertain, inspect files first, then propose the narrowest next step.
 - Keep summaries short and factual.
 - For algorithm work, use `skills/algorithm-dev-suite/SKILL.md` as the single entrypoint.
-- For algorithm work, default to `npm run algo:fast`, then `algo:phase1`, then `algo:full`. Ignore other run modes unless the task explicitly requires them.
+- For algorithm work, default to `npm run algo:fast`, then `algo:phase1` (unit), then `algo:phase1:full` (phase1 integration only when boundary is touched), then `algo:full` before close-out. Ignore other run modes unless the task explicitly requires them.
 
 ## What not to do
 

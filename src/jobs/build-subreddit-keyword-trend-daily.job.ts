@@ -1,3 +1,8 @@
+import {
+  matchesNormalizedQueryV2,
+  normalizeQueryV2,
+  type NormalizedQueryV2,
+} from "../application/services/query-normalization-v2.service";
 import type { KeywordTrendDaily } from "../domain/entities/keyword-trend-daily";
 import type { ContentRepository } from "../domain/repositories/content-repository";
 import type { KeywordTrendDailyRepository } from "../domain/repositories/keyword-trend-daily-repository";
@@ -60,7 +65,14 @@ const AUTO_KEYWORD_STOP_WORDS = new Set([
   "used",
 ]);
 
+const KEYWORD_TREND_ALGORITHM_VERSION = "keyword_trend_v2_dual_track";
+
 interface KeywordSignal {
+  keyword: string;
+  track: "auto_keyword" | "explicit_query";
+  normalizedQueryText: string;
+  queryScope: "subreddit" | "global";
+  explainPayload: Record<string, unknown>;
   matchedPosts: number;
   qualifiedMatchedPosts: number;
   matchedScoreSum: number;
@@ -84,11 +96,14 @@ export interface BuildSubredditKeywordTrendDailyDependencies {
 
 export interface BuildSubredditKeywordTrendDailyInput {
   targetId: string;
+  canonicalSubreddit?: string;
+  explicitQueries?: string[];
   fromIso: string;
   toIso: string;
   qualityMinScore?: number;
   qualityMinComments?: number;
   maxKeywordsPerDay?: number;
+  maxExplicitQueriesPerDay?: number;
   sourceType?: "live" | "backfill";
 }
 
@@ -99,9 +114,14 @@ export async function buildSubredditKeywordTrendDailyJob(
   const qualityMinScore = Math.max(0, input.qualityMinScore ?? 10);
   const qualityMinComments = Math.max(0, input.qualityMinComments ?? 20);
   const maxKeywordsPerDay = Math.max(1, input.maxKeywordsPerDay ?? 50);
+  const maxExplicitQueriesPerDay = Math.max(1, input.maxExplicitQueriesPerDay ?? 30);
   const sourceType = input.sourceType ?? "live";
   const fromDay = toUtcDay(input.fromIso);
   const toDay = toUtcDay(input.toIso);
+  const explicitQueries = normalizeExplicitQueries({
+    queries: input.explicitQueries ?? [],
+    canonicalSubreddit: input.canonicalSubreddit,
+  });
 
   const [posts, snapshots, dailyFacts] = await Promise.all([
     deps.contentRepository.findByTargetCreatedAtRange({
@@ -157,19 +177,49 @@ export async function buildSubredditKeywordTrendDailyJob(
     const text = `${post.title} ${post.bodyText ?? ""}`;
     const keywords = extractAutoTokens(text);
     for (const keyword of keywords) {
-      const current = dayDraft.byKeyword.get(keyword) ?? {
-        matchedPosts: 0,
-        qualifiedMatchedPosts: 0,
-        matchedScoreSum: 0,
-        matchedCommentSum: 0,
-      };
-      current.matchedPosts += 1;
-      current.matchedScoreSum += score;
-      current.matchedCommentSum += comments;
-      if (qualified) {
-        current.qualifiedMatchedPosts += 1;
+      addKeywordSignal({
+        dayDraft,
+        key: `auto_keyword|subreddit|${keyword}`,
+        track: "auto_keyword",
+        normalizedQueryText: keyword,
+        queryScope: "subreddit",
+        keyword,
+        explainPayload: {
+          extractionMode: "auto_keyword",
+          extractionVersion: "auto_keyword_v1",
+        },
+        score,
+        comments,
+        qualified,
+      });
+    }
+
+    for (const query of explicitQueries) {
+      if (!matchesNormalizedQueryV2(text, query)) {
+        continue;
       }
-      dayDraft.byKeyword.set(keyword, current);
+      addKeywordSignal({
+        dayDraft,
+        key: `explicit_query|${query.queryScope}|${query.normalizedQueryText}`,
+        track: "explicit_query",
+        normalizedQueryText: query.normalizedQueryText,
+        queryScope: query.queryScope,
+        keyword: query.displayQueryText,
+        explainPayload: {
+          plannerVersion: query.plannerVersion,
+          queryScope: query.queryScope,
+          scopeCanonicalSubreddit: query.scopeCanonicalSubreddit,
+          groupCount: query.groups.length,
+          groups: query.groups.map((group) => ({
+            type: group.type,
+            canonicalTerm: group.canonicalTerm,
+            variants: group.variants,
+          })),
+        },
+        score,
+        comments,
+        qualified,
+      });
     }
   }
 
@@ -177,12 +227,85 @@ export async function buildSubredditKeywordTrendDailyJob(
     targetId: input.targetId,
     dayDrafts,
     maxKeywordsPerDay,
+    maxExplicitQueriesPerDay,
     sourceType,
   });
   if (rows.length > 0) {
     await deps.keywordTrendDailyRepository.upsertMany(rows);
   }
   return rows;
+}
+
+function addKeywordSignal(args: {
+  dayDraft: DayDraft;
+  key: string;
+  track: "auto_keyword" | "explicit_query";
+  normalizedQueryText: string;
+  queryScope: "subreddit" | "global";
+  keyword: string;
+  explainPayload: Record<string, unknown>;
+  score: number;
+  comments: number;
+  qualified: boolean;
+}): void {
+  const current = args.dayDraft.byKeyword.get(args.key) ?? {
+    keyword: args.keyword,
+    track: args.track,
+    normalizedQueryText: args.normalizedQueryText,
+    queryScope: args.queryScope,
+    explainPayload: args.explainPayload,
+    matchedPosts: 0,
+    qualifiedMatchedPosts: 0,
+    matchedScoreSum: 0,
+    matchedCommentSum: 0,
+  };
+  current.matchedPosts += 1;
+  current.matchedScoreSum += args.score;
+  current.matchedCommentSum += args.comments;
+  if (args.qualified) {
+    current.qualifiedMatchedPosts += 1;
+  }
+  args.dayDraft.byKeyword.set(args.key, current);
+}
+
+function normalizeExplicitQueries(args: {
+  queries: string[];
+  canonicalSubreddit?: string;
+}): NormalizedQueryV2[] {
+  const canonicalSubreddit = normalizeCanonicalSubreddit(args.canonicalSubreddit);
+  const result: NormalizedQueryV2[] = [];
+  const seen = new Set<string>();
+
+  for (const rawQuery of args.queries) {
+    if (!rawQuery || rawQuery.trim().length === 0) {
+      continue;
+    }
+    let normalized: NormalizedQueryV2;
+    try {
+      normalized = normalizeQueryV2(rawQuery, canonicalSubreddit);
+    } catch {
+      continue;
+    }
+    if (normalized.groups.length === 0 || normalized.normalizedQueryText.length < 2) {
+      continue;
+    }
+    if (
+      normalized.queryScope === "subreddit" &&
+      normalized.scopeCanonicalSubreddit &&
+      canonicalSubreddit &&
+      normalized.scopeCanonicalSubreddit !== canonicalSubreddit
+    ) {
+      continue;
+    }
+    const key = `${normalized.queryScope}|${normalized.normalizedQueryText}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(normalized);
+  }
+
+  return result;
 }
 
 function resolveLatestPostMetricsByContentId(
@@ -226,6 +349,7 @@ function buildRows(args: {
   targetId: string;
   dayDrafts: Map<string, DayDraft>;
   maxKeywordsPerDay: number;
+  maxExplicitQueriesPerDay: number;
   sourceType: "live" | "backfill";
 }): KeywordTrendDaily[] {
   const rows: KeywordTrendDaily[] = [];
@@ -238,24 +362,24 @@ function buildRows(args: {
       continue;
     }
 
-    const topKeywords = Array.from(draft.byKeyword.entries())
-      .sort((a, b) => {
-        const byMentions = b[1].matchedPosts - a[1].matchedPosts;
-        if (byMentions !== 0) {
-          return byMentions;
-        }
-        const byScore = b[1].matchedScoreSum - a[1].matchedScoreSum;
-        if (byScore !== 0) {
-          return byScore;
-        }
-        return a[0].localeCompare(b[0]);
-      })
+    const allSignals = Array.from(draft.byKeyword.values());
+    const autoSignals = allSignals
+      .filter((signal) => signal.track === "auto_keyword")
+      .sort(sortSignal)
       .slice(0, args.maxKeywordsPerDay);
+    const explicitSignals = allSignals
+      .filter((signal) => signal.track === "explicit_query")
+      .sort(sortSignal)
+      .slice(0, args.maxExplicitQueriesPerDay);
+    const selected = [...autoSignals, ...explicitSignals];
+    if (selected.length === 0) {
+      continue;
+    }
 
-    const maxScore = Math.max(1, ...topKeywords.map(([, signal]) => signal.matchedScoreSum));
-    const maxComments = Math.max(1, ...topKeywords.map(([, signal]) => signal.matchedCommentSum));
+    const maxScore = Math.max(1, ...selected.map((signal) => signal.matchedScoreSum));
+    const maxComments = Math.max(1, ...selected.map((signal) => signal.matchedCommentSum));
 
-    for (const [keyword, signal] of topKeywords) {
+    for (const signal of selected) {
       const mentionRate = signal.matchedPosts / sampledPosts;
       const qualifiedMentionRate = signal.qualifiedMatchedPosts / sampledPosts;
       const normalizedScore = signal.matchedScoreSum / maxScore;
@@ -265,11 +389,16 @@ function buildRows(args: {
         0,
         1,
       );
+      const breakoutScore = clamp(mentionRate * 0.65 + qualifiedMentionRate * 0.35, 0, 1);
+      const isBreakout = breakoutScore >= 0.2 || keywordHeat >= 0.65;
 
       rows.push({
         targetId: args.targetId,
         day,
-        keyword,
+        keyword: signal.keyword,
+        track: signal.track,
+        normalizedQueryText: signal.normalizedQueryText,
+        queryScope: signal.queryScope,
         sampledPosts,
         matchedPosts: signal.matchedPosts,
         qualifiedMatchedPosts: signal.qualifiedMatchedPosts,
@@ -278,6 +407,17 @@ function buildRows(args: {
         matchedScoreSum: signal.matchedScoreSum,
         matchedCommentSum: signal.matchedCommentSum,
         keywordHeat: toFixedNumber(keywordHeat),
+        algorithmVersion: KEYWORD_TREND_ALGORITHM_VERSION,
+        explainPayload: {
+          ...signal.explainPayload,
+          sampledPosts,
+          matchedPosts: signal.matchedPosts,
+          qualifiedMatchedPosts: signal.qualifiedMatchedPosts,
+          mentionRate: toFixedNumber(mentionRate),
+          qualifiedMentionRate: toFixedNumber(qualifiedMentionRate),
+          breakoutScore: toFixedNumber(breakoutScore),
+          isBreakout,
+        },
         sourceType: args.sourceType,
       });
     }
@@ -285,9 +425,33 @@ function buildRows(args: {
   return rows;
 }
 
+function sortSignal(left: KeywordSignal, right: KeywordSignal): number {
+  const byMentions = right.matchedPosts - left.matchedPosts;
+  if (byMentions !== 0) {
+    return byMentions;
+  }
+  const byQualified = right.qualifiedMatchedPosts - left.qualifiedMatchedPosts;
+  if (byQualified !== 0) {
+    return byQualified;
+  }
+  const byScore = right.matchedScoreSum - left.matchedScoreSum;
+  if (byScore !== 0) {
+    return byScore;
+  }
+  return left.normalizedQueryText.localeCompare(right.normalizedQueryText);
+}
+
 function extractAutoTokens(text: string): string[] {
   const matches = text.toLowerCase().match(/[a-z][a-z0-9_]{2,}/g) ?? [];
   return Array.from(new Set(matches.filter((token) => !AUTO_KEYWORD_STOP_WORDS.has(token))));
+}
+
+function normalizeCanonicalSubreddit(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const normalized = value.trim().replace(/^r\//i, "").toLowerCase();
+  return normalized.length > 0 ? `r/${normalized}` : undefined;
 }
 
 function toUtcDay(iso: string): string {

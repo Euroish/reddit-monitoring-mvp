@@ -7,6 +7,7 @@ import type { KeywordQuerySessionRepository } from "../../../domain/repositories
 import type { MetricsSnapshotRepository } from "../../../domain/repositories/metrics-snapshot-repository";
 import type { MonitorTargetRepository } from "../../../domain/repositories/monitor-target-repository";
 import type { PostSearchDocumentRepository } from "../../../domain/repositories/post-search-document-repository";
+import type { PostGrowthFactRepository } from "../../../domain/repositories/post-growth-fact-repository";
 import type { ProviderHealthWindowRepository } from "../../../domain/repositories/provider-health-window-repository";
 import type { SubredditDailyFactRepository } from "../../../domain/repositories/subreddit-daily-fact-repository";
 import type { RawEventRepository } from "../../../domain/repositories/raw-event-repository";
@@ -21,6 +22,7 @@ import { PostgresKeywordQuerySessionRepository } from "./postgres-keyword-query-
 import { PostgresMetricsSnapshotRepository } from "./postgres-metrics-snapshot.repository";
 import { PostgresMonitorTargetRepository } from "./postgres-monitor-target.repository";
 import { PostgresPostSearchDocumentRepository } from "./postgres-post-search-document.repository";
+import { PostgresPostGrowthFactRepository } from "./postgres-post-growth-fact.repository";
 import { PostgresProviderHealthWindowRepository } from "./postgres-provider-health-window.repository";
 import { PostgresRawEventRepository } from "./postgres-raw-event.repository";
 import { PostgresSubredditDailyFactRepository } from "./postgres-subreddit-daily-fact.repository";
@@ -36,6 +38,7 @@ export interface RepositoryBundle {
   keywordTrendDailyRepository: KeywordTrendDailyRepository;
   keywordQuerySessionRepository: KeywordQuerySessionRepository;
   postSearchDocumentRepository: PostSearchDocumentRepository;
+  postGrowthFactRepository: PostGrowthFactRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
   subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
@@ -53,6 +56,7 @@ export function createPostgresRepositoryBundle(db: PostgresClient): RepositoryBu
     keywordTrendDailyRepository: new PostgresKeywordTrendDailyRepository(db),
     keywordQuerySessionRepository: new PostgresKeywordQuerySessionRepository(db),
     postSearchDocumentRepository: new PostgresPostSearchDocumentRepository(db),
+    postGrowthFactRepository: new PostgresPostGrowthFactRepository(db),
     metricsSnapshotRepository: new PostgresMetricsSnapshotRepository(db),
     subredditDailyFactRepository: new PostgresSubredditDailyFactRepository(db),
     subredditTrendPointRepository: new PostgresSubredditTrendPointRepository(db),

@@ -1,5 +1,6 @@
 import { floorToWindow } from "../../../src/shared/time/windowing";
 import type { CrawlMode, RunMode } from "../../../packages/contracts/src/http";
+import { normalizeQueryV2 } from "../../../src/application/services/query-normalization-v2.service";
 
 export class BadRequestError extends Error {
   constructor(
@@ -137,15 +138,22 @@ export function resolveDailyRange(params: URLSearchParams, nowIso: string): { fr
 }
 
 export function normalizeKeywordQueryText(value: string): string {
-  const normalized = value.trim().replace(/\s+/g, " ");
-  if (normalized.length < 2) {
-    throw new BadRequestError("query must contain at least 2 characters", "invalid_query");
+  try {
+    const normalized = normalizeQueryV2(value);
+    if (normalized.normalizedQueryText.length < 2) {
+      throw new BadRequestError("query must contain at least 2 characters", "invalid_query");
+    }
+    if (normalized.normalizedQueryText.length > MAX_KEYWORD_QUERY_LENGTH) {
+      throw new BadRequestError(
+        `query must be <= ${MAX_KEYWORD_QUERY_LENGTH} characters`,
+        "invalid_query",
+      );
+    }
+    return normalized.normalizedQueryText;
+  } catch (error) {
+    if (error instanceof BadRequestError) {
+      throw error;
+    }
+    throw new BadRequestError("query must be a valid searchable query", "invalid_query");
   }
-  if (normalized.length > MAX_KEYWORD_QUERY_LENGTH) {
-    throw new BadRequestError(
-      `query must be <= ${MAX_KEYWORD_QUERY_LENGTH} characters`,
-      "invalid_query",
-    );
-  }
-  return normalized;
 }

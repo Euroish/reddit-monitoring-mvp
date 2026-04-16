@@ -89,12 +89,17 @@ export interface KeywordDailyPoint {
 
 export interface KeywordHeatPoint {
   keyword: string;
+  track: "auto_keyword" | "explicit_query";
+  queryScope: "subreddit" | "global";
   totalMentions: number;
   latestDayMentions: number;
   previousDayMentions: number;
   dayChangePct: number;
   spikeScore: number;
   isHot: boolean;
+  algorithmVersion?: string;
+  explainPayload?: Record<string, unknown>;
+  source: "materialized_keyword_trend_daily" | "content_fallback";
   daily: KeywordDailyPoint[];
 }
 
@@ -163,7 +168,11 @@ function buildKeywordHeatFromDailyRows(args: {
     if (!daySet.has(row.day)) {
       return false;
     }
-    if (keywordFilter && !keywordFilter.has(row.keyword)) {
+    if (
+      keywordFilter &&
+      !keywordFilter.has(row.keyword) &&
+      !keywordFilter.has(row.normalizedQueryText)
+    ) {
       return false;
     }
     return true;
@@ -172,19 +181,37 @@ function buildKeywordHeatFromDailyRows(args: {
     return [];
   }
 
-  const keywordMap = new Map<string, Map<string, number>>();
-  for (const row of rows) {
-    if (!keywordMap.has(row.keyword)) {
-      keywordMap.set(row.keyword, new Map());
+  const keywordMap = new Map<
+    string,
+    {
+      keyword: string;
+      track: "auto_keyword" | "explicit_query";
+      queryScope: "subreddit" | "global";
+      algorithmVersion?: string;
+      explainPayload?: Record<string, unknown>;
+      byDay: Map<string, number>;
     }
-    keywordMap.get(row.keyword)!.set(row.day, row.matchedPosts);
+  >();
+  for (const row of rows) {
+    const key = `${row.track}|${row.queryScope}|${row.normalizedQueryText}`;
+    if (!keywordMap.has(key)) {
+      keywordMap.set(key, {
+        keyword: row.keyword,
+        track: row.track,
+        queryScope: row.queryScope,
+        algorithmVersion: row.algorithmVersion,
+        explainPayload: row.explainPayload,
+        byDay: new Map(),
+      });
+    }
+    keywordMap.get(key)!.byDay.set(row.day, row.matchedPosts);
   }
 
   const heatPoints: KeywordHeatPoint[] = [];
-  for (const [keyword, byDay] of keywordMap.entries()) {
+  for (const entry of keywordMap.values()) {
     const daily = args.days.map((day) => ({
       day,
-      mentions: byDay.get(day) ?? 0,
+      mentions: entry.byDay.get(day) ?? 0,
     }));
     const totalMentions = daily.reduce((sum, point) => sum + point.mentions, 0);
     const latestDayMentions = daily[daily.length - 1]?.mentions ?? 0;
@@ -194,13 +221,18 @@ function buildKeywordHeatFromDailyRows(args: {
     const spikeScore = toFixedNumber(Math.max(0, robustZScore(latestDayMentions, history)));
 
     heatPoints.push({
-      keyword,
+      keyword: entry.keyword,
+      track: entry.track,
+      queryScope: entry.queryScope,
       totalMentions,
       latestDayMentions,
       previousDayMentions,
       dayChangePct: toFixedNumber(dayChangePct),
       spikeScore,
       isHot: spikeScore >= 2 || dayChangePct >= 1,
+      algorithmVersion: entry.algorithmVersion,
+      explainPayload: entry.explainPayload,
+      source: "materialized_keyword_trend_daily",
       daily,
     });
   }
@@ -359,12 +391,15 @@ function buildKeywordHeat(args: {
 
     heatPoints.push({
       keyword,
+      track: "auto_keyword",
+      queryScope: "subreddit",
       totalMentions,
       latestDayMentions,
       previousDayMentions,
       dayChangePct: toFixedNumber(dayChangePct),
       spikeScore,
       isHot: spikeScore >= 2 || dayChangePct >= 1,
+      source: "content_fallback",
       daily,
     });
   }

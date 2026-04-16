@@ -10,6 +10,7 @@ import type {
 import type { MetricsSnapshot } from "../../../domain/entities/metrics-snapshot";
 import type { MonitorTarget } from "../../../domain/entities/monitor-target";
 import type { PostSearchDocument } from "../../../domain/entities/post-search-document";
+import type { PostGrowthFact } from "../../../domain/entities/post-growth-fact";
 import type { ProviderHealthWindow } from "../../../domain/entities/provider-health-window";
 import type { SubredditDailyFact } from "../../../domain/entities/subreddit-daily-fact";
 import type { SubredditTrendPoint } from "../../../domain/entities/subreddit-trend-point";
@@ -134,6 +135,9 @@ export interface KeywordTrendDailyRow {
   target_id: string;
   day: string | Date;
   keyword: string;
+  track: "auto_keyword" | "explicit_query";
+  normalized_query_text: string;
+  query_scope: "subreddit" | "global";
   sampled_posts: number;
   matched_posts: number;
   qualified_matched_posts: number;
@@ -142,6 +146,8 @@ export interface KeywordTrendDailyRow {
   matched_score_sum: number;
   matched_comment_sum: number;
   keyword_heat: string | number;
+  algorithm_version: string;
+  explain_payload: Record<string, unknown>;
   source_type: "live" | "backfill";
   updated_at: string | Date;
 }
@@ -168,6 +174,26 @@ export interface SubredditDailyFactRow {
   subreddit_tier: "micro" | "small" | "mid" | "large";
   quality_threshold_score: number;
   quality_threshold_comments: number;
+  algorithm_version: string;
+  explain_payload: Record<string, unknown>;
+  updated_at: string | Date;
+}
+
+export interface PostGrowthFactRow {
+  target_id: string;
+  content_id: string;
+  age_bucket: "1h" | "6h" | "24h";
+  observed_at: string | Date;
+  age_minutes: number;
+  score: number;
+  comments: number;
+  score_velocity_per_hour: string | number;
+  comment_velocity_per_hour: string | number;
+  cohort_post_count: number;
+  cohort_median_score_velocity: string | number;
+  cohort_median_comment_velocity: string | number;
+  velocity_z_score: string | number;
+  driver_score: string | number;
   algorithm_version: string;
   explain_payload: Record<string, unknown>;
   updated_at: string | Date;
@@ -399,6 +425,9 @@ export function mapKeywordTrendDaily(row: KeywordTrendDailyRow): KeywordTrendDai
     targetId: row.target_id,
     day: toIso(row.day)!.slice(0, 10),
     keyword: row.keyword,
+    track: row.track,
+    normalizedQueryText: row.normalized_query_text,
+    queryScope: row.query_scope,
     sampledPosts: row.sampled_posts,
     matchedPosts: row.matched_posts,
     qualifiedMatchedPosts: row.qualified_matched_posts,
@@ -407,6 +436,8 @@ export function mapKeywordTrendDaily(row: KeywordTrendDailyRow): KeywordTrendDai
     matchedScoreSum: row.matched_score_sum,
     matchedCommentSum: row.matched_comment_sum,
     keywordHeat: Number(row.keyword_heat),
+    algorithmVersion: row.algorithm_version,
+    explainPayload: row.explain_payload ?? {},
     sourceType: row.source_type,
     updatedAt: toIso(row.updated_at),
   };
@@ -435,6 +466,28 @@ export function mapSubredditDailyFact(row: SubredditDailyFactRow): SubredditDail
     subredditTier: row.subreddit_tier,
     qualityThresholdScore: row.quality_threshold_score,
     qualityThresholdComments: row.quality_threshold_comments,
+    algorithmVersion: row.algorithm_version,
+    explainPayload: row.explain_payload ?? {},
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
+export function mapPostGrowthFact(row: PostGrowthFactRow): PostGrowthFact {
+  return {
+    targetId: row.target_id,
+    contentId: row.content_id,
+    ageBucket: row.age_bucket,
+    observedAt: toIso(row.observed_at)!,
+    ageMinutes: row.age_minutes,
+    score: row.score,
+    comments: row.comments,
+    scoreVelocityPerHour: Number(row.score_velocity_per_hour),
+    commentVelocityPerHour: Number(row.comment_velocity_per_hour),
+    cohortPostCount: row.cohort_post_count,
+    cohortMedianScoreVelocity: Number(row.cohort_median_score_velocity),
+    cohortMedianCommentVelocity: Number(row.cohort_median_comment_velocity),
+    velocityZScore: Number(row.velocity_z_score),
+    driverScore: Number(row.driver_score),
     algorithmVersion: row.algorithm_version,
     explainPayload: row.explain_payload ?? {},
     updatedAt: toIso(row.updated_at),

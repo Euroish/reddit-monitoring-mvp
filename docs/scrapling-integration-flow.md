@@ -103,7 +103,7 @@ Add Scrapling-specific evidence fields (without changing existing gate semantics
 
 ## Verification gates (per stage)
 
-- `npm run algo:phase1`
+- `npm run algo:phase1:full`
 - `npm run algo:full`
 - live verification snapshot with comparable target set and fixed timeout/circuit settings
 - activity log entry in `obsidian-reddit专用/Projects/project.md` (`Scope`, `Why now`, `Verify`, `Next`)

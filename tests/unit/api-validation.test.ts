@@ -105,7 +105,11 @@ test("parseOptionalIntegerParam validates range and integer", () => {
 });
 
 test("normalizeKeywordQueryText trims and validates boundaries", () => {
-  assert.equal(normalizeKeywordQueryText("  llm   agent  "), "llm agent");
+  assert.equal(normalizeKeywordQueryText("  LLM   agent  "), "llm agent");
+  assert.equal(
+    normalizeKeywordQueryText("global: artificial intelligence"),
+    "artificial intelligence",
+  );
   assert.throws(() => normalizeKeywordQueryText("a"), BadRequestError);
   assert.throws(() => normalizeKeywordQueryText("x".repeat(161)), BadRequestError);
 });

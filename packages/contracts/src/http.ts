@@ -331,12 +331,17 @@ export interface SubredditDailyTrendResponse {
   }>;
   keywordHeat: Array<{
     keyword: string;
+    track?: "auto_keyword" | "explicit_query";
+    queryScope?: "subreddit" | "global";
     totalMentions: number;
     latestDayMentions: number;
     previousDayMentions: number;
     dayChangePct: number;
     spikeScore: number;
     isHot: boolean;
+    source?: "materialized_keyword_trend_daily" | "content_fallback";
+    algorithmVersion?: string;
+    explainPayload?: Record<string, unknown>;
     daily: Array<{
       day: string;
       mentions: number;

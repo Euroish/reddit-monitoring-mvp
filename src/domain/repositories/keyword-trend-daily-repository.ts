@@ -7,7 +7,8 @@ export interface KeywordTrendDailyRepository {
     fromDay: string;
     toDay: string;
     keywords?: string[];
+    tracks?: Array<"auto_keyword" | "explicit_query">;
+    queryScopes?: Array<"subreddit" | "global">;
     limit?: number;
   }): Promise<KeywordTrendDaily[]>;
 }
-

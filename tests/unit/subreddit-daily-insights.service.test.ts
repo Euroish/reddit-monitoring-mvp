@@ -167,6 +167,9 @@ test("buildSubredditDailyInsights can read keyword heat from materialized daily 
         targetId,
         day: "2026-04-10",
         keyword: "ai",
+        track: "auto_keyword",
+        normalizedQueryText: "ai",
+        queryScope: "subreddit",
         sampledPosts: 10,
         matchedPosts: 3,
         qualifiedMatchedPosts: 1,
@@ -175,12 +178,17 @@ test("buildSubredditDailyInsights can read keyword heat from materialized daily 
         matchedScoreSum: 100,
         matchedCommentSum: 40,
         keywordHeat: 0.5,
+        algorithmVersion: "keyword_trend_v2_dual_track",
+        explainPayload: {},
         sourceType: "live",
       },
       {
         targetId,
         day: "2026-04-11",
         keyword: "ai",
+        track: "auto_keyword",
+        normalizedQueryText: "ai",
+        queryScope: "subreddit",
         sampledPosts: 10,
         matchedPosts: 2,
         qualifiedMatchedPosts: 1,
@@ -189,12 +197,17 @@ test("buildSubredditDailyInsights can read keyword heat from materialized daily 
         matchedScoreSum: 80,
         matchedCommentSum: 20,
         keywordHeat: 0.4,
+        algorithmVersion: "keyword_trend_v2_dual_track",
+        explainPayload: {},
         sourceType: "live",
       },
       {
         targetId,
         day: "2026-04-12",
         keyword: "ai",
+        track: "auto_keyword",
+        normalizedQueryText: "ai",
+        queryScope: "subreddit",
         sampledPosts: 10,
         matchedPosts: 6,
         qualifiedMatchedPosts: 4,
@@ -203,6 +216,8 @@ test("buildSubredditDailyInsights can read keyword heat from materialized daily 
         matchedScoreSum: 220,
         matchedCommentSum: 90,
         keywordHeat: 0.9,
+        algorithmVersion: "keyword_trend_v2_dual_track",
+        explainPayload: {},
         sourceType: "live",
       },
     ],
@@ -213,6 +228,8 @@ test("buildSubredditDailyInsights can read keyword heat from materialized daily 
   const ai = model.keywordHeat.find((item) => item.keyword === "ai");
   assert.ok(ai);
   assert.equal(ai?.totalMentions, 11);
+  assert.equal(ai?.track, "auto_keyword");
+  assert.equal(ai?.source, "materialized_keyword_trend_daily");
   assert.equal(ai?.latestDayMentions, 6);
   assert.equal(ai?.daily[0]?.mentions, 3);
   assert.equal(ai?.daily[2]?.mentions, 6);

@@ -4,14 +4,17 @@ import type { AccountRepository } from "../domain/repositories/account-repositor
 import type { CollectionJobRepository } from "../domain/repositories/collection-job-repository";
 import type { ContentRepository } from "../domain/repositories/content-repository";
 import type { CrawlCursorRepository } from "../domain/repositories/crawl-cursor-repository";
+import type { KeywordQuerySessionRepository } from "../domain/repositories/keyword-query-session-repository";
 import type { KeywordTrendDailyRepository } from "../domain/repositories/keyword-trend-daily-repository";
 import type { MetricsSnapshotRepository } from "../domain/repositories/metrics-snapshot-repository";
 import type { MonitorTargetRepository } from "../domain/repositories/monitor-target-repository";
+import type { PostGrowthFactRepository } from "../domain/repositories/post-growth-fact-repository";
 import type { ProviderHealthWindowRepository } from "../domain/repositories/provider-health-window-repository";
 import type { RawEventRepository } from "../domain/repositories/raw-event-repository";
 import type { SubredditDailyFactRepository } from "../domain/repositories/subreddit-daily-fact-repository";
 import type { SubredditTrendPointRepository } from "../domain/repositories/subreddit-trend-point-repository";
 import type { SubredditTrendPoint } from "../domain/entities/subreddit-trend-point";
+import { buildPostGrowthFactsJob } from "../jobs/build-post-growth-facts.job";
 import { buildSubredditDailyFactsJob } from "../jobs/build-subreddit-daily-facts.job";
 import { buildSubredditTrendPointsJob } from "../jobs/build-subreddit-trend-points.job";
 import { buildSubredditKeywordTrendDailyJob } from "../jobs/build-subreddit-keyword-trend-daily.job";
@@ -32,6 +35,8 @@ export interface RedditPhase1WorkerDependencies {
   crawlCursorRepository?: CrawlCursorRepository;
   providerHealthWindowRepository?: ProviderHealthWindowRepository;
   keywordTrendDailyRepository?: KeywordTrendDailyRepository;
+  keywordQuerySessionRepository?: KeywordQuerySessionRepository;
+  postGrowthFactRepository?: PostGrowthFactRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
   subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
@@ -321,8 +326,43 @@ export async function runRedditPhase1Cycle(
           toIso: nowIso,
         },
       );
+      if (deps.postGrowthFactRepository) {
+        const postGrowthFromIso = new Date(
+          new Date(nowIso).getTime() - 24 * 60 * 60 * 1000,
+        ).toISOString();
+        await buildPostGrowthFactsJob(
+          {
+            contentRepository: deps.contentRepository,
+            metricsSnapshotRepository: deps.metricsSnapshotRepository,
+            postGrowthFactRepository: deps.postGrowthFactRepository,
+          },
+          {
+            targetId: target.id,
+            fromIso: postGrowthFromIso,
+            toIso: nowIso,
+          },
+        );
+      }
 
       if (deps.keywordTrendDailyRepository) {
+        const explicitQueries = deps.keywordQuerySessionRepository
+          ? (
+              await deps.keywordQuerySessionRepository.listLiveRefreshCandidates({
+                statuses: ["initial_ready", "live_refreshing", "completed"],
+                limit: 60,
+              })
+            )
+              .filter((session) => {
+                if (!session.canonicalSubreddit) {
+                  return true;
+                }
+                return (
+                  toCanonicalSubredditName(session.canonicalSubreddit) ===
+                  toCanonicalSubredditName(target.canonicalName)
+                );
+              })
+              .map((session) => session.queryText)
+          : [];
         const keywordFromIso = new Date(
           new Date(nowIso).getTime() - keywordDailyLookbackDays * 24 * 60 * 60 * 1000,
         ).toISOString();
@@ -335,6 +375,8 @@ export async function runRedditPhase1Cycle(
           },
           {
             targetId: target.id,
+            canonicalSubreddit: target.canonicalName,
+            explicitQueries,
             fromIso: keywordFromIso,
             toIso: nowIso,
             qualityMinScore: keywordDailyQualityMinScore,

@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: P1.7-algorithm-productization
-updated_at: "2026-04-16 21:24:04"
+updated_at: "2026-04-17 00:27:42"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Start `R2` by implementing query-normalization v2 and the explicit-query plus auto-keyword dual-track materialization on top of tier-aware `subreddit_daily_fact`, then add API/read-model tests proving 30-day keyword heat remains explainable and single-sourced."
+next_action: "Add the first driver-post read model on top of `post_growth_fact` (repository query + API endpoint payload with `driver_score` and `explain_payload`) plus focused integration coverage."
 tags:
 - codex
 - workspace
@@ -137,6 +137,83 @@ tags:
 - Keep this file ASCII-first or clean UTF-8 only; do not copy mojibake text forward.
 
 ## Activity Log
+
+### 2026-04-17 00:27:42
+
+- Scope: Wired `post_growth_fact` materialization into runtime flow. Updated `src/workers/reddit-phase1.worker.ts` and `workers/reddit-phase1-scheduler.ts` so the cycle order now includes `buildPostGrowthFactsJob` after daily/trend materialization and before downstream keyword/driver consumers. Added `postGrowthFactRepository` wiring through scheduler repo picks and touched-target materialization path. Extended `tests/integration/reddit-phase1-cycle.test.ts` to assert in-cycle `post_growth_fact` persistence.
+- Why now: R3 needed persisted growth facts to be generated automatically in the same collection cycle; without worker/scheduler wiring, the new schema/repository/job stack would remain disconnected from production flow.
+- Verify: `npx tsx --test tests/unit/build-post-growth-facts.job.test.ts tests/unit/post-growth-fact.repository.test.ts` passed (`5/5`). `npx tsx --test tests/integration/reddit-phase1-cycle.test.ts` passed (`1/1`) with `postGrowthFactRepository.all().length > 0`. `npm run typecheck` passed. `npm run algo:phase1:full` passed (`29/29` unit + `6/6` phase1 integration).
+- Next: Add the first driver-post read model on top of `post_growth_fact` (repository query + API endpoint payload with `driver_score` and `explain_payload`) plus focused integration coverage.
+
+### 2026-04-17 00:25:39
+
+- Scope: Completed the first bounded `R3` materialization slice on top of the new contracts. Added `src/jobs/build-post-growth-facts.job.ts` to emit `post_growth_fact` rows from persisted `content + metrics_snapshot` using `1h/6h/24h` age buckets, cohort-normalized velocity (`median/MAD`), bounded `driver_score`, explicit `algorithm_version=post_growth_v1`, and structured `explain_payload`. Added focused non-DB unit coverage in `tests/unit/build-post-growth-facts.job.test.ts`.
+- Why now: After landing additive storage/repository contracts, the next smallest vertical step was to materialize real rows with deterministic normalization logic so downstream driver APIs can consume persisted facts instead of ad-hoc scoring.
+- Verify: `npx tsx --test tests/unit/build-post-growth-facts.job.test.ts tests/unit/post-growth-fact.repository.test.ts` passed (`5/5`). `npm run typecheck` passed. Reduced truth-layer gate remains green: `npm run algo:phase1` passed (`29/29`).
+- Next: Wire `post_growth_fact` materialization into the worker/scheduler flow order (after collection facts, before driver-facing reads), then add focused integration coverage that proves rows are persisted in-cycle.
+
+### 2026-04-17 00:22:35
+
+- Scope: Completed the first bounded `R3` storage/repository contract slice for driver-post work. Added additive schema `015_post_growth_fact.sql` with `algorithm_version` and `explain_payload`, plus new domain contracts `src/domain/entities/post-growth-fact.ts` and `src/domain/repositories/post-growth-fact-repository.ts`. Implemented both storage lanes: `InMemoryPostGrowthFactRepository` in `src/storage/repositories/in-memory/raw-target-trend.repositories.ts` and `PostgresPostGrowthFactRepository` in `src/storage/repositories/postgres/postgres-post-growth-fact.repository.ts`, wired through `src/storage/repositories/postgres/postgres-repository-bundle.ts`, and added row mapping support in `src/storage/repositories/postgres/postgres-row-mappers.ts`.
+- Why now: `project.md` `next_action` required a non-breaking additive `post_growth_fact` persistence contract before any R3 driver scoring/materialization logic, so downstream algorithm slices can ship against stable storage interfaces.
+- Verify: `npx tsx --test tests/unit/post-growth-fact.repository.test.ts` passed (`3/3`, non-DB coverage for filter/sort/limit/upsert semantics). `npm run typecheck` passed. Reduced truth-layer gate also remained green: `npm run algo:phase1` passed (`29/29`).
+- Next: Implement the first bounded `R3` materialization slice: add a `post_growth_fact` builder that emits `1h/6h/24h` cohort-normalized velocity rows from existing persisted metrics/content with focused unit tests.
+
+### 2026-04-17 00:15:41
+
+- Scope: Reduced low-signal repeated test runs in the execution flow by splitting phase1 gates into unit and integration tiers. Updated `package.json` with `test:phase1:unit`, `test:phase1:integration`, and new `algo:phase1:full`, while making `algo:phase1` unit-only quick gate. Synced command policy across `00_START_HERE.md`, `docs/operations-runbook.md`, `skills/algorithm-dev-suite/SKILL.md`, `docs/execution-kickoff.md`, `docs/scrapling-integration-flow.md`, and `docs/stageb-target-rollout-criteria.md`.
+- Why now: Current flow was repeatedly running integration gates for routine truth-layer edits where unit-only phase1 checks are sufficient, creating avoidable test cost without additional signal.
+- Verify: `npm run algo:phase1` passed (`typecheck:core` + `29/29` phase1 unit tests). `npm run algo:phase1:full` passed (`typecheck:core` + `29/29` phase1 unit + `6/6` phase1 integration tests).
+- Next: Start the bounded `R3` `post_growth_fact` storage/repository slice and keep this reduced gate policy: default `algo:phase1`, escalate to `algo:phase1:full` only when integration boundaries are touched.
+
+### 2026-04-17 00:11:32
+
+- Scope: Ran persisted `verify:phase1:postgres` evidence checks after the new non-DB scope-proof harness, covering both default query parsing and malformed-token input fallback. Verified script JSON still emits stable `scopeProofQueries` and `keywordExplicitScopeByQuery` from real PostgreSQL data.
+- Why now: The harness secured parser/shape semantics in unit tests, but we still needed one DB-backed confirmation that runtime script output remained aligned under realistic execution.
+- Verify: With `DATABASE_URL=postgresql://postgres:13923276897Ak@localhost:5432/reddit_monitoring`, `REDDIT_RUN_MODE=mock`, `REDDIT_RUN_SUBREDDIT=machinelearning`: (1) default env produced `scopeProofQueries=["llm"]` and `keywordExplicitScopeByQuery[0].byScope={subreddit:16, global:16}` (`total=32`); (2) malformed `VERIFY_KEYWORD_SCOPE_QUERIES=' , a, , x '` produced the same fallback/stable output shape and counts. Both runs returned `ok=true`.
+- Next: Start the first bounded `R3` slice by adding additive `post_growth_fact` storage/repository contracts with `algorithm_version` and `explain_payload`, plus focused non-DB unit coverage.
+
+### 2026-04-17 00:10:16
+
+- Scope: Completed the pending non-DB regression harness for `verify-phase1-postgres` scope-proof behavior. Added `scripts/verify-phase1-postgres.scope-proof.ts` with pure helpers for `scopeProofQueries` parsing and `keywordExplicitScopeByQuery` shape building, then rewired `scripts/verify-phase1-postgres.ts` to consume those helpers instead of inline logic. Added `tests/unit/verify-phase1-postgres.scope-proof.test.ts` covering default `llm`, dedupe, invalid token filtering, and zero-filled per-scope output shape stability.
+- Why now: The previous verify-script scope-proof evidence depended on live Postgres output only; we needed a small deterministic harness so parser/shape regressions are caught without DB availability.
+- Verify: `npx tsx --test tests/unit/verify-phase1-postgres.scope-proof.test.ts` passed (`4/4`). `npm run typecheck:core` passed. `npm run typecheck` passed.
+- Next: Run one persisted `verify:phase1:postgres` pass with both default and malformed `VERIFY_KEYWORD_SCOPE_QUERIES` inputs to confirm script JSON output still matches harnessed parsing/shape semantics on real data.
+
+### 2026-04-17 00:02:09
+
+- Scope: Completed the pending R2 verify-script promotion by extending `scripts/verify-phase1-postgres.ts` with built-in per-query explicit scope evidence. Added `scopeProofQueries` resolution (default `llm`, env override via `VERIFY_KEYWORD_SCOPE_QUERIES`) and new output field `keywordExplicitScopeByQuery` showing per-normalized-query counts split by `subreddit/global` plus total.
+- Why now: The previous flow still depended on ad-hoc SQL to prove mixed-scope explicit-query persistence for a specific normalized query; this needed to become first-class in the canonical verify output.
+- Verify: `npm run typecheck` passed. With `DATABASE_URL=postgresql://postgres:13923276897Ak@localhost:5432/reddit_monitoring`, `REDDIT_RUN_MODE=mock`, `REDDIT_RUN_SUBREDDIT=machinelearning`, `VERIFY_KEYWORD_SCOPE_QUERIES=llm`, `npm run verify:phase1:postgres` now prints `scopeProofQueries` and `keywordExplicitScopeByQuery`, including `normalizedQueryText=llm` with `byScope.subreddit=16` and `byScope.global=16`.
+- Next: Add a small non-DB regression harness for verify-script scope-proof parsing/output-shape so this evidence field remains stable without depending on live Postgres runs.
+
+### 2026-04-16 23:59:22
+
+- Scope: Completed one medium R2 verification slice: added mixed-scope API coverage for explicit query semantics and executed persisted PostgreSQL verification in the same cycle. Updated `tests/integration/api-server-trends.test.ts` to assert one request with `keywords=global:llm,llm` returns both explicit scope rows (`global` + `subreddit`) in a single `/v1/trends/subreddit/:name/daily` response.
+- Why now: The prior state proved each scope independently; we still needed one-request mixed-scope proof plus a fresh persisted run to confirm dual-scope behavior remains stable on materialized DB data.
+- Verify: `npx tsx --test tests/integration/api-server-trends.test.ts` passed (`8/8`). `npm run ops:prewarm:keyword-query` with `KEYWORD_QUERY_PREWARM_TARGETS='llm@machinelearning;global: llm'` succeeded (`supportCount=39` for subreddit, `171` for global). `npm run verify:phase1:postgres` (`REDDIT_RUN_MODE=mock`, `REDDIT_RUN_SUBREDDIT=machinelearning`) passed and reported `keywordTrackDistribution`: `auto_keyword/subreddit=17353`, `explicit_query/subreddit=73`, `explicit_query/global=16`. Direct DB check for normalized query `llm` confirmed both scopes persisted: `subreddit=16`, `global=16`.
+- Next: Promote this persisted proof into `verify-phase1-postgres` output by adding a built-in per-normalized-query scope split section (start with `llm`) so mixed-scope evidence is first-class in the script output.
+
+### 2026-04-16 23:35:05
+
+- Scope: Hardened R2 explicit-query daily-read correctness for invalid keyword input. Updated `/v1/trends/subreddit/:name/daily` keyword parsing in `apps/api/src/create-api-server.ts` to reject invalid keyword query items instead of silently dropping them. Tightened normalization in `src/application/services/query-normalization-v2.service.ts` so scope-only inputs (`global:`, `r/<subreddit>:`) fail validation after scope stripping. Added regression coverage in `tests/integration/api-server-trends.test.ts` and `tests/unit/query-normalization-v2.service.test.ts`.
+- Why now: The previous API path could silently ignore malformed `keywords` entries and broaden results to unfiltered materialized rows, which violates explicit-query semantics and can return misleading data.
+- Verify: `npx tsx --test tests/unit/query-normalization-v2.service.test.ts` passed (`4/4`, including scope-only rejection). `npx tsx --test tests/integration/api-server-trends.test.ts` passed (`8/8`, including new invalid-keyword 400 case and existing global/subreddit scope filtering). `npm run algo:phase1` passed (`35/35`). `npm run algo:full` passed (`150/150`).
+- Next: Add one mixed-request API case (`keywords=global:llm,llm`) to assert dual-scope rows are both returned deterministically in a single response, then run one persisted PostgreSQL `verify:phase1:postgres` pass to capture materialized evidence for that read path.
+
+### 2026-04-16 23:28:01
+
+- Scope: Closed the pending real-DB proof for `R2` dual-track keyword materialization and improved the verification surface. Seeded explicit keyword query sessions into PostgreSQL with `npm run ops:prewarm:keyword-query` for `r/machinelearning` (`github`, `https`, `llm`, `ai`) and reran `npm run verify:phase1:postgres`. Then seeded a global-scope query (`global: llm`) and reran verification to exercise query-scope v2 behavior in persistence. Upgraded `scripts/verify-phase1-postgres.ts` to output `keywordTrackDistribution`, include `track/queryScope/normalizedQueryText/algorithmVersion` in keyword previews, and add a dedicated `explicitKeywordRows` preview from materialized storage.
+- Why now: The last state proved schema + code in tests, but PostgreSQL evidence still showed only `auto_keyword/subreddit` rows; we needed explicit proof that seeded query sessions feed `explicit_query` materialization, including global-scope semantics.
+- Verify: Prewarm succeeded on DB `postgresql://postgres:13923276897Ak@localhost:5432/reddit_monitoring`: `github` (`supportCount=8`), `https` (`1`), `llm` (`39`), `ai` (`19`) scoped to `r/machinelearning`, plus global `llm` (`171`). `npm run verify:phase1:postgres` passed twice after seeding, and now reports `keywordTrackDistribution` with both explicit scopes: `auto_keyword/subreddit=17353`, `explicit_query/subreddit=73`, `explicit_query/global=16` (`keyword_trend_daily=17442`). `materializedPreview.explicitKeywordRows` now shows persisted explicit rows with `track=explicit_query`, `queryScope` (`subreddit` and `global`), `normalizedQueryText`, and `algorithmVersion=keyword_trend_v2_dual_track`. `npm run typecheck` passed after the verify-script update.
+- Next: Add focused integration tests for `/v1/trends/subreddit/:name/daily` explicit query scope semantics (especially `global:` query input) so API-level filtering behavior is locked to the same single-source materialized read path.
+
+### 2026-04-16 23:22:25
+
+- Scope: Started `R2` query-trend upgrade with a complete dual-track keyword materialization slice. Added `query-normalization v2` (`src/application/services/query-normalization-v2.service.ts`) covering lowercase normalization, phrase groups, token-overlap dedupe, alias-boundary matching (`ai/llm/ml`), and query-scope parsing (`global:` and `r/<subreddit>:`). Upgraded `keyword_trend_daily` to dual track via migration `014_keyword_trend_dual_track.sql` (`track`, `normalized_query_text`, `query_scope`, `algorithm_version`, `explain_payload`) and wired entity/repository mapper/storage updates across in-memory and Postgres implementations. Updated keyword daily materialization (`build-subreddit-keyword-trend-daily.job.ts`) to emit both `auto_keyword` and `explicit_query` rows from the same tier-aware day-fact thresholds, including breakout/explain payload. Wired worker (`reddit-phase1.worker.ts`) to feed explicit query candidates from existing keyword-query sessions. Updated `/v1/trends/subreddit/:name/daily` read path to consume materialized keyword rows directly (single-sourced in API path), with explicit-query filtering using normalization v2.
+- Why now: `next_action` explicitly required entering `R2` with normalization-v2 semantics plus explicit-query and auto-keyword dual-track materialization, and to prove 30-day keyword heat remains explainable and single-sourced from persisted fact/read-model layers.
+- Verify: `npm run typecheck:core` passed. Focused suites passed: `tests/unit/query-normalization-v2.service.test.ts`, `tests/unit/api-validation.test.ts`, `tests/unit/build-subreddit-keyword-trend-daily.job.test.ts`, `tests/unit/subreddit-daily-insights.service.test.ts`, `tests/integration/api-server-trends.test.ts`, `tests/unit/keyword-pulse-query.service.test.ts`, `tests/unit/keyword-query-live-refresh.service.test.ts`, `tests/integration/api-server-keyword-query.test.ts`. Regression gates passed: `npm run algo:phase1` (`35/35`) and `npm run algo:full` (`147/147`). Postgres verification also passed with `DATABASE_URL=postgresql://postgres:13923276897Ak@localhost:5432/reddit_monitoring`: `npm run db:migrate` applied `014_keyword_trend_dual_track.sql`, and `npm run verify:phase1:postgres` returned `ok: true` with updated persisted counts (`keyword_trend_daily=17353`, `subreddit_daily_fact=46`, `subreddit_trend_point=67`). Direct SQL check confirms schema is active and currently materialized rows are `auto_keyword/subreddit` only (`explicit_query` rows not present yet) because no live keyword-query sessions have been seeded in this DB lane.
+- Next: Seed explicit keyword-query sessions in Postgres and run one more persisted phase1 verification pass that directly inspects `keyword_trend_daily.track/query_scope/normalized_query_text` rows to prove dual-track persistence on live DB data (beyond in-memory and API contract tests).
 
 ### 2026-04-16 21:24:04
 

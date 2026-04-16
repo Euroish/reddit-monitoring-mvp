@@ -25,6 +25,7 @@ import {
   buildKeywordQueryDataQuality,
   toDominantSourceType,
 } from "../../../src/application/services/keyword-query-metrics";
+import { normalizeQueryV2 } from "../../../src/application/services/query-normalization-v2.service";
 import { buildSubredditDailyInsights } from "../../../src/application/services/subreddit-daily-insights.service";
 import { buildSubredditTrendReadModel } from "../../../src/application/services/subreddit-trend-read-model";
 import type { RedditConnector } from "../../../src/connectors/reddit/reddit-connector.interface";
@@ -860,7 +861,8 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           return;
         }
 
-        const queryText = normalizeKeywordQueryText(body.query);
+        normalizeKeywordQueryText(body.query);
+        const queryText = body.query.trim().replace(/\s+/g, " ");
         const subreddit =
           typeof body.subreddit === "string" && body.subreddit.trim().length > 0
             ? normalizeSubredditName(body.subreddit)
@@ -1002,7 +1004,24 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             min: 1,
             max: 30,
           }) ?? 10;
-        const keywords = parseKeywordList(url.searchParams.get("keywords"));
+        const rawKeywords = parseKeywordList(url.searchParams.get("keywords"));
+        const normalizedQueries = rawKeywords.map((keyword) => {
+          try {
+            return normalizeQueryV2(keyword, canonicalName);
+          } catch {
+            throw new BadRequestError(
+              `invalid keywords query: ${keyword}`,
+              "invalid_query_param",
+            );
+          }
+        });
+        const explicitQueryTexts = normalizedQueries.map((query) => query.normalizedQueryText);
+        const queryScopes =
+          normalizedQueries.length > 0
+            ? Array.from(new Set(normalizedQueries.map((query) => query.queryScope)))
+            : undefined;
+        const tracks =
+          normalizedQueries.length > 0 ? (["explicit_query"] as const) : undefined;
         const [dailyFacts, points, keywordDailyRows] = await Promise.all([
           repos.subredditDailyFactRepository.listByTargetInRange({
             targetId: target.id,
@@ -1018,29 +1037,21 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             targetId: target.id,
             fromDay: toUtcDay(fromIso),
             toDay: toUtcDay(toIso),
-            keywords,
+            keywords: explicitQueryTexts,
+            tracks: tracks ? [...tracks] : undefined,
+            queryScopes,
             limit: keywordLimit,
           }) ?? Promise.resolve([]),
         ]);
 
-        const posts =
-          keywordDailyRows.length === 0
-            ? await repos.contentRepository.findByTargetCreatedAtRange({
-                targetId: target.id,
-                from: fromIso,
-                to: toIso,
-                limit: 10000,
-              })
-            : [];
-
         const readModel = buildSubredditDailyInsights({
           dailyFacts,
           points,
-          posts,
+          posts: [],
           keywordDailyRows,
           fromIso,
           toIso,
-          keywords,
+          keywords: explicitQueryTexts,
           keywordLimit,
         });
 

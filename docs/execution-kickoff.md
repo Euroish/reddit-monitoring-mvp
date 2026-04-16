@@ -26,7 +26,8 @@ Switch from document-only preparation to executable project skeleton.
 ## Fast local path
 
 1. `npm run algo:fast`
-2. `npm run algo:phase1` when the change touches truth-layer behavior
+2. `npm run algo:phase1` when the change touches truth-layer behavior (unit-only quick gate)
+3. `npm run algo:phase1:full` only when phase1 integration boundaries are touched
 
 ## Manual verification path
 

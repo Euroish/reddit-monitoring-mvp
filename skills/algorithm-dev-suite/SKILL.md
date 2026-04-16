@@ -127,9 +127,10 @@ For each algorithm task:
 For routine algorithm work, use only:
 
 1. `npm run algo:fast`
-2. `npm run algo:phase1` when the change touches truth-layer behavior
-3. `npm run algo:full` before close-out
-4. `npm run algo:live:verify` only when live calibration is explicitly required
+2. `npm run algo:phase1` when the change touches truth-layer behavior (unit-only quick gate)
+3. `npm run algo:phase1:full` only when phase1 integration boundaries are touched
+4. `npm run algo:full` before close-out
+5. `npm run algo:live:verify` only when live calibration is explicitly required
 
 Do not widen into worker/scheduler/API/manual operations unless the task explicitly requires that boundary.
 

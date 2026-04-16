@@ -32,7 +32,7 @@ Verifier note:
 
 4. Stage B exit gate toward Stage C:
    - at least one hot-target set and one technical-target set satisfy Rule 1 in repeated windows, and
-   - `npm run algo:phase1` remains green for the same revision.
+   - `npm run algo:phase1:full` remains green for the same revision.
 
 ## Current evidence (2026-04-16)
 
