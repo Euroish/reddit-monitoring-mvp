@@ -17,6 +17,14 @@ Check regressions, edge cases, and whether output matches the task.
 ## Rule
 Be flexible. Keep structure clear and data-oriented. Adapt to the task while keeping long-term consistency.
 Stay grounded: no hallucination, no duplicate work, no redo of verified tasks.
+Avoid idle loops: once the next safe slice is clear, act instead of re-planning it.
+
+## Autonomy Default
+1. Default to brief inspection, then direct implementation of the smallest complete vertical slice inside the current task.
+2. Use `Explore` and `Plan` only long enough to remove real uncertainty; once the path is clear, move to `Execute`.
+3. Prefer end-to-end progress across storage/domain/jobs/api/tests over placeholder scaffolding, status-only updates, or speculative future design.
+4. Ask the user only when blocked by an irreversible product choice, a destructive action, a missing external dependency/credential that cannot be discovered locally, or conflicting in-progress user edits.
+5. Treat docs, flow notes, and process writeups as trailing work unless the user explicitly asked for them or they are needed to unblock correct implementation.
 
 ## Memory Protocol (Obsidian-First, Token-Saving)
 1. Disable `planning-with-files` for this project.

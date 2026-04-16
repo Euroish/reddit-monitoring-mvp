@@ -8,5 +8,10 @@ export interface MetricsSnapshotRepository {
     to: string;
     metricNames: string[];
   }): Promise<MetricsSnapshot[]>;
+  listLatestByTargetsInRange(args: {
+    targetIds: string[];
+    from: string;
+    to: string;
+    metricNames: string[];
+  }): Promise<MetricsSnapshot[]>;
 }
-

@@ -11,6 +11,7 @@ import type { MetricsSnapshot } from "../../../domain/entities/metrics-snapshot"
 import type { MonitorTarget } from "../../../domain/entities/monitor-target";
 import type { PostSearchDocument } from "../../../domain/entities/post-search-document";
 import type { ProviderHealthWindow } from "../../../domain/entities/provider-health-window";
+import type { SubredditDailyFact } from "../../../domain/entities/subreddit-daily-fact";
 import type { SubredditTrendPoint } from "../../../domain/entities/subreddit-trend-point";
 import type { KeywordTrendDaily } from "../../../domain/entities/keyword-trend-daily";
 
@@ -142,6 +143,33 @@ export interface KeywordTrendDailyRow {
   matched_comment_sum: number;
   keyword_heat: string | number;
   source_type: "live" | "backfill";
+  updated_at: string | Date;
+}
+
+export interface SubredditDailyFactRow {
+  target_id: string;
+  day: string | Date;
+  post_volume: number;
+  qualified_post_volume: number;
+  sampled_post_volume: number;
+  score_sum: number;
+  comment_sum: number;
+  subscriber_count: number;
+  active_user_count: number;
+  active_post_ratio: string | number;
+  dispersion_score: string | number;
+  impact_score_sum: string | number;
+  impact_post_volume: number;
+  top_impact_share: string | number;
+  heat_price: string | number;
+  heat_change_pct: string | number;
+  ema7: string | number;
+  ema30: string | number;
+  subreddit_tier: "micro" | "small" | "mid" | "large";
+  quality_threshold_score: number;
+  quality_threshold_comments: number;
+  algorithm_version: string;
+  explain_payload: Record<string, unknown>;
   updated_at: string | Date;
 }
 
@@ -380,6 +408,35 @@ export function mapKeywordTrendDaily(row: KeywordTrendDailyRow): KeywordTrendDai
     matchedCommentSum: row.matched_comment_sum,
     keywordHeat: Number(row.keyword_heat),
     sourceType: row.source_type,
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
+export function mapSubredditDailyFact(row: SubredditDailyFactRow): SubredditDailyFact {
+  return {
+    targetId: row.target_id,
+    day: toIso(row.day)!.slice(0, 10),
+    postVolume: row.post_volume,
+    qualifiedPostVolume: row.qualified_post_volume,
+    sampledPostVolume: row.sampled_post_volume,
+    scoreSum: row.score_sum,
+    commentSum: row.comment_sum,
+    subscriberCount: row.subscriber_count,
+    activeUserCount: row.active_user_count,
+    activePostRatio: Number(row.active_post_ratio),
+    dispersionScore: Number(row.dispersion_score),
+    impactScoreSum: Number(row.impact_score_sum),
+    impactPostVolume: row.impact_post_volume,
+    topImpactShare: Number(row.top_impact_share),
+    heatPrice: Number(row.heat_price),
+    heatChangePct: Number(row.heat_change_pct),
+    ema7: Number(row.ema7),
+    ema30: Number(row.ema30),
+    subredditTier: row.subreddit_tier,
+    qualityThresholdScore: row.quality_threshold_score,
+    qualityThresholdComments: row.quality_threshold_comments,
+    algorithmVersion: row.algorithm_version,
+    explainPayload: row.explain_payload ?? {},
     updatedAt: toIso(row.updated_at),
   };
 }

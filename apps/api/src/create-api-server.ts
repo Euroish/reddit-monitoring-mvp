@@ -42,6 +42,7 @@ import type { MonitorTargetRepository } from "../../../src/domain/repositories/m
 import type { PostSearchDocumentRepository } from "../../../src/domain/repositories/post-search-document-repository";
 import type { ProviderHealthWindowRepository } from "../../../src/domain/repositories/provider-health-window-repository";
 import type { RawEventRepository } from "../../../src/domain/repositories/raw-event-repository";
+import type { SubredditDailyFactRepository } from "../../../src/domain/repositories/subreddit-daily-fact-repository";
 import type { SubredditTrendPointRepository } from "../../../src/domain/repositories/subreddit-trend-point-repository";
 import {
   BadRequestError,
@@ -107,6 +108,7 @@ export interface ApiRepositoryBundle {
   keywordQuerySessionRepository?: KeywordQuerySessionRepository;
   postSearchDocumentRepository?: PostSearchDocumentRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
+  subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
   providerHealthWindowRepository?: ProviderHealthWindowRepository;
 }
@@ -1001,7 +1003,12 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             max: 30,
           }) ?? 10;
         const keywords = parseKeywordList(url.searchParams.get("keywords"));
-        const [points, keywordDailyRows] = await Promise.all([
+        const [dailyFacts, points, keywordDailyRows] = await Promise.all([
+          repos.subredditDailyFactRepository.listByTargetInRange({
+            targetId: target.id,
+            fromDay: toUtcDay(fromIso),
+            toDay: toUtcDay(toIso),
+          }),
           repos.subredditTrendPointRepository.listByTargetInRange({
             targetId: target.id,
             from: fromIso,
@@ -1027,6 +1034,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             : [];
 
         const readModel = buildSubredditDailyInsights({
+          dailyFacts,
           points,
           posts,
           keywordDailyRows,
@@ -1045,7 +1053,28 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           fromIso: readModel.fromIso,
           toIso: readModel.toIso,
           dayCount: readModel.dayCount,
-          daily: readModel.daily,
+          daily: readModel.daily.map((point) => ({
+            day: point.day,
+            totalNewPosts: point.totalNewPosts,
+            totalDiscussion: point.totalDiscussion,
+            postChangePct: point.postChangePct,
+            discussionChangePct: point.discussionChangePct,
+            postSpikeScore: point.postSpikeScore,
+            isPostSpike: point.isPostSpike,
+            postVolume: point.postVolume,
+            qualifiedPostVolume: point.qualifiedPostVolume,
+            heatPrice: point.heatPrice,
+            heatChangePct: point.heatChangePct,
+            ema7: point.ema7,
+            ema30: point.ema30,
+            subscriberCount: point.subscriberCount,
+            activeUserCount: point.activeUserCount,
+            subredditTier: point.subredditTier,
+            qualityThresholdScore: point.qualityThresholdScore,
+            qualityThresholdComments: point.qualityThresholdComments,
+            algorithmVersion: point.algorithmVersion,
+            explainPayload: point.explainPayload,
+          })),
           keywordHeat: readModel.keywordHeat,
         };
         respond({

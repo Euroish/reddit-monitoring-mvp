@@ -1,5 +1,6 @@
 import type { Content } from "../../domain/entities/content";
 import type { KeywordTrendDaily } from "../../domain/entities/keyword-trend-daily";
+import type { SubredditDailyFact } from "../../domain/entities/subreddit-daily-fact";
 import type { SubredditTrendPoint } from "../../domain/entities/subreddit-trend-point";
 
 const AUTO_KEYWORD_STOP_WORDS = new Set([
@@ -66,6 +67,19 @@ export interface DailyTrendPoint {
   discussionChangePct: number;
   postSpikeScore: number;
   isPostSpike: boolean;
+  postVolume: number;
+  qualifiedPostVolume: number;
+  heatPrice: number;
+  heatChangePct: number;
+  ema7: number;
+  ema30: number;
+  subscriberCount: number;
+  activeUserCount: number;
+  subredditTier: "micro" | "small" | "mid" | "large";
+  qualityThresholdScore: number;
+  qualityThresholdComments: number;
+  algorithmVersion?: string;
+  explainPayload?: Record<string, unknown>;
 }
 
 export interface KeywordDailyPoint {
@@ -93,7 +107,8 @@ export interface SubredditDailyInsightsReadModel {
 }
 
 export function buildSubredditDailyInsights(args: {
-  points: SubredditTrendPoint[];
+  dailyFacts?: SubredditDailyFact[];
+  points?: SubredditTrendPoint[];
   posts?: Content[];
   keywordDailyRows?: KeywordTrendDaily[];
   fromIso: string;
@@ -102,7 +117,11 @@ export function buildSubredditDailyInsights(args: {
   keywordLimit?: number;
 }): SubredditDailyInsightsReadModel {
   const days = enumerateUtcDays(args.fromIso, args.toIso);
-  const daily = buildDailyMetrics(args.points, days);
+  const daily = buildDailyMetrics({
+    dailyFacts: args.dailyFacts ?? [],
+    points: args.points ?? [],
+    days,
+  });
   const keywordHeat =
     args.keywordDailyRows && args.keywordDailyRows.length > 0
       ? buildKeywordHeatFromDailyRows({
@@ -196,13 +215,24 @@ function buildKeywordHeatFromDailyRows(args: {
     .slice(0, args.keywordLimit);
 }
 
-function buildDailyMetrics(points: SubredditTrendPoint[], days: string[]): DailyTrendPoint[] {
-  const byDay = new Map<string, { totalNewPosts: number; totalDiscussion: number }>();
-  for (const day of days) {
+function buildDailyMetrics(args: {
+  dailyFacts: SubredditDailyFact[];
+  points: SubredditTrendPoint[];
+  days: string[];
+}): DailyTrendPoint[] {
+  const factByDay = new Map(args.dailyFacts.map((fact) => [fact.day, fact]));
+  const byDay = new Map<
+    string,
+    {
+      totalNewPosts: number;
+      totalDiscussion: number;
+    }
+  >();
+  for (const day of args.days) {
     byDay.set(day, { totalNewPosts: 0, totalDiscussion: 0 });
   }
 
-  for (const point of points) {
+  for (const point of args.points) {
     const day = toUtcDay(point.windowStart);
     const current = byDay.get(day);
     if (!current) {
@@ -216,29 +246,48 @@ function buildDailyMetrics(points: SubredditTrendPoint[], days: string[]): Daily
   const result: DailyTrendPoint[] = [];
   let previous: { totalNewPosts: number; totalDiscussion: number } | null = null;
 
-  for (const day of days) {
-    const current = byDay.get(day)!;
+  for (const day of args.days) {
+    const fallback = byDay.get(day)!;
+    const fact = factByDay.get(day);
+    const totalNewPosts = fact?.postVolume ?? fallback.totalNewPosts;
+    const totalDiscussion = fact?.commentSum ?? fallback.totalDiscussion;
     const postChangePct = previous
-      ? safePctChange(current.totalNewPosts, previous.totalNewPosts)
+      ? safePctChange(totalNewPosts, previous.totalNewPosts)
       : 0;
     const discussionChangePct = previous
-      ? safePctChange(current.totalDiscussion, previous.totalDiscussion)
+      ? safePctChange(totalDiscussion, previous.totalDiscussion)
       : 0;
-    const postSpikeScore = toFixedNumber(Math.max(0, robustZScore(current.totalNewPosts, history)));
+    const postSpikeScore = toFixedNumber(Math.max(0, robustZScore(totalNewPosts, history)));
     const isPostSpike = postSpikeScore >= 2 || postChangePct >= 1;
 
     result.push({
       day,
-      totalNewPosts: current.totalNewPosts,
-      totalDiscussion: current.totalDiscussion,
+      totalNewPosts,
+      totalDiscussion,
       postChangePct: toFixedNumber(postChangePct),
       discussionChangePct: toFixedNumber(discussionChangePct),
       postSpikeScore,
       isPostSpike,
+      postVolume: fact?.postVolume ?? fallback.totalNewPosts,
+      qualifiedPostVolume: fact?.qualifiedPostVolume ?? 0,
+      heatPrice: fact?.heatPrice ?? 0,
+      heatChangePct: fact?.heatChangePct ?? 0,
+      ema7: fact?.ema7 ?? 0,
+      ema30: fact?.ema30 ?? 0,
+      subscriberCount: fact?.subscriberCount ?? 0,
+      activeUserCount: fact?.activeUserCount ?? 0,
+      subredditTier: fact?.subredditTier ?? "micro",
+      qualityThresholdScore: fact?.qualityThresholdScore ?? 0,
+      qualityThresholdComments: fact?.qualityThresholdComments ?? 0,
+      algorithmVersion: fact?.algorithmVersion,
+      explainPayload: fact?.explainPayload,
     });
 
-    history.push(current.totalNewPosts);
-    previous = current;
+    history.push(totalNewPosts);
+    previous = {
+      totalNewPosts,
+      totalDiscussion,
+    };
   }
 
   return result;

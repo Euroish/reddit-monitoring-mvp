@@ -193,6 +193,10 @@ export function resolveRedditPhase1CycleOptionsFromEnv(
       args.env.REDDIT_KEYWORD_DAILY_LOOKBACK_DAYS,
       90,
     ),
+    dailyFactLookbackDays: parsePositiveInt(
+      args.env.REDDIT_DAILY_FACT_LOOKBACK_DAYS,
+      45,
+    ),
     keywordDailyQualityMinScore: parsePositiveInt(
       args.env.REDDIT_KEYWORD_QUALITY_MIN_SCORE,
       10,

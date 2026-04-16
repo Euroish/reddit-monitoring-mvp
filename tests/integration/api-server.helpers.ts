@@ -12,6 +12,7 @@ import {
   InMemoryPostSearchDocumentRepository,
   InMemoryProviderHealthWindowRepository,
   InMemoryRawEventRepository,
+  InMemorySubredditDailyFactRepository,
   InMemorySubredditTrendPointRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
 
@@ -33,6 +34,7 @@ export function createApiTestRepositories() {
     keywordQuerySessionRepository: new InMemoryKeywordQuerySessionRepository(),
     postSearchDocumentRepository: new InMemoryPostSearchDocumentRepository(),
     metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+    subredditDailyFactRepository: new InMemorySubredditDailyFactRepository(),
     subredditTrendPointRepository: new InMemorySubredditTrendPointRepository(),
     providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
   };

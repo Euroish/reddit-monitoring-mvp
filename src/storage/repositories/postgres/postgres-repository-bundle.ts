@@ -8,6 +8,7 @@ import type { MetricsSnapshotRepository } from "../../../domain/repositories/met
 import type { MonitorTargetRepository } from "../../../domain/repositories/monitor-target-repository";
 import type { PostSearchDocumentRepository } from "../../../domain/repositories/post-search-document-repository";
 import type { ProviderHealthWindowRepository } from "../../../domain/repositories/provider-health-window-repository";
+import type { SubredditDailyFactRepository } from "../../../domain/repositories/subreddit-daily-fact-repository";
 import type { RawEventRepository } from "../../../domain/repositories/raw-event-repository";
 import type { SubredditTrendPointRepository } from "../../../domain/repositories/subreddit-trend-point-repository";
 import { PostgresClient } from "../../postgres/postgres-client";
@@ -22,6 +23,7 @@ import { PostgresMonitorTargetRepository } from "./postgres-monitor-target.repos
 import { PostgresPostSearchDocumentRepository } from "./postgres-post-search-document.repository";
 import { PostgresProviderHealthWindowRepository } from "./postgres-provider-health-window.repository";
 import { PostgresRawEventRepository } from "./postgres-raw-event.repository";
+import { PostgresSubredditDailyFactRepository } from "./postgres-subreddit-daily-fact.repository";
 import { PostgresSubredditTrendPointRepository } from "./postgres-subreddit-trend-point.repository";
 
 export interface RepositoryBundle {
@@ -35,6 +37,7 @@ export interface RepositoryBundle {
   keywordQuerySessionRepository: KeywordQuerySessionRepository;
   postSearchDocumentRepository: PostSearchDocumentRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
+  subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
   providerHealthWindowRepository: ProviderHealthWindowRepository;
 }
@@ -51,6 +54,7 @@ export function createPostgresRepositoryBundle(db: PostgresClient): RepositoryBu
     keywordQuerySessionRepository: new PostgresKeywordQuerySessionRepository(db),
     postSearchDocumentRepository: new PostgresPostSearchDocumentRepository(db),
     metricsSnapshotRepository: new PostgresMetricsSnapshotRepository(db),
+    subredditDailyFactRepository: new PostgresSubredditDailyFactRepository(db),
     subredditTrendPointRepository: new PostgresSubredditTrendPointRepository(db),
     providerHealthWindowRepository: new PostgresProviderHealthWindowRepository(db),
   };

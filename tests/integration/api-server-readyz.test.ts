@@ -1840,3 +1840,60 @@ test("api server readyz keeps cursor-stall evidence when provider health observa
   }
 });
 
+test("api server readyz reports stale algorithm materialization when recent snapshots have no daily facts", async () => {
+  const fixedNow = "2026-04-12T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+  const targetId = stableUuidFromString("reddit:target:r/datascience");
+
+  await repos.monitorTargetRepository.upsert({
+    id: targetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: "r/datascience",
+    status: "active",
+    config: {},
+    createdAt: fixedNow,
+    updatedAt: fixedNow,
+  });
+  await repos.metricsSnapshotRepository.appendMany([
+    {
+      snapshotAt: "2026-04-12T11:45:00.000Z",
+      source: "reddit",
+      targetId,
+      granularity: "15m",
+      metricName: "new_posts_15m",
+      metricValue: 3,
+      collectionJobId: stableUuidFromString("job:recent:snapshot"),
+    },
+  ]);
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const readyResult = await getJson<{
+      status: "ready" | "degraded" | "not_ready";
+      degradedReasons: string[];
+      observability: {
+        dailyFactCoverageRate: number | null;
+        dailyFactLagDaysMax: number | null;
+      };
+    }>(`${baseUrl}/readyz`);
+
+    assert.equal(readyResult.status, 200);
+    assert.equal(readyResult.body.status, "degraded");
+    assert.equal(
+      readyResult.body.degradedReasons.includes("algorithm_daily_fact_stale"),
+      true,
+    );
+    assert.equal(readyResult.body.observability.dailyFactCoverageRate, 0);
+    assert.equal(readyResult.body.observability.dailyFactLagDaysMax, 1);
+  } finally {
+    await stopServer(server);
+  }
+});
+

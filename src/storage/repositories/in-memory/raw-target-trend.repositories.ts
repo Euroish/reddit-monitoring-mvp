@@ -1,9 +1,11 @@
 import type { KeywordTrendDaily } from "../../../domain/entities/keyword-trend-daily";
 import type { MonitorTarget } from "../../../domain/entities/monitor-target";
+import type { SubredditDailyFact } from "../../../domain/entities/subreddit-daily-fact";
 import type { SubredditTrendPoint } from "../../../domain/entities/subreddit-trend-point";
 import type { KeywordTrendDailyRepository } from "../../../domain/repositories/keyword-trend-daily-repository";
 import type { MonitorTargetRepository } from "../../../domain/repositories/monitor-target-repository";
 import type { RawEventRepository } from "../../../domain/repositories/raw-event-repository";
+import type { SubredditDailyFactRepository } from "../../../domain/repositories/subreddit-daily-fact-repository";
 import type { SubredditTrendPointRepository } from "../../../domain/repositories/subreddit-trend-point-repository";
 import type { RawEnvelope } from "../../../connectors/shared/connector.interface";
 
@@ -120,6 +122,64 @@ export class InMemorySubredditTrendPointRepository implements SubredditTrendPoin
 
   public all(): SubredditTrendPoint[] {
     return Array.from(this.points.values());
+  }
+}
+
+export class InMemorySubredditDailyFactRepository implements SubredditDailyFactRepository {
+  private readonly facts = new Map<string, SubredditDailyFact>();
+
+  public async upsertMany(facts: SubredditDailyFact[]): Promise<void> {
+    for (const fact of facts) {
+      const key = `${fact.targetId}|${fact.day}`;
+      this.facts.set(key, fact);
+    }
+  }
+
+  public async listByTargetInRange(args: {
+    targetId: string;
+    fromDay: string;
+    toDay: string;
+  }): Promise<SubredditDailyFact[]> {
+    return Array.from(this.facts.values())
+      .filter((fact) => {
+        return (
+          fact.targetId === args.targetId &&
+          fact.day >= args.fromDay &&
+          fact.day <= args.toDay
+        );
+      })
+      .sort((a, b) => a.day.localeCompare(b.day));
+  }
+
+  public async listLatestByTargetsInRange(args: {
+    targetIds: string[];
+    fromDay: string;
+    toDay: string;
+  }): Promise<SubredditDailyFact[]> {
+    if (args.targetIds.length === 0) {
+      return [];
+    }
+
+    const targetSet = new Set(args.targetIds);
+    const latestByTarget = new Map<string, SubredditDailyFact>();
+    for (const fact of this.facts.values()) {
+      if (!targetSet.has(fact.targetId)) {
+        continue;
+      }
+      if (fact.day < args.fromDay || fact.day > args.toDay) {
+        continue;
+      }
+      const current = latestByTarget.get(fact.targetId);
+      if (!current || fact.day > current.day) {
+        latestByTarget.set(fact.targetId, fact);
+      }
+    }
+
+    return Array.from(latestByTarget.values()).sort((a, b) => a.targetId.localeCompare(b.targetId));
+  }
+
+  public all(): SubredditDailyFact[] {
+    return Array.from(this.facts.values());
   }
 }
 

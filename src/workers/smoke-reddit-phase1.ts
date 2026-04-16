@@ -9,6 +9,7 @@ import {
   InMemoryMetricsSnapshotRepository,
   InMemoryMonitorTargetRepository,
   InMemoryRawEventRepository,
+  InMemorySubredditDailyFactRepository,
   InMemorySubredditTrendPointRepository,
 } from "../storage/repositories/in-memory/in-memory.repositories";
 import { runRedditPhase1Cycle } from "./reddit-phase1.worker";
@@ -24,6 +25,7 @@ async function main(): Promise<void> {
   const accountRepository = new InMemoryAccountRepository();
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
   const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
 
   await monitorTargetRepository.upsert({
@@ -47,6 +49,7 @@ async function main(): Promise<void> {
       accountRepository,
       contentRepository,
       metricsSnapshotRepository,
+      subredditDailyFactRepository,
       subredditTrendPointRepository,
       redditConnector,
       redditMapper: new DefaultRedditMapper(),
@@ -61,6 +64,7 @@ async function main(): Promise<void> {
     accounts: accountRepository.all().length,
     contents: contentRepository.all().length,
     snapshots: metricsSnapshotRepository.all().length,
+    dailyFacts: subredditDailyFactRepository.all().length,
     trendPoints: subredditTrendPointRepository.all().length,
     mode,
   };

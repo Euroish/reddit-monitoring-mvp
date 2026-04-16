@@ -40,6 +40,42 @@ export class InMemoryMetricsSnapshotRepository implements MetricsSnapshotReposit
     });
   }
 
+  public async listLatestByTargetsInRange(args: {
+    targetIds: string[];
+    from: string;
+    to: string;
+    metricNames: string[];
+  }): Promise<MetricsSnapshot[]> {
+    if (args.targetIds.length === 0) {
+      return [];
+    }
+
+    const targetSet = new Set(args.targetIds);
+    const latestByTarget = new Map<string, MetricsSnapshot>();
+
+    for (const snapshot of this.byUniqueKey.values()) {
+      if (!targetSet.has(snapshot.targetId)) {
+        continue;
+      }
+      if (snapshot.snapshotAt < args.from || snapshot.snapshotAt > args.to) {
+        continue;
+      }
+      if (!args.metricNames.includes(snapshot.metricName)) {
+        continue;
+      }
+      const current = latestByTarget.get(snapshot.targetId);
+      if (
+        !current ||
+        snapshot.snapshotAt > current.snapshotAt ||
+        (snapshot.snapshotAt === current.snapshotAt && (snapshot.id ?? 0) > (current.id ?? 0))
+      ) {
+        latestByTarget.set(snapshot.targetId, snapshot);
+      }
+    }
+
+    return Array.from(latestByTarget.values()).sort((a, b) => a.targetId.localeCompare(b.targetId));
+  }
+
   public all(): MetricsSnapshot[] {
     return Array.from(this.byUniqueKey.values());
   }

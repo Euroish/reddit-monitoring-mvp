@@ -1,4 +1,5 @@
 import { buildSubredditKeywordTrendDailyJob } from "../src/jobs/build-subreddit-keyword-trend-daily.job";
+import { buildSubredditDailyFactsJob } from "../src/jobs/build-subreddit-daily-facts.job";
 import { buildSubredditTrendPointsJob } from "../src/jobs/build-subreddit-trend-points.job";
 import { runExistingSubredditAboutJob } from "../src/jobs/collect-subreddit-about.job";
 import { runExistingSubredditNewPostsJob } from "../src/jobs/collect-subreddit-new-posts.job";
@@ -29,6 +30,7 @@ import type { CrawlCursorRepository } from "../src/domain/repositories/crawl-cur
 import type { KeywordTrendDailyRepository } from "../src/domain/repositories/keyword-trend-daily-repository";
 import type { ProviderHealthWindowRepository } from "../src/domain/repositories/provider-health-window-repository";
 import type { MetricsSnapshotRepository } from "../src/domain/repositories/metrics-snapshot-repository";
+import type { SubredditDailyFactRepository } from "../src/domain/repositories/subreddit-daily-fact-repository";
 import type { SubredditTrendPointRepository } from "../src/domain/repositories/subreddit-trend-point-repository";
 
 export type SchedulerRunMode = "mock" | "live";
@@ -54,6 +56,7 @@ interface RunnableJobRepositories {
   crawlCursorRepository: CrawlCursorRepository;
   providerHealthWindowRepository: ProviderHealthWindowRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
+  subredditDailyFactRepository: SubredditDailyFactRepository;
   keywordTrendDailyRepository?: KeywordTrendDailyRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
 }
@@ -211,6 +214,7 @@ async function materializeTouchedTargets(args: {
     RunnableJobRepositories,
     | "contentRepository"
     | "metricsSnapshotRepository"
+    | "subredditDailyFactRepository"
     | "keywordTrendDailyRepository"
     | "subredditTrendPointRepository"
   >;
@@ -230,10 +234,26 @@ async function materializeTouchedTargets(args: {
       crawlMode: target.crawlMode,
     });
     const fromIso = new Date(new Date(args.nowIso).getTime() - 72 * 60 * 60 * 1000).toISOString();
+    const dailyFactFromIso = new Date(
+      new Date(args.nowIso).getTime() - options.dailyFactLookbackDays! * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    await buildSubredditDailyFactsJob(
+      {
+        contentRepository: args.repos.contentRepository,
+        metricsSnapshotRepository: args.repos.metricsSnapshotRepository,
+        subredditDailyFactRepository: args.repos.subredditDailyFactRepository,
+      },
+      {
+        targetId: target.targetId,
+        fromIso: dailyFactFromIso,
+        toIso: args.nowIso,
+      },
+    );
     await buildSubredditTrendPointsJob(
       {
         metricsSnapshotRepository: args.repos.metricsSnapshotRepository,
         subredditTrendPointRepository: args.repos.subredditTrendPointRepository,
+        subredditDailyFactRepository: args.repos.subredditDailyFactRepository,
       },
       {
         targetId: target.targetId,
@@ -250,6 +270,7 @@ async function materializeTouchedTargets(args: {
           contentRepository: args.repos.contentRepository,
           metricsSnapshotRepository: args.repos.metricsSnapshotRepository,
           keywordTrendDailyRepository: args.repos.keywordTrendDailyRepository,
+          subredditDailyFactRepository: args.repos.subredditDailyFactRepository,
         },
         {
           targetId: target.targetId,
@@ -336,6 +357,7 @@ async function main(): Promise<void> {
         repos: {
           contentRepository: repos.contentRepository,
           metricsSnapshotRepository: repos.metricsSnapshotRepository,
+          subredditDailyFactRepository: repos.subredditDailyFactRepository,
           keywordTrendDailyRepository: repos.keywordTrendDailyRepository,
           subredditTrendPointRepository: repos.subredditTrendPointRepository,
         },

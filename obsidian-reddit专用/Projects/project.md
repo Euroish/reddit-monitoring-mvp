@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: P1.6-http-scrapling-integration
-updated_at: "2026-04-16 18:23:30"
+stage: P1.7-algorithm-productization
+updated_at: "2026-04-16 21:24:04"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Controlled-promotion evidence now includes repeated technical-set pass (`programming,technology`) plus mixed-set contrast (`python,javascript`). Maintain hot+technical positive controls, keep stale technical targets in shadow, and proceed with user-provided explicit algorithm rules for layered 15-day quality trend once received."
+next_action: "Start `R2` by implementing query-normalization v2 and the explicit-query plus auto-keyword dual-track materialization on top of tier-aware `subreddit_daily_fact`, then add API/read-model tests proving 30-day keyword heat remains explainable and single-sourced."
 tags:
 - codex
 - workspace
@@ -21,7 +21,7 @@ tags:
 - Status: active
 - Product: `http-first analytics engine (Reddit currently primary source)`
 - Product goal: build a durable analytics product around pluggable HTTP acquisition, truthful observability, and explainable ranking/read models
-- Phase: `P1.6 Scrapling integration active`
+- Phase: `P1.7 algorithm productization active`
 - Authority: `project.md` is the single execution source
 
 ## Product Positioning
@@ -32,68 +32,100 @@ tags:
 
 ## Current Decision
 
-- Set `HTTP scraping` as the current algorithm priority.
-- Integrate `D4Vinci/Scrapling` into the acquisition lane as the adaptive engine for dynamic/protected or unstable pages.
-- Keep existing `reddit-http` as the control path and fallback during rollout to preserve verified behavior.
-- Do not open Stage-C ranking/anomaly expansion while acquisition-parity proof is incomplete.
+- Treat current `http + scrapling` controlled-promotion evidence as the acquisition baseline, not the primary workstream.
+- Shift active work to product-grade algorithm delivery: `subreddit_daily_fact`, tier-aware quality rules, 30-day keyword/query trends, driver-post scoring, and anomaly events.
+- Execute work in dependency-ordered rounds (`R1-R5`) so each round lands a complete `migration -> repository -> job -> read model/API -> tests -> verify evidence` slice.
+- Treat the algorithm plan as a priority order, not a pause gate: Codex should ship the smallest complete slice that safely advances the current round.
+- Keep deep Scrapling integration in scope, but institutionalize it through provider-routing policy after the core algorithm facts exist.
 
 ## Why This Decision
 
-- Verified Scrapling capabilities directly match current risk: adaptive selectors/parser behavior, multiple fetcher/session types (HTTP, dynamic browser, stealth anti-bot), and spider-level multi-session crawling.
-- Existing repo boundaries already support safe integration (`connector -> jobs -> provider_health_window -> sampling`).
-- The fastest correct path is additive integration with parity checks, not a rewrite.
+- The repo already has verified acquisition evidence (`shadow compare`, `promotion verify`, provider routing, fallback truth); the missing product layer is explainable daily facts and read models.
+- The user-provided algorithm specs are now explicit enough to replace connector-first staging with a stricter algorithm-first execution order: facts -> scoring -> APIs -> provider policy.
+- Product value depends on answering `what is trending`, `why`, and `which posts drive it`; current window-only scoring is not enough without daily facts, query trends, and explain payloads.
+- Current architecture boundaries already support this tighter flow: `docs/architecture.md` keeps runtime/provider choice separate from scoring, and the current scheduler still materializes trend/keyword outputs directly from collection-side persistence, so the next correction is flow discipline rather than a rewrite.
+- The previous flow became too contract-heavy for routine execution; reducing non-essential gates will improve throughput without weakening correctness if code/tests remain the primary proof.
+- Deep Scrapling work still matters, but it should stabilize the algorithm pipeline instead of blocking all higher-level product work.
 
-## P1.6 Scope
+## P1.7 Scope
 
-- Freeze a cross-runtime bridge contract (Node worker <-> Python Scrapling runner).
-- Add Scrapling as an acquisition provider lane with shadow-run and target-level rollout controls.
-- Map Scrapling outputs into existing `raw_event`, cursor, and `provider_health_window` semantics.
-- Keep current algorithms contract-safe while adding new HTTP observability signals.
+- Add a canonical day-level fact layer for subreddit heat, volume, qualified-post counts, and short-window momentum.
+- Replace fixed quality thresholds with subreddit-tier-aware plus percentile-aware qualification rules.
+- Upgrade keyword trends from auto-token MVP output into dual-track `auto keyword + explicit query` read models.
+- Add driver-post and anomaly layers with explain payloads that can power product APIs directly.
+- Institutionalize Scrapling through provider-routing/promotion policy only after the algorithm fact pipeline is stable.
 
-## P1.6 Must Fix First
+## P1.7 Must Fix First
 
-- Deterministic bridge contract (`requestId`, URL, session profile, status/headers/body/meta, error code).
-- Comparable observability between baseline HTTP and Scrapling lanes.
-- Stable fallback order and retry boundaries (`scrapling -> http` for designated targets, explicit opt-out path).
-- Bounded verification commands for every integration step.
+- `subreddit_daily_fact` must become the canonical base for 30-day heat views, 15-day qualified-post trends, and downstream keyword normalization.
+- `subreddit-tiering` and `quality-threshold` services must eliminate fixed-threshold drift across `micro/small/mid/large` communities.
+- Scheduler/job order must become explicit and idempotent: `collect -> daily facts -> trend points -> keyword/drivers -> anomalies`.
+- Product APIs and downstream scoring must stop mixing raw snapshots and fact/read-model sources for the same metric.
+- `/readyz` must report algorithm materialization health from the same persisted truth path, not only provider transport health.
+- New read-model repository/API contracts must expose product outputs instead of leaking provider/runtime internals.
 
-## P1.6 Must Not Do
+## P1.7 Must Not Do
 
-- No big-bang rewrite of worker/job/repository boundaries.
-- No schema-breaking API changes.
-- No unverified algorithm tuning tied to a new connector without evidence snapshots.
+- No UI-first expansion before stable fact tables and read-model APIs exist.
+- No provider-policy rewrite that delays R1-R4 algorithm delivery.
+- No threshold/formula changes without explain payloads, tests, and algorithm versioning.
+- No breaking contract rewrite; schema work stays additive (`daily fact`, `growth fact`, `anomaly event`).
 
-## P1.6 Exit Gate
+## P1.7 Exit Gate
 
-- Stage `S0-S3` integration checklist is complete (contract, shadow parity, controlled promotion, regression coverage).
-- `readyz` degraded reasons remain explainable with Scrapling-enabled targets.
-- `npm run algo:phase1` and `npm run algo:full` pass after each stage.
-- Live verification shows parity or better on duplicate/lag/timeout truth for promoted targets.
+- Subreddit heat APIs return continuous 30-day daily facts with `heat_price`, `post_volume`, `qualified_post_volume`, `ema7`, and `ema30`.
+- The 15-day quality trend uses tier-aware + percentile-aware qualification instead of fixed thresholds.
+- Keyword trends support explicit user query and auto-keyword discovery with 30-day explainable heat.
+- Driver-post and anomaly feeds are queryable with explain payloads, not just aggregate scores.
+- Read models are single-sourced from fact/materialized layers, so the same page cannot return conflicting values from raw snapshots vs aggregated tables.
+- Scrapling promotion/routing is codified in runtime and `/readyz` reflects real provider plus algorithm-materialization health.
+- `npm run algo:phase1` plus targeted new unit/integration suites pass for each completed round.
 
 ## Current Focus
 
-- Define and freeze Scrapling bridge schema and session-profile routing (`http`, `dynamic`, `stealth`).
-- Add shadow-run evidence for selected targets before switching production acquisition paths.
-- Keep adaptive sampling and provider-health metrics comparable across lanes.
+- Round `R1` is active: establish `subreddit_daily_fact`, subreddit tiering, quality thresholds, and day-level heat materialization.
+- Implement the full `R1` vertical slice in code first, then keep only the minimal writeback needed to preserve state continuity.
+- Settle scheduler/materialization order, day-level formulas, and readiness wiring in code + tests inside the same slice instead of treating them as separate pause points.
+- Move algorithm observability forward with the first fact layer instead of waiting until provider-policy work is complete.
+- Keep current controlled-promotion evidence as the acquisition baseline and limit Scrapling changes to work that unblocks algorithm rounds.
 
 ## Change Policy
 
-- Allowed: bounded provider integration, observability alignment, threshold-safe algorithm tuning, tests, docs.
-- Forbidden: uncontrolled refactor, website feature expansion during acquisition-parity work, API-breaking changes.
-- Each round should converge on one integration risk theme and produce explicit verify evidence.
+- Allowed: additive fact/event tables, scoring services, read-model APIs, bounded provider-policy integration, focused cross-layer refactors that unblock the current slice, tests, docs.
+- Forbidden: unrelated refactors, new source expansion, API-breaking changes, broad rewrites that are not required by the current slice.
+- Each round should end with runnable code, focused tests, and explicit verify evidence; process/docs updates are secondary unless explicitly requested.
+- Every new scoring/output path must carry `algorithm_version`; user-facing scores/events must also carry `explain_payload`.
+
+## Autonomous Execution Policy
+
+- Default mode is `inspect briefly -> implement -> test -> write back`, not `inspect -> restate plan -> wait`.
+- Codex may cross storage/domain/job/api/test boundaries inside the active round when that is the shortest correct path to a complete slice.
+- Contract notes are lightweight: settle rules in code/tests when safe, and document only what must remain durable across sessions.
+- Ask for user input only on true blockers: irreversible product/schema choices, destructive actions, missing external dependencies/credentials, or direct conflicts with user edits.
+
+## Architecture Guardrails
+
+- Write-path order stays fixed: collection persists raw/normalized/snapshot truth first, then materialized facts, then product read models.
+- Read-path discipline stays fixed: product APIs read from fact/materialized layers, not directly from raw snapshots as the primary result source.
+- Canonical-source discipline stays fixed: once a metric is promoted into `subreddit_daily_fact` or another fact table, later services and APIs use that layer unless an explicit conversion layer is documented.
+- Observability is co-delivered: provider health remains required, and algorithm/materialization health joins `/readyz` from `R1` onward.
+- Versioning is mandatory: scoring formulas, thresholds, and merge rules change only under explicit `algorithm_version` updates with bounded regression coverage.
 
 ## Algorithm Development Plan
 
-- Stage S0 `contract freeze` (active): define Node/Python bridge schema, error taxonomy, and fixture-based mapper tests.
-- Stage S1 `fetcher shadow lane`: run Scrapling fetcher lane in parallel for selected targets and compare with baseline HTTP truth metrics.
-- Stage S2 `session/spider lane`: enable multi-session crawling for difficult targets and keep pause/resume + proxy policy explicit.
-- Stage S3 `algorithm coupling`: tune sampling/health thresholds using Scrapling evidence without breaking existing contracts.
-- Stage S4 `post-parity expansion` (after S3 only): expand ranking/anomaly/product automation work.
-- Planning rule: do not open S4 while S0-S3 still have truth-layer ambiguity.
+- Round R1 `daily fact foundation` (active): add `subreddit_daily_fact`, `subreddit-tiering.service`, `quality-threshold.service`, `subreddit-daily-heat.service`, reorder scheduler materialization around the daily fact layer, declare the day-level canonical metric source, and expose the first subreddit heat read model/API plus algorithm-materialization readiness evidence.
+- Round R2 `keyword trend upgrade`: settle `query normalization v2` (`lowercase`, phrase handling, token overlap, alias boundary, subreddit-scoped vs global query semantics) inside code/tests, convert keyword processing to `explicit query + auto keyword` dual track, use tier-aware qualification, and output 30-day keyword heat plus breakout markers from fact/materialized inputs only.
+- Round R3 `driver-post layer`: add `post_growth_fact`, velocity-based driver scoring, same-age cohort normalization (`1h/6h/24h` minimum buckets), driver labels, and subreddit/keyword driver APIs.
+- Round R4 `anomaly layer`: add raw `anomaly_event` detection plus merged/consumer-facing anomaly incidents, settle dedupe/merge rules across `volume`, `quality`, `keyword`, and `driver` signals in code/tests, and expose explainable anomaly feeds.
+- Round R5 `provider policy institutionalization`: move Scrapling into `fetch-execution-engine + provider-routing-policy`, keep shadow compare as a standing sample, and wire provider-promotion decisions to the observability contract that earlier rounds already started using.
+- Execution rule: rounds define default priority, but bounded pull-forward work is allowed when it is required to complete the active slice cleanly.
+- Execution rule: do not block implementation on separate contract-writing if code/tests can safely settle the rule and preserve continuity.
 
 ## Process Flow Source
 
-- Canonical integration flow: `docs/scrapling-integration-flow.md`.
+- Canonical algorithm flow: `project.md` (`R1-R5`).
+- Supporting acquisition baseline: `docs/scrapling-integration-flow.md`.
+- Architecture guardrails: `docs/architecture.md`.
 - Keep this file as execution memory; store deep details in `docs/` and link from activity entries.
 
 ## Task Guide
@@ -105,6 +137,48 @@ tags:
 - Keep this file ASCII-first or clean UTF-8 only; do not copy mojibake text forward.
 
 ## Activity Log
+
+### 2026-04-16 21:24:04
+
+- Scope: Finished the remaining `R1` fixed-threshold consumer in trend-point materialization. `src/jobs/build-subreddit-trend-points.job.ts` now reads per-day thresholds from `subreddit_daily_fact` and applies `score + comments` qualification per window day instead of the old fixed `score>=50` counter. Worker/scheduler now pass `subredditDailyFactRepository` into trend-point materialization so this path is active in both cycle and runnable-job replay. Added focused regression suite `tests/unit/build-subreddit-trend-points.job.test.ts` for day-fact override and legacy fallback behavior, and bumped trend algorithm version to `trend_v4_tier_quality_thresholds` for explicit threshold-rule versioning.
+- Why now: The previous state had already moved daily facts and keyword daily materialization to tier-aware rules, but `subreddit_trend_point.highScorePostCount` still came from a fixed threshold path, leaving the 15-day quality signal inconsistent with the canonical day-fact contract.
+- Verify: `npm run typecheck` passed. `npx tsx --test tests/unit/build-subreddit-trend-points.job.test.ts tests/unit/trend-scoring.service.test.ts` passed (`4/4`). Integration regression passed: `npx tsx --test tests/integration/reddit-phase1-cycle.test.ts` and `npx tsx --test tests/integration/api-server-trends.test.ts`. Real DB verification passed with `DATABASE_URL=postgresql://postgres:13923276897Ak@localhost:5432/reddit_monitoring`, `REDDIT_RUN_MODE=live`, `REDDIT_RUN_SUBREDDIT=machinelearning`, `npm run verify:phase1:postgres`; persisted materialization remains healthy (`subreddit_daily_fact=46`, `keyword_trend_daily=17328`, `subreddit_trend_point=67`) with live `materializedPreview` outputs.
+- Next: Move to `R2` query-trend upgrade: settle normalization v2 and explicit query semantics in code/tests, then extend materialization/API read models to dual-track `explicit query + auto keyword` outputs from persisted fact/materialized inputs.
+
+### 2026-04-16 21:03:22
+
+- Scope: Completed the keyword-materialization part of `R1` against the new day-fact rules and closed the real-DB verification loop. `src/jobs/build-subreddit-keyword-trend-daily.job.ts` now reads per-day thresholds and denominator hints from `subreddit_daily_fact`, but floors `sampledPosts` at the observed post count so persisted `mention_rate` and `qualified_mention_rate` can never exceed `1` when a lagging day fact undercounts the current live corpus. Added regression coverage in `tests/unit/build-subreddit-keyword-trend-daily.job.test.ts`, including the exact undercount failure shape exposed by Postgres.
+- Why now: The previous `next_action` explicitly required two things to finish this slice: move keyword daily materialization onto the tier-aware day-fact path, and prove the result on the real PostgreSQL database instead of only in-memory tests. The first live verify pass immediately found a real integrity bug (`ck_keyword_trend_daily_rate_range`) with `sampled_posts=6` and `matched_posts=8`, so the correct next step was to fix that denominator floor before treating Postgres evidence as complete.
+- Verify: `npm run typecheck` passed. `npx tsx --test tests/unit/build-subreddit-keyword-trend-daily.job.test.ts` passed (`3/3`). Regression checks passed: `npx tsx --test tests/integration/reddit-phase1-cycle.test.ts`, `npx tsx --test tests/integration/api-server-trends.test.ts`, `npx tsx --test tests/integration/api-server-readyz.test.ts`. Live persisted proof passed with `DATABASE_URL=postgresql://postgres:13923276897Ak@localhost:5432/reddit_monitoring`, `REDDIT_RUN_MODE=live`, `REDDIT_RUN_SUBREDDIT=machinelearning`, `npm run verify:phase1:postgres`: counts now include `subreddit_daily_fact=46` and `keyword_trend_daily=17328`, `materializedPreview` returned 7 recent `dailyFacts` plus persisted `keywordRows` for `r/machinelearning`, and the rate-constraint failure is gone.
+- Next: Keep `R1` narrow and finish the remaining downstream consumer: switch the 15-day qualified-post trend/materialized trend path off fixed thresholds onto the same tier-aware `subreddit_daily_fact` contract, then rerun `verify:phase1:postgres` to confirm `/v1/trends` and `/readyz` remain truthful from persisted fact/read-model sources.
+
+### 2026-04-16 20:52:30
+
+- Scope: Landed the `R1` daily-fact vertical slice in runtime code. Added additive schema `013_subreddit_daily_fact.sql`, new domain/storage contracts for `subreddit_daily_fact`, day-level materialization job `src/jobs/build-subreddit-daily-facts.job.ts`, supporting services (`subreddit-tiering`, `quality-threshold`, `subreddit-daily-heat`), scheduler/worker wiring so the order now includes daily facts before trend/keyword materialization, and daily API/readiness reads that use the persisted fact layer.
+- Why now: The active project state explicitly required `subreddit_daily_fact` to become the canonical day-level source before continuing algorithm productization. Daily heat/readiness could not stay truthful while `/v1/trends/subreddit/:name/daily` still aggregated from `subreddit_trend_point` and `/readyz` had no persisted materialization signal.
+- Verify: `npm run typecheck:core` passed. Targeted suites passed: `npx tsx --test tests/unit/build-subreddit-daily-facts.job.test.ts tests/unit/subreddit-daily-insights.service.test.ts tests/integration/api-server-trends.test.ts tests/integration/api-server-readyz.test.ts tests/integration/reddit-phase1-cycle.test.ts`. Regression gate `npm run algo:phase1` passed (`35/35`). With provided database env, `npm run db:migrate` applied `013_subreddit_daily_fact.sql` successfully.
+- Next: Keep `R1` moving by replacing remaining fixed-threshold downstream consumers with the new tier-aware day-fact rules, starting with 15-day qualified-post trend handling and keyword daily materialization, then run one persisted live/materialized verification pass against local Postgres.
+
+### 2026-04-16 20:23:25
+
+- Scope: Reduced project-level execution friction so Codex can push code autonomously without bouncing between flow notes and guardrail restatements. Updated the repo-level `AGENTS.md` and the single-state `project.md` to make end-to-end slice execution the default behavior.
+- Why now: The current `P1.7` process had become over-constrained: too many explicit freezes, planning rules, and contract checkpoints risked turning normal algorithm work into repeated interpretation instead of implementation. The user explicitly requested higher-autonomy execution with fewer idle loops.
+- Verify: Updated `AGENTS.md` with an `Autonomy Default` section (`brief inspection -> direct implementation`, ask only on true blockers, docs/process as trailing work). Updated `obsidian-reddit专用/Projects/project.md` frontmatter, `Current Decision`, `Why This Decision`, `Current Focus`, `Change Policy`, `Autonomous Execution Policy`, `Architecture Guardrails`, and `Algorithm Development Plan` so the active process now prioritizes code/test evidence over extra pre-work while keeping the essential architecture constraints (`write/read path discipline`, `canonical source`, `algorithm_version`, `/readyz` observability). No application/runtime code changed in this step.
+- Next: Execute `R1` directly in the codebase as the default autonomous slice: land `subreddit_daily_fact` end-to-end, wire scheduler/materialization/read-model paths around it, run focused tests, and only pause if a real blocker appears.
+
+### 2026-04-16 20:20:12
+
+- Scope: Refined the `P1.7` algorithm development flow from a feature-round outline into an architecture-guarded execution contract. Tightened `next_action`, `Current Decision`, `Must Fix First`, `Exit Gate`, `Current Focus`, and `Algorithm Development Plan`, and added explicit cross-round architecture guardrails.
+- Why now: The new review note in `C:/Users/21274/Downloads/进一步优化.md` correctly identified several repo-level drift risks if `R1-R5` stayed too high-level: scheduler order could remain old-path, metrics could be mixed across raw snapshots and fact tables, keyword contracts could drift before freeze, driver scoring could bias toward fresh posts without age normalization, anomaly feeds could duplicate incidents, and algorithm readiness could lag provider readiness.
+- Verify: Re-read current `project.md`, `docs/architecture.md`, `workers/reddit-phase1-scheduler.ts`, `src/workers/reddit-phase1.worker.ts`, `src/jobs/build-subreddit-trend-points.job.ts`, and `src/jobs/build-subreddit-keyword-trend-daily.job.ts` before update. Confirmed the current scheduler still materializes `trend points -> keyword daily` directly from persisted collection data, the architecture doc already requires read/write separation, and `/readyz` is already a persisted observability contract worth extending rather than replacing. No runtime/code files changed in this step.
+- Next: Execute `R1` with the added architecture constraints: land `subreddit_daily_fact`, make it the canonical day-level metric source, reorder scheduler materialization around it, and surface algorithm-materialization health alongside existing provider readiness.
+
+### 2026-04-16 20:11:44
+
+- Scope: Reframed `project.md` from `P1.6 Scrapling integration` tracking into `P1.7 algorithm productization`, replacing the old `S0-S4` flow with a dependency-ordered `R1-R5` algorithm development plan grounded in the provided algorithm design notes.
+- Why now: The acquisition lane already has verified HTTP/Scrapling evidence, while the user explicitly shifted priority to product-grade algorithm delivery: daily facts, tier-aware quality rules, keyword query trends, driver posts, and anomaly feeds.
+- Verify: Updated frontmatter `stage`, `updated_at`, `next_action`; rewrote `Current Decision`, `Why This Decision`, `P1.7` scope/gates, `Current Focus`, `Change Policy`, `Algorithm Development Plan`, and `Process Flow Source` in `obsidian-reddit专用/Projects/project.md` using `C:/Users/21274/Downloads/Reddit数据分析算法设计.md` and `C:/Users/21274/Downloads/算法具体实现.md` as the design inputs. No code/runtime files changed in this step.
+- Next: Execute Round `R1` end-to-end: add `subreddit_daily_fact`, tier-aware quality rules, daily heat materialization, and the first subreddit heat read model/API before opening keyword or anomaly work.
 
 ### 2026-04-16 18:23:30
 

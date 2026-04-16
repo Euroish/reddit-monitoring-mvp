@@ -39,7 +39,7 @@ test("scoreTrendWindows returns explainable trend points for rising series", () 
   });
 
   assert.equal(points.length, 4);
-  assert.equal(points[0].algorithmVersion, "trend_v3_impact_signals");
+  assert.equal(points[0].algorithmVersion, "trend_v4_tier_quality_thresholds");
   assert.equal(points[3].windowComplete, true);
   assert.ok((points[3].heatIndex ?? 0) > 0);
   assert.ok((points[3].surgeScore ?? 0) >= 0);

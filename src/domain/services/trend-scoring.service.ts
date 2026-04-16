@@ -70,7 +70,7 @@ export const DEFAULT_TREND_SCORING_PARAMS: TrendScoringParams = {
   trendWeightReliability: 0.1,
 };
 
-const ALGORITHM_VERSION = "trend_v3_impact_signals";
+const ALGORITHM_VERSION = "trend_v4_tier_quality_thresholds";
 
 export function scoreTrendWindows(args: {
   targetId: UUID;

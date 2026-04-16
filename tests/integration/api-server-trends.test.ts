@@ -108,6 +108,34 @@ test("api server daily insights prefers materialized keyword rows when available
     },
   ]);
 
+  await repos.subredditDailyFactRepository.upsertMany([
+    {
+      targetId,
+      day: "2026-04-10",
+      postVolume: 10,
+      qualifiedPostVolume: 2,
+      sampledPostVolume: 10,
+      scoreSum: 100,
+      commentSum: 20,
+      subscriberCount: 12_000,
+      activeUserCount: 500,
+      activePostRatio: 1,
+      dispersionScore: 0.5,
+      impactScoreSum: 30,
+      impactPostVolume: 2,
+      topImpactShare: 0.6,
+      heatPrice: 35,
+      heatChangePct: 0,
+      ema7: 35,
+      ema30: 35,
+      subredditTier: "small",
+      qualityThresholdScore: 10,
+      qualityThresholdComments: 5,
+      algorithmVersion: "daily_fact_v1",
+      explainPayload: {},
+    },
+  ]);
+
   await repos.keywordTrendDailyRepository.upsertMany([
     {
       targetId,
@@ -135,12 +163,15 @@ test("api server daily insights prefers materialized keyword rows when available
   try {
     const result = await getJson<{
       ok: boolean;
+      daily: Array<{ heatPrice: number; qualifiedPostVolume: number }>;
       keywordHeat: Array<{ keyword: string; totalMentions: number }>;
     }>(
       `${baseUrl}/v1/trends/subreddit/datascience/daily?from=2026-04-10T00:00:00.000Z&to=2026-04-12T23:59:59.000Z&keywords=ai`,
     );
     assert.equal(result.status, 200);
     assert.equal(result.body.ok, true);
+    assert.equal(result.body.daily[0]?.heatPrice, 35);
+    assert.equal(result.body.daily[0]?.qualifiedPostVolume, 2);
     assert.equal(result.body.keywordHeat.find((item) => item.keyword === "ai")?.totalMentions, 3);
   } finally {
     await stopServer(server);

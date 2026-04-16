@@ -14,6 +14,7 @@ import {
   InMemoryMonitorTargetRepository,
   InMemoryProviderHealthWindowRepository,
   InMemoryRawEventRepository,
+  InMemorySubredditDailyFactRepository,
   InMemorySubredditTrendPointRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
 import { PHASE1_SAMPLING_THRESHOLDS } from "../../src/workers/reddit-phase1-thresholds";
@@ -94,6 +95,7 @@ async function runCycleWithRecentPoints(args: {
   const accountRepository = new InMemoryAccountRepository();
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
   const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
   const providerHealthWindowRepository = new InMemoryProviderHealthWindowRepository();
   const connector = new CaptureLimitConnector();
@@ -145,6 +147,7 @@ async function runCycleWithRecentPoints(args: {
       contentRepository,
       providerHealthWindowRepository,
       metricsSnapshotRepository,
+      subredditDailyFactRepository,
       subredditTrendPointRepository,
       redditConnector: connector,
       redditMapper: new DefaultRedditMapper(),

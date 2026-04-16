@@ -15,6 +15,7 @@ import {
   InMemoryMetricsSnapshotRepository,
   InMemoryMonitorTargetRepository,
   InMemoryRawEventRepository,
+  InMemorySubredditDailyFactRepository,
   InMemorySubredditTrendPointRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
 import { runRedditPhase1Cycle } from "../../src/workers/reddit-phase1.worker";
@@ -47,6 +48,7 @@ test("phase1 cycle can continue processing other targets when one target fails",
   const accountRepository = new InMemoryAccountRepository();
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
   const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
 
   for (const subreddit of ["machinelearning", "datascience"]) {
@@ -70,6 +72,7 @@ test("phase1 cycle can continue processing other targets when one target fails",
       accountRepository,
       contentRepository,
       metricsSnapshotRepository,
+      subredditDailyFactRepository,
       subredditTrendPointRepository,
       redditConnector: new SelectiveFailingConnector(),
       redditMapper: new DefaultRedditMapper(),

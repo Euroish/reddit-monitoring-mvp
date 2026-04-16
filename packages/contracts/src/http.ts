@@ -45,6 +45,8 @@ export interface ApiReadinessResponse {
     providerSwitchShare: number | null;
     cursorStallRate: number | null;
     cursorLagSecondsMax: number | null;
+    dailyFactCoverageRate: number | null;
+    dailyFactLagDaysMax: number | null;
     byProvider: Array<{
       provider: string;
       mode: CrawlMode;
@@ -313,6 +315,19 @@ export interface SubredditDailyTrendResponse {
     discussionChangePct: number;
     postSpikeScore: number;
     isPostSpike: boolean;
+    postVolume: number;
+    qualifiedPostVolume: number;
+    heatPrice: number;
+    heatChangePct: number;
+    ema7: number;
+    ema30: number;
+    subscriberCount: number;
+    activeUserCount: number;
+    subredditTier: "micro" | "small" | "mid" | "large";
+    qualityThresholdScore: number;
+    qualityThresholdComments: number;
+    algorithmVersion?: string;
+    explainPayload?: Record<string, unknown>;
   }>;
   keywordHeat: Array<{
     keyword: string;

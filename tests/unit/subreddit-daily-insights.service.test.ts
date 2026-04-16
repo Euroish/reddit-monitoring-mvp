@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildSubredditDailyInsights } from "../../src/application/services/subreddit-daily-insights.service";
 import type { Content } from "../../src/domain/entities/content";
+import type { SubredditDailyFact } from "../../src/domain/entities/subreddit-daily-fact";
 import type { SubredditTrendPoint } from "../../src/domain/entities/subreddit-trend-point";
 
 const targetId = "11111111-1111-1111-1111-111111111111";
@@ -42,6 +43,45 @@ function post(args: {
     createdAtSource: args.createdAtSource,
     firstSeenAt: args.createdAtSource,
     lastSeenAt: args.createdAtSource,
+  };
+}
+
+function dailyFact(args: {
+  day: string;
+  postVolume: number;
+  qualifiedPostVolume: number;
+  commentSum: number;
+  heatPrice: number;
+  heatChangePct: number;
+  ema7: number;
+  ema30: number;
+}): SubredditDailyFact {
+  return {
+    targetId,
+    day: args.day,
+    postVolume: args.postVolume,
+    qualifiedPostVolume: args.qualifiedPostVolume,
+    sampledPostVolume: args.postVolume,
+    scoreSum: args.postVolume * 10,
+    commentSum: args.commentSum,
+    subscriberCount: 12_000,
+    activeUserCount: 500,
+    activePostRatio: 1,
+    dispersionScore: 0.5,
+    impactScoreSum: 10,
+    impactPostVolume: args.qualifiedPostVolume,
+    topImpactShare: 0.5,
+    heatPrice: args.heatPrice,
+    heatChangePct: args.heatChangePct,
+    ema7: args.ema7,
+    ema30: args.ema30,
+    subredditTier: "small",
+    qualityThresholdScore: 10,
+    qualityThresholdComments: 5,
+    algorithmVersion: "daily_fact_v1",
+    explainPayload: {
+      qualifiedShare: 0.5,
+    },
   };
 }
 
@@ -176,4 +216,51 @@ test("buildSubredditDailyInsights can read keyword heat from materialized daily 
   assert.equal(ai?.latestDayMentions, 6);
   assert.equal(ai?.daily[0]?.mentions, 3);
   assert.equal(ai?.daily[2]?.mentions, 6);
+});
+
+test("buildSubredditDailyInsights prefers daily fact fields when available", () => {
+  const model = buildSubredditDailyInsights({
+    fromIso: "2026-04-10T00:00:00.000Z",
+    toIso: "2026-04-12T23:59:59.000Z",
+    dailyFacts: [
+      dailyFact({
+        day: "2026-04-10",
+        postVolume: 10,
+        qualifiedPostVolume: 2,
+        commentSum: 20,
+        heatPrice: 30,
+        heatChangePct: 0,
+        ema7: 30,
+        ema30: 30,
+      }),
+      dailyFact({
+        day: "2026-04-11",
+        postVolume: 12,
+        qualifiedPostVolume: 3,
+        commentSum: 24,
+        heatPrice: 40,
+        heatChangePct: 0.333333,
+        ema7: 32.5,
+        ema30: 30.645161,
+      }),
+      dailyFact({
+        day: "2026-04-12",
+        postVolume: 20,
+        qualifiedPostVolume: 5,
+        commentSum: 44,
+        heatPrice: 55,
+        heatChangePct: 0.375,
+        ema7: 38.125,
+        ema30: 32.217482,
+      }),
+    ],
+    posts: [],
+  });
+
+  assert.equal(model.daily[2]?.postVolume, 20);
+  assert.equal(model.daily[2]?.qualifiedPostVolume, 5);
+  assert.equal(model.daily[2]?.heatPrice, 55);
+  assert.equal(model.daily[2]?.ema7, 38.125);
+  assert.equal(model.daily[2]?.subredditTier, "small");
+  assert.equal(model.daily[2]?.algorithmVersion, "daily_fact_v1");
 });

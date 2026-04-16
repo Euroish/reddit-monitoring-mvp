@@ -5,8 +5,10 @@ import type {
 import type { CollectionJobRepository } from "../../../src/domain/repositories/collection-job-repository";
 import type { CrawlCursorRepository } from "../../../src/domain/repositories/crawl-cursor-repository";
 import type { KeywordQuerySessionRepository } from "../../../src/domain/repositories/keyword-query-session-repository";
+import type { MetricsSnapshotRepository } from "../../../src/domain/repositories/metrics-snapshot-repository";
 import type { MonitorTargetRepository } from "../../../src/domain/repositories/monitor-target-repository";
 import type { ProviderHealthWindowRepository } from "../../../src/domain/repositories/provider-health-window-repository";
+import type { SubredditDailyFactRepository } from "../../../src/domain/repositories/subreddit-daily-fact-repository";
 import { READYZ_THRESHOLDS } from "./readyz-thresholds";
 
 export const ACTIVE_SESSION_STATUSES = [
@@ -20,6 +22,8 @@ export interface ReadinessRepositoryBundle {
   collectionJobRepository: CollectionJobRepository;
   crawlCursorRepository?: CrawlCursorRepository;
   keywordQuerySessionRepository?: KeywordQuerySessionRepository;
+  metricsSnapshotRepository?: MetricsSnapshotRepository;
+  subredditDailyFactRepository?: SubredditDailyFactRepository;
   providerHealthWindowRepository?: ProviderHealthWindowRepository;
 }
 
@@ -133,6 +137,8 @@ function createEmptyObservability(): ApiReadinessResponse["observability"] {
     providerSwitchShare: null,
     cursorStallRate: null,
     cursorLagSecondsMax: null,
+    dailyFactCoverageRate: null,
+    dailyFactLagDaysMax: null,
     byProvider: [],
   };
 }
@@ -152,6 +158,7 @@ export async function buildReadinessState(args: {
   let storageCheck: ApiReadinessResponse["checks"]["storage"] = "ok";
   let queueCheck: ApiReadinessResponse["checks"]["queue"] = "ok";
   let activeTargets = 0;
+  let activeTargetIds: string[] = [];
   let activeSessions = 0;
   let queue: ApiReadinessResponse["queue"] = {
     backlog: 0,
@@ -172,6 +179,7 @@ export async function buildReadinessState(args: {
   try {
     const targets = await args.repositories.monitorTargetRepository.findActiveSubreddits();
     activeTargets = targets.length;
+    activeTargetIds = targets.map((target) => target.id);
   } catch {
     storageCheck = "error";
     degradedReasons.push("storage_unavailable");
@@ -485,6 +493,59 @@ export async function buildReadinessState(args: {
     }
   }
 
+  if (
+    activeTargetIds.length > 0 &&
+    args.repositories.metricsSnapshotRepository &&
+    args.repositories.subredditDailyFactRepository
+  ) {
+    try {
+      const materializationFromIso = new Date(
+        new Date(args.nowIso).getTime() - 36 * 60 * 60 * 1000,
+      ).toISOString();
+      const latestSnapshots =
+        await args.repositories.metricsSnapshotRepository.listLatestByTargetsInRange({
+          targetIds: activeTargetIds,
+          from: materializationFromIso,
+          to: args.nowIso,
+          metricNames: ["new_posts_15m", "subscribers", "active_users"],
+        });
+      const latestFacts =
+        await args.repositories.subredditDailyFactRepository.listLatestByTargetsInRange({
+          targetIds: latestSnapshots.map((snapshot) => snapshot.targetId),
+          fromDay: toUtcDay(materializationFromIso),
+          toDay: toUtcDay(args.nowIso),
+        });
+      const latestFactByTarget = new Map(
+        latestFacts.map((fact) => [fact.targetId, fact] as const),
+      );
+      let coveredTargets = 0;
+      let maxLagDays: number | null = null;
+
+      for (const snapshot of latestSnapshots) {
+        const expectedDay = toUtcDay(snapshot.snapshotAt);
+        const fact = latestFactByTarget.get(snapshot.targetId);
+        const lagDays =
+          fact && fact.day >= expectedDay
+            ? 0
+            : fact
+              ? diffUtcDays(expectedDay, fact.day)
+              : diffUtcDays(toUtcDay(args.nowIso), expectedDay) + 1;
+        maxLagDays = maxLagDays == null ? lagDays : Math.max(maxLagDays, lagDays);
+        if (fact && fact.day >= expectedDay) {
+          coveredTargets += 1;
+        }
+      }
+
+      observability.dailyFactCoverageRate = toRate(coveredTargets, latestSnapshots.length);
+      observability.dailyFactLagDaysMax = maxLagDays;
+      if (latestSnapshots.length > 0 && coveredTargets < latestSnapshots.length) {
+        degradedReasons.push("algorithm_daily_fact_stale");
+      }
+    } catch {
+      degradedReasons.push("algorithm_materialization_observability_unavailable");
+    }
+  }
+
   const uniqueDegradedReasons = Array.from(new Set(degradedReasons));
   const isReady = storageCheck === "ok" && queueCheck !== "error";
   return {
@@ -504,4 +565,17 @@ export async function buildReadinessState(args: {
     activeTargets,
     degradedReasons: uniqueDegradedReasons,
   };
+}
+
+function toUtcDay(iso: string): string {
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
+function diffUtcDays(laterDay: string, earlierDay: string): number {
+  const laterMs = Date.parse(`${laterDay}T00:00:00.000Z`);
+  const earlierMs = Date.parse(`${earlierDay}T00:00:00.000Z`);
+  if (!Number.isFinite(laterMs) || !Number.isFinite(earlierMs)) {
+    return 0;
+  }
+  return Math.max(0, Math.round((laterMs - earlierMs) / (24 * 60 * 60 * 1000)));
 }

@@ -2,6 +2,7 @@ import type { KeywordTrendDaily } from "../domain/entities/keyword-trend-daily";
 import type { ContentRepository } from "../domain/repositories/content-repository";
 import type { KeywordTrendDailyRepository } from "../domain/repositories/keyword-trend-daily-repository";
 import type { MetricsSnapshotRepository } from "../domain/repositories/metrics-snapshot-repository";
+import type { SubredditDailyFactRepository } from "../domain/repositories/subreddit-daily-fact-repository";
 
 const AUTO_KEYWORD_STOP_WORDS = new Set([
   "the",
@@ -67,7 +68,10 @@ interface KeywordSignal {
 }
 
 interface DayDraft {
-  sampledPosts: number;
+  observedPosts: number;
+  denominatorPosts: number;
+  qualityThresholdScore: number;
+  qualityThresholdComments: number;
   byKeyword: Map<string, KeywordSignal>;
 }
 
@@ -75,6 +79,7 @@ export interface BuildSubredditKeywordTrendDailyDependencies {
   contentRepository: ContentRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
   keywordTrendDailyRepository: KeywordTrendDailyRepository;
+  subredditDailyFactRepository?: SubredditDailyFactRepository;
 }
 
 export interface BuildSubredditKeywordTrendDailyInput {
@@ -95,8 +100,10 @@ export async function buildSubredditKeywordTrendDailyJob(
   const qualityMinComments = Math.max(0, input.qualityMinComments ?? 20);
   const maxKeywordsPerDay = Math.max(1, input.maxKeywordsPerDay ?? 50);
   const sourceType = input.sourceType ?? "live";
+  const fromDay = toUtcDay(input.fromIso);
+  const toDay = toUtcDay(input.toIso);
 
-  const [posts, snapshots] = await Promise.all([
+  const [posts, snapshots, dailyFacts] = await Promise.all([
     deps.contentRepository.findByTargetCreatedAtRange({
       targetId: input.targetId,
       from: input.fromIso,
@@ -109,6 +116,11 @@ export async function buildSubredditKeywordTrendDailyJob(
       to: input.toIso,
       metricNames: ["score", "num_comments"],
     }),
+    deps.subredditDailyFactRepository?.listByTargetInRange({
+      targetId: input.targetId,
+      fromDay,
+      toDay,
+    }) ?? Promise.resolve([]),
   ]);
 
   if (posts.length === 0) {
@@ -116,21 +128,31 @@ export async function buildSubredditKeywordTrendDailyJob(
   }
 
   const postMetrics = resolveLatestPostMetricsByContentId(snapshots);
+  const dailyFactByDay = new Map(dailyFacts.map((fact) => [fact.day, fact] as const));
   const dayDrafts = new Map<string, DayDraft>();
 
   for (const post of posts) {
     const day = toUtcDay(post.createdAtSource);
     if (!dayDrafts.has(day)) {
-      dayDrafts.set(day, { sampledPosts: 0, byKeyword: new Map() });
+      const dayFact = dailyFactByDay.get(day);
+      dayDrafts.set(day, {
+        observedPosts: 0,
+        denominatorPosts: dayFact?.postVolume ?? 0,
+        qualityThresholdScore: dayFact?.qualityThresholdScore ?? qualityMinScore,
+        qualityThresholdComments: dayFact?.qualityThresholdComments ?? qualityMinComments,
+        byKeyword: new Map(),
+      });
     }
 
     const dayDraft = dayDrafts.get(day)!;
-    dayDraft.sampledPosts += 1;
+    dayDraft.observedPosts += 1;
 
     const metrics = postMetrics.get(post.id) ?? { score: 0, comments: 0 };
     const score = Math.max(0, metrics.score);
     const comments = Math.max(0, metrics.comments);
-    const qualified = score >= qualityMinScore && comments >= qualityMinComments;
+    const qualified =
+      score >= dayDraft.qualityThresholdScore &&
+      comments >= dayDraft.qualityThresholdComments;
 
     const text = `${post.title} ${post.bodyText ?? ""}`;
     const keywords = extractAutoTokens(text);
@@ -211,7 +233,8 @@ function buildRows(args: {
 
   for (const day of sortedDays) {
     const draft = args.dayDrafts.get(day)!;
-    if (draft.sampledPosts <= 0 || draft.byKeyword.size === 0) {
+    const sampledPosts = Math.max(draft.observedPosts, draft.denominatorPosts);
+    if (sampledPosts <= 0 || draft.byKeyword.size === 0) {
       continue;
     }
 
@@ -233,8 +256,8 @@ function buildRows(args: {
     const maxComments = Math.max(1, ...topKeywords.map(([, signal]) => signal.matchedCommentSum));
 
     for (const [keyword, signal] of topKeywords) {
-      const mentionRate = signal.matchedPosts / draft.sampledPosts;
-      const qualifiedMentionRate = signal.qualifiedMatchedPosts / draft.sampledPosts;
+      const mentionRate = signal.matchedPosts / sampledPosts;
+      const qualifiedMentionRate = signal.qualifiedMatchedPosts / sampledPosts;
       const normalizedScore = signal.matchedScoreSum / maxScore;
       const normalizedComments = signal.matchedCommentSum / maxComments;
       const keywordHeat = clamp(
@@ -247,7 +270,7 @@ function buildRows(args: {
         targetId: args.targetId,
         day,
         keyword,
-        sampledPosts: draft.sampledPosts,
+        sampledPosts,
         matchedPosts: signal.matchedPosts,
         qualifiedMatchedPosts: signal.qualifiedMatchedPosts,
         mentionRate: toFixedNumber(mentionRate),
@@ -278,4 +301,3 @@ function clamp(value: number, min: number, max: number): number {
 function toFixedNumber(value: number): number {
   return Number(value.toFixed(6));
 }
-

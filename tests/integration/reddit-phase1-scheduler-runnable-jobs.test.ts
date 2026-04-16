@@ -21,6 +21,7 @@ import {
   InMemoryMonitorTargetRepository,
   InMemoryProviderHealthWindowRepository,
   InMemoryRawEventRepository,
+  InMemorySubredditDailyFactRepository,
   InMemorySubredditTrendPointRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
 import { executeRunnableCollectionJobs } from "../../workers/reddit-phase1-scheduler";
@@ -136,6 +137,7 @@ test("executeRunnableCollectionJobs preserves backfill cursor and provider healt
       crawlCursorRepository,
       providerHealthWindowRepository,
       metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+      subredditDailyFactRepository: new InMemorySubredditDailyFactRepository(),
       subredditTrendPointRepository: new InMemorySubredditTrendPointRepository(),
     },
     connector: new RunnableJobConnector(),
@@ -213,6 +215,7 @@ test("executeRunnableCollectionJobs resolves provider connector from job payload
       crawlCursorRepository: new InMemoryCrawlCursorRepository(),
       providerHealthWindowRepository,
       metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+      subredditDailyFactRepository: new InMemorySubredditDailyFactRepository(),
       subredditTrendPointRepository: new InMemorySubredditTrendPointRepository(),
     },
     connector: defaultConnector,

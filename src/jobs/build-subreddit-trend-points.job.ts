@@ -1,5 +1,6 @@
 import type { SubredditTrendPoint } from "../domain/entities/subreddit-trend-point";
 import type { MetricsSnapshotRepository } from "../domain/repositories/metrics-snapshot-repository";
+import type { SubredditDailyFactRepository } from "../domain/repositories/subreddit-daily-fact-repository";
 import type { SubredditTrendPointRepository } from "../domain/repositories/subreddit-trend-point-repository";
 import { scoreTrendWindows } from "../domain/services/trend-scoring.service";
 import { floorToWindow } from "../shared/time/windowing";
@@ -7,6 +8,7 @@ import { floorToWindow } from "../shared/time/windowing";
 export interface BuildSubredditTrendPointsDependencies {
   metricsSnapshotRepository: MetricsSnapshotRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
+  subredditDailyFactRepository?: SubredditDailyFactRepository;
 }
 
 export interface BuildSubredditTrendPointsInput {
@@ -16,6 +18,7 @@ export interface BuildSubredditTrendPointsInput {
 }
 
 const HIGH_SCORE_POST_THRESHOLD = 50;
+const MIN_COMMENTS_POST_THRESHOLD = 0;
 const COMMENT_WEIGHT_FOR_DISPERSION = 0.5;
 const IMPACT_COMMENT_WEIGHT = 1.25;
 const HIGH_IMPACT_THRESHOLD = 6;
@@ -26,12 +29,20 @@ export async function buildSubredditTrendPointsJob(
   deps: BuildSubredditTrendPointsDependencies,
   input: BuildSubredditTrendPointsInput,
 ): Promise<SubredditTrendPoint[]> {
-  const snapshots = await deps.metricsSnapshotRepository.listByTargetInRange({
-    targetId: input.targetId,
-    from: input.fromIso,
-    to: input.toIso,
-    metricNames: ["new_posts_15m", "active_users", "subscribers", "score", "num_comments"],
-  });
+  const [snapshots, dailyFacts] = await Promise.all([
+    deps.metricsSnapshotRepository.listByTargetInRange({
+      targetId: input.targetId,
+      from: input.fromIso,
+      to: input.toIso,
+      metricNames: ["new_posts_15m", "active_users", "subscribers", "score", "num_comments"],
+    }),
+    deps.subredditDailyFactRepository?.listByTargetInRange({
+      targetId: input.targetId,
+      fromDay: toUtcDay(input.fromIso),
+      toDay: toUtcDay(input.toIso),
+    }) ?? Promise.resolve([]),
+  ]);
+  const dailyFactByDay = new Map(dailyFacts.map((fact) => [fact.day, fact] as const));
 
   const byWindow = new Map<
     string,
@@ -89,6 +100,8 @@ export async function buildSubredditTrendPointsJob(
   const windows = Array.from(byWindow.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([windowStart, current]) => {
+      const windowDay = toUtcDay(windowStart);
+      const dailyFact = dailyFactByDay.get(windowDay);
       const {
         scoreSum,
         commentSum,
@@ -99,7 +112,11 @@ export async function buildSubredditTrendPointsJob(
         impactScoreSum,
         impactPostCount,
         topImpactShare,
-      } = aggregatePostMetrics(current.postMetrics);
+      } = aggregatePostMetrics(current.postMetrics, {
+        qualityThresholdScore: dailyFact?.qualityThresholdScore ?? HIGH_SCORE_POST_THRESHOLD,
+        qualityThresholdComments:
+          dailyFact?.qualityThresholdComments ?? MIN_COMMENTS_POST_THRESHOLD,
+      });
       const windowStartDate = new Date(windowStart);
       const windowEnd = new Date(
         windowStartDate.getTime() + TREND_WINDOW_MINUTES * 60 * 1000,
@@ -140,6 +157,10 @@ export async function buildSubredditTrendPointsJob(
 
 function aggregatePostMetrics(
   postMetrics: Map<string, { score?: number; numComments?: number }>,
+  threshold: {
+    qualityThresholdScore: number;
+    qualityThresholdComments: number;
+  },
 ): {
   scoreSum: number;
   commentSum: number;
@@ -174,7 +195,10 @@ function aggregatePostMetrics(
     sampledPostCount += 1;
     scoreSum += score;
     commentSum += numComments;
-    if (score >= HIGH_SCORE_POST_THRESHOLD) {
+    if (
+      score >= threshold.qualityThresholdScore &&
+      numComments >= threshold.qualityThresholdComments
+    ) {
       highScorePostCount += 1;
     }
     if (score > 0 || numComments > 0) {
@@ -242,4 +266,8 @@ function computeTopShare(values: number[], topN: number): number {
 
 function log1p(value: number): number {
   return Math.log(1 + Math.max(0, value));
+}
+
+function toUtcDay(iso: string): string {
+  return new Date(iso).toISOString().slice(0, 10);
 }

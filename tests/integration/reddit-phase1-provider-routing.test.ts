@@ -19,6 +19,7 @@ import {
   InMemoryMonitorTargetRepository,
   InMemoryProviderHealthWindowRepository,
   InMemoryRawEventRepository,
+  InMemorySubredditDailyFactRepository,
   InMemorySubredditTrendPointRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
 import { runRedditPhase1Cycle } from "../../src/workers/reddit-phase1.worker";
@@ -118,6 +119,7 @@ test("phase1 cycle routes promoted targets to scrapling while keeping others on 
   const accountRepository = new InMemoryAccountRepository();
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
   const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
   const providerHealthWindowRepository = new InMemoryProviderHealthWindowRepository();
 
@@ -146,6 +148,7 @@ test("phase1 cycle routes promoted targets to scrapling while keeping others on 
       contentRepository,
       providerHealthWindowRepository,
       metricsSnapshotRepository,
+      subredditDailyFactRepository,
       subredditTrendPointRepository,
       redditConnector: httpConnector,
       redditConnectorResolver: ({ providerHint }) =>
@@ -175,4 +178,3 @@ test("phase1 cycle routes promoted targets to scrapling while keeping others on 
   assert.equal(providerRows[1]?.provider, "scrapling");
   assert.equal(providerRows[1]?.targetId, stableUuidFromString("reddit:target:r/datascience"));
 });
-

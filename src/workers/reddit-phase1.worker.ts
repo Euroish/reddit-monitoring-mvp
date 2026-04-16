@@ -9,8 +9,10 @@ import type { MetricsSnapshotRepository } from "../domain/repositories/metrics-s
 import type { MonitorTargetRepository } from "../domain/repositories/monitor-target-repository";
 import type { ProviderHealthWindowRepository } from "../domain/repositories/provider-health-window-repository";
 import type { RawEventRepository } from "../domain/repositories/raw-event-repository";
+import type { SubredditDailyFactRepository } from "../domain/repositories/subreddit-daily-fact-repository";
 import type { SubredditTrendPointRepository } from "../domain/repositories/subreddit-trend-point-repository";
 import type { SubredditTrendPoint } from "../domain/entities/subreddit-trend-point";
+import { buildSubredditDailyFactsJob } from "../jobs/build-subreddit-daily-facts.job";
 import { buildSubredditTrendPointsJob } from "../jobs/build-subreddit-trend-points.job";
 import { buildSubredditKeywordTrendDailyJob } from "../jobs/build-subreddit-keyword-trend-daily.job";
 import { collectSubredditAboutJob } from "../jobs/collect-subreddit-about.job";
@@ -31,6 +33,7 @@ export interface RedditPhase1WorkerDependencies {
   providerHealthWindowRepository?: ProviderHealthWindowRepository;
   keywordTrendDailyRepository?: KeywordTrendDailyRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
+  subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
   redditConnector: RedditConnector;
   redditConnectorResolver?: (args: {
@@ -56,6 +59,7 @@ export interface RedditPhase1CycleOptions {
   boostMinHighScorePostCount?: number;
   boostCooldownWindows?: number;
   keywordDailyLookbackDays?: number;
+  dailyFactLookbackDays?: number;
   keywordDailyQualityMinScore?: number;
   keywordDailyQualityMinComments?: number;
   keywordDailyMaxKeywordsPerDay?: number;
@@ -168,6 +172,7 @@ export async function runRedditPhase1Cycle(
   const boostMinHighScorePostCount = Math.max(1, options.boostMinHighScorePostCount ?? 2);
   const boostCooldownWindows = Math.max(0, options.boostCooldownWindows ?? 2);
   const keywordDailyLookbackDays = Math.max(1, options.keywordDailyLookbackDays ?? 90);
+  const dailyFactLookbackDays = Math.max(30, options.dailyFactLookbackDays ?? 45);
   const keywordDailyQualityMinScore = Math.max(0, options.keywordDailyQualityMinScore ?? 10);
   const keywordDailyQualityMinComments = Math.max(0, options.keywordDailyQualityMinComments ?? 20);
   const keywordDailyMaxKeywordsPerDay = Math.max(1, options.keywordDailyMaxKeywordsPerDay ?? 50);
@@ -289,10 +294,26 @@ export async function runRedditPhase1Cycle(
       const fromIso = new Date(
         new Date(nowIso).getTime() - trendLookbackMinutes * 60 * 1000,
       ).toISOString();
+      const dailyFactFromIso = new Date(
+        new Date(nowIso).getTime() - dailyFactLookbackDays * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      await buildSubredditDailyFactsJob(
+        {
+          contentRepository: deps.contentRepository,
+          metricsSnapshotRepository: deps.metricsSnapshotRepository,
+          subredditDailyFactRepository: deps.subredditDailyFactRepository,
+        },
+        {
+          targetId: target.id,
+          fromIso: dailyFactFromIso,
+          toIso: nowIso,
+        },
+      );
       await buildSubredditTrendPointsJob(
         {
           metricsSnapshotRepository: deps.metricsSnapshotRepository,
           subredditTrendPointRepository: deps.subredditTrendPointRepository,
+          subredditDailyFactRepository: deps.subredditDailyFactRepository,
         },
         {
           targetId: target.id,
@@ -310,6 +331,7 @@ export async function runRedditPhase1Cycle(
             contentRepository: deps.contentRepository,
             metricsSnapshotRepository: deps.metricsSnapshotRepository,
             keywordTrendDailyRepository: deps.keywordTrendDailyRepository,
+            subredditDailyFactRepository: deps.subredditDailyFactRepository,
           },
           {
             targetId: target.id,

@@ -69,6 +69,34 @@ export class PostgresMetricsSnapshotRepository implements MetricsSnapshotReposit
     return result.rows.map(mapMetricsSnapshot);
   }
 
+  public async listLatestByTargetsInRange(args: {
+    targetIds: string[];
+    from: string;
+    to: string;
+    metricNames: string[];
+  }): Promise<MetricsSnapshot[]> {
+    if (args.targetIds.length === 0) {
+      return [];
+    }
+
+    const result = await this.db.query<MetricsSnapshotRow>(
+      `
+      SELECT DISTINCT ON (target_id)
+             id, snapshot_at, target_id, content_id, granularity, metric_name, metric_value,
+             collection_job_id, created_at
+      FROM metrics_snapshot
+      WHERE target_id = ANY($1::uuid[])
+        AND snapshot_at >= $2
+        AND snapshot_at <= $3
+        AND metric_name = ANY($4::metric_name_enum[])
+      ORDER BY target_id, snapshot_at DESC, id DESC
+      `,
+      [args.targetIds, args.from, args.to, args.metricNames],
+    );
+
+    return result.rows.map(mapMetricsSnapshot);
+  }
+
   private dedupeSnapshots(snapshots: MetricsSnapshot[]): MetricsSnapshot[] {
     const byUniqueKey = new Map<string, MetricsSnapshot>();
 

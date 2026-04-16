@@ -35,6 +35,20 @@ function resolveRunMode(value: string | undefined): RunMode {
   return "mock";
 }
 
+function toCanonicalSubredditName(value: string): string {
+  return `r/${value.trim().replace(/^r\//i, "").toLowerCase()}`;
+}
+
+function toUtcDay(iso: string): string {
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
+function shiftUtcDays(day: string, deltaDays: number): string {
+  const date = new Date(`${day}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + deltaDays);
+  return date.toISOString().slice(0, 10);
+}
+
 async function main(): Promise<void> {
   if (!process.env.DATABASE_URL) {
     // eslint-disable-next-line no-console
@@ -44,6 +58,7 @@ async function main(): Promise<void> {
 
   const runMode = resolveRunMode(process.env.REDDIT_RUN_MODE);
   const subreddit = process.env.REDDIT_RUN_SUBREDDIT ?? "machinelearning";
+  const canonicalName = toCanonicalSubredditName(subreddit);
 
   const appliedFiles = await runMigrations();
   const runResult = await runPhase1OnceWithPostgres({
@@ -54,10 +69,19 @@ async function main(): Promise<void> {
   const db = new PostgresClient();
   try {
     const repositories = createPostgresRepositoryBundle(db);
-    const [rawEventCount, contentCount, metricsSnapshotCount, trendPointCount] = await Promise.all([
+    const [
+      rawEventCount,
+      contentCount,
+      metricsSnapshotCount,
+      dailyFactCount,
+      keywordTrendDailyCount,
+      trendPointCount,
+    ] = await Promise.all([
       queryCount(db, "raw_reddit_event"),
       queryCount(db, "content"),
       queryCount(db, "metrics_snapshot"),
+      queryCount(db, "subreddit_daily_fact"),
+      queryCount(db, "keyword_trend_daily"),
       queryCount(db, "subreddit_trend_point"),
     ]);
 
@@ -115,6 +139,51 @@ async function main(): Promise<void> {
       repositories,
       nowIso: runResult.nowIso,
     });
+    const previewToDay = toUtcDay(runResult.nowIso);
+    const previewFromDay = shiftUtcDays(previewToDay, -6);
+    const target = await repositories.monitorTargetRepository.findByCanonicalName(canonicalName);
+    const materializedPreview =
+      target == null
+        ? null
+        : {
+            canonicalName,
+            dailyFacts: (
+              await repositories.subredditDailyFactRepository.listByTargetInRange({
+                targetId: target.id,
+                fromDay: previewFromDay,
+                toDay: previewToDay,
+              })
+            ).map((fact) => ({
+              day: fact.day,
+              postVolume: fact.postVolume,
+              qualifiedPostVolume: fact.qualifiedPostVolume,
+              heatPrice: fact.heatPrice,
+              ema7: fact.ema7,
+              ema30: fact.ema30,
+              subredditTier: fact.subredditTier,
+              qualityThresholdScore: fact.qualityThresholdScore,
+              qualityThresholdComments: fact.qualityThresholdComments,
+              algorithmVersion: fact.algorithmVersion,
+            })),
+            keywordRows: (
+              await repositories.keywordTrendDailyRepository.listByTargetInRange({
+                targetId: target.id,
+                fromDay: previewFromDay,
+                toDay: previewToDay,
+                limit: 5,
+              })
+            ).slice(0, 15).map((row) => ({
+              day: row.day,
+              keyword: row.keyword,
+              sampledPosts: row.sampledPosts,
+              matchedPosts: row.matchedPosts,
+              qualifiedMatchedPosts: row.qualifiedMatchedPosts,
+              mentionRate: row.mentionRate,
+              qualifiedMentionRate: row.qualifiedMentionRate,
+              keywordHeat: row.keywordHeat,
+              sourceType: row.sourceType,
+            })),
+          };
 
     // eslint-disable-next-line no-console
     console.log(
@@ -128,8 +197,11 @@ async function main(): Promise<void> {
             raw_reddit_event: rawEventCount,
             content: contentCount,
             metrics_snapshot: metricsSnapshotCount,
+            subreddit_daily_fact: dailyFactCount,
+            keyword_trend_daily: keywordTrendDailyCount,
             subreddit_trend_point: trendPointCount,
           },
+          materializedPreview,
           readiness: {
             status: readiness.status,
             checks: readiness.checks,
