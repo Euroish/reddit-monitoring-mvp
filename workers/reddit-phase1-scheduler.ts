@@ -61,6 +61,7 @@ interface RunnableJobRepositories {
 export async function executeRunnableCollectionJobs(args: {
   repos: RunnableJobRepositories;
   connector: RedditConnector;
+  connectorResolver?: (providerHint: string | undefined) => RedditConnector;
   redditMapper: RedditMapper;
   nowIso: string;
   runnableJobLimit: number;
@@ -127,9 +128,12 @@ export async function executeRunnableCollectionJobs(args: {
       }
 
       if (job.jobType === "collect_subreddit_new_posts") {
+        const connectorForJob = args.connectorResolver
+          ? args.connectorResolver(resolveProviderHintFromJobPayload(job.payload))
+          : args.connector;
         const executed = await runExistingSubredditNewPostsJob(
           {
-            redditConnector: args.connector,
+            redditConnector: connectorForJob,
             redditMapper: args.redditMapper,
             collectionJobRepository: args.repos.collectionJobRepository,
             crawlCursorRepository: args.repos.crawlCursorRepository,
@@ -183,6 +187,23 @@ export async function executeRunnableCollectionJobs(args: {
     executedJobs,
     touchedTargets: Array.from(touchedTargets.values()),
   };
+}
+
+function resolveProviderHintFromJobPayload(
+  payload: Record<string, unknown> | undefined,
+): string | undefined {
+  const providerHint = payload?.providerHint;
+  return typeof providerHint === "string" && providerHint.trim().length > 0
+    ? providerHint.trim()
+    : undefined;
+}
+
+function resolveProviderOverride(providerHint: string | undefined): string | undefined {
+  const normalized = providerHint?.trim().toLowerCase();
+  if (normalized === "http" || normalized === "apify" || normalized === "scrapling") {
+    return normalized;
+  }
+  return undefined;
 }
 
 async function materializeTouchedTargets(args: {
@@ -254,7 +275,18 @@ async function main(): Promise<void> {
   const subreddits = parseSubredditListFromEnv(process.env);
   const runtime = createPostgresPhase1Runtime();
   const repos = runtime.repositories;
-  const connector = runtime.createConnector(runMode, "live");
+  const connectorCache = new Map<string, RedditConnector>();
+  const resolveConnectorForProviderHint = (providerHint: string | undefined): RedditConnector => {
+    const providerOverride = resolveProviderOverride(providerHint);
+    const cacheKey = providerOverride ?? "__default__";
+    const cached = connectorCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const connector = runtime.createConnector(runMode, "live", providerOverride);
+    connectorCache.set(cacheKey, connector);
+    return connector;
+  };
   const redditMapper = runtime.redditMapper;
 
   let inFlight = false;
@@ -277,7 +309,9 @@ async function main(): Promise<void> {
       const result = await runRedditPhase1Cycle(
         {
           ...repos,
-          redditConnector: connector,
+          redditConnector: resolveConnectorForProviderHint(undefined),
+          redditConnectorResolver: ({ providerHint }) =>
+            resolveConnectorForProviderHint(providerHint),
           redditMapper,
         },
         nowIso,
@@ -291,7 +325,8 @@ async function main(): Promise<void> {
       );
       const replayed = await executeRunnableCollectionJobs({
         repos,
-        connector,
+        connector: resolveConnectorForProviderHint(undefined),
+        connectorResolver: resolveConnectorForProviderHint,
         redditMapper,
         nowIso,
         runnableJobLimit,

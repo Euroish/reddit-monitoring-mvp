@@ -19,6 +19,10 @@ interface JobRow {
   error_message: string | null;
 }
 
+interface RawEventHeaderRow {
+  response_headers: Record<string, unknown> | null;
+}
+
 async function queryCount(db: PostgresClient, tableName: string): Promise<number> {
   const result = await db.query<TableCountRow>(`SELECT COUNT(*)::text AS count FROM ${tableName}`);
   return Number(result.rows[0]?.count ?? "0");
@@ -73,6 +77,40 @@ async function main(): Promise<void> {
         LIMIT 6
       `,
     );
+    const recentJobIds = recentJobs.rows.map((job) => job.id);
+    const rawEventHeaders =
+      recentJobIds.length === 0
+        ? []
+        : (
+            await db.query<RawEventHeaderRow>(
+              `
+                SELECT response_headers
+                FROM raw_reddit_event
+                WHERE collection_job_id = ANY($1::uuid[])
+                ORDER BY fetched_at DESC
+                LIMIT 100
+              `,
+              [recentJobIds],
+            )
+          ).rows;
+    const scraplingFallbackTransportCounts: Record<string, number> = {};
+    let providerFallbackCount = 0;
+    for (const row of rawEventHeaders) {
+      const headers =
+        row.response_headers && typeof row.response_headers === "object"
+          ? row.response_headers
+          : {};
+      const fallbackTransport = headers["x-scrapling-fallback"];
+      if (typeof fallbackTransport === "string" && fallbackTransport.trim().length > 0) {
+        const key = fallbackTransport.trim().toLowerCase();
+        scraplingFallbackTransportCounts[key] =
+          (scraplingFallbackTransportCounts[key] ?? 0) + 1;
+      }
+      const providerFallback = headers["x-provider-fallback"];
+      if (typeof providerFallback === "string" && providerFallback.trim().length > 0) {
+        providerFallbackCount += 1;
+      }
+    }
     const readiness = await buildReadinessState({
       repositories,
       nowIso: runResult.nowIso,
@@ -97,6 +135,11 @@ async function main(): Promise<void> {
             checks: readiness.checks,
             degradedReasons: readiness.degradedReasons,
             observability: readiness.observability,
+          },
+          fallbackEvidence: {
+            sampledRawEvents: rawEventHeaders.length,
+            providerFallbackCount,
+            scraplingFallbackTransportCounts,
           },
           recentJobs: recentJobs.rows.map((job) => ({
             id: job.id,

@@ -7,6 +7,7 @@ import {
   type Phase1RunMode,
   upsertActiveSubredditTarget,
 } from "../src/runtime/reddit-phase1-runtime";
+import type { RedditConnector } from "../src/connectors/reddit/reddit-connector.interface";
 import { parseOptionalPositiveInt } from "../src/runtime/runtime-parsing";
 import { PostgresClient } from "../src/storage/postgres/postgres-client";
 import { runRedditPhase1Cycle } from "../src/workers/reddit-phase1.worker";
@@ -46,20 +47,36 @@ export async function runPhase1OnceWithPostgres(
       nowIso,
     });
 
+    const cycleOptions = resolveRedditPhase1CycleOptionsFromEnv({
+      env: process.env,
+      mode: runMode,
+      crawlMode,
+      targetCanonicalNames: [`r/${subreddit}`],
+      postLimit: parseOptionalPositiveInt(process.env.REDDIT_POST_LIMIT),
+    });
+    const connectorCache = new Map<string, RedditConnector>();
+    const resolveConnectorForProviderHint = (providerHint: string | undefined): RedditConnector => {
+      const providerOverride = resolveProviderOverride(providerHint);
+      const cacheKey = providerOverride ?? "__default__";
+      const cached = connectorCache.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
+      const connector = runtime.createConnector(runMode, crawlMode, providerOverride);
+      connectorCache.set(cacheKey, connector);
+      return connector;
+    };
+
     await runRedditPhase1Cycle(
       {
         ...runtime.repositories,
-        redditConnector: runtime.createConnector(runMode, crawlMode),
+        redditConnector: resolveConnectorForProviderHint(cycleOptions.providerHint),
+        redditConnectorResolver: ({ providerHint }) =>
+          resolveConnectorForProviderHint(providerHint),
         redditMapper: runtime.redditMapper,
       },
       nowIso,
-      resolveRedditPhase1CycleOptionsFromEnv({
-        env: process.env,
-        mode: runMode,
-        crawlMode,
-        targetCanonicalNames: [`r/${subreddit}`],
-        postLimit: parseOptionalPositiveInt(process.env.REDDIT_POST_LIMIT),
-      }),
+      cycleOptions,
     );
     return {
       ok: true,
@@ -71,6 +88,14 @@ export async function runPhase1OnceWithPostgres(
   } finally {
     await runtime.close();
   }
+}
+
+function resolveProviderOverride(providerHint: string | undefined): string | undefined {
+  const normalized = providerHint?.trim().toLowerCase();
+  if (normalized === "http" || normalized === "apify" || normalized === "scrapling") {
+    return normalized;
+  }
+  return undefined;
 }
 
 async function main(): Promise<void> {

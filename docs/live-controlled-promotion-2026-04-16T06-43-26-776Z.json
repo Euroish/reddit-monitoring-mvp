@@ -1,0 +1,136 @@
+{
+  "generatedAt": "2026-04-16T06:43:26.776Z",
+  "config": {
+    "liveProvider": "http",
+    "promotedSubreddits": "machinelearning,datascience",
+    "profile": "http",
+    "rounds": 2,
+    "pauseMs": 800,
+    "cycleSubreddits": [
+      "machinelearning",
+      "datascience",
+      "machinelearning",
+      "datascience"
+    ]
+  },
+  "summary": {
+    "runCount": 4,
+    "degradedRuns": 4,
+    "degradedReasonCounts": {
+      "provider_stale_head_elevated:scrapling": 4
+    },
+    "providersSeen": [
+      "scrapling"
+    ],
+    "totalProviderFallbackCount": 0,
+    "totalScraplingFallbackTransportCounts": {
+      "powershell": 16
+    }
+  },
+  "cycles": [
+    {
+      "subreddit": "r/machinelearning",
+      "nowIso": "2026-04-16T06:43:09.819Z",
+      "readinessStatus": "degraded",
+      "degradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 3,
+          "successCount": 3,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 71
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 15,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 4
+        }
+      }
+    },
+    {
+      "subreddit": "r/datascience",
+      "nowIso": "2026-04-16T06:43:23.172Z",
+      "readinessStatus": "degraded",
+      "degradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 3,
+          "successCount": 3,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 71
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 15,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 4
+        }
+      }
+    },
+    {
+      "subreddit": "r/machinelearning",
+      "nowIso": "2026-04-16T06:43:24.515Z",
+      "readinessStatus": "degraded",
+      "degradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 3,
+          "successCount": 3,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 71
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 15,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 4
+        }
+      }
+    },
+    {
+      "subreddit": "r/datascience",
+      "nowIso": "2026-04-16T06:43:25.875Z",
+      "readinessStatus": "degraded",
+      "degradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 3,
+          "successCount": 3,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 71
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 15,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 4
+        }
+      }
+    }
+  ]
+}

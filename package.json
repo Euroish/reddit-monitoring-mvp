@@ -18,6 +18,7 @@
     "algo:scrapling:verify": "tsx scripts/verify-scrapling-bridge.ts",
     "algo:shadow:compare": "tsx scripts/live-shadow-compare.ts",
     "algo:shadow:plan": "tsx scripts/build-shadow-promotion-plan.ts",
+    "algo:promotion:verify": "tsx scripts/live-controlled-promotion-verify.ts",
     "smoke:reddit": "tsx src/workers/smoke-reddit-phase1.ts",
     "db:migrate": "tsx src/storage/schema/run-migrations.ts",
     "worker:phase1:once": "tsx workers/reddit-phase1-once.ts",

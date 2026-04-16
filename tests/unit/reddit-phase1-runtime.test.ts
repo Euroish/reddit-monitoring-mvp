@@ -58,6 +58,22 @@ test("resolveRedditPhase1CycleOptionsFromEnv keeps backfill provider and mock pr
   assert.equal(mock.providerHint, "mock");
 });
 
+test("resolveRedditPhase1CycleOptionsFromEnv parses target-level scrapling promotion list", () => {
+  const options = resolveRedditPhase1CycleOptionsFromEnv({
+    env: {
+      REDDIT_LIVE_PROVIDER: "http",
+      REDDIT_SCRAPLING_PRIMARY_SUBREDDITS: "machinelearning,r/DataScience,machinelearning",
+    },
+    mode: "live",
+    crawlMode: "live",
+  });
+
+  assert.deepEqual(options.scraplingPrimaryCanonicalNames, [
+    "r/machinelearning",
+    "r/datascience",
+  ]);
+});
+
 test("phase1 mode and crawl mode resolvers default to mock for safe local iteration", () => {
   assert.equal(resolvePhase1RunMode("mock"), "mock");
   assert.equal(resolvePhase1RunMode("live"), "live");
@@ -93,6 +109,20 @@ test("createRedditConnectorFromEnv passes through http timeout override", () => 
 
   assert.equal(connector instanceof RedditHttpConnector, true);
   assert.equal((connector as any).timeoutMs, 30000);
+});
+
+test("createRedditConnectorFromEnv allows provider override per execution target", () => {
+  const connector = createRedditConnectorFromEnv({
+    env: {
+      REDDIT_LIVE_PROVIDER: "http",
+      REDDIT_CB_ENABLED: "false",
+    },
+    mode: "live",
+    crawlMode: "live",
+    providerOverride: "scrapling",
+  });
+
+  assert.equal(connector instanceof RedditScraplingConnector, true);
 });
 
 test("createRedditConnectorFromEnv supports scrapling provider and profile", () => {

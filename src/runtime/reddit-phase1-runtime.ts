@@ -28,6 +28,7 @@ import {
   parseOptionalPositiveInt,
   parsePositiveFloat,
   parsePositiveInt,
+  parseSubredditList,
 } from "./runtime-parsing";
 
 export type Phase1RunMode = RedditRunMode;
@@ -40,6 +41,7 @@ export interface PostgresPhase1Runtime {
   createConnector: (
     mode: Phase1RunMode,
     crawlMode?: Phase1CrawlMode,
+    providerOverride?: string,
   ) => ReturnType<typeof createRedditConnector>;
   close: () => Promise<void>;
 }
@@ -79,11 +81,16 @@ export function createPostgresPhase1Runtime(args: {
 }
 
 export function createRedditConnectorFactoryFromEnv(env: NodeJS.ProcessEnv) {
-  return (mode: Phase1RunMode, crawlMode: Phase1CrawlMode = "live") =>
+  return (
+    mode: Phase1RunMode,
+    crawlMode: Phase1CrawlMode = "live",
+    providerOverride?: string,
+  ) =>
     createRedditConnectorFromEnv({
       env,
       mode,
       crawlMode,
+      providerOverride,
     });
 }
 
@@ -91,15 +98,17 @@ export function createRedditConnectorFromEnv(args: {
   env: NodeJS.ProcessEnv;
   mode: Phase1RunMode;
   crawlMode?: Phase1CrawlMode;
+  providerOverride?: string;
 }): ReturnType<typeof createRedditConnector> {
   const crawlMode = args.crawlMode ?? "live";
+  const configuredProvider =
+    args.providerOverride ??
+    (crawlMode === "backfill"
+      ? args.env.REDDIT_BACKFILL_PROVIDER
+      : args.env.REDDIT_LIVE_PROVIDER);
   return createRedditConnector({
     mode: args.mode,
-    liveProvider: resolveRedditLiveProvider(
-      crawlMode === "backfill"
-        ? args.env.REDDIT_BACKFILL_PROVIDER
-        : args.env.REDDIT_LIVE_PROVIDER,
-    ),
+    liveProvider: resolveRedditLiveProvider(configuredProvider),
     httpTransport: resolveRedditHttpTransport(args.env.REDDIT_HTTP_TRANSPORT),
     httpTimeoutMs: parsePositiveInt(args.env.REDDIT_HTTP_TIMEOUT_MS, 12_000),
     scraplingProfile: resolveRedditScraplingProfile(
@@ -133,8 +142,12 @@ export function resolveRedditPhase1CycleOptionsFromEnv(
   args: ResolveRedditPhase1CycleOptionsArgs,
 ): RedditPhase1CycleOptions {
   const crawlMode = args.crawlMode ?? "live";
+  const scraplingPrimaryCanonicalNames = parseSubredditList(
+    args.env.REDDIT_SCRAPLING_PRIMARY_SUBREDDITS,
+  ).map((subreddit) => toCanonicalSubredditName(subreddit));
   return {
     targetCanonicalNames: args.targetCanonicalNames,
+    scraplingPrimaryCanonicalNames,
     postLimit: args.postLimit ?? parseOptionalPositiveInt(args.env.REDDIT_POST_LIMIT),
     basePostLimit: parsePositiveInt(
       args.env.REDDIT_POST_LIMIT_BASE,
@@ -252,6 +265,11 @@ export async function upsertActiveSubredditTargets(args: {
 
 export function resolvePhase1CrawlMode(value: string | undefined): Phase1CrawlMode {
   return parseCrawlMode(value);
+}
+
+function toCanonicalSubredditName(value: string): string {
+  const normalized = value.trim().replace(/^r\//i, "").toLowerCase();
+  return `r/${normalized}`;
 }
 
 function resolveProviderHint(args: {

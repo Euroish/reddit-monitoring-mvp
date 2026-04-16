@@ -1,0 +1,118 @@
+{
+  "generatedAt": "2026-04-16T06:44:24.787Z",
+  "config": {
+    "liveProvider": "http",
+    "promotedSubreddits": "machinelearning,datascience",
+    "profile": "http",
+    "rounds": 1,
+    "pauseMs": 800,
+    "cycleSubreddits": [
+      "machinelearning",
+      "datascience",
+      "programming"
+    ]
+  },
+  "summary": {
+    "runCount": 3,
+    "degradedRuns": 3,
+    "degradedReasonCounts": {
+      "provider_stale_head_elevated:scrapling": 3,
+      "provider_switch_elevated:http": 1,
+      "provider_stale_head_elevated:http": 1,
+      "provider_switch_elevated:scrapling": 1,
+      "provider_cursor_stalled:http": 1,
+      "provider_data_stalled:http": 1
+    },
+    "providersSeen": [
+      "http",
+      "scrapling"
+    ],
+    "totalProviderFallbackCount": 0,
+    "totalScraplingFallbackTransportCounts": {
+      "powershell": 8
+    }
+  },
+  "cycles": [
+    {
+      "subreddit": "r/machinelearning",
+      "nowIso": "2026-04-16T06:44:14.255Z",
+      "readinessStatus": "degraded",
+      "degradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 3,
+          "successCount": 3,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 71
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 15,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 4
+        }
+      }
+    },
+    {
+      "subreddit": "r/datascience",
+      "nowIso": "2026-04-16T06:44:15.444Z",
+      "readinessStatus": "degraded",
+      "degradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 3,
+          "successCount": 3,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 71
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 15,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 4
+        }
+      }
+    },
+    {
+      "subreddit": "r/programming",
+      "nowIso": "2026-04-16T06:44:23.873Z",
+      "readinessStatus": "degraded",
+      "degradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_switch_elevated:scrapling",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "providerHealth": [
+        {
+          "provider": "http",
+          "requestCount": 3,
+          "successCount": 3,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 66
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 15,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {}
+      }
+    }
+  ]
+}

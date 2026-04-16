@@ -33,11 +33,17 @@ export interface RedditPhase1WorkerDependencies {
   metricsSnapshotRepository: MetricsSnapshotRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
   redditConnector: RedditConnector;
+  redditConnectorResolver?: (args: {
+    canonicalName: string;
+    providerHint?: string;
+    crawlMode: "live" | "backfill";
+  }) => RedditConnector;
   redditMapper: RedditMapper;
 }
 
 export interface RedditPhase1CycleOptions {
   targetCanonicalNames?: string[];
+  scraplingPrimaryCanonicalNames?: string[];
   postLimit?: number;
   basePostLimit?: number;
   boostPostLimit?: number;
@@ -126,6 +132,19 @@ function toCanonicalSubredditName(value: string): string {
   return `r/${normalized}`;
 }
 
+function resolveTargetProviderHint(args: {
+  canonicalName: string;
+  defaultProviderHint?: string;
+  promotedScraplingCanonicalNames: ReadonlySet<string>;
+}): string | undefined {
+  const canonicalName = toCanonicalSubredditName(args.canonicalName);
+  if (args.promotedScraplingCanonicalNames.has(canonicalName)) {
+    return "scrapling";
+  }
+  const normalized = args.defaultProviderHint?.trim();
+  return normalized && normalized.length > 0 ? normalized : undefined;
+}
+
 export async function runRedditPhase1Cycle(
   deps: RedditPhase1WorkerDependencies,
   nowIso: string,
@@ -160,6 +179,9 @@ export async function runRedditPhase1Cycle(
   const disableAdaptiveSampling = options.disableAdaptiveSampling ?? false;
   const trendLookbackMinutes = options.trendLookbackMinutes ?? 72 * 60;
   const continueOnError = options.continueOnError ?? false;
+  const promotedScraplingCanonicalNames = new Set(
+    (options.scraplingPrimaryCanonicalNames ?? []).map(toCanonicalSubredditName),
+  );
   const requestedCanonicalNames = Array.from(
     new Set((options.targetCanonicalNames ?? []).map(toCanonicalSubredditName)),
   );
@@ -182,6 +204,17 @@ export async function runRedditPhase1Cycle(
 
   for (const target of targets) {
     try {
+      const targetProviderHint = resolveTargetProviderHint({
+        canonicalName: target.canonicalName,
+        defaultProviderHint: providerHint,
+        promotedScraplingCanonicalNames,
+      });
+      const targetConnector =
+        deps.redditConnectorResolver?.({
+          canonicalName: target.canonicalName,
+          providerHint: targetProviderHint,
+          crawlMode,
+        }) ?? deps.redditConnector;
       const postSamplingPlan: ResolvedSamplingPlan =
         fixedPostLimit != null
           ? {
@@ -203,7 +236,7 @@ export async function runRedditPhase1Cycle(
               boostCooldownWindows,
               disableAdaptiveSampling,
               mode: crawlMode,
-              providerHint,
+              providerHint: targetProviderHint,
               providerHealthWindowRepository: deps.providerHealthWindowRepository,
               subredditTrendPointRepository: deps.subredditTrendPointRepository,
             });
@@ -218,7 +251,7 @@ export async function runRedditPhase1Cycle(
 
       await collectSubredditAboutJob(
         {
-          redditConnector: deps.redditConnector,
+          redditConnector: targetConnector,
           redditMapper: deps.redditMapper,
           collectionJobRepository: deps.collectionJobRepository,
           rawEventRepository: deps.rawEventRepository,
@@ -229,7 +262,7 @@ export async function runRedditPhase1Cycle(
 
       await collectSubredditNewPostsJob(
         {
-          redditConnector: deps.redditConnector,
+          redditConnector: targetConnector,
           redditMapper: deps.redditMapper,
           collectionJobRepository: deps.collectionJobRepository,
           rawEventRepository: deps.rawEventRepository,
@@ -244,7 +277,7 @@ export async function runRedditPhase1Cycle(
           limit: postLimit,
           samplingTier: postSamplingPlan.tier,
           mode: crawlMode,
-          providerHint,
+          providerHint: targetProviderHint,
           candidateFilter: {
             minScore: postCandidateMinScore,
             minComments: postCandidateMinComments,

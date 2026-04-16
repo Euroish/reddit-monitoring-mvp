@@ -1,0 +1,122 @@
+{
+  "generatedAt": "2026-04-16T10:17:39.165Z",
+  "config": {
+    "liveProvider": "http",
+    "promotedSubreddits": "chatgpt,claudeai",
+    "profile": "http",
+    "rounds": 1,
+    "pauseMs": 500,
+    "cycleSubreddits": [
+      "chatgpt",
+      "claudeai"
+    ]
+  },
+  "summary": {
+    "runCount": 2,
+    "globalDegradedRuns": 2,
+    "localTargetDegradedRuns": 0,
+    "globalDegradedReasonCounts": {
+      "provider_stale_head_elevated:scrapling": 2
+    },
+    "localTargetDegradedReasonCounts": {},
+    "globalOnlyReasonCounts": {
+      "provider_stale_head_elevated:scrapling": 2
+    },
+    "localOnlyReasonCounts": {},
+    "providersSeen": [
+      "scrapling"
+    ],
+    "totalProviderFallbackCount": 0,
+    "totalScraplingFallbackTransportCounts": {
+      "powershell": 36
+    }
+  },
+  "cycles": [
+    {
+      "subreddit": "r/chatgpt",
+      "nowIso": "2026-04-16T10:17:27.982Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "localTargetReadinessStatus": "ready",
+      "localTargetDegradedReasons": [],
+      "globalOnlyDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 11,
+          "successCount": 11,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 314,
+          "candidateCount": 338,
+          "acceptedCount": 338,
+          "duplicatePostRate": 0.9289940828402367,
+          "ingestLagSeconds": 35749.136094674555
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 82,
+        "staleHeadSuppressedProviders": [
+          "scrapling"
+        ]
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 19,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 19
+        }
+      }
+    },
+    {
+      "subreddit": "r/claudeai",
+      "nowIso": "2026-04-16T10:17:38.586Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "localTargetReadinessStatus": "ready",
+      "localTargetDegradedReasons": [],
+      "globalOnlyDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 8,
+          "successCount": 8,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 203,
+          "candidateCount": 224,
+          "acceptedCount": 224,
+          "duplicatePostRate": 0.90625,
+          "ingestLagSeconds": 25239.839285714286
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 115,
+        "staleHeadSuppressedProviders": [
+          "scrapling"
+        ]
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 17,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 17
+        }
+      }
+    }
+  ]
+}

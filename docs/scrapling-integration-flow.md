@@ -108,8 +108,35 @@ Add Scrapling-specific evidence fields (without changing existing gate semantics
 - live verification snapshot with comparable target set and fixed timeout/circuit settings
 - activity log entry in `obsidian-reddit专用/Projects/project.md` (`Scope`, `Why now`, `Verify`, `Next`)
 
+## Current status (2026-04-16)
+
+- S0-S3 implementation checklist is complete in code and tests.
+- Current focus remains Stage B exit proof under `P1.6`: separate target-local Scrapling readiness from global legacy `http` degraded reasons.
+- Controlled-promotion verifier now emits target freshness evidence (`targetFreshness.latestContentAgeSeconds`) and suppresses local stale-head when the target head remains fresh (`<= 5400s`), while keeping global degraded reasons unchanged.
+- Latest controlled-promotion evidence:
+  - `chatgpt,claudeai`: local target readiness `ready` in all 4/4 cycles (`docs/live-controlled-promotion-2026-04-16T10-10-21-019Z.json`).
+  - `machinelearning,datascience`: local target readiness `degraded` in 4/4 cycles (`provider_stale_head_elevated:scrapling`, `docs/live-controlled-promotion-2026-04-16T10-10-55-835Z.json`).
+
+## P/Stage/S master flow
+
+```text
+P1 (data plane + truth layer)
+  -> Stage A: threshold contract freeze (readyz + sampling)
+  -> Stage B: exit proof + live explainability (current)
+  -> Stage C: ranking/anomaly expansion (blocked until Stage B exit)
+
+P1.6 (Scrapling integration lane inside P1)
+  -> S0: bridge contract freeze                 [done]
+  -> S1: shadow parity compare                  [done]
+  -> S2: controlled promotion routing/fallback  [done]
+  -> S3: coupling + threshold-safe tuning       [done, tuning evidence continues in Stage B]
+
+P2 (website-facing analytics consumption)
+  -> starts only after P1 Stage C opens and stabilizes
+```
+
 ## Immediate next execution
 
-1. Implement S0 schema doc + fixture tests.
-2. Add connector factory flag for `scrapling` provider (off by default).
-3. Build shadow-compare report writer under `docs/` for parity evidence.
+1. Keep `chatgpt,claudeai` in promoted lane and continue periodic verification snapshots.
+2. Keep `machinelearning,datascience` in shadow lane until local `provider_stale_head_elevated:scrapling` no longer dominates.
+3. Find at least one technical target set that passes local readiness in repeated windows; Stage C stays closed until both hot and technical sets satisfy the Stage B local-pass rule.

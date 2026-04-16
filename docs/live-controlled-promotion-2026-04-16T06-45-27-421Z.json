@@ -1,0 +1,157 @@
+{
+  "generatedAt": "2026-04-16T06:45:27.421Z",
+  "config": {
+    "liveProvider": "http",
+    "promotedSubreddits": "chatgpt,claudeai",
+    "profile": "http",
+    "rounds": 2,
+    "pauseMs": 800,
+    "cycleSubreddits": [
+      "chatgpt",
+      "claudeai",
+      "chatgpt",
+      "claudeai"
+    ]
+  },
+  "summary": {
+    "runCount": 4,
+    "degradedRuns": 4,
+    "degradedReasonCounts": {
+      "provider_switch_elevated:http": 4,
+      "provider_stale_head_elevated:http": 4,
+      "provider_switch_elevated:scrapling": 1,
+      "provider_stale_head_elevated:scrapling": 3,
+      "provider_cursor_stalled:http": 4,
+      "provider_data_stalled:http": 4
+    },
+    "providersSeen": [
+      "scrapling"
+    ],
+    "totalProviderFallbackCount": 0,
+    "totalScraplingFallbackTransportCounts": {
+      "powershell": 24
+    }
+  },
+  "cycles": [
+    {
+      "subreddit": "r/chatgpt",
+      "nowIso": "2026-04-16T06:44:51.561Z",
+      "readinessStatus": "degraded",
+      "degradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_switch_elevated:scrapling",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 3,
+          "successCount": 3,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 0
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 4,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 4
+        }
+      }
+    },
+    {
+      "subreddit": "r/claudeai",
+      "nowIso": "2026-04-16T06:45:03.861Z",
+      "readinessStatus": "degraded",
+      "degradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 3,
+          "successCount": 3,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 0
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 4,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 4
+        }
+      }
+    },
+    {
+      "subreddit": "r/chatgpt",
+      "nowIso": "2026-04-16T06:45:15.433Z",
+      "readinessStatus": "degraded",
+      "degradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 6,
+          "successCount": 6,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 40
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 8,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 8
+        }
+      }
+    },
+    {
+      "subreddit": "r/claudeai",
+      "nowIso": "2026-04-16T06:45:26.516Z",
+      "readinessStatus": "degraded",
+      "degradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 6,
+          "successCount": 6,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 40
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 8,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 8
+        }
+      }
+    }
+  ]
+}

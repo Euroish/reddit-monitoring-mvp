@@ -1,0 +1,230 @@
+{
+  "generatedAt": "2026-04-16T06:59:02.278Z",
+  "config": {
+    "liveProvider": "http",
+    "promotedSubreddits": "chatgpt,claudeai",
+    "profile": "http",
+    "rounds": 2,
+    "pauseMs": 1000,
+    "cycleSubreddits": [
+      "chatgpt",
+      "claudeai",
+      "chatgpt",
+      "claudeai"
+    ]
+  },
+  "summary": {
+    "runCount": 4,
+    "globalDegradedRuns": 4,
+    "localTargetDegradedRuns": 0,
+    "globalDegradedReasonCounts": {
+      "provider_switch_elevated:http": 4,
+      "provider_stale_head_elevated:http": 4,
+      "provider_stale_head_elevated:scrapling": 4,
+      "provider_cursor_stalled:scrapling": 4,
+      "provider_data_stalled:scrapling": 4,
+      "provider_cursor_stalled:http": 4,
+      "provider_data_stalled:http": 4
+    },
+    "localTargetDegradedReasonCounts": {},
+    "globalOnlyReasonCounts": {
+      "provider_switch_elevated:http": 4,
+      "provider_stale_head_elevated:http": 4,
+      "provider_stale_head_elevated:scrapling": 4,
+      "provider_cursor_stalled:scrapling": 4,
+      "provider_data_stalled:scrapling": 4,
+      "provider_cursor_stalled:http": 4,
+      "provider_data_stalled:http": 4
+    },
+    "localOnlyReasonCounts": {},
+    "providersSeen": [
+      "scrapling"
+    ],
+    "totalProviderFallbackCount": 0,
+    "totalScraplingFallbackTransportCounts": {
+      "powershell": 44
+    }
+  },
+  "cycles": [
+    {
+      "subreddit": "r/chatgpt",
+      "nowIso": "2026-04-16T06:58:48.537Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "localTargetReadinessStatus": "ready",
+      "localTargetDegradedReasons": [],
+      "globalOnlyDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 9,
+          "successCount": 9,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 79
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 11,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 11
+        }
+      }
+    },
+    {
+      "subreddit": "r/claudeai",
+      "nowIso": "2026-04-16T06:58:58.581Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "localTargetReadinessStatus": "ready",
+      "localTargetDegradedReasons": [],
+      "globalOnlyDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 9,
+          "successCount": 9,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 78
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 11,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 11
+        }
+      }
+    },
+    {
+      "subreddit": "r/chatgpt",
+      "nowIso": "2026-04-16T06:58:59.875Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "localTargetReadinessStatus": "ready",
+      "localTargetDegradedReasons": [],
+      "globalOnlyDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 9,
+          "successCount": 9,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 79
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 11,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 11
+        }
+      }
+    },
+    {
+      "subreddit": "r/claudeai",
+      "nowIso": "2026-04-16T06:59:01.182Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "localTargetReadinessStatus": "ready",
+      "localTargetDegradedReasons": [],
+      "globalOnlyDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 9,
+          "successCount": 9,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 78
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 11,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 11
+        }
+      }
+    }
+  ]
+}

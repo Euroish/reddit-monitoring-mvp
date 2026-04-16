@@ -398,7 +398,7 @@ test("collect subreddit new posts live mode catches burst overflow pages in the 
     {
       targetId,
       subreddit: "bursting",
-      nowIso: "2026-04-10T12:00:00.000Z",
+      nowIso: "2024-04-10T12:20:00.000Z",
       mode: "live",
       providerHint: "http",
       limit: 2,
@@ -478,7 +478,7 @@ test("collect subreddit new posts boost tier expands live overflow depth", async
     {
       targetId,
       subreddit: "stale-head-boost",
-      nowIso: "2026-04-10T12:00:00.000Z",
+      nowIso: "2024-04-10T12:40:00.000Z",
       mode: "live",
       providerHint: "http",
       limit: 40,
@@ -489,6 +489,192 @@ test("collect subreddit new posts boost tier expands live overflow depth", async
   assert.deepEqual(connector.seenAfter, [undefined, "t3_cursor_1", "t3_cursor_2", "t3_cursor_3"]);
   assert.equal(rawEventRepository.all().length, 4);
   assert.equal(providerHealthWindowRepository.all()[0]?.requestCount, 4);
+});
+
+test("collect subreddit new posts live mode stops overflow when head page is already stale", async () => {
+  const targetId = stableUuidFromString("reddit:target:r/stale-head-stop");
+  const connector = new ScriptedPostsConnector([
+    {
+      nextCursor: "t3_cursor_1",
+      provider: "http",
+      posts: [
+        {
+          name: "t3_old_1",
+          id: "old_1",
+          subreddit: "stale-head-stop",
+          author: "alice",
+          title: "old post 1",
+          permalink: "/r/stale-head-stop/comments/old_1/post",
+          created_utc: 1_712_450_000,
+          score: 10,
+          num_comments: 1,
+        },
+        {
+          name: "t3_old_2",
+          id: "old_2",
+          subreddit: "stale-head-stop",
+          author: "bob",
+          title: "old post 2",
+          permalink: "/r/stale-head-stop/comments/old_2/post",
+          created_utc: 1_712_450_060,
+          score: 11,
+          num_comments: 2,
+        },
+      ],
+    },
+    {
+      provider: "http",
+      posts: [
+        {
+          name: "t3_old_3",
+          id: "old_3",
+          subreddit: "stale-head-stop",
+          author: "carol",
+          title: "old post 3",
+          permalink: "/r/stale-head-stop/comments/old_3/post",
+          created_utc: 1_712_450_120,
+          score: 12,
+          num_comments: 3,
+        },
+      ],
+    },
+  ]);
+
+  const rawEventRepository = new InMemoryRawEventRepository();
+  const providerHealthWindowRepository = new InMemoryProviderHealthWindowRepository();
+
+  await collectSubredditNewPostsJob(
+    {
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+      collectionJobRepository: new InMemoryCollectionJobRepository(),
+      crawlCursorRepository: new InMemoryCrawlCursorRepository(),
+      rawEventRepository,
+      accountRepository: new InMemoryAccountRepository(),
+      contentRepository: new InMemoryContentRepository(),
+      metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+      providerHealthWindowRepository,
+    },
+    {
+      targetId,
+      subreddit: "stale-head-stop",
+      nowIso: "2024-04-10T12:20:00.000Z",
+      mode: "live",
+      providerHint: "http",
+      limit: 2,
+    },
+  );
+
+  assert.deepEqual(connector.seenAfter, [undefined]);
+  assert.equal(rawEventRepository.all().length, 1);
+  assert.equal(providerHealthWindowRepository.all()[0]?.requestCount, 1);
+});
+
+test("collect subreddit new posts live mode stops deep overflow when tail page is too old", async () => {
+  const targetId = stableUuidFromString("reddit:target:r/stale-tail-stop");
+  const connector = new ScriptedPostsConnector([
+    {
+      nextCursor: "t3_cursor_1",
+      provider: "http",
+      posts: [
+        {
+          name: "t3_fresh_1",
+          id: "fresh_1",
+          subreddit: "stale-tail-stop",
+          author: "alice",
+          title: "fresh post 1",
+          permalink: "/r/stale-tail-stop/comments/fresh_1/post",
+          created_utc: 1_712_773_140,
+          score: 30,
+          num_comments: 6,
+        },
+        {
+          name: "t3_fresh_2",
+          id: "fresh_2",
+          subreddit: "stale-tail-stop",
+          author: "bob",
+          title: "fresh post 2",
+          permalink: "/r/stale-tail-stop/comments/fresh_2/post",
+          created_utc: 1_712_773_080,
+          score: 28,
+          num_comments: 5,
+        },
+      ],
+    },
+    {
+      nextCursor: "t3_cursor_2",
+      provider: "http",
+      posts: [
+        {
+          name: "t3_old_tail_1",
+          id: "old_tail_1",
+          subreddit: "stale-tail-stop",
+          author: "carol",
+          title: "old tail 1",
+          permalink: "/r/stale-tail-stop/comments/old_tail_1/post",
+          created_utc: 1_712_740_400,
+          score: 12,
+          num_comments: 2,
+        },
+        {
+          name: "t3_old_tail_2",
+          id: "old_tail_2",
+          subreddit: "stale-tail-stop",
+          author: "dave",
+          title: "old tail 2",
+          permalink: "/r/stale-tail-stop/comments/old_tail_2/post",
+          created_utc: 1_712_740_340,
+          score: 11,
+          num_comments: 1,
+        },
+      ],
+    },
+    {
+      provider: "http",
+      posts: [
+        {
+          name: "t3_should_not_fetch",
+          id: "should_not_fetch",
+          subreddit: "stale-tail-stop",
+          author: "eve",
+          title: "should not fetch",
+          permalink: "/r/stale-tail-stop/comments/should_not_fetch/post",
+          created_utc: 1_712_773_200,
+          score: 50,
+          num_comments: 9,
+        },
+      ],
+    },
+  ]);
+
+  const rawEventRepository = new InMemoryRawEventRepository();
+  const providerHealthWindowRepository = new InMemoryProviderHealthWindowRepository();
+
+  await collectSubredditNewPostsJob(
+    {
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+      collectionJobRepository: new InMemoryCollectionJobRepository(),
+      crawlCursorRepository: new InMemoryCrawlCursorRepository(),
+      rawEventRepository,
+      accountRepository: new InMemoryAccountRepository(),
+      contentRepository: new InMemoryContentRepository(),
+      metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+      providerHealthWindowRepository,
+    },
+    {
+      targetId,
+      subreddit: "stale-tail-stop",
+      nowIso: "2024-04-10T18:30:00.000Z",
+      mode: "live",
+      providerHint: "http",
+      limit: 2,
+    },
+  );
+
+  assert.deepEqual(connector.seenAfter, [undefined, "t3_cursor_1"]);
+  assert.equal(rawEventRepository.all().length, 2);
+  assert.equal(providerHealthWindowRepository.all()[0]?.requestCount, 2);
 });
 
 test("collect subreddit new posts backfill mode uses crawl cursor with one-step rewind", async () => {

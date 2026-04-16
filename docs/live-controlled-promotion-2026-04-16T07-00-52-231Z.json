@@ -1,0 +1,223 @@
+{
+  "generatedAt": "2026-04-16T07:00:52.231Z",
+  "config": {
+    "liveProvider": "http",
+    "promotedSubreddits": "machinelearning,datascience",
+    "profile": "http",
+    "rounds": 2,
+    "pauseMs": 1000,
+    "cycleSubreddits": [
+      "machinelearning",
+      "datascience",
+      "machinelearning",
+      "datascience"
+    ]
+  },
+  "summary": {
+    "runCount": 4,
+    "globalDegradedRuns": 4,
+    "localTargetDegradedRuns": 4,
+    "globalDegradedReasonCounts": {
+      "provider_switch_elevated:http": 4,
+      "provider_stale_head_elevated:http": 4,
+      "provider_stale_head_elevated:scrapling": 4,
+      "provider_cursor_stalled:scrapling": 1,
+      "provider_data_stalled:scrapling": 1,
+      "provider_cursor_stalled:http": 4,
+      "provider_data_stalled:http": 4
+    },
+    "localTargetDegradedReasonCounts": {
+      "provider_stale_head_elevated:scrapling": 4
+    },
+    "globalOnlyReasonCounts": {
+      "provider_switch_elevated:http": 4,
+      "provider_stale_head_elevated:http": 4,
+      "provider_cursor_stalled:scrapling": 1,
+      "provider_data_stalled:scrapling": 1,
+      "provider_cursor_stalled:http": 4,
+      "provider_data_stalled:http": 4
+    },
+    "localOnlyReasonCounts": {},
+    "providersSeen": [
+      "scrapling"
+    ],
+    "totalProviderFallbackCount": 0,
+    "totalScraplingFallbackTransportCounts": {
+      "powershell": 46
+    }
+  },
+  "cycles": [
+    {
+      "subreddit": "r/machinelearning",
+      "nowIso": "2026-04-16T06:59:47.049Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "localTargetReadinessStatus": "degraded",
+      "localTargetDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "globalOnlyDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 7,
+          "successCount": 7,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 231
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 17,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 9
+        }
+      }
+    },
+    {
+      "subreddit": "r/datascience",
+      "nowIso": "2026-04-16T07:00:07.520Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "localTargetReadinessStatus": "degraded",
+      "localTargetDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "globalOnlyDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 7,
+          "successCount": 7,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 231
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 16,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 9
+        }
+      }
+    },
+    {
+      "subreddit": "r/machinelearning",
+      "nowIso": "2026-04-16T07:00:29.172Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "localTargetReadinessStatus": "degraded",
+      "localTargetDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "globalOnlyDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 11,
+          "successCount": 11,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 391
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 18,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 14
+        }
+      }
+    },
+    {
+      "subreddit": "r/datascience",
+      "nowIso": "2026-04-16T07:00:51.131Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "localTargetReadinessStatus": "degraded",
+      "localTargetDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "globalOnlyDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_stale_head_elevated:http",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 11,
+          "successCount": 11,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 391
+        }
+      ],
+      "fallbackEvidence": {
+        "sampledRawEvents": 18,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 14
+        }
+      }
+    }
+  ]
+}

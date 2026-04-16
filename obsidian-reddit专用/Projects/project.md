@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: P1.6-http-scrapling-integration
-updated_at: "2026-04-16 13:48:36"
+updated_at: "2026-04-16 18:23:30"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Execute controlled promotion for `machinelearning` and `datascience` to `scrapling` primary with explicit `http` fallback, then monitor readyz degradation reasons and fallback transport evidence over live cycles."
+next_action: "Controlled-promotion evidence now includes repeated technical-set pass (`programming,technology`) plus mixed-set contrast (`python,javascript`). Maintain hot+technical positive controls, keep stale technical targets in shadow, and proceed with user-provided explicit algorithm rules for layered 15-day quality trend once received."
 tags:
 - codex
 - workspace
@@ -105,6 +105,55 @@ tags:
 - Keep this file ASCII-first or clean UTF-8 only; do not copy mojibake text forward.
 
 ## Activity Log
+
+### 2026-04-16 18:23:30
+
+- Scope: Completed the requested extra technical-candidate live windows and produced contrasted rollout evidence beyond tests. Executed repeated controlled-promotion runs for `python,javascript` and `programming,technology`, with per-target local readiness detail from snapshot cycles.
+- Why now: Stage B evidence quality needed one more real run group so promotion decisions are based on repeatable target-local outcomes rather than a single technical sample.
+- Verify: `npm run algo:promotion:verify` wrote `docs/live-controlled-promotion-2026-04-16T10-22-54-916Z.json` (`python,javascript`: `runCount=4`, `localTargetDegradedRuns=2`; `python` degraded with `provider_stale_head_elevated:scrapling`, `javascript` local ready) and `docs/live-controlled-promotion-2026-04-16T10-23-16-792Z.json` (`programming,technology`: `runCount=4`, `localTargetDegradedRuns=0`). Also retained prior technical pass snapshot `docs/live-controlled-promotion-2026-04-16T10-19-17-380Z.json` (`programming,technology`, `4/4` local ready).
+- Next: Use `programming,technology` as the current technical positive-control pair, keep `python` and `machinelearning,datascience` in shadow, and implement the next algorithm round after receiving explicit user rules.
+
+### 2026-04-16 18:17:54
+
+- Scope: Implemented a bounded algorithm upgrade in `src/jobs/collect-subreddit-new-posts.job.ts` to reduce live overflow waste and stale-tail noise: live mode now stops overflow when (1) the head page is already stale (`freshestAgeSeconds > 5400`) or (2) deeper overflow pages are too old (`oldestAgeSeconds > 21600`). Added two integration proofs in `tests/integration/collect-subreddit-new-posts-p0.test.ts` for head-stale stop and deep-tail stop, and aligned existing overflow tests to fresh timestamp baselines.
+- Why now: Stage B still needs higher-quality promotion evidence, but live overflow was spending budget on old pages that add little recall value while amplifying duplicate/lag noise.
+- Verify: `npx tsx --test tests/integration/collect-subreddit-new-posts-p0.test.ts` passed (`10/10`, including new stop-rule cases). `npm run algo:phase1` passed (`35/35`). Live controlled snapshot `docs/live-controlled-promotion-2026-04-16T10-17-39-165Z.json` remains locally ready for `chatgpt,claudeai` (`localTargetDegradedRuns=0`).
+- Next: Run repeated `algo:promotion:verify` windows for additional technical candidate sets (while `machinelearning,datascience` stays shadow) and continue narrowing duplicate/lag observability noise only where it distorts local rollout decisions.
+
+### 2026-04-16 18:12:05
+
+- Scope: Repaired controlled-promotion local readiness evaluation to avoid false local stale-head blocking when a target head is currently fresh. `scripts/live-controlled-promotion-verify.ts` now queries per-target latest content age, suppresses local `provider_stale_head_elevated:*` when `latestContentAgeSeconds <= 5400`, and writes richer per-cycle evidence (`targetFreshness`, `duplicatePostRate`, `ingestLagSeconds`, candidate/accepted counts). Then executed fresh promotion windows for both target sets and updated Stage B docs.
+- Why now: Latest repeated verification unexpectedly marked even the hot positive-control set as locally degraded due high average lag over fetched pages, despite fresh target heads; this made Stage B local-vs-global rollout decisions noisy.
+- Verify: `npm run algo:promotion:verify` with `REDDIT_SCRAPLING_PRIMARY_SUBREDDITS=chatgpt,claudeai` wrote `docs/live-controlled-promotion-2026-04-16T10-10-21-019Z.json` (`localTargetDegradedRuns=0`, `targetFreshness.latestContentAgeSeconds` about `1855`, stale-head suppressed locally). Same command with `REDDIT_SCRAPLING_PRIMARY_SUBREDDITS=machinelearning,datascience` wrote `docs/live-controlled-promotion-2026-04-16T10-10-55-835Z.json` (`localTargetDegradedRuns=4`, `provider_stale_head_elevated:scrapling`, `latestContentAgeSeconds` > `14900`). Regression gate `npm run algo:phase1` passed (`35/35`).
+- Next: Keep `chatgpt,claudeai` as promoted positive control and `machinelearning,datascience` in shadow lane, then run repeated windows on additional technical sets to secure at least one technical local-pass set before Stage B exit.
+
+### 2026-04-16 15:05:05
+
+- Scope: Converted the separated global-vs-local promotion evidence into explicit target-level Stage B rollout criteria and updated integration flow docs to match current execution reality (including a `P/Stage/S` master flow map and current status).
+- Why now: The latest verification snapshots already showed divergent local outcomes across target sets, but Stage B still needed a written, repeatable decision contract before opening Stage C.
+- Verify: Added `docs/stageb-target-rollout-criteria.md` with concrete promotion/shadow rules and current decisions for `chatgpt,claudeai` vs `machinelearning,datascience`. Updated `docs/scrapling-integration-flow.md` to replace outdated S0-only next steps with current Stage B execution and flow map.
+- Next: Run repeated `algo:promotion:verify` windows against both target sets using this criteria doc and close Stage B only after repeated local-pass evidence exists for both hot and technical sets.
+
+### 2026-04-16 15:01:16
+
+- Scope: Completed live controlled-promotion verification after adding global-vs-local readiness separation into `scripts/live-controlled-promotion-verify.ts`, and captured both target sets with the same 2-round method (`chatgpt,claudeai` and `machinelearning,datascience`).
+- Why now: The current Stage B/P1.6 gate required proving whether degraded reasons come from promoted-target local Scrapling behavior or from global legacy `http` readiness noise before any threshold tuning.
+- Verify: `npm run algo:promotion:verify` produced `docs/live-controlled-promotion-2026-04-16T06-59-02-278Z.json` (`chatgpt/claudeai`: `globalDegradedRuns=4`, `localTargetDegradedRuns=0`) and `docs/live-controlled-promotion-2026-04-16T07-00-52-231Z.json` (`machinelearning/datascience`: `globalDegradedRuns=4`, `localTargetDegradedRuns=4`, local reason `provider_stale_head_elevated:scrapling`). Regression check `npm run algo:phase1` passed with `35/35`.
+- Next: Keep `chatgpt,claudeai` as promotion-positive candidates, keep `machinelearning,datascience` in shadow lane, and convert this separated evidence into explicit per-target Stage B exit criteria before opening Stage C work.
+
+### 2026-04-16 14:45:44
+
+- Scope: Added executable multi-cycle controlled-promotion verification script `scripts/live-controlled-promotion-verify.ts` with npm command `algo:promotion:verify`, then ran live verification on two target sets: (1) promoted `machinelearning,datascience` for 2 rounds, and (2) promoted hot targets `chatgpt,claudeai` for 2 rounds. Snapshots written to `docs/live-controlled-promotion-2026-04-16T06-43-26-776Z.json`, `docs/live-controlled-promotion-2026-04-16T06-44-24-787Z.json`, and `docs/live-controlled-promotion-2026-04-16T06-45-27-421Z.json`.
+- Why now: Promotion needed repeatable live evidence over multiple cycles and subreddit sets (including popular targets), but the previous flow required manual one-shot runs and ad-hoc log parsing.
+- Verify: `npm run algo:promotion:verify` completed successfully for all three runs. Summary for `machinelearning,datascience` set: `providersSeen=["scrapling"]`, `totalScraplingFallbackTransportCounts={"powershell":16}`, degraded reasons consistently `provider_stale_head_elevated:scrapling`. Mixed-set check including `programming` confirmed `providersSeen=["http","scrapling"]`. Hot-set `chatgpt,claudeai` run completed with promoted targets recorded under `scrapling` provider health and fallback transport evidence (`powershell`) captured each cycle. Regression gates still pass: `npm run typecheck`, `npm run algo:phase1` (`35/35`).
+- Next: Keep using `algo:promotion:verify` as the default rollout evidence command and separate global legacy `http` degraded reasons from target-local promoted evidence before applying any stale-head threshold tuning.
+
+### 2026-04-16 14:32:47
+
+- Scope: Implemented controlled target-level Scrapling promotion in the runtime/worker path. Added `REDDIT_SCRAPLING_PRIMARY_SUBREDDITS` parsing in `src/runtime/reddit-phase1-runtime.ts`, enabled per-target provider routing in `src/workers/reddit-phase1.worker.ts`, and wired connector resolution by provider hint in `workers/reddit-phase1-once.ts` and `workers/reddit-phase1-scheduler.ts` (including runnable-job replay via job payload `providerHint`). Also extended `scripts/verify-phase1-postgres.ts` to emit fallback evidence (`providerFallbackCount`, `scraplingFallbackTransportCounts`) and updated runbook usage.
+- Why now: The promotion plan already marked `machinelearning` and `datascience` as eligible, but the live execution path still used a single connector lane per cycle, so target-level promotion with explicit fallback was not enforceable in-framework.
+- Verify: `npm run algo:phase1` passed (`35/35`, including new `tests/integration/reddit-phase1-provider-routing.test.ts` and runnable replay routing coverage). `npm run typecheck` passed. Updated docs: `docs/operations-runbook.md` now includes controlled promotion command and `REDDIT_SCRAPLING_PRIMARY_SUBREDDITS` semantics.
+- Next: Execute live multi-cycle verification with database env set: run `algo:live:verify` under `REDDIT_LIVE_PROVIDER=http`, `REDDIT_SCRAPLING_PRIMARY_SUBREDDITS=machinelearning,datascience`, and confirm `/readyz` degraded reasons plus `fallbackEvidence` remain stable and explainable over repeated cycles.
 
 ### 2026-04-16 13:48:36
 
@@ -383,4 +432,3 @@ tags:
 - Why now: User asked if this project can use Python 3.10+ and whether the environment is already installed.
 - Verify: `python --version` -> `Python 3.14.3`. `py -0p` lists `3.14`, `3.13t`, `3.13`. `where.exe python` resolves to `C:\Python314\python.exe` plus additional Python executables on `PATH`.
 - Next: Python requirement is satisfied; proceed with `python` (or pin explicitly with `py -3.14`) for any scripts in this repo.
-

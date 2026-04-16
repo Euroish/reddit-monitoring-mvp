@@ -15,6 +15,7 @@ import type { RawEventRepository } from "../domain/repositories/raw-event-reposi
 import { stableUuidFromString } from "../shared/ids/stable-id";
 import { buildDedupeKey, floorToWindow } from "../shared/time/windowing";
 import { resolveCollectionWindowMinutes } from "../workers/reddit-phase1-defaults";
+import { PHASE1_SAMPLING_THRESHOLDS } from "../workers/reddit-phase1-thresholds";
 import { computeRetryDelayMs, resolveJobRetryPolicy } from "./job-retry-policy";
 import type {
   RedditCollectionJobInput,
@@ -34,6 +35,10 @@ export interface CollectSubredditNewPostsInput extends RedditCollectionJobInput 
 
 const BACKFILL_EOF_CURSOR = "__backfill_eof__";
 const LIVE_CURSOR_SNAPSHOT = "__live_cursor_head__";
+const LIVE_OVERFLOW_HEAD_FRESHNESS_MAX_SECONDS =
+  PHASE1_SAMPLING_THRESHOLDS.staleHead.ingestLagSecondsMin.httpPrimary;
+const LIVE_OVERFLOW_TAIL_AGE_MAX_SECONDS =
+  PHASE1_SAMPLING_THRESHOLDS.staleHead.severeIngestLagSecondsMin.httpPrimary;
 
 export interface CollectSubredditNewPostsDependencies {
   redditConnector: RedditConnector;
@@ -628,6 +633,13 @@ async function collectObservedPages(args: {
     ) {
       break;
     }
+    if (shouldStopLiveOverflowByAge({
+      page,
+      pageIndex,
+      nowIso: args.nowIso,
+    })) {
+      break;
+    }
 
     after = page.nextCursor;
     pageLimit = Math.min(args.limit, extraBudget);
@@ -655,6 +667,66 @@ function resolveLiveOverflowMaxPages(samplingTier: RedditSamplingTier | undefine
     return 4;
   }
   return 3;
+}
+
+function shouldStopLiveOverflowByAge(args: {
+  page: Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>;
+  pageIndex: number;
+  nowIso: string;
+}): boolean {
+  const ageBounds = resolvePageAgeBoundsSeconds(args.page, args.nowIso);
+  if (!ageBounds) {
+    return false;
+  }
+  if (
+    args.pageIndex === 0 &&
+    ageBounds.freshestAgeSeconds > LIVE_OVERFLOW_HEAD_FRESHNESS_MAX_SECONDS
+  ) {
+    return true;
+  }
+  if (
+    args.pageIndex > 0 &&
+    ageBounds.oldestAgeSeconds > LIVE_OVERFLOW_TAIL_AGE_MAX_SECONDS
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function resolvePageAgeBoundsSeconds(
+  page: Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>,
+  nowIso: string,
+): {
+  freshestAgeSeconds: number;
+  oldestAgeSeconds: number;
+} | null {
+  const nowMs = new Date(nowIso).getTime();
+  if (!Number.isFinite(nowMs)) {
+    return null;
+  }
+  let freshestCreatedMs = Number.NEGATIVE_INFINITY;
+  let oldestCreatedMs = Number.POSITIVE_INFINITY;
+  let sampleCount = 0;
+  for (const child of page.raw.payload.data.children) {
+    const createdUtc = child?.data?.created_utc;
+    if (typeof createdUtc !== "number" || !Number.isFinite(createdUtc)) {
+      continue;
+    }
+    const createdMs = createdUtc * 1000;
+    if (!Number.isFinite(createdMs) || createdMs > nowMs) {
+      continue;
+    }
+    freshestCreatedMs = Math.max(freshestCreatedMs, createdMs);
+    oldestCreatedMs = Math.min(oldestCreatedMs, createdMs);
+    sampleCount += 1;
+  }
+  if (sampleCount <= 0) {
+    return null;
+  }
+  return {
+    freshestAgeSeconds: Math.max(0, Math.floor((nowMs - freshestCreatedMs) / 1000)),
+    oldestAgeSeconds: Math.max(0, Math.floor((nowMs - oldestCreatedMs) / 1000)),
+  };
 }
 
 function resolveCandidateFilter(input: CollectSubredditNewPostsInput["candidateFilter"]) {

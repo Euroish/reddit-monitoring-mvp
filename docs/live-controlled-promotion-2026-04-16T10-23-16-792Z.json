@@ -1,0 +1,206 @@
+{
+  "generatedAt": "2026-04-16T10:23:16.792Z",
+  "config": {
+    "liveProvider": "http",
+    "promotedSubreddits": "programming,technology",
+    "profile": "http",
+    "rounds": 2,
+    "pauseMs": 700,
+    "cycleSubreddits": [
+      "programming",
+      "technology",
+      "programming",
+      "technology"
+    ]
+  },
+  "summary": {
+    "runCount": 4,
+    "globalDegradedRuns": 4,
+    "localTargetDegradedRuns": 0,
+    "globalDegradedReasonCounts": {
+      "provider_stale_head_elevated:scrapling": 4
+    },
+    "localTargetDegradedReasonCounts": {},
+    "globalOnlyReasonCounts": {
+      "provider_stale_head_elevated:scrapling": 4
+    },
+    "localOnlyReasonCounts": {},
+    "providersSeen": [
+      "scrapling"
+    ],
+    "totalProviderFallbackCount": 0,
+    "totalScraplingFallbackTransportCounts": {
+      "powershell": 16
+    }
+  },
+  "cycles": [
+    {
+      "subreddit": "r/programming",
+      "nowIso": "2026-04-16T10:23:10.527Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "localTargetReadinessStatus": "ready",
+      "localTargetDegradedReasons": [],
+      "globalOnlyDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 4,
+          "successCount": 4,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 104,
+          "candidateCount": 110,
+          "acceptedCount": 110,
+          "duplicatePostRate": 0.9454545454545454,
+          "ingestLagSeconds": 179856.05454545454
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 1191,
+        "staleHeadSuppressedProviders": [
+          "scrapling"
+        ]
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 13,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 5
+        }
+      }
+    },
+    {
+      "subreddit": "r/technology",
+      "nowIso": "2026-04-16T10:23:13.949Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "localTargetReadinessStatus": "ready",
+      "localTargetDegradedReasons": [],
+      "globalOnlyDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 2,
+          "successCount": 2,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 16,
+          "candidateCount": 40,
+          "acceptedCount": 40,
+          "duplicatePostRate": 0.4,
+          "ingestLagSeconds": 26973.325
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 7936,
+        "staleHeadSuppressedProviders": []
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 9,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 3
+        }
+      }
+    },
+    {
+      "subreddit": "r/programming",
+      "nowIso": "2026-04-16T10:23:14.930Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "localTargetReadinessStatus": "ready",
+      "localTargetDegradedReasons": [],
+      "globalOnlyDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 4,
+          "successCount": 4,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 104,
+          "candidateCount": 110,
+          "acceptedCount": 110,
+          "duplicatePostRate": 0.9454545454545454,
+          "ingestLagSeconds": 179856.05454545454
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 1195,
+        "staleHeadSuppressedProviders": [
+          "scrapling"
+        ]
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 13,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 5
+        }
+      }
+    },
+    {
+      "subreddit": "r/technology",
+      "nowIso": "2026-04-16T10:23:15.996Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "localTargetReadinessStatus": "ready",
+      "localTargetDegradedReasons": [],
+      "globalOnlyDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 2,
+          "successCount": 2,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 16,
+          "candidateCount": 40,
+          "acceptedCount": 40,
+          "duplicatePostRate": 0.4,
+          "ingestLagSeconds": 26973.325
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 7938,
+        "staleHeadSuppressedProviders": []
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 9,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 3
+        }
+      }
+    }
+  ]
+}

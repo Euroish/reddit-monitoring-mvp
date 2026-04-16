@@ -1,0 +1,212 @@
+{
+  "generatedAt": "2026-04-16T10:10:55.835Z",
+  "config": {
+    "liveProvider": "http",
+    "promotedSubreddits": "machinelearning,datascience",
+    "profile": "http",
+    "rounds": 2,
+    "pauseMs": 1000,
+    "cycleSubreddits": [
+      "machinelearning",
+      "datascience",
+      "machinelearning",
+      "datascience"
+    ]
+  },
+  "summary": {
+    "runCount": 4,
+    "globalDegradedRuns": 4,
+    "localTargetDegradedRuns": 4,
+    "globalDegradedReasonCounts": {
+      "provider_stale_head_elevated:scrapling": 4,
+      "provider_cursor_stalled:scrapling": 1,
+      "provider_data_stalled:scrapling": 1
+    },
+    "localTargetDegradedReasonCounts": {
+      "provider_stale_head_elevated:scrapling": 4
+    },
+    "globalOnlyReasonCounts": {
+      "provider_cursor_stalled:scrapling": 1,
+      "provider_data_stalled:scrapling": 1
+    },
+    "localOnlyReasonCounts": {},
+    "providersSeen": [
+      "scrapling"
+    ],
+    "totalProviderFallbackCount": 0,
+    "totalScraplingFallbackTransportCounts": {
+      "powershell": 72
+    }
+  },
+  "cycles": [
+    {
+      "subreddit": "r/machinelearning",
+      "nowIso": "2026-04-16T10:10:40.120Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling"
+      ],
+      "localTargetReadinessStatus": "degraded",
+      "localTargetDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "globalOnlyDegradedReasons": [
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 3,
+          "successCount": 3,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 72,
+          "candidateCount": 72,
+          "acceptedCount": 72,
+          "duplicatePostRate": 1,
+          "ingestLagSeconds": 365633.7916666667
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 14902,
+        "staleHeadSuppressedProviders": []
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 18,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 18
+        }
+      }
+    },
+    {
+      "subreddit": "r/datascience",
+      "nowIso": "2026-04-16T10:10:51.957Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "localTargetReadinessStatus": "degraded",
+      "localTargetDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "globalOnlyDegradedReasons": [],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 3,
+          "successCount": 3,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 72,
+          "candidateCount": 72,
+          "acceptedCount": 72,
+          "duplicatePostRate": 1,
+          "ingestLagSeconds": 1470813.0277777778
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 21704,
+        "staleHeadSuppressedProviders": []
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 18,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 18
+        }
+      }
+    },
+    {
+      "subreddit": "r/machinelearning",
+      "nowIso": "2026-04-16T10:10:53.307Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "localTargetReadinessStatus": "degraded",
+      "localTargetDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "globalOnlyDegradedReasons": [],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 3,
+          "successCount": 3,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 72,
+          "candidateCount": 72,
+          "acceptedCount": 72,
+          "duplicatePostRate": 1,
+          "ingestLagSeconds": 365633.7916666667
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 14915,
+        "staleHeadSuppressedProviders": []
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 18,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 18
+        }
+      }
+    },
+    {
+      "subreddit": "r/datascience",
+      "nowIso": "2026-04-16T10:10:54.730Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "localTargetReadinessStatus": "degraded",
+      "localTargetDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "globalOnlyDegradedReasons": [],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 3,
+          "successCount": 3,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 72,
+          "candidateCount": 72,
+          "acceptedCount": 72,
+          "duplicatePostRate": 1,
+          "ingestLagSeconds": 1470813.0277777778
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 21707,
+        "staleHeadSuppressedProviders": []
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 18,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 18
+        }
+      }
+    }
+  ]
+}

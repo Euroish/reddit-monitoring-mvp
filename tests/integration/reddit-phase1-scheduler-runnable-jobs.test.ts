@@ -27,6 +27,9 @@ import { executeRunnableCollectionJobs } from "../../workers/reddit-phase1-sched
 
 class RunnableJobConnector implements RedditConnector {
   public readonly sourceCode = "reddit" as const;
+  public callCount = 0;
+
+  constructor(private readonly provider: "http" | "scrapling" = "http") {}
 
   public async collectSubredditAbout(
     _args: RedditCollectSubredditAboutArgs,
@@ -39,6 +42,7 @@ class RunnableJobConnector implements RedditConnector {
     args: RedditCollectSubredditPostsArgs,
     ctx: ConnectorRequestContext,
   ): Promise<ConnectorPage<RedditListingPayload<RedditPostData>>> {
+    this.callCount += 1;
     return {
       raw: {
         endpoint: `/r/${args.subreddit}/new.json`,
@@ -48,7 +52,7 @@ class RunnableJobConnector implements RedditConnector {
         },
         httpStatus: 200,
         responseHeaders: {
-          "x-provider": "http",
+          "x-provider": this.provider,
         },
         payload: {
           data: {
@@ -161,4 +165,68 @@ test("executeRunnableCollectionJobs preserves backfill cursor and provider healt
   assert.equal(providerRows.length, 1);
   assert.equal(providerRows[0]?.requestCount, 1);
   assert.equal(providerRows[0]?.successCount, 1);
+});
+
+test("executeRunnableCollectionJobs resolves provider connector from job payload hint", async () => {
+  const nowIso = "2026-04-12T12:18:00.000Z";
+  const targetId = stableUuidFromString("reddit:target:r/datascience");
+  const monitorTargetRepository = new InMemoryMonitorTargetRepository();
+  await monitorTargetRepository.upsert({
+    id: targetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: "r/datascience",
+    status: "active",
+    config: {},
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  });
+
+  const collectionJobRepository = new InMemoryCollectionJobRepository();
+  await collectionJobRepository.create({
+    id: stableUuidFromString("job:retrying:scrapling"),
+    source: "reddit",
+    targetId,
+    jobType: "collect_subreddit_new_posts",
+    crawlMode: "live",
+    payload: {
+      providerHint: "scrapling",
+    },
+    status: "retrying",
+    scheduledAt: "2026-04-12T12:05:00.000Z",
+    nextRunAt: "2026-04-12T12:15:00.000Z",
+    dedupeKey: "retrying-scrapling",
+    retryCount: 1,
+    cursor: undefined,
+  });
+
+  const providerHealthWindowRepository = new InMemoryProviderHealthWindowRepository();
+  const defaultConnector = new RunnableJobConnector("http");
+  const scraplingConnector = new RunnableJobConnector("scrapling");
+  await executeRunnableCollectionJobs({
+    repos: {
+      collectionJobRepository,
+      monitorTargetRepository,
+      rawEventRepository: new InMemoryRawEventRepository(),
+      accountRepository: new InMemoryAccountRepository(),
+      contentRepository: new InMemoryContentRepository(),
+      crawlCursorRepository: new InMemoryCrawlCursorRepository(),
+      providerHealthWindowRepository,
+      metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+      subredditTrendPointRepository: new InMemorySubredditTrendPointRepository(),
+    },
+    connector: defaultConnector,
+    connectorResolver: (providerHint) =>
+      providerHint === "scrapling" ? scraplingConnector : defaultConnector,
+    redditMapper: new DefaultRedditMapper(),
+    nowIso,
+    runnableJobLimit: 10,
+    runMode: "live",
+  });
+
+  assert.equal(defaultConnector.callCount, 0);
+  assert.equal(scraplingConnector.callCount, 1);
+  const providerRows = providerHealthWindowRepository.all();
+  assert.equal(providerRows.length, 1);
+  assert.equal(providerRows[0]?.provider, "scrapling");
 });

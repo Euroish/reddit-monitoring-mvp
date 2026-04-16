@@ -19,6 +19,7 @@ Optional env:
 - `REDDIT_RUN_SUBREDDIT` (default: `machinelearning`)
 - `REDDIT_HTTP_TRANSPORT` (`auto` default; on Windows use `powershell` if Node HTTP traffic is being reset while PowerShell requests still work)
 - `REDDIT_LIVE_PROVIDER` (`http` default, `apify`, or `scrapling`)
+- `REDDIT_SCRAPLING_PRIMARY_SUBREDDITS` (comma list for target-level promotion, e.g. `machinelearning,datascience`; promoted targets use `scrapling` primary while others keep `REDDIT_LIVE_PROVIDER`)
 - `REDDIT_SCRAPLING_PROFILE` (`http` default, `dynamic`, `stealth`)
 - `REDDIT_SCRAPLING_PYTHON` (Python executable path; default `python`)
 - `REDDIT_SCRAPLING_BRIDGE_SCRIPT` (override bridge script path; default `scripts/scrapling_reddit_bridge.py`)
@@ -132,6 +133,28 @@ For controlled rollout after a bridge/network fix, build eligibility from the mo
 ```bash
 set REDDIT_SHADOW_PLAN_MAX_SNAPSHOTS=2&& npm run algo:shadow:plan
 ```
+
+Apply controlled target-level promotion (promote only selected targets to Scrapling primary with HTTP fallback):
+
+```bash
+set REDDIT_LIVE_PROVIDER=http&& set REDDIT_SCRAPLING_PRIMARY_SUBREDDITS=machinelearning,datascience&& set REDDIT_CB_ROUTE_TO_FALLBACK=true&& npm run algo:live:verify
+```
+
+Multi-cycle controlled-promotion verifier (writes snapshot to `docs/` with readiness, provider health, and fallback evidence):
+
+```bash
+set REDDIT_LIVE_PROVIDER=http&& set REDDIT_SCRAPLING_PRIMARY_SUBREDDITS=machinelearning,datascience&& set REDDIT_CONTROLLED_PROMOTION_SUBREDDITS=machinelearning,datascience&& set REDDIT_CONTROLLED_PROMOTION_ROUNDS=2&& npm run algo:promotion:verify
+```
+
+Optional verifier env:
+- `REDDIT_CONTROLLED_PROMOTION_SUBREDDITS` (default `machinelearning,datascience`)
+- `REDDIT_CONTROLLED_PROMOTION_ROUNDS` (default `2`)
+- `REDDIT_CONTROLLED_PROMOTION_PAUSE_MS` (default `1000`)
+
+Notes:
+- `REDDIT_LIVE_PROVIDER=http` keeps non-promoted targets on baseline HTTP.
+- promoted targets in `REDDIT_SCRAPLING_PRIMARY_SUBREDDITS` route to Scrapling primary.
+- fallback remains explicit via circuit-breaker route-to-fallback and is visible in verify output (`fallbackEvidence.providerFallbackCount` and `fallbackEvidence.scraplingFallbackTransportCounts`).
 
 The live verify output includes the same readiness degradation summary used by `/readyz`, so Stage A checks can confirm whether `provider_data_stalled:*` appears without starting the API separately.
 
