@@ -22,7 +22,7 @@ Optional env:
 - `REDDIT_SCRAPLING_PROFILE` (`http` default, `dynamic`, `stealth`)
 - `REDDIT_SCRAPLING_PYTHON` (Python executable path; default `python`)
 - `REDDIT_SCRAPLING_BRIDGE_SCRIPT` (override bridge script path; default `scripts/scrapling_reddit_bridge.py`)
-- `REDDIT_SCRAPLING_TIMEOUT_MS` (default follows `REDDIT_HTTP_TIMEOUT_MS`)
+- `REDDIT_SCRAPLING_TIMEOUT_MS` (default follows `REDDIT_HTTP_TIMEOUT_MS`; `http` profile will auto-fallback to PowerShell transport on fetch failure and expose `x-scrapling-fallback`)
 - `REDDIT_SCRAPLING_MAX_RETRIES` (default `2`)
 
 If you use Scrapling provider, install Python dependency first:
@@ -87,6 +87,10 @@ Scrapling bridge verification (single about-page request through Scrapling provi
 set REDDIT_LIVE_PROVIDER=scrapling&& npm run algo:scrapling:verify
 ```
 
+Verify output includes:
+- `provider` (`scrapling`)
+- `fallbackTransport` (`null` on direct Scrapling fetch, `powershell` when fallback path is used)
+
 Shadow parity comparison (`http` baseline vs `scrapling` shadow, writes snapshot to `docs/`):
 
 ```bash
@@ -100,6 +104,34 @@ Optional shadow env:
 - `REDDIT_SHADOW_MIN_JACCARD` (default `0.35`)
 - `REDDIT_SHADOW_MAX_EXTRACTED_DELTA_ABS` (default `10`)
 - `REDDIT_SHADOW_REQUIRE_STATUS_MATCH` (default `true`)
+
+Build promotion plan from accumulated shadow snapshots:
+
+```bash
+npm run algo:shadow:plan
+```
+
+This writes:
+- `docs/shadow-promotion-plan-<timestamp>.json`
+- `docs/shadow-promotion-plan-<timestamp>.md`
+
+Optional promotion policy env:
+- `REDDIT_SHADOW_PLAN_MAX_SNAPSHOTS` (default `20`)
+- `REDDIT_SHADOW_PLAN_MIN_SAMPLES` (default `4`)
+- `REDDIT_SHADOW_PLAN_MIN_BASELINE_SUCCESS_RATE` (default `0.99`)
+- `REDDIT_SHADOW_PLAN_MIN_SHADOW_SUCCESS_RATE` (default `0.99`)
+- `REDDIT_SHADOW_PLAN_MIN_GATE_PASS_RATE` (default `0.95`)
+- `REDDIT_SHADOW_PLAN_MIN_JACCARD_P50` (default `0.95`)
+- `REDDIT_SHADOW_PLAN_MIN_JACCARD_MIN` (default `0.9`)
+- `REDDIT_SHADOW_PLAN_MAX_ABS_EXTRACTED_DELTA_P95` (default `3`)
+- `REDDIT_SHADOW_PLAN_MAX_ABS_LAG_DELTA_SECONDS_P95` (default `120`)
+- `REDDIT_SHADOW_PLAN_MAX_DURATION_RATIO_P95` (default `6`)
+
+For controlled rollout after a bridge/network fix, build eligibility from the most recent stable window:
+
+```bash
+set REDDIT_SHADOW_PLAN_MAX_SNAPSHOTS=2&& npm run algo:shadow:plan
+```
 
 The live verify output includes the same readiness degradation summary used by `/readyz`, so Stage A checks can confirm whether `provider_data_stalled:*` appears without starting the API separately.
 
@@ -168,12 +200,16 @@ For a successful live run, all four tables should increase from zero over time.
 - Action: enable TUN/full-tunnel mode and retry.
 - Windows fallback: if PowerShell can reach Reddit but Node live traffic still resets, set `REDDIT_HTTP_TRANSPORT=powershell` and rerun.
 
+4. Scrapling shadow lane fails with bridge timeouts
+- Cause: `scrapling[fetchers]` HTTP path cannot reach Reddit in current runtime while host PowerShell path is still reachable.
+- Action: rerun `npm run algo:scrapling:verify` and check `fallbackTransport`; if it is `powershell`, keep `REDDIT_SCRAPLING_PROFILE=http` and continue parity sampling.
+
 ## Working policy
 
 - Routine algorithm edit loop: `algo:fast`, then `algo:phase1` only when the change touches truth-layer behavior.
 - Full pre-close gate: `algo:full`.
 - Live worker/API verification: manual only, because database, auth, network, and proxy state can fail independently of code correctness.
 
-4. Live run gets `401/403`
+5. Live run gets `401/403`
 - Cause: token/user-agent policy issue.
 - Action: verify `REDDIT_ACCESS_TOKEN` and `REDDIT_USER_AGENT`, or run without token in public mode.

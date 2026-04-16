@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: P1.6-http-scrapling-integration
-updated_at: "2026-04-16 12:16:03"
+updated_at: "2026-04-16 13:48:36"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Define and apply target-level promotion thresholds using accumulated shadow snapshots, then prepare controlled rollout list where Scrapling can become primary with explicit fallback guarantees."
+next_action: "Execute controlled promotion for `machinelearning` and `datascience` to `scrapling` primary with explicit `http` fallback, then monitor readyz degradation reasons and fallback transport evidence over live cycles."
 tags:
 - codex
 - workspace
@@ -105,6 +105,20 @@ tags:
 - Keep this file ASCII-first or clean UTF-8 only; do not copy mojibake text forward.
 
 ## Activity Log
+
+### 2026-04-16 13:48:36
+
+- Scope: Finished promotion-threshold execution end-to-end and repaired Scrapling bridge reliability for this environment. Added deterministic bridge fallback in `scripts/scrapling_reddit_bridge.py` (`scrapling http fetch -> powershell fallback`, plus `retries=0` on Scrapling fetchers), exposed fallback metadata in `scripts/verify-scrapling-bridge.ts`, fixed promotion report table header encoding in `scripts/build-shadow-promotion-plan.ts`, and refreshed runbook guidance.
+- Why now: Promotion planning was blocked by Scrapling bridge timeout incidents; without a stable bridge lane, threshold conclusions were not rollout-safe.
+- Verify: `npm run algo:live:verify` passed with provided `DATABASE_URL`. `npm run algo:scrapling:verify` now returns `status=200` with `fallbackTransport=powershell`. New parity snapshots passed: `docs/live-shadow-compare-2026-04-16T05-43-51-898Z.json` and `docs/live-shadow-compare-2026-04-16T05-46-53-400Z.json` (`4/4` gate pass each). Promotion plan from latest stable window (`REDDIT_SHADOW_PLAN_MAX_SNAPSHOTS=2`) produced eligible rollout list in `docs/shadow-promotion-plan-2026-04-16T05-47-07-395Z.json` (`datascience`, `machinelearning`). Regression gates passed: `npm run typecheck`, `npm run algo:full` (`130/130`).
+- Next: Apply controlled target-level promotion to `scrapling` as primary for the eligible subreddits while keeping `http` fallback active, then continue collecting shadow snapshots and verify that `readyz` degradation remains explainable.
+
+### 2026-04-16 13:02:19
+
+- Scope: Resolved shorthand request `-last` by reading the single-state workspace file and retrieving the most recent activity entry.
+- Why now: Quick state recall was needed without re-running prior verified implementation work.
+- Verify: Checked local docs for a dedicated `-last` command (`rg -n -- "-last|last"`), then read `obsidian-reddit专用/Projects/project.md` and confirmed latest logged entry timestamp `2026-04-16 12:16:03`.
+- Next: Continue from the current `next_action` unless a new explicit command overrides it.
 
 ### 2026-04-16 12:16:03
 

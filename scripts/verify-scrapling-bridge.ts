@@ -59,6 +59,8 @@ async function main(): Promise<void> {
         subreddit: `r/${subreddit}`,
         status: about.raw.httpStatus,
         provider: about.raw.responseHeaders["x-provider"] ?? "unknown",
+        fallbackTransport:
+          about.raw.responseHeaders["x-scrapling-fallback"] ?? null,
         fetchedAt: about.raw.fetchedAt,
         endpoint: about.raw.endpoint,
       },
@@ -83,4 +85,3 @@ main().catch((error) => {
   );
   process.exitCode = 1;
 });
-
