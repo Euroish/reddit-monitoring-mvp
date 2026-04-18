@@ -13,8 +13,10 @@ import type { ProviderHealthWindowRepository } from "../domain/repositories/prov
 import type { RawEventRepository } from "../domain/repositories/raw-event-repository";
 import type { SubredditDailyFactRepository } from "../domain/repositories/subreddit-daily-fact-repository";
 import type { SubredditTrendPointRepository } from "../domain/repositories/subreddit-trend-point-repository";
+import type { AnomalyEventRepository } from "../domain/repositories/anomaly-event-repository";
 import type { SubredditTrendPoint } from "../domain/entities/subreddit-trend-point";
 import { buildPostGrowthFactsJob } from "../jobs/build-post-growth-facts.job";
+import { buildAnomalyEventsJob } from "../jobs/build-anomaly-events.job";
 import { buildSubredditDailyFactsJob } from "../jobs/build-subreddit-daily-facts.job";
 import { buildSubredditTrendPointsJob } from "../jobs/build-subreddit-trend-points.job";
 import { buildSubredditKeywordTrendDailyJob } from "../jobs/build-subreddit-keyword-trend-daily.job";
@@ -37,6 +39,7 @@ export interface RedditPhase1WorkerDependencies {
   keywordTrendDailyRepository?: KeywordTrendDailyRepository;
   keywordQuerySessionRepository?: KeywordQuerySessionRepository;
   postGrowthFactRepository?: PostGrowthFactRepository;
+  anomalyEventRepository?: AnomalyEventRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
   subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
@@ -383,6 +386,22 @@ export async function runRedditPhase1Cycle(
             qualityMinComments: keywordDailyQualityMinComments,
             maxKeywordsPerDay: keywordDailyMaxKeywordsPerDay,
             sourceType: crawlMode,
+          },
+        );
+      }
+      if (deps.anomalyEventRepository) {
+        await buildAnomalyEventsJob(
+          {
+            anomalyEventRepository: deps.anomalyEventRepository,
+            subredditTrendPointRepository: deps.subredditTrendPointRepository,
+            subredditDailyFactRepository: deps.subredditDailyFactRepository,
+            keywordTrendDailyRepository: deps.keywordTrendDailyRepository,
+            postGrowthFactRepository: deps.postGrowthFactRepository,
+          },
+          {
+            targetId: target.id,
+            fromIso,
+            toIso: nowIso,
           },
         );
       }

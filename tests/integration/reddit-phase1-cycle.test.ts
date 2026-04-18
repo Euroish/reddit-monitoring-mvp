@@ -5,6 +5,7 @@ import { DefaultRedditMapper } from "../../src/connectors/reddit/reddit.mapper";
 import { stableUuidFromString } from "../../src/shared/ids/stable-id";
 import {
   InMemoryAccountRepository,
+  InMemoryAnomalyEventRepository,
   InMemoryCollectionJobRepository,
   InMemoryContentRepository,
   InMemoryMetricsSnapshotRepository,
@@ -30,6 +31,7 @@ test("phase1 cycle writes raw, normalized and trend data", async () => {
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
   const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
   const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
+  const anomalyEventRepository = new InMemoryAnomalyEventRepository();
 
   await monitorTargetRepository.upsert({
     id: targetId,
@@ -41,6 +43,22 @@ test("phase1 cycle writes raw, normalized and trend data", async () => {
     createdAt: nowIso,
     updatedAt: nowIso,
   });
+  await subredditTrendPointRepository.upsertMany([
+    {
+      targetId,
+      windowStart: "2026-04-09T00:00:00.000Z",
+      windowEnd: "2026-04-09T06:00:00.000Z",
+      granularity: "6h",
+      newPosts: 210,
+      deltaNewPostsVsPrevWindow: 160,
+      deltaActiveUsersVsPrevWindow: 0,
+      trendScore: 0.82,
+      anomalyScore: 0.9,
+      surgeScore: 0.92,
+      sampleCount: 1,
+      windowComplete: true,
+    },
+  ]);
 
   await runRedditPhase1Cycle(
     {
@@ -53,6 +71,7 @@ test("phase1 cycle writes raw, normalized and trend data", async () => {
       subredditDailyFactRepository,
       postGrowthFactRepository,
       subredditTrendPointRepository,
+      anomalyEventRepository,
       redditConnector: new RedditMockConnector(),
       redditMapper: new DefaultRedditMapper(),
     },
@@ -66,5 +85,6 @@ test("phase1 cycle writes raw, normalized and trend data", async () => {
   assert.equal(metricsSnapshotRepository.all().length, 9);
   assert.equal(subredditDailyFactRepository.all().length > 0, true);
   assert.equal(postGrowthFactRepository.all().length > 0, true);
-  assert.equal(subredditTrendPointRepository.all().length, 1);
+  assert.equal(subredditTrendPointRepository.all().length > 0, true);
+  assert.equal(anomalyEventRepository.all().some((row) => row.signalType === "volume"), true);
 });

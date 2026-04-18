@@ -1,8 +1,10 @@
+import type { AnomalyEvent } from "../../../domain/entities/anomaly-event";
 import type { KeywordTrendDaily } from "../../../domain/entities/keyword-trend-daily";
 import type { MonitorTarget } from "../../../domain/entities/monitor-target";
 import type { PostGrowthFact } from "../../../domain/entities/post-growth-fact";
 import type { SubredditDailyFact } from "../../../domain/entities/subreddit-daily-fact";
 import type { SubredditTrendPoint } from "../../../domain/entities/subreddit-trend-point";
+import type { AnomalyEventRepository } from "../../../domain/repositories/anomaly-event-repository";
 import type { KeywordTrendDailyRepository } from "../../../domain/repositories/keyword-trend-daily-repository";
 import type { MonitorTargetRepository } from "../../../domain/repositories/monitor-target-repository";
 import type { PostGrowthFactRepository } from "../../../domain/repositories/post-growth-fact-repository";
@@ -283,6 +285,58 @@ export class InMemoryKeywordTrendDailyRepository implements KeywordTrendDailyRep
   }
 }
 
+export class InMemoryAnomalyEventRepository implements AnomalyEventRepository {
+  private readonly rows = new Map<string, AnomalyEvent>();
+
+  public async upsertMany(rows: AnomalyEvent[]): Promise<void> {
+    for (const row of rows) {
+      const key = `${row.targetId}|${row.signalType}|${row.signalKey}|${row.observedAt}`;
+      this.rows.set(key, row);
+    }
+  }
+
+  public async listByTargetInRange(args: {
+    targetId: string;
+    fromIso: string;
+    toIso: string;
+    signalTypes?: Array<"volume" | "quality" | "keyword" | "driver">;
+    limit?: number;
+  }): Promise<AnomalyEvent[]> {
+    const signalTypes =
+      args.signalTypes && args.signalTypes.length > 0 ? new Set(args.signalTypes) : null;
+
+    return Array.from(this.rows.values())
+      .filter((row) => {
+        if (row.targetId !== args.targetId) {
+          return false;
+        }
+        if (row.observedAt < args.fromIso || row.observedAt > args.toIso) {
+          return false;
+        }
+        if (signalTypes && !signalTypes.has(row.signalType)) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const byObserved = a.observedAt.localeCompare(b.observedAt);
+        if (byObserved !== 0) {
+          return byObserved;
+        }
+        const bySignalType = a.signalType.localeCompare(b.signalType);
+        if (bySignalType !== 0) {
+          return bySignalType;
+        }
+        return a.signalKey.localeCompare(b.signalKey);
+      })
+      .slice(0, args.limit ?? 500);
+  }
+
+  public all(): AnomalyEvent[] {
+    return Array.from(this.rows.values());
+  }
+}
+
 export class InMemoryPostGrowthFactRepository implements PostGrowthFactRepository {
   private readonly rows = new Map<string, PostGrowthFact>();
 
@@ -300,23 +354,9 @@ export class InMemoryPostGrowthFactRepository implements PostGrowthFactRepositor
     ageBuckets?: Array<"1h" | "6h" | "24h">;
     limit?: number;
   }): Promise<PostGrowthFact[]> {
-    const ageBuckets =
-      args.ageBuckets && args.ageBuckets.length > 0 ? new Set(args.ageBuckets) : null;
     const limit = args.limit ?? 500;
 
-    return Array.from(this.rows.values())
-      .filter((row) => {
-        if (row.targetId !== args.targetId) {
-          return false;
-        }
-        if (row.observedAt < args.fromIso || row.observedAt > args.toIso) {
-          return false;
-        }
-        if (ageBuckets && !ageBuckets.has(row.ageBucket)) {
-          return false;
-        }
-        return true;
-      })
+    return this.filterRows(args)
       .sort((a, b) => {
         const byObserved = a.observedAt.localeCompare(b.observedAt);
         if (byObserved !== 0) {
@@ -331,7 +371,66 @@ export class InMemoryPostGrowthFactRepository implements PostGrowthFactRepositor
       .slice(0, limit);
   }
 
+  public async listTopByTargetInRange(args: {
+    targetId: string;
+    fromIso: string;
+    toIso: string;
+    ageBuckets?: Array<"1h" | "6h" | "24h">;
+    limit?: number;
+  }): Promise<PostGrowthFact[]> {
+    const bestByContentId = new Map<string, PostGrowthFact>();
+    for (const row of this.filterRows(args)) {
+      const current = bestByContentId.get(row.contentId);
+      if (!current || compareDriverRows(row, current) < 0) {
+        bestByContentId.set(row.contentId, row);
+      }
+    }
+
+    return Array.from(bestByContentId.values())
+      .sort(compareDriverRows)
+      .slice(0, args.limit ?? 25);
+  }
+
+  private filterRows(args: {
+    targetId: string;
+    fromIso: string;
+    toIso: string;
+    ageBuckets?: Array<"1h" | "6h" | "24h">;
+  }): PostGrowthFact[] {
+    const ageBuckets =
+      args.ageBuckets && args.ageBuckets.length > 0 ? new Set(args.ageBuckets) : null;
+
+    return Array.from(this.rows.values()).filter((row) => {
+      if (row.targetId !== args.targetId) {
+        return false;
+      }
+      if (row.observedAt < args.fromIso || row.observedAt > args.toIso) {
+        return false;
+      }
+      if (ageBuckets && !ageBuckets.has(row.ageBucket)) {
+        return false;
+      }
+      return true;
+    });
+  }
+
   public all(): PostGrowthFact[] {
     return Array.from(this.rows.values());
   }
+}
+
+function compareDriverRows(a: PostGrowthFact, b: PostGrowthFact): number {
+  const byDriverScore = b.driverScore - a.driverScore;
+  if (byDriverScore !== 0) {
+    return byDriverScore;
+  }
+  const byObserved = b.observedAt.localeCompare(a.observedAt);
+  if (byObserved !== 0) {
+    return byObserved;
+  }
+  const byAgeMinutes = a.ageMinutes - b.ageMinutes;
+  if (byAgeMinutes !== 0) {
+    return byAgeMinutes;
+  }
+  return a.contentId.localeCompare(b.contentId);
 }

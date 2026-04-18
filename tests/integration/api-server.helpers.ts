@@ -2,6 +2,7 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
   InMemoryAccountRepository,
+  InMemoryAnomalyEventRepository,
   InMemoryCollectionJobRepository,
   InMemoryContentRepository,
   InMemoryCrawlCursorRepository,
@@ -9,6 +10,7 @@ import {
   InMemoryKeywordTrendDailyRepository,
   InMemoryMetricsSnapshotRepository,
   InMemoryMonitorTargetRepository,
+  InMemoryPostGrowthFactRepository,
   InMemoryPostSearchDocumentRepository,
   InMemoryProviderHealthWindowRepository,
   InMemoryRawEventRepository,
@@ -29,10 +31,12 @@ export function createApiTestRepositories() {
     crawlCursorRepository: new InMemoryCrawlCursorRepository(),
     rawEventRepository: new InMemoryRawEventRepository(),
     accountRepository: new InMemoryAccountRepository(),
+    anomalyEventRepository: new InMemoryAnomalyEventRepository(),
     contentRepository: new InMemoryContentRepository(),
     keywordTrendDailyRepository: new InMemoryKeywordTrendDailyRepository(),
     keywordQuerySessionRepository: new InMemoryKeywordQuerySessionRepository(),
     postSearchDocumentRepository: new InMemoryPostSearchDocumentRepository(),
+    postGrowthFactRepository: new InMemoryPostGrowthFactRepository(),
     metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
     subredditDailyFactRepository: new InMemorySubredditDailyFactRepository(),
     subredditTrendPointRepository: new InMemorySubredditTrendPointRepository(),

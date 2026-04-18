@@ -12,4 +12,11 @@ export interface PostGrowthFactRepository {
     ageBuckets?: PostGrowthAgeBucket[];
     limit?: number;
   }): Promise<PostGrowthFact[]>;
+  listTopByTargetInRange(args: {
+    targetId: string;
+    fromIso: string;
+    toIso: string;
+    ageBuckets?: PostGrowthAgeBucket[];
+    limit?: number;
+  }): Promise<PostGrowthFact[]>;
 }

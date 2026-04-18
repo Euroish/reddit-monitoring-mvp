@@ -4,6 +4,8 @@ import { RateLimiterMemory, type RateLimiterRes } from "rate-limiter-flexible";
 import type {
   ApiErrorResponse,
   ApiHealthResponse,
+  SubredditAnomalyFeedResponse,
+  SubredditAnomalyIncidentFeedResponse,
   ApiReadinessResponse,
   CrawlMode,
   CreateKeywordQueryRequest,
@@ -13,6 +15,7 @@ import type {
   GetKeywordQueryResponse,
   MarketTrendResponse,
   RunMode,
+  SubredditDriverPostsResponse,
   SubredditDailyTrendResponse,
   SubredditTrendResponse,
   TriggerPhase1RunRequest,
@@ -25,21 +28,31 @@ import {
   buildKeywordQueryDataQuality,
   toDominantSourceType,
 } from "../../../src/application/services/keyword-query-metrics";
-import { normalizeQueryV2 } from "../../../src/application/services/query-normalization-v2.service";
+import {
+  matchesNormalizedQueryV2,
+  normalizeQueryV2,
+} from "../../../src/application/services/query-normalization-v2.service";
+import { buildSubredditAnomalyIncidentReadModel } from "../../../src/application/services/subreddit-anomaly-incident-read-model.service";
+import { buildSubredditAnomalyFeedReadModel } from "../../../src/application/services/subreddit-anomaly-feed-read-model.service";
 import { buildSubredditDailyInsights } from "../../../src/application/services/subreddit-daily-insights.service";
+import { buildSubredditDriverPostReadModel } from "../../../src/application/services/subreddit-driver-post-read-model.service";
 import { buildSubredditTrendReadModel } from "../../../src/application/services/subreddit-trend-read-model";
 import type { RedditConnector } from "../../../src/connectors/reddit/reddit-connector.interface";
 import { DefaultRedditMapper } from "../../../src/connectors/reddit/reddit.mapper";
 import type { RedditMapper } from "../../../src/connectors/reddit/reddit-mapper.interface";
+import type { AnomalySignalType } from "../../../src/domain/entities/anomaly-event";
+import type { PostGrowthAgeBucket } from "../../../src/domain/entities/post-growth-fact";
 import type { KeywordQuerySessionRepository } from "../../../src/domain/repositories/keyword-query-session-repository";
 import { stableUuidFromString } from "../../../src/shared/ids/stable-id";
 import type { AccountRepository } from "../../../src/domain/repositories/account-repository";
+import type { AnomalyEventRepository } from "../../../src/domain/repositories/anomaly-event-repository";
 import type { CollectionJobRepository } from "../../../src/domain/repositories/collection-job-repository";
 import type { ContentRepository } from "../../../src/domain/repositories/content-repository";
 import type { CrawlCursorRepository } from "../../../src/domain/repositories/crawl-cursor-repository";
 import type { KeywordTrendDailyRepository } from "../../../src/domain/repositories/keyword-trend-daily-repository";
 import type { MetricsSnapshotRepository } from "../../../src/domain/repositories/metrics-snapshot-repository";
 import type { MonitorTargetRepository } from "../../../src/domain/repositories/monitor-target-repository";
+import type { PostGrowthFactRepository } from "../../../src/domain/repositories/post-growth-fact-repository";
 import type { PostSearchDocumentRepository } from "../../../src/domain/repositories/post-search-document-repository";
 import type { ProviderHealthWindowRepository } from "../../../src/domain/repositories/provider-health-window-repository";
 import type { RawEventRepository } from "../../../src/domain/repositories/raw-event-repository";
@@ -104,14 +117,47 @@ export interface ApiRepositoryBundle {
   crawlCursorRepository?: CrawlCursorRepository;
   rawEventRepository: RawEventRepository;
   accountRepository: AccountRepository;
+  anomalyEventRepository: AnomalyEventRepository;
   contentRepository: ContentRepository;
   keywordTrendDailyRepository?: KeywordTrendDailyRepository;
   keywordQuerySessionRepository?: KeywordQuerySessionRepository;
   postSearchDocumentRepository?: PostSearchDocumentRepository;
+  postGrowthFactRepository: PostGrowthFactRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
   subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
   providerHealthWindowRepository?: ProviderHealthWindowRepository;
+}
+
+function parseAnomalySignalTypeList(value: string | null): AnomalySignalType[] | undefined {
+  if (value == null) {
+    return undefined;
+  }
+
+  const requested = Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0),
+    ),
+  );
+  if (requested.length === 0) {
+    return undefined;
+  }
+
+  const valid = new Set<AnomalySignalType>(["volume", "quality", "keyword", "driver"]);
+  const signalTypes: AnomalySignalType[] = [];
+  for (const item of requested) {
+    if (!valid.has(item as AnomalySignalType)) {
+      throw new BadRequestError(
+        `invalid signalType query: ${item}`,
+        "invalid_query_param",
+      );
+    }
+    signalTypes.push(item as AnomalySignalType);
+  }
+  return signalTypes;
 }
 
 export interface CreateApiServerOptions {
@@ -176,8 +222,83 @@ function parseKeywordList(value: string | null): string[] {
       value
         .split(",")
         .map((keyword) => keyword.trim().toLowerCase())
-        .filter((keyword) => keyword.length >= 2),
+      .filter((keyword) => keyword.length >= 2),
     ),
+  );
+}
+
+function parseAgeBucketList(value: string | null): PostGrowthAgeBucket[] | undefined {
+  if (value == null) {
+    return undefined;
+  }
+
+  const requested = Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0),
+    ),
+  );
+  if (requested.length === 0) {
+    return undefined;
+  }
+
+  const valid = new Set<PostGrowthAgeBucket>(["1h", "6h", "24h"]);
+  const ageBuckets: PostGrowthAgeBucket[] = [];
+  for (const item of requested) {
+    if (!valid.has(item as PostGrowthAgeBucket)) {
+      throw new BadRequestError(
+        `invalid ageBucket query: ${item}`,
+        "invalid_query_param",
+      );
+    }
+    ageBuckets.push(item as PostGrowthAgeBucket);
+  }
+  return ageBuckets;
+}
+
+async function resolveDriverKeywordMatches(args: {
+  postSearchDocumentRepository?: PostSearchDocumentRepository;
+  normalizedQueries: Array<ReturnType<typeof normalizeQueryV2>>;
+  canonicalName: string;
+  fromIso: string;
+  toIso: string;
+  limit: number;
+}): Promise<Map<string, string[]>> {
+  const matchesByContentId = new Map<string, Set<string>>();
+  if (args.normalizedQueries.length === 0) {
+    return new Map();
+  }
+  if (!args.postSearchDocumentRepository) {
+    throw new Error("post search document repository is required for keyword-scoped drivers");
+  }
+
+  const searchLimit = Math.max(args.limit, 200);
+  for (const query of args.normalizedQueries) {
+    const documents = await args.postSearchDocumentRepository.search({
+      tokens: query.searchTokens,
+      canonicalSubreddit: args.canonicalName,
+      limit: searchLimit,
+      createdAtFrom: args.fromIso,
+      createdAtTo: args.toIso,
+    });
+    for (const document of documents) {
+      const haystack = `${document.title} ${document.bodySnippet ?? ""}`;
+      if (!matchesNormalizedQueryV2(haystack, query)) {
+        continue;
+      }
+      const current = matchesByContentId.get(document.contentId) ?? new Set<string>();
+      current.add(query.normalizedQueryText);
+      matchesByContentId.set(document.contentId, current);
+    }
+  }
+
+  return new Map(
+    Array.from(matchesByContentId.entries()).map(([contentId, queryTexts]) => [
+      contentId,
+      Array.from(queryTexts).sort((a, b) => a.localeCompare(b)),
+    ]),
   );
 }
 
@@ -966,6 +1087,301 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           statusCode: 200,
           body: payload,
           canonicalName: record.session.canonicalSubreddit,
+        });
+        return;
+      }
+
+      if (
+        req.method === "GET" &&
+        pathname.startsWith("/v1/trends/subreddit/") &&
+        pathname.endsWith("/anomalies/incidents")
+      ) {
+        const subredditRaw = pathname
+          .replace("/v1/trends/subreddit/", "")
+          .replace(/\/anomalies\/incidents$/, "");
+        const subreddit = normalizeSubredditName(decodeSubredditPathSegment(subredditRaw));
+
+        const canonicalName = `r/${subreddit}`;
+        const target = await repos.monitorTargetRepository.findByCanonicalName(canonicalName);
+        if (!target) {
+          respond({
+            statusCode: 404,
+            body: toApiError({
+              requestId,
+              message: `target not found: ${canonicalName}`,
+              code: "target_not_found",
+            }),
+            canonicalName,
+            errorCode: "target_not_found",
+          });
+          return;
+        }
+
+        const { fromIso, toIso } = resolveDailyRange(url.searchParams, now());
+        const limit =
+          parseOptionalIntegerParam({
+            value: url.searchParams.get("limit"),
+            name: "limit",
+            min: 1,
+            max: 100,
+          }) ?? 20;
+        const signalTypes = parseAnomalySignalTypeList(url.searchParams.get("signalType"));
+        const events = await repos.anomalyEventRepository.listByTargetInRange({
+          targetId: target.id,
+          fromIso,
+          toIso,
+          signalTypes,
+          limit: Math.max(limit * 3, 100),
+        });
+        const readModel = buildSubredditAnomalyIncidentReadModel({
+          events,
+          limit,
+        });
+
+        const payload: SubredditAnomalyIncidentFeedResponse = {
+          ok: true,
+          requestId,
+          generatedAtIso: now(),
+          targetId: target.id,
+          canonicalName,
+          fromIso,
+          toIso,
+          signalTypes: signalTypes ?? ["volume", "quality", "keyword", "driver"],
+          incidents: readModel.incidents.map((incident) => ({
+            incidentId: incident.incidentId,
+            windowStart: incident.windowStart,
+            windowEnd: incident.windowEnd,
+            observedAt: incident.observedAt,
+            mergedScore: incident.mergedScore,
+            severity: incident.severity,
+            dominantSignalType: incident.dominantSignalType,
+            signalTypes: incident.signalTypes,
+            signalCount: incident.signalCount,
+            algorithmVersion: incident.algorithmVersion,
+            explainPayload: incident.explainPayload,
+          })),
+        };
+        respond({
+          statusCode: 200,
+          body: payload,
+          targetId: target.id,
+          canonicalName,
+        });
+        return;
+      }
+
+      if (
+        req.method === "GET" &&
+        pathname.startsWith("/v1/trends/subreddit/") &&
+        pathname.endsWith("/anomalies")
+      ) {
+        const subredditRaw = pathname
+          .replace("/v1/trends/subreddit/", "")
+          .replace(/\/anomalies$/, "");
+        const subreddit = normalizeSubredditName(decodeSubredditPathSegment(subredditRaw));
+
+        const canonicalName = `r/${subreddit}`;
+        const target = await repos.monitorTargetRepository.findByCanonicalName(canonicalName);
+        if (!target) {
+          respond({
+            statusCode: 404,
+            body: toApiError({
+              requestId,
+              message: `target not found: ${canonicalName}`,
+              code: "target_not_found",
+            }),
+            canonicalName,
+            errorCode: "target_not_found",
+          });
+          return;
+        }
+
+        const { fromIso, toIso } = resolveDailyRange(url.searchParams, now());
+        const limit =
+          parseOptionalIntegerParam({
+            value: url.searchParams.get("limit"),
+            name: "limit",
+            min: 1,
+            max: 100,
+          }) ?? 25;
+        const signalTypes = parseAnomalySignalTypeList(url.searchParams.get("signalType"));
+
+        const events = await repos.anomalyEventRepository.listByTargetInRange({
+          targetId: target.id,
+          fromIso,
+          toIso,
+          signalTypes,
+          limit,
+        });
+        const readModel = buildSubredditAnomalyFeedReadModel({
+          events,
+          limit,
+        });
+
+        const payload: SubredditAnomalyFeedResponse = {
+          ok: true,
+          requestId,
+          generatedAtIso: now(),
+          targetId: target.id,
+          canonicalName,
+          fromIso,
+          toIso,
+          signalTypes: signalTypes ?? ["volume", "quality", "keyword", "driver"],
+          events: readModel.events.map((event) => ({
+            signalType: event.signalType,
+            signalKey: event.signalKey,
+            observedAt: event.observedAt,
+            windowStart: event.windowStart,
+            windowEnd: event.windowEnd,
+            anomalyScore: event.anomalyScore,
+            severity: event.severity,
+            algorithmVersion: event.algorithmVersion,
+            explainPayload: event.explainPayload,
+          })),
+        };
+        respond({
+          statusCode: 200,
+          body: payload,
+          targetId: target.id,
+          canonicalName,
+        });
+        return;
+      }
+
+      if (
+        req.method === "GET" &&
+        pathname.startsWith("/v1/trends/subreddit/") &&
+        pathname.endsWith("/drivers")
+      ) {
+        const subredditRaw = pathname
+          .replace("/v1/trends/subreddit/", "")
+          .replace(/\/drivers$/, "");
+        const subreddit = normalizeSubredditName(decodeSubredditPathSegment(subredditRaw));
+
+        const canonicalName = `r/${subreddit}`;
+        const target = await repos.monitorTargetRepository.findByCanonicalName(canonicalName);
+        if (!target) {
+          respond({
+            statusCode: 404,
+            body: toApiError({
+              requestId,
+              message: `target not found: ${canonicalName}`,
+              code: "target_not_found",
+            }),
+            canonicalName,
+            errorCode: "target_not_found",
+          });
+          return;
+        }
+
+        const { fromIso, toIso } = resolveDailyRange(url.searchParams, now());
+        const limit =
+          parseOptionalIntegerParam({
+            value: url.searchParams.get("limit"),
+            name: "limit",
+            min: 1,
+            max: 50,
+          }) ?? 20;
+        const ageBuckets = parseAgeBucketList(url.searchParams.get("ageBucket"));
+        const rawKeywords = parseKeywordList(url.searchParams.get("keywords"));
+        const normalizedQueries = rawKeywords.map((keyword) => {
+          try {
+            const query = normalizeQueryV2(keyword, canonicalName);
+            if (query.queryScope !== "subreddit" || query.scopeCanonicalSubreddit !== canonicalName) {
+              throw new BadRequestError(
+                `invalid keywords query for subreddit driver feed: ${keyword}`,
+                "invalid_query_param",
+              );
+            }
+            return query;
+          } catch (error) {
+            if (error instanceof BadRequestError) {
+              throw error;
+            }
+            throw new BadRequestError(
+              `invalid keywords query: ${keyword}`,
+              "invalid_query_param",
+            );
+          }
+        });
+        const contentFromIso = new Date(
+          new Date(fromIso).getTime() - 24 * 60 * 60 * 1000,
+        ).toISOString();
+        const candidateLimit =
+          normalizedQueries.length > 0 ? Math.max(limit * 10, 200) : limit;
+
+        const [driverFacts, contents, queryMatchesByContentId] = await Promise.all([
+          repos.postGrowthFactRepository.listTopByTargetInRange({
+            targetId: target.id,
+            fromIso,
+            toIso,
+            ageBuckets,
+            limit: candidateLimit,
+          }),
+          repos.contentRepository.findByTargetCreatedAtRange({
+            targetId: target.id,
+            from: contentFromIso,
+            to: toIso,
+            limit: 100_000,
+          }),
+          resolveDriverKeywordMatches({
+            postSearchDocumentRepository: repos.postSearchDocumentRepository,
+            normalizedQueries,
+            canonicalName,
+            fromIso: contentFromIso,
+            toIso,
+            limit: candidateLimit,
+          }),
+        ]);
+        const filteredDriverFacts =
+          queryMatchesByContentId.size > 0
+            ? driverFacts.filter((fact) => queryMatchesByContentId.has(fact.contentId))
+            : normalizedQueries.length > 0
+              ? []
+              : driverFacts;
+        const drivers = buildSubredditDriverPostReadModel({
+          facts: filteredDriverFacts.slice(0, limit),
+          contents,
+          matchedQueriesByContentId: queryMatchesByContentId,
+        });
+
+        const payload: SubredditDriverPostsResponse = {
+          ok: true,
+          requestId,
+          generatedAtIso: now(),
+          targetId: target.id,
+          canonicalName,
+          fromIso,
+          toIso,
+          ageBuckets: ageBuckets ?? ["1h", "6h", "24h"],
+          drivers: drivers.map((driver) => ({
+            id: driver.id,
+            externalId: driver.externalId,
+            title: driver.title,
+            permalink: driver.permalink,
+            createdAtSource: driver.createdAtSource,
+            url: driver.url,
+            bodySnippet: toBodySnippet(driver.bodyText),
+            observedAt: driver.observedAt,
+            ageBucket: driver.ageBucket,
+            ageMinutes: driver.ageMinutes,
+            score: driver.score,
+            comments: driver.comments,
+            scoreVelocityPerHour: driver.scoreVelocityPerHour,
+            commentVelocityPerHour: driver.commentVelocityPerHour,
+            velocityZScore: driver.velocityZScore,
+            driverScore: driver.driverScore,
+            labels: driver.labels,
+            matchedQueries: driver.matchedQueries,
+            algorithmVersion: driver.algorithmVersion,
+            explainPayload: driver.explainPayload,
+          })),
+        };
+        respond({
+          statusCode: 200,
+          body: payload,
+          targetId: target.id,
+          canonicalName,
         });
         return;
       }

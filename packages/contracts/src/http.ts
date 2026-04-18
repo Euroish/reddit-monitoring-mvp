@@ -349,6 +349,85 @@ export interface SubredditDailyTrendResponse {
   }>;
 }
 
+export interface SubredditDriverPostsResponse {
+  ok: true;
+  requestId: string;
+  generatedAtIso: string;
+  targetId: string;
+  canonicalName: string;
+  fromIso: string;
+  toIso: string;
+  ageBuckets: Array<"1h" | "6h" | "24h">;
+  drivers: Array<{
+    id: string;
+    externalId: string;
+    title: string;
+    permalink: string;
+    createdAtSource: string;
+    url?: string;
+    bodySnippet?: string;
+    observedAt: string;
+    ageBucket: "1h" | "6h" | "24h";
+    ageMinutes: number;
+    score: number;
+    comments: number;
+    scoreVelocityPerHour: number;
+    commentVelocityPerHour: number;
+    velocityZScore: number;
+    driverScore: number;
+    labels: string[];
+    matchedQueries?: string[];
+    algorithmVersion: string;
+    explainPayload: Record<string, unknown>;
+  }>;
+}
+
+export interface SubredditAnomalyFeedResponse {
+  ok: true;
+  requestId: string;
+  generatedAtIso: string;
+  targetId: string;
+  canonicalName: string;
+  fromIso: string;
+  toIso: string;
+  signalTypes: Array<"volume" | "quality" | "keyword" | "driver">;
+  events: Array<{
+    signalType: "volume" | "quality" | "keyword" | "driver";
+    signalKey: string;
+    observedAt: string;
+    windowStart?: string;
+    windowEnd?: string;
+    anomalyScore: number;
+    severity: "low" | "medium" | "high";
+    algorithmVersion: string;
+    explainPayload: Record<string, unknown>;
+  }>;
+}
+
+export interface SubredditAnomalyIncidentFeedResponse {
+  ok: true;
+  requestId: string;
+  generatedAtIso: string;
+  targetId: string;
+  canonicalName: string;
+  fromIso: string;
+  toIso: string;
+  signalTypes: Array<"volume" | "quality" | "keyword" | "driver">;
+  incidents: Array<{
+    incidentId: string;
+    windowStart: string;
+    windowEnd: string;
+    observedAt: string;
+    mergedScore: number;
+    severity: "low" | "medium" | "high";
+    dominantSignalType: "volume" | "quality" | "keyword" | "driver";
+    signalTypes: Array<"volume" | "quality" | "keyword" | "driver">;
+    signalCount: number;
+    algorithmVersion: string;
+    explainPayload: Record<string, unknown>;
+  }>;
+}
+
 export interface ApiErrorResponse {
   ok: false;
   requestId: string;

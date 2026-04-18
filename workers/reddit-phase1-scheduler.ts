@@ -2,6 +2,7 @@ import { buildSubredditKeywordTrendDailyJob } from "../src/jobs/build-subreddit-
 import { buildSubredditDailyFactsJob } from "../src/jobs/build-subreddit-daily-facts.job";
 import { buildSubredditTrendPointsJob } from "../src/jobs/build-subreddit-trend-points.job";
 import { buildPostGrowthFactsJob } from "../src/jobs/build-post-growth-facts.job";
+import { buildAnomalyEventsJob } from "../src/jobs/build-anomaly-events.job";
 import { runExistingSubredditAboutJob } from "../src/jobs/collect-subreddit-about.job";
 import { runExistingSubredditNewPostsJob } from "../src/jobs/collect-subreddit-new-posts.job";
 import type { RedditConnector } from "../src/connectors/reddit/reddit-connector.interface";
@@ -34,6 +35,7 @@ import type { MetricsSnapshotRepository } from "../src/domain/repositories/metri
 import type { PostGrowthFactRepository } from "../src/domain/repositories/post-growth-fact-repository";
 import type { SubredditDailyFactRepository } from "../src/domain/repositories/subreddit-daily-fact-repository";
 import type { SubredditTrendPointRepository } from "../src/domain/repositories/subreddit-trend-point-repository";
+import type { AnomalyEventRepository } from "../src/domain/repositories/anomaly-event-repository";
 
 export type SchedulerRunMode = "mock" | "live";
 
@@ -61,6 +63,7 @@ interface RunnableJobRepositories {
   subredditDailyFactRepository: SubredditDailyFactRepository;
   postGrowthFactRepository?: PostGrowthFactRepository;
   keywordTrendDailyRepository?: KeywordTrendDailyRepository;
+  anomalyEventRepository?: AnomalyEventRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
 }
 
@@ -212,7 +215,7 @@ function resolveProviderOverride(providerHint: string | undefined): string | und
   return undefined;
 }
 
-async function materializeTouchedTargets(args: {
+export async function materializeTouchedTargets(args: {
   repos: Pick<
     RunnableJobRepositories,
     | "contentRepository"
@@ -220,6 +223,7 @@ async function materializeTouchedTargets(args: {
     | "subredditDailyFactRepository"
     | "postGrowthFactRepository"
     | "keywordTrendDailyRepository"
+    | "anomalyEventRepository"
     | "subredditTrendPointRepository"
   >;
   targets: Array<{
@@ -304,6 +308,22 @@ async function materializeTouchedTargets(args: {
         },
       );
     }
+    if (args.repos.anomalyEventRepository) {
+      await buildAnomalyEventsJob(
+        {
+          anomalyEventRepository: args.repos.anomalyEventRepository,
+          subredditTrendPointRepository: args.repos.subredditTrendPointRepository,
+          subredditDailyFactRepository: args.repos.subredditDailyFactRepository,
+          keywordTrendDailyRepository: args.repos.keywordTrendDailyRepository,
+          postGrowthFactRepository: args.repos.postGrowthFactRepository,
+        },
+        {
+          targetId: target.targetId,
+          fromIso,
+          toIso: args.nowIso,
+        },
+      );
+    }
     materialized += 1;
   }
   return materialized;
@@ -381,6 +401,7 @@ async function main(): Promise<void> {
           subredditDailyFactRepository: repos.subredditDailyFactRepository,
           postGrowthFactRepository: repos.postGrowthFactRepository,
           keywordTrendDailyRepository: repos.keywordTrendDailyRepository,
+          anomalyEventRepository: repos.anomalyEventRepository,
           subredditTrendPointRepository: repos.subredditTrendPointRepository,
         },
         targets: replayed.touchedTargets,

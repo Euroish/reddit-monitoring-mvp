@@ -131,3 +131,51 @@ test("InMemoryPostGrowthFactRepository applies deterministic ordering and limit"
   assert.equal(rows[0]?.contentId, "c-1");
   assert.equal(rows[1]?.contentId, "c-2");
 });
+
+test("InMemoryPostGrowthFactRepository returns top driver rows per content", async () => {
+  const repo = new InMemoryPostGrowthFactRepository();
+  await repo.upsertMany([
+    buildRow({
+      targetId: "t1",
+      contentId: "c-1",
+      ageBucket: "6h",
+      observedAt: "2026-04-17T00:20:00.000Z",
+      driverScore: 72,
+    }),
+    buildRow({
+      targetId: "t1",
+      contentId: "c-1",
+      ageBucket: "1h",
+      observedAt: "2026-04-17T00:25:00.000Z",
+      driverScore: 81,
+    }),
+    buildRow({
+      targetId: "t1",
+      contentId: "c-2",
+      ageBucket: "1h",
+      observedAt: "2026-04-17T00:24:00.000Z",
+      driverScore: 88,
+    }),
+    buildRow({
+      targetId: "t1",
+      contentId: "c-3",
+      ageBucket: "24h",
+      observedAt: "2026-04-17T00:30:00.000Z",
+      driverScore: 65,
+    }),
+  ]);
+
+  const rows = await repo.listTopByTargetInRange({
+    targetId: "t1",
+    fromIso: "2026-04-17T00:00:00.000Z",
+    toIso: "2026-04-17T00:59:59.000Z",
+    limit: 2,
+  });
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0]?.contentId, "c-2");
+  assert.equal(rows[0]?.driverScore, 88);
+  assert.equal(rows[1]?.contentId, "c-1");
+  assert.equal(rows[1]?.driverScore, 81);
+  assert.equal(rows.filter((row) => row.contentId === "c-1").length, 1);
+});

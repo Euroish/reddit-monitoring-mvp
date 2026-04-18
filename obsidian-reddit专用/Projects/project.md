@@ -1,11 +1,11 @@
-﻿---
+---
 title: "project"
 type: codex-project-workspace
 status: active
 stage: P1.7-algorithm-productization
-updated_at: "2026-04-17 00:27:42"
+updated_at: "2026-04-18 15:26:34"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Add the first driver-post read model on top of `post_growth_fact` (repository query + API endpoint payload with `driver_score` and `explain_payload`) plus focused integration coverage."
+next_action: "Start R5 provider-policy institutionalization by wiring anomaly/materialization truth into runtime provider routing and `/readyz` algorithm-health signaling."
 tags:
 - codex
 - workspace
@@ -137,6 +137,55 @@ tags:
 - Keep this file ASCII-first or clean UTF-8 only; do not copy mojibake text forward.
 
 ## Activity Log
+
+### 2026-04-18 15:26:34
+
+- Scope: Closed the remaining `R4` finish slice. Added frozen anomaly defaults in `src/jobs/anomaly-event-defaults.ts`, rewired `build-anomaly-events.job.ts` to consume those constants, exported scheduler replay helper `materializeTouchedTargets` for deterministic verification, and added focused coverage in `tests/unit/build-anomaly-events-thresholds.test.ts` and `tests/integration/reddit-phase1-scheduler-materialization.test.ts` to prove threshold boundaries and replay materialization order (`daily -> trend -> driver -> keyword -> anomaly`).
+- Why now: `R4` still had two explicit open items in `project.md` (`scheduler replay anomaly materialization coverage` and `threshold/default freeze with synthetic edge cases`) after the first anomaly job/API slices landed.
+- Verify: `npm run typecheck` passed. `npx tsx --test tests/unit/build-anomaly-events-thresholds.test.ts tests/unit/build-anomaly-events.job.test.ts` passed (`3/3`). `npx tsx --test tests/integration/reddit-phase1-scheduler-materialization.test.ts tests/integration/reddit-phase1-scheduler-runnable-jobs.test.ts` passed (`3/3`). `npx tsx --test tests/integration/reddit-phase1-cycle.test.ts tests/integration/api-server-trends.test.ts` passed (`12/12`). `npm run algo:phase1:full` passed (`29/29` phase1 unit + `7/7` phase1 integration).
+- Next: Move to `R5` provider-policy institutionalization (`fetch-execution-engine + provider-routing-policy`) and wire `/readyz` to expose provider plus algorithm-materialization health from the same persisted truth path.
+
+### 2026-04-18 14:49:34
+
+- Scope: Completed the next `R4` vertical slice by adding `src/jobs/build-anomaly-events.job.ts` to materialize raw anomaly signals from persisted facts (`subreddit_trend_point`, `subreddit_daily_fact`, `keyword_trend_daily`, `post_growth_fact`) into `anomaly_event` with deterministic scoring/explain payloads for `volume/quality/keyword/driver`. Wired this job into both `src/workers/reddit-phase1.worker.ts` and `workers/reddit-phase1-scheduler.ts` so phase1 cycle and scheduler replay paths now both produce anomaly rows. Added focused coverage in `tests/unit/build-anomaly-events.job.test.ts` and extended `tests/integration/reddit-phase1-cycle.test.ts` to verify cycle wiring.
+- Why now: `project.md` `next_action` required first anomaly-event materialization from persisted facts so the existing anomaly feed and incident APIs can consume continuously produced signals instead of relying on manual inserts.
+- Verify: `npm run typecheck` passed. `npx tsx --test tests/unit/build-anomaly-events.job.test.ts tests/integration/reddit-phase1-cycle.test.ts tests/unit/build-post-growth-facts.job.test.ts` passed (`4/4`). `npx tsx --test tests/integration/reddit-phase1-scheduler-runnable-jobs.test.ts` passed (`2/2`). `npx tsx --test tests/integration/api-server-trends.test.ts` passed (`11/11`). With `DATABASE_URL=postgresql://postgres:13923276897Ak@localhost:5432/reddit_monitoring`, direct Postgres execution of `buildAnomalyEventsJob` over the last 72h inserted anomaly rows (`insertedCount=1`, `signalTypes=["keyword"]`) for `r/machinelearning`.
+- Next: Add focused scheduler replay integration coverage for anomaly materialization ordering and tune R4 anomaly detection thresholds with bounded synthetic cases before freezing defaults.
+
+### 2026-04-18 14:34:00
+
+- Scope: Completed the next `R4` slice by adding cross-signal incident merge on top of persisted `anomaly_event` and exposing it via API. Added `src/application/services/subreddit-anomaly-incident-read-model.service.ts` to merge `volume/quality/keyword/driver` signals by shared window (`windowStart/windowEnd`, with deterministic fallback bucketing), compute `mergedScore`, severity, dominant signal type, and explain payload. Extended API contracts in `packages/contracts/src/http.ts` with `SubredditAnomalyIncidentFeedResponse`. Updated `apps/api/src/create-api-server.ts` with `GET /v1/trends/subreddit/:name/anomalies/incidents` (range, signal-type filter, limit) while keeping raw `/anomalies` feed unchanged.
+- Why now: After landing raw anomaly feed, the next priority was user-facing merged incidents so anomaly consumers can reason about one incident object per window instead of manually combining multiple signal rows.
+- Verify: `npm run typecheck` passed. `npx tsx --test tests/unit/subreddit-anomaly-incident-read-model.service.test.ts tests/unit/subreddit-anomaly-feed-read-model.service.test.ts tests/unit/anomaly-event.repository.test.ts` passed (`5/5`). `npx tsx --test tests/integration/api-server-trends.test.ts` passed (`11/11`), including new `/anomalies/incidents` and invalid `signalType` coverage. With `DATABASE_URL=postgresql://postgres:13923276897Ak@localhost:5432/reddit_monitoring`, direct Postgres verification (`listByTargetInRange + buildSubredditAnomalyIncidentReadModel`) produced merged top incident output with expected dominant signal and severity.
+- Next: Add the first `anomaly_event` materialization job (from trend/daily/keyword/driver persisted facts) and wire it into the phase1 cycle before anomaly feeds, with focused integration coverage.
+
+### 2026-04-18 14:24:54
+
+- Scope: Completed the first consumer-facing `R4` anomaly read path on top of `anomaly_event`. Added read-model service `src/application/services/subreddit-anomaly-feed-read-model.service.ts` with deterministic severity mapping (`low/medium/high`) and score-first ordering. Extended API contracts (`packages/contracts/src/http.ts`) with `SubredditAnomalyFeedResponse`. Wired `anomalyEventRepository` into API dependencies (`apps/api/src/create-api-server.ts`) and added new endpoint `GET /v1/trends/subreddit/:name/anomalies` with range, `signalType` filter (`volume/quality/keyword/driver`), and `limit` support.
+- Why now: The previous slice only established raw anomaly storage/repository contracts. We needed a product-consumable anomaly feed to start serving anomaly insights from persisted truth before tackling cross-signal incident merge semantics.
+- Verify: `npm run typecheck` passed. `npx tsx --test tests/unit/subreddit-anomaly-feed-read-model.service.test.ts tests/unit/anomaly-event.repository.test.ts` passed (`4/4`). `npx tsx --test tests/integration/api-server-trends.test.ts` passed (`10/10`), including the new anomaly feed case and invalid `signalType` guard. With `DATABASE_URL=postgresql://postgres:13923276897Ak@localhost:5432/reddit_monitoring`, a direct Postgres verification (`upsertMany + listByTargetInRange + buildSubredditAnomalyFeedReadModel`) returned ordered/severity-mapped signals (`keyword 0.93`, `volume 0.81`, `driver 0.77`).
+- Next: Implement anomaly incident merge rules on top of `anomaly_event` (`volume/quality/keyword/driver`), then expose a merged incident feed/API with focused regression coverage.
+
+### 2026-04-18 14:12:46
+
+- Scope: Completed the additive `R4` storage/repository foundation for raw anomaly signals. Added `src/domain/entities/anomaly-event.ts` and `src/domain/repositories/anomaly-event-repository.ts`, plus additive migration `src/storage/schema/016_anomaly_event.sql` with typed `signal_type`, time-window columns, `anomaly_score`, `algorithm_version`, and `explain_payload`. Implemented both storage lanes: `InMemoryAnomalyEventRepository` in `src/storage/repositories/in-memory/raw-target-trend.repositories.ts` and `PostgresAnomalyEventRepository` in `src/storage/repositories/postgres/postgres-anomaly-event.repository.ts`, then wired the new repository into `src/storage/repositories/postgres/postgres-repository-bundle.ts` and `src/storage/repositories/postgres/postgres-row-mappers.ts`.
+- Why now: After completing `R3` driver reads, the next smallest bounded move in `project.md` was to land the raw anomaly persistence contract that future feed/incident consumers can build on without blocking on merge semantics.
+- Verify: `npm run typecheck` passed. `npx tsx --test tests/unit/anomaly-event.repository.test.ts` passed (`3/3`) for filter/upsert/order semantics. With `DATABASE_URL=postgresql://postgres:13923276897Ak@localhost:5432/reddit_monitoring`, `npm run db:migrate` applied `016_anomaly_event.sql`, and a direct Postgres repository verification confirmed `upsertMany` + `listByTargetInRange` returned the inserted `volume` and `keyword` signals with scores `[0.81, 0.93]`.
+- Next: Layer the first consumer-facing anomaly read model/API on top of `anomaly_event`, starting with subreddit anomaly feed payloads and focused coverage.
+
+### 2026-04-18 14:04:48
+
+- Scope: Completed the next `R3` driver-consumption slice by extending the persisted driver feed with derived labels and keyword-scoped filtering. Updated `src/application/services/subreddit-driver-post-read-model.service.ts` so driver rows now emit stable `labels` (`breakout/surging/emerging` + `fresh/sustained/mature`) and optional `matchedQueries`. Updated `apps/api/src/create-api-server.ts` and `packages/contracts/src/http.ts` so `GET /v1/trends/subreddit/:name/drivers` accepts `keywords=` filters using `query_normalization_v2` plus `post_search_document` matching, while explicitly rejecting `global:` scope on a subreddit-bound endpoint. Added focused coverage in `tests/unit/subreddit-driver-post-read-model.service.test.ts` and expanded `tests/integration/api-server-trends.test.ts` for labels, keyword filtering, and invalid-scope rejection.
+- Why now: The previous state exposed a subreddit driver feed but still lacked product-ready labels and the first keyword-scoped read path promised in the active `next_action`, so driver-post output was persisted but not yet queryable by topic.
+- Verify: `npm run typecheck` passed. `npx tsx --test tests/unit/subreddit-driver-post-read-model.service.test.ts tests/unit/post-growth-fact.repository.test.ts` passed (`5/5`). `npx tsx --test tests/integration/api-server-trends.test.ts` passed (`9/9`), including filtered `GET /v1/trends/subreddit/datascience/drivers?keywords=agent`. With `DATABASE_URL=postgresql://postgres:13923276897Ak@localhost:5432/reddit_monitoring`, `npm run db:migrate` applied `015_post_growth_fact.sql`, and a direct Postgres repository verification confirmed `listTopByTargetInRange` returned driver scores `[93,82]` while `post_search_document.search(tokens=['agent'])` matched only the expected driver content.
+- Next: Start the additive `anomaly_event` storage/repository slice for `R4`, then layer the first consumer-facing anomaly read model/API on top with focused coverage.
+
+### 2026-04-18 13:52:01
+
+- Scope: Completed the first `R3` driver-post read slice on top of persisted `post_growth_fact`. Extended `PostGrowthFactRepository` with a top-driver query (`listTopByTargetInRange`) and implemented deterministic per-content dedupe/sort semantics in both `src/storage/repositories/in-memory/raw-target-trend.repositories.ts` and `src/storage/repositories/postgres/postgres-post-growth-fact.repository.ts`. Added `src/application/services/subreddit-driver-post-read-model.service.ts`, wired `postGrowthFactRepository` into `apps/api/src/create-api-server.ts`, and exposed `GET /v1/trends/subreddit/:name/drivers` returning post metadata plus `driverScore`, velocity fields, `algorithmVersion`, and `explainPayload` from persisted facts only. Updated API test helpers/contracts accordingly.
+- Why now: `project.md` `next_action` called for the first driver-post consumer on top of the new R3 fact table so product reads can start consuming explainable persisted driver rows instead of stopping at storage/materialization.
+- Verify: `npm run typecheck` passed. `npx tsx --test tests/unit/post-growth-fact.repository.test.ts` passed (`4/4`), including the new top-driver dedupe/order case. `npx tsx --test tests/integration/api-server-trends.test.ts` passed (`9/9`), including `GET /v1/trends/subreddit/datascience/drivers` coverage for persisted fact ordering, `ageBucket` filtering, and `explainPayload` passthrough.
+- Next: Add driver labels plus the first keyword-scoped driver read path on top of `post_growth_fact` and existing post search/materialized inputs, with focused coverage.
 
 ### 2026-04-17 00:27:42
 

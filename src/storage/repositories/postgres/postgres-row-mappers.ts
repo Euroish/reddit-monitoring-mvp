@@ -1,4 +1,5 @@
 import type { Account } from "../../../domain/entities/account";
+import type { AnomalyEvent } from "../../../domain/entities/anomaly-event";
 import type { CollectionJob } from "../../../domain/entities/collection-job";
 import type { Content } from "../../../domain/entities/content";
 import type { CrawlCursor } from "../../../domain/entities/crawl-cursor";
@@ -194,6 +195,19 @@ export interface PostGrowthFactRow {
   cohort_median_comment_velocity: string | number;
   velocity_z_score: string | number;
   driver_score: string | number;
+  algorithm_version: string;
+  explain_payload: Record<string, unknown>;
+  updated_at: string | Date;
+}
+
+export interface AnomalyEventRow {
+  target_id: string;
+  signal_type: "volume" | "quality" | "keyword" | "driver";
+  signal_key: string;
+  observed_at: string | Date;
+  window_start: string | Date | null;
+  window_end: string | Date | null;
+  anomaly_score: string | number;
   algorithm_version: string;
   explain_payload: Record<string, unknown>;
   updated_at: string | Date;
@@ -524,6 +538,21 @@ export function mapKeywordQuerySession(row: KeywordQuerySessionRow): KeywordQuer
     degradedReason: row.degraded_reason ?? undefined,
     explainPayload: row.explain_payload ?? {},
     createdAt: toIso(row.created_at)!,
+    updatedAt: toIso(row.updated_at)!,
+  };
+}
+
+export function mapAnomalyEvent(row: AnomalyEventRow): AnomalyEvent {
+  return {
+    targetId: row.target_id,
+    signalType: row.signal_type,
+    signalKey: row.signal_key,
+    observedAt: toIso(row.observed_at)!,
+    windowStart: row.window_start ? toIso(row.window_start)! : undefined,
+    windowEnd: row.window_end ? toIso(row.window_end)! : undefined,
+    anomalyScore: Number(row.anomaly_score),
+    algorithmVersion: row.algorithm_version,
+    explainPayload: row.explain_payload ?? {},
     updatedAt: toIso(row.updated_at)!,
   };
 }

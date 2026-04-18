@@ -1,4 +1,5 @@
 import type { AccountRepository } from "../../../domain/repositories/account-repository";
+import type { AnomalyEventRepository } from "../../../domain/repositories/anomaly-event-repository";
 import type { CollectionJobRepository } from "../../../domain/repositories/collection-job-repository";
 import type { ContentRepository } from "../../../domain/repositories/content-repository";
 import type { CrawlCursorRepository } from "../../../domain/repositories/crawl-cursor-repository";
@@ -14,6 +15,7 @@ import type { RawEventRepository } from "../../../domain/repositories/raw-event-
 import type { SubredditTrendPointRepository } from "../../../domain/repositories/subreddit-trend-point-repository";
 import { PostgresClient } from "../../postgres/postgres-client";
 import { PostgresAccountRepository } from "./postgres-account.repository";
+import { PostgresAnomalyEventRepository } from "./postgres-anomaly-event.repository";
 import { PostgresCollectionJobRepository } from "./postgres-collection-job.repository";
 import { PostgresContentRepository } from "./postgres-content.repository";
 import { PostgresCrawlCursorRepository } from "./postgres-crawl-cursor.repository";
@@ -34,6 +36,7 @@ export interface RepositoryBundle {
   crawlCursorRepository: CrawlCursorRepository;
   rawEventRepository: RawEventRepository;
   accountRepository: AccountRepository;
+  anomalyEventRepository: AnomalyEventRepository;
   contentRepository: ContentRepository;
   keywordTrendDailyRepository: KeywordTrendDailyRepository;
   keywordQuerySessionRepository: KeywordQuerySessionRepository;
@@ -52,6 +55,7 @@ export function createPostgresRepositoryBundle(db: PostgresClient): RepositoryBu
     crawlCursorRepository: new PostgresCrawlCursorRepository(db),
     rawEventRepository: new PostgresRawEventRepository(db),
     accountRepository: new PostgresAccountRepository(db),
+    anomalyEventRepository: new PostgresAnomalyEventRepository(db),
     contentRepository: new PostgresContentRepository(db),
     keywordTrendDailyRepository: new PostgresKeywordTrendDailyRepository(db),
     keywordQuerySessionRepository: new PostgresKeywordQuerySessionRepository(db),

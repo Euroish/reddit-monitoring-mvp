@@ -695,6 +695,398 @@ test("api server validates recentPostsLimit query parameter", async () => {
   }
 });
 
+test("api server returns subreddit driver posts from persisted growth facts", async () => {
+  const fixedNow = "2026-04-17T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+  const targetId = stableUuidFromString("reddit:target:r/datascience");
+  const contentAId = stableUuidFromString("reddit:content:t3_driver_a");
+  const contentBId = stableUuidFromString("reddit:content:t3_driver_b");
+
+  await repos.monitorTargetRepository.upsert({
+    id: targetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: "r/datascience",
+    status: "active",
+    config: {},
+    createdAt: fixedNow,
+    updatedAt: fixedNow,
+  });
+
+  await repos.contentRepository.upsertMany([
+    {
+      id: contentAId,
+      source: "reddit",
+      targetId,
+      externalId: "t3_driver_a",
+      kind: "post",
+      title: "LLM ranking benchmark",
+      bodyText: "Benchmark notes for new model releases and scoring windows.",
+      permalink: "/r/datascience/comments/driver_a",
+      createdAtSource: "2026-04-17T08:00:00.000Z",
+      firstSeenAt: "2026-04-17T08:05:00.000Z",
+      lastSeenAt: "2026-04-17T11:20:00.000Z",
+    },
+    {
+      id: contentBId,
+      source: "reddit",
+      targetId,
+      externalId: "t3_driver_b",
+      kind: "post",
+      title: "Agent tooling launches",
+      bodyText: "Fresh agent tooling release with strong early engagement.",
+      permalink: "/r/datascience/comments/driver_b",
+      createdAtSource: "2026-04-17T10:30:00.000Z",
+      firstSeenAt: "2026-04-17T10:35:00.000Z",
+      lastSeenAt: "2026-04-17T11:40:00.000Z",
+    },
+  ]);
+
+  await repos.postSearchDocumentRepository.upsertMany([
+    {
+      contentId: contentAId,
+      targetId,
+      canonicalSubreddit: "r/datascience",
+      title: "LLM ranking benchmark",
+      bodySnippet: "Benchmark notes for new model releases and scoring windows.",
+      permalink: "/r/datascience/comments/driver_a",
+      createdAtSource: "2026-04-17T08:00:00.000Z",
+    },
+    {
+      contentId: contentBId,
+      targetId,
+      canonicalSubreddit: "r/datascience",
+      title: "Agent tooling launches",
+      bodySnippet: "Fresh agent tooling release with strong early engagement.",
+      permalink: "/r/datascience/comments/driver_b",
+      createdAtSource: "2026-04-17T10:30:00.000Z",
+    },
+  ]);
+
+  await repos.postGrowthFactRepository.upsertMany([
+    {
+      targetId,
+      contentId: contentAId,
+      ageBucket: "6h",
+      observedAt: "2026-04-17T11:15:00.000Z",
+      ageMinutes: 195,
+      score: 320,
+      comments: 58,
+      scoreVelocityPerHour: 98.461538,
+      commentVelocityPerHour: 17.846154,
+      cohortPostCount: 24,
+      cohortMedianScoreVelocity: 51.2,
+      cohortMedianCommentVelocity: 10.4,
+      velocityZScore: 1.4,
+      driverScore: 71,
+      algorithmVersion: "post_growth_v1",
+      explainPayload: {
+        cohort: {
+          ageBucket: "6h",
+        },
+      },
+    },
+    {
+      targetId,
+      contentId: contentAId,
+      ageBucket: "1h",
+      observedAt: "2026-04-17T11:20:00.000Z",
+      ageMinutes: 40,
+      score: 180,
+      comments: 34,
+      scoreVelocityPerHour: 270,
+      commentVelocityPerHour: 51,
+      cohortPostCount: 18,
+      cohortMedianScoreVelocity: 120,
+      cohortMedianCommentVelocity: 18,
+      velocityZScore: 2.2,
+      driverScore: 83,
+      algorithmVersion: "post_growth_v1",
+      explainPayload: {
+        normalized: {
+          velocityZScore: 2.2,
+        },
+      },
+    },
+    {
+      targetId,
+      contentId: contentBId,
+      ageBucket: "1h",
+      observedAt: "2026-04-17T11:40:00.000Z",
+      ageMinutes: 55,
+      score: 210,
+      comments: 41,
+      scoreVelocityPerHour: 229.090909,
+      commentVelocityPerHour: 44.727273,
+      cohortPostCount: 18,
+      cohortMedianScoreVelocity: 120,
+      cohortMedianCommentVelocity: 18,
+      velocityZScore: 2.8,
+      driverScore: 92,
+      algorithmVersion: "post_growth_v1",
+      explainPayload: {
+        normalized: {
+          velocityZScore: 2.8,
+        },
+      },
+    },
+  ]);
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const result = await getJson<{
+      ok: boolean;
+      canonicalName: string;
+      ageBuckets: string[];
+      drivers: Array<{
+        externalId: string;
+        title: string;
+        driverScore: number;
+        ageBucket: string;
+        labels: string[];
+        explainPayload: Record<string, unknown>;
+        bodySnippet?: string;
+      }>;
+    }>(
+      `${baseUrl}/v1/trends/subreddit/datascience/drivers?from=2026-04-17T00:00:00.000Z&to=2026-04-17T12:00:00.000Z&ageBucket=1h&limit=5`,
+    );
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.ok, true);
+    assert.equal(result.body.canonicalName, "r/datascience");
+    assert.deepEqual(result.body.ageBuckets, ["1h"]);
+    assert.equal(result.body.drivers.length, 2);
+      assert.equal(result.body.drivers[0]?.externalId, "t3_driver_b");
+      assert.equal(result.body.drivers[0]?.driverScore, 92);
+      assert.equal(result.body.drivers[0]?.ageBucket, "1h");
+      assert.deepEqual(result.body.drivers[0]?.labels, ["breakout", "fresh"]);
+      assert.deepEqual(result.body.drivers[0]?.explainPayload, {
+        normalized: {
+          velocityZScore: 2.8,
+        },
+      });
+    assert.equal(result.body.drivers[1]?.externalId, "t3_driver_a");
+    assert.equal(result.body.drivers[1]?.driverScore, 83);
+    assert.equal(
+      result.body.drivers[1]?.bodySnippet,
+      "Benchmark notes for new model releases and scoring windows.",
+    );
+
+    const filtered = await getJson<{
+      ok: boolean;
+      drivers: Array<{
+        externalId: string;
+        matchedQueries?: string[];
+        labels: string[];
+      }>;
+    }>(
+      `${baseUrl}/v1/trends/subreddit/datascience/drivers?from=2026-04-17T00:00:00.000Z&to=2026-04-17T12:00:00.000Z&keywords=agent&limit=5`,
+    );
+    assert.equal(filtered.status, 200);
+    assert.equal(filtered.body.ok, true);
+    assert.equal(filtered.body.drivers.length, 1);
+    assert.equal(filtered.body.drivers[0]?.externalId, "t3_driver_b");
+    assert.deepEqual(filtered.body.drivers[0]?.matchedQueries, ["agent"]);
+    assert.deepEqual(filtered.body.drivers[0]?.labels, ["breakout", "fresh"]);
+
+    const invalidScope = await getJson<{ ok: boolean; errorCode: string }>(
+      `${baseUrl}/v1/trends/subreddit/datascience/drivers?keywords=global:agent`,
+    );
+    assert.equal(invalidScope.status, 400);
+    assert.equal(invalidScope.body.ok, false);
+    assert.equal(invalidScope.body.errorCode, "invalid_query_param");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("api server returns subreddit anomaly feed from anomaly_event", async () => {
+  const fixedNow = "2026-04-18T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+  const targetId = stableUuidFromString("reddit:target:r/datascience");
+
+  await repos.monitorTargetRepository.upsert({
+    id: targetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: "r/datascience",
+    status: "active",
+    config: {},
+    createdAt: fixedNow,
+    updatedAt: fixedNow,
+  });
+
+  await repos.anomalyEventRepository.upsertMany([
+    {
+      targetId,
+      signalType: "keyword",
+      signalKey: "llm",
+      observedAt: "2026-04-18T10:05:00.000Z",
+      windowStart: "2026-04-18T10:00:00.000Z",
+      windowEnd: "2026-04-18T10:15:00.000Z",
+      anomalyScore: 0.62,
+      algorithmVersion: "anomaly_event_v1",
+      explainPayload: {
+        supportCount: 12,
+      },
+    },
+    {
+      targetId,
+      signalType: "volume",
+      signalKey: "subreddit",
+      observedAt: "2026-04-18T10:10:00.000Z",
+      windowStart: "2026-04-18T10:00:00.000Z",
+      windowEnd: "2026-04-18T10:15:00.000Z",
+      anomalyScore: 0.9,
+      algorithmVersion: "anomaly_event_v1",
+      explainPayload: {
+        postDelta: 30,
+      },
+    },
+  ]);
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const result = await getJson<{
+      ok: boolean;
+      signalTypes: string[];
+      events: Array<{
+        signalType: string;
+        signalKey: string;
+        severity: string;
+        anomalyScore: number;
+      }>;
+    }>(
+      `${baseUrl}/v1/trends/subreddit/datascience/anomalies?from=2026-04-18T00:00:00.000Z&to=2026-04-18T23:59:59.000Z&signalType=keyword,volume&limit=10`,
+    );
+    assert.equal(result.status, 200);
+    assert.equal(result.body.ok, true);
+    assert.deepEqual(result.body.signalTypes, ["keyword", "volume"]);
+    assert.equal(result.body.events.length, 2);
+    assert.equal(result.body.events[0]?.signalType, "volume");
+    assert.equal(result.body.events[0]?.signalKey, "subreddit");
+    assert.equal(result.body.events[0]?.severity, "high");
+    assert.equal(result.body.events[0]?.anomalyScore, 0.9);
+    assert.equal(result.body.events[1]?.signalType, "keyword");
+    assert.equal(result.body.events[1]?.severity, "medium");
+
+    const invalidSignalType = await getJson<{ ok: boolean; errorCode: string }>(
+      `${baseUrl}/v1/trends/subreddit/datascience/anomalies?signalType=invalid`,
+    );
+    assert.equal(invalidSignalType.status, 400);
+    assert.equal(invalidSignalType.body.ok, false);
+    assert.equal(invalidSignalType.body.errorCode, "invalid_query_param");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("api server returns merged anomaly incidents from anomaly_event", async () => {
+  const fixedNow = "2026-04-18T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+  const targetId = stableUuidFromString("reddit:target:r/machinelearning");
+
+  await repos.monitorTargetRepository.upsert({
+    id: targetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: "r/machinelearning",
+    status: "active",
+    config: {},
+    createdAt: fixedNow,
+    updatedAt: fixedNow,
+  });
+
+  await repos.anomalyEventRepository.upsertMany([
+    {
+      targetId,
+      signalType: "volume",
+      signalKey: "subreddit",
+      observedAt: "2026-04-18T11:05:00.000Z",
+      windowStart: "2026-04-18T11:00:00.000Z",
+      windowEnd: "2026-04-18T11:15:00.000Z",
+      anomalyScore: 0.8,
+      algorithmVersion: "anomaly_event_v1",
+      explainPayload: {},
+    },
+    {
+      targetId,
+      signalType: "keyword",
+      signalKey: "llm",
+      observedAt: "2026-04-18T11:06:00.000Z",
+      windowStart: "2026-04-18T11:00:00.000Z",
+      windowEnd: "2026-04-18T11:15:00.000Z",
+      anomalyScore: 0.62,
+      algorithmVersion: "anomaly_event_v1",
+      explainPayload: {},
+    },
+    {
+      targetId,
+      signalType: "driver",
+      signalKey: "post-a",
+      observedAt: "2026-04-18T11:25:00.000Z",
+      windowStart: "2026-04-18T11:15:00.000Z",
+      windowEnd: "2026-04-18T11:30:00.000Z",
+      anomalyScore: 0.77,
+      algorithmVersion: "anomaly_event_v1",
+      explainPayload: {},
+    },
+  ]);
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const result = await getJson<{
+      ok: boolean;
+      signalTypes: string[];
+      incidents: Array<{
+        dominantSignalType: string;
+        signalTypes: string[];
+        signalCount: number;
+        mergedScore: number;
+        severity: string;
+      }>;
+    }>(
+      `${baseUrl}/v1/trends/subreddit/machinelearning/anomalies/incidents?from=2026-04-18T00:00:00.000Z&to=2026-04-18T23:59:59.000Z&signalType=keyword,volume,driver&limit=10`,
+    );
+    assert.equal(result.status, 200);
+    assert.equal(result.body.ok, true);
+    assert.deepEqual(result.body.signalTypes, ["keyword", "volume", "driver"]);
+    assert.equal(result.body.incidents.length, 2);
+    assert.equal(result.body.incidents[0]?.dominantSignalType, "volume");
+    assert.deepEqual(result.body.incidents[0]?.signalTypes, ["keyword", "volume"]);
+    assert.equal(result.body.incidents[0]?.signalCount, 2);
+    assert.equal(result.body.incidents[0]?.mergedScore, 0.88);
+    assert.equal(result.body.incidents[0]?.severity, "high");
+
+    const invalidSignalType = await getJson<{ ok: boolean; errorCode: string }>(
+      `${baseUrl}/v1/trends/subreddit/machinelearning/anomalies/incidents?signalType=bad`,
+    );
+    assert.equal(invalidSignalType.status, 400);
+    assert.equal(invalidSignalType.body.ok, false);
+    assert.equal(invalidSignalType.body.errorCode, "invalid_query_param");
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("api server returns 400 for malformed URL-encoded subreddit path", async () => {
   const fixedNow = "2026-04-10T12:00:00.000Z";
   const repos = createApiTestRepositories();
@@ -721,6 +1113,22 @@ test("api server returns 400 for malformed URL-encoded subreddit path", async ()
     assert.equal(dailyResult.body.ok, false);
     assert.equal(dailyResult.body.errorCode, "invalid_subreddit");
     assert.equal(dailyResult.body.requestId, dailyResult.requestId);
+
+    const anomalyResult = await getJson<{ ok: boolean; errorCode: string; requestId: string }>(
+      `${baseUrl}/v1/trends/subreddit/%E0%A4%A/anomalies`,
+    );
+    assert.equal(anomalyResult.status, 400);
+    assert.equal(anomalyResult.body.ok, false);
+    assert.equal(anomalyResult.body.errorCode, "invalid_subreddit");
+    assert.equal(anomalyResult.body.requestId, anomalyResult.requestId);
+
+    const incidentResult = await getJson<{ ok: boolean; errorCode: string; requestId: string }>(
+      `${baseUrl}/v1/trends/subreddit/%E0%A4%A/anomalies/incidents`,
+    );
+    assert.equal(incidentResult.status, 400);
+    assert.equal(incidentResult.body.ok, false);
+    assert.equal(incidentResult.body.errorCode, "invalid_subreddit");
+    assert.equal(incidentResult.body.requestId, incidentResult.requestId);
   } finally {
     await stopServer(server);
   }
