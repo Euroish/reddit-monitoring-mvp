@@ -9,6 +9,7 @@ import {
   type RedditRunMode,
 } from "../connectors/reddit/create-reddit-connector";
 import { resolveRedditCircuitBreakerOptionsFromEnv } from "../connectors/reddit/reddit-circuit-breaker.config";
+import type { RedditScraplingProfile } from "../connectors/reddit/reddit-scrapling.connector";
 import { stableUuidFromString } from "../shared/ids/stable-id";
 import { PostgresClient } from "../storage/postgres/postgres-client";
 import {
@@ -42,6 +43,7 @@ export interface PostgresPhase1Runtime {
     mode: Phase1RunMode,
     crawlMode?: Phase1CrawlMode,
     providerOverride?: string,
+    scraplingProfileOverride?: RedditScraplingProfile,
   ) => ReturnType<typeof createRedditConnector>;
   close: () => Promise<void>;
 }
@@ -85,12 +87,14 @@ export function createRedditConnectorFactoryFromEnv(env: NodeJS.ProcessEnv) {
     mode: Phase1RunMode,
     crawlMode: Phase1CrawlMode = "live",
     providerOverride?: string,
+    scraplingProfileOverride?: RedditScraplingProfile,
   ) =>
     createRedditConnectorFromEnv({
       env,
       mode,
       crawlMode,
       providerOverride,
+      scraplingProfileOverride,
     });
 }
 
@@ -99,6 +103,7 @@ export function createRedditConnectorFromEnv(args: {
   mode: Phase1RunMode;
   crawlMode?: Phase1CrawlMode;
   providerOverride?: string;
+  scraplingProfileOverride?: RedditScraplingProfile;
 }): ReturnType<typeof createRedditConnector> {
   const crawlMode = args.crawlMode ?? "live";
   const configuredProvider =
@@ -106,14 +111,30 @@ export function createRedditConnectorFromEnv(args: {
     (crawlMode === "backfill"
       ? args.env.REDDIT_BACKFILL_PROVIDER
       : args.env.REDDIT_LIVE_PROVIDER);
+  const liveProvider = resolveRedditLiveProvider(configuredProvider);
+  const scraplingProfile = resolveRedditScraplingProfile(
+    args.scraplingProfileOverride ?? args.env.REDDIT_SCRAPLING_PROFILE,
+  );
+  const circuitBreaker = resolveRedditCircuitBreakerOptionsFromEnv(args.env, {
+    defaultEnabled: true,
+  });
+  const allowScraplingCircuitFallback = parseBooleanFlag(
+    args.env.REDDIT_SCRAPLING_CB_ROUTE_TO_HTTP,
+    false,
+  );
+  if (
+    liveProvider === "scrapling" &&
+    scraplingProfile !== "http" &&
+    !allowScraplingCircuitFallback
+  ) {
+    circuitBreaker.routeToFallbackOnError = false;
+  }
   return createRedditConnector({
     mode: args.mode,
-    liveProvider: resolveRedditLiveProvider(configuredProvider),
+    liveProvider,
     httpTransport: resolveRedditHttpTransport(args.env.REDDIT_HTTP_TRANSPORT),
     httpTimeoutMs: parsePositiveInt(args.env.REDDIT_HTTP_TIMEOUT_MS, 12_000),
-    scraplingProfile: resolveRedditScraplingProfile(
-      args.env.REDDIT_SCRAPLING_PROFILE,
-    ),
+    scraplingProfile,
     scraplingPythonExecutable: args.env.REDDIT_SCRAPLING_PYTHON,
     scraplingBridgeScriptPath: args.env.REDDIT_SCRAPLING_BRIDGE_SCRIPT,
     scraplingTimeoutMs: parsePositiveInt(
@@ -132,9 +153,7 @@ export function createRedditConnectorFromEnv(args: {
       60,
     ),
     apifyRunPollAttempts: parsePositiveInt(args.env.APIFY_RUN_POLL_ATTEMPTS, 3),
-    circuitBreaker: resolveRedditCircuitBreakerOptionsFromEnv(args.env, {
-      defaultEnabled: true,
-    }),
+    circuitBreaker,
   });
 }
 

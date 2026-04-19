@@ -9,6 +9,11 @@ import type { MetricsSnapshotRepository } from "../../../src/domain/repositories
 import type { MonitorTargetRepository } from "../../../src/domain/repositories/monitor-target-repository";
 import type { ProviderHealthWindowRepository } from "../../../src/domain/repositories/provider-health-window-repository";
 import type { SubredditDailyFactRepository } from "../../../src/domain/repositories/subreddit-daily-fact-repository";
+import {
+  resolveRedditTargetExecutionRoute,
+  summarizeRedditRoutingPolicy,
+  type RedditProviderRoutingPolicyContext,
+} from "../../../src/runtime/reddit-provider-routing-policy";
 import { READYZ_THRESHOLDS } from "./readyz-thresholds";
 
 export const ACTIVE_SESSION_STATUSES = [
@@ -139,6 +144,20 @@ function createEmptyObservability(): ApiReadinessResponse["observability"] {
     cursorLagSecondsMax: null,
     dailyFactCoverageRate: null,
     dailyFactLagDaysMax: null,
+    scraplingEvidence: {
+      requestCount: 0,
+      sessionKeyObservedRate: null,
+      sessionKeyReuseRate: null,
+      byProfile: [],
+    },
+    routingPolicy: {
+      defaultLiveProvider: null,
+      targetCount: 0,
+      promotedScraplingTargetCount: 0,
+      demotedHttpTargetCount: 0,
+      byProvider: [],
+      byScraplingProfile: [],
+    },
     byProvider: [],
   };
 }
@@ -146,6 +165,7 @@ function createEmptyObservability(): ApiReadinessResponse["observability"] {
 export async function buildReadinessState(args: {
   repositories: ReadinessRepositoryBundle;
   nowIso: string;
+  routingPolicyContext?: RedditProviderRoutingPolicyContext;
 }): Promise<ReadinessState> {
   const activeSessionUpdatedSinceIso = new Date(
     new Date(args.nowIso).getTime() -
@@ -158,6 +178,10 @@ export async function buildReadinessState(args: {
   let storageCheck: ApiReadinessResponse["checks"]["storage"] = "ok";
   let queueCheck: ApiReadinessResponse["checks"]["queue"] = "ok";
   let activeTargets = 0;
+  let activeSubredditTargets: Array<{
+    id: string;
+    canonicalName: string;
+  }> = [];
   let activeTargetIds: string[] = [];
   let activeSessions = 0;
   let queue: ApiReadinessResponse["queue"] = {
@@ -179,6 +203,10 @@ export async function buildReadinessState(args: {
   try {
     const targets = await args.repositories.monitorTargetRepository.findActiveSubreddits();
     activeTargets = targets.length;
+    activeSubredditTargets = targets.map((target) => ({
+      id: target.id,
+      canonicalName: target.canonicalName,
+    }));
     activeTargetIds = targets.map((target) => target.id);
   } catch {
     storageCheck = "error";
@@ -324,6 +352,36 @@ export async function buildReadinessState(args: {
         totals.circuitOpenCount,
         totals.requestCount,
       );
+      const scraplingAggregate = aggregates.find(
+        (item) => item.provider === "scrapling" && item.mode === "live",
+      );
+      if (scraplingAggregate) {
+        observability.scraplingEvidence = {
+          requestCount: scraplingAggregate.requestCount,
+          sessionKeyObservedRate: toRate(
+            scraplingAggregate.scraplingSessionKeyCount,
+            scraplingAggregate.requestCount,
+          ),
+          sessionKeyReuseRate: toRate(
+            scraplingAggregate.scraplingSessionKeyReuseCount,
+            scraplingAggregate.scraplingSessionKeyCount,
+          ),
+          byProfile: [
+            {
+              profile: "http" as const,
+              requestCount: scraplingAggregate.scraplingHttpProfileCount,
+            },
+            {
+              profile: "dynamic" as const,
+              requestCount: scraplingAggregate.scraplingDynamicProfileCount,
+            },
+            {
+              profile: "stealth" as const,
+              requestCount: scraplingAggregate.scraplingStealthProfileCount,
+            },
+          ].filter((item) => item.requestCount > 0),
+        };
+      }
       observability.providerSwitchShare = toProviderSwitchShare(
         totals.requestCount,
         Math.max(0, ...aggregates.map((item) => item.requestCount)),
@@ -544,6 +602,39 @@ export async function buildReadinessState(args: {
     } catch {
       degradedReasons.push("algorithm_materialization_observability_unavailable");
     }
+  }
+
+  const routingPolicyContext = args.routingPolicyContext;
+  if (routingPolicyContext && activeSubredditTargets.length > 0) {
+    try {
+      const routes = await Promise.all(
+        activeSubredditTargets.map((target) =>
+          resolveRedditTargetExecutionRoute({
+            targetId: target.id,
+            canonicalName: target.canonicalName,
+            crawlMode: "live",
+            nowIso: args.nowIso,
+            defaultProviderHint: routingPolicyContext.defaultLiveProvider,
+            providerHealthWindowRepository:
+              args.repositories.providerHealthWindowRepository,
+            crawlCursorRepository: args.repositories.crawlCursorRepository,
+            policyContext: routingPolicyContext,
+          }),
+        ),
+      );
+      observability.routingPolicy = summarizeRedditRoutingPolicy(
+        routes,
+        routingPolicyContext,
+      );
+      if (observability.routingPolicy.demotedHttpTargetCount > 0) {
+        degradedReasons.push("provider_policy_fallback_active");
+      }
+    } catch {
+      degradedReasons.push("provider_policy_observability_unavailable");
+    }
+  } else if (routingPolicyContext) {
+    observability.routingPolicy.defaultLiveProvider =
+      routingPolicyContext.defaultLiveProvider;
   }
 
   const uniqueDegradedReasons = Array.from(new Set(degradedReasons));

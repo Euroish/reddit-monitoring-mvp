@@ -74,6 +74,11 @@ export class InMemoryProviderHealthWindowRepository implements ProviderHealthWin
       rateLimitCount: 0,
       timeoutCount: 0,
       circuitOpenCount: 0,
+      scraplingHttpProfileCount: 0,
+      scraplingDynamicProfileCount: 0,
+      scraplingStealthProfileCount: 0,
+      scraplingSessionKeyCount: 0,
+      scraplingSessionKeyReuseCount: 0,
       updatedAt: input.updatedAt,
     };
 
@@ -96,9 +101,26 @@ export class InMemoryProviderHealthWindowRepository implements ProviderHealthWin
       rateLimitCount: current.rateLimitCount + input.rateLimitCountDelta,
       timeoutCount: current.timeoutCount + input.timeoutCountDelta,
       circuitOpenCount: current.circuitOpenCount + input.circuitOpenCountDelta,
+      scraplingHttpProfileCount:
+        current.scraplingHttpProfileCount + (input.scraplingHttpProfileCountDelta ?? 0),
+      scraplingDynamicProfileCount:
+        current.scraplingDynamicProfileCount +
+        (input.scraplingDynamicProfileCountDelta ?? 0),
+      scraplingStealthProfileCount:
+        current.scraplingStealthProfileCount +
+        (input.scraplingStealthProfileCountDelta ?? 0),
+      scraplingSessionKeyCount:
+        current.scraplingSessionKeyCount + (input.scraplingSessionKeyCountDelta ?? 0),
+      scraplingSessionKeyReuseCount:
+        current.scraplingSessionKeyReuseCount +
+        (input.scraplingSessionKeyReuseCountDelta ?? 0),
       lastStatusCode: input.lastStatusCode ?? current.lastStatusCode,
       lastErrorCode: input.lastErrorCode ?? current.lastErrorCode,
       lastErrorMessage: input.lastErrorMessage ?? current.lastErrorMessage,
+      lastScraplingProfile: input.lastScraplingProfile ?? current.lastScraplingProfile,
+      lastScraplingFetcher: input.lastScraplingFetcher ?? current.lastScraplingFetcher,
+      lastScraplingSessionKey:
+        input.lastScraplingSessionKey ?? current.lastScraplingSessionKey,
       updatedAt: input.updatedAt,
     });
   }
@@ -158,6 +180,11 @@ export class InMemoryProviderHealthWindowRepository implements ProviderHealthWin
         rateLimitCount: 0,
         timeoutCount: 0,
         circuitOpenCount: 0,
+        scraplingHttpProfileCount: 0,
+        scraplingDynamicProfileCount: 0,
+        scraplingStealthProfileCount: 0,
+        scraplingSessionKeyCount: 0,
+        scraplingSessionKeyReuseCount: 0,
       };
       current.requestCount += row.requestCount;
       current.successCount += row.successCount;
@@ -175,6 +202,11 @@ export class InMemoryProviderHealthWindowRepository implements ProviderHealthWin
       current.rateLimitCount += row.rateLimitCount;
       current.timeoutCount += row.timeoutCount;
       current.circuitOpenCount += row.circuitOpenCount;
+      current.scraplingHttpProfileCount += row.scraplingHttpProfileCount;
+      current.scraplingDynamicProfileCount += row.scraplingDynamicProfileCount;
+      current.scraplingStealthProfileCount += row.scraplingStealthProfileCount;
+      current.scraplingSessionKeyCount += row.scraplingSessionKeyCount;
+      current.scraplingSessionKeyReuseCount += row.scraplingSessionKeyReuseCount;
       grouped.set(key, current);
     }
     return Array.from(grouped.values()).sort((a, b) => a.provider.localeCompare(b.provider));

@@ -155,4 +155,60 @@ export class PostgresKeywordTrendDailyRepository implements KeywordTrendDailyRep
     );
     return result.rows.map(mapKeywordTrendDaily);
   }
+
+  public async listByQueryInRange(args: {
+    normalizedQueryText: string;
+    fromDay: string;
+    toDay: string;
+    track?: "auto_keyword" | "explicit_query";
+    queryScope?: "subreddit" | "global";
+    limit?: number;
+  }): Promise<KeywordTrendDaily[]> {
+    const predicates = [
+      "normalized_query_text = $1",
+      "day >= $2::date",
+      "day <= $3::date",
+    ];
+    const values: unknown[] = [
+      args.normalizedQueryText.trim().toLowerCase(),
+      args.fromDay,
+      args.toDay,
+    ];
+    let bindIndex = values.length + 1;
+
+    if (args.track) {
+      predicates.push(`track = $${bindIndex}::keyword_trend_track_enum`);
+      values.push(args.track);
+      bindIndex += 1;
+    }
+    if (args.queryScope) {
+      predicates.push(`query_scope = $${bindIndex}::keyword_query_scope_enum`);
+      values.push(args.queryScope);
+      bindIndex += 1;
+    }
+
+    const limit =
+      typeof args.limit === "number" && Number.isFinite(args.limit) && args.limit > 0
+        ? Math.max(1, Math.trunc(args.limit))
+        : undefined;
+    const limitClause = limit ? `LIMIT $${bindIndex}` : "";
+    if (limit) {
+      values.push(limit);
+    }
+
+    const result = await this.db.query<KeywordTrendDailyRow>(
+      `
+      SELECT target_id, day, keyword, track, normalized_query_text, query_scope,
+             sampled_posts, matched_posts, qualified_matched_posts,
+             mention_rate, qualified_mention_rate, matched_score_sum, matched_comment_sum,
+             keyword_heat, algorithm_version, explain_payload, source_type, updated_at
+      FROM keyword_trend_daily
+      WHERE ${predicates.join("\n        AND ")}
+      ORDER BY day ASC, target_id ASC
+      ${limitClause}
+      `,
+      values,
+    );
+    return result.rows.map(mapKeywordTrendDaily);
+  }
 }

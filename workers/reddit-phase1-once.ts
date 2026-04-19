@@ -7,6 +7,8 @@ import {
   type Phase1RunMode,
   upsertActiveSubredditTarget,
 } from "../src/runtime/reddit-phase1-runtime";
+import { createRedditFetchExecutionEngine } from "../src/runtime/reddit-fetch-execution-engine";
+import { resolveRedditProviderRoutingPolicyContextFromEnv } from "../src/runtime/reddit-provider-routing-policy";
 import type { RedditConnector } from "../src/connectors/reddit/reddit-connector.interface";
 import { parseOptionalPositiveInt } from "../src/runtime/runtime-parsing";
 import { PostgresClient } from "../src/storage/postgres/postgres-client";
@@ -66,6 +68,13 @@ export async function runPhase1OnceWithPostgres(
       connectorCache.set(cacheKey, connector);
       return connector;
     };
+    const fetchExecutionEngine = createRedditFetchExecutionEngine({
+      mode: runMode,
+      createConnector: runtime.createConnector,
+      providerHealthWindowRepository: runtime.repositories.providerHealthWindowRepository,
+      crawlCursorRepository: runtime.repositories.crawlCursorRepository,
+      policyContext: resolveRedditProviderRoutingPolicyContextFromEnv(process.env),
+    });
 
     await runRedditPhase1Cycle(
       {
@@ -73,6 +82,20 @@ export async function runPhase1OnceWithPostgres(
         redditConnector: resolveConnectorForProviderHint(cycleOptions.providerHint),
         redditConnectorResolver: ({ providerHint }) =>
           resolveConnectorForProviderHint(providerHint),
+        redditExecutionStrategyResolver: ({
+          targetId,
+          canonicalName,
+          providerHint,
+          crawlMode: executionCrawlMode,
+          nowIso: executionNowIso,
+        }) =>
+          fetchExecutionEngine.resolveStrategy({
+            targetId,
+            canonicalName,
+            defaultProviderHint: providerHint,
+            crawlMode: executionCrawlMode,
+            nowIso: executionNowIso,
+          }),
         redditMapper: runtime.redditMapper,
       },
       nowIso,

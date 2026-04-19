@@ -280,6 +280,45 @@ export class InMemoryKeywordTrendDailyRepository implements KeywordTrendDailyRep
       });
   }
 
+  public async listByQueryInRange(args: {
+    normalizedQueryText: string;
+    fromDay: string;
+    toDay: string;
+    track?: "auto_keyword" | "explicit_query";
+    queryScope?: "subreddit" | "global";
+    limit?: number;
+  }): Promise<KeywordTrendDaily[]> {
+    const normalizedQueryText = args.normalizedQueryText.trim().toLowerCase();
+    const rows = Array.from(this.rows.values())
+      .filter((row) => {
+        if (row.normalizedQueryText !== normalizedQueryText) {
+          return false;
+        }
+        if (row.day < args.fromDay || row.day > args.toDay) {
+          return false;
+        }
+        if (args.track && row.track !== args.track) {
+          return false;
+        }
+        if (args.queryScope && row.queryScope !== args.queryScope) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const byDay = a.day.localeCompare(b.day);
+        if (byDay !== 0) {
+          return byDay;
+        }
+        return a.targetId.localeCompare(b.targetId);
+      });
+    const limit =
+      typeof args.limit === "number" && Number.isFinite(args.limit) && args.limit > 0
+        ? Math.max(1, Math.trunc(args.limit))
+        : undefined;
+    return limit ? rows.slice(0, limit) : rows;
+  }
+
   public all(): KeywordTrendDaily[] {
     return Array.from(this.rows.values());
   }

@@ -11,4 +11,12 @@ export interface KeywordTrendDailyRepository {
     queryScopes?: Array<"subreddit" | "global">;
     limit?: number;
   }): Promise<KeywordTrendDaily[]>;
+  listByQueryInRange(args: {
+    normalizedQueryText: string;
+    fromDay: string;
+    toDay: string;
+    track?: "auto_keyword" | "explicit_query";
+    queryScope?: "subreddit" | "global";
+    limit?: number;
+  }): Promise<KeywordTrendDaily[]>;
 }

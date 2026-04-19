@@ -220,6 +220,7 @@ export async function runExistingSubredditNewPostsJob(
     const ingestLagStats = summarizeIngestLagSeconds(allUpserts, input.nowIso);
     const providerDiffStats = summarizeProviderDiffStats(pages);
     const lastPage = pages[pages.length - 1];
+    const scraplingObservability = summarizeScraplingObservability(pages);
     const effectiveProvider = resolveProvider({
       providerHint,
       responseHeaders: lastPage.raw.responseHeaders,
@@ -384,7 +385,15 @@ export async function runExistingSubredditNewPostsJob(
       rateLimitCountDelta: 0,
       timeoutCountDelta: 0,
       circuitOpenCountDelta: 0,
+      scraplingHttpProfileCountDelta: scraplingObservability.httpProfileCount,
+      scraplingDynamicProfileCountDelta: scraplingObservability.dynamicProfileCount,
+      scraplingStealthProfileCountDelta: scraplingObservability.stealthProfileCount,
+      scraplingSessionKeyCountDelta: scraplingObservability.sessionKeyCount,
+      scraplingSessionKeyReuseCountDelta: scraplingObservability.sessionKeyReuseCount,
       lastStatusCode: lastPage.raw.httpStatus,
+      lastScraplingProfile: scraplingObservability.lastProfile,
+      lastScraplingFetcher: scraplingObservability.lastFetcher,
+      lastScraplingSessionKey: scraplingObservability.lastSessionKey,
       updatedAt: input.nowIso,
     });
     logProviderObservability({
@@ -427,6 +436,11 @@ export async function runExistingSubredditNewPostsJob(
       rateLimitCountDelta: errorStats.rateLimit ? 1 : 0,
       timeoutCountDelta: errorStats.timeout ? 1 : 0,
       circuitOpenCountDelta: errorStats.circuitOpen ? 1 : 0,
+      scraplingHttpProfileCountDelta: 0,
+      scraplingDynamicProfileCountDelta: 0,
+      scraplingStealthProfileCountDelta: 0,
+      scraplingSessionKeyCountDelta: 0,
+      scraplingSessionKeyReuseCountDelta: 0,
       lastErrorCode: errorStats.code,
       lastErrorMessage: message.slice(0, 300),
       updatedAt: input.nowIso,
@@ -784,6 +798,76 @@ function filterCandidates(args: {
 function hasFallback(headers: Record<string, string>): boolean {
   const fallback = headers["x-provider-fallback"];
   return typeof fallback === "string" && fallback.trim().length > 0;
+}
+
+function summarizeScraplingObservability(
+  pages: Array<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>>,
+): {
+  httpProfileCount: number;
+  dynamicProfileCount: number;
+  stealthProfileCount: number;
+  sessionKeyCount: number;
+  sessionKeyReuseCount: number;
+  lastProfile?: "http" | "dynamic" | "stealth";
+  lastFetcher?: string;
+  lastSessionKey?: string;
+} {
+  let httpProfileCount = 0;
+  let dynamicProfileCount = 0;
+  let stealthProfileCount = 0;
+  let sessionKeyCount = 0;
+  let sessionKeyReuseCount = 0;
+  let lastProfile: "http" | "dynamic" | "stealth" | undefined;
+  let lastFetcher: string | undefined;
+  let lastSessionKey: string | undefined;
+
+  for (const page of pages) {
+    const headers = page.raw.responseHeaders;
+    const profile = headers["x-scrapling-profile"];
+    if (profile === "http") {
+      httpProfileCount += 1;
+      lastProfile = "http";
+    } else if (profile === "dynamic") {
+      dynamicProfileCount += 1;
+      lastProfile = "dynamic";
+    } else if (profile === "stealth") {
+      stealthProfileCount += 1;
+      lastProfile = "stealth";
+    }
+
+    const sessionKey = headers["x-scrapling-session-key"];
+    if (typeof sessionKey === "string" && sessionKey.trim().length > 0) {
+      sessionKeyCount += 1;
+      lastSessionKey = sessionKey.trim();
+      if (isTruthyHeader(headers["x-scrapling-session-key-reused"])) {
+        sessionKeyReuseCount += 1;
+      }
+    }
+
+    const fetcher = headers["x-scrapling-fetcher"];
+    if (typeof fetcher === "string" && fetcher.trim().length > 0) {
+      lastFetcher = fetcher.trim().toLowerCase();
+    }
+  }
+
+  return {
+    httpProfileCount,
+    dynamicProfileCount,
+    stealthProfileCount,
+    sessionKeyCount,
+    sessionKeyReuseCount,
+    lastProfile,
+    lastFetcher,
+    lastSessionKey,
+  };
+}
+
+function isTruthyHeader(value: string | undefined): boolean {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
 }
 
 function resolveProvider(args: {

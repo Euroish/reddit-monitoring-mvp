@@ -1,0 +1,380 @@
+{
+  "generatedAt": "2026-04-19T01:10:33.593Z",
+  "config": {
+    "liveProvider": "http",
+    "promotedSubreddits": "python",
+    "profile": "http",
+    "rounds": 3,
+    "pauseMs": 300,
+    "stepMinutes": 6,
+    "cycleSubreddits": [
+      "python",
+      "python",
+      "python"
+    ]
+  },
+  "summary": {
+    "runCount": 3,
+    "failedCycleCount": 0,
+    "globalDegradedRuns": 3,
+    "localTargetDegradedRuns": 3,
+    "globalDegradedReasonCounts": {
+      "provider_stale_head_elevated:http": 3,
+      "provider_switch_elevated:scrapling": 3,
+      "provider_stale_head_elevated:scrapling": 3,
+      "provider_cursor_stalled:scrapling": 3,
+      "provider_data_stalled:scrapling": 3,
+      "provider_cursor_stalled:http": 3,
+      "provider_data_stalled:http": 3,
+      "algorithm_daily_fact_stale": 3
+    },
+    "localTargetDegradedReasonCounts": {
+      "provider_switch_elevated:http": 1,
+      "provider_switch_elevated:scrapling": 3
+    },
+    "globalOnlyReasonCounts": {
+      "provider_stale_head_elevated:http": 3,
+      "provider_stale_head_elevated:scrapling": 3,
+      "provider_cursor_stalled:scrapling": 3,
+      "provider_data_stalled:scrapling": 3,
+      "provider_cursor_stalled:http": 3,
+      "provider_data_stalled:http": 3,
+      "algorithm_daily_fact_stale": 3
+    },
+    "localOnlyReasonCounts": {
+      "provider_switch_elevated:http": 1
+    },
+    "providersSeen": [
+      "http",
+      "scrapling"
+    ],
+    "totalProviderFallbackCount": 1,
+    "totalScraplingFallbackTransportCounts": {}
+  },
+  "cycles": [
+    {
+      "subreddit": "r/python",
+      "requestedNowIso": "2026-04-19T00:58:05.232Z",
+      "nowIso": "2026-04-19T01:00:01.000Z",
+      "windowShiftCount": 1,
+      "runExecution": {
+        "ok": true,
+        "error": null,
+        "executedJobCount": 0
+      },
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_stale_head_elevated:http",
+        "provider_switch_elevated:scrapling",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http",
+        "algorithm_daily_fact_stale"
+      ],
+      "localTargetReadinessStatus": "degraded",
+      "localTargetDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_switch_elevated:scrapling"
+      ],
+      "globalOnlyDegradedReasons": [
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http",
+        "algorithm_daily_fact_stale"
+      ],
+      "localOnlyDegradedReasons": [
+        "provider_switch_elevated:http"
+      ],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "http",
+          "requestCount": 6,
+          "successCount": 6,
+          "fallbackCount": 2,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 207,
+          "candidateCount": 208,
+          "acceptedCount": 208,
+          "duplicatePostRate": 0.9951923076923077,
+          "ingestLagSeconds": 1027900.2980769231
+        },
+        {
+          "provider": "scrapling",
+          "requestCount": 2,
+          "successCount": 2,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 32,
+          "candidateCount": 32,
+          "acceptedCount": 32,
+          "duplicatePostRate": 1,
+          "ingestLagSeconds": 513908.9375
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 3596,
+        "staleHeadSuppressedProviders": [
+          "http",
+          "scrapling"
+        ]
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 0,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {}
+      },
+      "scraplingEvidence": {
+        "requestCount": 2,
+        "sessionKeyObservedRate": 1,
+        "sessionKeyReuseRate": 0.5,
+        "byProfile": [
+          {
+            "profile": "http",
+            "requestCount": 2
+          }
+        ]
+      },
+      "runLocalScraplingEvidence": {
+        "sampledJobs": 0,
+        "sampledRawEvents": 0,
+        "requestCount": 0,
+        "sessionKeyObservedRate": null,
+        "sessionKeyReuseRate": null,
+        "byProfile": []
+      },
+      "routingDecision": {
+        "providerHint": "scrapling",
+        "scraplingProfile": "dynamic",
+        "routingClass": "scrapling_dynamic_escalation",
+        "reasons": [
+          "scrapling_dynamic_escalation",
+          "scrapling_stale_head_elevated",
+          "scrapling_http_profile_recent",
+          "scrapling_session_key_evidence_ready"
+        ]
+      }
+    },
+    {
+      "subreddit": "r/python",
+      "requestedNowIso": "2026-04-19T01:04:05.232Z",
+      "nowIso": "2026-04-19T01:05:01.000Z",
+      "windowShiftCount": 1,
+      "runExecution": {
+        "ok": true,
+        "error": null,
+        "executedJobCount": 0
+      },
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_stale_head_elevated:http",
+        "provider_switch_elevated:scrapling",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http",
+        "algorithm_daily_fact_stale"
+      ],
+      "localTargetReadinessStatus": "degraded",
+      "localTargetDegradedReasons": [
+        "provider_switch_elevated:scrapling"
+      ],
+      "globalOnlyDegradedReasons": [
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http",
+        "algorithm_daily_fact_stale"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "http",
+          "requestCount": 8,
+          "successCount": 8,
+          "fallbackCount": 4,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 287,
+          "candidateCount": 288,
+          "acceptedCount": 288,
+          "duplicatePostRate": 0.9965277777777778,
+          "ingestLagSeconds": 1049720.982638889
+        },
+        {
+          "provider": "scrapling",
+          "requestCount": 2,
+          "successCount": 2,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 32,
+          "candidateCount": 32,
+          "acceptedCount": 32,
+          "duplicatePostRate": 1,
+          "ingestLagSeconds": 513908.9375
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 3896,
+        "staleHeadSuppressedProviders": [
+          "http",
+          "scrapling"
+        ]
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 0,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {}
+      },
+      "scraplingEvidence": {
+        "requestCount": 2,
+        "sessionKeyObservedRate": 1,
+        "sessionKeyReuseRate": 0.5,
+        "byProfile": [
+          {
+            "profile": "http",
+            "requestCount": 2
+          }
+        ]
+      },
+      "runLocalScraplingEvidence": {
+        "sampledJobs": 0,
+        "sampledRawEvents": 0,
+        "requestCount": 0,
+        "sessionKeyObservedRate": null,
+        "sessionKeyReuseRate": null,
+        "byProfile": []
+      },
+      "routingDecision": {
+        "providerHint": "scrapling",
+        "scraplingProfile": "dynamic",
+        "routingClass": "scrapling_dynamic_escalation",
+        "reasons": [
+          "scrapling_dynamic_escalation",
+          "scrapling_stale_head_elevated",
+          "scrapling_http_profile_recent",
+          "scrapling_session_key_evidence_ready"
+        ]
+      }
+    },
+    {
+      "subreddit": "r/python",
+      "requestedNowIso": "2026-04-19T01:10:05.232Z",
+      "nowIso": "2026-04-19T01:10:05.232Z",
+      "windowShiftCount": 0,
+      "runExecution": {
+        "ok": true,
+        "error": null,
+        "executedJobCount": 1
+      },
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_stale_head_elevated:http",
+        "provider_switch_elevated:scrapling",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http",
+        "algorithm_daily_fact_stale"
+      ],
+      "localTargetReadinessStatus": "degraded",
+      "localTargetDegradedReasons": [
+        "provider_switch_elevated:scrapling"
+      ],
+      "globalOnlyDegradedReasons": [
+        "provider_stale_head_elevated:http",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http",
+        "algorithm_daily_fact_stale"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "http",
+          "requestCount": 10,
+          "successCount": 10,
+          "fallbackCount": 6,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 367,
+          "candidateCount": 368,
+          "acceptedCount": 368,
+          "duplicatePostRate": 0.9972826086956522,
+          "ingestLagSeconds": 1062120.5
+        },
+        {
+          "provider": "scrapling",
+          "requestCount": 2,
+          "successCount": 2,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 32,
+          "candidateCount": 32,
+          "acceptedCount": 32,
+          "duplicatePostRate": 1,
+          "ingestLagSeconds": 513908.9375
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 4200,
+        "staleHeadSuppressedProviders": [
+          "http",
+          "scrapling"
+        ]
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 1,
+        "providerFallbackCount": 1,
+        "scraplingFallbackTransportCounts": {}
+      },
+      "scraplingEvidence": {
+        "requestCount": 2,
+        "sessionKeyObservedRate": 1,
+        "sessionKeyReuseRate": 0.5,
+        "byProfile": [
+          {
+            "profile": "http",
+            "requestCount": 2
+          }
+        ]
+      },
+      "runLocalScraplingEvidence": {
+        "sampledJobs": 1,
+        "sampledRawEvents": 1,
+        "requestCount": 0,
+        "sessionKeyObservedRate": null,
+        "sessionKeyReuseRate": null,
+        "byProfile": []
+      },
+      "routingDecision": {
+        "providerHint": "scrapling",
+        "scraplingProfile": "dynamic",
+        "routingClass": "scrapling_dynamic_escalation",
+        "reasons": [
+          "scrapling_dynamic_escalation",
+          "scrapling_stale_head_elevated",
+          "scrapling_http_profile_recent",
+          "scrapling_session_key_evidence_ready"
+        ]
+      }
+    }
+  ]
+}

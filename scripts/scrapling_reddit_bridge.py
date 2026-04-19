@@ -142,6 +142,9 @@ def fetch_with_powershell(url: str, timeout_ms: int, headers: Dict[str, str]) ->
 
     status = int(parsed.get("status", 0) or 0)
     response_headers = normalize_headers(parsed.get("headers", {}))
+    response_headers["x-provider"] = "scrapling"
+    response_headers["x-scrapling-profile"] = "http"
+    response_headers["x-scrapling-fetcher"] = "powershell-fallback"
     response_headers["x-scrapling-fallback"] = "powershell"
     body_text = str(parsed.get("bodyText", ""))
     return {
@@ -175,6 +178,7 @@ def fetch_with_scrapling(payload: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     profile = str(payload.get("profile", "http")).strip().lower() or "http"
+    session_key = str(payload.get("sessionKey", "")).strip()
     timeout_ms = int(payload.get("timeoutMs", 12000))
     headers = payload.get("headers") or {}
     if not isinstance(headers, dict):
@@ -186,7 +190,7 @@ def fetch_with_scrapling(payload: Dict[str, Any]) -> Dict[str, Any]:
             response = DynamicFetcher.fetch(
                 url,
                 timeout=timeout_ms,
-                retries=0,
+                retries=1,
                 retry_delay=0,
                 headless=True,
                 network_idle=True,
@@ -196,7 +200,7 @@ def fetch_with_scrapling(payload: Dict[str, Any]) -> Dict[str, Any]:
             response = StealthyFetcher.fetch(
                 url,
                 timeout=timeout_ms,
-                retries=0,
+                retries=1,
                 retry_delay=0,
                 headless=True,
                 network_idle=True,
@@ -235,6 +239,13 @@ def fetch_with_scrapling(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     status = int(getattr(response, "status", 0) or 0)
     response_headers = normalize_headers(getattr(response, "headers", {}))
+    response_headers["x-provider"] = "scrapling"
+    response_headers["x-scrapling-profile"] = profile
+    response_headers["x-scrapling-fetcher"] = (
+        "dynamic" if profile == "dynamic" else "stealth" if profile == "stealth" else "fetcher"
+    )
+    if session_key:
+        response_headers["x-scrapling-session-key"] = session_key
     body_text = response_body_text(response)
     json_payload = maybe_parse_json(body_text)
     if json_payload is None:

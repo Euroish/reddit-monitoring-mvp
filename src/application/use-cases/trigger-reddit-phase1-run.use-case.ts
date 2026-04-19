@@ -1,6 +1,7 @@
 import { DefaultRedditMapper } from "../../connectors/reddit/reddit.mapper";
 import type { RedditMapper } from "../../connectors/reddit/reddit-mapper.interface";
 import type { RedditConnector } from "../../connectors/reddit/reddit-connector.interface";
+import type { RedditScraplingProfile } from "../../connectors/reddit/reddit-scrapling.connector";
 import type { RedditPhase1CycleResult, RedditPhase1WorkerDependencies } from "../../workers/reddit-phase1.worker";
 import { runRedditPhase1Cycle } from "../../workers/reddit-phase1.worker";
 import {
@@ -9,12 +10,19 @@ import {
   type Phase1RunMode,
   upsertActiveSubredditTarget,
 } from "../../runtime/reddit-phase1-runtime";
+import { createRedditFetchExecutionEngine } from "../../runtime/reddit-fetch-execution-engine";
+import { resolveRedditProviderRoutingPolicyContextFromEnv } from "../../runtime/reddit-provider-routing-policy";
 
 type Phase1Repositories = Omit<RedditPhase1WorkerDependencies, "redditConnector" | "redditMapper">;
 
 export interface TriggerRedditPhase1RunDependencies {
   repositories: Phase1Repositories;
-  createConnector: (mode: Phase1RunMode, crawlMode?: Phase1CrawlMode) => RedditConnector;
+  createConnector: (
+    mode: Phase1RunMode,
+    crawlMode?: Phase1CrawlMode,
+    providerOverride?: string,
+    scraplingProfileOverride?: RedditScraplingProfile,
+  ) => RedditConnector;
   redditMapper?: RedditMapper;
   now?: () => string;
   env?: NodeJS.ProcessEnv;
@@ -62,6 +70,13 @@ export async function prepareTriggeredRedditPhase1Run(
     postLimit: input.postLimit,
     continueOnError: input.continueOnError,
   });
+  const fetchExecutionEngine = createRedditFetchExecutionEngine({
+    mode: input.mode,
+    createConnector: deps.createConnector,
+    providerHealthWindowRepository: deps.repositories.providerHealthWindowRepository,
+    crawlCursorRepository: deps.repositories.crawlCursorRepository,
+    policyContext: resolveRedditProviderRoutingPolicyContextFromEnv(env),
+  });
 
   return {
     nowIso,
@@ -71,7 +86,25 @@ export async function prepareTriggeredRedditPhase1Run(
       runRedditPhase1Cycle(
         {
           ...deps.repositories,
-          redditConnector: deps.createConnector(input.mode, input.crawlMode),
+          redditConnector: deps.createConnector(
+            input.mode,
+            input.crawlMode,
+            options.providerHint,
+          ),
+          redditExecutionStrategyResolver: ({
+            targetId,
+            canonicalName: targetCanonicalName,
+            providerHint,
+            crawlMode,
+            nowIso: executionNowIso,
+          }) =>
+            fetchExecutionEngine.resolveStrategy({
+              targetId,
+              canonicalName: targetCanonicalName,
+              defaultProviderHint: providerHint,
+              crawlMode,
+              nowIso: executionNowIso,
+            }),
           redditMapper,
         },
         nowIso,

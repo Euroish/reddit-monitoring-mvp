@@ -1,0 +1,109 @@
+{
+  "generatedAt": "2026-04-19T00:55:53.748Z",
+  "config": {
+    "liveProvider": "http",
+    "promotedSubreddits": null,
+    "profile": "http",
+    "rounds": 1,
+    "pauseMs": 1000,
+    "stepMinutes": 0,
+    "cycleSubreddits": [
+      "machinelearning"
+    ]
+  },
+  "summary": {
+    "runCount": 1,
+    "globalDegradedRuns": 1,
+    "localTargetDegradedRuns": 0,
+    "globalDegradedReasonCounts": {
+      "provider_stale_head_elevated:http": 1,
+      "provider_cursor_stalled:http": 1,
+      "provider_data_stalled:http": 1,
+      "algorithm_daily_fact_stale": 1
+    },
+    "localTargetDegradedReasonCounts": {},
+    "globalOnlyReasonCounts": {
+      "provider_stale_head_elevated:http": 1,
+      "provider_cursor_stalled:http": 1,
+      "provider_data_stalled:http": 1,
+      "algorithm_daily_fact_stale": 1
+    },
+    "localOnlyReasonCounts": {},
+    "providersSeen": [
+      "http"
+    ],
+    "totalProviderFallbackCount": 0,
+    "totalScraplingFallbackTransportCounts": {}
+  },
+  "cycles": [
+    {
+      "subreddit": "r/machinelearning",
+      "nowIso": "2026-04-19T00:55:46.555Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_stale_head_elevated:http",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http",
+        "algorithm_daily_fact_stale"
+      ],
+      "localTargetReadinessStatus": "ready",
+      "localTargetDegradedReasons": [],
+      "globalOnlyDegradedReasons": [
+        "provider_stale_head_elevated:http",
+        "provider_cursor_stalled:http",
+        "provider_data_stalled:http",
+        "algorithm_daily_fact_stale"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": false,
+      "providerHealth": [
+        {
+          "provider": "http",
+          "requestCount": 2,
+          "successCount": 2,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 36,
+          "candidateCount": 48,
+          "acceptedCount": 48,
+          "duplicatePostRate": 0.75,
+          "ingestLagSeconds": 309446.6875
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 3635,
+        "staleHeadSuppressedProviders": [
+          "http"
+        ]
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 3,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {}
+      },
+      "scraplingEvidence": {
+        "requestCount": 0,
+        "sessionKeyObservedRate": null,
+        "sessionKeyReuseRate": null,
+        "byProfile": []
+      },
+      "runLocalScraplingEvidence": {
+        "sampledJobs": 2,
+        "sampledRawEvents": 3,
+        "requestCount": 0,
+        "sessionKeyObservedRate": null,
+        "sessionKeyReuseRate": null,
+        "byProfile": []
+      },
+      "routingDecision": {
+        "providerHint": "http",
+        "scraplingProfile": null,
+        "routingClass": "default_provider",
+        "reasons": [
+          "default_provider"
+        ]
+      }
+    }
+  ]
+}

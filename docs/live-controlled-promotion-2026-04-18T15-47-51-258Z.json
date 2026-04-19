@@ -1,0 +1,342 @@
+{
+  "generatedAt": "2026-04-18T15:47:51.258Z",
+  "config": {
+    "liveProvider": "http",
+    "promotedSubreddits": "python,javascript",
+    "profile": "http",
+    "rounds": 2,
+    "pauseMs": 1000,
+    "cycleSubreddits": [
+      "python",
+      "javascript",
+      "python",
+      "javascript"
+    ]
+  },
+  "summary": {
+    "runCount": 4,
+    "globalDegradedRuns": 4,
+    "localTargetDegradedRuns": 2,
+    "globalDegradedReasonCounts": {
+      "provider_switch_elevated:http": 4,
+      "provider_switch_elevated:scrapling": 4,
+      "provider_stale_head_elevated:scrapling": 4,
+      "provider_cursor_stalled:scrapling": 4,
+      "provider_data_stalled:scrapling": 4,
+      "provider_cursor_stalled:http": 4,
+      "algorithm_daily_fact_stale": 4
+    },
+    "localTargetDegradedReasonCounts": {
+      "provider_stale_head_elevated:scrapling": 2
+    },
+    "globalOnlyReasonCounts": {
+      "provider_switch_elevated:http": 4,
+      "provider_switch_elevated:scrapling": 4,
+      "provider_cursor_stalled:scrapling": 4,
+      "provider_data_stalled:scrapling": 4,
+      "provider_cursor_stalled:http": 4,
+      "algorithm_daily_fact_stale": 4,
+      "provider_stale_head_elevated:scrapling": 2
+    },
+    "localOnlyReasonCounts": {},
+    "providersSeen": [
+      "scrapling"
+    ],
+    "totalProviderFallbackCount": 0,
+    "totalScraplingFallbackTransportCounts": {
+      "powershell": 18
+    }
+  },
+  "cycles": [
+    {
+      "subreddit": "r/python",
+      "nowIso": "2026-04-18T15:47:40.550Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_switch_elevated:scrapling",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "algorithm_daily_fact_stale"
+      ],
+      "localTargetReadinessStatus": "degraded",
+      "localTargetDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "globalOnlyDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_switch_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "algorithm_daily_fact_stale"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 1,
+          "successCount": 1,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 18,
+          "candidateCount": 24,
+          "acceptedCount": 24,
+          "duplicatePostRate": 0.75,
+          "ingestLagSeconds": 366755.4166666667
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 11693,
+        "staleHeadSuppressedProviders": []
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 13,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 4
+        }
+      },
+      "scraplingEvidence": {
+        "requestCount": 1,
+        "sessionKeyObservedRate": 1,
+        "sessionKeyReuseRate": 0,
+        "byProfile": [
+          {
+            "profile": "http",
+            "requestCount": 1
+          }
+        ]
+      },
+      "routingDecision": {
+        "providerHint": "scrapling",
+        "scraplingProfile": "http",
+        "routingClass": "scrapling_promoted",
+        "reasons": [
+          "scrapling_promoted"
+        ]
+      }
+    },
+    {
+      "subreddit": "r/javascript",
+      "nowIso": "2026-04-18T15:47:46.667Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_switch_elevated:scrapling",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "algorithm_daily_fact_stale"
+      ],
+      "localTargetReadinessStatus": "ready",
+      "localTargetDegradedReasons": [],
+      "globalOnlyDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_switch_elevated:scrapling",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "algorithm_daily_fact_stale"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 1,
+          "successCount": 1,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 10,
+          "candidateCount": 24,
+          "acceptedCount": 24,
+          "duplicatePostRate": 0.4166666666666667,
+          "ingestLagSeconds": 188415
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 31659,
+        "staleHeadSuppressedProviders": []
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 9,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 5
+        }
+      },
+      "scraplingEvidence": {
+        "requestCount": 1,
+        "sessionKeyObservedRate": 1,
+        "sessionKeyReuseRate": 0,
+        "byProfile": [
+          {
+            "profile": "http",
+            "requestCount": 1
+          }
+        ]
+      },
+      "routingDecision": {
+        "providerHint": "scrapling",
+        "scraplingProfile": "http",
+        "routingClass": "scrapling_promoted",
+        "reasons": [
+          "scrapling_promoted"
+        ]
+      }
+    },
+    {
+      "subreddit": "r/python",
+      "nowIso": "2026-04-18T15:47:48.269Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_switch_elevated:scrapling",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "algorithm_daily_fact_stale"
+      ],
+      "localTargetReadinessStatus": "degraded",
+      "localTargetDegradedReasons": [
+        "provider_stale_head_elevated:scrapling"
+      ],
+      "globalOnlyDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_switch_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "algorithm_daily_fact_stale"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 1,
+          "successCount": 1,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 18,
+          "candidateCount": 24,
+          "acceptedCount": 24,
+          "duplicatePostRate": 0.75,
+          "ingestLagSeconds": 366755.4166666667
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 11701,
+        "staleHeadSuppressedProviders": []
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 13,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 4
+        }
+      },
+      "scraplingEvidence": {
+        "requestCount": 1,
+        "sessionKeyObservedRate": 1,
+        "sessionKeyReuseRate": 0,
+        "byProfile": [
+          {
+            "profile": "http",
+            "requestCount": 1
+          }
+        ]
+      },
+      "routingDecision": {
+        "providerHint": "scrapling",
+        "scraplingProfile": "http",
+        "routingClass": "scrapling_promoted",
+        "reasons": [
+          "scrapling_promoted"
+        ]
+      }
+    },
+    {
+      "subreddit": "r/javascript",
+      "nowIso": "2026-04-18T15:47:49.993Z",
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_switch_elevated:scrapling",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "algorithm_daily_fact_stale"
+      ],
+      "localTargetReadinessStatus": "ready",
+      "localTargetDegradedReasons": [],
+      "globalOnlyDegradedReasons": [
+        "provider_switch_elevated:http",
+        "provider_switch_elevated:scrapling",
+        "provider_stale_head_elevated:scrapling",
+        "provider_cursor_stalled:scrapling",
+        "provider_data_stalled:scrapling",
+        "provider_cursor_stalled:http",
+        "algorithm_daily_fact_stale"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 1,
+          "successCount": 1,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 10,
+          "candidateCount": 24,
+          "acceptedCount": 24,
+          "duplicatePostRate": 0.4166666666666667,
+          "ingestLagSeconds": 188415
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 31662,
+        "staleHeadSuppressedProviders": []
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 9,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {
+          "powershell": 5
+        }
+      },
+      "scraplingEvidence": {
+        "requestCount": 1,
+        "sessionKeyObservedRate": 1,
+        "sessionKeyReuseRate": 0,
+        "byProfile": [
+          {
+            "profile": "http",
+            "requestCount": 1
+          }
+        ]
+      },
+      "routingDecision": {
+        "providerHint": "scrapling",
+        "scraplingProfile": "http",
+        "routingClass": "scrapling_promoted",
+        "reasons": [
+          "scrapling_promoted"
+        ]
+      }
+    }
+  ]
+}

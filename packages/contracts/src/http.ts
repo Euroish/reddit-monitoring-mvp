@@ -47,6 +47,29 @@ export interface ApiReadinessResponse {
     cursorLagSecondsMax: number | null;
     dailyFactCoverageRate: number | null;
     dailyFactLagDaysMax: number | null;
+    scraplingEvidence: {
+      requestCount: number;
+      sessionKeyObservedRate: number | null;
+      sessionKeyReuseRate: number | null;
+      byProfile: Array<{
+        profile: "http" | "dynamic" | "stealth";
+        requestCount: number;
+      }>;
+    };
+    routingPolicy: {
+      defaultLiveProvider: "http" | "apify" | "scrapling" | null;
+      targetCount: number;
+      promotedScraplingTargetCount: number;
+      demotedHttpTargetCount: number;
+      byProvider: Array<{
+        provider: string;
+        targetCount: number;
+      }>;
+      byScraplingProfile: Array<{
+        profile: "http" | "dynamic" | "stealth";
+        targetCount: number;
+      }>;
+    };
     byProvider: Array<{
       provider: string;
       mode: CrawlMode;
@@ -346,6 +369,33 @@ export interface SubredditDailyTrendResponse {
       day: string;
       mentions: number;
     }>;
+  }>;
+}
+
+export interface GlobalKeywordDailyTrendResponse {
+  ok: true;
+  requestId: string;
+  generatedAtIso: string;
+  queryText: string;
+  normalizedQueryText: string;
+  queryScope: "global";
+  fromIso: string;
+  toIso: string;
+  dayCount: number;
+  days: Array<{
+    day: string;
+    matchedPosts: number;
+    qualifiedMatchedPosts: number;
+    sampledPosts: number;
+    mentionRate: number;
+    qualifiedMentionRate: number;
+    keywordHeat: number;
+    breakoutScore: number;
+    isBreakout: boolean;
+    matchedSubredditCount: number;
+    sourceTypes: Array<"live" | "backfill">;
+    algorithmVersion: string | null;
+    explainPayload: Record<string, unknown>;
   }>;
 }
 

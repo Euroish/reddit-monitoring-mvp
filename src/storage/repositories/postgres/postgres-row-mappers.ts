@@ -290,9 +290,17 @@ export interface ProviderHealthWindowRow {
   rate_limit_count: number;
   timeout_count: number;
   circuit_open_count: number;
+  scrapling_http_profile_count: number;
+  scrapling_dynamic_profile_count: number;
+  scrapling_stealth_profile_count: number;
+  scrapling_session_key_count: number;
+  scrapling_session_key_reuse_count: number;
   last_status_code: number | null;
   last_error_code: string | null;
   last_error_message: string | null;
+  last_scrapling_profile: "http" | "dynamic" | "stealth" | null;
+  last_scrapling_fetcher: string | null;
+  last_scrapling_session_key: string | null;
   updated_at: string | Date;
 }
 
@@ -612,9 +620,17 @@ export function mapProviderHealthWindow(row: ProviderHealthWindowRow): ProviderH
     rateLimitCount: row.rate_limit_count,
     timeoutCount: row.timeout_count,
     circuitOpenCount: row.circuit_open_count,
+    scraplingHttpProfileCount: row.scrapling_http_profile_count,
+    scraplingDynamicProfileCount: row.scrapling_dynamic_profile_count,
+    scraplingStealthProfileCount: row.scrapling_stealth_profile_count,
+    scraplingSessionKeyCount: row.scrapling_session_key_count,
+    scraplingSessionKeyReuseCount: row.scrapling_session_key_reuse_count,
     lastStatusCode: row.last_status_code ?? undefined,
     lastErrorCode: row.last_error_code ?? undefined,
     lastErrorMessage: row.last_error_message ?? undefined,
+    lastScraplingProfile: row.last_scrapling_profile ?? undefined,
+    lastScraplingFetcher: row.last_scrapling_fetcher ?? undefined,
+    lastScraplingSessionKey: row.last_scrapling_session_key ?? undefined,
     updatedAt: toIso(row.updated_at)!,
   };
 }

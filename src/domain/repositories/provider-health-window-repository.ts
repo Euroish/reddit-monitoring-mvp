@@ -22,9 +22,17 @@ export interface RecordProviderHealthWindowInput {
   rateLimitCountDelta: number;
   timeoutCountDelta: number;
   circuitOpenCountDelta: number;
+  scraplingHttpProfileCountDelta?: number;
+  scraplingDynamicProfileCountDelta?: number;
+  scraplingStealthProfileCountDelta?: number;
+  scraplingSessionKeyCountDelta?: number;
+  scraplingSessionKeyReuseCountDelta?: number;
   lastStatusCode?: number;
   lastErrorCode?: string;
   lastErrorMessage?: string;
+  lastScraplingProfile?: "http" | "dynamic" | "stealth";
+  lastScraplingFetcher?: string;
+  lastScraplingSessionKey?: string;
   updatedAt: string;
 }
 
@@ -47,6 +55,11 @@ export interface ProviderHealthAggregate {
   rateLimitCount: number;
   timeoutCount: number;
   circuitOpenCount: number;
+  scraplingHttpProfileCount: number;
+  scraplingDynamicProfileCount: number;
+  scraplingStealthProfileCount: number;
+  scraplingSessionKeyCount: number;
+  scraplingSessionKeyReuseCount: number;
 }
 
 export interface ProviderHealthWindowRepository {

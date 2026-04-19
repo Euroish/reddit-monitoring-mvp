@@ -985,3 +985,71 @@ test("collect subreddit new posts records duplicates and provider diff observabi
   assert.equal(providerRows[0]?.providerDiffCount, 1);
   assert.equal(providerRows[0]?.providerDiffSampleCount, 1);
 });
+
+test("collect subreddit new posts records scrapling profile and session-key observability", async () => {
+  const nowIso = "2026-04-10T12:00:00.000Z";
+  const targetId = stableUuidFromString("reddit:target:r/scrapling-observed");
+  const connector = new ScriptedPostsConnector([
+    {
+      nextCursor: "t3_after_1",
+      provider: "scrapling",
+      posts: buildPostsBatch({
+        subreddit: "scrapling-observed",
+        prefix: "scrapling",
+        count: 2,
+        baseCreatedUtc: 1_712_750_000,
+      }),
+    },
+  ]);
+  const mapper = new DefaultRedditMapper();
+  const scraplingConnector: RedditConnector = {
+    sourceCode: "reddit",
+    collect: (args, ctx) => connector.collect(args, ctx),
+    collectSubredditAbout: (args, ctx) => connector.collectSubredditAbout(args, ctx),
+    async collectSubredditPosts(args, ctx) {
+      const result = await connector.collectSubredditPosts(args, ctx);
+      result.raw.responseHeaders["x-scrapling-profile"] = "dynamic";
+      result.raw.responseHeaders["x-scrapling-fetcher"] = "dynamic";
+      result.raw.responseHeaders["x-scrapling-session-key"] =
+        "reddit:dynamic:/r/scrapling-observed/new.json";
+      result.raw.responseHeaders["x-scrapling-session-key-reused"] = "1";
+      return result;
+    },
+    healthCheck: (ctx) => connector.healthCheck(ctx),
+  };
+  const providerHealthWindowRepository = new InMemoryProviderHealthWindowRepository();
+
+  await collectSubredditNewPostsJob(
+    {
+      redditConnector: scraplingConnector,
+      redditMapper: mapper,
+      collectionJobRepository: new InMemoryCollectionJobRepository(),
+      crawlCursorRepository: new InMemoryCrawlCursorRepository(),
+      rawEventRepository: new InMemoryRawEventRepository(),
+      accountRepository: new InMemoryAccountRepository(),
+      contentRepository: new InMemoryContentRepository(),
+      metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+      providerHealthWindowRepository,
+    },
+    {
+      targetId,
+      subreddit: "scrapling-observed",
+      nowIso,
+      mode: "live",
+      providerHint: "scrapling",
+    },
+  );
+
+  const providerRows = providerHealthWindowRepository.all();
+  assert.equal(providerRows[0]?.provider, "scrapling");
+  assert.equal(providerRows[0]?.scraplingDynamicProfileCount, 1);
+  assert.equal(providerRows[0]?.scraplingHttpProfileCount, 0);
+  assert.equal(providerRows[0]?.scraplingSessionKeyCount, 1);
+  assert.equal(providerRows[0]?.scraplingSessionKeyReuseCount, 1);
+  assert.equal(providerRows[0]?.lastScraplingProfile, "dynamic");
+  assert.equal(providerRows[0]?.lastScraplingFetcher, "dynamic");
+  assert.equal(
+    providerRows[0]?.lastScraplingSessionKey,
+    "reddit:dynamic:/r/scrapling-observed/new.json",
+  );
+});

@@ -569,6 +569,159 @@ test("api server daily insights rejects invalid keyword query input", async () =
   }
 });
 
+test("api server returns global keyword daily trends aggregated across subreddits", async () => {
+  const fixedNow = "2026-04-18T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+  const aiTargetId = stableUuidFromString("reddit:target:r/artificial");
+  const mlTargetId = stableUuidFromString("reddit:target:r/machinelearning");
+
+  await repos.monitorTargetRepository.upsert({
+    id: aiTargetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: "r/artificial",
+    status: "active",
+    config: {},
+    createdAt: fixedNow,
+    updatedAt: fixedNow,
+  });
+  await repos.monitorTargetRepository.upsert({
+    id: mlTargetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: "r/machinelearning",
+    status: "active",
+    config: {},
+    createdAt: fixedNow,
+    updatedAt: fixedNow,
+  });
+
+  await repos.keywordTrendDailyRepository.upsertMany([
+    {
+      targetId: aiTargetId,
+      day: "2026-04-16",
+      keyword: "ai infra",
+      track: "explicit_query",
+      normalizedQueryText: "ai infra",
+      queryScope: "global",
+      sampledPosts: 10,
+      matchedPosts: 3,
+      qualifiedMatchedPosts: 1,
+      mentionRate: 0.3,
+      qualifiedMentionRate: 0.1,
+      matchedScoreSum: 90,
+      matchedCommentSum: 30,
+      keywordHeat: 0.5,
+      algorithmVersion: "keyword_trend_v2_dual_track",
+      explainPayload: {},
+      sourceType: "live",
+    },
+    {
+      targetId: mlTargetId,
+      day: "2026-04-16",
+      keyword: "ai infra",
+      track: "explicit_query",
+      normalizedQueryText: "ai infra",
+      queryScope: "global",
+      sampledPosts: 8,
+      matchedPosts: 2,
+      qualifiedMatchedPosts: 1,
+      mentionRate: 0.25,
+      qualifiedMentionRate: 0.125,
+      matchedScoreSum: 60,
+      matchedCommentSum: 24,
+      keywordHeat: 0.45,
+      algorithmVersion: "keyword_trend_v2_dual_track",
+      explainPayload: {},
+      sourceType: "backfill",
+    },
+    {
+      targetId: aiTargetId,
+      day: "2026-04-17",
+      keyword: "ai infra",
+      track: "explicit_query",
+      normalizedQueryText: "ai infra",
+      queryScope: "global",
+      sampledPosts: 12,
+      matchedPosts: 6,
+      qualifiedMatchedPosts: 3,
+      mentionRate: 0.5,
+      qualifiedMentionRate: 0.25,
+      matchedScoreSum: 180,
+      matchedCommentSum: 72,
+      keywordHeat: 0.7,
+      algorithmVersion: "keyword_trend_v2_dual_track",
+      explainPayload: {},
+      sourceType: "live",
+    },
+  ]);
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+  const baseUrl = await startServer(server);
+  try {
+    const result = await getJson<{
+      ok: boolean;
+      queryScope: string;
+      normalizedQueryText: string;
+      dayCount: number;
+      days: Array<{
+        day: string;
+        matchedPosts: number;
+        qualifiedMatchedPosts: number;
+        matchedSubredditCount: number;
+        sourceTypes: string[];
+        breakoutScore: number;
+        isBreakout: boolean;
+      }>;
+    }>(
+      `${baseUrl}/v1/trends/keywords/ai%20infra/daily?from=2026-04-16T00:00:00.000Z&to=2026-04-18T23:59:59.000Z`,
+    );
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.ok, true);
+    assert.equal(result.body.queryScope, "global");
+    assert.equal(result.body.normalizedQueryText, "ai infra");
+    assert.equal(result.body.dayCount, 3);
+    assert.equal(result.body.days[0]?.day, "2026-04-16");
+    assert.equal(result.body.days[0]?.matchedPosts, 5);
+    assert.equal(result.body.days[0]?.qualifiedMatchedPosts, 2);
+    assert.equal(result.body.days[0]?.matchedSubredditCount, 2);
+    assert.deepEqual(result.body.days[0]?.sourceTypes, ["backfill", "live"]);
+    assert.equal(result.body.days[1]?.day, "2026-04-17");
+    assert.equal(result.body.days[1]?.matchedPosts, 6);
+    assert.equal(result.body.days[1]?.isBreakout, true);
+    assert.equal(result.body.days[2]?.day, "2026-04-18");
+    assert.equal(result.body.days[2]?.matchedPosts, 0);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("api server global keyword daily trends reject subreddit-scoped queries", async () => {
+  const fixedNow = "2026-04-18T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+  const baseUrl = await startServer(server);
+  try {
+    const result = await getJson<{ ok: boolean; errorCode: string }>(
+      `${baseUrl}/v1/trends/keywords/r%2Fmachinelearning%3A%20ai/daily?from=2026-04-16T00:00:00.000Z&to=2026-04-18T23:59:59.000Z`,
+    );
+    assert.equal(result.status, 400);
+    assert.equal(result.body.ok, false);
+    assert.equal(result.body.errorCode, "invalid_query_param");
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("api server returns market rankings across subreddits", async () => {
   const fixedNow = "2026-04-10T12:00:00.000Z";
   const repos = createApiTestRepositories();

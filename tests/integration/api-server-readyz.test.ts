@@ -1897,3 +1897,208 @@ test("api server readyz reports stale algorithm materialization when recent snap
   }
 });
 
+test("api server readyz exposes routing-policy fallback when promoted scrapling targets are demoted to http", async () => {
+  const fixedNow = "2026-04-18T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+  const targetId = stableUuidFromString("reddit:target:r/datascience");
+  const previousPrimary = process.env.REDDIT_SCRAPLING_PRIMARY_SUBREDDITS;
+  const previousProvider = process.env.REDDIT_LIVE_PROVIDER;
+  const previousProfile = process.env.REDDIT_SCRAPLING_PROFILE;
+
+  process.env.REDDIT_LIVE_PROVIDER = "http";
+  process.env.REDDIT_SCRAPLING_PROFILE = "http";
+  process.env.REDDIT_SCRAPLING_PRIMARY_SUBREDDITS = "datascience";
+
+  await repos.monitorTargetRepository.upsert({
+    id: targetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: "r/datascience",
+    status: "active",
+    config: {},
+    createdAt: fixedNow,
+    updatedAt: fixedNow,
+  });
+  await repos.providerHealthWindowRepository.record({
+    provider: "scrapling",
+    targetId,
+    mode: "live",
+    windowStart: "2026-04-18T11:55:00.000Z",
+    requestCountDelta: 10,
+    successCountDelta: 8,
+    emptyResponseCountDelta: 0,
+    fallbackCountDelta: 0,
+    candidateCountDelta: 24,
+    acceptedCountDelta: 24,
+    filteredOutCountDelta: 0,
+    duplicatePostCountDelta: 0,
+    ingestLagSecondsSumDelta: 0,
+    ingestLagSampleCountDelta: 0,
+    providerDiffCountDelta: 0,
+    providerDiffSampleCountDelta: 0,
+    errorCountDelta: 2,
+    rateLimitCountDelta: 0,
+    timeoutCountDelta: 2,
+    circuitOpenCountDelta: 0,
+    updatedAt: fixedNow,
+  });
+  await repos.crawlCursorRepository.upsert({
+    provider: "scrapling",
+    targetId,
+    mode: "live",
+    cursor: "t3_scrapling_cursor",
+    lastFetchedAt: "2026-04-18T11:50:00.000Z",
+    updatedAt: "2026-04-18T11:50:00.000Z",
+  });
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const readyResult = await getJson<{
+      status: "ready" | "degraded" | "not_ready";
+      degradedReasons: string[];
+      observability: {
+        routingPolicy: {
+          defaultLiveProvider: string | null;
+          targetCount: number;
+          promotedScraplingTargetCount: number;
+          demotedHttpTargetCount: number;
+          byProvider: Array<{
+            provider: string;
+            targetCount: number;
+          }>;
+        };
+      };
+    }>(`${baseUrl}/readyz`);
+
+    assert.equal(readyResult.status, 200);
+    assert.equal(readyResult.body.status, "degraded");
+    assert.equal(
+      readyResult.body.degradedReasons.includes("provider_policy_fallback_active"),
+      true,
+    );
+    assert.equal(readyResult.body.observability.routingPolicy.defaultLiveProvider, "http");
+    assert.equal(readyResult.body.observability.routingPolicy.targetCount, 1);
+    assert.equal(
+      readyResult.body.observability.routingPolicy.promotedScraplingTargetCount,
+      1,
+    );
+    assert.equal(
+      readyResult.body.observability.routingPolicy.demotedHttpTargetCount,
+      1,
+    );
+    assert.deepEqual(readyResult.body.observability.routingPolicy.byProvider, [
+      {
+        provider: "http",
+        targetCount: 1,
+      },
+    ]);
+  } finally {
+    if (previousPrimary === undefined) {
+      delete process.env.REDDIT_SCRAPLING_PRIMARY_SUBREDDITS;
+    } else {
+      process.env.REDDIT_SCRAPLING_PRIMARY_SUBREDDITS = previousPrimary;
+    }
+    if (previousProvider === undefined) {
+      delete process.env.REDDIT_LIVE_PROVIDER;
+    } else {
+      process.env.REDDIT_LIVE_PROVIDER = previousProvider;
+    }
+    if (previousProfile === undefined) {
+      delete process.env.REDDIT_SCRAPLING_PROFILE;
+    } else {
+      process.env.REDDIT_SCRAPLING_PROFILE = previousProfile;
+    }
+    await stopServer(server);
+  }
+});
+
+test("api server readyz exposes scrapling profile and session-key evidence from persisted truth", async () => {
+  const fixedNow = "2026-04-18T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+  const targetId = stableUuidFromString("reddit:target:r/scrapling-evidence");
+
+  await repos.providerHealthWindowRepository.record({
+    provider: "scrapling",
+    targetId,
+    mode: "live",
+    windowStart: "2026-04-18T11:55:00.000Z",
+    requestCountDelta: 4,
+    successCountDelta: 4,
+    emptyResponseCountDelta: 0,
+    fallbackCountDelta: 0,
+    candidateCountDelta: 8,
+    acceptedCountDelta: 8,
+    filteredOutCountDelta: 0,
+    duplicatePostCountDelta: 0,
+    ingestLagSecondsSumDelta: 0,
+    ingestLagSampleCountDelta: 0,
+    providerDiffCountDelta: 0,
+    providerDiffSampleCountDelta: 0,
+    errorCountDelta: 0,
+    rateLimitCountDelta: 0,
+    timeoutCountDelta: 0,
+    circuitOpenCountDelta: 0,
+    scraplingHttpProfileCountDelta: 1,
+    scraplingDynamicProfileCountDelta: 3,
+    scraplingStealthProfileCountDelta: 0,
+    scraplingSessionKeyCountDelta: 4,
+    scraplingSessionKeyReuseCountDelta: 3,
+    lastScraplingProfile: "dynamic",
+    lastScraplingFetcher: "dynamic",
+    lastScraplingSessionKey: "reddit:dynamic:/r/scrapling-evidence/new.json",
+    updatedAt: fixedNow,
+  });
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const readyResult = await getJson<{
+      observability: {
+        scraplingEvidence: {
+          requestCount: number;
+          sessionKeyObservedRate: number | null;
+          sessionKeyReuseRate: number | null;
+          byProfile: Array<{
+            profile: string;
+            requestCount: number;
+          }>;
+        };
+      };
+    }>(`${baseUrl}/readyz`);
+
+    assert.equal(readyResult.status, 200);
+    assert.equal(readyResult.body.observability.scraplingEvidence.requestCount, 4);
+    assert.equal(
+      readyResult.body.observability.scraplingEvidence.sessionKeyObservedRate,
+      1,
+    );
+    assert.equal(
+      readyResult.body.observability.scraplingEvidence.sessionKeyReuseRate,
+      0.75,
+    );
+    assert.deepEqual(readyResult.body.observability.scraplingEvidence.byProfile, [
+      {
+        profile: "http",
+        requestCount: 1,
+      },
+      {
+        profile: "dynamic",
+        requestCount: 3,
+      },
+    ]);
+  } finally {
+    await stopServer(server);
+  }
+});
+

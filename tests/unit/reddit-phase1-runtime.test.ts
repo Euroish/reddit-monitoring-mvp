@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { RedditCircuitBreakerConnector } from "../../src/connectors/reddit/reddit-circuit-breaker.connector";
 import { RedditHttpConnector } from "../../src/connectors/reddit/reddit-http.connector";
 import { RedditScraplingConnector } from "../../src/connectors/reddit/reddit-scrapling.connector";
 import {
@@ -145,6 +146,39 @@ test("createRedditConnectorFromEnv supports scrapling provider and profile", () 
   assert.equal((connector as any).pythonExecutable, "py");
   assert.equal((connector as any).timeoutMs, 45000);
   assert.equal((connector as any).maxRetries, 4);
+});
+
+test("createRedditConnectorFromEnv keeps dynamic scrapling primary by default without circuit fallback to http", () => {
+  const connector = createRedditConnectorFromEnv({
+    env: {
+      REDDIT_LIVE_PROVIDER: "scrapling",
+      REDDIT_SCRAPLING_PROFILE: "dynamic",
+      REDDIT_CB_ENABLED: "true",
+      REDDIT_CB_ROUTE_TO_FALLBACK: "true",
+    },
+    mode: "live",
+    crawlMode: "live",
+  });
+
+  assert.equal(connector instanceof RedditCircuitBreakerConnector, true);
+  assert.equal((connector as any).routeToFallbackOnError, false);
+});
+
+test("createRedditConnectorFromEnv allows explicit dynamic scrapling circuit fallback to http via env", () => {
+  const connector = createRedditConnectorFromEnv({
+    env: {
+      REDDIT_LIVE_PROVIDER: "scrapling",
+      REDDIT_SCRAPLING_PROFILE: "dynamic",
+      REDDIT_SCRAPLING_CB_ROUTE_TO_HTTP: "true",
+      REDDIT_CB_ENABLED: "true",
+      REDDIT_CB_ROUTE_TO_FALLBACK: "true",
+    },
+    mode: "live",
+    crawlMode: "live",
+  });
+
+  assert.equal(connector instanceof RedditCircuitBreakerConnector, true);
+  assert.equal((connector as any).routeToFallbackOnError, true);
 });
 
 test("upsertActiveSubredditTarget normalizes canonical naming once", async () => {

@@ -22,7 +22,12 @@ export class PostgresProviderHealthWindowRepository implements ProviderHealthWin
         duplicate_post_count, ingest_lag_seconds_sum, ingest_lag_sample_count,
         provider_diff_count, provider_diff_sample_count,
         error_count, rate_limit_count, timeout_count, circuit_open_count,
-        last_status_code, last_error_code, last_error_message, updated_at
+        scrapling_http_profile_count, scrapling_dynamic_profile_count,
+        scrapling_stealth_profile_count, scrapling_session_key_count,
+        scrapling_session_key_reuse_count,
+        last_status_code, last_error_code, last_error_message,
+        last_scrapling_profile, last_scrapling_fetcher, last_scrapling_session_key,
+        updated_at
       ) VALUES (
         $1, $2, $3, $4,
         $5, $6, $7, $8,
@@ -30,7 +35,10 @@ export class PostgresProviderHealthWindowRepository implements ProviderHealthWin
         $12, $13, $14,
         $15, $16,
         $17, $18, $19, $20,
-        $21, $22, $23, $24
+        $21, $22, $23, $24,
+        $25, $26, $27,
+        $28, $29, $30,
+        $31, $32
       )
       ON CONFLICT (provider, target_id, mode, window_start)
       DO UPDATE SET
@@ -50,9 +58,17 @@ export class PostgresProviderHealthWindowRepository implements ProviderHealthWin
         rate_limit_count = provider_health_window.rate_limit_count + EXCLUDED.rate_limit_count,
         timeout_count = provider_health_window.timeout_count + EXCLUDED.timeout_count,
         circuit_open_count = provider_health_window.circuit_open_count + EXCLUDED.circuit_open_count,
+        scrapling_http_profile_count = provider_health_window.scrapling_http_profile_count + EXCLUDED.scrapling_http_profile_count,
+        scrapling_dynamic_profile_count = provider_health_window.scrapling_dynamic_profile_count + EXCLUDED.scrapling_dynamic_profile_count,
+        scrapling_stealth_profile_count = provider_health_window.scrapling_stealth_profile_count + EXCLUDED.scrapling_stealth_profile_count,
+        scrapling_session_key_count = provider_health_window.scrapling_session_key_count + EXCLUDED.scrapling_session_key_count,
+        scrapling_session_key_reuse_count = provider_health_window.scrapling_session_key_reuse_count + EXCLUDED.scrapling_session_key_reuse_count,
         last_status_code = COALESCE(EXCLUDED.last_status_code, provider_health_window.last_status_code),
         last_error_code = COALESCE(EXCLUDED.last_error_code, provider_health_window.last_error_code),
         last_error_message = COALESCE(EXCLUDED.last_error_message, provider_health_window.last_error_message),
+        last_scrapling_profile = COALESCE(EXCLUDED.last_scrapling_profile, provider_health_window.last_scrapling_profile),
+        last_scrapling_fetcher = COALESCE(EXCLUDED.last_scrapling_fetcher, provider_health_window.last_scrapling_fetcher),
+        last_scrapling_session_key = COALESCE(EXCLUDED.last_scrapling_session_key, provider_health_window.last_scrapling_session_key),
         updated_at = EXCLUDED.updated_at
       `,
       [
@@ -76,9 +92,17 @@ export class PostgresProviderHealthWindowRepository implements ProviderHealthWin
         input.rateLimitCountDelta,
         input.timeoutCountDelta,
         input.circuitOpenCountDelta,
+        input.scraplingHttpProfileCountDelta ?? 0,
+        input.scraplingDynamicProfileCountDelta ?? 0,
+        input.scraplingStealthProfileCountDelta ?? 0,
+        input.scraplingSessionKeyCountDelta ?? 0,
+        input.scraplingSessionKeyReuseCountDelta ?? 0,
         input.lastStatusCode ?? null,
         input.lastErrorCode ?? null,
         input.lastErrorMessage ?? null,
+        input.lastScraplingProfile ?? null,
+        input.lastScraplingFetcher ?? null,
+        input.lastScraplingSessionKey ?? null,
         input.updatedAt,
       ],
     );
@@ -99,7 +123,12 @@ export class PostgresProviderHealthWindowRepository implements ProviderHealthWin
         duplicate_post_count, ingest_lag_seconds_sum, ingest_lag_sample_count,
         provider_diff_count, provider_diff_sample_count,
         error_count, rate_limit_count, timeout_count, circuit_open_count,
-        last_status_code, last_error_code, last_error_message, updated_at
+        scrapling_http_profile_count, scrapling_dynamic_profile_count,
+        scrapling_stealth_profile_count, scrapling_session_key_count,
+        scrapling_session_key_reuse_count,
+        last_status_code, last_error_code, last_error_message,
+        last_scrapling_profile, last_scrapling_fetcher, last_scrapling_session_key,
+        updated_at
       FROM provider_health_window
       WHERE target_id = $1
         AND window_start >= $2::timestamptz
@@ -137,6 +166,11 @@ export class PostgresProviderHealthWindowRepository implements ProviderHealthWin
       rate_limit_count: string | number;
       timeout_count: string | number;
       circuit_open_count: string | number;
+      scrapling_http_profile_count: string | number;
+      scrapling_dynamic_profile_count: string | number;
+      scrapling_stealth_profile_count: string | number;
+      scrapling_session_key_count: string | number;
+      scrapling_session_key_reuse_count: string | number;
     }>(
       `
       SELECT
@@ -157,7 +191,12 @@ export class PostgresProviderHealthWindowRepository implements ProviderHealthWin
         SUM(error_count) AS error_count,
         SUM(rate_limit_count) AS rate_limit_count,
         SUM(timeout_count) AS timeout_count,
-        SUM(circuit_open_count) AS circuit_open_count
+        SUM(circuit_open_count) AS circuit_open_count,
+        SUM(scrapling_http_profile_count) AS scrapling_http_profile_count,
+        SUM(scrapling_dynamic_profile_count) AS scrapling_dynamic_profile_count,
+        SUM(scrapling_stealth_profile_count) AS scrapling_stealth_profile_count,
+        SUM(scrapling_session_key_count) AS scrapling_session_key_count,
+        SUM(scrapling_session_key_reuse_count) AS scrapling_session_key_reuse_count
       FROM provider_health_window
       WHERE window_start >= $1::timestamptz
         AND window_start <= $2::timestamptz
@@ -188,6 +227,11 @@ export class PostgresProviderHealthWindowRepository implements ProviderHealthWin
       rateLimitCount: Number(row.rate_limit_count),
       timeoutCount: Number(row.timeout_count),
       circuitOpenCount: Number(row.circuit_open_count),
+      scraplingHttpProfileCount: Number(row.scrapling_http_profile_count),
+      scraplingDynamicProfileCount: Number(row.scrapling_dynamic_profile_count),
+      scraplingStealthProfileCount: Number(row.scrapling_stealth_profile_count),
+      scraplingSessionKeyCount: Number(row.scrapling_session_key_count),
+      scraplingSessionKeyReuseCount: Number(row.scrapling_session_key_reuse_count),
     }));
   }
 }

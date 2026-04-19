@@ -49,6 +49,19 @@ export interface RedditPhase1WorkerDependencies {
     providerHint?: string;
     crawlMode: "live" | "backfill";
   }) => RedditConnector;
+  redditExecutionStrategyResolver?: (args: {
+    targetId: string;
+    canonicalName: string;
+    providerHint?: string;
+    crawlMode: "live" | "backfill";
+    nowIso: string;
+  }) => Promise<{
+    providerHint: string;
+    connector: RedditConnector;
+    scraplingProfile: string | null;
+    routingClass: string;
+    reasons: string[];
+  }>;
   redditMapper: RedditMapper;
 }
 
@@ -217,17 +230,45 @@ export async function runRedditPhase1Cycle(
 
   for (const target of targets) {
     try {
-      const targetProviderHint = resolveTargetProviderHint({
+      const defaultTargetProviderHint = resolveTargetProviderHint({
         canonicalName: target.canonicalName,
         defaultProviderHint: providerHint,
         promotedScraplingCanonicalNames,
       });
+      const executionStrategy = deps.redditExecutionStrategyResolver
+        ? await deps.redditExecutionStrategyResolver({
+            targetId: target.id,
+            canonicalName: target.canonicalName,
+            providerHint: defaultTargetProviderHint,
+            crawlMode,
+            nowIso,
+          })
+        : null;
+      const targetProviderHint =
+        executionStrategy?.providerHint ?? defaultTargetProviderHint;
       const targetConnector =
+        executionStrategy?.connector ??
         deps.redditConnectorResolver?.({
           canonicalName: target.canonicalName,
           providerHint: targetProviderHint,
           crawlMode,
-        }) ?? deps.redditConnector;
+        }) ??
+        deps.redditConnector;
+      if (executionStrategy) {
+        // eslint-disable-next-line no-console
+        console.log(
+          JSON.stringify({
+            event: "reddit.provider_route.selected",
+            nowIso,
+            targetId: target.id,
+            canonicalName: target.canonicalName,
+            providerHint: executionStrategy.providerHint,
+            scraplingProfile: executionStrategy.scraplingProfile,
+            routingClass: executionStrategy.routingClass,
+            reasons: executionStrategy.reasons,
+          }),
+        );
+      }
       const postSamplingPlan: ResolvedSamplingPlan =
         fixedPostLimit != null
           ? {

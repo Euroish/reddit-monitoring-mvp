@@ -20,6 +20,7 @@ interface RedditScraplingBridgeRequest {
   requestId: string;
   url: string;
   profile: RedditScraplingProfile;
+  sessionKey?: string;
   timeoutMs: number;
   headers: Record<string, string>;
 }
@@ -56,6 +57,7 @@ interface RedditScraplingConnectorOptions {
 
 export class RedditScraplingConnector implements RedditConnector {
   public readonly sourceCode = "reddit" as const;
+  private static readonly seenSessionKeys = new Set<string>();
 
   private readonly baseUrl: string;
   private readonly userAgent: string;
@@ -157,6 +159,7 @@ export class RedditScraplingConnector implements RedditConnector {
     ctx: ConnectorRequestContext,
   ): Promise<ConnectorPage<TPayload>> {
     const url = this.buildUrl(pathValue, params);
+    const sessionKey = this.buildSessionKey(pathValue);
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
@@ -165,6 +168,7 @@ export class RedditScraplingConnector implements RedditConnector {
           requestId: ctx.requestId,
           url: url.toString(),
           profile: this.profile,
+          sessionKey,
           timeoutMs: this.timeoutMs,
           headers: this.buildHeaders(ctx),
         });
@@ -174,6 +178,7 @@ export class RedditScraplingConnector implements RedditConnector {
         if (!headers.has("x-provider")) {
           headers.set("x-provider", "scrapling");
         }
+        this.annotateScraplingSessionHeaders(headers, sessionKey);
         const status = bridgeResult.status;
         if (typeof status === "number" && status >= 200 && status < 300) {
           const payload = this.extractPayload<TPayload>(bridgeResult);
@@ -264,6 +269,24 @@ export class RedditScraplingConnector implements RedditConnector {
     return headers;
   }
 
+  private buildSessionKey(pathValue: string): string {
+    const normalizedPath = pathValue.trim().toLowerCase();
+    return `reddit:${this.profile}:${normalizedPath}`;
+  }
+
+  private annotateScraplingSessionHeaders(headers: Headers, sessionKey: string): void {
+    if (!headers.has("x-scrapling-profile")) {
+      headers.set("x-scrapling-profile", this.profile);
+    }
+    if (!headers.has("x-scrapling-session-key")) {
+      headers.set("x-scrapling-session-key", sessionKey);
+    }
+    const normalizedSessionKey = headers.get("x-scrapling-session-key") ?? sessionKey;
+    const reused = RedditScraplingConnector.seenSessionKeys.has(normalizedSessionKey);
+    headers.set("x-scrapling-session-key-reused", reused ? "1" : "0");
+    RedditScraplingConnector.seenSessionKeys.add(normalizedSessionKey);
+  }
+
   private headersToRecord(headers: Headers): Record<string, string> {
     const output: Record<string, string> = {};
     headers.forEach((value, key) => {
@@ -275,9 +298,31 @@ export class RedditScraplingConnector implements RedditConnector {
   private normalizeHeaderRecord(
     headers: Record<string, string>,
   ): Record<string, string> {
-    return Object.fromEntries(
-      Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]),
-    );
+    const output: Record<string, string> = {};
+    for (const [key, value] of Object.entries(headers)) {
+      const normalizedKey = key.toLowerCase();
+      // set-cookie often carries multiline values from the bridge and is not
+      // needed for provider-health telemetry.
+      if (normalizedKey === "set-cookie") {
+        continue;
+      }
+      const sanitizedValue = this.sanitizeHeaderValue(value);
+      if (sanitizedValue == null) {
+        continue;
+      }
+      output[normalizedKey] = sanitizedValue;
+    }
+    return output;
+  }
+
+  private sanitizeHeaderValue(value: string): string | null {
+    if (typeof value !== "string") {
+      return null;
+    }
+    if (value.includes("\r") || value.includes("\n")) {
+      return null;
+    }
+    return value;
   }
 
   private readRateLimit(headers: Headers) {
@@ -461,4 +506,3 @@ export class RedditScraplingConnector implements RedditConnector {
     });
   }
 }
-

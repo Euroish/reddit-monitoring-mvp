@@ -13,6 +13,8 @@ import {
   resolveRedditPhase1CycleOptionsFromEnv,
   upsertActiveSubredditTargets,
 } from "../src/runtime/reddit-phase1-runtime";
+import { createRedditFetchExecutionEngine } from "../src/runtime/reddit-fetch-execution-engine";
+import { resolveRedditProviderRoutingPolicyContextFromEnv } from "../src/runtime/reddit-provider-routing-policy";
 import {
   parseBooleanFlag,
   parseOptionalPositiveInt,
@@ -349,6 +351,13 @@ async function main(): Promise<void> {
     connectorCache.set(cacheKey, connector);
     return connector;
   };
+  const fetchExecutionEngine = createRedditFetchExecutionEngine({
+    mode: runMode,
+    createConnector: runtime.createConnector,
+    providerHealthWindowRepository: repos.providerHealthWindowRepository,
+    crawlCursorRepository: repos.crawlCursorRepository,
+    policyContext: resolveRedditProviderRoutingPolicyContextFromEnv(process.env),
+  });
   const redditMapper = runtime.redditMapper;
 
   let inFlight = false;
@@ -374,6 +383,20 @@ async function main(): Promise<void> {
           redditConnector: resolveConnectorForProviderHint(undefined),
           redditConnectorResolver: ({ providerHint }) =>
             resolveConnectorForProviderHint(providerHint),
+          redditExecutionStrategyResolver: ({
+            targetId,
+            canonicalName,
+            providerHint,
+            crawlMode,
+            nowIso: executionNowIso,
+          }) =>
+            fetchExecutionEngine.resolveStrategy({
+              targetId,
+              canonicalName,
+              defaultProviderHint: providerHint,
+              crawlMode,
+              nowIso: executionNowIso,
+            }),
           redditMapper,
         },
         nowIso,

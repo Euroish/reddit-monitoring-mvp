@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: P1.7-algorithm-productization
-updated_at: "2026-04-18 15:26:34"
+updated_at: "2026-04-19 10:36:29"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Start R5 provider-policy institutionalization by wiring anomaly/materialization truth into runtime provider routing and `/readyz` algorithm-health signaling."
+next_action: "Keep `scraplingSessionKeyReuseRateMin` unchanged; maintain stepped promoted `r/python` runs to confirm the new `dynamic_steady_state` lane remains stable, then calibrate `/readyz` stale-head/cursor-stall surfacing so observability reflects live dynamic activity without false sticky degradation."
 tags:
 - codex
 - workspace
@@ -83,11 +83,12 @@ tags:
 
 ## Current Focus
 
-- Round `R1` is active: establish `subreddit_daily_fact`, subreddit tiering, quality thresholds, and day-level heat materialization.
-- Implement the full `R1` vertical slice in code first, then keep only the minimal writeback needed to preserve state continuity.
-- Settle scheduler/materialization order, day-level formulas, and readiness wiring in code + tests inside the same slice instead of treating them as separate pause points.
-- Move algorithm observability forward with the first fact layer instead of waiting until provider-policy work is complete.
-- Keep current controlled-promotion evidence as the acquisition baseline and limit Scrapling changes to work that unblocks algorithm rounds.
+- Round `R5` is active: keep provider-policy institutionalization moving while finishing the missing product read paths that `R5` depends on.
+- The current completed slice is threshold calibration for Scrapling dynamic escalation and http fallback using persisted profile/session-key evidence.
+- The next slice is DB-backed verification on promoted technical subreddits so the new routing reasons and Scrapling evidence are proven against real promotion data, not just local tests.
+- Keep implementation vertical and evidence-backed: repository/read model/API/tests first, then write one compact continuity update here.
+- `/readyz` and provider-routing must stay grounded in persisted truth, but algorithm-facing read models still take priority over connector-only expansion.
+- Keep current controlled-promotion evidence as the acquisition baseline and make deeper Scrapling work justify itself through better runtime observability and routing evidence.
 
 ## Change Policy
 
@@ -138,12 +139,117 @@ tags:
 
 ## Activity Log
 
+### 2026-04-19 10:36:29
+
+- Scope: Continued `R5` routing calibration and eliminated stale-head-driven fallback lock-in on promoted dynamic paths. In `src/runtime/reddit-provider-routing-policy.ts`, narrowed `dynamic_exhausted` trigger from `(empty OR stale_head)` to `empty` only, and required recovery-window confirmation for `dynamic_exhausted` before demotion; retained dynamic steady-state path. Added/updated unit coverage in `tests/unit/reddit-provider-routing-policy.test.ts` for: empty-window exhausted fallback, sparse exhausted sample suppression, and recovery-window deferral reason.
+- Why now: Latest live run (`...02-30-47-196Z`) regressed to `fallbackRoute=8/8` despite `runLocalScraplingEvidence=8/8` and healthy transport; evidence showed stale-head was dominating demotion even when dynamic collection was active.
+- Verify: `npx tsx --test tests/unit/reddit-provider-routing-policy.test.ts` passed (`16/16`). `npm run typecheck` passed. New live verify output `docs/live-controlled-promotion-2026-04-19T02-35-25-517Z.json` shows `failedCycleCount=0`, `runExecution.executedJobCount>0` for all cycles, `runLocalScraplingEvidence.requestCount>0` in `8/8`, `dynamicRoute=8/8`, and `fallbackRoute=0/8`.
+- Next: Keep promoted stepped runs as a stability check and then tune `/readyz` stale-head/cursor-stall degradation logic for Scrapling so observability no longer reports persistent stale/stalled state when dynamic run-local evidence is continuously non-empty.
+
+### 2026-04-19 10:00:16
+
+- Scope: Continued `R5` routing-productization with targeted anti-lock calibration. Added `scraplingDynamicExhaustedMinRequestCount` in `src/runtime/reddit-provider-health-thresholds.ts`; updated `src/runtime/reddit-provider-routing-policy.ts` so `dynamic_exhausted` fallback uses this dedicated sample gate and added dynamic steady-state routing (`scrapling_dynamic_steady_state`) when dynamic profile evidence is ready and not exhausted. Also kept earlier verify reliability/hard-error fixes active (`REDDIT_CONTROLLED_PROMOTION_MAX_WINDOW_SHIFT_COUNT` and Scrapling multiline `set-cookie` header sanitization).
+- Why now: Latest runs still showed fallback re-lock on `dynamic_exhausted_http_fallback` despite transport being healthy; we needed to keep dynamic windows alive without relaxing session-key reuse thresholds.
+- Verify: `npx tsx --test tests/unit/reddit-provider-routing-policy.test.ts` passed (`15/15`). `npm run typecheck` passed. Live promoted verify output `docs/live-controlled-promotion-2026-04-19T01-59-48-909Z.json` shows `failedCycleCount=0`, `runExecution.executedJobCount>0` for all cycles, `runLocalScraplingEvidence.requestCount>0` in `8/8` cycles, `dynamic` route profile in `5/8`, and fallback at `3/8`.
+- Next: Keep stepped evidence running and further calibrate stale-head-triggered `dynamic_exhausted` fallback (decay/recovery or cursor-stall conditioning) to reduce fallback share below `3/8` without regressing current 8/8 run-local Scrapling activity.
+
+### 2026-04-19 09:54:19
+
+- Scope: Continued `R5` lock-in reduction with three bounded fixes. (1) `scripts/live-controlled-promotion-verify.ts` now supports `REDDIT_CONTROLLED_PROMOTION_MAX_WINDOW_SHIFT_COUNT` (default `96`) and fails fast when no fresh dedupe window is available, preventing silent `executedJobCount=0` runs. (2) `src/connectors/reddit/reddit-scrapling.connector.ts` now drops multiline/`set-cookie` bridge headers before `new Headers(...)`, removing dynamic-path `Headers.append ... invalid header value` failures; added unit coverage in `tests/unit/reddit-scrapling.connector.test.ts`. (3) `src/runtime/reddit-provider-routing-policy.ts` now uses dynamic profile for recovery probes and gates `scrapling_dynamic_exhausted_http_fallback` behind minimum transport sample count; added focused unit cases in `tests/unit/reddit-provider-routing-policy.test.ts`.
+- Why now: Promoted-step evidence still had two blockers after earlier recovery rules: verify cycles could be no-op due window collisions, and dynamic Scrapling runs were intermittently aborted by invalid multiline headers; both masked real routing behavior and kept fallback decisions noisy.
+- Verify: Unit+type gates passed (`npx tsx --test tests/unit/reddit-provider-routing-policy.test.ts tests/unit/reddit-scrapling.connector.test.ts`, `npm run typecheck`). New DB-backed verify outputs: `docs/live-controlled-promotion-2026-04-19T01-49-55-343Z.json`, `...01-52-05-669Z.json`, `...01-53-56-261Z.json`. Latest 8-cycle run shows `failedCycleCount=0`, `runExecution.executedJobCount>0` across all cycles, `runLocalScraplingEvidence.requestCount>0` in `6/8` cycles, `dynamic` route profile in `4/8`, and fallback reduced to `3/8`.
+- Next: Keep stepped promoted evidence running and calibrate the `dynamic_exhausted` stale-head branch (decay/recovery window) so fallback does not re-lock after dynamic windows, while preserving current transport safeguards and unchanged session-key reuse threshold.
+
+### 2026-04-19 09:44:27
+
+- Scope: Extended `R5` transport recovery calibration in `src/runtime/reddit-provider-routing-policy.ts` with a bounded probe-unlock rule: when lookback transport is degraded but the short recovery window has zero Scrapling samples, keep promoted Scrapling via `scrapling_recovery_probe_no_recent_transport_samples` instead of staying hard-demoted to `http`. Added regression coverage in `tests/unit/reddit-provider-routing-policy.test.ts`. Executed two DB-backed promoted verify runs after the patch: `docs/live-controlled-promotion-2026-04-19T01-42-30-181Z.json` and `docs/live-controlled-promotion-2026-04-19T01-44-08-317Z.json`.
+- Why now: The first post-patch live run still showed sticky `scrapling_http_fallback` with zero run-local Scrapling traffic; without a probe-unlock path, the recovery gate cannot self-heal once fallback suppresses new Scrapling evidence.
+- Verify: `npx tsx --test tests/unit/reddit-provider-routing-policy.test.ts` passed (`12/12`). `npm run typecheck` passed. Live verify (`4` stepped cycles) now shows a probe unlock on cycle 4 with `routingClass=\"scrapling_promoted\"` and reason `scrapling_recovery_probe_no_recent_transport_samples` while earlier cycles remained fallback.
+- Next: Continue stepped promoted runs and validate that probe-unlocked cycles produce non-zero `runLocalScraplingEvidence.requestCount`; if probe unlock still yields zero traffic, calibrate probe profile/cadence in routing/execution without relaxing session-key reuse threshold.
+
+### 2026-04-19 09:40:50
+
+- Scope: Added a bounded `R5` transport decay/recovery calibration in routing policy so promoted Scrapling targets can recover from transient lookback degradation without immediately staying demoted to `http`. Updated `src/runtime/reddit-provider-health-thresholds.ts` with recovery-window constants and updated `src/runtime/reddit-provider-routing-policy.ts` to compute a short Scrapling transport recovery aggregate (`10m`) and suppress lookback fallback when that recent slice is healthy with enough samples. Added focused unit coverage in `tests/unit/reddit-provider-routing-policy.test.ts` for both recovery-success and insufficient-recovery-sample paths.
+- Why now: Latest DB-backed verify snapshots showed sticky `scrapling_http_fallback` after transient Scrapling errors even when subsequent run-local windows were healthy, which blocked sustained non-empty dynamic windows.
+- Verify: `npx tsx --test tests/unit/reddit-provider-routing-policy.test.ts` passed (`11/11`). `npm run typecheck` passed.
+- Next: Re-run stepped promoted `r/python` verify cycles and compare routing transitions (`scrapling_dynamic_escalation` vs `scrapling_http_fallback`) plus run-local Scrapling request windows to confirm recovery behavior on real promotion data.
+
+### 2026-04-19 09:28:05
+
+- Scope: Continued `R5` Scrapling fusion hardening and fixed multiple blockers end-to-end. Updated `scripts/live-controlled-promotion-verify.ts` to (1) avoid dedupe-collided windows via automatic forward window shifts, (2) emit `requestedNowIso + windowShiftCount`, and (3) compute run-local evidence from jobs started in the actual run wall-clock interval (plus `runExecution.startedAtIso/finishedAtIso/executedJobCount`) instead of mixed historical windows. Updated `src/runtime/reddit-phase1-runtime.ts` so dynamic/stealth Scrapling defaults to no CB fallback-to-http unless explicitly enabled with `REDDIT_SCRAPLING_CB_ROUTE_TO_HTTP=true`; added unit coverage in `tests/unit/reddit-phase1-runtime.test.ts`. Fixed dynamic-path hard error in `scripts/scrapling_reddit_bridge.py` (`DynamicFetcher/StealthyFetcher retries=0` -> `retries=1`). Added routing anti-lock improvements: `src/runtime/reddit-provider-health-thresholds.ts` adds `scraplingTransportMinRequestCountForFallback` and `scraplingRecoveryProbeMinCursorLagSeconds`; `src/runtime/reddit-provider-routing-policy.ts` now requires minimum transport sample count before transport fallback and supports `scrapling_recovery_probe` on long-stalled degraded cursors. Added focused tests in `tests/unit/reddit-provider-routing-policy.test.ts`.
+- Why now: Current fusion gap was no longer just threshold tuning; verify outputs showed ability was being masked by mixed-window evidence, dynamic execution runtime errors, and fallback lock-in from sparse/historical transport degradation.
+- Verify: `npm run typecheck` passed after each patch set. `npx tsx --test tests/unit/reddit-phase1-runtime.test.ts` passed (`11/11`). `npx tsx --test tests/unit/reddit-provider-routing-policy.test.ts` passed (`9/9`). Installed missing browser runtime for Python Playwright dependency (`python -m playwright install chromium`) after dynamic profile error surfaced in verify output. New DB-backed runs: `docs/live-controlled-promotion-2026-04-19T01-10-33-593Z.json`, `...01-13-36-310Z.json`, `...01-16-42-461Z.json`, `...01-20-17-555Z.json`, `...01-27-40-076Z.json`; outputs now expose accurate run-local execution counts and explicit `runExecution` error/success context, and dynamic-path hard failure due missing browser executable is resolved.
+- Next: Continue promoted stepped evidence with the corrected run-local instrumentation and tune recovery behavior so `scrapling_http_fallback` does not remain sticky after transient dynamic transport errors; target is repeated cycles with non-zero run-local Scrapling requests under dynamic escalation before any threshold relaxation.
+
+### 2026-04-19 08:59:51
+
+- Scope: Completed promoted-target DB-backed validation using the new verify output contract. Ran `scripts/live-controlled-promotion-verify.ts` with explicit promotion env (`REDDIT_SCRAPLING_PRIMARY_SUBREDDITS=python`), timeout-tuned transport, and stepped windows. Verified that the script now emits `runExecution` and keeps completing even when connector instability appears.
+- Why now: After adding run-local evidence and cycle fault tolerance, we needed one promoted `r/python` run proving those fields work on the actual `R5` decision path.
+- Verify: Command produced `docs/live-controlled-promotion-2026-04-19T00-59-08-916Z.json` with `runCount=3`, `failedCycleCount=0`, `providersSeen=["http","scrapling"]`, and `totalScraplingFallbackTransportCounts={"powershell":2}`. All cycles routed as `scrapling_dynamic_escalation`; first cycle shows non-empty run-local Scrapling evidence (`requestCount=2`, `sessionKeyObservedRate=1`, `sessionKeyReuseRate=0.5`), while later cycles show `runLocalScraplingEvidence.requestCount=0` and preserved aggregate reuse evidence (`aggReuseRate=0.5`).
+- Next: Keep threshold unchanged and gather additional stepped promoted windows to determine whether later-cycle run-local zeroes are stable transport fallback behavior or short-window sampling noise.
+
+### 2026-04-19 08:58:20
+
+- Scope: Added cycle-level fault tolerance to `scripts/live-controlled-promotion-verify.ts` so single-run connector failures no longer abort the full verification batch. Each cycle now emits `runExecution { ok, error }`, and summary now reports `failedCycleCount`. Kept the previously added `runLocalScraplingEvidence` output path intact.
+- Why now: Promoted-window evidence collection was still brittle because one upstream timeout terminated the whole script, which blocked repeated-window decision evidence.
+- Verify: `npm run typecheck` passed. Timeout-tuned stepped verify command on `r/python` completed and wrote `docs/live-controlled-promotion-2026-04-19T00-58-06-234Z.json` with `summary.failedCycleCount=0` and per-cycle `runExecution` + `runLocalScraplingEvidence` fields present.
+- Next: Run the same stepped verify with explicit promoted-target env to force Scrapling routing evidence (`dynamic/http fallback reasons`) in `r/python`; keep current reuse threshold unchanged until those run-local Scrapling windows are collected.
+
+### 2026-04-19 08:56:20
+
+- Scope: Completed the pending `R5` verify-script hardening slice by adding a run-local Scrapling evidence view to `scripts/live-controlled-promotion-verify.ts`. The script now samples only live `collection_job` rows near each cycle `nowIso` (`scheduled_at ±3 minutes`) and computes `runLocalScraplingEvidence` (`sampledJobs`, `sampledRawEvents`, profile mix, session-key observed/reuse rates) from that cycle-local raw headers, while keeping existing 30-minute aggregate `scraplingEvidence` intact.
+- Why now: The previous `next_action` explicitly required reducing lookback-mixing noise before any threshold decision; without a cycle-local view, repeated stepped runs could still be misread from blended windows.
+- Verify: `npx tsx --test tests/unit/reddit-provider-routing-policy.test.ts` passed (`7/7`), `npx tsx --test tests/unit/reddit-scrapling.connector.test.ts` passed (`6/6`). Verification script output `docs/live-controlled-promotion-2026-04-19T00-55-53-748Z.json` now contains the new `runLocalScraplingEvidence` block per cycle (for example `sampledJobs=2`, `sampledRawEvents=3`). During this slice, direct promoted `r/python` retries still hit upstream timeout (`Timed out after 12000ms`, then `Timed out after 30000ms`), so local-field validation used a successful single-cycle `r/machinelearning` run under `REDDIT_HTTP_TRANSPORT=powershell`.
+- Next: Use timeout-tuned stepped promoted `r/python` runs to gather non-empty `runLocalScraplingEvidence` and keep `scraplingSessionKeyReuseRateMin` unchanged until repeated run-local evidence contradicts current routing thresholds.
+
+### 2026-04-19 00:24:38
+
+- Scope: Continued the active `R5` threshold-evidence slice and hardened the verify loop to produce usable repeated-window evidence. Updated `src/connectors/reddit/reddit-scrapling.connector.ts` so session-key reuse tracking is process-wide across connector instances, updated `src/runtime/reddit-provider-routing-policy.ts` so cursor-stall alone no longer forces immediate `scrapling_http_fallback`, and extended `scripts/live-controlled-promotion-verify.ts` with `REDDIT_CONTROLLED_PROMOTION_STEP_MINUTES` so controlled-promotion runs can advance across distinct 5-minute windows instead of being deduped in-place.
+- Why now: The previous `next_action` required repeated stepped `r/python` evidence before deciding whether to relax `scraplingSessionKeyReuseRateMin`, but same-window dedupe plus per-instance session-key reset was masking real reuse behavior.
+- Verify: `npx tsx --test tests/unit/reddit-scrapling.connector.test.ts` passed (`6/6`), `npx tsx --test tests/unit/reddit-provider-routing-policy.test.ts` passed (`7/7`), `npx tsx --test tests/integration/reddit-phase1-provider-routing.test.ts` passed (`3/3`), and `npm run algo:phase1` passed (`29/29`). Stepped DB-backed promotion runs with `REDDIT_CONTROLLED_PROMOTION_STEP_MINUTES=6` produced `docs/live-controlled-promotion-2026-04-18T16-15-39-059Z.json`, `docs/live-controlled-promotion-2026-04-18T16-16-44-226Z.json`, `docs/live-controlled-promotion-2026-04-18T16-22-24-753Z.json`, and `docs/live-controlled-promotion-2026-04-18T16-23-49-655Z.json`; in the 12-cycle `r/python` run, routing hit `scrapling_dynamic_escalation` with `sessionKeyReuseRate=0.5` in early windows, confirming the current reuse gate can be reached without lowering threshold.
+- Next: Keep `scraplingSessionKeyReuseRateMin` unchanged and continue collecting stepped `r/python` evidence, but reduce decision noise by adding run-local (current verify execution) Scrapling evidence alongside 30-minute aggregate evidence before any threshold change proposal.
+
+### 2026-04-19 00:17:52
+
+- Scope: Completed the next `R5` verification hardening slice around promoted technical windows. Updated `src/runtime/reddit-provider-routing-policy.ts` so cursor-stall alone no longer forces `scrapling_http_fallback` (transport fallback now requires hard transport degradation), and made Scrapling session-key reuse tracking process-wide in `src/connectors/reddit/reddit-scrapling.connector.ts` to avoid per-instance reset during repeated verify cycles. Added `REDDIT_CONTROLLED_PROMOTION_STEP_MINUTES` support in `scripts/live-controlled-promotion-verify.ts` so controlled-promotion runs can step `nowIso` across collection windows instead of being deduped inside one 5-minute bucket. Locked behavior with new tests in `tests/unit/reddit-provider-routing-policy.test.ts` and `tests/unit/reddit-scrapling.connector.test.ts`.
+- Why now: Repeated DB-backed promotion runs were not accumulating valid reuse evidence because same-window dedupe suppressed new collection slices and cursor-stall-only fallback could lock promoted targets to http before enough Scrapling evidence accumulated.
+- Verify: `npx tsx --test tests/unit/reddit-scrapling.connector.test.ts` passed (`6/6`). `npx tsx --test tests/unit/reddit-provider-routing-policy.test.ts` passed (`7/7`). `npx tsx --test tests/integration/reddit-phase1-provider-routing.test.ts` passed (`3/3`). `npm run algo:phase1` passed (`29/29` phase1 unit). Stepped promotion verify with `REDDIT_CONTROLLED_PROMOTION_STEP_MINUTES=6` wrote `docs/live-controlled-promotion-2026-04-18T16-15-39-059Z.json`, where promoted routing stayed on Scrapling and dynamic escalation triggered for `r/javascript` once `sessionKeyReuseRate` hit `0.5`; focused `r/python` run `docs/live-controlled-promotion-2026-04-18T16-16-44-226Z.json` reached `sessionKeyReuseRate=0.25` but remained below dynamic gate.
+- Next: Keep `scraplingSessionKeyReuseRateMin` unchanged at this stage and continue stepped `r/python` evidence collection; only relax threshold if repeated stepped windows still fail to cross reuse gate while stale-head stays persistently elevated.
+
+### 2026-04-18 23:44:52
+
+- Scope: Completed the requested DB-backed `R5` verification slice on promoted technical targets and landed a bounded threshold-calibration fix. Fixed `provider_health_window` Postgres insert mismatch in `src/storage/repositories/postgres/postgres-provider-health-window.repository.ts` (32 columns vs 31 placeholders), then tightened routing fallback behavior in `src/runtime/reddit-provider-routing-policy.ts` so `scrapling_cursor_stalled` only degrades promotion when recent Scrapling health-window evidence exists. Added regression coverage in `tests/unit/reddit-provider-routing-policy.test.ts` to lock this edge (`legacy stale cursor without recent scrapling evidence` should stay `scrapling_promoted`).
+- Why now: The prior `next_action` required DB-backed promotion verification with the new `routingDecision + scraplingEvidence` payload and threshold tuning only where live evidence contradicted the calibration.
+- Verify: `npm run algo:promotion:verify` initially failed with `INSERT 的指定字段数多于表达式`, then passed after the SQL fix and produced `docs/live-controlled-promotion-2026-04-18T15-41-50-058Z.json`; rerun after routing calibration produced `docs/live-controlled-promotion-2026-04-18T15-43-31-198Z.json` with promoted targets routing as `scrapling_promoted` (no false `scrapling_http_fallback` from stale cursor-only state). Additional promoted technical run `docs/live-controlled-promotion-2026-04-18T15-47-51-258Z.json` (`python,javascript`) captured real Scrapling evidence (`providersSeen=["scrapling"]`, per-cycle `scraplingEvidence.requestCount=1`, `sessionKeyObservedRate=1`, `sessionKeyReuseRate=0`) and exposed persistent stale-head on `r/python` without dynamic escalation. `npx tsx --test tests/unit/reddit-provider-routing-policy.test.ts` passed (`6/6`), `npx tsx --test tests/integration/reddit-phase1-provider-routing.test.ts` passed (`3/3`), and `npm run algo:phase1` passed (`29/29` phase1 unit).
+- Next: Accumulate multi-window Scrapling session-key reuse evidence on the promoted technical set (especially `r/python`) and only then decide whether to relax `scraplingSessionKeyReuseRateMin` for dynamic escalation; avoid changing thresholds based on single-request windows.
+
+### 2026-04-18 23:26:37
+
+- Scope: Completed the next `R5` calibration slice by wiring persisted Scrapling profile/session-key evidence into the routing policy itself. Updated `src/runtime/reddit-provider-health-thresholds.ts` and `src/runtime/reddit-provider-routing-policy.ts` so `scrapling_dynamic_escalation` now requires recent http-profile plus session-key evidence, while `scrapling_http_fallback` now also triggers when dynamic-profile requests with healthy session-key reuse still show elevated stale-head/empty evidence (`scrapling_dynamic_exhausted_http_fallback`). Promoted the new checks into verification by extending `scripts/live-controlled-promotion-verify.ts` with `routingDecision` and persisted `scraplingEvidence` output, and locked the behavior in `tests/unit/reddit-provider-routing-policy.test.ts` plus `tests/integration/reddit-phase1-provider-routing.test.ts`.
+- Why now: The previous `next_action` explicitly called for using the new Scrapling observability fields to calibrate `dynamic` escalation and `http` demotion, then promoting those checks into verify output and routing-policy tests.
+- Verify: `npm run typecheck` passed. `npx tsx --test tests/unit/reddit-provider-routing-policy.test.ts` passed (`5/5`). `npx tsx --test tests/integration/reddit-phase1-provider-routing.test.ts` passed (`3/3`). `npm run algo:phase1:full` passed (`29/29` phase1 unit + `9/9` phase1 integration).
+- Next: Run DB-backed `live-controlled-promotion-verify` / `verify-phase1-postgres` on promoted technical subreddits to capture real `routingDecision` and `scraplingEvidence`, then tighten thresholds only if live evidence disagrees with this bounded calibration.
+
+### 2026-04-18 23:02:53
+
+- Scope: Completed the next bounded `R5` Scrapling observability slice by extending `provider_health_window` with additive profile/session-key evidence (`src/storage/schema/017_provider_health_scrapling_observability.sql`) and wiring that path end-to-end. `src/connectors/reddit/reddit-scrapling.connector.ts` now stamps deterministic Scrapling session keys plus reuse markers into response headers, `scripts/scrapling_reddit_bridge.py` echoes session-key/profile metadata, and `src/jobs/collect-subreddit-new-posts.job.ts` persists profile/session-key counters and last observed Scrapling metadata into provider health windows. `/readyz` now exposes persisted Scrapling evidence (`requestCount`, `sessionKeyObservedRate`, `sessionKeyReuseRate`, `byProfile`) via `apps/api/src/readyz-observability.ts`, and `scripts/verify-phase1-postgres.ts` now prints Scrapling profile/fetcher/session-key evidence from sampled raw events.
+- Why now: The previous writeback explicitly set Scrapling profile/session-level observability as the next missing `R5` slice after provider routing and the global keyword trend API landed.
+- Verify: `npm run typecheck` passed. `npx tsx --test tests/unit/reddit-scrapling.connector.test.ts` passed (`5/5`). `npx tsx --test tests/integration/collect-subreddit-new-posts-p0.test.ts` passed (`11/11`). `npx tsx --test tests/integration/api-server-readyz.test.ts` passed (`21/21`). `npm run algo:phase1:full` passed (`29/29` phase1 unit + `8/8` phase1 integration).
+- Next: Calibrate `scrapling_dynamic_escalation` and `scrapling_http_fallback` against the new profile/session-key evidence on technical targets, then lock the new thresholds into routing-policy tests and verify-script evidence.
+
 ### 2026-04-18 15:26:34
 
 - Scope: Closed the remaining `R4` finish slice. Added frozen anomaly defaults in `src/jobs/anomaly-event-defaults.ts`, rewired `build-anomaly-events.job.ts` to consume those constants, exported scheduler replay helper `materializeTouchedTargets` for deterministic verification, and added focused coverage in `tests/unit/build-anomaly-events-thresholds.test.ts` and `tests/integration/reddit-phase1-scheduler-materialization.test.ts` to prove threshold boundaries and replay materialization order (`daily -> trend -> driver -> keyword -> anomaly`).
 - Why now: `R4` still had two explicit open items in `project.md` (`scheduler replay anomaly materialization coverage` and `threshold/default freeze with synthetic edge cases`) after the first anomaly job/API slices landed.
 - Verify: `npm run typecheck` passed. `npx tsx --test tests/unit/build-anomaly-events-thresholds.test.ts tests/unit/build-anomaly-events.job.test.ts` passed (`3/3`). `npx tsx --test tests/integration/reddit-phase1-scheduler-materialization.test.ts tests/integration/reddit-phase1-scheduler-runnable-jobs.test.ts` passed (`3/3`). `npx tsx --test tests/integration/reddit-phase1-cycle.test.ts tests/integration/api-server-trends.test.ts` passed (`12/12`). `npm run algo:phase1:full` passed (`29/29` phase1 unit + `7/7` phase1 integration).
 - Next: Move to `R5` provider-policy institutionalization (`fetch-execution-engine + provider-routing-policy`) and wire `/readyz` to expose provider plus algorithm-materialization health from the same persisted truth path.
+
+### 2026-04-18 22:49:41
+
+- Scope: Completed the missing global keyword 30-day trend read slice after the first R5 provider-routing landing. Added cross-target query support to `keywordTrendDailyRepository`, introduced `src/application/services/global-keyword-daily-trend-read-model.service.ts`, and exposed `GET /v1/trends/keywords/:query/daily` in `apps/api/src/create-api-server.ts` so explicit global queries now return day-by-day aggregated heat, breakout, explain payload, and contributing-subreddit counts from persisted `keyword_trend_daily` rows only. Added integration coverage in `tests/integration/api-server-trends.test.ts`, including rejection of subreddit-scoped input on the global endpoint.
+- Why now: `project.md` and the latest R5 writeback explicitly left the global keyword 30-day trend API/read model as the next missing product read path before going deeper on Scrapling evidence.
+- Verify: `npm run typecheck` passed. `npx tsx --test tests/integration/api-server-trends.test.ts` passed (`13/13`). `npm run algo:phase1:full` passed.
+- Next: Deepen Scrapling from provider-level routing into profile/session-level observability and evidence capture for technical targets, then use that evidence to tune dynamic escalation and demotion thresholds.
 
 ### 2026-04-18 14:49:34
 
@@ -632,3 +738,23 @@ tags:
 - Why now: User asked if this project can use Python 3.10+ and whether the environment is already installed.
 - Verify: `python --version` -> `Python 3.14.3`. `py -0p` lists `3.14`, `3.13t`, `3.13`. `where.exe python` resolves to `C:\Python314\python.exe` plus additional Python executables on `PATH`.
 - Next: Python requirement is satisfied; proceed with `python` (or pin explicitly with `py -3.14`) for any scripts in this repo.
+### 2026-04-18 16:43:19
+
+- Scope: Audited whether the current algorithm framework meets the original design targets from C:/Users/21274/Downloads/Reddit数据分析算法设计.md; validated implementation across daily facts, tiered quality, keyword trend/query, driver scoring, anomaly events, API outputs, and provider/runtime policy wiring.
+- Why now: User requested a direct standards check on the current framework readiness.
+- Verify: Cross-checked code in src/jobs/build-subreddit-daily-facts.job.ts, src/domain/services/subreddit-daily-heat.service.ts, src/jobs/build-subreddit-keyword-trend-daily.job.ts, src/jobs/build-post-growth-facts.job.ts, src/jobs/build-anomaly-events.job.ts, apps/api/src/create-api-server.ts, src/runtime/reddit-phase1-runtime.ts, and src/connectors/reddit/create-reddit-connector.ts; executed npm run algo:phase1 (pass: core typecheck + phase1 unit 29/29).
+- Next: Close remaining gaps with a dedicated global keyword 30-day trend API/read model and a stronger provider-policy abstraction beyond provider-hint routing.
+
+### 2026-04-18 21:58:48
+
+- Scope: Reviewed Obsidian project state to plan the current problem and near-future work order. Consolidated signals from `project.md`, `目前问题.md`, and `登录系统设计与上线阿里云.md` into one execution priority: keep the mainline on algorithm/runtime productization, treat auth/deployment as a later product shell, and call out the state drift between old `Current Focus` text and the latest `next_action`/activity entries.
+- Why now: User requested a planning pass from the `obsidian-reddit专用/Projects` workspace instead of more code changes.
+- Verify: Read frontmatter/current focus/latest activity in `obsidian-reddit专用/Projects/project.md`, all items in `obsidian-reddit专用/Projects/目前问题.md`, and the auth/deployment notes in `obsidian-reddit专用/Projects/登录系统设计与上线阿里云.md`.
+- Next: Execute the first `R5` provider-policy slice (`fetch-execution-engine`, `provider-routing-policy`, `/readyz` truth-path health) first; backfill the missing global keyword 30-day trend API/read model next; only after those truth/read-model gaps are closed should auth invite/session work and Aliyun deployment hardening move onto the active path.
+
+### 2026-04-18 22:34:36
+
+- Scope: Completed the first bounded `R5` provider-policy institutionalization slice for deeper Scrapling integration. Added shared provider-health thresholds in `src/runtime/reddit-provider-health-thresholds.ts`, new routing policy in `src/runtime/reddit-provider-routing-policy.ts`, and a policy-aware fetch execution engine in `src/runtime/reddit-fetch-execution-engine.ts`. Wired the runtime path (`src/workers/reddit-phase1.worker.ts`, `workers/reddit-phase1-once.ts`, `workers/reddit-phase1-scheduler.ts`, `src/application/use-cases/trigger-reddit-phase1-run.use-case.ts`) so promoted Scrapling targets now resolve from persisted truth into one of three actions: keep Scrapling, escalate Scrapling to `dynamic`, or demote to `http`. Extended `/readyz` observability/contracts to expose routing-policy summary and active fallback counts from the same truth path, and enriched `scripts/scrapling_reddit_bridge.py` with profile/fetcher headers for later profile-level evidence.
+- Why now: User requested that `R5` be made real and asked for deeper Scrapling fusion instead of leaving the repo at target-level `providerHint` routing only.
+- Verify: `npm run typecheck` passed. Targeted coverage passed: `npx tsx --test tests/unit/reddit-provider-routing-policy.test.ts tests/integration/reddit-phase1-provider-routing.test.ts tests/integration/api-server-readyz.test.ts`. Full gate passed: `npm run algo:phase1:full` (`29/29` phase1 unit + `8/8` phase1 integration after the new routing cases).
+- Next: Build the missing global keyword 30-day trend read model/API, then deepen Scrapling beyond provider-level evidence by capturing profile/session-level observability on technical targets so `dynamic` vs `http` escalation can be calibrated from persisted data instead of static thresholds alone.

@@ -2,8 +2,17 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildReadinessState } from "../apps/api/src/readyz-observability";
 import { READYZ_THRESHOLDS } from "../apps/api/src/readyz-thresholds";
+import {
+  resolveRedditProviderRoutingPolicyContextFromEnv,
+  resolveRedditTargetExecutionRoute,
+} from "../src/runtime/reddit-provider-routing-policy";
 import { stableUuidFromString } from "../src/shared/ids/stable-id";
-import { parsePositiveInt, parseSubredditList } from "../src/runtime/runtime-parsing";
+import { buildDedupeKey, floorToWindow } from "../src/shared/time/windowing";
+import {
+  parseNonNegativeInt,
+  parsePositiveInt,
+  parseSubredditList,
+} from "../src/runtime/runtime-parsing";
 import { PostgresClient } from "../src/storage/postgres/postgres-client";
 import { createPostgresRepositoryBundle } from "../src/storage/repositories/postgres/postgres-repository-bundle";
 import { runMigrations } from "../src/storage/schema/run-migrations";
@@ -39,6 +48,11 @@ interface LocalProviderHealth {
   providerDiffSampleCount: number;
   rateLimitCount: number;
   circuitOpenCount: number;
+  scraplingHttpProfileCount: number;
+  scraplingDynamicProfileCount: number;
+  scraplingStealthProfileCount: number;
+  scraplingSessionKeyCount: number;
+  scraplingSessionKeyReuseCount: number;
 }
 
 interface LocalTargetReadiness {
@@ -50,7 +64,16 @@ interface LocalTargetReadiness {
 
 interface VerifyCycle {
   subreddit: string;
+  requestedNowIso: string;
   nowIso: string;
+  windowShiftCount: number;
+  runExecution: {
+    ok: boolean;
+    error: string | null;
+    startedAtIso: string;
+    finishedAtIso: string | null;
+    executedJobCount: number;
+  };
   globalReadinessStatus: "ready" | "degraded" | "not_ready";
   globalDegradedReasons: string[];
   localTargetReadinessStatus: "ready" | "degraded";
@@ -79,6 +102,32 @@ interface VerifyCycle {
     sampledRawEvents: number;
     providerFallbackCount: number;
     scraplingFallbackTransportCounts: Record<string, number>;
+  };
+  scraplingEvidence: {
+    requestCount: number;
+    sessionKeyObservedRate: number | null;
+    sessionKeyReuseRate: number | null;
+    byProfile: Array<{
+      profile: "http" | "dynamic" | "stealth";
+      requestCount: number;
+    }>;
+  };
+  runLocalScraplingEvidence: {
+    sampledJobs: number;
+    sampledRawEvents: number;
+    requestCount: number;
+    sessionKeyObservedRate: number | null;
+    sessionKeyReuseRate: number | null;
+    byProfile: Array<{
+      profile: "http" | "dynamic" | "stealth";
+      requestCount: number;
+    }>;
+  };
+  routingDecision: {
+    providerHint: string;
+    scraplingProfile: "http" | "dynamic" | "stealth" | null;
+    routingClass: string;
+    reasons: string[];
   };
 }
 
@@ -141,6 +190,136 @@ function toOptionalInt(value: number | string | null | undefined): number | null
     }
   }
   return null;
+}
+
+function toHeadersRecord(
+  value: Record<string, unknown> | null,
+): Record<string, string> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      .map(([key, headerValue]) => [key.toLowerCase(), headerValue]),
+  );
+}
+
+function isTruthyHeader(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+function toScraplingEvidenceFromAggregate(
+  aggregate: LocalProviderHealth | undefined,
+): VerifyCycle["scraplingEvidence"] {
+  return {
+    requestCount: aggregate?.requestCount ?? 0,
+    sessionKeyObservedRate:
+      aggregate && aggregate.requestCount > 0
+        ? Number(
+            (
+              aggregate.scraplingSessionKeyCount / aggregate.requestCount
+            ).toFixed(6),
+          )
+        : null,
+    sessionKeyReuseRate:
+      aggregate && aggregate.scraplingSessionKeyCount > 0
+        ? Number(
+            (
+              aggregate.scraplingSessionKeyReuseCount /
+              aggregate.scraplingSessionKeyCount
+            ).toFixed(6),
+          )
+        : null,
+    byProfile: [
+      {
+        profile: "http" as const,
+        requestCount: aggregate?.scraplingHttpProfileCount ?? 0,
+      },
+      {
+        profile: "dynamic" as const,
+        requestCount: aggregate?.scraplingDynamicProfileCount ?? 0,
+      },
+      {
+        profile: "stealth" as const,
+        requestCount: aggregate?.scraplingStealthProfileCount ?? 0,
+      },
+    ].filter((item) => item.requestCount > 0),
+  };
+}
+
+function toRunLocalScraplingEvidence(args: {
+  sampledJobs: number;
+  rawEventHeaders: RawEventHeaderRow[];
+}): VerifyCycle["runLocalScraplingEvidence"] {
+  let requestCount = 0;
+  let sessionKeyCount = 0;
+  let sessionKeyReuseCount = 0;
+  let httpProfileCount = 0;
+  let dynamicProfileCount = 0;
+  let stealthProfileCount = 0;
+
+  for (const row of args.rawEventHeaders) {
+    const headers = toHeadersRecord(row.response_headers);
+    const profile = headers["x-scrapling-profile"]?.trim().toLowerCase();
+    const sessionKey = headers["x-scrapling-session-key"]?.trim();
+    const provider = headers["x-provider"]?.trim().toLowerCase();
+    const hasScraplingSignal =
+      profile === "http" ||
+      profile === "dynamic" ||
+      profile === "stealth" ||
+      (sessionKey != null && sessionKey.length > 0) ||
+      provider === "scrapling";
+    if (!hasScraplingSignal) {
+      continue;
+    }
+
+    requestCount += 1;
+    if (profile === "http") {
+      httpProfileCount += 1;
+    } else if (profile === "dynamic") {
+      dynamicProfileCount += 1;
+    } else if (profile === "stealth") {
+      stealthProfileCount += 1;
+    }
+
+    if (sessionKey && sessionKey.length > 0) {
+      sessionKeyCount += 1;
+      if (isTruthyHeader(headers["x-scrapling-session-key-reused"])) {
+        sessionKeyReuseCount += 1;
+      }
+    }
+  }
+
+  return {
+    sampledJobs: args.sampledJobs,
+    sampledRawEvents: args.rawEventHeaders.length,
+    requestCount,
+    sessionKeyObservedRate:
+      requestCount > 0 ? Number((sessionKeyCount / requestCount).toFixed(6)) : null,
+    sessionKeyReuseRate:
+      sessionKeyCount > 0
+        ? Number((sessionKeyReuseCount / sessionKeyCount).toFixed(6))
+        : null,
+    byProfile: [
+      {
+        profile: "http" as const,
+        requestCount: httpProfileCount,
+      },
+      {
+        profile: "dynamic" as const,
+        requestCount: dynamicProfileCount,
+      },
+      {
+        profile: "stealth" as const,
+        requestCount: stealthProfileCount,
+      },
+    ].filter((item) => item.requestCount > 0),
+  };
 }
 
 function evaluateLocalTargetReadiness(args: {
@@ -272,30 +451,105 @@ function parseSubredditSequence(raw: string | undefined): string[] {
   return parsed.length > 0 ? parsed : ["machinelearning", "datascience"];
 }
 
-async function runCycle(subreddit: string): Promise<VerifyCycle> {
+async function resolveFreshCycleNowIso(args: {
+  db: PostgresClient;
+  targetId: string;
+  requestedNowIso: string;
+}): Promise<{ nowIso: string; shiftCount: number }> {
+  const windowMinutes = 5;
+  const maxShiftCount = parsePositiveInt(
+    process.env.REDDIT_CONTROLLED_PROMOTION_MAX_WINDOW_SHIFT_COUNT,
+    96,
+  );
+  let candidateNowIso = args.requestedNowIso;
+  let shiftCount = 0;
+
+  while (shiftCount <= maxShiftCount) {
+    const windowStartIso = floorToWindow(candidateNowIso, windowMinutes);
+    const dedupeKey = buildDedupeKey(
+      "collect_subreddit_new_posts",
+      args.targetId,
+      windowStartIso,
+    );
+    const existsResult = await args.db.query<{ exists: boolean }>(
+      `
+        SELECT EXISTS (
+          SELECT 1
+          FROM collection_job
+          WHERE target_id = $1
+            AND crawl_mode = 'live'
+            AND dedupe_key = $2
+        ) AS exists
+      `,
+      [args.targetId, dedupeKey],
+    );
+    if (!existsResult.rows[0]?.exists) {
+      return {
+        nowIso: candidateNowIso,
+        shiftCount,
+      };
+    }
+    shiftCount += 1;
+    const nextWindowStartMs =
+      Date.parse(windowStartIso) + windowMinutes * 60 * 1000 + 1_000;
+    candidateNowIso = new Date(nextWindowStartMs).toISOString();
+  }
+
+  throw new Error(
+    `no fresh live collection window found for target ${args.targetId} after ${maxShiftCount} shifts`,
+  );
+}
+
+async function runCycle(args: {
+  subreddit: string;
+  nowIso: string;
+}): Promise<VerifyCycle> {
+  const db = new PostgresClient();
+  const targetId = stableUuidFromString(`reddit:target:r/${args.subreddit}`);
+  const freshWindow = await resolveFreshCycleNowIso({
+    db,
+    targetId,
+    requestedNowIso: args.nowIso,
+  });
+  let runExecution: VerifyCycle["runExecution"] = {
+    ok: true,
+    error: null,
+    startedAtIso: new Date().toISOString(),
+    finishedAtIso: null,
+    executedJobCount: 0,
+  };
   const originalLog = console.log;
   const originalError = console.error;
   console.log = () => {};
   console.error = () => {};
   try {
     await runPhase1OnceWithPostgres({
-      subreddit,
+      subreddit: args.subreddit,
       runMode: "live",
+      nowIso: freshWindow.nowIso,
+      db,
     });
+  } catch (error) {
+    runExecution = {
+      ...runExecution,
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   } finally {
+    runExecution = {
+      ...runExecution,
+      finishedAtIso: new Date().toISOString(),
+    };
     console.log = originalLog;
     console.error = originalError;
   }
-
-  const db = new PostgresClient();
   try {
     const repositories = createPostgresRepositoryBundle(db);
-    const nowIso = new Date().toISOString();
+    const nowIso = freshWindow.nowIso;
     const globalReadiness = await buildReadinessState({
       repositories,
       nowIso,
     });
-    const targetId = stableUuidFromString(`reddit:target:r/${subreddit}`);
     const latestContentAgeResult = await db.query<TargetHeadAgeRow>(
       `
         SELECT FLOOR(EXTRACT(EPOCH FROM ($2::timestamptz - MAX(created_at_source))))::int AS latest_post_age_seconds
@@ -308,17 +562,24 @@ async function runCycle(subreddit: string): Promise<VerifyCycle> {
       latestContentAgeResult.rows[0]?.latest_post_age_seconds,
     );
 
-    const recentJobs = await db.query<JobRow>(
+    const cycleExecutedJobs = await db.query<JobRow>(
       `
         SELECT id
         FROM collection_job
         WHERE target_id = $1
-        ORDER BY scheduled_at DESC
-        LIMIT 8
+          AND crawl_mode = 'live'
+          AND started_at BETWEEN ($2::timestamptz - INTERVAL '2 seconds')
+            AND ($3::timestamptz + INTERVAL '2 seconds')
+        ORDER BY started_at DESC, scheduled_at DESC
+        LIMIT 12
       `,
-      [targetId],
+      [targetId, runExecution.startedAtIso, runExecution.finishedAtIso ?? runExecution.startedAtIso],
     );
-    const jobIds = recentJobs.rows.map((row) => row.id);
+    const jobIds = cycleExecutedJobs.rows.map((row) => row.id);
+    runExecution = {
+      ...runExecution,
+      executedJobCount: jobIds.length,
+    };
     const rawEventHeaders =
       jobIds.length === 0
         ? []
@@ -392,17 +653,35 @@ async function runCycle(subreddit: string): Promise<VerifyCycle> {
         item.toLowerCase(),
       ),
     );
+    const scraplingAggregate = providerHealth.find((item) => item.provider === "scrapling");
+    const runLocalScraplingEvidence = toRunLocalScraplingEvidence({
+      sampledJobs: jobIds.length,
+      rawEventHeaders,
+    });
+    const routingDecision = await resolveRedditTargetExecutionRoute({
+      targetId,
+      canonicalName: `r/${args.subreddit}`,
+      crawlMode: "live",
+      nowIso,
+      defaultProviderHint: process.env.REDDIT_LIVE_PROVIDER ?? "http",
+      providerHealthWindowRepository: repositories.providerHealthWindowRepository,
+      crawlCursorRepository: repositories.crawlCursorRepository,
+      policyContext: resolveRedditProviderRoutingPolicyContextFromEnv(process.env),
+    });
 
     return {
-      subreddit: `r/${subreddit}`,
+      subreddit: `r/${args.subreddit}`,
+      requestedNowIso: args.nowIso,
       nowIso,
+      windowShiftCount: freshWindow.shiftCount,
+      runExecution,
       globalReadinessStatus: globalReadiness.status,
       globalDegradedReasons: globalReadiness.degradedReasons,
       localTargetReadinessStatus: localReadiness.status,
       localTargetDegradedReasons: localReadiness.degradedReasons,
       globalOnlyDegradedReasons,
       localOnlyDegradedReasons,
-      isPromotedTarget: promotedSubreddits.has(subreddit.toLowerCase()),
+      isPromotedTarget: promotedSubreddits.has(args.subreddit.toLowerCase()),
       providerHealth: providerHealth.map((item) => ({
         provider: item.provider,
         requestCount: item.requestCount,
@@ -429,6 +708,14 @@ async function runCycle(subreddit: string): Promise<VerifyCycle> {
         providerFallbackCount,
         scraplingFallbackTransportCounts,
       },
+      scraplingEvidence: toScraplingEvidenceFromAggregate(scraplingAggregate),
+      runLocalScraplingEvidence,
+      routingDecision: {
+        providerHint: routingDecision.providerHint,
+        scraplingProfile: routingDecision.scraplingProfile,
+        routingClass: routingDecision.routingClass,
+        reasons: routingDecision.reasons,
+      },
     };
   } finally {
     await db.close();
@@ -443,6 +730,10 @@ async function main(): Promise<void> {
   const subreddits = parseSubredditSequence(process.env.REDDIT_CONTROLLED_PROMOTION_SUBREDDITS);
   const rounds = parsePositiveInt(process.env.REDDIT_CONTROLLED_PROMOTION_ROUNDS, 2);
   const pauseMs = parsePositiveInt(process.env.REDDIT_CONTROLLED_PROMOTION_PAUSE_MS, 1_000);
+  const stepMinutes = parseNonNegativeInt(
+    process.env.REDDIT_CONTROLLED_PROMOTION_STEP_MINUTES,
+    0,
+  );
   await runMigrations();
 
   const cycleSubreddits: string[] = [];
@@ -451,8 +742,18 @@ async function main(): Promise<void> {
   }
 
   const cycles: VerifyCycle[] = [];
-  for (const subreddit of cycleSubreddits) {
-    const cycle = await runCycle(subreddit);
+  const baseNowMs = Date.now();
+  const backshiftMs =
+    stepMinutes > 0 ? (cycleSubreddits.length - 1) * stepMinutes * 60 * 1000 : 0;
+  const baseCycleNowMs = baseNowMs - backshiftMs;
+  for (const [index, subreddit] of cycleSubreddits.entries()) {
+    const cycleNowIso = new Date(
+      baseCycleNowMs + index * stepMinutes * 60 * 1000,
+    ).toISOString();
+    const cycle = await runCycle({
+      subreddit,
+      nowIso: cycleNowIso,
+    });
     cycles.push(cycle);
     if (pauseMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, pauseMs));
@@ -504,10 +805,12 @@ async function main(): Promise<void> {
       profile: process.env.REDDIT_SCRAPLING_PROFILE ?? "http",
       rounds,
       pauseMs,
+      stepMinutes,
       cycleSubreddits,
     },
     summary: {
       runCount: cycles.length,
+      failedCycleCount: cycles.filter((cycle) => !cycle.runExecution.ok).length,
       globalDegradedRuns: cycles.filter((cycle) => cycle.globalReadinessStatus !== "ready").length,
       localTargetDegradedRuns: cycles.filter(
         (cycle) => cycle.localTargetReadinessStatus !== "ready",

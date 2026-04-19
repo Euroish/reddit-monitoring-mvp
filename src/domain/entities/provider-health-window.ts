@@ -22,8 +22,16 @@ export interface ProviderHealthWindow {
   rateLimitCount: number;
   timeoutCount: number;
   circuitOpenCount: number;
+  scraplingHttpProfileCount: number;
+  scraplingDynamicProfileCount: number;
+  scraplingStealthProfileCount: number;
+  scraplingSessionKeyCount: number;
+  scraplingSessionKeyReuseCount: number;
   lastStatusCode?: number;
   lastErrorCode?: string;
   lastErrorMessage?: string;
+  lastScraplingProfile?: "http" | "dynamic" | "stealth";
+  lastScraplingFetcher?: string;
+  lastScraplingSessionKey?: string;
   updatedAt: ISODateTime;
 }

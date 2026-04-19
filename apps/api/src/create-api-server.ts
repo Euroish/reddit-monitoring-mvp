@@ -15,6 +15,7 @@ import type {
   GetKeywordQueryResponse,
   MarketTrendResponse,
   RunMode,
+  GlobalKeywordDailyTrendResponse,
   SubredditDriverPostsResponse,
   SubredditDailyTrendResponse,
   SubredditTrendResponse,
@@ -36,10 +37,12 @@ import { buildSubredditAnomalyIncidentReadModel } from "../../../src/application
 import { buildSubredditAnomalyFeedReadModel } from "../../../src/application/services/subreddit-anomaly-feed-read-model.service";
 import { buildSubredditDailyInsights } from "../../../src/application/services/subreddit-daily-insights.service";
 import { buildSubredditDriverPostReadModel } from "../../../src/application/services/subreddit-driver-post-read-model.service";
+import { buildGlobalKeywordDailyTrendReadModel } from "../../../src/application/services/global-keyword-daily-trend-read-model.service";
 import { buildSubredditTrendReadModel } from "../../../src/application/services/subreddit-trend-read-model";
 import type { RedditConnector } from "../../../src/connectors/reddit/reddit-connector.interface";
 import { DefaultRedditMapper } from "../../../src/connectors/reddit/reddit.mapper";
 import type { RedditMapper } from "../../../src/connectors/reddit/reddit-mapper.interface";
+import type { RedditScraplingProfile } from "../../../src/connectors/reddit/reddit-scrapling.connector";
 import type { AnomalySignalType } from "../../../src/domain/entities/anomaly-event";
 import type { PostGrowthAgeBucket } from "../../../src/domain/entities/post-growth-fact";
 import type { KeywordQuerySessionRepository } from "../../../src/domain/repositories/keyword-query-session-repository";
@@ -69,6 +72,7 @@ import {
   resolveTrendRange,
 } from "./api-validation";
 import { buildReadinessState } from "./readyz-observability";
+import { resolveRedditProviderRoutingPolicyContextFromEnv } from "../../../src/runtime/reddit-provider-routing-policy";
 
 function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
   res.statusCode = statusCode;
@@ -162,7 +166,12 @@ function parseAnomalySignalTypeList(value: string | null): AnomalySignalType[] |
 
 export interface CreateApiServerOptions {
   repositories: ApiRepositoryBundle;
-  createConnector: (mode: RunMode, crawlMode?: CrawlMode) => RedditConnector;
+  createConnector: (
+    mode: RunMode,
+    crawlMode?: CrawlMode,
+    providerOverride?: string,
+    scraplingProfileOverride?: RedditScraplingProfile,
+  ) => RedditConnector;
   redditMapper?: RedditMapper;
   now?: () => string;
   logger?: (event: ApiRequestLog) => void;
@@ -756,6 +765,9 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         const readiness = await buildReadinessState({
           repositories: repos,
           nowIso,
+          routingPolicyContext: resolveRedditProviderRoutingPolicyContextFromEnv(
+            process.env,
+          ),
         });
         const payload: ApiReadinessResponse = {
           ok: readiness.isReady,
@@ -1087,6 +1099,79 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           statusCode: 200,
           body: payload,
           canonicalName: record.session.canonicalSubreddit,
+        });
+        return;
+      }
+
+      if (
+        req.method === "GET" &&
+        pathname.startsWith("/v1/trends/keywords/") &&
+        pathname.endsWith("/daily")
+      ) {
+        if (!repos.keywordTrendDailyRepository) {
+          throw new Error("keyword trend daily repository is required for keyword trend reads");
+        }
+        const queryRaw = pathname
+          .replace("/v1/trends/keywords/", "")
+          .replace(/\/daily$/, "");
+        const queryText = decodeURIComponent(queryRaw).trim();
+        if (/^r\/[a-z0-9_]{3,21}\s*:/i.test(queryText)) {
+          throw new BadRequestError(
+            `invalid keyword query scope for global trend endpoint: ${queryText}`,
+            "invalid_query_param",
+          );
+        }
+        const normalizedQuery = (() => {
+          try {
+            const parsed = normalizeQueryV2(queryText);
+            if (parsed.queryScope === "subreddit") {
+              return normalizeQueryV2(`global:${queryText}`);
+            }
+            return parsed;
+          } catch {
+            throw new BadRequestError(
+              `invalid keyword query: ${queryText}`,
+              "invalid_query_param",
+            );
+          }
+        })();
+        if (normalizedQuery.queryScope !== "global") {
+          throw new BadRequestError(
+            `invalid keyword query scope for global trend endpoint: ${queryText}`,
+            "invalid_query_param",
+          );
+        }
+
+        const { fromIso, toIso } = resolveDailyRange(url.searchParams, now());
+        const rows = await repos.keywordTrendDailyRepository.listByQueryInRange({
+          normalizedQueryText: normalizedQuery.normalizedQueryText,
+          fromDay: toUtcDay(fromIso),
+          toDay: toUtcDay(toIso),
+          track: "explicit_query",
+          queryScope: "global",
+        });
+        const readModel = buildGlobalKeywordDailyTrendReadModel({
+          normalizedQueryText: normalizedQuery.normalizedQueryText,
+          rows,
+          fromIso,
+          toIso,
+        });
+
+        const payload: GlobalKeywordDailyTrendResponse = {
+          ok: true,
+          requestId,
+          generatedAtIso: now(),
+          queryText,
+          normalizedQueryText: normalizedQuery.normalizedQueryText,
+          queryScope: "global",
+          fromIso: readModel.fromIso,
+          toIso: readModel.toIso,
+          dayCount: readModel.dayCount,
+          days: readModel.days,
+        };
+        respond({
+          statusCode: 200,
+          body: payload,
         });
         return;
       }

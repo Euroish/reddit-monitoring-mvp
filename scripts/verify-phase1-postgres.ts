@@ -130,6 +130,10 @@ async function main(): Promise<void> {
             )
           ).rows;
     const scraplingFallbackTransportCounts: Record<string, number> = {};
+    const scraplingProfileCounts: Record<string, number> = {};
+    const scraplingFetcherCounts: Record<string, number> = {};
+    let scraplingSessionKeyObservedCount = 0;
+    let scraplingSessionKeyReuseCount = 0;
     let providerFallbackCount = 0;
     for (const row of rawEventHeaders) {
       const headers =
@@ -141,6 +145,31 @@ async function main(): Promise<void> {
         const key = fallbackTransport.trim().toLowerCase();
         scraplingFallbackTransportCounts[key] =
           (scraplingFallbackTransportCounts[key] ?? 0) + 1;
+      }
+      const scraplingProfile = headers["x-scrapling-profile"];
+      if (typeof scraplingProfile === "string" && scraplingProfile.trim().length > 0) {
+        const key = scraplingProfile.trim().toLowerCase();
+        scraplingProfileCounts[key] = (scraplingProfileCounts[key] ?? 0) + 1;
+      }
+      const scraplingFetcher = headers["x-scrapling-fetcher"];
+      if (typeof scraplingFetcher === "string" && scraplingFetcher.trim().length > 0) {
+        const key = scraplingFetcher.trim().toLowerCase();
+        scraplingFetcherCounts[key] = (scraplingFetcherCounts[key] ?? 0) + 1;
+      }
+      const scraplingSessionKey = headers["x-scrapling-session-key"];
+      if (
+        typeof scraplingSessionKey === "string" &&
+        scraplingSessionKey.trim().length > 0
+      ) {
+        scraplingSessionKeyObservedCount += 1;
+      }
+      const scraplingSessionKeyReused = headers["x-scrapling-session-key-reused"];
+      if (
+        typeof scraplingSessionKeyReused === "string" &&
+        (scraplingSessionKeyReused.trim() === "1" ||
+          scraplingSessionKeyReused.trim().toLowerCase() === "true")
+      ) {
+        scraplingSessionKeyReuseCount += 1;
       }
       const providerFallback = headers["x-provider-fallback"];
       if (typeof providerFallback === "string" && providerFallback.trim().length > 0) {
@@ -290,6 +319,10 @@ async function main(): Promise<void> {
             sampledRawEvents: rawEventHeaders.length,
             providerFallbackCount,
             scraplingFallbackTransportCounts,
+            scraplingProfileCounts,
+            scraplingFetcherCounts,
+            scraplingSessionKeyObservedCount,
+            scraplingSessionKeyReuseCount,
           },
           recentJobs: recentJobs.rows.map((job) => ({
             id: job.id,
