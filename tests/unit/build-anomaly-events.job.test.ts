@@ -110,7 +110,14 @@ test("buildAnomalyEventsJob materializes volume/quality/keyword/driver events fr
   assert.equal(signalTypes.has("quality"), true);
   assert.equal(signalTypes.has("keyword"), true);
   assert.equal(signalTypes.has("driver"), true);
-  assert.equal(rows.every((row) => row.algorithmVersion === "anomaly_event_v1"), true);
+  assert.equal(
+    rows.every((row) => row.algorithmVersion === "anomaly_event_v2_tier_directional_quality"),
+    true,
+  );
+  assert.equal(
+    rows.some((row) => row.signalType === "quality" && row.signalKey === "quality_up"),
+    true,
+  );
   assert.equal(rows.some((row) => row.signalType === "keyword" && row.signalKey === "llm"), true);
   assert.equal(
     rows.some((row) => row.signalType === "driver" && row.signalKey === contentId),
@@ -126,6 +133,58 @@ test("buildAnomalyEventsJob materializes volume/quality/keyword/driver events fr
   assert.equal(persisted.length, rows.length);
 });
 
+test("buildAnomalyEventsJob emits directional quality_down events on negative quality drift", async () => {
+  const targetId = stableUuidFromString("reddit:target:r/quality-down");
+  const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
+  const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
+  const keywordTrendDailyRepository = new InMemoryKeywordTrendDailyRepository();
+  const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
+  const anomalyEventRepository = new InMemoryAnomalyEventRepository();
+
+  await subredditDailyFactRepository.upsertMany([
+    createDailyFact(targetId, "2026-04-10", {
+      postVolume: 100,
+      qualifiedPostVolume: 70,
+      heatChangePct: 0,
+      subredditTier: "mid",
+    }),
+    createDailyFact(targetId, "2026-04-11", {
+      postVolume: 100,
+      qualifiedPostVolume: 68,
+      heatChangePct: 0,
+      subredditTier: "mid",
+    }),
+    createDailyFact(targetId, "2026-04-12", {
+      postVolume: 100,
+      qualifiedPostVolume: 30,
+      heatChangePct: 1,
+      subredditTier: "mid",
+    }),
+  ]);
+
+  const rows = await buildAnomalyEventsJob(
+    {
+      anomalyEventRepository,
+      subredditTrendPointRepository,
+      subredditDailyFactRepository,
+      keywordTrendDailyRepository,
+      postGrowthFactRepository,
+    },
+    {
+      targetId,
+      fromIso: "2026-04-10T00:00:00.000Z",
+      toIso: "2026-04-12T23:59:59.000Z",
+    },
+  );
+
+  const qualityDown = rows.find(
+    (row) => row.signalType === "quality" && row.signalKey === "quality_down",
+  );
+  assert.notEqual(qualityDown, undefined);
+  assert.equal(qualityDown?.algorithmVersion, "anomaly_event_v2_tier_directional_quality");
+  assert.equal((qualityDown?.explainPayload.direction as string | undefined) ?? "", "down");
+});
+
 function createDailyFact(
   targetId: string,
   day: string,
@@ -133,6 +192,7 @@ function createDailyFact(
     postVolume: number;
     qualifiedPostVolume: number;
     heatChangePct: number;
+    subredditTier: "micro" | "small" | "mid" | "large";
   }> = {},
 ) {
   return {
@@ -154,7 +214,7 @@ function createDailyFact(
     heatChangePct: overrides.heatChangePct ?? 0.04,
     ema7: 0.55,
     ema30: 0.5,
-    subredditTier: "mid" as const,
+    subredditTier: overrides.subredditTier ?? ("mid" as const),
     qualityThresholdScore: 30,
     qualityThresholdComments: 5,
     algorithmVersion: "daily_fact_v1",

@@ -1,5 +1,10 @@
 import type { AnomalyEvent, AnomalySignalType } from "../../domain/entities/anomaly-event";
-import type { AnomalySeverity } from "./subreddit-anomaly-feed-read-model.service";
+import { ANOMALY_EVENT_DEFAULTS } from "../../jobs/anomaly-event-defaults";
+import { buildAnomalyEventId } from "./anomaly-event-id";
+import {
+  resolveAnomalySeverity,
+  type AnomalySeverity,
+} from "./anomaly-severity";
 
 export interface SubredditAnomalyIncidentItem {
   incidentId: string;
@@ -15,14 +20,20 @@ export interface SubredditAnomalyIncidentItem {
   explainPayload: {
     mergedFromEvents: number;
     signalBreakdown: Record<AnomalySignalType, number>;
+    mergeBoostBySignalType: Record<AnomalySignalType, number>;
     maxSourceScore: number;
     mergeBoost: number;
     sourceEvents: Array<{
+      eventId: string;
       signalType: AnomalySignalType;
       signalKey: string;
       anomalyScore: number;
       observedAt: string;
+      severity: AnomalySeverity;
+      algorithmVersion: string;
     }>;
+    contractVersion: "anomaly_incident_explain_v1";
+    mergeStrategy: "weighted_signal_boost_v1";
   };
 }
 
@@ -37,7 +48,7 @@ interface GroupedIncident {
   events: AnomalyEvent[];
 }
 
-const MERGE_BOOST_PER_EXTRA_SIGNAL = 0.08;
+const MERGE_BOOST_BY_SIGNAL_TYPE = ANOMALY_EVENT_DEFAULTS.incidentMergeBoostBySignal;
 
 export function buildSubredditAnomalyIncidentReadModel(args: {
   events: AnomalyEvent[];
@@ -89,10 +100,13 @@ function toIncidentItem(group: GroupedIncident): SubredditAnomalyIncidentItem {
   });
 
   const sourceEvents = sorted.map((event) => ({
+    eventId: buildAnomalyEventId(event),
     signalType: event.signalType,
     signalKey: event.signalKey,
     anomalyScore: event.anomalyScore,
     observedAt: event.observedAt,
+    severity: resolveAnomalySeverity(event.anomalyScore),
+    algorithmVersion: event.algorithmVersion,
   }));
   const signalTypeSet = new Set(sourceEvents.map((event) => event.signalType));
   const signalTypes = Array.from(signalTypeSet.values()).sort((a, b) =>
@@ -100,9 +114,23 @@ function toIncidentItem(group: GroupedIncident): SubredditAnomalyIncidentItem {
   ) as AnomalySignalType[];
   const signalCount = signalTypes.length;
   const maxSourceScore = sorted[0]?.anomalyScore ?? 0;
-  const mergeBoost = Math.max(0, signalCount - 1) * MERGE_BOOST_PER_EXTRA_SIGNAL;
-  const mergedScore = Number(Math.min(1, maxSourceScore + mergeBoost).toFixed(6));
   const dominantSignalType = sorted[0]?.signalType ?? "volume";
+  const mergeBoostBySignalType: Record<AnomalySignalType, number> = {
+    volume: signalTypes.includes("volume") && dominantSignalType !== "volume"
+      ? MERGE_BOOST_BY_SIGNAL_TYPE.volume
+      : 0,
+    quality: signalTypes.includes("quality") && dominantSignalType !== "quality"
+      ? MERGE_BOOST_BY_SIGNAL_TYPE.quality
+      : 0,
+    keyword: signalTypes.includes("keyword") && dominantSignalType !== "keyword"
+      ? MERGE_BOOST_BY_SIGNAL_TYPE.keyword
+      : 0,
+    driver: signalTypes.includes("driver") && dominantSignalType !== "driver"
+      ? MERGE_BOOST_BY_SIGNAL_TYPE.driver
+      : 0,
+  };
+  const mergeBoost = Object.values(mergeBoostBySignalType).reduce((sum, value) => sum + value, 0);
+  const mergedScore = Number(Math.min(1, maxSourceScore + mergeBoost).toFixed(6));
   const observedAt = sorted[0]?.observedAt ?? group.windowStart;
   const algorithmVersion = sorted[0]?.algorithmVersion ?? "anomaly_incident_v1";
 
@@ -112,7 +140,7 @@ function toIncidentItem(group: GroupedIncident): SubredditAnomalyIncidentItem {
     windowEnd: group.windowEnd,
     observedAt,
     mergedScore,
-    severity: resolveSeverity(mergedScore),
+    severity: resolveAnomalySeverity(mergedScore),
     dominantSignalType,
     signalTypes,
     signalCount,
@@ -125,21 +153,14 @@ function toIncidentItem(group: GroupedIncident): SubredditAnomalyIncidentItem {
         keyword: sourceEvents.filter((event) => event.signalType === "keyword").length,
         driver: sourceEvents.filter((event) => event.signalType === "driver").length,
       },
+      mergeBoostBySignalType,
       maxSourceScore,
       mergeBoost,
       sourceEvents,
+      contractVersion: "anomaly_incident_explain_v1",
+      mergeStrategy: "weighted_signal_boost_v1",
     },
   };
-}
-
-function resolveSeverity(score: number): AnomalySeverity {
-  if (score >= 0.8) {
-    return "high";
-  }
-  if (score >= 0.5) {
-    return "medium";
-  }
-  return "low";
 }
 
 function floorTo15Minutes(iso: string): string {

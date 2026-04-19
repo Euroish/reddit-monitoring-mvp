@@ -39,8 +39,13 @@ test("buildSubredditAnomalyFeedReadModel sorts by score and maps severity", () =
   });
 
   assert.equal(model.events.length, 2);
+  assert.equal(model.events[0]?.eventId, "driver:post-a:2026-04-18T10:11:00.000Z");
   assert.equal(model.events[0]?.signalType, "driver");
   assert.equal(model.events[0]?.severity, "high");
+  assert.equal(model.events[0]?.explainPayload.contractVersion, "anomaly_feed_explain_v1");
+  assert.equal(model.events[0]?.explainPayload.signalType, "driver");
+  assert.equal(model.events[0]?.explainPayload.severity, "high");
   assert.equal(model.events[1]?.signalType, "keyword");
   assert.equal(model.events[1]?.severity, "medium");
+  assert.equal(model.events[1]?.explainPayload.contractVersion, "anomaly_feed_explain_v1");
 });

@@ -1,8 +1,12 @@
 import type { AnomalyEvent } from "../../domain/entities/anomaly-event";
-
-export type AnomalySeverity = "low" | "medium" | "high";
+import { buildAnomalyEventId } from "./anomaly-event-id";
+import {
+  resolveAnomalySeverity,
+  type AnomalySeverity,
+} from "./anomaly-severity";
 
 export interface SubredditAnomalyFeedItem {
+  eventId: string;
   signalType: "volume" | "quality" | "keyword" | "driver";
   signalKey: string;
   observedAt: string;
@@ -11,7 +15,18 @@ export interface SubredditAnomalyFeedItem {
   anomalyScore: number;
   severity: AnomalySeverity;
   algorithmVersion: string;
-  explainPayload: Record<string, unknown>;
+  explainPayload: {
+    contractVersion: "anomaly_feed_explain_v1";
+    signalType: "volume" | "quality" | "keyword" | "driver";
+    signalKey: string;
+    observedAt: string;
+    windowStart?: string;
+    windowEnd?: string;
+    anomalyScore: number;
+    severity: AnomalySeverity;
+    algorithmVersion: string;
+    details: Record<string, unknown>;
+  };
 }
 
 export interface SubredditAnomalyFeedReadModel {
@@ -39,27 +54,32 @@ export function buildSubredditAnomalyFeedReadModel(args: {
       return a.signalKey.localeCompare(b.signalKey);
     })
     .slice(0, args.limit)
-    .map((event) => ({
-      signalType: event.signalType,
-      signalKey: event.signalKey,
-      observedAt: event.observedAt,
-      windowStart: event.windowStart,
-      windowEnd: event.windowEnd,
-      anomalyScore: event.anomalyScore,
-      severity: resolveAnomalySeverity(event.anomalyScore),
-      algorithmVersion: event.algorithmVersion,
-      explainPayload: event.explainPayload,
-    }));
+    .map((event) => {
+      const severity = resolveAnomalySeverity(event.anomalyScore);
+      return {
+        eventId: buildAnomalyEventId(event),
+        signalType: event.signalType,
+        signalKey: event.signalKey,
+        observedAt: event.observedAt,
+        windowStart: event.windowStart,
+        windowEnd: event.windowEnd,
+        anomalyScore: event.anomalyScore,
+        severity,
+        algorithmVersion: event.algorithmVersion,
+        explainPayload: {
+          contractVersion: "anomaly_feed_explain_v1" as const,
+          signalType: event.signalType,
+          signalKey: event.signalKey,
+          observedAt: event.observedAt,
+          windowStart: event.windowStart,
+          windowEnd: event.windowEnd,
+          anomalyScore: event.anomalyScore,
+          severity,
+          algorithmVersion: event.algorithmVersion,
+          details: event.explainPayload ?? {},
+        },
+      };
+    });
 
   return { events };
-}
-
-function resolveAnomalySeverity(anomalyScore: number): AnomalySeverity {
-  if (anomalyScore >= 0.8) {
-    return "high";
-  }
-  if (anomalyScore >= 0.5) {
-    return "medium";
-  }
-  return "low";
 }

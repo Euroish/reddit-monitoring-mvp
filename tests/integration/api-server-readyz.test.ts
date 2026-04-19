@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createApiServer } from "../../apps/api/src/create-api-server";
 import { READYZ_THRESHOLDS } from "../../apps/api/src/readyz-thresholds";
+import type { ApiReadinessResponse } from "../../packages/contracts/src/http";
 import { RedditMockConnector } from "../../src/connectors/reddit/reddit-mock.connector";
 import { stableUuidFromString } from "../../src/shared/ids/stable-id";
 import {
@@ -94,31 +95,7 @@ test("api server readyz returns queue backlog and active sessions", async () => 
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      ok: boolean;
-      status: string;
-      checks: {
-        storage: string;
-        queue: string;
-      };
-      queue: {
-        backlog: number;
-        scheduled: number;
-        running: number;
-        deadLetter: number;
-        byMode: {
-          live: { backlog: number };
-          backfill: { scheduled: number; running: number };
-          default: { deadLetter: number };
-        };
-      };
-      observability: {
-        fetchSuccessRate: number | null;
-      };
-      activeSessions: number;
-      activeTargets: number;
-      degradedReasons: string[];
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.ok, true);
@@ -190,12 +167,7 @@ test("api server readyz uses keyword query sessions as activeSessions when avail
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      queue: {
-        running: number;
-      };
-      activeSessions: number;
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.queue.running, 0);
@@ -253,36 +225,7 @@ test("api server readyz reports provider degradation from health window evidence
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      status: string;
-      degradedReasons: string[];
-      observability: {
-        fetchSuccessRate: number | null;
-        fallbackRate: number | null;
-        emptyWindowRate: number | null;
-        duplicatePostRate: number | null;
-        ingestLagSeconds: number | null;
-        providerDiffRate: number | null;
-        errorRate: number | null;
-        rateLimitRate: number | null;
-        timeoutRate: number | null;
-        circuitOpenRate: number | null;
-        providerSwitchShare: number | null;
-        byProvider: Array<{
-          provider: string;
-          fallbackRate: number | null;
-          fetchSuccessRate: number | null;
-          duplicatePostRate: number | null;
-          ingestLagSeconds: number | null;
-          providerDiffRate: number | null;
-          errorRate: number | null;
-          rateLimitRate: number | null;
-          timeoutRate: number | null;
-          circuitOpenRate: number | null;
-          providerSwitchShare: number | null;
-        }>;
-      };
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.status, "degraded");
@@ -629,10 +572,7 @@ test("api server readyz isolates degraded reasons for each provider-health scena
 
     const baseUrl = await startServer(server);
     try {
-      const readyResult = await getJson<{
-        status: string;
-        degradedReasons: string[];
-      }>(`${baseUrl}/readyz`);
+      const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
       assert.equal(readyResult.status, 200, scenario.slug);
       assert.equal(readyResult.body.status, "degraded", scenario.slug);
@@ -706,16 +646,7 @@ test("api server readyz exposes provider switch evidence across providers", asyn
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      observability: {
-        providerSwitchShare: number | null;
-        byProvider: Array<{
-          provider: string;
-          providerSwitchShare: number | null;
-        }>;
-      };
-      degradedReasons: string[];
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.observability.providerSwitchShare, 0.3);
@@ -768,19 +699,7 @@ test("api server readyz marks stale live crawl cursors as degraded", async () =>
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      status: string;
-      observability: {
-        cursorStallRate: number | null;
-        cursorLagSecondsMax: number | null;
-        byProvider: Array<{
-          provider: string;
-          cursorStallRate: number | null;
-          cursorLagSecondsMax: number | null;
-        }>;
-      };
-      degradedReasons: string[];
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.status, "degraded");
@@ -830,14 +749,7 @@ test("api server readyz keeps fresh live crawl cursors below stall threshold", a
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      status: string;
-      observability: {
-        cursorStallRate: number | null;
-        cursorLagSecondsMax: number | null;
-      };
-      degradedReasons: string[];
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.status, "ready");
@@ -911,17 +823,7 @@ test("api server readyz keeps cursor exactly at stall threshold as fresh", async
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      degradedReasons: string[];
-      observability: {
-        cursorStallRate: number | null;
-        byProvider: Array<{
-          provider: string;
-          cursorStallRate: number | null;
-          cursorLagSecondsMax: number | null;
-        }>;
-      };
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.observability.cursorStallRate, 0);
@@ -976,15 +878,7 @@ test("api server readyz keeps duplicatePostRate for all-duplicate provider windo
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      degradedReasons: string[];
-      observability: {
-        duplicatePostRate: number | null;
-        byProvider: Array<{
-          duplicatePostRate: number | null;
-        }>;
-      };
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.observability.duplicatePostRate, 1);
     assert.equal(readyResult.body.observability.byProvider[0]?.duplicatePostRate, 1);
@@ -1033,19 +927,7 @@ test("api server readyz flags duplicate-heavy stale-head provider windows", asyn
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      status: string;
-      degradedReasons: string[];
-      observability: {
-        duplicatePostRate: number | null;
-        ingestLagSeconds: number | null;
-        byProvider: Array<{
-          provider: string;
-          duplicatePostRate: number | null;
-          ingestLagSeconds: number | null;
-        }>;
-      };
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.status, "degraded");
@@ -1114,16 +996,7 @@ test("api server readyz treats exact stale-head thresholds as degraded", async (
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      degradedReasons: string[];
-      observability: {
-        byProvider: Array<{
-          provider: string;
-          duplicatePostRate: number | null;
-          ingestLagSeconds: number | null;
-        }>;
-      };
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(
@@ -1194,16 +1067,7 @@ test("api server readyz keeps exact circuit-open threshold below degraded", asyn
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      status: string;
-      degradedReasons: string[];
-      observability: {
-        byProvider: Array<{
-          provider: string;
-          circuitOpenRate: number | null;
-        }>;
-      };
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.status, "ready");
@@ -1271,23 +1135,7 @@ test("api server readyz keeps exact strict-greater provider-health thresholds be
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      status: string;
-      degradedReasons: string[];
-      observability: {
-        byProvider: Array<{
-          provider: string;
-          fetchSuccessRate: number | null;
-          fallbackRate: number | null;
-          emptyWindowRate: number | null;
-          providerDiffRate: number | null;
-          errorRate: number | null;
-          rateLimitRate: number | null;
-          timeoutRate: number | null;
-          circuitOpenRate: number | null;
-        }>;
-      };
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.status, "ready");
@@ -1423,15 +1271,7 @@ test("api server readyz keeps dominant provider-switch share at exact threshold 
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      degradedReasons: string[];
-      observability: {
-        byProvider: Array<{
-          provider: string;
-          providerSwitchShare: number | null;
-        }>;
-      };
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     const httpProvider = readyResult.body.observability.byProvider.find(
@@ -1504,19 +1344,7 @@ test("api server readyz flags combined stale-head and cursor-stall evidence per 
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      status: string;
-      degradedReasons: string[];
-      observability: {
-        byProvider: Array<{
-          provider: string;
-          duplicatePostRate: number | null;
-          ingestLagSeconds: number | null;
-          cursorStallRate: number | null;
-          cursorLagSecondsMax: number | null;
-        }>;
-      };
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.status, "degraded");
@@ -1536,6 +1364,91 @@ test("api server readyz flags combined stale-head and cursor-stall evidence per 
     assert.equal(
       readyResult.body.degradedReasons.includes("provider_data_stalled:http"),
       true,
+    );
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("api server readyz suppresses scrapling stale-head and cursor stall when dynamic freshness is recovered", async () => {
+  const fixedNow = "2026-04-10T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+  const targetId = stableUuidFromString("reddit:target:r/scrapling-dynamic-recovered");
+
+  await repos.monitorTargetRepository.upsert({
+    id: targetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: "r/scrapling-dynamic-recovered",
+    status: "active",
+    config: {},
+    createdAt: fixedNow,
+    updatedAt: fixedNow,
+  });
+  await repos.providerHealthWindowRepository.record({
+    provider: "scrapling",
+    targetId,
+    mode: "live",
+    windowStart: "2026-04-10T11:55:00.000Z",
+    requestCountDelta: 8,
+    successCountDelta: 8,
+    emptyResponseCountDelta: 0,
+    fallbackCountDelta: 0,
+    candidateCountDelta: 80,
+    acceptedCountDelta: 80,
+    filteredOutCountDelta: 0,
+    duplicatePostCountDelta: 60,
+    ingestLagSecondsSumDelta: 80_000,
+    ingestLagSampleCountDelta: 8,
+    providerDiffCountDelta: 0,
+    providerDiffSampleCountDelta: 0,
+    errorCountDelta: 0,
+    rateLimitCountDelta: 0,
+    timeoutCountDelta: 0,
+    circuitOpenCountDelta: 0,
+    scraplingHttpProfileCountDelta: 0,
+    scraplingDynamicProfileCountDelta: 8,
+    scraplingSessionKeyCountDelta: 8,
+    scraplingSessionKeyReuseCountDelta: 7,
+    updatedAt: fixedNow,
+  });
+  await repos.crawlCursorRepository.upsert({
+    provider: "scrapling",
+    targetId,
+    mode: "live",
+    cursor: "t3_scrapling_dynamic_recovered_cursor",
+    lastFetchedAt: "2026-04-10T11:40:00.000Z",
+    updatedAt: "2026-04-10T11:40:00.000Z",
+  });
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
+
+    assert.equal(readyResult.status, 200);
+    assert.equal(readyResult.body.status, "ready");
+    assert.equal(readyResult.body.observability.byProvider[0]?.provider, "scrapling");
+    assert.equal(readyResult.body.observability.byProvider[0]?.duplicatePostRate, 0.75);
+    assert.equal(readyResult.body.observability.byProvider[0]?.ingestLagSeconds, 10000);
+    assert.equal(readyResult.body.observability.byProvider[0]?.cursorStallRate, 1);
+    assert.equal(readyResult.body.observability.byProvider[0]?.cursorLagSecondsMax, 1200);
+    assert.equal(
+      readyResult.body.degradedReasons.includes("provider_stale_head_elevated:scrapling"),
+      false,
+    );
+    assert.equal(
+      readyResult.body.degradedReasons.includes("provider_cursor_stalled:scrapling"),
+      false,
+    );
+    assert.equal(
+      readyResult.body.degradedReasons.includes("provider_data_stalled:scrapling"),
+      false,
     );
   } finally {
     await stopServer(server);
@@ -1616,18 +1529,7 @@ test("api server readyz ignores stale legacy cursor providers outside current li
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      status: string;
-      degradedReasons: string[];
-      observability: {
-        cursorStallRate: number | null;
-        byProvider: Array<{
-          provider: string;
-          cursorStallRate: number | null;
-          cursorLagSecondsMax: number | null;
-        }>;
-      };
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.status, "degraded");
@@ -1740,14 +1642,7 @@ test("api server readyz reports unavailable observability signals with bounded s
 
     const baseUrl = await startServer(server);
     try {
-      const readyResult = await getJson<{
-        status: "ready" | "degraded" | "not_ready";
-        checks: {
-          storage: "ok" | "error";
-          queue: "ok" | "degraded" | "error";
-        };
-        degradedReasons: string[];
-      }>(`${baseUrl}/readyz`);
+      const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
       assert.equal(readyResult.status, scenario.expectedHttpStatus, scenario.slug);
       assert.equal(readyResult.body.status, scenario.expectedStatus, scenario.slug);
@@ -1807,18 +1702,7 @@ test("api server readyz keeps cursor-stall evidence when provider health observa
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      status: "ready" | "degraded" | "not_ready";
-      degradedReasons: string[];
-      observability: {
-        cursorStallRate: number | null;
-        byProvider: Array<{
-          provider: string;
-          cursorStallRate: number | null;
-          cursorLagSecondsMax: number | null;
-        }>;
-      };
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.status, "degraded");
@@ -1875,14 +1759,7 @@ test("api server readyz reports stale algorithm materialization when recent snap
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      status: "ready" | "degraded" | "not_ready";
-      degradedReasons: string[];
-      observability: {
-        dailyFactCoverageRate: number | null;
-        dailyFactLagDaysMax: number | null;
-      };
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.status, "degraded");
@@ -1959,22 +1836,7 @@ test("api server readyz exposes routing-policy fallback when promoted scrapling 
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      status: "ready" | "degraded" | "not_ready";
-      degradedReasons: string[];
-      observability: {
-        routingPolicy: {
-          defaultLiveProvider: string | null;
-          targetCount: number;
-          promotedScraplingTargetCount: number;
-          demotedHttpTargetCount: number;
-          byProvider: Array<{
-            provider: string;
-            targetCount: number;
-          }>;
-        };
-      };
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.status, "degraded");
@@ -2063,19 +1925,7 @@ test("api server readyz exposes scrapling profile and session-key evidence from 
 
   const baseUrl = await startServer(server);
   try {
-    const readyResult = await getJson<{
-      observability: {
-        scraplingEvidence: {
-          requestCount: number;
-          sessionKeyObservedRate: number | null;
-          sessionKeyReuseRate: number | null;
-          byProfile: Array<{
-            profile: string;
-            requestCount: number;
-          }>;
-        };
-      };
-    }>(`${baseUrl}/readyz`);
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.observability.scraplingEvidence.requestCount, 4);
@@ -2101,4 +1951,5 @@ test("api server readyz exposes scrapling profile and session-key evidence from 
     await stopServer(server);
   }
 });
+
 

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApiServer } from "../../apps/api/src/create-api-server";
+import type {
+  CreateKeywordQueryResponse,
+  GetKeywordQueryResponse,
+} from "../../packages/contracts/src/http";
 import { RedditMockConnector } from "../../src/connectors/reddit/reddit-mock.connector";
 import { stableUuidFromString } from "../../src/shared/ids/stable-id";
 import {
@@ -44,23 +48,7 @@ test("api server can create and fetch keyword query session", async () => {
 
   const baseUrl = await startServer(server);
   try {
-    const created = await postJson<{
-      ok: boolean;
-      result: {
-        queryId: string;
-        status: string;
-        supportCount: number;
-        coverageLevel: string;
-        sourceType: {
-          primary: string;
-        };
-        dataQuality: {
-          level: string;
-        };
-        samplePosts: Array<{ canonicalSubreddit: string; sourceType: string }>;
-        pulsePoints5m: Array<{ sourceType: string }>;
-      };
-    }>(`${baseUrl}/v1/keyword-queries`, {
+    const created = await postJson<CreateKeywordQueryResponse>(`${baseUrl}/v1/keyword-queries`, {
       query: "LLM agent",
       limit: 5,
     });
@@ -75,18 +63,9 @@ test("api server can create and fetch keyword query session", async () => {
     assert.equal(created.body.result.samplePosts[0]?.sourceType, "index");
     assert.equal(created.body.result.pulsePoints5m.length >= 1, true);
 
-    const fetched = await getJson<{
-      ok: boolean;
-      result: {
-        queryId: string;
-        queryText: string;
-        dataQuality: {
-          level: string;
-        };
-        samplePosts: Array<{ canonicalSubreddit: string; sourceType: string }>;
-        pulsePoints5m: Array<{ sourceType: string }>;
-      };
-    }>(`${baseUrl}/v1/keyword-queries/${created.body.result.queryId}`);
+    const fetched = await getJson<GetKeywordQueryResponse>(
+      `${baseUrl}/v1/keyword-queries/${created.body.result.queryId}`,
+    );
     assert.equal(fetched.status, 200);
     assert.equal(fetched.body.ok, true);
     assert.equal(fetched.body.result.queryId, created.body.result.queryId);

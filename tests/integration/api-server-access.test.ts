@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApiServer } from "../../apps/api/src/create-api-server";
+import type {
+  ApiErrorResponse,
+  ApiHealthResponse,
+  CreateSubredditTargetResponse,
+  MarketTrendResponse,
+} from "../../packages/contracts/src/http";
 import { RedditMockConnector } from "../../src/connectors/reddit/reddit-mock.connector";
 import {
   createApiTestRepositories,
@@ -25,11 +31,11 @@ test("api server rate limits repeated trend queries", async () => {
 
   const baseUrl = await startServer(server);
   try {
-    const first = await getJson<{ ok: boolean }>(`${baseUrl}/v1/trends/market`);
+    const first = await getJson<MarketTrendResponse>(`${baseUrl}/v1/trends/market`);
     assert.equal(first.status, 200);
     assert.equal(first.body.ok, true);
 
-    const second = await getJson<{ ok: boolean; errorCode: string }>(`${baseUrl}/v1/trends/market`);
+    const second = await getJson<ApiErrorResponse>(`${baseUrl}/v1/trends/market`);
     assert.equal(second.status, 429);
     assert.equal(second.body.ok, false);
     assert.equal(second.body.errorCode, "rate_limited");
@@ -55,13 +61,13 @@ test("api server rate limits authenticated trend queries without 503 fallback", 
 
   const baseUrl = await startServer(server);
   try {
-    const first = await getJson<{ ok: boolean }>(`${baseUrl}/v1/trends/market`, {
+    const first = await getJson<MarketTrendResponse>(`${baseUrl}/v1/trends/market`, {
       authorization: "Bearer test-token",
     });
     assert.equal(first.status, 200);
     assert.equal(first.body.ok, true);
 
-    const second = await getJson<{ ok: boolean; errorCode: string }>(`${baseUrl}/v1/trends/market`, {
+    const second = await getJson<ApiErrorResponse>(`${baseUrl}/v1/trends/market`, {
       authorization: "Bearer test-token",
     });
     assert.equal(second.status, 429);
@@ -86,7 +92,7 @@ test("api server enforces bearer auth on /v1 routes", async () => {
 
   const baseUrl = await startServer(server);
   try {
-    const noTokenResult = await postJson<{ ok: boolean; errorCode: string }>(
+    const noTokenResult = await postJson<ApiErrorResponse>(
       `${baseUrl}/v1/targets/subreddit`,
       { subreddit: "datascience" },
     );
@@ -94,7 +100,7 @@ test("api server enforces bearer auth on /v1 routes", async () => {
     assert.equal(noTokenResult.body.ok, false);
     assert.equal(noTokenResult.body.errorCode, "unauthorized");
 
-    const wrongTokenResult = await postJson<{ ok: boolean; errorCode: string }>(
+    const wrongTokenResult = await postJson<ApiErrorResponse>(
       `${baseUrl}/v1/targets/subreddit`,
       { subreddit: "datascience" },
       { authorization: "Bearer wrong-token" },
@@ -103,7 +109,7 @@ test("api server enforces bearer auth on /v1 routes", async () => {
     assert.equal(wrongTokenResult.body.ok, false);
     assert.equal(wrongTokenResult.body.errorCode, "unauthorized");
 
-    const okResult = await postJson<{ ok: boolean; canonicalName: string }>(
+    const okResult = await postJson<CreateSubredditTargetResponse>(
       `${baseUrl}/v1/targets/subreddit`,
       { subreddit: "datascience" },
       { authorization: "Bearer test-token" },
@@ -112,7 +118,7 @@ test("api server enforces bearer auth on /v1 routes", async () => {
     assert.equal(okResult.body.ok, true);
     assert.equal(okResult.body.canonicalName, "r/datascience");
 
-    const healthz = await getJson<{ ok: boolean }>(`${baseUrl}/healthz`);
+    const healthz = await getJson<ApiHealthResponse>(`${baseUrl}/healthz`);
     assert.equal(healthz.status, 200);
     assert.equal(healthz.body.ok, true);
   } finally {
@@ -144,7 +150,7 @@ test("api server supports CORS preflight and blocks unknown origins", async () =
     );
     assert.equal(preflight.headers.get("access-control-allow-methods"), "GET, POST, OPTIONS");
 
-    const blocked = await postJson<{ ok: boolean; errorCode: string }>(
+    const blocked = await postJson<ApiErrorResponse>(
       `${baseUrl}/v1/targets/subreddit`,
       { subreddit: "datascience" },
       { origin: "https://evil.example.com" },

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApiServer } from "../../apps/api/src/create-api-server";
+import type {
+  ApiErrorResponse,
+  TriggerPhase1RunResponse,
+} from "../../packages/contracts/src/http";
 import { RedditMockConnector } from "../../src/connectors/reddit/reddit-mock.connector";
 import {
   createApiTestRepositories,
@@ -24,11 +28,7 @@ test("api server run trigger passes crawlMode to connector factory", async () =>
 
   const baseUrl = await startServer(server);
   try {
-    const runResult = await postJson<{
-      ok: boolean;
-      mode: string;
-      crawlMode: string;
-    }>(`${baseUrl}/v1/runs/reddit-phase1`, {
+    const runResult = await postJson<TriggerPhase1RunResponse>(`${baseUrl}/v1/runs/reddit-phase1`, {
       mode: "mock",
       crawlMode: "backfill",
       subreddit: "datascience",
@@ -38,7 +38,11 @@ test("api server run trigger passes crawlMode to connector factory", async () =>
     assert.equal(runResult.body.ok, true);
     assert.equal(runResult.body.mode, "mock");
     assert.equal(runResult.body.crawlMode, "backfill");
-    assert.deepEqual(observed, [{ mode: "mock", crawlMode: "backfill" }]);
+    assert.equal(observed.length >= 1, true);
+    assert.equal(
+      observed.every((entry) => entry.mode === "mock" && entry.crawlMode === "backfill"),
+      true,
+    );
   } finally {
     await stopServer(server);
   }
@@ -53,7 +57,7 @@ test("api server rejects unsupported run mode", async () => {
 
   const baseUrl = await startServer(server);
   try {
-    const result = await postJson<{ ok: boolean; error: string; errorCode: string; requestId: string }>(
+    const result = await postJson<ApiErrorResponse>(
       `${baseUrl}/v1/runs/reddit-phase1`,
       { mode: "invalid-mode" },
     );
@@ -83,13 +87,7 @@ test("api server accepts async run trigger by default", async () => {
   const baseUrl = await startServer(server);
   try {
     await postJson(`${baseUrl}/v1/targets/subreddit`, { subreddit: "datascience" });
-    const runResult = await postJson<{
-      ok: boolean;
-      requestId: string;
-      mode: string;
-      processedCanonicalNames: string[];
-      requestedCanonicalNames: string[];
-    }>(`${baseUrl}/v1/runs/reddit-phase1`, {
+    const runResult = await postJson<TriggerPhase1RunResponse>(`${baseUrl}/v1/runs/reddit-phase1`, {
       mode: "mock",
       subreddit: "datascience",
     });

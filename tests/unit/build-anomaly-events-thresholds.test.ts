@@ -200,6 +200,91 @@ test("buildAnomalyEventsJob excludes below-threshold rows", async () => {
   assert.equal(rows.length, 0);
 });
 
+test("buildAnomalyEventsJob applies tier-adaptive quality threshold floors", async () => {
+  const microTargetId = stableUuidFromString("reddit:target:r/threshold-tier-micro");
+  const largeTargetId = stableUuidFromString("reddit:target:r/threshold-tier-large");
+  const deps = createDeps();
+
+  await deps.subredditDailyFactRepository.upsertMany([
+    createDailyFact(microTargetId, "2026-04-11", {
+      postVolume: 100,
+      qualifiedPostVolume: 50,
+      heatChangePct: 0,
+      subredditTier: "micro",
+    }),
+    createDailyFact(microTargetId, "2026-04-12", {
+      postVolume: 100,
+      qualifiedPostVolume: 50,
+      heatChangePct: 0,
+      subredditTier: "micro",
+    }),
+    createDailyFact(microTargetId, "2026-04-13", {
+      postVolume: 100,
+      qualifiedPostVolume: 70,
+      heatChangePct: 1,
+      subredditTier: "micro",
+    }),
+    createDailyFact(largeTargetId, "2026-04-11", {
+      postVolume: 100,
+      qualifiedPostVolume: 50,
+      heatChangePct: 0,
+      subredditTier: "large",
+    }),
+    createDailyFact(largeTargetId, "2026-04-12", {
+      postVolume: 100,
+      qualifiedPostVolume: 50,
+      heatChangePct: 0,
+      subredditTier: "large",
+    }),
+    createDailyFact(largeTargetId, "2026-04-13", {
+      postVolume: 100,
+      qualifiedPostVolume: 70,
+      heatChangePct: 1,
+      subredditTier: "large",
+    }),
+  ]);
+
+  const [microRows, largeRows] = await Promise.all([
+    buildAnomalyEventsJob(
+      {
+        anomalyEventRepository: deps.anomalyEventRepository,
+        subredditTrendPointRepository: deps.subredditTrendPointRepository,
+        subredditDailyFactRepository: deps.subredditDailyFactRepository,
+        keywordTrendDailyRepository: deps.keywordTrendDailyRepository,
+        postGrowthFactRepository: deps.postGrowthFactRepository,
+      },
+      {
+        targetId: microTargetId,
+        fromIso: "2026-04-11T00:00:00.000Z",
+        toIso: "2026-04-13T23:59:59.000Z",
+      },
+    ),
+    buildAnomalyEventsJob(
+      {
+        anomalyEventRepository: deps.anomalyEventRepository,
+        subredditTrendPointRepository: deps.subredditTrendPointRepository,
+        subredditDailyFactRepository: deps.subredditDailyFactRepository,
+        keywordTrendDailyRepository: deps.keywordTrendDailyRepository,
+        postGrowthFactRepository: deps.postGrowthFactRepository,
+      },
+      {
+        targetId: largeTargetId,
+        fromIso: "2026-04-11T00:00:00.000Z",
+        toIso: "2026-04-13T23:59:59.000Z",
+      },
+    ),
+  ]);
+
+  assert.equal(
+    microRows.some((row) => row.signalType === "quality"),
+    false,
+  );
+  assert.equal(
+    largeRows.some((row) => row.signalType === "quality"),
+    true,
+  );
+});
+
 function createDeps() {
   return {
     anomalyEventRepository: new InMemoryAnomalyEventRepository(),
@@ -217,6 +302,7 @@ function createDailyFact(
     postVolume: number;
     qualifiedPostVolume: number;
     heatChangePct: number;
+    subredditTier: "micro" | "small" | "mid" | "large";
   }> = {},
 ) {
   return {
@@ -238,7 +324,7 @@ function createDailyFact(
     heatChangePct: overrides.heatChangePct ?? 0.04,
     ema7: 0.55,
     ema30: 0.5,
-    subredditTier: "mid" as const,
+    subredditTier: overrides.subredditTier ?? ("mid" as const),
     qualityThresholdScore: 30,
     qualityThresholdComments: 5,
     algorithmVersion: "daily_fact_v1",

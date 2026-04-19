@@ -1313,6 +1313,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           toIso,
           signalTypes: signalTypes ?? ["volume", "quality", "keyword", "driver"],
           events: readModel.events.map((event) => ({
+            eventId: event.eventId,
             signalType: event.signalType,
             signalKey: event.signalKey,
             observedAt: event.observedAt,

@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApiServer } from "../../apps/api/src/create-api-server";
+import type {
+  ApiErrorResponse,
+  CreateSubredditTargetResponse,
+  GlobalKeywordDailyTrendResponse,
+  MarketTrendResponse,
+  SubredditAnomalyFeedResponse,
+  SubredditAnomalyIncidentFeedResponse,
+  SubredditDailyTrendResponse,
+  SubredditDriverPostsResponse,
+  SubredditTrendResponse,
+  TriggerPhase1RunResponse,
+} from "../../packages/contracts/src/http";
 import { RedditMockConnector } from "../../src/connectors/reddit/reddit-mock.connector";
 import { stableUuidFromString } from "../../src/shared/ids/stable-id";
 import {
@@ -22,7 +34,7 @@ test("api server can seed target, run phase1 and read trends", async () => {
 
   const baseUrl = await startServer(server);
   try {
-    const seedResult = await postJson<{ ok: boolean; requestId: string; canonicalName: string }>(
+    const seedResult = await postJson<CreateSubredditTargetResponse>(
       `${baseUrl}/v1/targets/subreddit`,
       { subreddit: "DataScience" },
     );
@@ -32,12 +44,7 @@ test("api server can seed target, run phase1 and read trends", async () => {
     assert.equal(typeof seedResult.body.requestId, "string");
     assert.equal(seedResult.requestId, seedResult.body.requestId);
 
-    const runResult = await postJson<{
-      ok: boolean;
-      requestId: string;
-      mode: string;
-      processedCanonicalNames: string[];
-    }>(`${baseUrl}/v1/runs/reddit-phase1`, {
+    const runResult = await postJson<TriggerPhase1RunResponse>(`${baseUrl}/v1/runs/reddit-phase1`, {
       mode: "mock",
       subreddit: "datascience",
       async: false,
@@ -48,16 +55,7 @@ test("api server can seed target, run phase1 and read trends", async () => {
     assert.deepEqual(runResult.body.processedCanonicalNames, ["r/datascience"]);
     assert.equal(runResult.requestId, runResult.body.requestId);
 
-    const trendResult = await getJson<{
-      ok: boolean;
-      requestId: string;
-      canonicalName: string;
-      summary: { latestTrendDirection: string };
-      topMovers: unknown[];
-      recentAnomalies: unknown[];
-      points: unknown[];
-      recentPosts: unknown[];
-    }>(
+    const trendResult = await getJson<SubredditTrendResponse>(
       `${baseUrl}/v1/trends/subreddit/datascience?from=2026-04-10T10:00:00.000Z&to=2026-04-10T12:15:00.000Z`,
     );
     assert.equal(trendResult.status, 200);
@@ -168,11 +166,7 @@ test("api server daily insights prefers materialized keyword rows when available
 
   const baseUrl = await startServer(server);
   try {
-    const result = await getJson<{
-      ok: boolean;
-      daily: Array<{ heatPrice: number; qualifiedPostVolume: number }>;
-      keywordHeat: Array<{ keyword: string; totalMentions: number; source: string }>;
-    }>(
+    const result = await getJson<SubredditDailyTrendResponse>(
       `${baseUrl}/v1/trends/subreddit/datascience/daily?from=2026-04-10T00:00:00.000Z&to=2026-04-12T23:59:59.000Z&keywords=ai`,
     );
     assert.equal(result.status, 200);
@@ -375,13 +369,7 @@ test("api server returns daily insights and keyword heat", async () => {
 
   const baseUrl = await startServer(server);
   try {
-    const result = await getJson<{
-      ok: boolean;
-      canonicalName: string;
-      dayCount: number;
-      daily: Array<{ day: string; totalNewPosts: number }>;
-      keywordHeat: Array<{ keyword: string; totalMentions: number; source: string }>;
-    }>(
+    const result = await getJson<SubredditDailyTrendResponse>(
       `${baseUrl}/v1/trends/subreddit/datascience/daily?from=2026-04-10T00:00:00.000Z&to=2026-04-12T23:59:59.000Z&keywords=ai,llm`,
     );
 
@@ -472,15 +460,7 @@ test("api server daily insights filters explicit query scope for global and subr
   });
   const baseUrl = await startServer(server);
   try {
-    const globalResult = await getJson<{
-      ok: boolean;
-      keywordHeat: Array<{
-        keyword: string;
-        totalMentions: number;
-        track?: string;
-        queryScope?: string;
-      }>;
-    }>(
+    const globalResult = await getJson<SubredditDailyTrendResponse>(
       `${baseUrl}/v1/trends/subreddit/machinelearning/daily?from=2026-04-10T00:00:00.000Z&to=2026-04-10T23:59:59.000Z&keywords=global:llm`,
     );
     assert.equal(globalResult.status, 200);
@@ -489,15 +469,7 @@ test("api server daily insights filters explicit query scope for global and subr
     assert.equal(globalResult.body.keywordHeat[0]?.track, "explicit_query");
     assert.equal(globalResult.body.keywordHeat[0]?.queryScope, "global");
 
-    const subredditResult = await getJson<{
-      ok: boolean;
-      keywordHeat: Array<{
-        keyword: string;
-        totalMentions: number;
-        track?: string;
-        queryScope?: string;
-      }>;
-    }>(
+    const subredditResult = await getJson<SubredditDailyTrendResponse>(
       `${baseUrl}/v1/trends/subreddit/machinelearning/daily?from=2026-04-10T00:00:00.000Z&to=2026-04-10T23:59:59.000Z&keywords=llm`,
     );
     assert.equal(subredditResult.status, 200);
@@ -506,15 +478,7 @@ test("api server daily insights filters explicit query scope for global and subr
     assert.equal(subredditResult.body.keywordHeat[0]?.track, "explicit_query");
     assert.equal(subredditResult.body.keywordHeat[0]?.queryScope, "subreddit");
 
-    const mixedScopeResult = await getJson<{
-      ok: boolean;
-      keywordHeat: Array<{
-        keyword: string;
-        totalMentions: number;
-        track?: string;
-        queryScope?: string;
-      }>;
-    }>(
+    const mixedScopeResult = await getJson<SubredditDailyTrendResponse>(
       `${baseUrl}/v1/trends/subreddit/machinelearning/daily?from=2026-04-10T00:00:00.000Z&to=2026-04-10T23:59:59.000Z&keywords=global:llm,llm`,
     );
     assert.equal(mixedScopeResult.status, 200);
@@ -558,7 +522,7 @@ test("api server daily insights rejects invalid keyword query input", async () =
   });
   const baseUrl = await startServer(server);
   try {
-    const invalidKeywordResult = await getJson<{ ok: boolean; errorCode: string }>(
+    const invalidKeywordResult = await getJson<ApiErrorResponse>(
       `${baseUrl}/v1/trends/subreddit/machinelearning/daily?from=2026-04-10T00:00:00.000Z&to=2026-04-10T23:59:59.000Z&keywords=global:`,
     );
     assert.equal(invalidKeywordResult.status, 400);
@@ -663,21 +627,7 @@ test("api server returns global keyword daily trends aggregated across subreddit
   });
   const baseUrl = await startServer(server);
   try {
-    const result = await getJson<{
-      ok: boolean;
-      queryScope: string;
-      normalizedQueryText: string;
-      dayCount: number;
-      days: Array<{
-        day: string;
-        matchedPosts: number;
-        qualifiedMatchedPosts: number;
-        matchedSubredditCount: number;
-        sourceTypes: string[];
-        breakoutScore: number;
-        isBreakout: boolean;
-      }>;
-    }>(
+    const result = await getJson<GlobalKeywordDailyTrendResponse>(
       `${baseUrl}/v1/trends/keywords/ai%20infra/daily?from=2026-04-16T00:00:00.000Z&to=2026-04-18T23:59:59.000Z`,
     );
 
@@ -711,7 +661,7 @@ test("api server global keyword daily trends reject subreddit-scoped queries", a
   });
   const baseUrl = await startServer(server);
   try {
-    const result = await getJson<{ ok: boolean; errorCode: string }>(
+    const result = await getJson<ApiErrorResponse>(
       `${baseUrl}/v1/trends/keywords/r%2Fmachinelearning%3A%20ai/daily?from=2026-04-16T00:00:00.000Z&to=2026-04-18T23:59:59.000Z`,
     );
     assert.equal(result.status, 400);
@@ -796,16 +746,7 @@ test("api server returns market rankings across subreddits", async () => {
 
   const baseUrl = await startServer(server);
   try {
-    const marketResult = await getJson<{
-      ok: boolean;
-      requestId: string;
-      targetCount: number;
-      rankings: {
-        byHeat: Array<{ canonicalName: string }>;
-        bySurge: Array<{ canonicalName: string }>;
-        byDispersion: Array<{ canonicalName: string }>;
-      };
-    }>(
+    const marketResult = await getJson<MarketTrendResponse>(
       `${baseUrl}/v1/trends/market?from=2026-04-10T10:00:00.000Z&to=2026-04-10T12:15:00.000Z&limit=5`,
     );
     assert.equal(marketResult.status, 200);
@@ -837,7 +778,7 @@ test("api server validates recentPostsLimit query parameter", async () => {
       async: false,
     });
 
-    const result = await getJson<{ ok: boolean; errorCode: string }>(
+    const result = await getJson<ApiErrorResponse>(
       `${baseUrl}/v1/trends/subreddit/datascience?recentPostsLimit=100`,
     );
     assert.equal(result.status, 400);
@@ -993,20 +934,7 @@ test("api server returns subreddit driver posts from persisted growth facts", as
 
   const baseUrl = await startServer(server);
   try {
-    const result = await getJson<{
-      ok: boolean;
-      canonicalName: string;
-      ageBuckets: string[];
-      drivers: Array<{
-        externalId: string;
-        title: string;
-        driverScore: number;
-        ageBucket: string;
-        labels: string[];
-        explainPayload: Record<string, unknown>;
-        bodySnippet?: string;
-      }>;
-    }>(
+    const result = await getJson<SubredditDriverPostsResponse>(
       `${baseUrl}/v1/trends/subreddit/datascience/drivers?from=2026-04-17T00:00:00.000Z&to=2026-04-17T12:00:00.000Z&ageBucket=1h&limit=5`,
     );
 
@@ -1031,14 +959,7 @@ test("api server returns subreddit driver posts from persisted growth facts", as
       "Benchmark notes for new model releases and scoring windows.",
     );
 
-    const filtered = await getJson<{
-      ok: boolean;
-      drivers: Array<{
-        externalId: string;
-        matchedQueries?: string[];
-        labels: string[];
-      }>;
-    }>(
+    const filtered = await getJson<SubredditDriverPostsResponse>(
       `${baseUrl}/v1/trends/subreddit/datascience/drivers?from=2026-04-17T00:00:00.000Z&to=2026-04-17T12:00:00.000Z&keywords=agent&limit=5`,
     );
     assert.equal(filtered.status, 200);
@@ -1048,7 +969,7 @@ test("api server returns subreddit driver posts from persisted growth facts", as
     assert.deepEqual(filtered.body.drivers[0]?.matchedQueries, ["agent"]);
     assert.deepEqual(filtered.body.drivers[0]?.labels, ["breakout", "fresh"]);
 
-    const invalidScope = await getJson<{ ok: boolean; errorCode: string }>(
+    const invalidScope = await getJson<ApiErrorResponse>(
       `${baseUrl}/v1/trends/subreddit/datascience/drivers?keywords=global:agent`,
     );
     assert.equal(invalidScope.status, 400);
@@ -1112,30 +1033,27 @@ test("api server returns subreddit anomaly feed from anomaly_event", async () =>
 
   const baseUrl = await startServer(server);
   try {
-    const result = await getJson<{
-      ok: boolean;
-      signalTypes: string[];
-      events: Array<{
-        signalType: string;
-        signalKey: string;
-        severity: string;
-        anomalyScore: number;
-      }>;
-    }>(
+    const result = await getJson<SubredditAnomalyFeedResponse>(
       `${baseUrl}/v1/trends/subreddit/datascience/anomalies?from=2026-04-18T00:00:00.000Z&to=2026-04-18T23:59:59.000Z&signalType=keyword,volume&limit=10`,
     );
     assert.equal(result.status, 200);
     assert.equal(result.body.ok, true);
     assert.deepEqual(result.body.signalTypes, ["keyword", "volume"]);
     assert.equal(result.body.events.length, 2);
+    assert.equal(
+      result.body.events[0]?.eventId,
+      "volume:subreddit:2026-04-18T10:10:00.000Z",
+    );
     assert.equal(result.body.events[0]?.signalType, "volume");
     assert.equal(result.body.events[0]?.signalKey, "subreddit");
     assert.equal(result.body.events[0]?.severity, "high");
     assert.equal(result.body.events[0]?.anomalyScore, 0.9);
+    assert.equal(result.body.events[0]?.explainPayload.contractVersion, "anomaly_feed_explain_v1");
+    assert.equal(result.body.events[0]?.explainPayload.signalType, "volume");
     assert.equal(result.body.events[1]?.signalType, "keyword");
     assert.equal(result.body.events[1]?.severity, "medium");
 
-    const invalidSignalType = await getJson<{ ok: boolean; errorCode: string }>(
+    const invalidSignalType = await getJson<ApiErrorResponse>(
       `${baseUrl}/v1/trends/subreddit/datascience/anomalies?signalType=invalid`,
     );
     assert.equal(invalidSignalType.status, 400);
@@ -1206,17 +1124,7 @@ test("api server returns merged anomaly incidents from anomaly_event", async () 
 
   const baseUrl = await startServer(server);
   try {
-    const result = await getJson<{
-      ok: boolean;
-      signalTypes: string[];
-      incidents: Array<{
-        dominantSignalType: string;
-        signalTypes: string[];
-        signalCount: number;
-        mergedScore: number;
-        severity: string;
-      }>;
-    }>(
+    const result = await getJson<SubredditAnomalyIncidentFeedResponse>(
       `${baseUrl}/v1/trends/subreddit/machinelearning/anomalies/incidents?from=2026-04-18T00:00:00.000Z&to=2026-04-18T23:59:59.000Z&signalType=keyword,volume,driver&limit=10`,
     );
     assert.equal(result.status, 200);
@@ -1228,8 +1136,20 @@ test("api server returns merged anomaly incidents from anomaly_event", async () 
     assert.equal(result.body.incidents[0]?.signalCount, 2);
     assert.equal(result.body.incidents[0]?.mergedScore, 0.88);
     assert.equal(result.body.incidents[0]?.severity, "high");
+    assert.equal(
+      result.body.incidents[0]?.explainPayload.contractVersion,
+      "anomaly_incident_explain_v1",
+    );
+    assert.equal(
+      result.body.incidents[0]?.explainPayload.mergeStrategy,
+      "weighted_signal_boost_v1",
+    );
+    assert.equal(
+      result.body.incidents[0]?.explainPayload?.sourceEvents?.[0]?.eventId,
+      "volume:subreddit:2026-04-18T11:05:00.000Z",
+    );
 
-    const invalidSignalType = await getJson<{ ok: boolean; errorCode: string }>(
+    const invalidSignalType = await getJson<ApiErrorResponse>(
       `${baseUrl}/v1/trends/subreddit/machinelearning/anomalies/incidents?signalType=bad`,
     );
     assert.equal(invalidSignalType.status, 400);
@@ -1251,7 +1171,7 @@ test("api server returns 400 for malformed URL-encoded subreddit path", async ()
 
   const baseUrl = await startServer(server);
   try {
-    const trendResult = await getJson<{ ok: boolean; errorCode: string; requestId: string }>(
+    const trendResult = await getJson<ApiErrorResponse>(
       `${baseUrl}/v1/trends/subreddit/%E0%A4%A`,
     );
     assert.equal(trendResult.status, 400);
@@ -1259,7 +1179,7 @@ test("api server returns 400 for malformed URL-encoded subreddit path", async ()
     assert.equal(trendResult.body.errorCode, "invalid_subreddit");
     assert.equal(trendResult.body.requestId, trendResult.requestId);
 
-    const dailyResult = await getJson<{ ok: boolean; errorCode: string; requestId: string }>(
+    const dailyResult = await getJson<ApiErrorResponse>(
       `${baseUrl}/v1/trends/subreddit/%E0%A4%A/daily`,
     );
     assert.equal(dailyResult.status, 400);
@@ -1267,7 +1187,7 @@ test("api server returns 400 for malformed URL-encoded subreddit path", async ()
     assert.equal(dailyResult.body.errorCode, "invalid_subreddit");
     assert.equal(dailyResult.body.requestId, dailyResult.requestId);
 
-    const anomalyResult = await getJson<{ ok: boolean; errorCode: string; requestId: string }>(
+    const anomalyResult = await getJson<ApiErrorResponse>(
       `${baseUrl}/v1/trends/subreddit/%E0%A4%A/anomalies`,
     );
     assert.equal(anomalyResult.status, 400);
@@ -1275,7 +1195,7 @@ test("api server returns 400 for malformed URL-encoded subreddit path", async ()
     assert.equal(anomalyResult.body.errorCode, "invalid_subreddit");
     assert.equal(anomalyResult.body.requestId, anomalyResult.requestId);
 
-    const incidentResult = await getJson<{ ok: boolean; errorCode: string; requestId: string }>(
+    const incidentResult = await getJson<ApiErrorResponse>(
       `${baseUrl}/v1/trends/subreddit/%E0%A4%A/anomalies/incidents`,
     );
     assert.equal(incidentResult.status, 400);

@@ -1,0 +1,117 @@
+{
+  "generatedAt": "2026-04-19T06:06:35.432Z",
+  "config": {
+    "liveProvider": "http",
+    "promotedSubreddits": "python",
+    "profile": "http",
+    "rounds": 1,
+    "pauseMs": 1000,
+    "stepMinutes": 0,
+    "cycleSubreddits": [
+      "python"
+    ]
+  },
+  "summary": {
+    "runCount": 1,
+    "failedCycleCount": 0,
+    "globalDegradedRuns": 1,
+    "localTargetDegradedRuns": 0,
+    "globalDegradedReasonCounts": {
+      "algorithm_daily_fact_stale": 1
+    },
+    "localTargetDegradedReasonCounts": {},
+    "globalOnlyReasonCounts": {
+      "algorithm_daily_fact_stale": 1
+    },
+    "localOnlyReasonCounts": {},
+    "providersSeen": [
+      "scrapling"
+    ],
+    "totalProviderFallbackCount": 0,
+    "totalScraplingFallbackTransportCounts": {}
+  },
+  "cycles": [
+    {
+      "subreddit": "r/python",
+      "requestedNowIso": "2026-04-19T06:06:27.665Z",
+      "nowIso": "2026-04-19T07:40:01.000Z",
+      "windowShiftCount": 19,
+      "runExecution": {
+        "ok": true,
+        "error": null,
+        "startedAtIso": "2026-04-19T06:06:27.875Z",
+        "finishedAtIso": "2026-04-19T06:06:34.385Z",
+        "executedJobCount": 1
+      },
+      "globalReadinessStatus": "degraded",
+      "globalDegradedReasons": [
+        "algorithm_daily_fact_stale"
+      ],
+      "localTargetReadinessStatus": "ready",
+      "localTargetDegradedReasons": [],
+      "globalOnlyDegradedReasons": [
+        "algorithm_daily_fact_stale"
+      ],
+      "localOnlyDegradedReasons": [],
+      "isPromotedTarget": true,
+      "providerHealth": [
+        {
+          "provider": "scrapling",
+          "requestCount": 6,
+          "successCount": 6,
+          "fallbackCount": 0,
+          "timeoutCount": 0,
+          "errorCount": 0,
+          "duplicatePostCount": 240,
+          "candidateCount": 240,
+          "acceptedCount": 240,
+          "duplicatePostRate": 1,
+          "ingestLagSeconds": 673006.425
+        }
+      ],
+      "targetFreshness": {
+        "latestContentAgeSeconds": 27596,
+        "staleHeadSuppressedProviders": []
+      },
+      "fallbackEvidence": {
+        "sampledRawEvents": 1,
+        "providerFallbackCount": 0,
+        "scraplingFallbackTransportCounts": {}
+      },
+      "scraplingEvidence": {
+        "requestCount": 6,
+        "sessionKeyObservedRate": 1,
+        "sessionKeyReuseRate": 0.666667,
+        "byProfile": [
+          {
+            "profile": "dynamic",
+            "requestCount": 6
+          }
+        ]
+      },
+      "runLocalScraplingEvidence": {
+        "sampledJobs": 1,
+        "sampledRawEvents": 1,
+        "requestCount": 1,
+        "sessionKeyObservedRate": 1,
+        "sessionKeyReuseRate": 0,
+        "byProfile": [
+          {
+            "profile": "dynamic",
+            "requestCount": 1
+          }
+        ]
+      },
+      "routingDecision": {
+        "providerHint": "scrapling",
+        "scraplingProfile": "dynamic",
+        "routingClass": "scrapling_dynamic_escalation",
+        "reasons": [
+          "scrapling_dynamic_steady_state",
+          "scrapling_dynamic_profile_recent",
+          "scrapling_session_key_evidence_ready"
+        ]
+      }
+    }
+  ]
+}

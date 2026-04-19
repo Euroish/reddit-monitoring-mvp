@@ -13,6 +13,8 @@ const VOLUME_SCORE_MIN = ANOMALY_EVENT_DEFAULTS.minScore.volume;
 const QUALITY_SCORE_MIN = ANOMALY_EVENT_DEFAULTS.minScore.quality;
 const KEYWORD_SCORE_MIN = ANOMALY_EVENT_DEFAULTS.minScore.keyword;
 const DRIVER_SCORE_MIN = ANOMALY_EVENT_DEFAULTS.minScore.driver;
+const QUALITY_TIER_SCORE_MIN = ANOMALY_EVENT_DEFAULTS.qualityTierScoreMin;
+const QUALITY_BASELINE_FLOOR_BY_TIER = ANOMALY_EVENT_DEFAULTS.qualityBaselineFloorByTier;
 const MAX_KEYWORD_EVENTS_PER_DAY = ANOMALY_EVENT_DEFAULTS.maxKeywordEventsPerDay;
 const DRIVER_EVENT_LIMIT = ANOMALY_EVENT_DEFAULTS.driverEventLimit;
 
@@ -149,13 +151,17 @@ function buildQualityEvents(
 
     const qualityRate = current.qualifiedPostVolume / current.postVolume;
     const baselineRate = median(baselineCandidates);
-    const deviation = Math.abs(qualityRate - baselineRate) / Math.max(0.08, baselineRate);
+    const direction = qualityRate >= baselineRate ? "up" : "down";
+    const signedDelta = qualityRate - baselineRate;
+    const baselineFloor = QUALITY_BASELINE_FLOOR_BY_TIER[current.subredditTier] ?? 0.08;
+    const deviation = Math.abs(signedDelta) / Math.max(baselineFloor, baselineRate);
     const score = clamp(
       0.75 * clamp(deviation, 0, 1) + 0.25 * clamp(Math.abs(current.heatChangePct), 0, 1),
       0,
       1,
     );
-    if (score < QUALITY_SCORE_MIN) {
+    const qualityScoreMin = QUALITY_TIER_SCORE_MIN[current.subredditTier] ?? QUALITY_SCORE_MIN;
+    if (score < qualityScoreMin) {
       continue;
     }
 
@@ -164,7 +170,7 @@ function buildQualityEvents(
     rows.push({
       targetId,
       signalType: "quality",
-      signalKey: "qualified_rate",
+      signalKey: direction === "up" ? "quality_up" : "quality_down",
       observedAt: windowEnd,
       windowStart,
       windowEnd,
@@ -173,9 +179,14 @@ function buildQualityEvents(
       explainPayload: {
         source: "subreddit_daily_fact",
         day: current.day,
+        direction,
+        subredditTier: current.subredditTier,
         qualityRate: toFixedNumber(qualityRate),
         baselineRate: toFixedNumber(baselineRate),
+        signedDelta: toFixedNumber(signedDelta),
         deviation: toFixedNumber(clamp(deviation, 0, 10)),
+        qualityScoreMin: toFixedNumber(qualityScoreMin),
+        baselineFloor: toFixedNumber(baselineFloor),
         qualifiedPostVolume: current.qualifiedPostVolume,
         postVolume: current.postVolume,
         heatChangePct: toFixedNumber(current.heatChangePct),

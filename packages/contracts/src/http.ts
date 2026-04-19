@@ -440,17 +440,18 @@ export interface SubredditAnomalyFeedResponse {
   canonicalName: string;
   fromIso: string;
   toIso: string;
-  signalTypes: Array<"volume" | "quality" | "keyword" | "driver">;
+  signalTypes: Array<AnomalySignalType>;
   events: Array<{
-    signalType: "volume" | "quality" | "keyword" | "driver";
+    eventId: string;
+    signalType: AnomalySignalType;
     signalKey: string;
     observedAt: string;
     windowStart?: string;
     windowEnd?: string;
     anomalyScore: number;
-    severity: "low" | "medium" | "high";
+    severity: AnomalySeverity;
     algorithmVersion: string;
-    explainPayload: Record<string, unknown>;
+    explainPayload: SubredditAnomalyFeedExplainPayload;
   }>;
 }
 
@@ -462,20 +463,55 @@ export interface SubredditAnomalyIncidentFeedResponse {
   canonicalName: string;
   fromIso: string;
   toIso: string;
-  signalTypes: Array<"volume" | "quality" | "keyword" | "driver">;
+  signalTypes: Array<AnomalySignalType>;
   incidents: Array<{
     incidentId: string;
     windowStart: string;
     windowEnd: string;
     observedAt: string;
     mergedScore: number;
-    severity: "low" | "medium" | "high";
-    dominantSignalType: "volume" | "quality" | "keyword" | "driver";
-    signalTypes: Array<"volume" | "quality" | "keyword" | "driver">;
+    severity: AnomalySeverity;
+    dominantSignalType: AnomalySignalType;
+    signalTypes: Array<AnomalySignalType>;
     signalCount: number;
     algorithmVersion: string;
-    explainPayload: Record<string, unknown>;
+    explainPayload: SubredditAnomalyIncidentExplainPayload;
   }>;
+}
+
+export type AnomalySignalType = "volume" | "quality" | "keyword" | "driver";
+export type AnomalySeverity = "low" | "medium" | "high";
+
+export interface SubredditAnomalyFeedExplainPayload {
+  contractVersion: "anomaly_feed_explain_v1";
+  signalType: AnomalySignalType;
+  signalKey: string;
+  observedAt: string;
+  windowStart?: string;
+  windowEnd?: string;
+  anomalyScore: number;
+  severity: AnomalySeverity;
+  algorithmVersion: string;
+  details: Record<string, unknown>;
+}
+
+export interface SubredditAnomalyIncidentExplainPayload {
+  mergedFromEvents: number;
+  signalBreakdown: Record<AnomalySignalType, number>;
+  mergeBoostBySignalType: Record<AnomalySignalType, number>;
+  maxSourceScore: number;
+  mergeBoost: number;
+  sourceEvents: Array<{
+    eventId: string;
+    signalType: AnomalySignalType;
+    signalKey: string;
+    anomalyScore: number;
+    observedAt: string;
+    severity: AnomalySeverity;
+    algorithmVersion: string;
+  }>;
+  contractVersion: "anomaly_incident_explain_v1";
+  mergeStrategy: "weighted_signal_boost_v1";
 }
 
 export interface ApiErrorResponse {

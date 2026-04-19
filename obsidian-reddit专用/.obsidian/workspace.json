@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Projects/任务进行一半.md",
+                "file": "Projects/project.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "任务进行一半"
+              "title": "project"
             }
           }
         ]
@@ -185,10 +185,13 @@
   },
   "active": "4c62cff59ee86155",
   "lastOpenFiles": [
+    "Projects/Archive/登录系统设计与上线阿里云.md",
     "Projects/project.md",
+    "Projects/目前问题.md",
+    "Projects/Archive/目前问题.md",
+    "Projects/Archive",
     "Projects/任务进行一半.md",
     "Projects/登录系统设计与上线阿里云.md",
-    "Projects/目前问题.md",
     "Dashboard.md",
     "Projects/运维记录.md",
     "Projects/算法补充.md",
@@ -211,15 +214,12 @@
     "项目上下文存储/findings.md",
     "progress.md",
     "task_plan.md",
-    "findings.md",
-    "项目上下文存储/Codex Context/Projects/project.md",
     "desktop.ini",
     "网页版codex与ob协作",
     "项目上下文存储/reddit项目开发/归档/2026-04-14-路线图合并清理",
     "项目上下文存储/reddit项目开发/归档",
     "项目上下文存储/reddit项目开发",
     "Codex Context/Templates/desktop.ini",
-    "项目上下文存储/Codex Context/Templates",
-    "项目上下文存储/Codex Context/Projects"
+    "项目上下文存储/Codex Context/Templates"
   ]
 }

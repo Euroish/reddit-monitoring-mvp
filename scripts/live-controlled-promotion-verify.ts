@@ -167,6 +167,59 @@ function isProviderStaleHeadElevated(args: {
   );
 }
 
+function isScraplingDynamicFreshnessRecovered(args: {
+  provider: string;
+  requestCount: number;
+  successRate: number;
+  fallbackRate: number;
+  emptyRate: number;
+  errorRate: number;
+  rateLimitRate: number;
+  timeoutRate: number;
+  circuitOpenRate: number;
+  dynamicProfileShare: number | null;
+  sessionKeyObservedRate: number | null;
+  sessionKeyReuseRate: number | null;
+}): boolean {
+  if (args.provider !== "scrapling") {
+    return false;
+  }
+  if (
+    args.requestCount <
+    READYZ_THRESHOLDS.scraplingTransportMinRequestCountForFallback
+  ) {
+    return false;
+  }
+  if (
+    args.dynamicProfileShare == null ||
+    args.dynamicProfileShare < READYZ_THRESHOLDS.scraplingDynamicProfileShareMin
+  ) {
+    return false;
+  }
+  if (
+    args.sessionKeyObservedRate == null ||
+    args.sessionKeyObservedRate <
+      READYZ_THRESHOLDS.scraplingSessionKeyObservedRateMin
+  ) {
+    return false;
+  }
+  if (
+    args.sessionKeyReuseRate == null ||
+    args.sessionKeyReuseRate < READYZ_THRESHOLDS.scraplingSessionKeyReuseRateMin
+  ) {
+    return false;
+  }
+  return (
+    args.successRate >= READYZ_THRESHOLDS.providerHealthSuccessRateMin &&
+    args.fallbackRate <= READYZ_THRESHOLDS.providerHealthFallbackRateMax &&
+    args.emptyRate <= READYZ_THRESHOLDS.providerHealthEmptyRateMax &&
+    args.errorRate <= READYZ_THRESHOLDS.providerHealthErrorRateMax &&
+    args.rateLimitRate <= READYZ_THRESHOLDS.providerHealthRateLimitRateMax &&
+    args.timeoutRate <= READYZ_THRESHOLDS.providerHealthTimeoutRateMax &&
+    args.circuitOpenRate <= READYZ_THRESHOLDS.providerHealthCircuitOpenRateMax
+  );
+}
+
 function toLagSeconds(nowIso: string, observedAtIso: string | undefined): number | null {
   if (!observedAtIso) {
     return null;
@@ -335,6 +388,7 @@ function evaluateLocalTargetReadiness(args: {
   const degradedReasons: string[] = [];
   const staleHeadProviders = new Set<string>();
   const staleHeadSuppressedProviders = new Set<string>();
+  const freshnessRecoveredProviders = new Set<string>();
   const recentLiveProviders = new Set<string>();
   const totals = args.providerHealth.reduce(
     (summary, item) => {
@@ -363,6 +417,33 @@ function evaluateLocalTargetReadiness(args: {
       totals.requestCount > 0
         ? (totals.requestCount - item.requestCount) / totals.requestCount
         : 0;
+    const dynamicProfileShare = toRate(
+      item.scraplingDynamicProfileCount,
+      item.requestCount,
+    );
+    const sessionKeyObservedRate = toRate(
+      item.scraplingSessionKeyCount,
+      item.requestCount,
+    );
+    const sessionKeyReuseRate = toRate(
+      item.scraplingSessionKeyReuseCount,
+      item.scraplingSessionKeyCount,
+    );
+    const scraplingDynamicFreshnessRecovered =
+      isScraplingDynamicFreshnessRecovered({
+        provider: item.provider,
+        requestCount: item.requestCount,
+        successRate,
+        fallbackRate,
+        emptyRate,
+        errorRate,
+        rateLimitRate,
+        timeoutRate,
+        circuitOpenRate,
+        dynamicProfileShare,
+        sessionKeyObservedRate,
+        sessionKeyReuseRate,
+      });
     const duplicatePostRate = toDuplicatePostRate({
       duplicatePostCount: item.duplicatePostCount,
       candidateCount: item.candidateCount,
@@ -399,7 +480,13 @@ function evaluateLocalTargetReadiness(args: {
     if (providerSwitchShare > READYZ_THRESHOLDS.providerHealthSwitchShareMax) {
       degradedReasons.push(`provider_switch_elevated:${item.provider}`);
     }
+    if (scraplingDynamicFreshnessRecovered) {
+      freshnessRecoveredProviders.add(item.provider);
+    }
     if (isProviderStaleHeadElevated({ duplicatePostRate, ingestLagSeconds })) {
+      if (scraplingDynamicFreshnessRecovered) {
+        continue;
+      }
       const hasFreshHead =
         args.latestContentAgeSeconds != null &&
         args.latestContentAgeSeconds <= READYZ_THRESHOLDS.staleHeadIngestLagSecondsMin;
@@ -427,6 +514,9 @@ function evaluateLocalTargetReadiness(args: {
     );
   }
   for (const provider of stalledByProvider.keys()) {
+    if (freshnessRecoveredProviders.has(provider)) {
+      continue;
+    }
     degradedReasons.push(`provider_cursor_stalled:${provider}`);
     if (staleHeadProviders.has(provider)) {
       degradedReasons.push(`provider_data_stalled:${provider}`);

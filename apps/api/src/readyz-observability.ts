@@ -111,6 +111,60 @@ function isProviderStaleHeadElevated(args: {
   );
 }
 
+function isScraplingDynamicFreshnessRecovered(args: {
+  provider: string;
+  requestCount: number;
+  successRate: number;
+  fallbackRate: number;
+  emptyRate: number;
+  errorRate: number;
+  rateLimitRate: number;
+  timeoutRate: number;
+  circuitOpenRate: number;
+  dynamicProfileShare: number | null;
+  sessionKeyObservedRate: number | null;
+  sessionKeyReuseRate: number | null;
+}): boolean {
+  if (args.provider !== "scrapling") {
+    return false;
+  }
+  if (
+    args.requestCount <
+    READYZ_THRESHOLDS.scraplingTransportMinRequestCountForFallback
+  ) {
+    return false;
+  }
+  if (
+    args.dynamicProfileShare == null ||
+    args.dynamicProfileShare < READYZ_THRESHOLDS.scraplingDynamicProfileShareMin
+  ) {
+    return false;
+  }
+  if (
+    args.sessionKeyObservedRate == null ||
+    args.sessionKeyObservedRate <
+      READYZ_THRESHOLDS.scraplingSessionKeyObservedRateMin
+  ) {
+    return false;
+  }
+  if (
+    args.sessionKeyReuseRate == null ||
+    args.sessionKeyReuseRate < READYZ_THRESHOLDS.scraplingSessionKeyReuseRateMin
+  ) {
+    return false;
+  }
+
+  return (
+    args.successRate >= READYZ_THRESHOLDS.providerHealthSuccessRateMin &&
+    args.fallbackRate <= READYZ_THRESHOLDS.providerHealthFallbackRateMax &&
+    args.emptyRate <= READYZ_THRESHOLDS.providerHealthEmptyRateMax &&
+    args.errorRate <= READYZ_THRESHOLDS.providerHealthErrorRateMax &&
+    args.rateLimitRate <= READYZ_THRESHOLDS.providerHealthRateLimitRateMax &&
+    args.timeoutRate <= READYZ_THRESHOLDS.providerHealthTimeoutRateMax &&
+    args.circuitOpenRate <= READYZ_THRESHOLDS.providerHealthCircuitOpenRateMax
+  );
+}
+
 function toLagSeconds(nowIso: string, observedAtIso: string | undefined): number | null {
   if (!observedAtIso) {
     return null;
@@ -199,6 +253,7 @@ export async function buildReadinessState(args: {
   const degradedReasons: string[] = [];
   const staleHeadProviders = new Set<string>();
   const recentLiveProviders = new Set<string>();
+  const freshnessRecoveredProviders = new Set<string>();
 
   try {
     const targets = await args.repositories.monitorTargetRepository.findActiveSubreddits();
@@ -401,6 +456,33 @@ export async function buildReadinessState(args: {
         const rateLimitRate = item.rateLimitCount / item.requestCount;
         const timeoutRate = item.timeoutCount / item.requestCount;
         const circuitOpenRate = item.circuitOpenCount / item.requestCount;
+        const dynamicProfileShare = toRate(
+          item.scraplingDynamicProfileCount,
+          item.requestCount,
+        );
+        const sessionKeyObservedRate = toRate(
+          item.scraplingSessionKeyCount,
+          item.requestCount,
+        );
+        const sessionKeyReuseRate = toRate(
+          item.scraplingSessionKeyReuseCount,
+          item.scraplingSessionKeyCount,
+        );
+        const scraplingDynamicFreshnessRecovered =
+          isScraplingDynamicFreshnessRecovered({
+            provider: item.provider,
+            requestCount: item.requestCount,
+            successRate,
+            fallbackRate,
+            emptyRate,
+            errorRate,
+            rateLimitRate,
+            timeoutRate,
+            circuitOpenRate,
+            dynamicProfileShare,
+            sessionKeyObservedRate,
+            sessionKeyReuseRate,
+          });
         const duplicatePostRate = toDuplicatePostRate({
           duplicatePostCount: item.duplicatePostCount,
           candidateCount: item.candidateCount,
@@ -442,7 +524,13 @@ export async function buildReadinessState(args: {
         if (providerSwitchShare > READYZ_THRESHOLDS.providerHealthSwitchShareMax) {
           degradedReasons.push(`provider_switch_elevated:${item.provider}`);
         }
+        if (scraplingDynamicFreshnessRecovered) {
+          freshnessRecoveredProviders.add(item.provider);
+        }
         if (isProviderStaleHeadElevated({ duplicatePostRate, ingestLagSeconds })) {
+          if (scraplingDynamicFreshnessRecovered) {
+            continue;
+          }
           staleHeadProviders.add(item.provider);
           degradedReasons.push(`provider_stale_head_elevated:${item.provider}`);
         }
@@ -539,6 +627,9 @@ export async function buildReadinessState(args: {
       }
       for (const [provider, stats] of byProvider.entries()) {
         if (stats.stalledCount <= 0) {
+          continue;
+        }
+        if (freshnessRecoveredProviders.has(provider)) {
           continue;
         }
         degradedReasons.push(`provider_cursor_stalled:${provider}`);

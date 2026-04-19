@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: P1.7-algorithm-productization
-updated_at: "2026-04-19 10:36:29"
+updated_at: "2026-04-19 14:39:04"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Keep `scraplingSessionKeyReuseRateMin` unchanged; maintain stepped promoted `r/python` runs to confirm the new `dynamic_steady_state` lane remains stable, then calibrate `/readyz` stale-head/cursor-stall surfacing so observability reflects live dynamic activity without false sticky degradation."
+next_action: "Start the first post-P5 slice by addressing the remaining global keyword 30-day read-model/API gap from the audit, while keeping P5 anomaly contracts and R5 provider-policy stability unchanged."
 tags:
 - codex
 - workspace
@@ -83,12 +83,11 @@ tags:
 
 ## Current Focus
 
-- Round `R5` is active: keep provider-policy institutionalization moving while finishing the missing product read paths that `R5` depends on.
-- The current completed slice is threshold calibration for Scrapling dynamic escalation and http fallback using persisted profile/session-key evidence.
-- The next slice is DB-backed verification on promoted technical subreddits so the new routing reasons and Scrapling evidence are proven against real promotion data, not just local tests.
-- Keep implementation vertical and evidence-backed: repository/read model/API/tests first, then write one compact continuity update here.
-- `/readyz` and provider-routing must stay grounded in persisted truth, but algorithm-facing read models still take priority over connector-only expansion.
-- Keep current controlled-promotion evidence as the acquisition baseline and make deeper Scrapling work justify itself through better runtime observability and routing evidence.
+- Treat `R5` provider-policy institutionalization as baseline complete for this phase; keep lightweight promoted-target stability verifies running.
+- Treat `P5` algorithm hardening plus downstream response-contract adoption as complete for the current scope; keep the achieved anomaly/event/explain contract baseline stable.
+- Move active build focus to post-`P5` read-model/API backlog and lightweight `R5` stability verifies, not connector expansion.
+- Keep implementation vertical and evidence-backed: repository/materialization/API/tests first, then write one compact continuity update here.
+- Keep auth and Aliyun deployment notes as deferred product-shell work until the current algorithm/read-model slices are closed.
 
 ## Change Policy
 
@@ -137,7 +136,100 @@ tags:
 - Every task entry should include: `Scope`, `Why now`, `Verify`, `Next`.
 - Keep this file ASCII-first or clean UTF-8 only; do not copy mojibake text forward.
 
+## Ongoing Development Flow
+
+- Workspace rule: keep `Projects/project.md` as the only active state source; treat any other `Projects` markdown file as archive/reference only.
+- Slice rule: each dev cycle ships one smallest complete vertical slice (`storage/repository -> service/job -> API/read model -> tests`).
+- Verify rule: every slice must include at least `npm run typecheck` plus targeted test commands for changed boundaries; run `npm run algo:phase1` when the slice crosses scheduler/materialization/API seams.
+- Evidence rule: store large verify artifacts under `docs/` and reference paths in the activity entry instead of pasting long logs.
+- Writeback rule: after each slice, update frontmatter `updated_at` and `next_action`, then append one `Scope/Why now/Verify/Next` entry at the top of the activity log.
+- Priority rule: continue periodic `R5` stability verification, but keep coding priority on post-`P5` read-model/API backlog.
+
 ## Activity Log
+
+### 2026-04-19 14:39:04
+
+- Scope: Finalized `P5` contract-adoption closure by migrating the remaining inline run-trigger integration response typings in `tests/integration/api-server-runs.test.ts` to package contracts (`TriggerPhase1RunResponse`, `ApiErrorResponse`) and tightening the crawlMode assertion to validate forwarding semantics without brittle fixed call-count coupling.
+- Why now: A post-change sweep still showed residual `postJson<{...}>` usage in `api-server-runs`; closing it was required to claim full `P5` downstream contract adoption with minimal precise edits.
+- Verify: `npx tsx --test tests/integration/api-server-runs.test.ts tests/integration/api-server-access.test.ts tests/integration/api-server-keyword-query.test.ts tests/integration/api-server-readyz.test.ts tests/integration/api-server-trends.test.ts` passed (`43/43`). `npm run typecheck` passed. `rg -n -F "getJson<{" tests/integration` and `rg -n -F "postJson<{" tests/integration` returned no matches.
+- Next: Keep `P5` closed and start the first post-`P5` vertical slice on global keyword 30-day read-model/API completion with contracts + targeted tests.
+
+### 2026-04-19 14:36:35
+
+- Scope: Completed the remaining `P5` downstream contract-adoption slice by replacing ad-hoc inline integration response typings in `tests/integration/api-server-access.test.ts`, `tests/integration/api-server-keyword-query.test.ts`, and `tests/integration/api-server-readyz.test.ts` with package contracts (`ApiErrorResponse`, `ApiHealthResponse`, `ApiReadinessResponse`, `CreateSubredditTargetResponse`, `CreateKeywordQueryResponse`, `GetKeywordQueryResponse`, `MarketTrendResponse`).
+- Why now: User requested finishing `P5` with minimal precise changes; after anomaly and non-anomaly trend-path migration, these integration consumers were the remaining inline-typing boundary.
+- Verify: `npx tsx --test tests/integration/api-server-access.test.ts tests/integration/api-server-keyword-query.test.ts tests/integration/api-server-readyz.test.ts tests/integration/api-server-trends.test.ts` passed (`40/40`). `npm run typecheck` passed. `rg -n -F "getJson<{" tests/integration/api-server-access.test.ts tests/integration/api-server-keyword-query.test.ts tests/integration/api-server-readyz.test.ts tests/integration/api-server-trends.test.ts` and `rg -n -F "postJson<{" tests/integration/api-server-access.test.ts tests/integration/api-server-keyword-query.test.ts tests/integration/api-server-readyz.test.ts tests/integration/api-server-trends.test.ts` returned no matches.
+- Next: Keep `P5` closed and start the next vertical slice on global keyword 30-day read-model/API completion with contracts + targeted tests.
+
+### 2026-04-19 14:31:30
+
+- Scope: Completed the non-anomaly trend-path contract-adoption slice in `tests/integration/api-server-trends.test.ts` by replacing ad-hoc inline response typings with package contracts for trend/daily/global-keyword/market/driver plus related seed/run and error responses (`SubredditTrendResponse`, `SubredditDailyTrendResponse`, `GlobalKeywordDailyTrendResponse`, `MarketTrendResponse`, `SubredditDriverPostsResponse`, `CreateSubredditTargetResponse`, `TriggerPhase1RunResponse`, `ApiErrorResponse`).
+- Why now: The active `next_action` required finishing non-anomaly trend-path downstream contract adoption after anomaly success/error/eventId/explain contracts were already stabilized.
+- Verify: `npx tsx --test tests/integration/api-server-trends.test.ts` passed (`13/13`). `npm run typecheck` passed. `rg -n -F "getJson<{" tests/integration/api-server-trends.test.ts` and `rg -n -F "postJson<{" tests/integration/api-server-trends.test.ts` returned no matches, confirming no remaining inline response generics in this integration consumer file.
+- Next: Extend the same contract-adoption cleanup to remaining non-anomaly integration consumers outside `api-server-trends` (especially `keyword-query`/`access`/`readyz` response typings) with focused tests per file.
+
+### 2026-04-19 14:26:06
+
+- Scope: Closed the active anomaly-path contract-adoption dev slice by auditing downstream anomaly consumers and confirming that anomaly success/error response usage is now contract-driven (`SubredditAnomalyFeedResponse`, `SubredditAnomalyIncidentFeedResponse`, `ApiErrorResponse`) without remaining local ad-hoc response typings.
+- Why now: Frontmatter `next_action` still pointed to anomaly-path typing cleanup, so this slice had to be explicitly verified and marked complete before moving to the next contract-adoption boundary.
+- Verify: Searched anomaly endpoint consumers via `rg -n "anomalies(/incidents)?" -g "*.ts"` and inspected `tests/integration/api-server-trends.test.ts` anomaly blocks; all anomaly `getJson` response generics now use package contracts and no anomaly-path inline response shape remains.
+- Next: Continue P5 downstream contract adoption on non-anomaly trend endpoints by replacing remaining ad-hoc inline response typings with package contracts in the same integration-consumer layer.
+
+### 2026-04-19 14:16:52
+
+- Scope: Continued `P5` contract adoption on anomaly consumer paths by replacing anomaly endpoint error-response ad-hoc typings with `ApiErrorResponse` in `tests/integration/api-server-trends.test.ts`. This complements the prior success-response migration to `SubredditAnomalyFeedResponse` / `SubredditAnomalyIncidentFeedResponse`.
+- Why now: The anomaly path still had mixed typing discipline (success typed via contracts, errors typed inline), which left consumer-side drift risk for error payload fields.
+- Verify: `npx tsx --test tests/integration/api-server-trends.test.ts` passed (`13/13`). `npm run typecheck` passed.
+- Next: Keep scanning downstream anomaly consumers and remove any remaining ad-hoc type definitions so all anomaly API usage is contract-driven end-to-end.
+
+### 2026-04-19 14:09:42
+
+- Scope: Continued `P5` downstream adoption by switching anomaly endpoint integration consumers from ad-hoc inline response typings to canonical contract types in `tests/integration/api-server-trends.test.ts`. Imported and used `SubredditAnomalyFeedResponse` / `SubredditAnomalyIncidentFeedResponse` directly, and updated assertions to read typed explain payload fields without local cast-shaped wrappers.
+- Why now: The previous slices established `eventId` and explain payload contract versions; this step ensures downstream usage is enforced by shared contracts instead of drift-prone local test shapes.
+- Verify: `npx tsx --test tests/integration/api-server-trends.test.ts` passed (`13/13`). `npm run typecheck` passed.
+- Next: Continue replacing any remaining ad-hoc consumer typing around anomaly responses with contract imports in downstream paths, while keeping lightweight `R5` verify snapshots as stability guard evidence.
+
+### 2026-04-19 14:06:55
+
+- Scope: Completed the paused `R5` lightweight promoted-target stability verify work by executing `scripts/live-controlled-promotion-verify.ts` with a minimal one-cycle promoted run (`python`) against local Postgres.
+- Why now: The previous `next_action` explicitly left this verify as a paused environment-dependent item; closing it removes uncertainty before continuing `P5` contract adoption work.
+- Verify: Command succeeded and wrote `docs/live-controlled-promotion-2026-04-19T06-06-35-432Z.json` with `runCount=1`, `failedCycleCount=0`, `providersSeen=["scrapling"]`, cycle routing class `scrapling_dynamic_escalation`, `providerHealth.requestCount=6`, `successCount=6`, `localTargetReadinessStatus=ready`, and only global degraded reason `algorithm_daily_fact_stale`.
+- Next: Keep this snapshot as the current lightweight `R5` guard evidence and continue enforcing anomaly `eventId` + explain contract usage in downstream consumer paths.
+
+### 2026-04-19 12:49:09
+
+- Scope: Continued `P5` downstream contract tightening by introducing stable anomaly `eventId` across read paths. Added shared `buildAnomalyEventId/parseAnomalyEventId` utility, included `eventId` in anomaly feed read model and HTTP response, and made incident `sourceEvents.eventId` reuse the same builder to guarantee cross-endpoint consistency. Kept explicit explain contracts active (`anomaly_feed_explain_v1`, `anomaly_incident_explain_v1`) and aligned HTTP contract types accordingly.
+- Why now: After locking explain payload schemas, cross-endpoint linkage still relied on implicit tuple matching; adding a stable `eventId` removes consumer ambiguity and makes feed-to-incident traceability deterministic.
+- Verify: `npm run typecheck` passed. `npx tsx --test tests/unit/anomaly-event-id.test.ts tests/unit/subreddit-anomaly-feed-read-model.service.test.ts tests/unit/subreddit-anomaly-incident-read-model.service.test.ts tests/unit/build-anomaly-events.job.test.ts tests/unit/build-anomaly-events-thresholds.test.ts` passed (`10/10`). `npx tsx --test tests/integration/api-server-trends.test.ts` passed (`13/13`), including new `eventId` and explain-contract assertions on anomaly endpoints.
+- Next: Execute one lightweight promoted-target `R5` verify snapshot once `DATABASE_URL` is available in the shell, then keep enforcing anomaly contract usage in any downstream consumer that still treats explain payloads as untyped blobs.
+
+### 2026-04-19 12:43:36
+
+- Scope: Completed `P5` slice 3 (`cross-endpoint anomaly consistency + explain payload contract tightening`). Added shared severity resolver (`src/application/services/anomaly-severity.ts`) used by both anomaly feed and incident read models, standardized anomaly feed explain payload to `anomaly_feed_explain_v1` with stable fields plus `details`, and standardized incident explain payload to `anomaly_incident_explain_v1` with explicit `mergeStrategy`, `mergeBoostBySignalType`, and typed `sourceEvents` (`eventId`, severity, algorithmVersion). Tightened HTTP contracts for anomaly feed/incidents explain payload shapes in `packages/contracts/src/http.ts`.
+- Why now: After finishing directional quality and weighted merge scoring, the remaining `P5` gap was contract drift risk between `/anomalies` and `/anomalies/incidents`; both needed explicit explain schemas so downstream consumers can parse fields deterministically.
+- Verify: `npm run typecheck` passed. `npx tsx --test tests/unit/subreddit-anomaly-feed-read-model.service.test.ts tests/unit/subreddit-anomaly-incident-read-model.service.test.ts tests/unit/build-anomaly-events.job.test.ts tests/unit/build-anomaly-events-thresholds.test.ts` passed (`8/8`). `npx tsx --test tests/integration/api-server-trends.test.ts` passed (`13/13`), including new explain-payload assertions on anomaly feed and incident endpoints.
+- Next: Run one lightweight promoted-target `R5` stability verify snapshot, then continue with downstream consumer tightening for anomaly contract fields so new explain payload schemas are used end-to-end.
+
+### 2026-04-19 12:35:27
+
+- Scope: Completed `P5` hardening slices 1 and 2 in code. Upgraded anomaly defaults to `anomaly_event_v2_tier_directional_quality`, added tier-adaptive quality score gates and tier baseline floors, split quality anomaly keys into `quality_up` / `quality_down`, and added weighted incident merge boosts by signal type instead of fixed per-signal increments.
+- Why now: Current backlog explicitly required reducing fixed-threshold drift and directional ambiguity in quality anomaly output, plus replacing fixed incident merge boost so different signal reliabilities are reflected in merged incidents.
+- Verify: `npx tsx --test tests/unit/build-anomaly-events.job.test.ts tests/unit/build-anomaly-events-thresholds.test.ts tests/unit/subreddit-anomaly-incident-read-model.service.test.ts` passed (`7/7`). `npx tsx --test tests/integration/api-server-trends.test.ts` passed (`13/13`). `npm run typecheck` passed.
+- Next: Implement `P5` slice 3 by enforcing anomaly feed/incident explain-payload consistency contracts across read models and API responses, then keep periodic promoted Scrapling stability verifies as a lightweight guard.
+
+### 2026-04-19 12:26:22
+
+- Scope: Organized the Obsidian `Projects` workspace for single-source execution and set the post-R5 development workflow. Updated frontmatter and `Current Focus` to move active work to `P5` hardening slices, added a dedicated `Ongoing Development Flow` section, and archived side-note docs out of the root `Projects` directory.
+- Why now: `Projects` contained multiple side-note files that could cause state drift, while current execution priority needed to move from completed `R5` baseline work to the next algorithm/read-model hardening path.
+- Verify: `project.md` now carries the active workflow contract and next action; side-note documents are moved under `obsidian-reddit专用/Projects/Archive/`; root `Projects` is reduced to the active state file plus archive folder.
+- Next: Start `P5` slice 1 in code (`tier-adaptive thresholds + quality direction split`), ship with focused tests, and write back evidence paths in the next activity entry.
+
+### 2026-04-19 12:13:10
+
+- Scope: Closed the remaining `R5` observability consistency gap so `/readyz` and controlled-promotion verify use aligned Scrapling dynamic recovery semantics. Updated `apps/api/src/readyz-observability.ts` to suppress Scrapling `provider_stale_head_elevated` and `provider_cursor_stalled/provider_data_stalled` degraded reasons when dynamic profile evidence is strong and transport is healthy. Added integration coverage in `tests/integration/api-server-readyz.test.ts`. Also aligned `scripts/live-controlled-promotion-verify.ts` local-target readiness evaluator to the same suppression rule so verify output no longer diverges from `/readyz`.
+- Why now: The prior `R5` routing path was stable (`dynamicRoute` high, `fallback` low), but observability still emitted sticky stale/stalled reasons for Scrapling despite continuous dynamic run-local activity, leaving one last productization inconsistency.
+- Verify: `npx tsx --test tests/integration/api-server-readyz.test.ts` passed (`22/22`). `npx tsx --test tests/unit/reddit-provider-routing-policy.test.ts` passed (`16/16`). `npm run typecheck` passed. Live verifies: `docs/live-controlled-promotion-2026-04-19T04-11-13-358Z.json` shows `dynamicRoute=8/8`, `fallbackRoute=0/8`, global degraded reasons only `algorithm_daily_fact_stale`; `docs/live-controlled-promotion-2026-04-19T04-13-02-514Z.json` shows `localTargetDegradedRuns=0` with no local stale/stalled Scrapling reasons.
+- Next: Treat `R5` as complete for this phase and move active implementation to remaining algorithm/read-model delivery backlog while retaining periodic promoted Scrapling stability verification.
 
 ### 2026-04-19 10:36:29
 
