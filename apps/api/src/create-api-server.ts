@@ -68,6 +68,7 @@ import {
   normalizeSubredditName,
   parseOptionalIntegerParam,
   resolveDailyRange,
+  resolveGlobalKeywordDailyRange,
   resolveRunMode,
   resolveTrendRange,
 } from "./api-validation";
@@ -1142,7 +1143,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           );
         }
 
-        const { fromIso, toIso } = resolveDailyRange(url.searchParams, now());
+        const { fromIso, toIso } = resolveGlobalKeywordDailyRange(url.searchParams, now());
         const rows = await repos.keywordTrendDailyRepository.listByQueryInRange({
           normalizedQueryText: normalizedQuery.normalizedQueryText,
           fromDay: toUtcDay(fromIso),

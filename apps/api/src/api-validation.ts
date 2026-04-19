@@ -17,6 +17,8 @@ const DEFAULT_TREND_LOOKBACK_MINUTES = 72 * 60;
 const MAX_TREND_LOOKBACK_MINUTES = 30 * 24 * 60;
 const DEFAULT_DAILY_LOOKBACK_MINUTES = 14 * 24 * 60;
 const MAX_DAILY_LOOKBACK_MINUTES = 90 * 24 * 60;
+const DEFAULT_GLOBAL_KEYWORD_LOOKBACK_DAYS = 30;
+const MAX_GLOBAL_KEYWORD_LOOKBACK_DAYS = 30;
 const MAX_KEYWORD_QUERY_LENGTH = 160;
 
 export function normalizeSubredditName(value: string): string {
@@ -135,6 +137,49 @@ export function resolveDailyRange(params: URLSearchParams, nowIso: string): { fr
   }
 
   return { fromIso, toIso };
+}
+
+export function resolveGlobalKeywordDailyRange(
+  params: URLSearchParams,
+  nowIso: string,
+): { fromIso: string; toIso: string } {
+  const toIso = parseIsoParam(params.get("to"), "to") ?? nowIso;
+  const fromIso =
+    parseIsoParam(params.get("from"), "from") ??
+    new Date(
+      new Date(toIso).getTime() -
+        (DEFAULT_GLOBAL_KEYWORD_LOOKBACK_DAYS - 1) * 24 * 60 * 60 * 1000,
+    ).toISOString();
+
+  const fromDate = new Date(fromIso);
+  const toDate = new Date(toIso);
+  if (fromDate.getTime() > toDate.getTime()) {
+    throw new BadRequestError("from must be <= to", "invalid_range");
+  }
+
+  const dayCount = countUtcDaysInclusive(fromIso, toIso);
+  if (dayCount > MAX_GLOBAL_KEYWORD_LOOKBACK_DAYS) {
+    throw new BadRequestError(
+      `range too large: max ${MAX_GLOBAL_KEYWORD_LOOKBACK_DAYS} days`,
+      "range_too_large",
+    );
+  }
+
+  return { fromIso, toIso };
+}
+
+function countUtcDaysInclusive(fromIso: string, toIso: string): number {
+  const fromDay = new Date(`${toUtcDay(fromIso)}T00:00:00.000Z`);
+  const toDay = new Date(`${toUtcDay(toIso)}T00:00:00.000Z`);
+  if (Number.isNaN(fromDay.getTime()) || Number.isNaN(toDay.getTime())) {
+    return 0;
+  }
+  const diffDays = Math.floor((toDay.getTime() - fromDay.getTime()) / (24 * 60 * 60 * 1000));
+  return diffDays + 1;
+}
+
+function toUtcDay(iso: string): string {
+  return new Date(iso).toISOString().slice(0, 10);
 }
 
 export function normalizeKeywordQueryText(value: string): string {

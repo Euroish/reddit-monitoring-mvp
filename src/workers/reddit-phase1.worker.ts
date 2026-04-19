@@ -1,5 +1,6 @@
 import type { RedditConnector } from "../connectors/reddit/reddit-connector.interface";
 import type { RedditMapper } from "../connectors/reddit/reddit-mapper.interface";
+import type { RedditLiveProvider } from "../connectors/reddit/create-reddit-connector";
 import type { AccountRepository } from "../domain/repositories/account-repository";
 import type { CollectionJobRepository } from "../domain/repositories/collection-job-repository";
 import type { ContentRepository } from "../domain/repositories/content-repository";
@@ -28,6 +29,15 @@ import {
 } from "./reddit-phase1-defaults";
 import { PHASE1_SAMPLING_THRESHOLDS } from "./reddit-phase1-thresholds";
 
+interface RedditExecutionStrategy {
+  selectedProvider: RedditLiveProvider;
+  providerHint: string;
+  connector: RedditConnector;
+  scraplingProfile: string | null;
+  routingClass: string;
+  reasons: string[];
+}
+
 export interface RedditPhase1WorkerDependencies {
   monitorTargetRepository: MonitorTargetRepository;
   collectionJobRepository: CollectionJobRepository;
@@ -55,13 +65,7 @@ export interface RedditPhase1WorkerDependencies {
     providerHint?: string;
     crawlMode: "live" | "backfill";
     nowIso: string;
-  }) => Promise<{
-    providerHint: string;
-    connector: RedditConnector;
-    scraplingProfile: string | null;
-    routingClass: string;
-    reasons: string[];
-  }>;
+  }) => Promise<RedditExecutionStrategy>;
   redditMapper: RedditMapper;
 }
 
@@ -245,7 +249,9 @@ export async function runRedditPhase1Cycle(
           })
         : null;
       const targetProviderHint =
-        executionStrategy?.providerHint ?? defaultTargetProviderHint;
+        executionStrategy?.selectedProvider ??
+        executionStrategy?.providerHint ??
+        defaultTargetProviderHint;
       const targetConnector =
         executionStrategy?.connector ??
         deps.redditConnectorResolver?.({
@@ -262,6 +268,7 @@ export async function runRedditPhase1Cycle(
             nowIso,
             targetId: target.id,
             canonicalName: target.canonicalName,
+            selectedProvider: executionStrategy.selectedProvider,
             providerHint: executionStrategy.providerHint,
             scraplingProfile: executionStrategy.scraplingProfile,
             routingClass: executionStrategy.routingClass,

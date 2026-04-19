@@ -182,7 +182,7 @@ test("phase1 cycle routes promoted targets to scrapling while keeping others on 
   assert.equal(providerRows[1]?.targetId, stableUuidFromString("reddit:target:r/datascience"));
 });
 
-test("phase1 cycle falls promoted scrapling targets back to http when persisted truth marks scrapling degraded", async () => {
+test("phase1 cycle keeps promoted scrapling targets on recovery probe when transport is degraded and cursor is stalled", async () => {
   const nowIso = "2026-04-16T06:10:00.000Z";
   const monitorTargetRepository = new InMemoryMonitorTargetRepository();
   const collectionJobRepository = new InMemoryCollectionJobRepository();
@@ -294,11 +294,11 @@ test("phase1 cycle falls promoted scrapling targets back to http when persisted 
     },
   );
 
-  assert.deepEqual(httpConnector.postCalls, ["datascience"]);
-  assert.deepEqual(scraplingConnector.postCalls, []);
+  assert.deepEqual(httpConnector.postCalls, []);
+  assert.deepEqual(scraplingConnector.postCalls, ["datascience"]);
 });
 
-test("phase1 cycle falls promoted scrapling targets back to http when dynamic scrapling still returns stale-head evidence", async () => {
+test("phase1 cycle keeps promoted scrapling targets on dynamic profile when stale-head evidence is present", async () => {
   const nowIso = "2026-04-16T06:20:00.000Z";
   const monitorTargetRepository = new InMemoryMonitorTargetRepository();
   const collectionJobRepository = new InMemoryCollectionJobRepository();
@@ -414,6 +414,6 @@ test("phase1 cycle falls promoted scrapling targets back to http when dynamic sc
     },
   );
 
-  assert.deepEqual(httpConnector.postCalls, ["datascience"]);
-  assert.deepEqual(scraplingConnector.postCalls, []);
+  assert.deepEqual(httpConnector.postCalls, []);
+  assert.deepEqual(scraplingConnector.postCalls, ["datascience"]);
 });

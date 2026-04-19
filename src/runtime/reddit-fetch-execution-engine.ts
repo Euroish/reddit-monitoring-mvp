@@ -43,7 +43,7 @@ export function createRedditFetchExecutionEngine(args: {
       });
       const cacheKey = [
         input.crawlMode,
-        route.providerOverride,
+        route.selectedProvider,
         route.scraplingProfile ?? "none",
       ].join(":");
       let connector = connectorCache.get(cacheKey);
@@ -51,7 +51,7 @@ export function createRedditFetchExecutionEngine(args: {
         connector = args.createConnector(
           args.mode,
           input.crawlMode,
-          route.providerOverride,
+          route.selectedProvider,
           route.scraplingProfile ?? undefined,
         );
         connectorCache.set(cacheKey, connector);

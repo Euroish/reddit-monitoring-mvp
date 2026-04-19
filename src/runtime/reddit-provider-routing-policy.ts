@@ -20,6 +20,7 @@ export interface RedditProviderRoutingPolicyContext {
 }
 
 export interface RedditTargetExecutionRoute {
+  selectedProvider: RedditLiveProvider;
   providerHint: string;
   providerOverride: RedditLiveProvider;
   scraplingProfile: RedditScraplingProfile | null;
@@ -90,9 +91,11 @@ export async function resolveRedditTargetExecutionRoute(args: {
       args.policyContext.scraplingPrimaryCanonicalNames.includes(canonicalName));
 
   if (args.crawlMode !== "live" || !promotedToScrapling) {
+    const selectedProvider = resolveRedditLiveProvider(normalizedProviderHint);
     return {
+      selectedProvider,
       providerHint: normalizedProviderHint,
-      providerOverride: resolveRedditLiveProvider(normalizedProviderHint),
+      providerOverride: selectedProvider,
       scraplingProfile:
         normalizedProviderHint === "scrapling"
           ? args.policyContext.defaultScraplingProfile
@@ -221,6 +224,7 @@ export async function resolveRedditTargetExecutionRoute(args: {
         probeReasons.unshift("scrapling_recovery_probe_dynamic_profile");
       }
       return {
+        selectedProvider: "scrapling",
         providerHint: "scrapling",
         providerOverride: "scrapling",
         scraplingProfile: recoveryProbeProfile,
@@ -238,6 +242,7 @@ export async function resolveRedditTargetExecutionRoute(args: {
         probeReasons.unshift("scrapling_recovery_probe_dynamic_profile");
       }
       return {
+        selectedProvider: "scrapling",
         providerHint: "scrapling",
         providerOverride: "scrapling",
         scraplingProfile: recoveryProbeProfile,
@@ -247,6 +252,7 @@ export async function resolveRedditTargetExecutionRoute(args: {
       };
     }
     return {
+      selectedProvider: "http",
       providerHint: "http",
       providerOverride: "http",
       scraplingProfile: null,
@@ -274,6 +280,7 @@ export async function resolveRedditTargetExecutionRoute(args: {
     reasons.push("scrapling_dynamic_profile_recent");
     reasons.push("scrapling_session_key_evidence_ready");
     return {
+      selectedProvider: "http",
       providerHint: "http",
       providerOverride: "http",
       scraplingProfile: null,
@@ -299,6 +306,7 @@ export async function resolveRedditTargetExecutionRoute(args: {
     reasons.push("scrapling_http_profile_recent");
     reasons.push("scrapling_session_key_evidence_ready");
     return {
+      selectedProvider: "scrapling",
       providerHint: "scrapling",
       providerOverride: "scrapling",
       scraplingProfile: "dynamic",
@@ -327,6 +335,7 @@ export async function resolveRedditTargetExecutionRoute(args: {
       reasons.push(transportRecoveredReason);
     }
     return {
+      selectedProvider: "scrapling",
       providerHint: "scrapling",
       providerOverride: "scrapling",
       scraplingProfile: "dynamic",
@@ -337,6 +346,7 @@ export async function resolveRedditTargetExecutionRoute(args: {
   }
 
   return {
+    selectedProvider: "scrapling",
     providerHint: "scrapling",
     providerOverride: "scrapling",
     scraplingProfile: args.policyContext.defaultScraplingProfile,
@@ -357,8 +367,8 @@ export function summarizeRedditRoutingPolicy(
 
   for (const route of routes) {
     providerCounts.set(
-      route.providerHint,
-      (providerCounts.get(route.providerHint) ?? 0) + 1,
+      route.selectedProvider,
+      (providerCounts.get(route.selectedProvider) ?? 0) + 1,
     );
     if (route.scraplingProfile) {
       profileCounts.set(

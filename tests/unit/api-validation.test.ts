@@ -6,6 +6,7 @@ import {
   normalizeSubredditName,
   parseOptionalIntegerParam,
   resolveDailyRange,
+  resolveGlobalKeywordDailyRange,
   resolveRunMode,
   resolveTrendRange,
 } from "../../apps/api/src/api-validation";
@@ -61,6 +62,26 @@ test("resolveDailyRange rejects oversized ranges", () => {
     to: "2026-04-10T00:00:00.000Z",
   });
   assert.throws(() => resolveDailyRange(params, "2026-04-10T00:00:00.000Z"), BadRequestError);
+});
+
+test("resolveGlobalKeywordDailyRange defaults to trailing 30-day window", () => {
+  const range = resolveGlobalKeywordDailyRange(
+    new URLSearchParams(),
+    "2026-04-18T12:00:00.000Z",
+  );
+  assert.equal(range.fromIso, "2026-03-20T12:00:00.000Z");
+  assert.equal(range.toIso, "2026-04-18T12:00:00.000Z");
+});
+
+test("resolveGlobalKeywordDailyRange rejects ranges over 30 days inclusive", () => {
+  const params = new URLSearchParams({
+    from: "2026-03-19T00:00:00.000Z",
+    to: "2026-04-18T23:59:59.000Z",
+  });
+  assert.throws(
+    () => resolveGlobalKeywordDailyRange(params, "2026-04-18T12:00:00.000Z"),
+    BadRequestError,
+  );
 });
 
 test("parseOptionalIntegerParam validates range and integer", () => {

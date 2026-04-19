@@ -7,7 +7,9 @@ import {
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
 import {
   resolveRedditTargetExecutionRoute,
+  summarizeRedditRoutingPolicy,
   type RedditProviderRoutingPolicyContext,
+  type RedditTargetExecutionRoute,
 } from "../../src/runtime/reddit-provider-routing-policy";
 
 const nowIso = "2026-04-18T12:00:00.000Z";
@@ -30,6 +32,7 @@ test("provider routing promotes configured targets to scrapling by default", asy
   });
 
   assert.equal(route.providerHint, "scrapling");
+  assert.equal(route.selectedProvider, "scrapling");
   assert.equal(route.scraplingProfile, "http");
   assert.equal(route.routingClass, "scrapling_promoted");
 });
@@ -75,6 +78,7 @@ test("provider routing escalates promoted scrapling targets to dynamic profile o
   });
 
   assert.equal(route.providerHint, "scrapling");
+  assert.equal(route.selectedProvider, "scrapling");
   assert.equal(route.scraplingProfile, "dynamic");
   assert.equal(route.routingClass, "scrapling_dynamic_escalation");
   assert.equal(route.reasons.includes("scrapling_stale_head_elevated"), true);
@@ -128,9 +132,39 @@ test("provider routing falls back promoted scrapling targets to http on transpor
   });
 
   assert.equal(route.providerHint, "http");
+  assert.equal(route.selectedProvider, "http");
   assert.equal(route.scraplingProfile, null);
   assert.equal(route.routingClass, "scrapling_http_fallback");
   assert.equal(route.reasons.includes("scrapling_timeout_elevated"), true);
+});
+
+test("provider routing summary counts selectedProvider instead of providerHint text", () => {
+  const routes: RedditTargetExecutionRoute[] = [
+    {
+      selectedProvider: "http",
+      providerHint: "scrapling",
+      providerOverride: "http",
+      scraplingProfile: null,
+      promotedToScrapling: true,
+      routingClass: "scrapling_http_fallback",
+      reasons: ["scrapling_transport_degraded"],
+    },
+    {
+      selectedProvider: "scrapling",
+      providerHint: "http",
+      providerOverride: "scrapling",
+      scraplingProfile: "dynamic",
+      promotedToScrapling: true,
+      routingClass: "scrapling_dynamic_escalation",
+      reasons: ["scrapling_dynamic_steady_state"],
+    },
+  ];
+
+  const summary = summarizeRedditRoutingPolicy(routes, policyContext);
+  assert.deepEqual(summary.byProvider, [
+    { provider: "http", targetCount: 1 },
+    { provider: "scrapling", targetCount: 1 },
+  ]);
 });
 
 test("provider routing uses scrapling recovery probe when transport is degraded and cursor is long-stalled", async () => {

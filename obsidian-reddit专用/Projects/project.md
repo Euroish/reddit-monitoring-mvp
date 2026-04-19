@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: P1.7-algorithm-productization
-updated_at: "2026-04-19 14:39:04"
+stage: P1.7-complete
+updated_at: "2026-04-19 15:15:19"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Start the first post-P5 slice by addressing the remaining global keyword 30-day read-model/API gap from the audit, while keeping P5 anomaly contracts and R5 provider-policy stability unchanged."
+next_action: "Start post-P1.7 product shell work (auth/session + deployment hardening) while keeping the current algorithm/provider-policy baseline frozen and running lightweight periodic promotion verifies."
 tags:
 - codex
 - workspace
@@ -21,7 +21,7 @@ tags:
 - Status: active
 - Product: `http-first analytics engine (Reddit currently primary source)`
 - Product goal: build a durable analytics product around pluggable HTTP acquisition, truthful observability, and explainable ranking/read models
-- Phase: `P1.7 algorithm productization active`
+- Phase: `P1.7 algorithm productization complete (frozen baseline)`
 - Authority: `project.md` is the single execution source
 
 ## Product Positioning
@@ -32,11 +32,9 @@ tags:
 
 ## Current Decision
 
-- Treat current `http + scrapling` controlled-promotion evidence as the acquisition baseline, not the primary workstream.
-- Shift active work to product-grade algorithm delivery: `subreddit_daily_fact`, tier-aware quality rules, 30-day keyword/query trends, driver-post scoring, and anomaly events.
-- Execute work in dependency-ordered rounds (`R1-R5`) so each round lands a complete `migration -> repository -> job -> read model/API -> tests -> verify evidence` slice.
-- Treat the algorithm plan as a priority order, not a pause gate: Codex should ship the smallest complete slice that safely advances the current round.
-- Keep deep Scrapling integration in scope, but institutionalize it through provider-routing policy after the core algorithm facts exist.
+- Keep current `http + scrapling` controlled-promotion plus algorithm/read-model outputs as the verified baseline.
+- Treat `P1.7` as complete for implementation scope; changes here are now maintenance/calibration only unless a new requirement explicitly reopens the phase.
+- Use the next cycle for product-shell progress (`P2`-facing auth/session and deployment hardening), while preserving current fact/read-model/API and provider-policy behavior.
 
 ## Why This Decision
 
@@ -83,11 +81,9 @@ tags:
 
 ## Current Focus
 
-- Treat `R5` provider-policy institutionalization as baseline complete for this phase; keep lightweight promoted-target stability verifies running.
-- Treat `P5` algorithm hardening plus downstream response-contract adoption as complete for the current scope; keep the achieved anomaly/event/explain contract baseline stable.
-- Move active build focus to post-`P5` read-model/API backlog and lightweight `R5` stability verifies, not connector expansion.
-- Keep implementation vertical and evidence-backed: repository/materialization/API/tests first, then write one compact continuity update here.
-- Keep auth and Aliyun deployment notes as deferred product-shell work until the current algorithm/read-model slices are closed.
+- `P1.7` implementation scope is closed; keep algorithm/provider-policy paths frozen unless fixing regressions.
+- Keep lightweight `R5` promoted-target stability verification as a standing guardrail.
+- Shift active development focus to post-`P1.7` product shell backlog (`auth/session`, deployment hardening, operations polish).
 
 ## Change Policy
 
@@ -113,7 +109,7 @@ tags:
 
 ## Algorithm Development Plan
 
-- Round R1 `daily fact foundation` (active): add `subreddit_daily_fact`, `subreddit-tiering.service`, `quality-threshold.service`, `subreddit-daily-heat.service`, reorder scheduler materialization around the daily fact layer, declare the day-level canonical metric source, and expose the first subreddit heat read model/API plus algorithm-materialization readiness evidence.
+- Round R1 `daily fact foundation` (complete): add `subreddit_daily_fact`, `subreddit-tiering.service`, `quality-threshold.service`, `subreddit-daily-heat.service`, reorder scheduler materialization around the daily fact layer, declare the day-level canonical metric source, and expose the first subreddit heat read model/API plus algorithm-materialization readiness evidence.
 - Round R2 `keyword trend upgrade`: settle `query normalization v2` (`lowercase`, phrase handling, token overlap, alias boundary, subreddit-scoped vs global query semantics) inside code/tests, convert keyword processing to `explicit query + auto keyword` dual track, use tier-aware qualification, and output 30-day keyword heat plus breakout markers from fact/materialized inputs only.
 - Round R3 `driver-post layer`: add `post_growth_fact`, velocity-based driver scoring, same-age cohort normalization (`1h/6h/24h` minimum buckets), driver labels, and subreddit/keyword driver APIs.
 - Round R4 `anomaly layer`: add raw `anomaly_event` detection plus merged/consumer-facing anomaly incidents, settle dedupe/merge rules across `volume`, `quality`, `keyword`, and `driver` signals in code/tests, and expose explainable anomaly feeds.
@@ -146,6 +142,27 @@ tags:
 - Priority rule: continue periodic `R5` stability verification, but keep coding priority on post-`P5` read-model/API backlog.
 
 ## Activity Log
+
+### 2026-04-19 15:15:19
+
+- Scope: Closed all remaining `P1.7` work by finishing the provider-policy abstraction hardening and executing the full exit-gate verification sweep across unit/integration/full regression and DB-backed truth-path checks. Flipped frontmatter stage to `P1.7-complete` and moved focus to post-`P1.7` product-shell backlog while freezing the current algorithm/provider-policy baseline.
+- Why now: User requested completing all `P1.7` work; previous `next_action` explicitly left only the final exit-gate verification and stage flip.
+- Verify: `npm run algo:phase1` passed (`31/31` phase1 unit). `npm run algo:phase1:full` passed (phase1 unit + integration green). `npx tsx --test tests/integration/api-server-readyz.test.ts tests/integration/api-server-trends.test.ts` passed (`36/36`). `npm run algo:full` passed (`211/211`). DB-backed checks passed with `DATABASE_URL=postgresql://postgres:***@localhost:5432/reddit_monitoring`: `npm run algo:promotion:verify` wrote `docs/live-controlled-promotion-2026-04-19T07-14-19-108Z.json` (`runCount=2`, `failedCycleCount=0`), and `npx tsx scripts/verify-phase1-postgres.ts` output was captured to `docs/verify-phase1-postgres-2026-04-19T15-14-27.log` with `ok=true` and readiness truth-path output present.
+- Next: Start post-`P1.7` product shell implementation (`auth/session` + deployment hardening) and keep periodic lightweight promotion verifies as maintenance guards.
+
+### 2026-04-19 15:06:38
+
+- Scope: Completed the post-`P5` `P1.7` provider-policy abstraction hardening slice by introducing typed `selectedProvider` routing output in `src/runtime/reddit-provider-routing-policy.ts` and propagating it through `src/runtime/reddit-fetch-execution-engine.ts` and `src/workers/reddit-phase1.worker.ts`. Kept `providerHint` for compatibility, but execution/sampling now prioritizes `selectedProvider` so routing decisions are no longer coupled to hint-string semantics. Also made routing summary count by `selectedProvider`.
+- Why now: `next_action` explicitly required strengthening provider-policy abstraction beyond provider-hint routing while keeping existing read-model/API contracts stable.
+- Verify: `npx tsx --test tests/unit/reddit-provider-routing-policy.test.ts tests/integration/reddit-phase1-provider-routing.test.ts` passed (`20/20`). `npm run typecheck` passed.
+- Next: Run one P1.7 exit-gate verification sweep across `npm run algo:phase1` + DB-backed promotion/readyz checks, then decide whether stage can move from `P1.7-algorithm-productization` to closure/post-phase focus.
+
+### 2026-04-19 14:58:42
+
+- Scope: Completed the first post-`P5` `P1.7` read-model/API slice for global keyword trends. Added a dedicated `resolveGlobalKeywordDailyRange` path and wired `/v1/trends/keywords/:query/daily` to 30-day semantics (default trailing 30 days; reject ranges over 30 inclusive days). Added unit coverage in `tests/unit/api-validation.test.ts` and integration coverage in `tests/integration/api-server-trends.test.ts` for default 30-day behavior.
+- Why now: `next_action` explicitly targeted the remaining global keyword 30-day read-model/API gap after `P5` closure; this was the smallest complete vertical slice to advance `P1.7` without touching unrelated areas.
+- Verify: `npx tsx --test tests/unit/api-validation.test.ts tests/integration/api-server-trends.test.ts` passed (`25/25`). `npm run typecheck` passed.
+- Next: Continue post-`P5` `P1.7` with provider-policy abstraction hardening beyond provider-hint routing, keeping current global-keyword 30-day and anomaly contract outputs stable.
 
 ### 2026-04-19 14:39:04
 
