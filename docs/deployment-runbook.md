@@ -5,6 +5,7 @@
 This runbook covers the single-server production shape for the Reddit monitoring MVP:
 
 - Nginx serves the future web app and proxies API traffic.
+- The web app is built from `apps/web` and served as static files.
 - The API runs from compiled JavaScript with Node.
 - The Phase 1 scheduler and keyword refresh scheduler run from compiled JavaScript with systemd.
 - PostgreSQL is the persistence backend.
@@ -15,8 +16,10 @@ Run these commands from the repository root:
 
 ```powershell
 npm install
+npm --prefix apps/web ci
 npm run typecheck
 npm test
+npm run lint:web
 npm run build
 npm run smoke:compiled
 npm run smoke:linux-provider
@@ -31,6 +34,7 @@ Expected server layout:
 ```text
 /opt/reddit-monitoring
   dist/
+  apps/web/dist/
   package.json
   package-lock.json
 /etc/reddit-monitoring

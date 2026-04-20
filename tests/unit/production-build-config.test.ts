@@ -7,7 +7,10 @@ test("production scripts use compiled node entrypoints", async () => {
     scripts: Record<string, string>;
   };
 
-  assert.equal(packageJson.scripts.build, "tsc --project tsconfig.build.json");
+  assert.equal(packageJson.scripts.build, "npm run build:api && npm run build:web");
+  assert.equal(packageJson.scripts["build:api"], "tsc --project tsconfig.build.json");
+  assert.equal(packageJson.scripts["build:web"], "npm --prefix apps/web run build");
+  assert.equal(packageJson.scripts["lint:web"], "npm --prefix apps/web run lint");
   assert.equal(packageJson.scripts["start:api"], "node dist/apps/api/src/server.js");
   assert.equal(
     packageJson.scripts["start:worker:phase1:scheduler"],

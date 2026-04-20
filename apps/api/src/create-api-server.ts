@@ -782,6 +782,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
       const needsAuth =
         (Boolean(bearerToken) &&
           protectedPathPrefixes.some((prefix) => pathname.startsWith(prefix))) ||
+        pathname === "/v1/ops/readyz" ||
         isAuthAdminPath(pathname);
       if (bearerIsValid) {
         actor = { type: "machine" };

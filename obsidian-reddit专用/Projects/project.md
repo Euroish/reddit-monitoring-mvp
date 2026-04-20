@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: P1.7-complete
-updated_at: "2026-04-20 13:50:00"
+stage: frontend-product-shell
+updated_at: "2026-04-20 16:14:49"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Continue Phase D with an end-to-end browser/API smoke for login, dashboard, target detail chart, and Ops readiness before adding more UI features."
+next_action: "Run browser/API smoke for the new /queries flow, then decide whether the lazy TargetDetail ECharts chunk needs deeper core-import reduction."
 tags:
 - codex
 - workspace
@@ -19,107 +19,41 @@ tags:
 
 - Repository: `E:\vibe coding\project`
 - Status: active
-- Product: `http-first analytics engine (Reddit currently primary source)`
-- Product goal: build a durable analytics product around pluggable HTTP acquisition, truthful observability, and explainable ranking/read models
-- Phase: `P1.7 algorithm productization complete (frozen baseline)`
+- Product: `Reddit analytics product shell on top of the verified HTTP/Scrapling data plane`
+- Product goal: build a durable browser-facing analytics product with session auth, explainable read models, charted target details, query analysis, and protected Ops visibility
+- Phase: `frontend product shell`
 - Authority: `project.md` is the single execution source
 
-## Product Positioning
+## Frontend Product Shell Focus
 
-- This repo remains one product; it is not split into a collector-only repo and a separate analytics repo.
-- `P1` remains the data plane and truth layer. `P2` remains website-facing analytics consumption.
-- Acquisition now has two lanes: baseline connector lane (existing TypeScript HTTP/APIFY path) and Scrapling lane (Python adaptive scraping lane).
-
-## Current Decision
-
-- Keep current `http + scrapling` controlled-promotion plus algorithm/read-model outputs as the verified baseline.
-- Treat `P1.7` as complete for implementation scope; changes here are now maintenance/calibration only unless a new requirement explicitly reopens the phase.
-- Use the next cycle for product-shell progress (`P2`-facing auth/session and deployment hardening), while preserving current fact/read-model/API and provider-policy behavior.
-
-## Why This Decision
-
-- The repo already has verified acquisition evidence (`shadow compare`, `promotion verify`, provider routing, fallback truth); the missing product layer is explainable daily facts and read models.
-- The user-provided algorithm specs are now explicit enough to replace connector-first staging with a stricter algorithm-first execution order: facts -> scoring -> APIs -> provider policy.
-- Product value depends on answering `what is trending`, `why`, and `which posts drive it`; current window-only scoring is not enough without daily facts, query trends, and explain payloads.
-- Current architecture boundaries already support this tighter flow: `docs/architecture.md` keeps runtime/provider choice separate from scoring, and the current scheduler still materializes trend/keyword outputs directly from collection-side persistence, so the next correction is flow discipline rather than a rewrite.
-- The previous flow became too contract-heavy for routine execution; reducing non-essential gates will improve throughput without weakening correctness if code/tests remain the primary proof.
-- Deep Scrapling work still matters, but it should stabilize the algorithm pipeline instead of blocking all higher-level product work.
-
-## P1.7 Scope
-
-- Add a canonical day-level fact layer for subreddit heat, volume, qualified-post counts, and short-window momentum.
-- Replace fixed quality thresholds with subreddit-tier-aware plus percentile-aware qualification rules.
-- Upgrade keyword trends from auto-token MVP output into dual-track `auto keyword + explicit query` read models.
-- Add driver-post and anomaly layers with explain payloads that can power product APIs directly.
-- Institutionalize Scrapling through provider-routing/promotion policy only after the algorithm fact pipeline is stable.
-
-## P1.7 Must Fix First
-
-- `subreddit_daily_fact` must become the canonical base for 30-day heat views, 15-day qualified-post trends, and downstream keyword normalization.
-- `subreddit-tiering` and `quality-threshold` services must eliminate fixed-threshold drift across `micro/small/mid/large` communities.
-- Scheduler/job order must become explicit and idempotent: `collect -> daily facts -> trend points -> keyword/drivers -> anomalies`.
-- Product APIs and downstream scoring must stop mixing raw snapshots and fact/read-model sources for the same metric.
-- `/readyz` must report algorithm materialization health from the same persisted truth path, not only provider transport health.
-- New read-model repository/API contracts must expose product outputs instead of leaking provider/runtime internals.
-
-## P1.7 Must Not Do
-
-- No UI-first expansion before stable fact tables and read-model APIs exist.
-- No provider-policy rewrite that delays R1-R4 algorithm delivery.
-- No threshold/formula changes without explain payloads, tests, and algorithm versioning.
-- No breaking contract rewrite; schema work stays additive (`daily fact`, `growth fact`, `anomaly event`).
-
-## P1.7 Exit Gate
-
-- Subreddit heat APIs return continuous 30-day daily facts with `heat_price`, `post_volume`, `qualified_post_volume`, `ema7`, and `ema30`.
-- The 15-day quality trend uses tier-aware + percentile-aware qualification instead of fixed thresholds.
-- Keyword trends support explicit user query and auto-keyword discovery with 30-day explainable heat.
-- Driver-post and anomaly feeds are queryable with explain payloads, not just aggregate scores.
-- Read models are single-sourced from fact/materialized layers, so the same page cannot return conflicting values from raw snapshots vs aggregated tables.
-- Scrapling promotion/routing is codified in runtime and `/readyz` reflects real provider plus algorithm-materialization health.
-- `npm run algo:phase1` plus targeted new unit/integration suites pass for each completed round.
+- Active focus is now `apps/web` and production web delivery.
+- The verified P1.7 algorithm/read-model/provider baseline is frozen unless a regression blocks frontend product behavior.
+- Archived algorithm-development state lives at `Projects/Archive/algorithm-development-p1.7-2026-04-20.md`.
+- Current frontend must close the real browser/API path before broad UI expansion: login, session persistence, dashboard rankings, target detail chart, and Ops readiness.
+- After the smoke path is verified, add the missing `queries` route from `docs/product-shell-final-design-2026-04-20.md`.
 
 ## Current Focus
 
-- `P1.7` implementation scope is closed; keep algorithm/provider-policy paths frozen unless fixing regressions.
-- Keep lightweight `R5` promoted-target stability verification as a standing guardrail.
-- Shift active development focus to post-`P1.7` product shell backlog (`auth/session`, deployment hardening, operations polish).
+- Make `apps/web` a first-class release artifact: root build, deployment runbook, Nginx static hosting, and frontend lint/build checks must stay aligned.
+- Keep frontend changes narrow and product-facing: typed API client, route semantics, maintainable page/data boundaries, and browser smoke evidence.
+- Avoid adding unrelated collector/algorithm work unless it directly unblocks the product shell.
 
 ## Change Policy
 
-- Allowed: additive fact/event tables, scoring services, read-model APIs, bounded provider-policy integration, focused cross-layer refactors that unblock the current slice, tests, docs.
-- Forbidden: unrelated refactors, new source expansion, API-breaking changes, broad rewrites that are not required by the current slice.
+- Allowed: frontend routes/pages/components, typed API client improvements, session/role guard fixes, web build/deploy wiring, targeted backend/API fixes that unblock the UI, tests, docs.
+- Forbidden: unrelated refactors, new source expansion, API-breaking changes, broad collector/algorithm rewrites that are not required by the current frontend slice.
 - Each round should end with runnable code, focused tests, and explicit verify evidence; process/docs updates are secondary unless explicitly requested.
-- Every new scoring/output path must carry `algorithm_version`; user-facing scores/events must also carry `explain_payload`.
 
 ## Autonomous Execution Policy
 
 - Default mode is `inspect briefly -> implement -> test -> write back`, not `inspect -> restate plan -> wait`.
-- Codex may cross storage/domain/job/api/test boundaries inside the active round when that is the shortest correct path to a complete slice.
+- Codex may cross web/api/deploy/test boundaries inside the active round when that is the shortest correct path to a complete frontend slice.
 - Contract notes are lightweight: settle rules in code/tests when safe, and document only what must remain durable across sessions.
 - Ask for user input only on true blockers: irreversible product/schema choices, destructive actions, missing external dependencies/credentials, or direct conflicts with user edits.
 
-## Architecture Guardrails
-
-- Write-path order stays fixed: collection persists raw/normalized/snapshot truth first, then materialized facts, then product read models.
-- Read-path discipline stays fixed: product APIs read from fact/materialized layers, not directly from raw snapshots as the primary result source.
-- Canonical-source discipline stays fixed: once a metric is promoted into `subreddit_daily_fact` or another fact table, later services and APIs use that layer unless an explicit conversion layer is documented.
-- Observability is co-delivered: provider health remains required, and algorithm/materialization health joins `/readyz` from `R1` onward.
-- Versioning is mandatory: scoring formulas, thresholds, and merge rules change only under explicit `algorithm_version` updates with bounded regression coverage.
-
-## Algorithm Development Plan
-
-- Round R1 `daily fact foundation` (complete): add `subreddit_daily_fact`, `subreddit-tiering.service`, `quality-threshold.service`, `subreddit-daily-heat.service`, reorder scheduler materialization around the daily fact layer, declare the day-level canonical metric source, and expose the first subreddit heat read model/API plus algorithm-materialization readiness evidence.
-- Round R2 `keyword trend upgrade`: settle `query normalization v2` (`lowercase`, phrase handling, token overlap, alias boundary, subreddit-scoped vs global query semantics) inside code/tests, convert keyword processing to `explicit query + auto keyword` dual track, use tier-aware qualification, and output 30-day keyword heat plus breakout markers from fact/materialized inputs only.
-- Round R3 `driver-post layer`: add `post_growth_fact`, velocity-based driver scoring, same-age cohort normalization (`1h/6h/24h` minimum buckets), driver labels, and subreddit/keyword driver APIs.
-- Round R4 `anomaly layer`: add raw `anomaly_event` detection plus merged/consumer-facing anomaly incidents, settle dedupe/merge rules across `volume`, `quality`, `keyword`, and `driver` signals in code/tests, and expose explainable anomaly feeds.
-- Round R5 `provider policy institutionalization`: move Scrapling into `fetch-execution-engine + provider-routing-policy`, keep shadow compare as a standing sample, and wire provider-promotion decisions to the observability contract that earlier rounds already started using.
-- Execution rule: rounds define default priority, but bounded pull-forward work is allowed when it is required to complete the active slice cleanly.
-- Execution rule: do not block implementation on separate contract-writing if code/tests can safely settle the rule and preserve continuity.
-
 ## Process Flow Source
 
-- Canonical algorithm flow: `project.md` (`R1-R5`).
+- Archived algorithm flow: `Projects/Archive/algorithm-development-p1.7-2026-04-20.md`.
 - Canonical post-P1.7 product shell design: `docs/product-shell-final-design-2026-04-20.md`.
 - Supporting acquisition baseline: `docs/scrapling-integration-flow.md`.
 - Architecture guardrails: `docs/architecture.md`.
@@ -143,6 +77,20 @@ tags:
 - Priority rule: continue periodic `R5` stability verification, but keep coding priority on post-`P1.7` product shell backlog from `docs/product-shell-final-design-2026-04-20.md`.
 
 ## Activity Log
+
+### 2026-04-20 16:14:49
+
+- Scope: Added the missing frontend `/queries` route in `apps/web` with a keyword-query form, typed `POST /v1/keyword-queries` API call, result summary, matching post list, subreddit target links, and responsive two-column layout. Added the `Queries` navigation entry, fixed Login label `htmlFor`/`id` accessibility, and lazy-loaded `TargetDetail` plus `Queries` so ECharts no longer ships in the first-load app entry.
+- Why now: `project.md` listed the missing Queries route, Login accessibility cleanup, and ECharts first-load chunk cleanup as the next frontend product-shell slice after the browser smoke.
+- Verify: `npm run lint:web`; `npm run typecheck`; `npm run build`; `npx tsx --test tests/integration/api-server-keyword-query.test.ts`. Build output now splits `apps/web` into a `221.62 kB` main entry, a `5.25 kB` `Queries` chunk, and a lazy `1,134.09 kB` `TargetDetail` chunk. Vite still warns because the lazy ECharts chunk is larger than 500 kB.
+- Next: Run browser/API smoke for login -> dashboard -> queries -> target/ops with seeded API data, then decide whether to replace `echarts-for-react` usage with ECharts core imports to reduce the lazy `TargetDetail` chunk further.
+
+### 2026-04-20 14:35:00
+
+- Scope: Moved the active algorithm-development plan out of `project.md` into `Projects/Archive/algorithm-development-p1.7-2026-04-20.md`, refocused the project state on frontend product-shell development, and made `apps/web` part of the root production build path through `build:web`, `lint:web`, and the root `build` script. Updated the production-build config test and deployment runbook so web install/lint/build and `apps/web/dist` are explicit release steps. Ran a real browser/API smoke through Vite proxy with a temporary in-memory API seed for login, dashboard rankings, target chart SVG rendering, and Ops readiness. The smoke exposed that `/v1/ops/readyz` did not resolve session auth when bearer auth was not configured; fixed that backend path and added regression coverage.
+- Why now: User asked to advance development with the current focus on frontend, and the frontend status analysis identified build/deploy integration as the next release-readiness gap after the initial shell landed.
+- Verify: `npm run lint:web`; `npx tsx --test tests/integration/api-server-auth.test.ts tests/unit/production-build-config.test.ts`; `npm run typecheck`; `npm run build`; `npm test` (`225/225`). Browser smoke result: `{ ok: true, checked: ["login", "dashboard", "target chart svg", "ops readiness"], finalUrl: "http://127.0.0.1:5173/ops" }`. Root `npm run build` now runs both API compilation and `apps/web` production build. Vite still warns that the ECharts bundle chunk is `1,415.21 kB` minified.
+- Next: Add the missing `queries` route from the product-shell design, then clean up frontend accessibility discovered during smoke (Login labels need `htmlFor`/`id`) and reduce the ECharts first-load chunk with route-level lazy loading.
 
 ### 2026-04-20 13:50:00
 

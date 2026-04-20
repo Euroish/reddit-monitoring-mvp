@@ -29,8 +29,9 @@ export function Login() {
         <h2 style={{ marginBottom: '24px', textAlign: 'center' }}>Sign in to Analytics</h2>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Email</label>
+            <label htmlFor="login-email" style={{ display: 'block', marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Email</label>
             <Input 
+              id="login-email"
               type="email" 
               value={email} 
               onChange={e => setEmail(e.target.value)} 
@@ -39,8 +40,9 @@ export function Login() {
             />
           </div>
           <div>
-            <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Password</label>
+            <label htmlFor="login-password" style={{ display: 'block', marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Password</label>
             <Input 
+              id="login-password"
               type="password" 
               value={password} 
               onChange={e => setPassword(e.target.value)} 

@@ -30,6 +30,7 @@ export function Layout() {
           {user && (
             <nav style={{ display: 'flex', gap: '16px' }}>
               <Link to="/dashboard" style={{ fontSize: '14px', fontWeight: 510 }}>Dashboard</Link>
+              <Link to="/queries" style={{ fontSize: '14px', fontWeight: 510 }}>Queries</Link>
               {(user.role === 'admin' || user.role === 'owner') && (
                 <Link to="/ops" style={{ fontSize: '14px', fontWeight: 510 }}>Ops</Link>
               )}

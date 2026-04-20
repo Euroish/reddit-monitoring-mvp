@@ -6,7 +6,10 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "typecheck:core": "tsc --noEmit --project tsconfig.core.json",
-    "build": "tsc --project tsconfig.build.json",
+    "build": "npm run build:api && npm run build:web",
+    "build:api": "tsc --project tsconfig.build.json",
+    "build:web": "npm --prefix apps/web run build",
+    "lint:web": "npm --prefix apps/web run lint",
     "test": "tsx --test tests/**/*.test.ts",
     "test:unit": "tsx --test tests/unit/**/*.test.ts",
     "test:integration": "tsx --test tests/integration/**/*.test.ts",

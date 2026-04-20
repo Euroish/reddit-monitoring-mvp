@@ -314,6 +314,41 @@ test("ops readiness requires owner or admin session and preserves not-ready payl
   }
 });
 
+test("ops readiness resolves owner session when bearer auth is not configured", async () => {
+  const fixedNow = "2026-04-20T02:00:00.000Z";
+  const repos = createApiTestRepositories();
+  await seedAppUser({
+    repos,
+    email: "owner@example.com",
+    password: "owner-password",
+    role: "owner",
+    nowIso: fixedNow,
+  });
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const unauthenticated = await getJson<ApiErrorResponse>(`${baseUrl}/v1/ops/readyz`);
+    assert.equal(unauthenticated.status, 401);
+    assert.equal(unauthenticated.body.errorCode, "unauthorized");
+
+    const ownerLogin = await login(baseUrl, "owner@example.com", "owner-password");
+    const ownerReady = await getJson<ApiReadinessResponse>(`${baseUrl}/v1/ops/readyz`, {
+      cookie: ownerLogin.cookie ?? "",
+    });
+    assert.equal(ownerReady.status, 200);
+    assert.equal(ownerReady.body.ok, true);
+    assert.equal(ownerReady.body.status, "ready");
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("auth rejects invalid credentials and inactive users without creating sessions", async () => {
   const repos = createApiTestRepositories();
   await seedAppUser({
