@@ -4,6 +4,7 @@ import test from "node:test";
 import { createApiServer } from "../../apps/api/src/create-api-server";
 import type {
   ApiErrorResponse,
+  ApiReadinessResponse,
   AuthLoginResponse,
   AuthLogoutResponse,
   AuthMeResponse,
@@ -227,6 +228,87 @@ test("ops write routes require owner or admin session roles but still allow bear
     );
     assert.equal(bearerRun.status, 202);
     assert.equal(bearerRun.body.ok, true);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("ops readiness requires owner or admin session and preserves not-ready payloads", async () => {
+  const fixedNow = "2026-04-20T02:00:00.000Z";
+  const repos = createApiTestRepositories();
+  await seedAppUser({
+    repos,
+    email: "viewer@example.com",
+    password: "viewer-password",
+    role: "viewer",
+    nowIso: fixedNow,
+  });
+  await seedAppUser({
+    repos,
+    email: "admin@example.com",
+    password: "admin-password",
+    role: "admin",
+    nowIso: fixedNow,
+  });
+  await seedAppUser({
+    repos,
+    email: "owner@example.com",
+    password: "owner-password",
+    role: "owner",
+    nowIso: fixedNow,
+  });
+
+  repos.monitorTargetRepository.findActiveSubreddits = async () => {
+    throw new Error("storage unavailable");
+  };
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+    auth: {
+      bearerToken: "test-token",
+    },
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const unauthenticated = await getJson<ApiErrorResponse>(`${baseUrl}/v1/ops/readyz`);
+    assert.equal(unauthenticated.status, 401);
+    assert.equal(unauthenticated.body.errorCode, "unauthorized");
+
+    const viewerLogin = await login(baseUrl, "viewer@example.com", "viewer-password");
+    const viewerReady = await getJson<ApiErrorResponse>(`${baseUrl}/v1/ops/readyz`, {
+      cookie: viewerLogin.cookie ?? "",
+    });
+    assert.equal(viewerReady.status, 403);
+    assert.equal(viewerReady.body.errorCode, "forbidden");
+
+    const bearerReady = await getJson<ApiErrorResponse>(`${baseUrl}/v1/ops/readyz`, {
+      authorization: "Bearer test-token",
+    });
+    assert.equal(bearerReady.status, 403);
+    assert.equal(bearerReady.body.errorCode, "forbidden");
+
+    const adminLogin = await login(baseUrl, "admin@example.com", "admin-password");
+    const adminReady = await getJson<ApiReadinessResponse>(`${baseUrl}/v1/ops/readyz`, {
+      cookie: adminLogin.cookie ?? "",
+    });
+    assert.equal(adminReady.status, 200);
+    assert.equal(adminReady.body.ok, false);
+    assert.equal(adminReady.body.status, "not_ready");
+    assert.deepEqual(adminReady.body.degradedReasons, ["storage_unavailable"]);
+
+    const ownerLogin = await login(baseUrl, "owner@example.com", "owner-password");
+    const ownerReady = await getJson<ApiReadinessResponse>(`${baseUrl}/v1/ops/readyz`, {
+      cookie: ownerLogin.cookie ?? "",
+    });
+    assert.equal(ownerReady.status, 200);
+    assert.equal(ownerReady.body.status, "not_ready");
+
+    const publicReady = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
+    assert.equal(publicReady.status, 503);
+    assert.equal(publicReady.body.status, "not_ready");
   } finally {
     await stopServer(server);
   }

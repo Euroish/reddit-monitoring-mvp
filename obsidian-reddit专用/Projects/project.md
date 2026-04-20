@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: P1.7-complete
-updated_at: "2026-04-20 11:36:23"
+updated_at: "2026-04-20 13:50:00"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Start product-shell Phase D frontend: scaffold the web app shell against the verified auth/API/deploy baseline."
+next_action: "Continue Phase D with an end-to-end browser/API smoke for login, dashboard, target detail chart, and Ops readiness before adding more UI features."
 tags:
 - codex
 - workspace
@@ -143,6 +143,55 @@ tags:
 - Priority rule: continue periodic `R5` stability verification, but keep coding priority on post-`P1.7` product shell backlog from `docs/product-shell-final-design-2026-04-20.md`.
 
 ## Activity Log
+
+### 2026-04-20 13:50:00
+
+- Scope: Fixed the three Phase D review findings. `/v1/ops/readyz` now keeps the detailed readiness payload visible to authenticated owner/admin sessions by returning HTTP 200 even when the readiness status is `not_ready`, while public `/readyz` keeps the existing 503 health-check semantics. Added regression coverage for unauthenticated, viewer, bearer-token, admin, owner, and public `/readyz` behavior. Updated the deployment runbook so public `/readyz` is no longer listed as an external health check after Nginx restriction.
+- Why now: User asked to fix the current review findings before continuing frontend development.
+- Verify: `npx tsx --test tests/integration/api-server-auth.test.ts tests/integration/api-server-readyz.test.ts`; `npm run lint` in `apps/web`; `npm run build` in `apps/web`; root `npm run typecheck`; root `npm run build`; root `npm test` (`224/224`).
+- Next: Run an end-to-end browser/API smoke through the Vite proxy or deployed Nginx shape, then continue Phase D UI work only after login, dashboard, target chart, and Ops readiness are verified live.
+
+### 2026-04-20 13:35:00
+
+- Scope: Reviewed Antigravity's second Phase D frontend/backend pass without changing app source. Rechecked the previous review blockers, the new `/v1/ops/readyz` backend path, Nginx `/api/` rewrite, and the ECharts `TargetDetail` route.
+- Why now: User asked to continue inspection after Antigravity's second work round.
+- Verify: `npm run lint` and `npm run build` in `apps/web` passed; root `npm run typecheck` and root `npm run build` passed; `npx tsx --test tests/integration/api-server-auth.test.ts tests/integration/api-server-access.test.ts tests/integration/api-server-readyz.test.ts` passed (`34/34`). `rg` found no test coverage for `/v1/ops/readyz`. Vite build warned the new JS chunk is `1,415.21 kB` minified after adding ECharts.
+- Next: Add focused integration tests for `/v1/ops/readyz` owner/admin/viewer/bearer behavior, then adjust Ops/API handling so not-ready readiness payloads are still visible instead of collapsing into a generic fetch error.
+
+### 2026-04-20 13:20:00
+
+- Scope: Added ECharts-based trend visualization to the frontend shell. Implemented `TargetDetail.tsx` to render the 30-day target heat trend line chart using `echarts-for-react`. Linked the canonical names in the `Dashboard` heat/surge rankings directly to their respective `/target/:targetId` detail views. Resolved `tslib` peer dependency for `echarts-for-react`.
+- Why now: Visualizing time-series trend data points was the next prioritized step for the `apps/web` product dashboard.
+- Verify: Ran `npm run build` in `apps/web` which compiled successfully after installing `tslib`. The routing tree compiles and the application is structurally sound.
+- Next: Test ECharts and frontend shell end-to-end by running backend API and Vite proxy server, then continue Phase D UI enhancements (e.g., adding Keyword pulse trends).
+
+### 2026-04-20 13:16:00
+
+- Scope: Fixed frontend shell review blockers before adding ECharts. Resolved ESLint errors in `AuthContext.tsx` (react-refresh export rules), `Login.tsx` (TypeScript any typing), and `components/ui/index.tsx` (unused className). Updated the Nginx configuration (`deploy/nginx/reddit-monitoring.conf`) to strip the `/api/` prefix to match the Vite proxy behavior. Protected the readiness endpoint by exposing `/v1/ops/readyz` in the backend with `admin`/`owner` capability checks, updating the `Ops` page to use it, and restricting direct external access to `/readyz` via Nginx `allow 127.0.0.1; deny all;`.
+- Why now: Addressed review blockers flagged during the inspection of the Phase D frontend shell base framework to ensure code quality and secure access.
+- Verify: Ran `npm run lint` and `npm run build` in `apps/web`; both passed cleanly. Ran `npm run typecheck` in the root repository; passed cleanly.
+- Next: Continue Phase D: Add ECharts for trend data visualization in the dashboard, and refine Ops and Dashboard UI.
+
+### 2026-04-20 13:10:00
+
+- Scope: Reviewed Antigravity's Phase D frontend shell in `apps/web` without changing frontend source. Checked the new Vite/React app structure, API client, auth context/guards, dashboard/ops/login pages, Nginx proxy alignment, and repository verification gates.
+- Why now: User asked to inspect the frontend base framework design before continuing Phase D.
+- Verify: `npm run build` in `apps/web` passed; root `npm run typecheck` and root `npm run build` passed; `npm run lint` in `apps/web` failed with 3 ESLint errors; browser smoke opened `/login` through Vite and confirmed unauthenticated redirect, with expected `/api/auth/me` 502 because backend was not running.
+- Next: Fix lint errors, align production `/api/*` proxy rewrite with Vite dev behavior, and decide whether `/readyz` must be server-side protected or Nginx-restricted before visual chart work.
+
+### 2026-04-20 12:53:58
+
+- Scope: Scaffolded the Phase D frontend shell in `apps/web` using Vite, React, TypeScript, TanStack Query, and React Router. Implemented the Linear design system (`index.css` and base UI components) for a dark-mode-native, developer-focused aesthetic. Built the `api/client.ts` with `credentials: include` for cookie session auth, and proxying to the local backend. Created `AuthContext`, `RequireAuth`, and `RoleGuard` to manage session state and capability protection. Developed initial structural pages: Layout, Login, Dashboard (market trends query), and Ops (readyz readiness query).
+- Why now: The user approved the Phase D frontend implementation plan. With `P1.7` baseline frozen and auth/session core completed, the next logical step is to provide a user interface to visualize market trends and system ops.
+- Verify: Ran `npm run build` within `apps/web`; the frontend builds successfully with no TypeScript errors (all imports and strict type checks passed).
+- Next: Continue Phase D: Add ECharts for trend data visualization in the dashboard, and refine Ops and Dashboard UI.
+
+### 2026-04-20 12:42:22
+
+- Scope: Reviewed `Commit分析与架构设计_2026-04-20_12-27.md` as context only and produced the frontend architecture decision for the production analytics product. Recommended keeping the modular monolith plus new `apps/web` boundary, cookie session plus bearer compatibility, shared `packages/contracts` DTOs, and Nginx static-web/API proxy deployment; changed the external Markdown's generic capability/query/dashboard ideas into repo-specific route guards, runtime config, typed API client, query descriptors, dashboard block registry, and product-read-model modules; rejected JWT-first auth, frontend bearer storage, microservice/SSR/Kubernetes expansion, direct worker/runtime access from UI, and premature generic dataset/workspace abstractions.
+- Why now: `P1.7` is frozen and commit `8a73f98` has already landed auth/session, invite/register/admin basics, compiled build smoke, and deployment templates; the remaining active product-shell work is frontend Phase D.
+- Verify: Checked current `project.md`, `git show 8a73f98`, `package.json`, `apps/api/src/server.ts`, `apps/api/src/create-api-server.ts`, `apps/api/src/auth-guard.ts`, `apps/api/src/auth-cookie.ts`, `packages/contracts/src/http.ts`, `src/storage/schema/018_auth_core.sql`, `deploy/nginx/reddit-monitoring.conf`, `deploy/env/api.env.example`, `docs/deployment-runbook.md`, `docs/product-shell-final-design-2026-04-20.md`, and official Vite/TanStack/ECharts docs for the proposed frontend stack assumptions.
+- Next: Start Phase D with the smallest complete vertical slice: `apps/web` Vite React TypeScript shell, `/runtime-config.json` or equivalent runtime config loader, `/api` client with `credentials: include`, `/auth/me` session bootstrap, role-to-capability guard, typed market dashboard query, and build/deploy wiring.
 
 ### 2026-04-20 11:36:23
 

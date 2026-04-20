@@ -635,6 +635,14 @@ function isSupportedAppUserRole(value: unknown): value is AppUser["role"] {
   return value === "owner" || value === "admin" || value === "viewer";
 }
 
+function canUseOpsRead(actor: ApiActor | null): boolean {
+  return (
+    actor?.type === "session" &&
+    isSupportedAppUserRole(actor.role) &&
+    (actor.role === "admin" || actor.role === "owner")
+  );
+}
+
 function parseUserIdFromActivatePath(pathname: string): string | null {
   const match = /^\/auth\/users\/([^/]+)\/activate$/.exec(pathname);
   return match?.[1] ? decodeURIComponent(match[1]) : null;
@@ -1256,7 +1264,21 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         return;
       }
 
-      if (req.method === "GET" && pathname === "/readyz") {
+      if (req.method === "GET" && (pathname === "/readyz" || pathname === "/v1/ops/readyz")) {
+        if (pathname === "/v1/ops/readyz") {
+          if (!canUseOpsRead(actor)) {
+            respond({
+              statusCode: 403,
+              body: toApiError({
+                requestId,
+                message: "forbidden: requires ops capability",
+                code: "forbidden",
+              }),
+              errorCode: "forbidden",
+            });
+            return;
+          }
+        }
         const nowIso = now();
         const readiness = await buildReadinessState({
           repositories: repos,
@@ -1280,7 +1302,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         };
 
         respond({
-          statusCode: readiness.isReady ? 200 : 503,
+          statusCode: pathname === "/v1/ops/readyz" || readiness.isReady ? 200 : 503,
           body: payload,
           level: readiness.isReady ? "info" : "error",
           errorCode: readiness.isReady ? undefined : "not_ready",

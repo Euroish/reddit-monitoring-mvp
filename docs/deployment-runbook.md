@@ -80,8 +80,12 @@ Health checks:
 curl -fsS http://127.0.0.1:3000/healthz
 curl -fsS http://127.0.0.1:3000/readyz
 curl -fsS http://example.com/healthz
-curl -fsS http://example.com/readyz
 ```
+
+`/readyz` exposes detailed provider and materialization state. The Nginx template
+restricts the public `/readyz` path to localhost; inspect it locally or through
+the authenticated web Ops page instead of expecting `http://example.com/readyz`
+to pass from an external client.
 
 ## Rollback
 
