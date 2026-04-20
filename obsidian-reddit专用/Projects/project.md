@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: P1.7-complete
-updated_at: "2026-04-19 15:15:19"
+updated_at: "2026-04-20 11:36:23"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Start post-P1.7 product shell work (auth/session + deployment hardening) while keeping the current algorithm/provider-policy baseline frozen and running lightweight periodic promotion verifies."
+next_action: "Start product-shell Phase D frontend: scaffold the web app shell against the verified auth/API/deploy baseline."
 tags:
 - codex
 - workspace
@@ -120,6 +120,7 @@ tags:
 ## Process Flow Source
 
 - Canonical algorithm flow: `project.md` (`R1-R5`).
+- Canonical post-P1.7 product shell design: `docs/product-shell-final-design-2026-04-20.md`.
 - Supporting acquisition baseline: `docs/scrapling-integration-flow.md`.
 - Architecture guardrails: `docs/architecture.md`.
 - Keep this file as execution memory; store deep details in `docs/` and link from activity entries.
@@ -135,13 +136,125 @@ tags:
 ## Ongoing Development Flow
 
 - Workspace rule: keep `Projects/project.md` as the only active state source; treat any other `Projects` markdown file as archive/reference only.
-- Slice rule: each dev cycle ships one smallest complete vertical slice (`storage/repository -> service/job -> API/read model -> tests`).
+- Slice rule: each dev cycle ships one smallest complete vertical slice; use the active design's path (`auth/storage -> service -> API guard -> tests`, `web route -> API client -> UI state -> browser check`, or `build/deploy config -> smoke check`) instead of forcing old algorithm-only sequencing.
 - Verify rule: every slice must include at least `npm run typecheck` plus targeted test commands for changed boundaries; run `npm run algo:phase1` when the slice crosses scheduler/materialization/API seams.
 - Evidence rule: store large verify artifacts under `docs/` and reference paths in the activity entry instead of pasting long logs.
 - Writeback rule: after each slice, update frontmatter `updated_at` and `next_action`, then append one `Scope/Why now/Verify/Next` entry at the top of the activity log.
-- Priority rule: continue periodic `R5` stability verification, but keep coding priority on post-`P5` read-model/API backlog.
+- Priority rule: continue periodic `R5` stability verification, but keep coding priority on post-`P1.7` product shell backlog from `docs/product-shell-final-design-2026-04-20.md`.
 
 ## Activity Log
+
+### 2026-04-20 11:36:23
+
+- Scope: Fixed backend review findings before frontend: made invite registration atomic for Postgres through `createWithConsumedInvite`, wired in-memory auth repositories to the same atomic test path, added a 1MB JSON request-body cap with `413 request_body_too_large`, and covered both with tests.
+- Why now: A backend inspection found that `/auth/register` could consume an invite before user/password creation completed, and API JSON body reads had no bounded size.
+- Verify: `npm run typecheck`; `npx tsx --test tests/unit/register-app-user.use-case.test.ts tests/integration/api-server-auth.test.ts` (9/9); `npm test` (223/223); `npm run build`; `npm run smoke:compiled`; `npm run smoke:linux-provider` (Windows config-only).
+- Next: Continue Phase D frontend shell work; remaining host-only check is the non-config-only Linux provider smoke on the deployment machine.
+
+### 2026-04-20 11:29:36
+
+- Scope: Completed product-shell Phase C deployment hardening with `tsconfig.build.json`, compiled `node dist/...` package scripts, deterministic compiled/Linux-provider smoke scripts, systemd/env/Nginx deploy templates, deployment runbook, and `tests/unit/production-build-config.test.ts`.
+- Why now: Phase B auth/session was already verified; the remaining backend gate before frontend was proving the production API/scheduler/migration path does not depend on `tsx`.
+- Verify: `npm run typecheck`; `npm run test:unit -- tests/unit/production-build-config.test.ts` (unit suite passed 147/147); `npm run build`; `npm run smoke:compiled`; `npm run smoke:linux-provider` (Windows config-only); `npm test` (221/221).
+- Next: Enter Phase D frontend shell work (`apps/web` scaffold, login/auth state, dashboard/read-model pages) on top of the verified API and deploy baseline.
+
+### 2026-04-20 11:17:20
+
+- Scope: Implemented product-shell Phase B invite/register/admin basics on top of the verified auth/session core. Added `AppInvite` domain and repository contracts, Postgres and in-memory invite repositories, invite code creation with hash-only storage, `POST /auth/invites`, `POST /auth/register`, and `POST /auth/users/:id/activate`. Registration now creates `pending` users, invite exhaustion/expiry is rejected, and owner/admin or bearer access is required for invite creation and activation.
+- Why now: Previous `next_action` required Phase B invite/register/admin basics after Phase A auth/session core passed.
+- Verify: `npm run typecheck` passed. `npx tsx --test tests/integration/api-server-auth.test.ts tests/integration/api-server-access.test.ts` passed. Full `npm test` passed (`219/219`).
+- Next: Continue Phase C with production build/deployment hardening, starting with compiled API and scheduler build scripts before systemd/Nginx templates.
+
+### 2026-04-20 11:10:55
+
+- Scope: Implemented the product-shell Phase A auth/session core. Added `018_auth_core.sql`, `AppUser`/`AppSession` domain and repository contracts, Postgres and in-memory repositories, scrypt password hashing, SHA-256 session tokens, `/auth/login`, `/auth/logout`, `/auth/me`, session-or-bearer `/v1/*` access, and owner/admin role guard for ops write routes while preserving bearer compatibility.
+- Why now: `project.md` pointed the next development slice at Phase A auth/session core from `docs/product-shell-final-design-2026-04-20.md`.
+- Verify: `npm run typecheck` passed. `npx tsx --test tests/integration/api-server-auth.test.ts tests/integration/api-server-access.test.ts` passed. Full `npm test` passed (`216/216`).
+- Next: Continue Phase B with invite/register/admin basics, including hashed invite codes, expired/disabled/used-up invite rejection, pending-user login rejection, and minimal admin/owner creation path.
+
+### 2026-04-20 10:54:46
+
+- Scope: Cleaned the remaining active workflow drift in `project.md` after finalizing the product-shell design.
+- Why now: User asked to fix drift before later Codex automation starts implementation.
+- Verify: Re-read current `project.md` references to `next_action`, product-shell design, `Ongoing Development Flow`, and `post-P5` wording. Updated only the active slice/priority rules; left historical Activity Log entries unchanged as archival evidence.
+- Next: Use `docs/product-shell-final-design-2026-04-20.md` as the development guide and start Phase A auth/session core with bearer compatibility and focused tests.
+
+### 2026-04-20 10:47:51
+
+- Scope: Finalized the post-P1.7 product-shell design as `docs/product-shell-final-design-2026-04-20.md` and marked the earlier framework doc as superseded.
+- Why now: User asked to complete the final design so it can guide later development.
+- Verify: Rechecked current evidence from `project.md`, `package.json`, `apps/api/src/server.ts`, `apps/api/src/create-api-server.ts`, `packages/contracts/src/http.ts`, `src/storage/schema`, `src/storage/repositories/postgres/postgres-repository-bundle.ts`, `docs/architecture.md`, and API access tests before writing the final design.
+- Next: Implement Phase A from the final design: `018_auth_core.sql`, auth entities/repositories, login/logout/me, session-or-bearer guard, ops role guard, and focused compatibility tests.
+
+### 2026-04-20 10:40:21
+
+- Scope: Read `Projects/Archive` product-shell planning notes plus current `project.md`, then created `docs/product-shell-development-framework-2026-04-20.md` for the next development framework covering interaction UI, auth/session, and one-server Linux deployment.
+- Why now: User asked to read the Archive state and design the development framework for the current repo stage.
+- Verify: Confirmed local state from `package.json`, `apps/api/src/server.ts`, `apps/api/src/create-api-server.ts`, `src/storage/schema/run-migrations.ts`, `docs/architecture.md`, and directory scans: `apps/web` is absent, `/v1/` is bearer-protected, `/healthz` and `/readyz` exist, migrations run through `017`, and runtime has HTTP/APIFY plus Scrapling lanes.
+- Next: Start the first product-shell vertical slice: add auth/session core with Postgres-backed sessions and preserve existing bearer-token script access; after that, harden compiled Linux deployment.
+
+### 2026-04-19 20:48:10
+
+- Scope: Executed a fresh user-requested crawl pass before ranking today's hottest subreddits. Ran live crawling with `scrapling` across all active Reddit targets (`53` subreddits) using elevated sampling (`REDDIT_POST_LIMIT=120`), including retries for transient connector failures on `r/dataisbeautiful` and `r/programming`.
+- Why now: User asked to crawl first, then return today's top-5 hottest subreddits.
+- Verify: Crawl completed full coverage after retries (`53/53` success). Day-level canonical heat query on `subreddit_daily_fact` for `2026-04-19` (`rows_today=53`) ranked top-5 by `heat_price`: `r/nba` (`63.687117`), `r/todayilearned` (`58.521812`), `r/askreddit` (`57.647834`), `r/worldnews` (`57.638904`), `r/pics` (`57.536364`).
+- Next: Keep this "crawl first -> `subreddit_daily_fact` day ranking" path as the default for instant daily subreddit hotness checks.
+
+### 2026-04-19 20:35:19
+
+- Scope: Computed user-requested top-5 subreddits for today from persisted `keyword_trend_daily` using the same hot-keyword track (`track=auto_keyword`) and day scope (`2026-04-19`).
+- Why now: User asked "前5 subreddit 是哪几个" right after today's top-keyword check.
+- Verify: SQL aggregation (`SUM(keyword_heat)` by `target_id` joined to `monitor_target.canonical_name`) returned stable top-5: `r/python`, `r/camping`, `r/frugal`, `r/machinelearning`, `r/aws`.
+- Next: Reuse this same day-level aggregation path for any follow-up leaderboard checks (overall or keyword-constrained).
+
+### 2026-04-19 20:31:57
+
+- Scope: Executed a user-requested "today top-3 hot keywords" verification run with adjustable crawl scale/range. Ran full active subreddit live crawl in four batches (`53/53` success) using `scrapling` and elevated live sampling (`REDDIT_POST_LIMIT=120`), then ran an additional high-volume calibration batch (`8/8` success, `REDDIT_POST_LIMIT=140`) on `worldnews/news/technology/askreddit/todayilearned/science/chatgpt/machinelearning` to test ranking stability.
+- Why now: User asked for immediate crawl and today's top-3 keyword output, with permission to tune parameters until result is correct/stable.
+- Verify: Before and after calibration, `2026-04-19` `keyword_trend_daily` (`track=auto_keyword`) top-3 stayed unchanged, confirming stability under larger sample refresh. Final stable top-3 by summed `keyword_heat`: `like` (`total_heat=10.808326`, `matched_posts=172`), `one` (`7.572069`, `126`), `something` (`7.261416`, `102`).
+- Next: Keep this "full live refresh + focused calibration pass + stability recheck" pattern for on-demand keyword-rank checks while product-shell development remains primary.
+
+### 2026-04-19 20:06:52
+
+- Scope: Executed a user-requested `iran` 30-day heat trend crawl and check. Ran targeted multi-round backfill refresh on `r/worldnews` and `r/news` (`8 + 8` rounds) with `scrapling` and `REDDIT_POST_LIMIT=150`, then aggregated 30-day daily trend from persisted `content` (`sampled_posts`, `matched_posts`, `mention_rate`, volume-adjusted `heat_index`) using keyword boundary match for `iran`.
+- Why now: User requested immediate crawl-based 30-day trend verification for `iran`.
+- Verify: Backfill rounds succeeded end-to-end and recorded multi-page observability (`requestCount=2`, `candidateCount=150` per round). 30-day aggregation returned `sampled_posts_30d=5598`, `matched_posts_30d=242`, `mention_rate_30d=0.04323`; peak heat day was `2026-04-11` (`heat_index=53.3884`, `matched_posts=22`, `sampled_posts=223`). Exported daily inspection file `docs/iran-30d-trend-2026-04-19.csv`.
+- Next: Reuse the same targeted backfill + daily aggregation flow for any requested keyword spot-check while continuing post-`P1.7` product-shell work.
+
+### 2026-04-19 19:54:41
+
+- Scope: Completed a user-requested `chatgpt` 30-day trend check with fresh collection evidence. Ran 10 consecutive `backfill` rounds on `r/chatgpt` using `scrapling` with `REDDIT_POST_LIMIT=150` (time-shifted by 16 minutes per round to avoid same-window dedupe), then aggregated daily observed posts from `content` over the latest 30 days and computed `matched_posts`, `sampled_posts`, `mention_rate`, and a volume-adjusted heat index.
+- Why now: User asked how 30-day trend can be produced under page limits and requested an immediate inspection dataset/chart for `chatgpt`.
+- Verify: Collection run emitted per-round provider observability with multi-page behavior (`requestCount=2`, `candidateCount=150` in backfill runs). 30-day SQL aggregation returned `sampled_posts_30d=4373`, `matched_posts_30d=938`, `mention_rate_30d=0.214498`, with clear rise after `2026-04-11` and high-intensity days `2026-04-16` to `2026-04-19`; exported daily check file `docs/chatgpt-30d-trend-2026-04-19.csv`.
+- Next: Keep the same verification pattern for future keyword checks (`targeted backfill refresh + daily aggregation`) while continuing post-`P1.7` product-shell development.
+
+### 2026-04-19 19:45:36
+
+- Scope: Completed DB-backed live verification for the single-job multi-page backfill fix using Scrapling on `r/preppers` with `REDDIT_POST_LIMIT=150` and explicit run time override (`nowIso=2026-04-19T11:50:00.000Z`), after code + test patch.
+- Why now: Needed production-truth confirmation that the patch actually突破 `candidateCount=100` and not only test fixtures.
+- Verify: `npx tsx -e "runPhase1OnceWithPostgres({ nowIso: '2026-04-19T11:50:00.000Z' })"` logged `provider_observability requestCount=2 candidateCount=150 acceptedCount=150` for `provider=scrapling mode=backfill`; Postgres query on `provider_health_window` confirmed latest `window_start=2026-04-19T11:50:00.000Z` row has `request_count=2` and `candidate_count=150`.
+- Next: Keep this pagination behavior as the maintenance baseline and proceed with post-`P1.7` product-shell backlog; reuse the same DB-backed check when raising limits again.
+
+### 2026-04-19 19:42:56
+
+- Scope: Patched `collectObservedPages` to break the single-page ceiling when request limits exceed Reddit page size. Added provider-aware page-size handling (`http/scrapling/reddit` capped at 100 per page), corrected overflow continuation checks to use actual page request size, and enabled backfill mode to continue paging within a single job until requested limit is satisfied or cursor ends. Added integration coverage in `tests/integration/collect-subreddit-new-posts-p0.test.ts` for `backfill + scrapling + limit=150` to verify two-page collection in one run.
+- Why now: User explicitly asked to modify code to突破单页上限 after observing `candidateCount=100` under high-limit runs.
+- Verify: `npm test -- tests/integration/collect-subreddit-new-posts-p0.test.ts` passed (`212/212` in current suite run), including the new high-limit backfill pagination test; `npm run typecheck` passed.
+- Next: Run one live DB-backed verification on a real promoted subreddit with `REDDIT_POST_LIMIT_BOOST=150` and `REDDIT_LIVE_PROVIDER=scrapling` to confirm provider observability shows `requestCount>1` and `candidateCount>100` in a single backfill job.
+
+### 2026-04-19 19:36:46
+
+- Scope: Executed a live runtime calibration check for higher post sampling limits with Scrapling (`base=70`, `boost=150`) without changing code defaults. Ran `worker:phase1:once` on `r/preppers` in both live and backfill modes with `REDDIT_LIVE_PROVIDER=scrapling` / `REDDIT_SCRAPLING_PROFILE=dynamic`, then verified persisted job payload and provider observability.
+- Why now: User requested raising baseline/boost limits and explicitly using Scrapling.
+- Verify: Live run logged `selectedProvider=scrapling`, `sampling_plan tier=elevated`, `limit=78`, and `provider_observability provider=scrapling candidateCount=78 acceptedCount=78`. Backfill run (boost path) persisted `collection_job.payload.postLimit=150`, `samplingTier=boost`, `providerHint=scrapling`; runtime produced `provider_observability provider=scrapling candidateCount=100 acceptedCount=100` (provider-side page cap observed).
+- Next: Keep defaults unchanged in code for now; when high-throughput collection is needed, apply these env overrides per run profile and use multi-round/backfill windows to accumulate larger effective recall.
+
+### 2026-04-19 17:38:51
+
+- Scope: Executed a user-requested live keyword trend check for `jackery` on local Postgres. Ran live phase1 crawling on relevant subreddits (`solarpower,camping,preppers,buyitforlife,vandwellers,frugal,deals,survival,hiking,backpacking`) plus a focused `preppers` rerun. Created/validated keyword query session, switched session text to `global:jackery` for global read-model materialization, and re-ran phase1 to materialize `keyword_trend_daily` explicit-query rows.
+- Why now: User explicitly asked to crawl and return the recent heat trend for `jackery`.
+- Verify: `npx tsx workers/reddit-phase1-once.ts` succeeded for all listed subreddits in live mode (`DATABASE_URL=postgresql://postgres:***@localhost:5432/reddit_monitoring`). DB query confirmed matched content: `/r/preppers/comments/1sljeii/...` (`created_at_source=2026-04-14T19:47:49Z`, `first_seen_at=2026-04-19T09:33:44Z`). API `POST /v1/keyword-queries` returned `supportCount=1` and `status=initial_ready`. After rerun/materialization, API `GET /v1/trends/keywords/jackery/daily` returned one non-zero day with `matchedPosts=1`, `sampledPosts=7`, `mentionRate=0.142857`, `keywordHeat=0.169071`, `queryScope=global`.
+- Next: Keep post-`P1.7` product-shell development as primary track, and reuse this lightweight live-crawl + keyword-read flow for on-demand keyword checks.
 
 ### 2026-04-19 15:15:19
 

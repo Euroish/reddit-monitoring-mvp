@@ -756,6 +756,81 @@ test("collect subreddit new posts backfill mode uses crawl cursor with one-step 
   assert.equal(crawlCursor?.rewindCursor, "t3_cursor_1");
 });
 
+test("collect subreddit new posts backfill mode paginates beyond single-page cap for high limits", async () => {
+  const targetId = stableUuidFromString("reddit:target:r/backfill-high-limit");
+  const connector = new ScriptedPostsConnector([
+    {
+      nextCursor: "t3_cursor_1",
+      provider: "scrapling",
+      posts: buildPostsBatch({
+        subreddit: "backfill-high-limit",
+        prefix: "page1",
+        count: 100,
+        baseCreatedUtc: 1_712_751_000,
+      }),
+    },
+    {
+      nextCursor: "t3_cursor_2",
+      provider: "scrapling",
+      posts: buildPostsBatch({
+        subreddit: "backfill-high-limit",
+        prefix: "page2",
+        count: 50,
+        baseCreatedUtc: 1_712_751_200,
+      }),
+    },
+    {
+      provider: "scrapling",
+      posts: buildPostsBatch({
+        subreddit: "backfill-high-limit",
+        prefix: "page3",
+        count: 10,
+        baseCreatedUtc: 1_712_751_400,
+      }),
+    },
+  ]);
+  const contentRepository = new InMemoryContentRepository();
+  const crawlCursorRepository = new InMemoryCrawlCursorRepository();
+  const providerHealthWindowRepository = new InMemoryProviderHealthWindowRepository();
+
+  await collectSubredditNewPostsJob(
+    {
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+      collectionJobRepository: new InMemoryCollectionJobRepository(),
+      crawlCursorRepository,
+      rawEventRepository: new InMemoryRawEventRepository(),
+      accountRepository: new InMemoryAccountRepository(),
+      contentRepository,
+      metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+      providerHealthWindowRepository,
+    },
+    {
+      targetId,
+      subreddit: "backfill-high-limit",
+      nowIso: "2026-04-10T12:40:00.000Z",
+      mode: "backfill",
+      providerHint: "scrapling",
+      limit: 150,
+    },
+  );
+
+  assert.deepEqual(connector.seenAfter, [undefined, "t3_cursor_1"]);
+  assert.equal(contentRepository.all().length, 150);
+  const providerRow = providerHealthWindowRepository.all()[0];
+  assert.equal(providerRow?.provider, "scrapling");
+  assert.equal(providerRow?.requestCount, 2);
+  assert.equal(providerRow?.candidateCount, 150);
+
+  const crawlCursor = await crawlCursorRepository.resolve({
+    provider: "scrapling",
+    targetId,
+    mode: "backfill",
+  });
+  assert.equal(crawlCursor?.cursor, "t3_cursor_2");
+  assert.equal(crawlCursor?.rewindCursor, undefined);
+});
+
 test("collect subreddit new posts backfill recovers fallback cursor and rewrites under provider hint", async () => {
   const targetId = stableUuidFromString("reddit:target:r/apify-backfill");
   const connector = new ScriptedPostsConnector([

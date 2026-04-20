@@ -7,6 +7,13 @@ import type {
   SubredditAnomalyFeedResponse,
   SubredditAnomalyIncidentFeedResponse,
   ApiReadinessResponse,
+  AuthLoginRequest,
+  AuthLoginResponse,
+  AuthLogoutResponse,
+  AuthMeResponse,
+  AuthUserView,
+  CreateInviteRequest,
+  CreateInviteResponse,
   CrawlMode,
   CreateKeywordQueryRequest,
   CreateKeywordQueryResponse,
@@ -14,6 +21,8 @@ import type {
   CreateSubredditTargetResponse,
   GetKeywordQueryResponse,
   MarketTrendResponse,
+  RegisterAppUserRequest,
+  RegisterAppUserResponse,
   RunMode,
   GlobalKeywordDailyTrendResponse,
   SubredditDriverPostsResponse,
@@ -22,9 +31,21 @@ import type {
   TriggerPhase1RunRequest,
   TriggerPhase1RunResponse,
 } from "../../../packages/contracts/src/http";
+import type { AppUser } from "../../../src/domain/entities/app-user";
 import { dispatchRedditPhase1Run } from "../../../src/application/use-cases/dispatch-reddit-phase1-run.use-case";
 import { prepareTriggeredRedditPhase1Run } from "../../../src/application/use-cases/trigger-reddit-phase1-run.use-case";
+import { activateAppUser } from "../../../src/application/use-cases/activate-app-user.use-case";
+import { createAppInvite } from "../../../src/application/use-cases/create-app-invite.use-case";
+import { getCurrentAppUser } from "../../../src/application/use-cases/get-current-app-user.use-case";
+import { AuthError, loginAppUser } from "../../../src/application/use-cases/login-app-user.use-case";
+import { logoutAppUser } from "../../../src/application/use-cases/logout-app-user.use-case";
+import {
+  RegisterAppUserError,
+  registerAppUser,
+} from "../../../src/application/use-cases/register-app-user.use-case";
+import { PasswordHashingService } from "../../../src/application/services/password-hashing.service";
 import { runKeywordPulseQuery } from "../../../src/application/services/keyword-pulse-query.service";
+import { SessionTokenService } from "../../../src/application/services/session-token.service";
 import {
   buildKeywordQueryDataQuality,
   toDominantSourceType,
@@ -48,6 +69,9 @@ import type { PostGrowthAgeBucket } from "../../../src/domain/entities/post-grow
 import type { KeywordQuerySessionRepository } from "../../../src/domain/repositories/keyword-query-session-repository";
 import { stableUuidFromString } from "../../../src/shared/ids/stable-id";
 import type { AccountRepository } from "../../../src/domain/repositories/account-repository";
+import type { AppInviteRepository } from "../../../src/domain/repositories/app-invite-repository";
+import type { AppSessionRepository } from "../../../src/domain/repositories/app-session-repository";
+import type { AppUserRepository } from "../../../src/domain/repositories/app-user-repository";
 import type { AnomalyEventRepository } from "../../../src/domain/repositories/anomaly-event-repository";
 import type { CollectionJobRepository } from "../../../src/domain/repositories/collection-job-repository";
 import type { ContentRepository } from "../../../src/domain/repositories/content-repository";
@@ -74,6 +98,15 @@ import {
 } from "./api-validation";
 import { buildReadinessState } from "./readyz-observability";
 import { resolveRedditProviderRoutingPolicyContextFromEnv } from "../../../src/runtime/reddit-provider-routing-policy";
+import {
+  buildClearSessionCookie,
+  buildSessionCookie,
+  DEFAULT_SESSION_COOKIE_NAME,
+  readCookieValue,
+} from "./auth-cookie";
+import { canUseOpsWrite, resolveSessionActor, type ApiActor } from "./auth-guard";
+
+const MAX_JSON_BODY_BYTES = 1_048_576;
 
 function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
   res.statusCode = statusCode;
@@ -81,10 +114,24 @@ function sendJson(res: ServerResponse, statusCode: number, body: unknown): void 
   res.end(JSON.stringify(body, null, 2));
 }
 
+class RequestBodyTooLargeError extends Error {
+  public readonly code = "request_body_too_large";
+
+  constructor() {
+    super("request body too large");
+  }
+}
+
 async function readJsonBody<T>(req: IncomingMessage): Promise<T | null> {
   const chunks: Buffer[] = [];
+  let totalBytes = 0;
   for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.length;
+    if (totalBytes > MAX_JSON_BODY_BYTES) {
+      throw new RequestBodyTooLargeError();
+    }
+    chunks.push(buffer);
   }
   if (chunks.length === 0) {
     return null;
@@ -122,6 +169,9 @@ export interface ApiRepositoryBundle {
   crawlCursorRepository?: CrawlCursorRepository;
   rawEventRepository: RawEventRepository;
   accountRepository: AccountRepository;
+  appUserRepository?: AppUserRepository;
+  appInviteRepository?: AppInviteRepository;
+  appSessionRepository?: AppSessionRepository;
   anomalyEventRepository: AnomalyEventRepository;
   contentRepository: ContentRepository;
   keywordTrendDailyRepository?: KeywordTrendDailyRepository;
@@ -180,6 +230,9 @@ export interface CreateApiServerOptions {
   auth?: {
     bearerToken?: string;
     protectedPathPrefixes?: string[];
+    sessionCookieName?: string;
+    sessionCookieSecure?: boolean;
+    sessionTtlSeconds?: number;
   };
   cors?: {
     allowedOrigins?: string[];
@@ -473,6 +526,7 @@ function applyCorsHeaders(args: {
   args.res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   if (allowedOrigin !== "*") {
     appendVaryHeader(args.res, "Origin");
+    args.res.setHeader("Access-Control-Allow-Credentials", "true");
   }
   return { origin: allowedOrigin, blocked: false };
 }
@@ -517,7 +571,10 @@ function resolveClientIp(req: IncomingMessage): string {
   return socketIp;
 }
 
-function toRateLimitKey(req: IncomingMessage): string {
+function toRateLimitKey(req: IncomingMessage, actor: ApiActor | null): string {
+  if (actor?.type === "session") {
+    return `user:${actor.userId}`;
+  }
   const token = readBearerToken(req);
   if (token) {
     return `user:${stableUuidFromString(`api-rate-limit:${token}`)}`;
@@ -551,6 +608,38 @@ function isBearerTokenValid(req: IncomingMessage, expectedToken: string): boolea
   return timingSafeEqual(expectedBuffer, providedBuffer);
 }
 
+function toAuthUserView(user: AppUser): AuthUserView {
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    role: user.role,
+    status: user.status,
+  };
+}
+
+function isPrivilegedWritePath(pathname: string): boolean {
+  return (
+    pathname === "/v1/targets/subreddit" ||
+    pathname === "/v1/runs/reddit-phase1" ||
+    pathname === "/auth/invites" ||
+    /^\/auth\/users\/[^/]+\/activate$/.test(pathname)
+  );
+}
+
+function isAuthAdminPath(pathname: string): boolean {
+  return pathname === "/auth/invites" || /^\/auth\/users\/[^/]+\/activate$/.test(pathname);
+}
+
+function isSupportedAppUserRole(value: unknown): value is AppUser["role"] {
+  return value === "owner" || value === "admin" || value === "viewer";
+}
+
+function parseUserIdFromActivatePath(pathname: string): string | null {
+  const match = /^\/auth\/users\/([^/]+)\/activate$/.exec(pathname);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
 export function createApiServer(options: CreateApiServerOptions): Server {
   const repos = options.repositories;
   const now = options.now ?? (() => new Date().toISOString());
@@ -559,6 +648,11 @@ export function createApiServer(options: CreateApiServerOptions): Server {
   const requestIdGenerator = options.requestIdGenerator ?? randomUUID;
   const bearerToken = options.auth?.bearerToken?.trim() || undefined;
   const protectedPathPrefixes = options.auth?.protectedPathPrefixes ?? ["/v1/"];
+  const sessionCookieName = options.auth?.sessionCookieName ?? DEFAULT_SESSION_COOKIE_NAME;
+  const sessionCookieSecure = options.auth?.sessionCookieSecure ?? false;
+  const sessionTtlSeconds = Math.max(60, options.auth?.sessionTtlSeconds ?? 7 * 24 * 60 * 60);
+  const sessionTokenService = new SessionTokenService();
+  const passwordHashingService = new PasswordHashingService();
   const corsAllowedOrigins =
     options.cors?.allowedOrigins?.map((origin) => origin.trim()).filter((origin) => origin.length > 0) ??
     [];
@@ -674,18 +768,47 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         return;
       }
 
+      let actor: ApiActor | null = null;
+      const bearerIsValid = bearerToken ? isBearerTokenValid(req, bearerToken) : false;
+      const needsPrivilegedAuth = isPrivilegedWritePath(pathname);
       const needsAuth =
-        Boolean(bearerToken) &&
-        protectedPathPrefixes.some((prefix) => pathname.startsWith(prefix));
-      if (needsAuth && bearerToken && !isBearerTokenValid(req, bearerToken)) {
+        (Boolean(bearerToken) &&
+          protectedPathPrefixes.some((prefix) => pathname.startsWith(prefix))) ||
+        isAuthAdminPath(pathname);
+      if (bearerIsValid) {
+        actor = { type: "machine" };
+      } else if (needsAuth) {
+        actor = await resolveSessionActor({
+          req,
+          nowIso: now(),
+          appUserRepository: repos.appUserRepository,
+          appSessionRepository: repos.appSessionRepository,
+          cookieName: sessionCookieName,
+          sessionTokenService,
+        });
+        if (!actor) {
+          respond({
+            statusCode: 401,
+            body: toApiError({
+              requestId,
+              message: "unauthorized",
+              code: "unauthorized",
+            }),
+            errorCode: "unauthorized",
+          });
+          return;
+        }
+      }
+
+      if (actor && needsPrivilegedAuth && !canUseOpsWrite(actor)) {
         respond({
-          statusCode: 401,
+          statusCode: 403,
           body: toApiError({
             requestId,
-            message: "unauthorized",
-            code: "unauthorized",
+            message: "forbidden",
+            code: "forbidden",
           }),
-          errorCode: "unauthorized",
+          errorCode: "forbidden",
         });
         return;
       }
@@ -697,7 +820,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         ((req.method === "GET" || req.method === "POST") && isKeywordQueryRoute);
       if (queryRateLimiter && isQueryRoute) {
         try {
-          const key = toRateLimitKey(req);
+          const key = toRateLimitKey(req, actor);
           const rateLimitRes = await queryRateLimiter.consume(key);
           res.setHeader("x-ratelimit-limit", String(rateLimitPoints));
           res.setHeader(
@@ -753,6 +876,378 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           requestId,
           service: "reddit-monitoring-mvp",
           nowIso: now(),
+        };
+        respond({
+          statusCode: 200,
+          body: payload,
+        });
+        return;
+      }
+
+      if (req.method === "POST" && pathname === "/auth/login") {
+        if (!repos.appUserRepository || !repos.appSessionRepository) {
+          respond({
+            statusCode: 503,
+            body: toApiError({
+              requestId,
+              message: "auth repositories are unavailable",
+              code: "auth_unavailable",
+            }),
+            errorCode: "auth_unavailable",
+          });
+          return;
+        }
+
+        const body = await readJsonBody<AuthLoginRequest>(req);
+        if (
+          !body ||
+          typeof body.email !== "string" ||
+          typeof body.password !== "string" ||
+          body.email.trim() === "" ||
+          body.password === ""
+        ) {
+          respond({
+            statusCode: 400,
+            body: toApiError({
+              requestId,
+              message: "email and password are required",
+              code: "invalid_login_request",
+            }),
+            errorCode: "invalid_login_request",
+          });
+          return;
+        }
+
+        try {
+          const result = await loginAppUser(
+            {
+              appUserRepository: repos.appUserRepository,
+              appSessionRepository: repos.appSessionRepository,
+              passwordHashingService,
+              sessionTokenService,
+              sessionTtlSeconds,
+              now,
+            },
+            {
+              email: body.email,
+              password: body.password,
+            },
+          );
+          res.setHeader(
+            "Set-Cookie",
+            buildSessionCookie({
+              name: sessionCookieName,
+              token: result.token,
+              maxAgeSeconds: sessionTtlSeconds,
+              secure: sessionCookieSecure,
+            }),
+          );
+          const payload: AuthLoginResponse = {
+            ok: true,
+            requestId,
+            user: toAuthUserView(result.user),
+          };
+          respond({
+            statusCode: 200,
+            body: payload,
+          });
+          return;
+        } catch (error) {
+          if (error instanceof AuthError) {
+            respond({
+              statusCode: 401,
+              body: toApiError({
+                requestId,
+                message: "invalid email or password",
+                code: error.code,
+              }),
+              errorCode: error.code,
+            });
+            return;
+          }
+          throw error;
+        }
+      }
+
+      if (req.method === "POST" && pathname === "/auth/logout") {
+        if (!repos.appSessionRepository) {
+          respond({
+            statusCode: 503,
+            body: toApiError({
+              requestId,
+              message: "auth repositories are unavailable",
+              code: "auth_unavailable",
+            }),
+            errorCode: "auth_unavailable",
+          });
+          return;
+        }
+
+        const token = readCookieValue(req.headers.cookie, sessionCookieName);
+        if (token) {
+          await logoutAppUser({
+            appSessionRepository: repos.appSessionRepository,
+            tokenHash: sessionTokenService.hashToken(token),
+          });
+        }
+        res.setHeader(
+          "Set-Cookie",
+          buildClearSessionCookie({ name: sessionCookieName, secure: sessionCookieSecure }),
+        );
+        const payload: AuthLogoutResponse = {
+          ok: true,
+          requestId,
+        };
+        respond({
+          statusCode: 200,
+          body: payload,
+        });
+        return;
+      }
+
+      if (req.method === "POST" && pathname === "/auth/register") {
+        if (!repos.appUserRepository || !repos.appInviteRepository) {
+          respond({
+            statusCode: 503,
+            body: toApiError({
+              requestId,
+              message: "auth repositories are unavailable",
+              code: "auth_unavailable",
+            }),
+            errorCode: "auth_unavailable",
+          });
+          return;
+        }
+
+        const body = await readJsonBody<RegisterAppUserRequest>(req);
+        if (
+          !body ||
+          typeof body.email !== "string" ||
+          typeof body.password !== "string" ||
+          typeof body.inviteCode !== "string"
+        ) {
+          respond({
+            statusCode: 400,
+            body: toApiError({
+              requestId,
+              message: "email, password, and inviteCode are required",
+              code: "invalid_register_request",
+            }),
+            errorCode: "invalid_register_request",
+          });
+          return;
+        }
+
+        try {
+          const user = await registerAppUser(
+            {
+              appUserRepository: repos.appUserRepository,
+              appInviteRepository: repos.appInviteRepository,
+              passwordHashingService,
+              sessionTokenService,
+              now,
+            },
+            {
+              email: body.email,
+              password: body.password,
+              inviteCode: body.inviteCode,
+              displayName: typeof body.displayName === "string" ? body.displayName : undefined,
+            },
+          );
+          const payload: RegisterAppUserResponse = {
+            ok: true,
+            requestId,
+            user: toAuthUserView(user),
+          };
+          respond({
+            statusCode: 201,
+            body: payload,
+          });
+          return;
+        } catch (error) {
+          if (error instanceof RegisterAppUserError) {
+            respond({
+              statusCode: error.code === "email_already_registered" ? 409 : 400,
+              body: toApiError({
+                requestId,
+                message: error.message,
+                code: error.code,
+              }),
+              errorCode: error.code,
+            });
+            return;
+          }
+          throw error;
+        }
+      }
+
+      if (req.method === "POST" && pathname === "/auth/invites") {
+        if (!repos.appInviteRepository) {
+          respond({
+            statusCode: 503,
+            body: toApiError({
+              requestId,
+              message: "auth repositories are unavailable",
+              code: "auth_unavailable",
+            }),
+            errorCode: "auth_unavailable",
+          });
+          return;
+        }
+
+        const body = await readJsonBody<CreateInviteRequest>(req);
+        const roleOnAccept = body?.roleOnAccept ?? "viewer";
+        const maxUses = body?.maxUses ?? 1;
+        const expiresAt = typeof body?.expiresAt === "string" ? body.expiresAt : undefined;
+        if (
+          !isSupportedAppUserRole(roleOnAccept) ||
+          !Number.isInteger(maxUses) ||
+          maxUses < 1 ||
+          maxUses > 100 ||
+          (expiresAt && Number.isNaN(new Date(expiresAt).getTime()))
+        ) {
+          respond({
+            statusCode: 400,
+            body: toApiError({
+              requestId,
+              message: "invalid invite request",
+              code: "invalid_invite_request",
+            }),
+            errorCode: "invalid_invite_request",
+          });
+          return;
+        }
+
+        const result = await createAppInvite(
+          {
+            appInviteRepository: repos.appInviteRepository,
+            sessionTokenService,
+            now,
+          },
+          {
+            roleOnAccept,
+            maxUses,
+            expiresAt,
+          },
+        );
+        const payload: CreateInviteResponse = {
+          ok: true,
+          requestId,
+          invite: {
+            id: result.invite.id,
+            roleOnAccept: result.invite.roleOnAccept,
+            maxUses: result.invite.maxUses,
+            usedCount: result.invite.usedCount,
+            expiresAt: result.invite.expiresAt,
+            createdAt: result.invite.createdAt,
+          },
+          code: result.code,
+        };
+        respond({
+          statusCode: 201,
+          body: payload,
+        });
+        return;
+      }
+
+      if (req.method === "POST" && pathname.startsWith("/auth/users/") && pathname.endsWith("/activate")) {
+        if (!repos.appUserRepository) {
+          respond({
+            statusCode: 503,
+            body: toApiError({
+              requestId,
+              message: "auth repositories are unavailable",
+              code: "auth_unavailable",
+            }),
+            errorCode: "auth_unavailable",
+          });
+          return;
+        }
+
+        const userId = parseUserIdFromActivatePath(pathname);
+        if (!userId) {
+          respond({
+            statusCode: 400,
+            body: toApiError({
+              requestId,
+              message: "invalid user id",
+              code: "invalid_user_id",
+            }),
+            errorCode: "invalid_user_id",
+          });
+          return;
+        }
+
+        const user = await activateAppUser({
+          appUserRepository: repos.appUserRepository,
+          userId,
+          nowIso: now(),
+        });
+        if (!user) {
+          respond({
+            statusCode: 404,
+            body: toApiError({
+              requestId,
+              message: "user not found",
+              code: "user_not_found",
+            }),
+            errorCode: "user_not_found",
+          });
+          return;
+        }
+
+        const payload: AuthMeResponse = {
+          ok: true,
+          requestId,
+          user: toAuthUserView(user),
+        };
+        respond({
+          statusCode: 200,
+          body: payload,
+        });
+        return;
+      }
+
+      if (req.method === "GET" && pathname === "/auth/me") {
+        if (!repos.appUserRepository || !repos.appSessionRepository) {
+          respond({
+            statusCode: 503,
+            body: toApiError({
+              requestId,
+              message: "auth repositories are unavailable",
+              code: "auth_unavailable",
+            }),
+            errorCode: "auth_unavailable",
+          });
+          return;
+        }
+
+        const token = readCookieValue(req.headers.cookie, sessionCookieName);
+        const current = token
+          ? await getCurrentAppUser({
+              appUserRepository: repos.appUserRepository,
+              appSessionRepository: repos.appSessionRepository,
+              tokenHash: sessionTokenService.hashToken(token),
+              nowIso: now(),
+            })
+          : null;
+        if (!current) {
+          respond({
+            statusCode: 401,
+            body: toApiError({
+              requestId,
+              message: "unauthorized",
+              code: "unauthorized",
+            }),
+            errorCode: "unauthorized",
+          });
+          return;
+        }
+
+        const payload: AuthMeResponse = {
+          ok: true,
+          requestId,
+          user: toAuthUserView(current.user),
         };
         respond({
           statusCode: 200,
@@ -1792,6 +2287,18 @@ export function createApiServer(options: CreateApiServerOptions): Server {
       if (error instanceof BadRequestError) {
         respond({
           statusCode: 400,
+          body: toApiError({
+            requestId,
+            message: error.message,
+            code: error.code,
+          }),
+          errorCode: error.code,
+        });
+        return;
+      }
+      if (error instanceof RequestBodyTooLargeError) {
+        respond({
+          statusCode: 413,
           body: toApiError({
             requestId,
             message: error.message,

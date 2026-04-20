@@ -39,6 +39,8 @@ const LIVE_OVERFLOW_HEAD_FRESHNESS_MAX_SECONDS =
   PHASE1_SAMPLING_THRESHOLDS.staleHead.ingestLagSecondsMin.httpPrimary;
 const LIVE_OVERFLOW_TAIL_AGE_MAX_SECONDS =
   PHASE1_SAMPLING_THRESHOLDS.staleHead.severeIngestLagSecondsMin.httpPrimary;
+const REDDIT_PAGE_CAP_SIZE = 100;
+const REDDIT_PAGE_CAPPED_PROVIDERS = new Set(["reddit", "http", "scrapling"]);
 
 export interface CollectSubredditNewPostsDependencies {
   redditConnector: RedditConnector;
@@ -170,6 +172,7 @@ export async function runExistingSubredditNewPostsJob(
       samplingTier,
       after: input.job.cursor,
       mode,
+      providerHint,
       requestId: input.job.id,
       nowIso: input.nowIso,
     });
@@ -608,23 +611,29 @@ async function collectObservedPages(args: {
   samplingTier?: RedditSamplingTier;
   after?: string;
   mode: CrawlMode;
+  providerHint: string;
   requestId: string;
   nowIso: string;
 }): Promise<Array<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>>> {
   const pages: Array<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>> = [];
   let after = args.after;
-  let pageLimit = args.limit;
+  let remainingBudget = args.limit;
+  let observedProvider = args.providerHint;
   let extraBudget =
     args.mode === "live"
       ? Math.max(args.limit, resolveLiveOverflowExtraBudget(args.limit, args.samplingTier))
       : 0;
   const maxLivePages = resolveLiveOverflowMaxPages(args.samplingTier);
 
-  for (let pageIndex = 0; pageLimit > 0; pageIndex += 1) {
+  for (let pageIndex = 0; remainingBudget > 0; pageIndex += 1) {
+    const requestLimit = resolvePageRequestLimit({
+      remainingBudget,
+      observedProvider,
+    });
     const page = await args.redditConnector.collectSubredditPosts(
       {
         subreddit: args.subreddit,
-        limit: pageLimit,
+        limit: requestLimit,
         after,
       },
       {
@@ -633,15 +642,29 @@ async function collectObservedPages(args: {
       },
     );
     pages.push(page);
-
-    if (args.mode !== "live") {
-      break;
-    }
+    observedProvider = resolveObservedPagingProvider({
+      providerHint: observedProvider,
+      responseHeaders: page.raw.responseHeaders,
+    });
 
     const returnedCount = page.raw.payload.data.children.length;
     if (
       !page.nextCursor ||
-      returnedCount < pageLimit ||
+      returnedCount < requestLimit
+    ) {
+      break;
+    }
+
+    if (args.mode !== "live") {
+      remainingBudget -= returnedCount;
+      if (remainingBudget <= 0) {
+        break;
+      }
+      after = page.nextCursor;
+      continue;
+    }
+
+    if (
       extraBudget <= 0 ||
       pageIndex >= maxLivePages - 1
     ) {
@@ -656,11 +679,34 @@ async function collectObservedPages(args: {
     }
 
     after = page.nextCursor;
-    pageLimit = Math.min(args.limit, extraBudget);
-    extraBudget -= pageLimit;
+    const nextBudget = Math.max(1, Math.min(args.limit, extraBudget));
+    remainingBudget = nextBudget;
+    extraBudget = Math.max(0, extraBudget - nextBudget);
   }
 
   return pages;
+}
+
+function resolvePageRequestLimit(args: {
+  remainingBudget: number;
+  observedProvider: string;
+}): number {
+  const boundedRemaining = Math.max(1, Math.trunc(args.remainingBudget));
+  if (REDDIT_PAGE_CAPPED_PROVIDERS.has(args.observedProvider)) {
+    return Math.min(boundedRemaining, REDDIT_PAGE_CAP_SIZE);
+  }
+  return boundedRemaining;
+}
+
+function resolveObservedPagingProvider(args: {
+  providerHint: string;
+  responseHeaders: Record<string, string>;
+}): string {
+  const fromHeader = args.responseHeaders["x-provider"];
+  if (typeof fromHeader === "string" && fromHeader.trim().length > 0) {
+    return fromHeader.trim().toLowerCase();
+  }
+  return args.providerHint;
 }
 
 function resolveLiveOverflowExtraBudget(

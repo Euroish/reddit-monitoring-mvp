@@ -1,0 +1,18 @@
+[Unit]
+Description=Reddit Monitoring Phase1 Scheduler
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/reddit-monitoring
+EnvironmentFile=/etc/reddit-monitoring/scheduler.env
+ExecStart=/usr/bin/node /opt/reddit-monitoring/dist/workers/reddit-phase1-scheduler.js
+Restart=always
+RestartSec=10
+User=reddit-monitoring
+Group=reddit-monitoring
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

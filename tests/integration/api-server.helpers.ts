@@ -2,6 +2,9 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
   InMemoryAccountRepository,
+  InMemoryAppInviteRepository,
+  InMemoryAppSessionRepository,
+  InMemoryAppUserRepository,
   InMemoryAnomalyEventRepository,
   InMemoryCollectionJobRepository,
   InMemoryContentRepository,
@@ -25,12 +28,19 @@ export interface JsonResponse<T> {
 }
 
 export function createApiTestRepositories() {
+  const appInviteRepository = new InMemoryAppInviteRepository();
+  const appUserRepository = new InMemoryAppUserRepository();
+  appUserRepository.attachInviteRepository(appInviteRepository);
+
   return {
     monitorTargetRepository: new InMemoryMonitorTargetRepository(),
     collectionJobRepository: new InMemoryCollectionJobRepository(),
     crawlCursorRepository: new InMemoryCrawlCursorRepository(),
     rawEventRepository: new InMemoryRawEventRepository(),
     accountRepository: new InMemoryAccountRepository(),
+    appUserRepository,
+    appInviteRepository,
+    appSessionRepository: new InMemoryAppSessionRepository(),
     anomalyEventRepository: new InMemoryAnomalyEventRepository(),
     contentRepository: new InMemoryContentRepository(),
     keywordTrendDailyRepository: new InMemoryKeywordTrendDailyRepository(),

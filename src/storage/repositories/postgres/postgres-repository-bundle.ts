@@ -1,4 +1,7 @@
 import type { AccountRepository } from "../../../domain/repositories/account-repository";
+import type { AppInviteRepository } from "../../../domain/repositories/app-invite-repository";
+import type { AppSessionRepository } from "../../../domain/repositories/app-session-repository";
+import type { AppUserRepository } from "../../../domain/repositories/app-user-repository";
 import type { AnomalyEventRepository } from "../../../domain/repositories/anomaly-event-repository";
 import type { CollectionJobRepository } from "../../../domain/repositories/collection-job-repository";
 import type { ContentRepository } from "../../../domain/repositories/content-repository";
@@ -15,6 +18,9 @@ import type { RawEventRepository } from "../../../domain/repositories/raw-event-
 import type { SubredditTrendPointRepository } from "../../../domain/repositories/subreddit-trend-point-repository";
 import { PostgresClient } from "../../postgres/postgres-client";
 import { PostgresAccountRepository } from "./postgres-account.repository";
+import { PostgresAppInviteRepository } from "./postgres-app-invite.repository";
+import { PostgresAppSessionRepository } from "./postgres-app-session.repository";
+import { PostgresAppUserRepository } from "./postgres-app-user.repository";
 import { PostgresAnomalyEventRepository } from "./postgres-anomaly-event.repository";
 import { PostgresCollectionJobRepository } from "./postgres-collection-job.repository";
 import { PostgresContentRepository } from "./postgres-content.repository";
@@ -36,6 +42,9 @@ export interface RepositoryBundle {
   crawlCursorRepository: CrawlCursorRepository;
   rawEventRepository: RawEventRepository;
   accountRepository: AccountRepository;
+  appUserRepository: AppUserRepository;
+  appInviteRepository: AppInviteRepository;
+  appSessionRepository: AppSessionRepository;
   anomalyEventRepository: AnomalyEventRepository;
   contentRepository: ContentRepository;
   keywordTrendDailyRepository: KeywordTrendDailyRepository;
@@ -55,6 +64,9 @@ export function createPostgresRepositoryBundle(db: PostgresClient): RepositoryBu
     crawlCursorRepository: new PostgresCrawlCursorRepository(db),
     rawEventRepository: new PostgresRawEventRepository(db),
     accountRepository: new PostgresAccountRepository(db),
+    appUserRepository: new PostgresAppUserRepository(db),
+    appInviteRepository: new PostgresAppInviteRepository(db),
+    appSessionRepository: new PostgresAppSessionRepository(db),
     anomalyEventRepository: new PostgresAnomalyEventRepository(db),
     contentRepository: new PostgresContentRepository(db),
     keywordTrendDailyRepository: new PostgresKeywordTrendDailyRepository(db),

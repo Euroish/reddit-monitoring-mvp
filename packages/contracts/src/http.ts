@@ -5,6 +5,72 @@ export interface ApiHealthResponse {
   nowIso: string;
 }
 
+export type AppUserRole = "owner" | "admin" | "viewer";
+export type AppUserStatus = "pending" | "active" | "disabled";
+
+export interface AuthUserView {
+  id: string;
+  email: string;
+  displayName?: string;
+  role: AppUserRole;
+  status: AppUserStatus;
+}
+
+export interface AuthLoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface AuthLoginResponse {
+  ok: true;
+  requestId: string;
+  user: AuthUserView;
+}
+
+export interface AuthMeResponse {
+  ok: true;
+  requestId: string;
+  user: AuthUserView;
+}
+
+export interface AuthLogoutResponse {
+  ok: true;
+  requestId: string;
+}
+
+export interface CreateInviteRequest {
+  roleOnAccept?: AppUserRole;
+  maxUses?: number;
+  expiresAt?: string;
+}
+
+export interface CreateInviteResponse {
+  ok: true;
+  requestId: string;
+  invite: {
+    id: string;
+    roleOnAccept: AppUserRole;
+    maxUses: number;
+    usedCount: number;
+    expiresAt?: string;
+    createdAt: string;
+  };
+  code: string;
+}
+
+export interface RegisterAppUserRequest {
+  email: string;
+  password: string;
+  inviteCode: string;
+  displayName?: string;
+}
+
+export interface RegisterAppUserResponse {
+  ok: true;
+  requestId: string;
+  user: AuthUserView;
+}
+
 export type CrawlMode = "live" | "backfill";
 
 export interface ApiReadinessQueueBucket {
