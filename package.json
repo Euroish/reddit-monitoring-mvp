@@ -38,6 +38,7 @@
     "start:api": "node dist/apps/api/src/server.js",
     "smoke:compiled": "node dist/scripts/smoke-compiled-build.js",
     "smoke:linux-provider": "node dist/scripts/linux-provider-smoke.js --config-only",
+    "smoke:public-launch": "node dist/scripts/smoke-public-launch.js",
     "smoke:web": "tsx scripts/smoke-web-product-shell.ts",
     "phase1:manual-run": "tsx scripts/manual-phase1-run.ts",
     "ops:prewarm:keyword-query": "tsx scripts/prewarm-keyword-query-cache.ts",

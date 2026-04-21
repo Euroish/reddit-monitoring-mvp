@@ -16,12 +16,13 @@
 
 ## 已核对的当前状态
 
-- `Projects/project.md` 当前阶段是 `P1.7-complete`，下一步指向 post-P1.7 product shell：`auth/session + deployment hardening`。
-- 当前本地只有 `apps/api`，没有 `apps/web`。
+- 注：以下“当前状态”条目已转为历史草案快照；真实当前阶段以 `Projects/project.md` 为准。
+- `Projects/project.md` 当前阶段已推进到 `public-launch-hardening`，前端 product shell 已完成。
+- 当前本地已有 `apps/api` 和 `apps/web`。
 - `apps/api/src/server.ts` 启动时强制要求 `API_BEARER_TOKEN`。
 - `apps/api/src/create-api-server.ts` 默认保护 `/v1/`，当前 `/healthz` 和 `/readyz` 是独立健康检查路由。
 - `packages/contracts/src/http.ts` 是前后端可复用的 HTTP 合同边界。
-- PostgreSQL migration 由 `src/storage/schema/run-migrations.ts` 执行，schema 当前到 `017_provider_health_scrapling_observability.sql`。
+- PostgreSQL migration 由 `src/storage/schema/run-migrations.ts` 执行，schema 当前到 `018_auth_core.sql`。
 - runtime 当前有两条采集 lane：TypeScript HTTP/APIFY lane 和 Python Scrapling lane。
 - HTTP connector 在 Windows `win32` + `auto` transport 下有 PowerShell fallback；Linux 上线不能假设这条本地兜底链路仍然存在，必须单独验证 Linux 下 `fetch` 或 Scrapling。
 

@@ -4,6 +4,12 @@
 状态：后续开发指导源
 适用范围：`E:\vibe coding\project`
 
+## 0.1 实施状态校准（2026-04-21）
+
+- `apps/web` 已完成 Phase D 最小闭环，并已通过真实浏览器/API smoke。
+- 当前活动阶段不是“前端壳待搭建”，而是 `Phase E: Public launch hardening`。
+- 本文继续作为架构/验收设计源，但其中少量“当时现状”证据已转为历史快照，执行时应以 `obsidian-reddit专用/Projects/project.md` 的当前阶段和最新 activity 为准。
+
 ## 0. 结论
 
 当前仓库不需要重做核心架构。最终设计是：
@@ -38,14 +44,14 @@ auth/session core
 
 | 结论 | 本地证据 |
 | --- | --- |
-| 当前阶段是 `P1.7-complete`，主线转向 product shell | `obsidian-reddit专用/Projects/project.md` frontmatter 与最新 activity |
+| 当前阶段是 `public-launch-hardening`，前端 product shell 已完成 | `obsidian-reddit专用/Projects/project.md` frontmatter 与最新 activity |
 | API 当前启动依赖 `API_BEARER_TOKEN` | `apps/api/src/server.ts` |
 | API 当前用 `protectedPathPrefixes` 默认保护 `/v1/` | `apps/api/src/create-api-server.ts` |
 | `/healthz`、`/readyz` 已存在 | `apps/api/src/create-api-server.ts` |
 | `/v1/runs/reddit-phase1` 是可触发任务的 ops 写接口 | `apps/api/src/create-api-server.ts` |
 | shared contract 已在 `packages/contracts/src/http.ts` | `packages/contracts/src/http.ts` |
-| 当前没有 `apps/web` | `apps/` 目录扫描 |
-| schema 当前到 `017_provider_health_scrapling_observability.sql` | `src/storage/schema/` |
+| 当前已有 `apps/web` 与 `apps/api` | `apps/` 目录扫描 |
+| schema 当前到 `018_auth_core.sql` | `src/storage/schema/` |
 | Postgres repository bundle 已集中装配 | `src/storage/repositories/postgres/postgres-repository-bundle.ts` |
 | Linux 上不能依赖 Windows PowerShell fallback | `src/connectors/reddit/reddit-http.connector.ts` 的 `platform === "win32"` fallback |
 | Scrapling 已是 runtime/provider-policy/readyz 观测路径的一部分 | `src/connectors/reddit/reddit-scrapling.connector.ts`、`src/runtime/reddit-provider-routing-policy.ts`、`apps/api/src/readyz-observability.ts` |
@@ -538,6 +544,11 @@ flowchart TD
 - cookie secure in production
 - backup restore procedure documented
 - rollback procedure documented
+
+当前状态（2026-04-21）：
+
+- Phase D 已完成。
+- 当前执行重点是 Phase E 中的精确 CORS origin、生产 cookie `Secure`、session-user rate limit 与 `/readyz` 暴露策略。
 
 ## 9. 测试策略
 

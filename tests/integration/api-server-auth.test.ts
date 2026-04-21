@@ -127,6 +127,37 @@ test("auth login, me, logout issue and revoke postgres-backed session cookies", 
   }
 });
 
+test("auth login sets Secure session cookie when production cookie hardening is enabled", async () => {
+  const fixedNow = "2026-04-20T02:00:00.000Z";
+  const repos = createApiTestRepositories();
+  await seedAppUser({
+    repos,
+    email: "secure@example.com",
+    password: "secure-password",
+    role: "owner",
+    nowIso: fixedNow,
+  });
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+    auth: {
+      bearerToken: "test-token",
+      sessionCookieSecure: true,
+    },
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const loginResult = await login(baseUrl, "secure@example.com", "secure-password");
+    assert.equal(loginResult.status, 200);
+    assert.match(loginResult.cookie ?? "", /Secure/);
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("v1 routes accept session cookies while preserving bearer compatibility", async () => {
   const fixedNow = "2026-04-20T02:00:00.000Z";
   const repos = createApiTestRepositories();

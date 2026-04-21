@@ -34,6 +34,34 @@ product-shell check, not a production service command.
 
 The production runtime must use `node dist/...` entrypoints. Do not run production services through `tsx`.
 
+## Public Launch Smoke
+
+Run this after the deploy is live on the public domain:
+
+```bash
+PUBLIC_BASE_URL=https://example.com \
+npm run smoke:public-launch
+```
+
+Optional authenticated checks can be enabled with a real owner/admin launch account:
+
+```bash
+PUBLIC_BASE_URL=https://example.com \
+PUBLIC_LOGIN_EMAIL=owner@example.com \
+PUBLIC_LOGIN_PASSWORD=change-me \
+PUBLIC_ALLOWED_ORIGIN=https://example.com \
+PUBLIC_BLOCKED_ORIGIN=https://evil.example.com \
+npm run smoke:public-launch
+```
+
+What the smoke verifies:
+
+- public `/healthz` responds with `200` and `ok: true`
+- public `/readyz` is not exposed (`401`/`403`/`404` only)
+- exact allowed origin preflight succeeds when `PUBLIC_ALLOWED_ORIGIN` is set
+- invalid origin is blocked with `cors_origin_not_allowed` when origin checks are enabled
+- login sets an `HttpOnly` + `Secure` session cookie and `/api/auth/me` resolves the session when launch credentials are provided
+
 ## Server Files
 
 Expected server layout:
@@ -55,6 +83,19 @@ Copy and edit:
 - `deploy/env/scheduler.env.example` to `/etc/reddit-monitoring/scheduler.env`
 - `deploy/systemd/*.service` to `/etc/systemd/system/`
 - `deploy/nginx/reddit-monitoring.conf` to the Nginx sites directory
+
+Production auth/origin policy must stay explicit:
+
+- `API_CORS_ALLOW_ORIGINS` should list the exact web origin(s); do not rely on `*`.
+- `API_SESSION_COOKIE_SECURE=true` should remain enabled on the public domain.
+- Same-origin deployments can leave CORS empty and rely on the Nginx `/api/` proxy path.
+
+Launch logging policy:
+
+- Nginx writes main edge traffic to `/var/log/nginx/reddit-monitoring.access.log`.
+- Nginx writes `/readyz` probes and denials to `/var/log/nginx/reddit-monitoring.readyz.access.log`.
+- Nginx forwards `$request_id` to the API as `X-Request-Id` so edge logs can be correlated with API JSON request logs.
+- `app_audit_log` remains schema-ready, but launch evidence today comes from correlated API request logs plus the Nginx access logs above; do not claim DB-backed actor audit persistence until a write path exists.
 
 ## Database
 
@@ -91,6 +132,7 @@ Health checks:
 curl -fsS http://127.0.0.1:3000/healthz
 curl -fsS http://127.0.0.1:3000/readyz
 curl -fsS http://example.com/healthz
+PUBLIC_BASE_URL=https://example.com npm run smoke:public-launch
 ```
 
 `/readyz` exposes detailed provider and materialization state. The Nginx template

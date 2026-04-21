@@ -10,11 +10,15 @@ if (!apiBearerToken) {
   throw new Error("API_BEARER_TOKEN is required");
 }
 
-const corsAllowOrigins = (process.env.API_CORS_ALLOW_ORIGINS ?? "*")
+const corsAllowOrigins = (process.env.API_CORS_ALLOW_ORIGINS ?? "")
   .split(",")
   .map((origin) => origin.trim())
   .filter((origin) => origin.length > 0);
 const corsMaxAgeSeconds = Number.parseInt(process.env.API_CORS_MAX_AGE_SECONDS ?? "300", 10);
+const sessionCookieSecure = parseBooleanFlag(
+  process.env.API_SESSION_COOKIE_SECURE,
+  process.env.NODE_ENV === "production",
+);
 const rateLimitEnabled = parseBooleanFlag(process.env.API_RATE_LIMIT_ENABLED, true);
 const rateLimitPoints = parsePositiveInt(process.env.API_RATE_LIMIT_POINTS, 60);
 const rateLimitDurationSeconds = parsePositiveInt(
@@ -29,6 +33,7 @@ const server = createApiServer({
   redditMapper: runtime.redditMapper,
   auth: {
     bearerToken: apiBearerToken,
+    sessionCookieSecure,
   },
   cors: {
     allowedOrigins: corsAllowOrigins,

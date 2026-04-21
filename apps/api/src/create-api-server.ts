@@ -827,6 +827,16 @@ export function createApiServer(options: CreateApiServerOptions): Server {
       const isQueryRoute =
         (req.method === "GET" && pathname.startsWith("/v1/trends/")) ||
         ((req.method === "GET" || req.method === "POST") && isKeywordQueryRoute);
+      if (!actor && isQueryRoute) {
+        actor = await resolveSessionActor({
+          req,
+          nowIso: now(),
+          appUserRepository: repos.appUserRepository,
+          appSessionRepository: repos.appSessionRepository,
+          cookieName: sessionCookieName,
+          sessionTokenService,
+        });
+      }
       if (queryRateLimiter && isQueryRoute) {
         try {
           const key = toRateLimitKey(req, actor);

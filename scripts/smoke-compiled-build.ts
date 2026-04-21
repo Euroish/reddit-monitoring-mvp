@@ -9,6 +9,7 @@ const requiredFiles = [
   "dist/workers/keyword-query-live-refresh-scheduler.js",
   "dist/src/storage/schema/run-migrations.js",
   "dist/scripts/linux-provider-smoke.js",
+  "dist/scripts/smoke-public-launch.js",
 ];
 
 const requiredScripts = [
@@ -18,6 +19,7 @@ const requiredScripts = [
   "start:worker:keyword-query-live-refresh",
   "db:migrate:compiled",
   "smoke:linux-provider",
+  "smoke:public-launch",
 ];
 
 async function main(): Promise<void> {

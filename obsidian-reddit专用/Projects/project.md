@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: public-launch-hardening
-updated_at: "2026-04-21 16:59:57"
+updated_at: "2026-04-21 17:38:36"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Start Phase E public launch hardening: tighten exact production CORS/cookie settings, rate-limit by session user, and validate public-domain readiness exposure policy without regressing the completed frontend product shell."
+next_action: "The repo-side Phase E launch hardening slice is complete. Keep the frontend shell frozen and use the new target-host public launch smoke plus Nginx/API correlated logs to validate the real production domain before claiming live launch readiness."
 tags:
 - codex
 - workspace
@@ -21,22 +21,22 @@ tags:
 - Status: active
 - Product: `Reddit analytics product shell on top of the verified HTTP/Scrapling data plane`
 - Product goal: build a durable browser-facing analytics product with session auth, explainable read models, charted target details, query analysis, and protected Ops visibility
-- Phase: `frontend product shell`
+- Phase: `public launch hardening`
 - Authority: `project.md` is the single execution source
 
-## Frontend Product Shell Focus
+## Product Hardening Focus
 
-- Active focus is now `apps/web` and production web delivery.
+- The frontend product shell is complete and verified through real browser/API smoke.
 - The verified P1.7 algorithm/read-model/provider baseline is frozen unless a regression blocks frontend product behavior.
 - Archived algorithm-development state lives at `Projects/Archive/algorithm-development-p1.7-2026-04-20.md`.
-- Current frontend must close the real browser/API path before broad UI expansion: login, session persistence, dashboard rankings, target detail chart, and Ops readiness.
-- After the smoke path is verified, add the missing `queries` route from `docs/product-shell-final-design-2026-04-20.md`.
+- Current priority is Phase E hardening around production cookie/CORS policy, session-aware rate limiting, and public readiness exposure.
+- Keep the completed frontend routes (`/login`, `/dashboard`, `/queries`, `/target/:targetId`, `/ops`) stable while tightening launch posture.
 
 ## Current Focus
 
-- Make `apps/web` a first-class release artifact: root build, deployment runbook, Nginx static hosting, and frontend lint/build checks must stay aligned.
-- Keep frontend changes narrow and product-facing: typed API client, route semantics, maintainable page/data boundaries, and browser smoke evidence.
-- Avoid adding unrelated collector/algorithm work unless it directly unblocks the product shell.
+- Make the full product shell launch-safe: exact origin CORS, production `Secure` session cookies, session-user-aware API throttling, and explicit `/readyz` exposure rules.
+- Keep changes narrow and product-facing: auth/session policy, API hardening, deploy config, browser smoke, and docs that define the launch path.
+- Avoid reopening collector/algorithm backlog unless a regression directly blocks product shell behavior.
 
 ## Change Policy
 
@@ -77,6 +77,27 @@ tags:
 - Priority rule: continue periodic `R5` stability verification, but keep coding priority on post-`P1.7` product shell backlog from `docs/product-shell-final-design-2026-04-20.md`.
 
 ## Activity Log
+
+### 2026-04-21 17:38:36
+
+- Scope: Completed the remaining repo-side Phase E public launch hardening slice without reopening UI scope. Added a compiled `smoke:public-launch` script for target-domain verification, hardened the Nginx template with explicit access/error logging plus request-id forwarding into the API, and updated the deployment runbook so public launch validation, `/readyz` exposure expectations, and current audit/access-log posture are executable and explicit.
+- Why now: User asked to complete `Phase E: public launch hardening`. The remaining gap in `project.md` was deployment-side validation and rollout guidance, not more frontend work. The smallest complete slice was to make target-host validation and launch logging first-class in code/config/docs.
+- Verify: `npm run typecheck`; `npm run build`; `npm run smoke:web`; `npx tsx --test tests/integration/api-server-auth.test.ts tests/integration/api-server-access.test.ts tests/unit/production-build-config.test.ts tests/unit/public-launch-config.test.ts`; `npm run smoke:compiled`. All passed. `smoke:compiled` now verifies `dist/scripts/smoke-public-launch.js` plus the `smoke:public-launch` package script. Browser smoke remained green with `{ "ok": true, "checked": ["owner session persistence", "queries", "target chart svg", "ops readiness", "ops trigger", "logout redirect", "viewer ops guard", "mobile responsive review"], "finalUrl": "http://127.0.0.1:5173/ops" }`. The build still shows the unchanged lazy `TargetDetail` chunk warning at `519.72 kB`.
+- Next: Run `PUBLIC_BASE_URL=https://<real-domain> npm run smoke:public-launch` on or against the real host with launch credentials/origin values if available, then inspect `/var/log/nginx/reddit-monitoring.access.log`, `/var/log/nginx/reddit-monitoring.readyz.access.log`, and correlated API request logs before marking the deployment live-ready. Do not claim DB-backed audit persistence yet; `app_audit_log` is still schema-only.
+
+### 2026-04-21 17:33:59
+
+- Scope: Re-read the active Obsidian state source, confirmed that Phase D frontend shell work was already present in code, and re-validated the current worktree against the product-shell acceptance chain without widening scope. No new UI/API feature work was needed; the stage is complete in the checked tree.
+- Why now: User explicitly asked to read `obsidian-reddit专用/Projects/project.md` and complete the frontend shell stage. The only safe way to close that request without duplicate implementation was to verify the stage against the current repo and acceptance criteria.
+- Verify: `npm run typecheck`; `npm run lint:web`; `npm run build`; `npm run smoke:web`; `npx tsx --test tests/integration/api-server-auth.test.ts tests/integration/api-server-access.test.ts`. Smoke stayed green with `{ "ok": true, "checked": ["owner session persistence", "queries", "target chart svg", "ops readiness", "ops trigger", "logout redirect", "viewer ops guard", "mobile responsive review"], "finalUrl": "http://127.0.0.1:5173/ops" }`. Integration coverage remained green (`16/16`). Build still reports the existing lazy `TargetDetail` chunk warning at `519.72 kB`, with no regression.
+- Next: Keep the frontend product shell frozen and continue only Phase E launch hardening on the target deployment: exact public origin/Cookie Secure wiring, `/readyz` exposure policy, and rollout logging notes.
+
+### 2026-04-21 17:29:05
+
+- Scope: Audited the active product-shell docs for state drift and updated the canonical frontend/product-shell documents so they no longer claim `apps/web` is missing or that the repo is still pre-Phase-D. Completed the current frontend hardening slice by tightening API launch posture in code and config: production server bootstrap now defaults CORS to explicit origins instead of `*`, production session cookies now honor `API_SESSION_COOKIE_SECURE` (defaulting to `true` under `NODE_ENV=production`), and query-route throttling now resolves session actors before consuming rate-limit buckets so browser users are limited per user rather than per shared IP. Added regression coverage for secure session cookies and session-user rate limiting.
+- Why now: User asked to inspect docs, repair drift, and finish frontend product hardening. The active `next_action` in `project.md` specifically called for exact production CORS/cookie settings, session-aware rate limiting, and readiness exposure validation without reopening completed UI work.
+- Verify: `npm run typecheck`; `npm run build`; `npm run lint:web`; `npm run smoke:web`; `npx tsx --test tests/integration/api-server-auth.test.ts tests/integration/api-server-access.test.ts`. Browser smoke remained green with `{ "ok": true, "checked": ["owner session persistence", "queries", "target chart svg", "ops readiness", "ops trigger", "logout redirect", "viewer ops guard", "mobile responsive review"], "finalUrl": "http://127.0.0.1:5173/ops" }`. New API regression coverage now proves `Secure` session cookies under hardened config and session-user-specific throttling. Build still shows the isolated lazy `TargetDetail` chunk warning at `519.72 kB`.
+- Next: Keep the frontend product shell frozen and finish only deployment-side launch checks: validate the exact public origin and cookie settings on the target domain/host, confirm `/readyz` stays non-public outside localhost/authenticated Ops, and add any final rollout notes for access/audit logging if the host setup needs them.
 
 ### 2026-04-21 16:59:57
 
