@@ -21,9 +21,16 @@ npm run typecheck
 npm test
 npm run lint:web
 npm run build
+npm run smoke:web
 npm run smoke:compiled
 npm run smoke:linux-provider
 ```
+
+`npm run smoke:web` starts an in-memory API seed plus Vite locally and verifies
+owner session persistence, keyword queries, target chart rendering, Ops
+readiness plus run-trigger flow, logout redirect, viewer Ops guard, and a
+mobile responsive pass across the product-shell routes. It is a pre-deploy
+product-shell check, not a production service command.
 
 The production runtime must use `node dist/...` entrypoints. Do not run production services through `tsx`.
 

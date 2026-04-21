@@ -22,6 +22,7 @@ test("production scripts use compiled node entrypoints", async () => {
   );
   assert.equal(packageJson.scripts["db:migrate:compiled"], "node dist/src/storage/schema/run-migrations.js");
   assert.equal(packageJson.scripts["smoke:compiled"], "node dist/scripts/smoke-compiled-build.js");
+  assert.equal(packageJson.scripts["smoke:web"], "tsx scripts/smoke-web-product-shell.ts");
 });
 
 test("build tsconfig emits runtime files and excludes tests", async () => {

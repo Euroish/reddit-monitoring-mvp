@@ -12,26 +12,32 @@ export function Dashboard() {
 
   return (
     <div>
-      <div style={{ marginBottom: '40px' }}>
+      <div className="page-header">
         <h1>Dashboard</h1>
-        <p style={{ color: 'var(--text-tertiary)' }}>Market overview and hot targets</p>
+        <p className="page-subtitle">Market overview and hot targets</p>
       </div>
 
       {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>Loading market trends...</div>}
       {error && <div style={{ color: '#ff4d4f' }}>Error loading data</div>}
 
       {data && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px' }}>
+        <div className="responsive-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
           <Card>
             <h3 style={{ marginBottom: '16px' }}>Top by Heat</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div className="list-stack" style={{ gap: '12px' }}>
               {data.rankings.byHeat.slice(0, 5).map((item, idx) => (
-                <div key={item.targetId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div key={item.targetId} className="list-row">
+                  <div className="list-row-start">
                     <span style={{ color: 'var(--text-quaternary)', width: '20px' }}>{idx + 1}.</span>
-                    <Link to={`/target/${item.canonicalName.replace('r/', '')}`} style={{ fontWeight: 510, color: 'var(--text-primary)', textDecoration: 'none' }}>{item.canonicalName}</Link>
+                    <Link
+                      to={`/target/${item.canonicalName.replace('r/', '')}`}
+                      style={{ fontWeight: 510, color: 'var(--text-primary)', textDecoration: 'none' }}
+                      className="break-text"
+                    >
+                      {item.canonicalName}
+                    </Link>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div className="list-row-end">
                     <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>{Math.round(item.heatIndex)} heat</span>
                     {item.heatChangePct > 0 && <Badge variant="success">+{item.heatChangePct.toFixed(1)}%</Badge>}
                   </div>
@@ -42,12 +48,18 @@ export function Dashboard() {
 
           <Card>
             <h3 style={{ marginBottom: '16px' }}>Top by Surge</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div className="list-stack" style={{ gap: '12px' }}>
               {data.rankings.bySurge.slice(0, 5).map((item, idx) => (
-                <div key={item.targetId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div key={item.targetId} className="list-row">
+                  <div className="list-row-start">
                     <span style={{ color: 'var(--text-quaternary)', width: '20px' }}>{idx + 1}.</span>
-                    <Link to={`/target/${item.canonicalName.replace('r/', '')}`} style={{ fontWeight: 510, color: 'var(--text-primary)', textDecoration: 'none' }}>{item.canonicalName}</Link>
+                    <Link
+                      to={`/target/${item.canonicalName.replace('r/', '')}`}
+                      style={{ fontWeight: 510, color: 'var(--text-primary)', textDecoration: 'none' }}
+                      className="break-text"
+                    >
+                      {item.canonicalName}
+                    </Link>
                   </div>
                   <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>{item.surgeScore.toFixed(2)} score</span>
                 </div>

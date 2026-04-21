@@ -1,6 +1,6 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchApi } from '../api/client';
+import { fetchApi, UNAUTHORIZED_EVENT } from '../api/client';
 // Use relative paths to import types to avoid workspace setup for now
 import type { AuthMeResponse, AuthUserView, AuthLoginRequest, AuthLoginResponse, AuthLogoutResponse } from '../../../../packages/contracts/src/http';
 
@@ -49,6 +49,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     await logoutMutation.mutateAsync();
   };
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      queryClient.setQueryData(['auth', 'me'], null);
+    };
+
+    window.addEventListener(UNAUTHORIZED_EVENT, handleUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, handleUnauthorized);
+  }, [queryClient]);
 
   const value = {
     user: data?.user || null,

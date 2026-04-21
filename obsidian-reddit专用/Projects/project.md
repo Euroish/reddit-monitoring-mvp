@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: frontend-product-shell
-updated_at: "2026-04-20 16:14:49"
+stage: public-launch-hardening
+updated_at: "2026-04-21 16:59:57"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Run browser/API smoke for the new /queries flow, then decide whether the lazy TargetDetail ECharts chunk needs deeper core-import reduction."
+next_action: "Start Phase E public launch hardening: tighten exact production CORS/cookie settings, rate-limit by session user, and validate public-domain readiness exposure policy without regressing the completed frontend product shell."
 tags:
 - codex
 - workspace
@@ -77,6 +77,20 @@ tags:
 - Priority rule: continue periodic `R5` stability verification, but keep coding priority on post-`P1.7` product shell backlog from `docs/product-shell-final-design-2026-04-20.md`.
 
 ## Activity Log
+
+### 2026-04-21 16:59:57
+
+- Scope: Completed the remaining frontend product-shell acceptance work in `apps/web`. Added responsive/mobile-safe layout behavior across the shared shell, dashboard, queries, target detail, ops, and login. Added a guarded Phase 1 run trigger to the Ops page with typed request/response handling and queued-run feedback. Hardened frontend auth behavior so API `401` responses clear session state and redirect protected routes back to login. Expanded `npm run smoke:web` to verify owner session persistence, keyword queries, target chart SVG rendering, Ops readiness, Ops run trigger, logout redirect, viewer Ops guard, and mobile responsive overflow checks across the product-shell routes. Updated the deployment runbook to match the stronger smoke contract.
+- Why now: `project.md` still listed mobile/responsive review as the final frontend-product-shell gap, and the Phase D design acceptance also required a verified Ops guard plus admin/owner run-trigger path before the shell could be considered complete.
+- Verify: `npm run typecheck`; `npm run lint:web`; `npm run build`; `npm run smoke:web`; `npx tsx --test tests/integration/api-server-auth.test.ts tests/unit/production-build-config.test.ts`. Browser smoke result: `{ "ok": true, "checked": ["owner session persistence", "queries", "target chart svg", "ops readiness", "ops trigger", "logout redirect", "viewer ops guard", "mobile responsive review"], "finalUrl": "http://127.0.0.1:5173/ops" }`. Build still reports the isolated lazy `TargetDetail` chunk warning at `519.72 kB`; keep it visible for now.
+- Next: Move to Phase E public launch hardening. Keep the completed product shell stable while tightening exact production cookie/CORS behavior, session-aware rate limiting, and external readiness exposure policy.
+
+### 2026-04-20 16:45:50
+
+- Scope: Added a durable `npm run smoke:web` browser/API smoke using Playwright, an in-memory seeded API server, and Vite. The smoke verifies login, dashboard, `/queries`, keyword-query creation, matching post navigation to target detail, target chart SVG rendering, and protected Ops readiness. Added the smoke command to the deployment runbook and production-build config test. Replaced `echarts-for-react` in `TargetDetail` with direct ECharts core imports plus SVGRenderer and removed unused `echarts-for-react`/`tslib` frontend dependencies.
+- Why now: The active next action required a real browser/API smoke for the new `/queries` flow and a decision on deeper ECharts chunk cleanup after route-level lazy loading.
+- Verify: `npm run typecheck`; `npm run lint:web`; `npm run build`; `npm run smoke:web`; `npx tsx --test tests/unit/production-build-config.test.ts`. Browser smoke result: `{ "ok": true, "checked": ["login", "dashboard", "queries", "target chart svg", "ops readiness"], "finalUrl": "http://127.0.0.1:5173/ops" }`. Build now reports main entry `221.62 kB`, `Queries` chunk `5.25 kB`, and lazy `TargetDetail` chunk `519.90 kB` instead of `1,134.09 kB`.
+- Next: Run mobile/responsive browser review for the product-shell routes. The remaining Vite chunk warning is now marginal and isolated to the lazy target chart route; do not hide it by only raising the warning threshold.
 
 ### 2026-04-20 16:14:49
 

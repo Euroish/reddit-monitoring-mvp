@@ -1,9 +1,37 @@
+import { useEffect, useMemo, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import ReactECharts from 'echarts-for-react';
+import type { EChartsOption } from 'echarts';
+import * as echarts from 'echarts/core';
+import { LineChart } from 'echarts/charts';
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components';
+import { SVGRenderer } from 'echarts/renderers';
 import { fetchApi } from '../api/client';
 import { Card, Badge } from '../components/ui';
 import type { SubredditDailyTrendResponse } from '../../../../packages/contracts/src/http';
+
+echarts.use([GridComponent, LegendComponent, LineChart, SVGRenderer, TooltipComponent]);
+
+function HeatTrendChart({ option }: { option: EChartsOption }) {
+  const chartElementRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!chartElementRef.current) return;
+
+    const chart = echarts.init(chartElementRef.current, undefined, { renderer: 'svg' });
+    chart.setOption(option, true);
+
+    const resizeObserver = new ResizeObserver(() => chart.resize());
+    resizeObserver.observe(chartElementRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+      chart.dispose();
+    };
+  }, [option]);
+
+  return <div ref={chartElementRef} style={{ height: '100%', width: '100%' }} />;
+}
 
 export function TargetDetail() {
   const { targetId } = useParams<{ targetId: string }>();
@@ -14,7 +42,7 @@ export function TargetDetail() {
     enabled: !!targetId,
   });
 
-  const getChartOptions = () => {
+  const chartOptions = useMemo<EChartsOption>(() => {
     if (!data || !data.daily || data.daily.length === 0) return {};
 
     const dates = data.daily.map((d) => d.day);
@@ -96,20 +124,20 @@ export function TargetDetail() {
         },
       ],
     };
-  };
+  }, [data]);
 
   return (
     <div>
-      <div style={{ marginBottom: '40px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+      <div className="page-header">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px', flexWrap: 'wrap' }}>
             <Link to="/dashboard" style={{ color: 'var(--text-tertiary)', textDecoration: 'none' }}>
               &larr; Back
             </Link>
-            <h1 style={{ margin: 0 }}>r/{targetId}</h1>
+            <h1 style={{ margin: 0 }} className="break-text">r/{targetId}</h1>
             {data && <Badge variant="neutral">{data.daily[data.daily.length - 1]?.subredditTier || 'unknown'}</Badge>}
           </div>
-          <p style={{ color: 'var(--text-tertiary)' }}>30-day Trend Analysis</p>
+          <p className="page-subtitle">30-day Trend Analysis</p>
         </div>
       </div>
 
@@ -118,28 +146,28 @@ export function TargetDetail() {
 
       {data && data.daily.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+          <div className="metric-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
             <Card>
               <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Latest Heat</div>
-              <div style={{ fontSize: '24px', fontWeight: 600 }}>
+              <div className="kpi-value">
                 {Math.round(data.daily[data.daily.length - 1].heatPrice)}
               </div>
             </Card>
             <Card>
               <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Daily Posts</div>
-              <div style={{ fontSize: '24px', fontWeight: 600 }}>
+              <div className="kpi-value">
                 {data.daily[data.daily.length - 1].totalNewPosts}
               </div>
             </Card>
             <Card>
               <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Subscribers</div>
-              <div style={{ fontSize: '24px', fontWeight: 600 }}>
+              <div className="kpi-value">
                 {(data.daily[data.daily.length - 1].subscriberCount / 1000).toFixed(1)}k
               </div>
             </Card>
             <Card>
               <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Active Users</div>
-              <div style={{ fontSize: '24px', fontWeight: 600 }}>
+              <div className="kpi-value">
                 {data.daily[data.daily.length - 1].activeUserCount}
               </div>
             </Card>
@@ -147,12 +175,8 @@ export function TargetDetail() {
 
           <Card style={{ padding: '24px' }}>
             <h3 style={{ marginBottom: '24px' }}>Heat Trend</h3>
-            <div style={{ height: '400px', width: '100%' }}>
-              <ReactECharts
-                option={getChartOptions()}
-                style={{ height: '100%', width: '100%' }}
-                opts={{ renderer: 'svg' }}
-              />
+            <div className="chart-shell">
+              <HeatTrendChart option={chartOptions} />
             </div>
           </Card>
         </div>
@@ -160,7 +184,7 @@ export function TargetDetail() {
 
       {data && data.daily.length === 0 && (
         <Card>
-          <div style={{ color: 'var(--text-tertiary)', textAlign: 'center', padding: '40px' }}>
+          <div className="card-empty">
             No daily trend data available for this target yet.
           </div>
         </Card>

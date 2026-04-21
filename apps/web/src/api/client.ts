@@ -8,6 +8,8 @@ export class ApiError extends Error {
   }
 }
 
+export const UNAUTHORIZED_EVENT = 'api:unauthorized';
+
 export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   // Use /api/ prefix as configured in vite proxy, or directly if hosted on the same origin later
   const url = path.startsWith('/api/') ? path : `/api${path.startsWith('/') ? path : `/${path}`}`;
@@ -25,6 +27,9 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+    }
     throw new ApiError(data?.errorCode || 'UNKNOWN_ERROR', data?.error || response.statusText);
   }
 

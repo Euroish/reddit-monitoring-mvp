@@ -50,12 +50,12 @@ export function Queries() {
 
   return (
     <div>
-      <div style={{ marginBottom: '40px' }}>
+      <div className="page-header">
         <h1>Queries</h1>
-        <p style={{ color: 'var(--text-tertiary)' }}>Keyword pulse and supporting posts</p>
+        <p className="page-subtitle">Keyword pulse and supporting posts</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px', alignItems: 'start' }}>
+      <div className="responsive-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', alignItems: 'start' }}>
         <Card>
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
@@ -115,7 +115,7 @@ export function Queries() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           {!result && !keywordQuery.isPending && (
             <Card>
-              <div style={{ color: 'var(--text-tertiary)', textAlign: 'center', padding: '40px' }}>
+              <div className="card-empty">
                 Run a keyword query to inspect coverage, quality, and matching posts.
               </div>
             </Card>
@@ -124,54 +124,61 @@ export function Queries() {
           {result && (
             <>
               <Card>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', marginBottom: '24px' }}>
+                <div className="page-header" style={{ marginBottom: '24px' }}>
                   <div>
-                    <h2>{result.queryText}</h2>
-                    <p style={{ color: 'var(--text-tertiary)', marginTop: '8px' }}>
+                    <h2 className="break-text">{result.queryText}</h2>
+                    <p className="page-subtitle">
                       {result.canonicalSubreddit ?? 'Global'} · {result.sourceType.primary}
                     </p>
                   </div>
                   <Badge variant={resultStatusColor(result.status)}>{result.status}</Badge>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '16px' }}>
+                <div className="metric-grid">
                   <div>
                     <div style={{ color: 'var(--text-tertiary)', fontSize: '13px', marginBottom: '6px' }}>Support</div>
-                    <div style={{ fontSize: '22px', fontWeight: 600 }}>{result.supportCount}</div>
+                    <div className="kpi-value">{result.supportCount}</div>
                   </div>
                   <div>
                     <div style={{ color: 'var(--text-tertiary)', fontSize: '13px', marginBottom: '6px' }}>Mention rate</div>
-                    <div style={{ fontSize: '22px', fontWeight: 600 }}>{formatRate(result.mentionRate)}</div>
+                    <div className="kpi-value">{formatRate(result.mentionRate)}</div>
                   </div>
                   <div>
                     <div style={{ color: 'var(--text-tertiary)', fontSize: '13px', marginBottom: '6px' }}>Quality</div>
-                    <div style={{ fontSize: '22px', fontWeight: 600 }}>{result.dataQuality.level}</div>
+                    <div className="kpi-value">{result.dataQuality.level}</div>
                   </div>
                   <div>
                     <div style={{ color: 'var(--text-tertiary)', fontSize: '13px', marginBottom: '6px' }}>Confidence</div>
-                    <div style={{ fontSize: '22px', fontWeight: 600 }}>{result.confidenceLevel}</div>
+                    <div className="kpi-value">{result.confidenceLevel}</div>
                   </div>
                 </div>
               </Card>
 
               <Card>
                 <h3 style={{ marginBottom: '16px' }}>Matching Posts</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div className="list-stack">
                   {result.samplePosts.length === 0 && (
                     <div style={{ color: 'var(--text-tertiary)' }}>No matching posts returned.</div>
                   )}
                   {result.samplePosts.map((post) => (
                     <div key={post.contentId} style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '14px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', marginBottom: '6px' }}>
+                      <div className="list-row" style={{ marginBottom: '6px' }}>
                         <Link
                           to={`/target/${post.canonicalSubreddit.replace('r/', '')}`}
                           style={{ color: 'var(--text-primary)', fontWeight: 510 }}
+                          className="break-text"
                         >
                           {post.canonicalSubreddit}
                         </Link>
                         <Badge>{post.sourceType}</Badge>
                       </div>
-                      <a href={toRedditUrl(post.permalink)} target="_blank" rel="noreferrer" style={{ color: 'var(--text-secondary)' }}>
+                      <a
+                        href={toRedditUrl(post.permalink)}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: 'var(--text-secondary)', display: 'block' }}
+                        className="break-text"
+                      >
                         {post.title}
                       </a>
                       <div style={{ color: 'var(--text-tertiary)', fontSize: '13px', marginTop: '6px' }}>

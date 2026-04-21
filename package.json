@@ -38,6 +38,7 @@
     "start:api": "node dist/apps/api/src/server.js",
     "smoke:compiled": "node dist/scripts/smoke-compiled-build.js",
     "smoke:linux-provider": "node dist/scripts/linux-provider-smoke.js --config-only",
+    "smoke:web": "tsx scripts/smoke-web-product-shell.ts",
     "phase1:manual-run": "tsx scripts/manual-phase1-run.ts",
     "ops:prewarm:keyword-query": "tsx scripts/prewarm-keyword-query-cache.ts",
     "verify:phase1:postgres": "tsx scripts/verify-phase1-postgres.ts",
@@ -53,6 +54,7 @@
     "@types/node": "^22.15.3",
     "@types/opossum": "^8.1.9",
     "@types/pg": "^8.15.2",
+    "playwright": "^1.59.1",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"
   }

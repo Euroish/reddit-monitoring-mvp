@@ -24,7 +24,7 @@ export function Login() {
   };
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 'calc(100vh - 120px)', padding: '24px 0' }}>
       <Card style={{ width: '100%', maxWidth: '400px' }}>
         <h2 style={{ marginBottom: '24px', textAlign: 'center' }}>Sign in to Analytics</h2>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
