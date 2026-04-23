@@ -42,8 +42,18 @@ import type { PostGrowthFactRepository } from "../src/domain/repositories/post-g
 import type { SubredditDailyFactRepository } from "../src/domain/repositories/subreddit-daily-fact-repository";
 import type { SubredditTrendPointRepository } from "../src/domain/repositories/subreddit-trend-point-repository";
 import type { AnomalyEventRepository } from "../src/domain/repositories/anomaly-event-repository";
+import type { RedditLiveProvider } from "../src/connectors/reddit/create-reddit-connector";
 
 export type SchedulerRunMode = "mock" | "live";
+
+export interface SchedulerLiveProviderExecutionPlan {
+  configuredProvider: RedditLiveProvider;
+  effectiveProvider: RedditLiveProvider;
+  fallbackProvider?: RedditLiveProvider;
+  primaryReason?: string;
+  fallbackReason?: string;
+  blocked: boolean;
+}
 
 function parseSubredditListFromEnv(env: NodeJS.ProcessEnv): string[] {
   return parseSubredditList(env.REDDIT_RUN_SUBREDDITS ?? env.REDDIT_RUN_SUBREDDIT);
@@ -76,7 +86,10 @@ interface RunnableJobRepositories {
 export async function executeRunnableCollectionJobs(args: {
   repos: RunnableJobRepositories;
   connector: RedditConnector;
-  connectorResolver?: (providerHint: string | undefined) => RedditConnector;
+  connectorResolver?: (args: {
+    providerHint: string | undefined;
+    crawlMode: "live" | "backfill";
+  }) => RedditConnector;
   redditMapper: RedditMapper;
   nowIso: string;
   runnableJobLimit: number;
@@ -144,7 +157,10 @@ export async function executeRunnableCollectionJobs(args: {
 
       if (job.jobType === "collect_subreddit_new_posts") {
         const connectorForJob = args.connectorResolver
-          ? args.connectorResolver(resolveProviderHintFromJobPayload(job.payload))
+          ? args.connectorResolver({
+              providerHint: resolveProviderHintFromJobPayload(job.payload),
+              crawlMode: job.crawlMode ?? "live",
+            })
           : args.connector;
         const executed = await runExistingSubredditNewPostsJob(
           {
@@ -219,6 +235,90 @@ function resolveProviderOverride(providerHint: string | undefined): string | und
     return normalized;
   }
   return undefined;
+}
+
+export function resolveSchedulerRunnableProviderHint(args: {
+  providerHint: string | undefined;
+  crawlMode: "live" | "backfill";
+  configuredProvider: RedditLiveProvider;
+  effectiveProvider: RedditLiveProvider;
+}): string | undefined {
+  if (args.crawlMode !== "live") {
+    return args.providerHint;
+  }
+  const normalized = resolveProviderOverride(args.providerHint);
+  if (!normalized || normalized === args.configuredProvider) {
+    return args.effectiveProvider;
+  }
+  return normalized;
+}
+
+export async function resolveSchedulerLiveProviderExecutionPlan(args: {
+  runMode: SchedulerRunMode;
+  providerCapability: ReturnType<typeof resolveRedditProviderCapabilityProbeConfigFromEnv>;
+  nowIso: string;
+  resolveConnectorForProviderHint: (
+    providerHint: string | undefined,
+    defaultLiveProviderOverride?: RedditLiveProvider,
+  ) => RedditConnector;
+}): Promise<SchedulerLiveProviderExecutionPlan> {
+  const configuredProvider = args.providerCapability.provider;
+  if (args.runMode !== "live" || !args.providerCapability.required) {
+    return {
+      configuredProvider,
+      effectiveProvider: configuredProvider,
+      blocked: false,
+    };
+  }
+
+  const primaryProbe = await probeRedditProviderCapability({
+    connector: args.resolveConnectorForProviderHint(configuredProvider, configuredProvider),
+    provider: configuredProvider,
+    subreddit: args.providerCapability.subreddit,
+    nowIso: args.nowIso,
+  });
+  if (primaryProbe.ok) {
+    return {
+      configuredProvider,
+      effectiveProvider: configuredProvider,
+      blocked: false,
+    };
+  }
+
+  if (configuredProvider !== "http") {
+    return {
+      configuredProvider,
+      effectiveProvider: configuredProvider,
+      primaryReason: primaryProbe.reason ?? "provider capability probe failed",
+      blocked: true,
+    };
+  }
+
+  const fallbackProvider: RedditLiveProvider = "scrapling";
+  const fallbackProbe = await probeRedditProviderCapability({
+    connector: args.resolveConnectorForProviderHint(fallbackProvider, fallbackProvider),
+    provider: fallbackProvider,
+    subreddit: args.providerCapability.subreddit,
+    nowIso: args.nowIso,
+  });
+  if (fallbackProbe.ok) {
+    return {
+      configuredProvider,
+      effectiveProvider: fallbackProvider,
+      fallbackProvider,
+      primaryReason: primaryProbe.reason ?? "provider capability probe failed",
+      blocked: false,
+    };
+  }
+
+  return {
+    configuredProvider,
+    effectiveProvider: configuredProvider,
+    fallbackProvider,
+    primaryReason: primaryProbe.reason ?? "provider capability probe failed",
+    fallbackReason: fallbackProbe.reason ?? "provider capability probe failed",
+    blocked: true,
+  };
 }
 
 export async function materializeTouchedTargets(args: {
@@ -345,8 +445,12 @@ async function main(): Promise<void> {
   const repos = runtime.repositories;
   const providerCapability = resolveRedditProviderCapabilityProbeConfigFromEnv(process.env);
   const connectorCache = new Map<string, RedditConnector>();
-  const resolveConnectorForProviderHint = (providerHint: string | undefined): RedditConnector => {
-    const providerOverride = resolveProviderOverride(providerHint);
+  const resolveConnectorForProviderHint = (
+    providerHint: string | undefined,
+    defaultLiveProviderOverride?: RedditLiveProvider,
+  ): RedditConnector => {
+    const providerOverride =
+      resolveProviderOverride(providerHint) ?? defaultLiveProviderOverride;
     const cacheKey = providerOverride ?? "__default__";
     const cached = connectorCache.get(cacheKey);
     if (cached) {
@@ -356,13 +460,6 @@ async function main(): Promise<void> {
     connectorCache.set(cacheKey, connector);
     return connector;
   };
-  const fetchExecutionEngine = createRedditFetchExecutionEngine({
-    mode: runMode,
-    createConnector: runtime.createConnector,
-    providerHealthWindowRepository: repos.providerHealthWindowRepository,
-    crawlCursorRepository: repos.crawlCursorRepository,
-    policyContext: resolveRedditProviderRoutingPolicyContextFromEnv(process.env),
-  });
   const redditMapper = runtime.redditMapper;
 
   let inFlight = false;
@@ -376,28 +473,60 @@ async function main(): Promise<void> {
     inFlight = true;
     const nowIso = new Date().toISOString();
     try {
-      if (runMode === "live" && providerCapability.required) {
-        const capabilityProbe = await probeRedditProviderCapability({
-          connector: resolveConnectorForProviderHint(undefined),
-          provider: providerCapability.provider,
-          subreddit: providerCapability.subreddit,
-          nowIso,
-        });
-        if (!capabilityProbe.ok) {
-          // eslint-disable-next-line no-console
-          console.error(
-            JSON.stringify({
-              event: "scheduler.provider_capability.blocked",
-              nowIso,
-              mode: runMode,
-              provider: providerCapability.provider,
-              subreddit: providerCapability.subreddit,
-              reason: capabilityProbe.reason ?? "provider capability probe failed",
-            }),
-          );
-          return;
-        }
+      const providerPlan = await resolveSchedulerLiveProviderExecutionPlan({
+        runMode,
+        providerCapability,
+        nowIso,
+        resolveConnectorForProviderHint,
+      });
+      if (providerPlan.blocked) {
+        // eslint-disable-next-line no-console
+        console.error(
+          JSON.stringify({
+            event: "scheduler.provider_capability.blocked",
+            nowIso,
+            mode: runMode,
+            provider: providerPlan.configuredProvider,
+            fallbackProvider: providerPlan.fallbackProvider,
+            subreddit: providerCapability.subreddit,
+            reason: providerPlan.primaryReason ?? "provider capability probe failed",
+            fallbackReason: providerPlan.fallbackReason,
+          }),
+        );
+        return;
       }
+      if (
+        runMode === "live" &&
+        providerPlan.effectiveProvider !== providerPlan.configuredProvider
+      ) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          JSON.stringify({
+            event: "scheduler.provider_capability.fallback_activated",
+            nowIso,
+            mode: runMode,
+            provider: providerPlan.configuredProvider,
+            effectiveProvider: providerPlan.effectiveProvider,
+            subreddit: providerCapability.subreddit,
+            reason: providerPlan.primaryReason,
+          }),
+        );
+      }
+      const cycleEnv =
+        runMode === "live" &&
+        providerPlan.effectiveProvider !== providerPlan.configuredProvider
+          ? {
+              ...process.env,
+              REDDIT_LIVE_PROVIDER: providerPlan.effectiveProvider,
+            }
+          : process.env;
+      const fetchExecutionEngine = createRedditFetchExecutionEngine({
+        mode: runMode,
+        createConnector: runtime.createConnector,
+        providerHealthWindowRepository: repos.providerHealthWindowRepository,
+        crawlCursorRepository: repos.crawlCursorRepository,
+        policyContext: resolveRedditProviderRoutingPolicyContextFromEnv(cycleEnv),
+      });
 
       await upsertActiveSubredditTargets({
         monitorTargetRepository: repos.monitorTargetRepository,
@@ -408,9 +537,15 @@ async function main(): Promise<void> {
       const result = await runRedditPhase1Cycle(
         {
           ...repos,
-          redditConnector: resolveConnectorForProviderHint(undefined),
+          redditConnector: resolveConnectorForProviderHint(
+            undefined,
+            providerPlan.effectiveProvider,
+          ),
           redditConnectorResolver: ({ providerHint }) =>
-            resolveConnectorForProviderHint(providerHint),
+            resolveConnectorForProviderHint(
+              providerHint,
+              providerPlan.effectiveProvider,
+            ),
           redditExecutionStrategyResolver: ({
             targetId,
             canonicalName,
@@ -429,7 +564,7 @@ async function main(): Promise<void> {
         },
         nowIso,
         resolveRedditPhase1CycleOptionsFromEnv({
-          env: process.env,
+          env: cycleEnv,
           mode: runMode,
           crawlMode: "live",
           postLimit: parseOptionalPositiveInt(process.env.REDDIT_POST_LIMIT),
@@ -438,8 +573,20 @@ async function main(): Promise<void> {
       );
       const replayed = await executeRunnableCollectionJobs({
         repos,
-        connector: resolveConnectorForProviderHint(undefined),
-        connectorResolver: resolveConnectorForProviderHint,
+        connector: resolveConnectorForProviderHint(
+          undefined,
+          providerPlan.effectiveProvider,
+        ),
+        connectorResolver: ({ providerHint, crawlMode }) =>
+          resolveConnectorForProviderHint(
+            resolveSchedulerRunnableProviderHint({
+              providerHint,
+              crawlMode,
+              configuredProvider: providerPlan.configuredProvider,
+              effectiveProvider: providerPlan.effectiveProvider,
+            }),
+            providerPlan.effectiveProvider,
+          ),
         redditMapper,
         nowIso,
         runnableJobLimit,
@@ -457,7 +604,7 @@ async function main(): Promise<void> {
         },
         targets: replayed.touchedTargets,
         nowIso,
-        env: process.env,
+        env: cycleEnv,
         runMode,
       });
 

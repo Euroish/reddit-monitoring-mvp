@@ -24,7 +24,11 @@ import {
   InMemorySubredditDailyFactRepository,
   InMemorySubredditTrendPointRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
-import { executeRunnableCollectionJobs } from "../../workers/reddit-phase1-scheduler";
+import {
+  executeRunnableCollectionJobs,
+  resolveSchedulerLiveProviderExecutionPlan,
+  resolveSchedulerRunnableProviderHint,
+} from "../../workers/reddit-phase1-scheduler";
 
 class RunnableJobConnector implements RedditConnector {
   public readonly sourceCode = "reddit" as const;
@@ -219,7 +223,7 @@ test("executeRunnableCollectionJobs resolves provider connector from job payload
       subredditTrendPointRepository: new InMemorySubredditTrendPointRepository(),
     },
     connector: defaultConnector,
-    connectorResolver: (providerHint) =>
+    connectorResolver: ({ providerHint }) =>
       providerHint === "scrapling" ? scraplingConnector : defaultConnector,
     redditMapper: new DefaultRedditMapper(),
     nowIso,
@@ -232,4 +236,112 @@ test("executeRunnableCollectionJobs resolves provider connector from job payload
   const providerRows = providerHealthWindowRepository.all();
   assert.equal(providerRows.length, 1);
   assert.equal(providerRows[0]?.provider, "scrapling");
+});
+
+test("resolveSchedulerRunnableProviderHint reroutes live jobs from failed http to scrapling fallback", () => {
+  assert.equal(
+    resolveSchedulerRunnableProviderHint({
+      providerHint: undefined,
+      crawlMode: "live",
+      configuredProvider: "http",
+      effectiveProvider: "scrapling",
+    }),
+    "scrapling",
+  );
+  assert.equal(
+    resolveSchedulerRunnableProviderHint({
+      providerHint: "http",
+      crawlMode: "live",
+      configuredProvider: "http",
+      effectiveProvider: "scrapling",
+    }),
+    "scrapling",
+  );
+  assert.equal(
+    resolveSchedulerRunnableProviderHint({
+      providerHint: "scrapling",
+      crawlMode: "live",
+      configuredProvider: "http",
+      effectiveProvider: "scrapling",
+    }),
+    "scrapling",
+  );
+  assert.equal(
+    resolveSchedulerRunnableProviderHint({
+      providerHint: "http",
+      crawlMode: "backfill",
+      configuredProvider: "http",
+      effectiveProvider: "scrapling",
+    }),
+    "http",
+  );
+});
+
+class AboutProbeConnector implements RedditConnector {
+  public readonly sourceCode = "reddit" as const;
+
+  constructor(private readonly aboutStatus: 200 | 403) {}
+
+  public async collectSubredditAbout(
+    args: RedditCollectSubredditAboutArgs,
+    ctx: ConnectorRequestContext,
+  ): Promise<ConnectorPage<RedditAboutPayload>> {
+    return {
+      raw: {
+        endpoint: `/r/${args.subreddit}/about.json`,
+        requestParams: {},
+        httpStatus: this.aboutStatus,
+        responseHeaders: {},
+        payload: {
+          data: {
+            display_name: args.subreddit,
+            name: `t5_${args.subreddit}`,
+            subscribers: 1,
+            accounts_active: 1,
+          },
+        },
+        fetchedAt: ctx.now,
+      },
+    };
+  }
+
+  public async collectSubredditPosts(
+    _args: RedditCollectSubredditPostsArgs,
+    _ctx: ConnectorRequestContext,
+  ): Promise<ConnectorPage<RedditListingPayload<RedditPostData>>> {
+    throw new Error("not implemented");
+  }
+
+  public async collect(
+    args: RedditCollectSubredditPostsArgs,
+    ctx: ConnectorRequestContext,
+  ) {
+    return this.collectSubredditPosts(args, ctx);
+  }
+
+  public async healthCheck(): Promise<boolean> {
+    return this.aboutStatus === 200;
+  }
+}
+
+test("resolveSchedulerLiveProviderExecutionPlan promotes live lane to scrapling when http capability fails", async () => {
+  const plan = await resolveSchedulerLiveProviderExecutionPlan({
+    runMode: "live",
+    providerCapability: {
+      required: true,
+      provider: "http",
+      subreddit: "askreddit",
+    },
+    nowIso: "2026-04-23T03:00:00.000Z",
+    resolveConnectorForProviderHint: (providerHint) =>
+      providerHint === "scrapling"
+        ? new AboutProbeConnector(200)
+        : new AboutProbeConnector(403),
+  });
+
+  assert.equal(plan.blocked, false);
+  assert.equal(plan.configuredProvider, "http");
+  assert.equal(plan.effectiveProvider, "scrapling");
+  assert.equal(plan.fallbackProvider, "scrapling");
+  assert.match(plan.primaryReason ?? "", /unexpected_http_status:403/);
 });

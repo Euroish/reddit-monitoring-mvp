@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: public-launch-hardening
-updated_at: "2026-04-23 10:41:56"
+stage: linux-runtime-recovery
+updated_at: "2026-04-23 15:24:29"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Phase E repo-side development is effectively closed. The next step is no longer more local launch hardening, but one grouped Linux/public-host milestone to prove the real deployment path: `npm run db:migrate:compiled`, `npm run auth:bootstrap-owner:compiled`, `node dist/scripts/linux-provider-smoke.js`, and `PUBLIC_BASE_URL=https://<domain> npm run smoke:public-launch`, followed by log inspection and readiness review on the host."
+next_action: "Redeploy this scheduler slice to the Linux host and verify the live lane now recovers from the proven `http` capability failure by activating `scrapling` fallback instead of spiraling into `provider.circuit_open`. The next evidence must show `scheduler.provider_capability.fallback_activated`, then at least one live target with non-empty `processedCanonicalNames` or `materializedTargets > 0`. If Linux still fails after fallback activation, the next narrow blocker to clear is the remaining historical `collection_job_status_check` drift seen in the same server log."
 tags:
 - codex
 - workspace
@@ -21,7 +21,7 @@ tags:
 - Status: active
 - Product: `Reddit analytics product shell on top of the verified HTTP/Scrapling data plane`
 - Product goal: build a durable browser-facing analytics product with session auth, explainable read models, charted target details, query analysis, and protected Ops visibility
-- Phase: `public launch hardening`
+- Phase: `linux runtime recovery`
 - Authority: `project.md` is the single execution source
 
 ## Product Hardening Focus
@@ -29,25 +29,27 @@ tags:
 - The frontend product shell is complete and verified through real browser/API smoke.
 - The verified P1.7 algorithm/read-model/provider baseline is frozen unless a regression blocks frontend product behavior.
 - Archived algorithm-development state lives at `Projects/Archive/algorithm-development-p1.7-2026-04-20.md`.
-- Current priority is Phase E hardening around production cookie/CORS policy, session-aware rate limiting, and public readiness exposure.
-- Keep the completed frontend routes (`/login`, `/dashboard`, `/queries`, `/target/:targetId`, `/ops`) stable while tightening launch posture.
+- Phase E repo-side launch hardening is effectively saturated; keep it stable rather than extending it.
+- Current priority is Linux runtime recovery around real data acquisition, provider routing, scheduler safety, and materialization truth.
+- Keep the completed frontend routes (`/login`, `/dashboard`, `/queries`, `/target/:targetId`, `/ops`) stable while fixing the backend path that currently leaves the product without fresh data.
 
 ## Current Focus
 
-- Make the full product shell launch-safe: exact origin CORS, production `Secure` session cookies, session-user-aware API throttling, and explicit `/readyz` exposure rules.
-- Keep changes narrow and product-facing: auth/session policy, API hardening, deploy config, browser smoke, and docs that define the launch path.
-- Avoid reopening collector/algorithm backlog unless a regression directly blocks product shell behavior.
+- Restore actual Linux data collection first. The current cloud-server evidence shows the live lane selects `http`, immediately hits Reddit `403`, opens the provider circuit, processes zero targets, and leaves the product unable to perform its core function.
+- Treat launch hardening as frozen trailing work unless a specific launch-control change directly unblocks Linux recovery.
+- Optimize for the smallest runtime recovery slice: one real failing provider path, one concrete fix, one Linux verification loop, then write back.
 
 ## Change Policy
 
-- Allowed: frontend routes/pages/components, typed API client improvements, session/role guard fixes, web build/deploy wiring, targeted backend/API fixes that unblock the UI, tests, docs.
-- Forbidden: unrelated refactors, new source expansion, API-breaking changes, broad collector/algorithm rewrites that are not required by the current frontend slice.
-- Each round should end with runnable code, focused tests, and explicit verify evidence; process/docs updates are secondary unless explicitly requested.
+- Allowed: targeted runtime/provider fixes, scheduler safety changes, collector path fixes, minimal schema/runtime drift repairs, Linux verification helpers, and the narrow tests/docs needed to support those fixes.
+- Forbidden: unrelated frontend polish, extra launch-hardening work that does not unblock Linux recovery, broad architecture rewrites before one live collection lane works again, and speculative refactors not tied to the current Linux blocker.
+- Each round should end with runnable code, focused tests, and explicit Linux-aware verify evidence when the slice touches the failing runtime path.
 
 ## Autonomous Execution Policy
 
 - Default mode is `inspect briefly -> implement -> test -> write back`, not `inspect -> restate plan -> wait`.
-- Codex may cross web/api/deploy/test boundaries inside the active round when that is the shortest correct path to a complete frontend slice.
+- Linux truth overrides repo-side assumptions. When `Projects/test.md` or `Projects/第一次部署linux云服务器测试结果.md` exposes a live blocker, that blocker becomes the mainline until it is fixed or disproven.
+- Codex may cross runtime/api/deploy/test boundaries inside the active round when that is the shortest correct path to restoring Linux data collection.
 - Contract notes are lightweight: settle rules in code/tests when safe, and document only what must remain durable across sessions.
 - Ask for user input only on true blockers: irreversible product/schema choices, destructive actions, missing external dependencies/credentials, or direct conflicts with user edits.
 
@@ -58,6 +60,12 @@ tags:
 - Supporting acquisition baseline: `docs/scrapling-integration-flow.md`.
 - Architecture guardrails: `docs/architecture.md`.
 - Keep this file as execution memory; store deep details in `docs/` and link from activity entries.
+
+## Linux Truth Sources
+
+- `Projects/第一次部署linux云服务器测试结果.md` is the canonical raw evidence for the first cloud-host failure.
+- `Projects/test.md` is the canonical running log for the latest Linux validation attempts.
+- If Linux evidence conflicts with local assumptions, follow Linux evidence and update this file immediately.
 
 ## Task Guide
 
@@ -70,13 +78,34 @@ tags:
 ## Ongoing Development Flow
 
 - Workspace rule: keep `Projects/project.md` as the only active state source; treat any other `Projects` markdown file as archive/reference only.
-- Slice rule: each dev cycle ships one smallest complete vertical slice; use the active design's path (`auth/storage -> service -> API guard -> tests`, `web route -> API client -> UI state -> browser check`, or `build/deploy config -> smoke check`) instead of forcing old algorithm-only sequencing.
+- Slice rule: each dev cycle ships one smallest complete vertical slice. While Linux recovery is active, prefer the path `Linux evidence -> runtime/provider path -> targeted fix -> focused tests -> Linux re-verify` over any local-only hardening sequence.
 - Verify rule: every slice must include at least `npm run typecheck` plus targeted test commands for changed boundaries; run `npm run algo:phase1` when the slice crosses scheduler/materialization/API seams.
-- Evidence rule: store large verify artifacts under `docs/` and reference paths in the activity entry instead of pasting long logs.
+- Evidence rule: store large verify artifacts under `docs/` and reference paths in the activity entry instead of pasting long logs. For live runtime blockers, the primary evidence should come from Linux output in `Projects/test.md` or a linked detail doc, not only local tests.
 - Writeback rule: after each slice, update frontmatter `updated_at` and `next_action`, then append one `Scope/Why now/Verify/Next` entry at the top of the activity log.
-- Priority rule: continue periodic `R5` stability verification, but keep coding priority on post-`P1.7` product shell backlog from `docs/product-shell-final-design-2026-04-20.md`.
+- Priority rule: restoring data collection on the cloud host outranks additional launch polish, frontend changes, and non-blocking architecture cleanup. Only resume broader product-shell or architecture work after the product can collect and materialize fresh data on Linux again.
+
+## Flow Reinforcement
+
+- Do not treat repo-side completion as stage completion when Linux still cannot perform the product's core function.
+- Do not continue adding local launch-hardening tests once Linux evidence shows the main blocker is collector/runtime failure.
+- When a live blocker is proven, the next slice must name the exact failing path (`provider`, `target`, `endpoint`, `error class`) and aim to fix only that path first.
+- Architecture optimization is allowed only after at least one Linux live collection lane works again, unless a structural change is the smallest fix for the proven blocker.
 
 ## Activity Log
+
+### 2026-04-23 15:24:29
+
+- Scope: Implemented the narrow Linux runtime recovery slice in `workers/reddit-phase1-scheduler.ts` so live scheduling no longer treats a failed `http` capability probe as a dead end when Scrapling is available. The scheduler now probes the configured live provider first, automatically probes `scrapling` when the configured provider is `http` and fails, switches the current live cycle to an effective `scrapling` provider when that fallback probe passes, and rewrites live runnable-job connector selection so queued/retry work does not keep hammering the broken `http` lane during the same cycle. Added focused regression coverage in `tests/integration/reddit-phase1-scheduler-runnable-jobs.test.ts` for both the fallback execution plan and the live runnable-job provider rewrite.
+- Why now: The canonical Linux evidence in `Projects/第一次部署linux云服务器测试结果.md` shows the active blocker is not generic scheduler health but a specific live path: default `http` provider gets Reddit `403`, the circuit opens, and the cycle finishes with `processedCanonicalNames=[]` and `materializedTargets=0`. The smallest repo-side fix that can restore real collection is to recover that live lane onto Scrapling instead of continuing to burn the failed provider.
+- Verify: `npx tsx --test tests/integration/reddit-phase1-scheduler-runnable-jobs.test.ts tests/integration/reddit-phase1-provider-routing.test.ts tests/unit/reddit-provider-capability.test.ts`; `npm run typecheck`; `npm run validate:scope -- --json workers/reddit-phase1-scheduler.ts tests/integration/reddit-phase1-scheduler-runnable-jobs.test.ts`. All passed. Scope classifier result: `host verification deferred`.
+- Next: Redeploy to Linux and verify the live host now logs `scheduler.provider_capability.fallback_activated` before collection, then confirm at least one target actually collects/materializes through Scrapling. If fallback activates but jobs still fail, clear the remaining `collection_job_status_check` historical drift on the host before widening scope.
+
+### 2026-04-23 11:05:44
+
+- Scope: Rewrote the active execution flow in `project.md` to stop the recent drift toward low-value local launch hardening and re-anchor the project on Linux runtime recovery. Updated the stage to `linux-runtime-recovery`, changed `Current Focus` and `Change Policy` to prioritize restoring data acquisition on the cloud host, added `Linux Truth Sources` plus `Flow Reinforcement`, and made the next action explicitly target the proven live `http` 403 -> `provider.circuit_open` failure path from `Projects/第一次部署linux云服务器测试结果.md`. Also recorded that repo-side launch work is now trailing/frozen unless it directly unblocks Linux recovery.
+- Why now: The latest Linux evidence shows the real product blocker is no longer public-launch polish but the fact that the deployed system cannot collect fresh data. Keeping the old `public-launch-hardening` mainline active would continue to bias execution toward the wrong work.
+- Verify: Re-read `Projects/project.md`, `Projects/test.md`, and `Projects/第一次部署linux云服务器测试结果.md`. Verified that Linux now proves: latest code is deployed, migration `019_collection_job_status_constraint_cleanup.sql` applied, Linux provider smoke passes, but the earlier raw server evidence still shows the true unresolved blocker path is live `http` collection failing with Reddit `403` followed by `provider.circuit_open`, leaving `processedCanonicalNames=[]` and `materializedTargets=0`.
+- Next: Execute the next smallest runtime-recovery slice only: reproduce the failing live provider path from current Linux evidence, repair one minimal collector/runtime lane so at least one Linux live target can collect again, and re-verify that on the host before doing more launch hardening or broad architecture work.
 
 ### 2026-04-23 10:41:56
 
