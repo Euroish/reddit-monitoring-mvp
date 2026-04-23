@@ -177,6 +177,134 @@ test("api server readyz uses keyword query sessions as activeSessions when avail
   }
 });
 
+test("api server readyz stays not_ready when provider capability proof is required but no live provider evidence exists", async () => {
+  const fixedNow = "2026-04-10T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+  const targetId = stableUuidFromString("reddit:target:r/provider-capability-unproven");
+  const previousRequired = process.env.REDDIT_PROVIDER_CAPABILITY_REQUIRED;
+  const previousProvider = process.env.REDDIT_LIVE_PROVIDER;
+
+  process.env.REDDIT_PROVIDER_CAPABILITY_REQUIRED = "true";
+  process.env.REDDIT_LIVE_PROVIDER = "http";
+
+  await repos.monitorTargetRepository.upsert({
+    id: targetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: "r/provider-capability-unproven",
+    status: "active",
+    config: {},
+    createdAt: fixedNow,
+    updatedAt: fixedNow,
+  });
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
+
+    assert.equal(readyResult.status, 503);
+    assert.equal(readyResult.body.ok, false);
+    assert.equal(readyResult.body.status, "not_ready");
+    assert.deepEqual(readyResult.body.degradedReasons, [
+      "provider_capability_unproven:http",
+    ]);
+  } finally {
+    if (previousRequired === undefined) {
+      delete process.env.REDDIT_PROVIDER_CAPABILITY_REQUIRED;
+    } else {
+      process.env.REDDIT_PROVIDER_CAPABILITY_REQUIRED = previousRequired;
+    }
+    if (previousProvider === undefined) {
+      delete process.env.REDDIT_LIVE_PROVIDER;
+    } else {
+      process.env.REDDIT_LIVE_PROVIDER = previousProvider;
+    }
+    await stopServer(server);
+  }
+});
+
+test("api server readyz clears provider capability gate once live provider evidence exists", async () => {
+  const fixedNow = "2026-04-10T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+  const targetId = stableUuidFromString("reddit:target:r/provider-capability-proven");
+  const previousRequired = process.env.REDDIT_PROVIDER_CAPABILITY_REQUIRED;
+  const previousProvider = process.env.REDDIT_LIVE_PROVIDER;
+
+  process.env.REDDIT_PROVIDER_CAPABILITY_REQUIRED = "true";
+  process.env.REDDIT_LIVE_PROVIDER = "http";
+
+  await repos.monitorTargetRepository.upsert({
+    id: targetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: "r/provider-capability-proven",
+    status: "active",
+    config: {},
+    createdAt: fixedNow,
+    updatedAt: fixedNow,
+  });
+  await repos.providerHealthWindowRepository.record({
+    provider: "http",
+    targetId,
+    mode: "live",
+    windowStart: "2026-04-10T11:55:00.000Z",
+    requestCountDelta: 1,
+    successCountDelta: 1,
+    emptyResponseCountDelta: 0,
+    fallbackCountDelta: 0,
+    candidateCountDelta: 1,
+    acceptedCountDelta: 1,
+    filteredOutCountDelta: 0,
+    duplicatePostCountDelta: 0,
+    ingestLagSecondsSumDelta: 0,
+    ingestLagSampleCountDelta: 0,
+    providerDiffCountDelta: 0,
+    providerDiffSampleCountDelta: 0,
+    errorCountDelta: 0,
+    rateLimitCountDelta: 0,
+    timeoutCountDelta: 0,
+    circuitOpenCountDelta: 0,
+    updatedAt: fixedNow,
+  });
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const readyResult = await getJson<ApiReadinessResponse>(`${baseUrl}/readyz`);
+
+    assert.equal(readyResult.status, 200);
+    assert.equal(readyResult.body.ok, true);
+    assert.equal(readyResult.body.status, "ready");
+    assert.equal(
+      readyResult.body.degradedReasons.includes("provider_capability_unproven:http"),
+      false,
+    );
+  } finally {
+    if (previousRequired === undefined) {
+      delete process.env.REDDIT_PROVIDER_CAPABILITY_REQUIRED;
+    } else {
+      process.env.REDDIT_PROVIDER_CAPABILITY_REQUIRED = previousRequired;
+    }
+    if (previousProvider === undefined) {
+      delete process.env.REDDIT_LIVE_PROVIDER;
+    } else {
+      process.env.REDDIT_LIVE_PROVIDER = previousProvider;
+    }
+    await stopServer(server);
+  }
+});
+
 test("api server readyz reports provider degradation from health window evidence", async () => {
   const fixedNow = "2026-04-10T12:00:00.000Z";
   const repos = createApiTestRepositories();

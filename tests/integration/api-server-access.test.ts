@@ -3,11 +3,13 @@ import test from "node:test";
 import { createApiServer } from "../../apps/api/src/create-api-server";
 import type {
   ApiErrorResponse,
+  CreateKeywordQueryResponse,
   ApiHealthResponse,
   CreateSubredditTargetResponse,
   MarketTrendResponse,
 } from "../../packages/contracts/src/http";
 import { RedditMockConnector } from "../../src/connectors/reddit/reddit-mock.connector";
+import { stableUuidFromString } from "../../src/shared/ids/stable-id";
 import { PasswordHashingService } from "../../src/application/services/password-hashing.service";
 import {
   createApiTestRepositories,
@@ -173,6 +175,76 @@ test("api server rate limits session traffic by user instead of shared IP", asyn
     });
     assert.equal(viewerBFirst.status, 200);
     assert.equal(viewerBFirst.body.ok, true);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("api server product routes echo credentialed CORS headers for session traffic on the allowed origin", async () => {
+  const repos = createApiTestRepositories();
+  const allowedOrigin = "https://frontend.example.com";
+  await seedSessionUser({
+    repos,
+    id: "00000000-0000-4000-8000-000000000201",
+    email: "viewer-cors@example.com",
+    password: "viewer-cors-password",
+    role: "viewer",
+  });
+  await repos.postSearchDocumentRepository.upsertMany([
+    {
+      contentId: stableUuidFromString("reddit:content:t3_product_cors_a"),
+      targetId: stableUuidFromString("reddit:target:r/datascience"),
+      canonicalSubreddit: "r/datascience",
+      title: "Agent platform launch checklist",
+      bodySnippet: "Cross-origin cookie and product route verification notes.",
+      permalink: "/r/datascience/comments/product_cors_a",
+      createdAtSource: "2026-04-22T08:00:00.000Z",
+    },
+  ]);
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    cors: {
+      allowedOrigins: [allowedOrigin],
+    },
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const viewerLogin = await login(baseUrl, "viewer-cors@example.com", "viewer-cors-password");
+    assert.equal(viewerLogin.status, 200);
+
+    const marketResponse = await fetch(`${baseUrl}/v1/trends/market`, {
+      headers: {
+        cookie: viewerLogin.cookie ?? "",
+        origin: allowedOrigin,
+      },
+    });
+    assert.equal(marketResponse.status, 200);
+    assert.equal(marketResponse.headers.get("access-control-allow-origin"), allowedOrigin);
+    assert.equal(marketResponse.headers.get("access-control-allow-credentials"), "true");
+    const marketBody = (await marketResponse.json()) as MarketTrendResponse;
+    assert.equal(marketBody.ok, true);
+
+    const keywordQueryResponse = await fetch(`${baseUrl}/v1/keyword-queries`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: viewerLogin.cookie ?? "",
+        origin: allowedOrigin,
+      },
+      body: JSON.stringify({
+        query: "agent platform",
+        limit: 5,
+      }),
+    });
+    assert.equal(keywordQueryResponse.status, 200);
+    assert.equal(keywordQueryResponse.headers.get("access-control-allow-origin"), allowedOrigin);
+    assert.equal(keywordQueryResponse.headers.get("access-control-allow-credentials"), "true");
+    const keywordQueryBody = (await keywordQueryResponse.json()) as CreateKeywordQueryResponse;
+    assert.equal(keywordQueryBody.ok, true);
+    assert.equal(keywordQueryBody.result.queryText, "agent platform");
   } finally {
     await stopServer(server);
   }

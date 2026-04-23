@@ -2,6 +2,7 @@ import {
   createPostgresPhase1Runtime,
 } from "../../../src/runtime/reddit-phase1-runtime";
 import { parseBooleanFlag, parsePort, parsePositiveInt } from "../../../src/runtime/runtime-parsing";
+import { assertProductionLaunchConfig } from "./public-launch-config";
 import { createApiServer } from "./create-api-server";
 
 const port = parsePort(process.env.PORT, 3000);
@@ -25,6 +26,11 @@ const rateLimitDurationSeconds = parsePositiveInt(
   process.env.API_RATE_LIMIT_DURATION_SECONDS,
   60,
 );
+assertProductionLaunchConfig({
+  nodeEnv: process.env.NODE_ENV,
+  corsAllowOrigins: corsAllowOrigins,
+  sessionCookieSecure,
+});
 const runtime = createPostgresPhase1Runtime();
 
 const server = createApiServer({

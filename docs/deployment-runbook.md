@@ -23,7 +23,7 @@ npm run lint:web
 npm run build
 npm run smoke:web
 npm run smoke:compiled
-npm run smoke:linux-provider
+node dist/scripts/linux-provider-smoke.js --config-only
 ```
 
 `npm run smoke:web` starts an in-memory API seed plus Vite locally and verifies
@@ -33,6 +33,35 @@ mobile responsive pass across the product-shell routes. It is a pre-deploy
 product-shell check, not a production service command.
 
 The production runtime must use `node dist/...` entrypoints. Do not run production services through `tsx`.
+
+## Staged Validation Policy
+
+Use a staged validation loop to avoid low-value Linux retesting after every small slice:
+
+1. `repo-side complete`
+   - default for UI, tests, read models, and other repo-verifiable changes
+   - run `npm run verify:repo`
+2. `host verification deferred`
+   - default for deploy/runtime slices between milestones
+   - run `npm run verify:launch:local`
+   - defer Linux/public-host proof until the next deployment batch
+3. `host verification required now`
+   - use at deployment milestones for changes that touch deploy assets, migrations, public readiness/auth/cookie/CORS behavior, or provider/Linux runtime behavior
+
+Use the classifier to keep this objective:
+
+```bash
+npm run validate:scope
+npm run validate:scope -- --milestone
+```
+
+The classifier inspects the changed files and reports one of:
+
+- `repo-side complete`
+- `host verification deferred`
+- `host verification required now`
+
+This keeps Linux validation aligned with real deployment boundaries instead of every small repo change.
 
 ## Public Launch Smoke
 
@@ -60,7 +89,9 @@ What the smoke verifies:
 - public `/readyz` is not exposed (`401`/`403`/`404` only)
 - exact allowed origin preflight succeeds when `PUBLIC_ALLOWED_ORIGIN` is set
 - invalid origin is blocked with `cors_origin_not_allowed` when origin checks are enabled
-- login sets an `HttpOnly` + `Secure` session cookie and `/api/auth/me` resolves the session when launch credentials are provided
+- login sets an `HttpOnly` + `Secure` + `SameSite=Lax` session cookie and `/api/auth/me` resolves the session when launch credentials are provided
+- when `PUBLIC_ALLOWED_ORIGIN` is set, login, `/api/auth/me`, and logout all echo credentialed CORS headers for that exact origin
+- logout clears the session cookie with `Max-Age=0` so launch smoke proves both session establishment and revocation
 
 ## Server Files
 
@@ -89,6 +120,7 @@ Production auth/origin policy must stay explicit:
 - `API_CORS_ALLOW_ORIGINS` should list the exact web origin(s); do not rely on `*`.
 - `API_SESSION_COOKIE_SECURE=true` should remain enabled on the public domain.
 - Same-origin deployments can leave CORS empty and rely on the Nginx `/api/` proxy path.
+- `REDDIT_PROVIDER_CAPABILITY_REQUIRED=true` should remain enabled in production so `/readyz` stays `not_ready` until the live provider has real proof instead of only config-level green checks.
 
 Launch logging policy:
 
@@ -106,6 +138,17 @@ npm ci --omit=dev
 npm run db:migrate:compiled
 ```
 
+Bootstrap the first owner exactly once on a fresh production database before public login:
+
+```bash
+BOOTSTRAP_OWNER_EMAIL=owner@example.com \
+BOOTSTRAP_OWNER_PASSWORD=change-me \
+BOOTSTRAP_OWNER_DISPLAY_NAME="Owner" \
+npm run auth:bootstrap-owner:compiled
+```
+
+The bootstrap command is intentionally narrow: it fails if any `app_user` row already exists.
+
 ## Linux Provider Smoke
 
 On the Linux host, verify provider configuration before starting schedulers:
@@ -114,7 +157,18 @@ On the Linux host, verify provider configuration before starting schedulers:
 REDDIT_HTTP_TRANSPORT=fetch REDDIT_LIVE_PROVIDER=http node dist/scripts/linux-provider-smoke.js
 ```
 
+This is now a real provider capability probe, not only a config lint. It verifies
+transport policy and performs a live `about.json` probe against the configured
+provider before the scheduler is allowed to start its live cycle.
+
 If Scrapling is enabled later, set `REDDIT_LIVE_PROVIDER=scrapling` and rerun the same command on the Linux host. The smoke script intentionally rejects non-`fetch` HTTP transport for production.
+
+Scheduler safety defaults in `deploy/env/scheduler.env.example` are conservative:
+
+- `PHASE1_SCHEDULER_RUN_ON_START=false`
+- `REDDIT_PROVIDER_CAPABILITY_REQUIRED=true`
+
+Keep them that way on first deployment. Only enable boot-time scheduling after the provider probe succeeds on the Linux host.
 
 ## Start Or Restart
 
@@ -139,6 +193,27 @@ PUBLIC_BASE_URL=https://example.com npm run smoke:public-launch
 restricts the public `/readyz` path to localhost; inspect it locally or through
 the authenticated web Ops page instead of expecting `http://example.com/readyz`
 to pass from an external client.
+
+## Backup And Restore
+
+Before any deployment milestone that changes runtime config, schema, or release assets, capture both a database backup and the current release pointer:
+
+```bash
+sudo mkdir -p /opt/reddit-monitoring/backups
+pg_dump --format=custom --file /opt/reddit-monitoring/backups/reddit-monitoring-$(date +%F-%H%M%S).dump "$DATABASE_URL"
+readlink -f /opt/reddit-monitoring > /opt/reddit-monitoring/backups/current-release.txt
+```
+
+Restore procedure for a full production rollback rehearsal or recovery:
+
+```bash
+sudo systemctl stop reddit-phase1-scheduler reddit-keyword-refresh reddit-api
+dropdb --if-exists reddit_monitoring_restore
+createdb reddit_monitoring_restore
+pg_restore --clean --if-exists --no-owner --dbname reddit_monitoring_restore /opt/reddit-monitoring/backups/<backup>.dump
+```
+
+Use a separate restore database first when validating a backup. Only restore over the production database after you have confirmed the dump is valid and the recovery plan has been approved for the incident.
 
 ## Rollback
 

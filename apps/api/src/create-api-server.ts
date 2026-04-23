@@ -98,6 +98,7 @@ import {
 } from "./api-validation";
 import { buildReadinessState } from "./readyz-observability";
 import { resolveRedditProviderRoutingPolicyContextFromEnv } from "../../../src/runtime/reddit-provider-routing-policy";
+import { parseBooleanFlag } from "../../../src/runtime/runtime-parsing";
 import {
   buildClearSessionCookie,
   buildSessionCookie,
@@ -1291,12 +1292,25 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           }
         }
         const nowIso = now();
+        const routingPolicyContext = resolveRedditProviderRoutingPolicyContextFromEnv(
+          process.env,
+        );
+        const providerCapabilityRequiredConfigured =
+          typeof process.env.REDDIT_PROVIDER_CAPABILITY_REQUIRED === "string" &&
+          process.env.REDDIT_PROVIDER_CAPABILITY_REQUIRED.trim().length > 0;
         const readiness = await buildReadinessState({
           repositories: repos,
           nowIso,
-          routingPolicyContext: resolveRedditProviderRoutingPolicyContextFromEnv(
-            process.env,
-          ),
+          routingPolicyContext,
+          providerCapabilityRequirement: providerCapabilityRequiredConfigured
+            ? {
+                required: parseBooleanFlag(
+                  process.env.REDDIT_PROVIDER_CAPABILITY_REQUIRED,
+                  false,
+                ),
+                provider: routingPolicyContext.defaultLiveProvider,
+              }
+            : undefined,
         });
         const payload: ApiReadinessResponse = {
           ok: readiness.isReady,

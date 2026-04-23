@@ -1,9 +1,16 @@
+import { createRedditConnectorFromEnv } from "../src/runtime/reddit-phase1-runtime";
+import {
+  probeRedditProviderCapability,
+  resolveRedditProviderCapabilityProbeConfigFromEnv,
+} from "../src/runtime/reddit-provider-capability";
+
 interface SmokeResult {
   event: string;
   platform: NodeJS.Platform;
   configOnly: boolean;
   transport: string;
   provider: string;
+  subreddit?: string;
   checks: string[];
 }
 
@@ -27,9 +34,10 @@ function assertTransport(transport: string): void {
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const transport = normalize(process.env.REDDIT_HTTP_TRANSPORT, "fetch");
-  const provider = normalize(process.env.REDDIT_LIVE_PROVIDER, "http");
+  const providerCapability = resolveRedditProviderCapabilityProbeConfigFromEnv(process.env);
+  const provider = providerCapability.provider;
   assertTransport(transport);
   assertAllowedProvider(provider);
 
@@ -45,16 +53,36 @@ function main(): void {
     throw new Error("Linux provider smoke without --config-only must run on Linux");
   }
 
+  if (!configOnly) {
+    const probe = await probeRedditProviderCapability({
+      connector: createRedditConnectorFromEnv({
+        env: process.env,
+        mode: "live",
+        crawlMode: "live",
+      }),
+      provider,
+      subreddit: providerCapability.subreddit,
+      nowIso: new Date().toISOString(),
+    });
+    if (!probe.ok) {
+      throw new Error(
+        `provider capability probe failed for ${provider} on r/${providerCapability.subreddit}: ${probe.reason ?? "unknown error"}`,
+      );
+    }
+    checks.push("provider_capability.runtime_ok");
+  }
+
   const result: SmokeResult = {
     event: "linux_provider_smoke.passed",
     platform: process.platform,
     configOnly,
     transport,
     provider,
+    subreddit: configOnly ? undefined : providerCapability.subreddit,
     checks,
   };
   // eslint-disable-next-line no-console
   console.log(JSON.stringify(result));
 }
 
-main();
+void main();

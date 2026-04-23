@@ -10,6 +10,15 @@ test("production scripts use compiled node entrypoints", async () => {
   assert.equal(packageJson.scripts.build, "npm run build:api && npm run build:web");
   assert.equal(packageJson.scripts["build:api"], "tsc --project tsconfig.build.json");
   assert.equal(packageJson.scripts["build:web"], "npm --prefix apps/web run build");
+  assert.equal(
+    packageJson.scripts["verify:repo"],
+    "npm run typecheck && npm run build && npm run smoke:compiled",
+  );
+  assert.equal(
+    packageJson.scripts["verify:launch:local"],
+    "npm run verify:repo && npx tsx --test tests/integration/api-server-readyz.test.ts tests/integration/smoke-public-launch.test.ts tests/unit/public-launch-config.test.ts tests/unit/production-build-config.test.ts && npm run smoke:linux-provider",
+  );
+  assert.equal(packageJson.scripts["validate:scope"], "tsx scripts/classify-validation-scope.ts");
   assert.equal(packageJson.scripts["lint:web"], "npm --prefix apps/web run lint");
   assert.equal(packageJson.scripts["start:api"], "node dist/apps/api/src/server.js");
   assert.equal(
@@ -21,8 +30,13 @@ test("production scripts use compiled node entrypoints", async () => {
     "node dist/workers/keyword-query-live-refresh-scheduler.js",
   );
   assert.equal(packageJson.scripts["db:migrate:compiled"], "node dist/src/storage/schema/run-migrations.js");
+  assert.equal(
+    packageJson.scripts["auth:bootstrap-owner:compiled"],
+    "node dist/scripts/bootstrap-first-owner.js",
+  );
   assert.equal(packageJson.scripts["smoke:compiled"], "node dist/scripts/smoke-compiled-build.js");
   assert.equal(packageJson.scripts["smoke:public-launch"], "node dist/scripts/smoke-public-launch.js");
+  assert.equal(packageJson.scripts["smoke:linux-provider"], "node dist/scripts/linux-provider-smoke.js --config-only");
   assert.equal(packageJson.scripts["smoke:web"], "tsx scripts/smoke-web-product-shell.ts");
 });
 

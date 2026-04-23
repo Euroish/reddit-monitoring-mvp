@@ -8,6 +8,7 @@ const requiredFiles = [
   "dist/workers/reddit-phase1-scheduler.js",
   "dist/workers/keyword-query-live-refresh-scheduler.js",
   "dist/src/storage/schema/run-migrations.js",
+  "dist/scripts/bootstrap-first-owner.js",
   "dist/scripts/linux-provider-smoke.js",
   "dist/scripts/smoke-public-launch.js",
 ];
@@ -18,6 +19,7 @@ const requiredScripts = [
   "start:worker:phase1:scheduler",
   "start:worker:keyword-query-live-refresh",
   "db:migrate:compiled",
+  "auth:bootstrap-owner:compiled",
   "smoke:linux-provider",
   "smoke:public-launch",
 ];

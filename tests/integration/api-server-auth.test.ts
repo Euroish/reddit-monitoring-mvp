@@ -158,6 +158,80 @@ test("auth login sets Secure session cookie when production cookie hardening is 
   }
 });
 
+test("auth session routes echo credentialed CORS headers for the allowed browser origin", async () => {
+  const fixedNow = "2026-04-20T02:00:00.000Z";
+  const repos = createApiTestRepositories();
+  await seedAppUser({
+    repos,
+    email: "cors@example.com",
+    password: "cors-password",
+    role: "owner",
+    nowIso: fixedNow,
+  });
+
+  const allowedOrigin = "https://frontend.example.com";
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+    auth: {
+      bearerToken: "test-token",
+      sessionCookieSecure: true,
+    },
+    cors: {
+      allowedOrigins: [allowedOrigin],
+    },
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const loginResponse = await fetch(`${baseUrl}/auth/login`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: allowedOrigin,
+      },
+      body: JSON.stringify({
+        email: "cors@example.com",
+        password: "cors-password",
+      }),
+    });
+    assert.equal(loginResponse.status, 200);
+    assert.equal(loginResponse.headers.get("access-control-allow-origin"), allowedOrigin);
+    assert.equal(loginResponse.headers.get("access-control-allow-credentials"), "true");
+    const cookie = loginResponse.headers.get("set-cookie") ?? "";
+    assert.match(cookie, /rm_session=/);
+    assert.match(cookie, /Secure/);
+
+    const meResponse = await fetch(`${baseUrl}/auth/me`, {
+      headers: {
+        cookie,
+        origin: allowedOrigin,
+      },
+    });
+    assert.equal(meResponse.status, 200);
+    assert.equal(meResponse.headers.get("access-control-allow-origin"), allowedOrigin);
+    assert.equal(meResponse.headers.get("access-control-allow-credentials"), "true");
+
+    const logoutResponse = await fetch(`${baseUrl}/auth/logout`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie,
+        origin: allowedOrigin,
+      },
+      body: JSON.stringify({}),
+    });
+    assert.equal(logoutResponse.status, 200);
+    assert.equal(logoutResponse.headers.get("access-control-allow-origin"), allowedOrigin);
+    assert.equal(logoutResponse.headers.get("access-control-allow-credentials"), "true");
+    assert.match(logoutResponse.headers.get("set-cookie") ?? "", /Max-Age=0/);
+    assert.match(logoutResponse.headers.get("set-cookie") ?? "", /Secure/);
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("v1 routes accept session cookies while preserving bearer compatibility", async () => {
   const fixedNow = "2026-04-20T02:00:00.000Z";
   const repos = createApiTestRepositories();

@@ -43,6 +43,11 @@ export interface ReadinessState {
   degradedReasons: string[];
 }
 
+export interface ProviderCapabilityReadinessRequirement {
+  required: boolean;
+  provider: string;
+}
+
 function toQueueBucket(args: {
   queuedDue: number;
   queuedDelayed: number;
@@ -220,6 +225,7 @@ export async function buildReadinessState(args: {
   repositories: ReadinessRepositoryBundle;
   nowIso: string;
   routingPolicyContext?: RedditProviderRoutingPolicyContext;
+  providerCapabilityRequirement?: ProviderCapabilityReadinessRequirement;
 }): Promise<ReadinessState> {
   const activeSessionUpdatedSinceIso = new Date(
     new Date(args.nowIso).getTime() -
@@ -728,8 +734,32 @@ export async function buildReadinessState(args: {
       routingPolicyContext.defaultLiveProvider;
   }
 
+  let providerCapabilityReady = true;
+  const providerCapabilityRequirement = args.providerCapabilityRequirement;
+  if (
+    providerCapabilityRequirement?.required &&
+    activeSubredditTargets.length > 0
+  ) {
+    const requiredProviders =
+      observability.routingPolicy.byProvider.length > 0
+        ? observability.routingPolicy.byProvider.map((item) => item.provider)
+        : [providerCapabilityRequirement.provider];
+    const unprovenProviders = requiredProviders.filter(
+      (provider) => !recentLiveProviders.has(provider),
+    );
+    if (unprovenProviders.length > 0) {
+      providerCapabilityReady = false;
+      for (const provider of unprovenProviders) {
+        degradedReasons.push(`provider_capability_unproven:${provider}`);
+      }
+    }
+  }
+
   const uniqueDegradedReasons = Array.from(new Set(degradedReasons));
-  const isReady = storageCheck === "ok" && queueCheck !== "error";
+  const isReady =
+    storageCheck === "ok" &&
+    queueCheck !== "error" &&
+    providerCapabilityReady;
   return {
     isReady,
     status: isReady

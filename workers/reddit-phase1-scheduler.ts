@@ -14,6 +14,10 @@ import {
   upsertActiveSubredditTargets,
 } from "../src/runtime/reddit-phase1-runtime";
 import { createRedditFetchExecutionEngine } from "../src/runtime/reddit-fetch-execution-engine";
+import {
+  probeRedditProviderCapability,
+  resolveRedditProviderCapabilityProbeConfigFromEnv,
+} from "../src/runtime/reddit-provider-capability";
 import { resolveRedditProviderRoutingPolicyContextFromEnv } from "../src/runtime/reddit-provider-routing-policy";
 import {
   parseBooleanFlag,
@@ -339,6 +343,7 @@ async function main(): Promise<void> {
   const subreddits = parseSubredditListFromEnv(process.env);
   const runtime = createPostgresPhase1Runtime();
   const repos = runtime.repositories;
+  const providerCapability = resolveRedditProviderCapabilityProbeConfigFromEnv(process.env);
   const connectorCache = new Map<string, RedditConnector>();
   const resolveConnectorForProviderHint = (providerHint: string | undefined): RedditConnector => {
     const providerOverride = resolveProviderOverride(providerHint);
@@ -371,6 +376,29 @@ async function main(): Promise<void> {
     inFlight = true;
     const nowIso = new Date().toISOString();
     try {
+      if (runMode === "live" && providerCapability.required) {
+        const capabilityProbe = await probeRedditProviderCapability({
+          connector: resolveConnectorForProviderHint(undefined),
+          provider: providerCapability.provider,
+          subreddit: providerCapability.subreddit,
+          nowIso,
+        });
+        if (!capabilityProbe.ok) {
+          // eslint-disable-next-line no-console
+          console.error(
+            JSON.stringify({
+              event: "scheduler.provider_capability.blocked",
+              nowIso,
+              mode: runMode,
+              provider: providerCapability.provider,
+              subreddit: providerCapability.subreddit,
+              reason: capabilityProbe.reason ?? "provider capability probe failed",
+            }),
+          );
+          return;
+        }
+      }
+
       await upsertActiveSubredditTargets({
         monitorTargetRepository: repos.monitorTargetRepository,
         subreddits,
@@ -493,6 +521,11 @@ async function main(): Promise<void> {
       mode: runMode,
       intervalMs,
       runOnBoot,
+      providerCapabilityRequired: runMode === "live" && providerCapability.required,
+      providerCapabilitySubreddit:
+        runMode === "live" && providerCapability.required
+          ? `r/${providerCapability.subreddit}`
+          : undefined,
       seedSubreddits: subreddits.map((item) => `r/${item}`),
     }),
   );
