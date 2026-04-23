@@ -104,6 +104,7 @@ export function createRedditConnectorFromEnv(args: {
   crawlMode?: Phase1CrawlMode;
   providerOverride?: string;
   scraplingProfileOverride?: RedditScraplingProfile;
+  disableCircuitBreakerFallbackOnError?: boolean;
 }): ReturnType<typeof createRedditConnector> {
   const crawlMode = args.crawlMode ?? "live";
   const configuredProvider =
@@ -127,6 +128,9 @@ export function createRedditConnectorFromEnv(args: {
     scraplingProfile !== "http" &&
     !allowScraplingCircuitFallback
   ) {
+    circuitBreaker.routeToFallbackOnError = false;
+  }
+  if (args.disableCircuitBreakerFallbackOnError) {
     circuitBreaker.routeToFallbackOnError = false;
   }
   return createRedditConnector({
@@ -154,6 +158,19 @@ export function createRedditConnectorFromEnv(args: {
     ),
     apifyRunPollAttempts: parsePositiveInt(args.env.APIFY_RUN_POLL_ATTEMPTS, 3),
     circuitBreaker,
+  });
+}
+
+export function createRedditCapabilityProbeConnectorFromEnv(args: {
+  env: NodeJS.ProcessEnv;
+  mode: Phase1RunMode;
+  crawlMode?: Phase1CrawlMode;
+  providerOverride?: string;
+  scraplingProfileOverride?: RedditScraplingProfile;
+}): ReturnType<typeof createRedditConnector> {
+  return createRedditConnectorFromEnv({
+    ...args,
+    disableCircuitBreakerFallbackOnError: true,
   });
 }
 

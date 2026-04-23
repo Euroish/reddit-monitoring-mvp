@@ -1,3 +1,5 @@
+BEGIN;
+
 CREATE TABLE app_user (
   id UUID PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
@@ -48,3 +50,5 @@ CREATE TABLE app_audit_log (
 CREATE INDEX app_session_user_id_idx ON app_session(user_id);
 CREATE INDEX app_session_expires_at_idx ON app_session(expires_at);
 CREATE INDEX app_audit_log_created_at_idx ON app_audit_log(created_at);
+
+COMMIT;

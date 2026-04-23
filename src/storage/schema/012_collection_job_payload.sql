@@ -1,2 +1,6 @@
+BEGIN;
+
 ALTER TABLE collection_job
   ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+COMMIT;

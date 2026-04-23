@@ -1,4 +1,4 @@
-import { createRedditConnectorFromEnv } from "../src/runtime/reddit-phase1-runtime";
+import { createRedditCapabilityProbeConnectorFromEnv } from "../src/runtime/reddit-phase1-runtime";
 import {
   probeRedditProviderCapability,
   resolveRedditProviderCapabilityProbeConfigFromEnv,
@@ -55,7 +55,7 @@ async function main(): Promise<void> {
 
   if (!configOnly) {
     const probe = await probeRedditProviderCapability({
-      connector: createRedditConnectorFromEnv({
+      connector: createRedditCapabilityProbeConnectorFromEnv({
         env: process.env,
         mode: "live",
         crawlMode: "live",

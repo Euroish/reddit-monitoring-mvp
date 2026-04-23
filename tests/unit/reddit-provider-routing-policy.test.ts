@@ -19,6 +19,7 @@ const policyContext: RedditProviderRoutingPolicyContext = {
   defaultScraplingProfile: "http",
   scraplingPrimaryCanonicalNames: ["r/datascience"],
   providerHealthLookbackMinutes: 30,
+  suppressHttpFallback: false,
 };
 
 test("provider routing promotes configured targets to scrapling by default", async () => {
@@ -136,6 +137,65 @@ test("provider routing falls back promoted scrapling targets to http on transpor
   assert.equal(route.scraplingProfile, null);
   assert.equal(route.routingClass, "scrapling_http_fallback");
   assert.equal(route.reasons.includes("scrapling_timeout_elevated"), true);
+});
+
+test("provider routing suppresses http fallback on transport degradation when provider capability already failed", async () => {
+  const providerHealthWindowRepository = new InMemoryProviderHealthWindowRepository();
+  const crawlCursorRepository = new InMemoryCrawlCursorRepository();
+  await providerHealthWindowRepository.record({
+    provider: "scrapling",
+    targetId,
+    mode: "live",
+    windowStart: "2026-04-18T11:55:00.000Z",
+    requestCountDelta: 10,
+    successCountDelta: 8,
+    emptyResponseCountDelta: 0,
+    fallbackCountDelta: 0,
+    candidateCountDelta: 24,
+    acceptedCountDelta: 24,
+    filteredOutCountDelta: 0,
+    duplicatePostCountDelta: 0,
+    ingestLagSecondsSumDelta: 0,
+    ingestLagSampleCountDelta: 0,
+    providerDiffCountDelta: 0,
+    providerDiffSampleCountDelta: 0,
+    errorCountDelta: 2,
+    rateLimitCountDelta: 0,
+    timeoutCountDelta: 2,
+    circuitOpenCountDelta: 0,
+    updatedAt: nowIso,
+  });
+  await crawlCursorRepository.upsert({
+    provider: "scrapling",
+    targetId,
+    mode: "live",
+    cursor: "t3_scrapling_cursor",
+    lastFetchedAt: "2026-04-18T11:40:00.000Z",
+    updatedAt: "2026-04-18T11:40:00.000Z",
+  });
+
+  const route = await resolveRedditTargetExecutionRoute({
+    targetId,
+    canonicalName: "r/datascience",
+    crawlMode: "live",
+    nowIso,
+    defaultProviderHint: "http",
+    providerHealthWindowRepository,
+    crawlCursorRepository,
+    policyContext: {
+      ...policyContext,
+      suppressHttpFallback: true,
+    },
+  });
+
+  assert.equal(route.providerHint, "scrapling");
+  assert.equal(route.selectedProvider, "scrapling");
+  assert.equal(route.scraplingProfile, "dynamic");
+  assert.equal(route.routingClass, "scrapling_promoted");
+  assert.equal(
+    route.reasons.includes("http_fallback_suppressed_provider_capability_failure"),
+    true,
+  );
 });
 
 test("provider routing summary counts selectedProvider instead of providerHint text", () => {
@@ -620,6 +680,59 @@ test("provider routing falls back to http when dynamic profile evidence is healt
     true,
   );
   assert.equal(route.reasons.includes("scrapling_empty_window_elevated"), true);
+});
+
+test("provider routing suppresses dynamic exhausted http fallback when provider capability already failed", async () => {
+  const providerHealthWindowRepository = new InMemoryProviderHealthWindowRepository();
+  await providerHealthWindowRepository.record({
+    provider: "scrapling",
+    targetId,
+    mode: "live",
+    windowStart: "2026-04-18T11:55:00.000Z",
+    requestCountDelta: 6,
+    successCountDelta: 6,
+    emptyResponseCountDelta: 6,
+    fallbackCountDelta: 0,
+    candidateCountDelta: 60,
+    acceptedCountDelta: 60,
+    filteredOutCountDelta: 0,
+    duplicatePostCountDelta: 60,
+    ingestLagSecondsSumDelta: 60_000,
+    ingestLagSampleCountDelta: 6,
+    providerDiffCountDelta: 0,
+    providerDiffSampleCountDelta: 0,
+    errorCountDelta: 0,
+    rateLimitCountDelta: 0,
+    timeoutCountDelta: 0,
+    circuitOpenCountDelta: 0,
+    scraplingHttpProfileCountDelta: 1,
+    scraplingDynamicProfileCountDelta: 5,
+    scraplingSessionKeyCountDelta: 6,
+    scraplingSessionKeyReuseCountDelta: 5,
+    updatedAt: nowIso,
+  });
+
+  const route = await resolveRedditTargetExecutionRoute({
+    targetId,
+    canonicalName: "r/datascience",
+    crawlMode: "live",
+    nowIso,
+    defaultProviderHint: "http",
+    providerHealthWindowRepository,
+    policyContext: {
+      ...policyContext,
+      suppressHttpFallback: true,
+    },
+  });
+
+  assert.equal(route.providerHint, "scrapling");
+  assert.equal(route.selectedProvider, "scrapling");
+  assert.equal(route.scraplingProfile, "dynamic");
+  assert.equal(route.routingClass, "scrapling_dynamic_escalation");
+  assert.equal(
+    route.reasons.includes("http_fallback_suppressed_provider_capability_failure"),
+    true,
+  );
 });
 
 test("provider routing does not apply dynamic-exhausted fallback on sparse stale-head samples", async () => {

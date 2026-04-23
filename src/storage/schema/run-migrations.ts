@@ -54,13 +54,11 @@ export async function runMigrations(options: RunMigrationsOptions = {}): Promise
         continue;
       }
 
-      await db.withTransaction(async (client) => {
-        await client.query(sql);
-        await client.query(
-          `INSERT INTO schema_migration (filename, checksum) VALUES ($1, $2)`,
-          [filename, checksum],
-        );
-      });
+      await db.query(sql);
+      await db.query(`INSERT INTO schema_migration (filename, checksum) VALUES ($1, $2)`, [
+        filename,
+        checksum,
+      ]);
       appliedFiles.push(filename);
     }
   } finally {

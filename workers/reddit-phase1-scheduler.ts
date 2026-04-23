@@ -8,6 +8,7 @@ import { runExistingSubredditNewPostsJob } from "../src/jobs/collect-subreddit-n
 import type { RedditConnector } from "../src/connectors/reddit/reddit-connector.interface";
 import type { RedditMapper } from "../src/connectors/reddit/reddit-mapper.interface";
 import {
+  createRedditCapabilityProbeConnectorFromEnv,
   createPostgresPhase1Runtime,
   resolvePhase1RunMode,
   resolveRedditPhase1CycleOptionsFromEnv,
@@ -460,6 +461,19 @@ async function main(): Promise<void> {
     connectorCache.set(cacheKey, connector);
     return connector;
   };
+  const resolveCapabilityProbeConnectorForProviderHint = (
+    providerHint: string | undefined,
+    defaultLiveProviderOverride?: RedditLiveProvider,
+  ): RedditConnector => {
+    const providerOverride =
+      resolveProviderOverride(providerHint) ?? defaultLiveProviderOverride;
+    return createRedditCapabilityProbeConnectorFromEnv({
+      env: process.env,
+      mode: runMode,
+      crawlMode: "live",
+      providerOverride,
+    });
+  };
   const redditMapper = runtime.redditMapper;
 
   let inFlight = false;
@@ -477,7 +491,7 @@ async function main(): Promise<void> {
         runMode,
         providerCapability,
         nowIso,
-        resolveConnectorForProviderHint,
+        resolveConnectorForProviderHint: resolveCapabilityProbeConnectorForProviderHint,
       });
       if (providerPlan.blocked) {
         // eslint-disable-next-line no-console
@@ -518,6 +532,7 @@ async function main(): Promise<void> {
           ? {
               ...process.env,
               REDDIT_LIVE_PROVIDER: providerPlan.effectiveProvider,
+              REDDIT_SUPPRESS_HTTP_FALLBACK: "true",
             }
           : process.env;
       const fetchExecutionEngine = createRedditFetchExecutionEngine({

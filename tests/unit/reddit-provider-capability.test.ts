@@ -13,6 +13,7 @@ import {
   probeRedditProviderCapability,
   resolveRedditProviderCapabilityProbeConfigFromEnv,
 } from "../../src/runtime/reddit-provider-capability";
+import { createRedditCapabilityProbeConnectorFromEnv } from "../../src/runtime/reddit-phase1-runtime";
 
 class ProviderCapabilityConnector implements RedditConnector {
   public readonly sourceCode = "reddit" as const;
@@ -121,4 +122,21 @@ test("probeRedditProviderCapability reports connector exceptions", async () => {
 
   assert.equal(result.ok, false);
   assert.match(result.reason ?? "", /provider failed/);
+});
+
+test("createRedditCapabilityProbeConnectorFromEnv disables circuit breaker fallback routing", () => {
+  const connector = createRedditCapabilityProbeConnectorFromEnv({
+    env: {
+      REDDIT_LIVE_PROVIDER: "scrapling",
+      REDDIT_CB_ROUTE_TO_FALLBACK: "true",
+    },
+    mode: "live",
+    crawlMode: "live",
+  }) as {
+    routeToFallbackOnError?: boolean;
+    fallbackConnector?: RedditConnector;
+  };
+
+  assert.equal(connector.routeToFallbackOnError, false);
+  assert.equal(typeof connector.fallbackConnector, "object");
 });

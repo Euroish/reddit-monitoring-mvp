@@ -17,6 +17,7 @@ export interface RedditProviderRoutingPolicyContext {
   defaultScraplingProfile: RedditScraplingProfile;
   scraplingPrimaryCanonicalNames: string[];
   providerHealthLookbackMinutes: number;
+  suppressHttpFallback: boolean;
 }
 
 export interface RedditTargetExecutionRoute {
@@ -67,6 +68,7 @@ export function resolveRedditProviderRoutingPolicyContextFromEnv(
       Number.isFinite(lookbackMinutes) && lookbackMinutes > 0
         ? lookbackMinutes
         : REDDIT_PROVIDER_HEALTH_THRESHOLDS.providerHealthLookbackMinutes,
+    suppressHttpFallback: env.REDDIT_SUPPRESS_HTTP_FALLBACK === "true",
   };
 }
 
@@ -191,6 +193,7 @@ export async function resolveRedditTargetExecutionRoute(args: {
   const dynamicExhaustedSignal = scraplingHealth.emptyRateElevated;
   const dynamicRecoveryExhaustedSignal =
     scraplingRecoveryHealth.emptyRateElevated;
+  const suppressedHttpFallbackReason = "http_fallback_suppressed_provider_capability_failure";
 
   if (transportDegraded) {
     const reasons = ["scrapling_transport_degraded"];
@@ -251,6 +254,17 @@ export async function resolveRedditTargetExecutionRoute(args: {
         reasons: probeReasons,
       };
     }
+    if (args.policyContext.suppressHttpFallback) {
+      return {
+        selectedProvider: "scrapling",
+        providerHint: "scrapling",
+        providerOverride: "scrapling",
+        scraplingProfile: recoveryProbeProfile,
+        promotedToScrapling: true,
+        routingClass: "scrapling_promoted",
+        reasons: [suppressedHttpFallbackReason, ...reasons],
+      };
+    }
     return {
       selectedProvider: "http",
       providerHint: "http",
@@ -279,6 +293,17 @@ export async function resolveRedditTargetExecutionRoute(args: {
     }
     reasons.push("scrapling_dynamic_profile_recent");
     reasons.push("scrapling_session_key_evidence_ready");
+    if (args.policyContext.suppressHttpFallback) {
+      return {
+        selectedProvider: "scrapling",
+        providerHint: "scrapling",
+        providerOverride: "scrapling",
+        scraplingProfile: "dynamic",
+        promotedToScrapling: true,
+        routingClass: "scrapling_dynamic_escalation",
+        reasons: [suppressedHttpFallbackReason, ...reasons],
+      };
+    }
     return {
       selectedProvider: "http",
       providerHint: "http",
