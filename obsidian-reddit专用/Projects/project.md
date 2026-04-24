@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: analytics-workbench-contract-v2
-updated_at: "2026-04-24 13:37:55"
+updated_at: "2026-04-24 15:05:38"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Deploy-smoke W6 Chart DTO v2 on the live API, then start W7 Market Board/Watchlist only after the new workbench contract is proven on host."
+next_action: "Keep P0 small: ship the retention defaults now documented in deploy env/runbook, then later expose storage observability in Ops before bounded 15-day new-target backfill."
 tags:
 - codex
 - workspace
@@ -39,8 +39,28 @@ tags:
 - W4 Comparison Mode is complete locally: `TargetComparisonWorkbenchResponse`, `GET /v1/workbench/compare`, normalized multi-target read model, target-detail comparison chart, market-backed suggested comparison controls, API contract test, and browser smoke are verified.
 - W5 Saved Workbench Contexts is complete locally: `saved_workbench_view`, user-owned save/list API, target-detail save current view control, recent saved context links, API auth coverage, and browser smoke are verified.
 - Current route correction from `docs/codex-handoff-tradingview-workbench.md`: do not advance immediately into broad watchlist/preset work. The strongest next slice is W6 Chart DTO v2 and workbench module extraction so TradingView-like behavior is contract-backed instead of frontend-only chart assembly.
-- W6 Chart DTO v2 is complete locally: target/comparison workbench APIs accept `range` and `timeframe`, target responses expose backend-driven indicators, available timeframes/ranges, anomaly annotations, and data-quality metadata, and the frontend chart/options/URL logic is extracted under `apps/web/src/features/workbench`.
+- W6 Chart DTO v2 is complete and live-verified: target/comparison workbench APIs accept `range` and `timeframe`, target responses expose backend-driven indicators, available timeframes/ranges, anomaly annotations, and data-quality metadata, the frontend chart/options/URL logic is extracted under `apps/web/src/features/workbench`, and the live host now serves the W6 target/comparison DTO endpoints plus updated web assets.
+- GitHub `main` is synchronized at `6bcee8eeae7a87f8377aca25cef966a9ea910112` (`Build workbench chart DTO v2`).
+- Browser-origin hotfix is applied on the host: `http://38.12.6.154` is now allowed by API CORS and Nginx `server_name`; API preflight for that origin is verified.
+- `context/codex-issue.md` is advisory evidence for the next product direction: fix monitored/global semantics and coverage honesty first, then add bounded 15-day target backfill, then expand TradingView-like chart surfaces.
 - Keep the completed frontend routes (`/login`, `/dashboard`, `/queries`, `/target/:targetId`, `/ops`) stable while extending API-backed workbench interactions.
+
+## Product Positioning and Capacity Policy
+
+- Product positioning: this product is a bounded Reddit monitored-analytics workbench, not an unbounded whole-Reddit crawler. The durable value is trend analysis over explicitly monitored subreddits, saved workbench context, comparisons, keyword overlays, anomaly markers, and honest coverage metadata.
+- Small-server target: keep the default deployment viable on 2 CPU, 2GB RAM, and 40GB disk. Current Linux storage snapshot on 2026-04-24: `/dev/vda1` is 39G total, 13G used, 27G available, 32% used; PostgreSQL `reddit_monitoring` is 117MB; `/var/lib/postgresql` is 236MB; `/root/reddit-monitoring-mvp` is 348MB; `/opt/reddit-monitoring` is 335MB; `/var/cache/apt` is the largest cleanup candidate at about 1.2GB; journals are 82.8MB.
+- Data retention stance: long-term retention belongs to materialized analytics facts (`subreddit_daily_fact`, `subreddit_trend_point`, `keyword_trend_daily`, `post_growth_fact`, anomaly/read-model rows). Raw Reddit payloads and high-frequency snapshots are operational evidence, not long-term product storage.
+- Growth control: raw events should default to short retention (3-7 days on the small VPS), metrics snapshots should be retained or downsampled by age, and new-target 15-day backfill must be bounded by target count, pages/posts per target, concurrency, and retry budget.
+- Product truth rule: UI/API labels must expose actual coverage. Rankings over monitored targets must be named as monitored rankings; keyword search over local indexed posts must expose observed-corpus coverage and degraded reasons; whole-Reddit claims require a future discovery/universe layer.
+- Capacity gate before broader W7 charts: add table/index size observability, raw/snapshot retention defaults, and coverage states first. Only then expand TradingView-like surfaces so charts reflect materialized facts rather than hiding gaps in data coverage.
+
+## Data Structure and Code Simplification Timing
+
+- Immediate P0 cleanup is allowed only when it directly supports truth/capacity guardrails: naming monitored rankings honestly, adding coverage/degraded metadata, adding retention/size observability, and removing duplicate UI/read-model mapping created by those changes.
+- Do not start broad repository cleanup before live W6 smoke and P0 analytics truth are complete; cosmetic shrinking would compete with the product correctness work.
+- P1 backfill is the next structural proving ground. Keep implementation explicit enough to expose job payloads, quotas, materialization boundaries, and failure states. Avoid premature abstraction while backfill behavior is still being verified.
+- The right larger cleanup gate is after P1 bounded 15-day backfill has passed tests and one live run: then consolidate repeated DTO/data-quality shapes, extract shared capacity/coverage helpers, prune duplicate chart option code, and simplify repository/query paths around the proven facts tables.
+- W7 Market Board/Watchlist should start only after that post-P1 cleanup gate, so new charts reuse a stable compact workbench kernel instead of copying target-detail logic.
 
 ## Current Focus
 
@@ -48,10 +68,11 @@ tags:
 - Use `docs/analytics-workbench-framework-2026-04-24.md` as the next product framework source after the product shell design.
 - Use `docs/codex-handoff-tradingview-workbench.md` as the latest planning correction for the TradingView-like workbench direction.
 - Optimize for the smallest analytics vertical slice: Chart DTO v2 contract additions, read-model metadata, API-backed range/timeframe controls, frontend workbench module extraction, and browser/API smoke evidence.
+- Before adding broader chart surfaces, run the analytics truth gate: labels must match data coverage, local observed-corpus keyword results must expose coverage/degraded reasons, and empty/partial history must be visible rather than hidden by chart polish.
 
 ## Change Policy
 
-- Allowed: historical dead-letter cleanup/replay, analytics workbench framework/design, Chart DTO v2 contracts, target-detail read models, focused product UI upgrades, and narrow runtime fixes only if live collection regresses.
+- Allowed: historical dead-letter cleanup/replay, analytics workbench framework/design, Chart DTO v2 contracts, target-detail read models, analytics truth/coverage fixes, bounded 15-day backfill design/implementation, focused product UI upgrades, and narrow runtime fixes only if live collection regresses.
 - Forbidden: broad architecture rewrites, unrelated frontend polish, new provider experiments while the current collector lane is healthy, and launch-hardening expansion unrelated to product analytics.
 - Each round should end with runnable code or an explicit design artifact, focused tests where code changes, and browser/API evidence for product-facing changes.
 
@@ -87,29 +108,84 @@ tags:
 ## Task Guide
 
 - Write all state updates back to this file.
+- Live startup files are `00_START_HERE.md` and `AGENTS.md`; they must point here, not to missing legacy paths.
 - Do not use `planning-with-files` in this repo.
 - Do not create or maintain `task_plan.md`, `findings.md`, or `progress.md` in project root.
+- Do not depend on absent legacy files such as `PROJECT.md`, `context/decision-log.md`, or old Obsidian export paths. If a requested context file exists, read it as advisory evidence and reconcile it against the current repo; if it is missing, report it and continue from current repo evidence unless the task truly depends on that file.
 - Every task entry should include: `Scope`, `Why now`, `Verify`, `Next`.
 - Keep this file ASCII-first or clean UTF-8 only; do not copy mojibake text forward.
 
 ## Ongoing Development Flow
 
-- Workspace rule: keep `Projects/project.md` as the only active state source; treat any other `Projects` markdown file as archive/reference only.
+- Workspace rule: keep `obsidian-reddit专用/Projects/project.md` as the only active state source; treat any other `Projects` markdown file as archive/reference only.
 - Slice rule: each dev cycle ships one smallest complete vertical slice. During analytics workbench planning, prefer the path `read-model contract -> API endpoint -> frontend integration -> browser/API smoke` over UI-only chart work.
 - Verify rule: every slice must include at least `npm run typecheck` plus targeted test commands for changed boundaries; run `npm run algo:phase1` when the slice crosses scheduler/materialization/API seams.
 - Evidence rule: store large verify artifacts under `docs/` and reference paths in the activity entry instead of pasting long logs. For product workbench changes, primary evidence should include API contract tests plus a browser smoke or screenshot-capable check.
 - Writeback rule: after each slice, update frontmatter `updated_at` and `next_action`, then append one `Scope/Why now/Verify/Next` entry at the top of the activity log.
 - Priority rule: keep live collection stable, then move product value forward through analytics workbench slices. If live collection regresses, runtime recovery temporarily retakes priority until one scheduled cycle succeeds again.
+- Analytics truth rule: do not add charts ahead of data. Use the sequence `semantics/coverage -> bounded backfill/materialization -> API contract -> frontend chart/workflow`, with explicit data-quality states for empty, partial, degraded, and complete coverage.
+- Capacity rule: every collection expansion must define retention, table/index growth expectations, and a small-VPS default budget before it becomes the default runtime path.
+- Cleanup timing rule: broad data-structure/code simplification belongs after P1 backfill stabilization and before W7 chart breadth. Before then, only make cleanup changes that directly reduce risk or duplication in the active slice.
 
 ## Flow Reinforcement
 
 - Do not re-open Linux runtime recovery unless a fresh scheduled cycle fails or provider smoke fails under the collector proxy.
 - Do not let historical dead-letter jobs be mistaken for active provider failure; they are cleanup debt until new failures appear.
 - Do not build TradingView-like UI ahead of contracts. Workbench features must be backed by persisted facts/read models and stable DTOs.
+- Do not present monitored-target rankings or local observed-corpus keyword analysis as whole-Reddit coverage unless a real discovery/global universe layer exists.
 - Architecture optimization is allowed only when it directly supports Chart DTO v2, indicator/panel composition, query overlays, comparison, or analysis workflow ergonomics.
-- Next product sequence is W6 Chart DTO v2/module extraction, then W7 Market Board/Watchlist, then W8 saved presets/context expansion. Watchlist remains important, but follows a stable chart/workbench kernel.
+- Next product sequence is live W6 Chart DTO v2 smoke, P0 analytics truth fixes, P1 bounded 15-day backfill for newly added targets, then W7 Market Board/Watchlist and W8 saved presets/context expansion. Watchlist remains important, but follows a stable chart/workbench kernel and honest coverage model.
 
 ## Activity Log
+
+### 2026-04-24 15:05:38
+
+- Scope: Made the smallest P0 follow-up change: wrote explicit small-VPS retention defaults for `raw_reddit_event` and `metrics_snapshot` into `deploy/env/scheduler.env.example` and `docs/deployment-runbook.md` so the bounded-storage policy is now part of the deploy/runtime contract instead of only project memory.
+- Why now: The remaining token budget called for a narrow, low-risk change that still moves P0 capacity guardrails forward without opening another API/UI slice.
+- Verify: Doc/env-only change; no code path changed.
+- Next: When the next coding slice starts, implement the matching prune path for `metrics_snapshot` and then surface storage observability in Ops.
+
+### 2026-04-24 15:04:42
+
+- Scope: Closed the remaining W6 live-deployment gap and started P0 capacity guardrails. On the host, rebuilt the API and web bundles, synced `dist/` and `apps/web/dist/` into `/opt/reddit-monitoring/current`, restarted `reddit-api.service`, and verified the live W6 DTO v2 target/comparison endpoints. Then added storage observability as the first P0 capacity slice: `StorageObservabilityRepository`, Postgres/in-memory adapters, `GET /v1/ops/storage`, contract types, and auth coverage for owner/admin-only access.
+- Why now: W6 was only complete locally; `project.md` still carried an explicit `live W6 smoke` gap before P0/backfill work. The strongest next P0 slice after closing that gap was table/index size observability, because it turns the small-VPS capacity discussion into a stable inspectable signal before retention defaults and bounded backfill.
+- Verify: Live W6 host smoke passed with authenticated `GET /v1/workbench/target/machinelearning?range=7d&timeframe=1d&driverLimit=3&anomalyLimit=3` returning `ok=true`, target `r/machinelearning`, `timeframe=1d`, `rangePreset=7d`, expected series ids, `dataQuality=complete`, and `annotationCount=3`; authenticated `GET /v1/workbench/compare?targets=machinelearning,askreddit&series=heat_price,total_new_posts&range=30d&timeframe=1d` returned `ok=true`, `rangePreset=30d`, both targets, both requested series ids, and `comparisonCount=4`. Public host `http://38.12.6.154/target/machinelearning?range=7d&timeframe=1d` serves the updated web bundle. `node --import tsx --test tests/integration/api-server-auth.test.ts` passed (`14/14`). `npm run typecheck` passed. Live Postgres storage proof via the new repository path returned `databaseSizeBytes=128834583`, with largest tables `raw_reddit_event=51421184`, `post_growth_fact=22470656`, `metrics_snapshot=21987328`, `post_search_document=13172736`, and `keyword_trend_daily=2596864`.
+- Next: Finish P0 capacity guardrails by adding retention/pruning defaults for `raw_reddit_event` and `metrics_snapshot`, then wire the new storage observability signal into the Ops experience before bounded 15-day new-target backfill.
+
+### 2026-04-24 14:56:06
+
+- Scope: Completed a narrow P0 analytics truth slice for monitored-market and query-coverage semantics. Added `coverage` metadata to `MarketTrendResponse` and `KeywordQueryView`, populated it in `apps/api/src/create-api-server.ts`, renamed dashboard language to monitored-market wording in `apps/web/src/pages/Dashboard.tsx`, and made `apps/web/src/pages/Queries.tsx` explicitly describe locally observed-corpus scope and counts instead of implying whole-Reddit coverage.
+- Why now: `project.md` and `context/codex-issue.md` both put monitored/global semantics and coverage honesty ahead of broader chart expansion. This slice fixes the most visible product-language drift without widening collection or backfill scope yet.
+- Verify: `node --import tsx --test tests/integration/api-server-keyword-query.test.ts tests/integration/api-server-trends.test.ts` passed. `npm run typecheck` passed. `npm --prefix apps/web run build` passed with only the existing large-chunk warning for `TargetDetail`.
+- Next: Add P0 capacity guardrails in the same truth-first lane: structured table/index size observability plus retention/pruning defaults for `raw_reddit_event` and `metrics_snapshot`, then move into bounded 15-day new-target backfill.
+
+### 2026-04-24 14:50:25
+
+- Scope: Safely cleaned Linux package-cache waste and defined the cleanup/optimization timing gate. Ran an `apt-get clean`-only cleanup after simulation, leaving database files, repo files, deployment releases, logs, Playwright/VSCode caches, and untracked context files untouched.
+- Why now: The server had a clear low-risk cleanup candidate (`/var/cache/apt` about 1.2GB), and the user asked when to optimize data structures and reduce code under the current design.
+- Verify: Before cleanup, `/dev/vda1` was 39G total, 13G used, 27G available, 32% used, and `/var/cache/apt` was 1.2GB. After `apt-get clean`, `/dev/vda1` is 39G total, 11G used, 28G available, 29% used, and `/var/cache/apt` is 64K. `postgresql`, `reddit-api.service`, `reddit-phase1-scheduler.service`, and `nginx` all remained `active`. PostgreSQL query against `reddit_monitoring` succeeded (`119 MB`, `content=1912`).
+- Next: Do only P0 risk-reducing cleanup while implementing analytics truth/capacity guardrails. Defer broader data-structure/code simplification until after P1 bounded 15-day backfill passes tests and one live run; perform that cleanup before W7 Market Board/Watchlist chart expansion.
+
+### 2026-04-24 14:47:24
+
+- Scope: Analyzed current Linux storage/capacity and wrote back the product positioning/capacity policy. Confirmed the server is currently storage-light and memory-stable, but the durable product must stay bounded to monitored analytics with materialized facts retained long-term and raw/high-frequency evidence pruned or downsampled.
+- Why now: The user asked whether the framework can meet server-performance constraints while storing enough data for analysis. The answer depends on making monitored coverage, retention, and capacity guardrails explicit before expanding collection and chart surfaces.
+- Verify: `df -hT` shows `/dev/vda1` at 39G total, 13G used, 27G available, 32% used. `du` shows `/var/lib/postgresql` 236MB, `/root/reddit-monitoring-mvp` 348MB, `/opt/reddit-monitoring` 335MB, `/var/cache/apt` about 1.2GB, and journals 82.8MB. PostgreSQL reports `reddit_monitoring` at 117MB; largest tables are `raw_reddit_event` 46MB, `post_growth_fact` 20MB, `metrics_snapshot` 20MB, and `post_search_document` 13MB. Row counts include `metrics_snapshot=75349`, `post_growth_fact=20033`, `raw_reddit_event=1219`, `content=1899`, `keyword_trend_daily=2293`, `subreddit_daily_fact=368`. `free -h` shows 1.9Gi RAM, 1.1Gi available, and 4.0Gi swap with 94Mi used.
+- Next: After live W6 smoke, implement P0 analytics truth/capacity guardrails: monitored ranking labels, keyword coverage/degraded states, no/partial-history UI states, raw/snapshot retention defaults, and table/index size observability before broader W7 chart expansion or 15-day backfill defaults.
+
+### 2026-04-24 14:39:18
+
+- Scope: Corrected the Codex startup/development workflow and incorporated the advisory conclusions from `context/codex-issue.md`. Updated `00_START_HERE.md`, `prompts/codex-kickoff-minimal.md`, `AGENTS.md`, and this workspace so future sessions start from `obsidian-reddit专用/Projects/project.md`, treat context exports as advisory evidence, and apply an analytics truth gate before broader chart work.
+- Why now: The current prompt surface had path drift (`PROJECT.md`, `context/decision-log.md`, and old Obsidian export paths are absent), and the new issue export correctly highlights the main product risk: adding more charts would hide data-coverage problems unless monitored/global semantics, keyword coverage states, and target-history backfill are handled first.
+- Verify: Read `context/codex-issue.md` after it appeared as an untracked file; confirmed `.codex` is empty and `PROJECT.md`/`context/decision-log.md` are absent; reviewed startup references with `rg`; inspected the final diff for `00_START_HERE.md`, `prompts/codex-kickoff-minimal.md`, `AGENTS.md`, and this workspace.
+- Next: Use the corrected startup flow for future Codex sessions. Product work should return to operator browser-login validation from `http://38.12.6.154` and live W6 Chart DTO v2 deploy-smoke, then run P0 analytics truth fixes before W7: monitored ranking labels, keyword coverage/degraded states, and clear no/partial-history states; bounded 15-day backfill follows as P1.
+
+### 2026-04-24 13:54:57
+
+- Scope: Synchronized the W5/W6 work to GitHub `main` as commit `6bcee8eeae7a87f8377aca25cef966a9ea910112` and fixed the operator browser-login blocker on the host. Added `http://38.12.6.154` to `API_CORS_ALLOW_ORIGINS`, added the same IP to Nginx `server_name`, moved accidental Nginx backup files out of `sites-enabled`, restarted `reddit-api.service`, reloaded Nginx, and reset the active production owner account password for manual validation without documenting the plaintext secret here.
+- Why now: The user needed to validate the live frontend directly. The browser was loaded from `http://38.12.6.154`, while the API only allowed `http://103.172.183.79`, so `/api/auth/login` returned `cors_origin_not_allowed`; after CORS was fixed, the user tried the smoke-only `owner@example.com` account, which does not exist in the production database.
+- Verify: GitHub push reported `73a5c94..6bcee8e main -> main`, then authenticated fetch confirmed local `HEAD` and `origin/main` both at `6bcee8eeae7a87f8377aca25cef966a9ea910112`. `nginx -t` passed after moving backup files. `systemctl is-active reddit-api.service` and `systemctl is-active nginx` both returned `active`. CORS preflight to `/auth/login` with `Origin: http://38.12.6.154` returned `204` with `Access-Control-Allow-Origin: http://38.12.6.154` and credentials enabled. A local login POST for the active owner returned `200 OK`.
+- Next: Operator should refresh `http://38.12.6.154/login` and complete browser validation with the active owner account. After that, deploy/restart the W6 compiled API/static frontend on the host if needed and smoke the live DTO v2 endpoints before starting W7 Market Board/Watchlist.
 
 ### 2026-04-24 13:37:55
 

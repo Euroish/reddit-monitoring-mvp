@@ -170,6 +170,12 @@ Scheduler safety defaults in `deploy/env/scheduler.env.example` are conservative
 
 Keep them that way on first deployment. Only enable boot-time scheduling after the provider probe succeeds on the Linux host.
 
+Small-VPS retention defaults should also stay bounded unless a larger storage budget is explicitly proven:
+
+- `RAW_EVENT_RETENTION_DAYS=7`
+- `METRICS_SNAPSHOT_RETENTION_DAYS=30`
+- keep prune jobs batched; do not switch to unbounded delete loops outside controlled maintenance windows
+
 ## Start Or Restart
 
 ```bash
