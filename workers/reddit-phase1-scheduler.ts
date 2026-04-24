@@ -52,7 +52,9 @@ export interface SchedulerLiveProviderExecutionPlan {
   effectiveProvider: RedditLiveProvider;
   fallbackProvider?: RedditLiveProvider;
   primaryReason?: string;
+  primaryFailureCategory?: "unexpected_http_status" | "connector_error" | "network_policy_block";
   fallbackReason?: string;
+  fallbackFailureCategory?: "unexpected_http_status" | "connector_error" | "network_policy_block";
   blocked: boolean;
 }
 
@@ -291,6 +293,17 @@ export async function resolveSchedulerLiveProviderExecutionPlan(args: {
       configuredProvider,
       effectiveProvider: configuredProvider,
       primaryReason: primaryProbe.reason ?? "provider capability probe failed",
+      primaryFailureCategory: primaryProbe.failureCategory,
+      blocked: true,
+    };
+  }
+
+  if (primaryProbe.failureCategory === "network_policy_block") {
+    return {
+      configuredProvider,
+      effectiveProvider: configuredProvider,
+      primaryReason: primaryProbe.reason ?? "provider capability probe failed",
+      primaryFailureCategory: primaryProbe.failureCategory,
       blocked: true,
     };
   }
@@ -308,6 +321,7 @@ export async function resolveSchedulerLiveProviderExecutionPlan(args: {
       effectiveProvider: fallbackProvider,
       fallbackProvider,
       primaryReason: primaryProbe.reason ?? "provider capability probe failed",
+      primaryFailureCategory: primaryProbe.failureCategory,
       blocked: false,
     };
   }
@@ -317,7 +331,9 @@ export async function resolveSchedulerLiveProviderExecutionPlan(args: {
     effectiveProvider: configuredProvider,
     fallbackProvider,
     primaryReason: primaryProbe.reason ?? "provider capability probe failed",
+    primaryFailureCategory: primaryProbe.failureCategory,
     fallbackReason: fallbackProbe.reason ?? "provider capability probe failed",
+    fallbackFailureCategory: fallbackProbe.failureCategory,
     blocked: true,
   };
 }
@@ -504,7 +520,9 @@ async function main(): Promise<void> {
             fallbackProvider: providerPlan.fallbackProvider,
             subreddit: providerCapability.subreddit,
             reason: providerPlan.primaryReason ?? "provider capability probe failed",
+            failureCategory: providerPlan.primaryFailureCategory,
             fallbackReason: providerPlan.fallbackReason,
+            fallbackFailureCategory: providerPlan.fallbackFailureCategory,
           }),
         );
         return;
@@ -523,6 +541,7 @@ async function main(): Promise<void> {
             effectiveProvider: providerPlan.effectiveProvider,
             subreddit: providerCapability.subreddit,
             reason: providerPlan.primaryReason,
+            failureCategory: providerPlan.primaryFailureCategory,
           }),
         );
       }

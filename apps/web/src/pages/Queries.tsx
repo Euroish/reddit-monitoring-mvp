@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
 import { Badge, Button, Card, Input } from '../components/ui';
 import type {
   CreateKeywordQueryRequest,
   CreateKeywordQueryResponse,
+  GetKeywordQueryResponse,
   KeywordQueryView,
 } from '../../../../packages/contracts/src/http';
 
@@ -16,6 +17,23 @@ function formatRate(value: number) {
 function resultStatusColor(status: KeywordQueryView['status']) {
   if (status === 'initial_ready' || status === 'completed') return 'success';
   return 'neutral';
+}
+
+function statusLabel(status: KeywordQueryView['status']) {
+  switch (status) {
+    case 'initial_ready':
+      return 'Initial Ready';
+    case 'live_refreshing':
+      return 'Live Refreshing';
+    case 'completed':
+      return 'Completed';
+    case 'degraded':
+      return 'Degraded';
+    case 'queued':
+      return 'Queued';
+    default:
+      return status;
+  }
 }
 
 function toRedditUrl(permalink: string) {
@@ -35,7 +53,25 @@ export function Queries() {
       }),
   });
 
-  const result = keywordQuery.data?.result;
+  const createdResult = keywordQuery.data?.result;
+  const queryId = createdResult?.queryId;
+  const resultQuery = useQuery({
+    queryKey: ['keyword-query', queryId],
+    queryFn: () => fetchApi<GetKeywordQueryResponse>(`/v1/keyword-queries/${queryId}`),
+    enabled: !!queryId,
+    refetchInterval: (query) => {
+      const status = query.state.data?.result.status;
+      if (!status) return 3000;
+      return status === 'completed' || status === 'degraded' ? false : 3000;
+    },
+  });
+
+  const result = resultQuery.data?.result ?? createdResult;
+  const isPolling =
+    resultQuery.isFetching &&
+    !!result &&
+    result.status !== 'completed' &&
+    result.status !== 'degraded';
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -106,6 +142,12 @@ export function Queries() {
               </div>
             )}
 
+            {resultQuery.error && (
+              <div style={{ color: '#ff4d4f', fontSize: '13px' }}>
+                {resultQuery.error instanceof Error ? resultQuery.error.message : 'Query refresh failed'}
+              </div>
+            )}
+
             <Button variant="primary" type="submit" disabled={keywordQuery.isPending}>
               {keywordQuery.isPending ? 'Running...' : 'Run query'}
             </Button>
@@ -131,7 +173,30 @@ export function Queries() {
                       {result.canonicalSubreddit ?? 'Global'} · {result.sourceType.primary}
                     </p>
                   </div>
-                  <Badge variant={resultStatusColor(result.status)}>{result.status}</Badge>
+                  <Badge variant={resultStatusColor(result.status)}>{statusLabel(result.status)}</Badge>
+                </div>
+
+                <div
+                  style={{
+                    marginBottom: '20px',
+                    padding: '12px 14px',
+                    border: '1px solid var(--border-standard)',
+                    borderRadius: '6px',
+                    backgroundColor: 'rgba(255,255,255,0.02)',
+                    color: 'var(--text-secondary)',
+                    fontSize: '13px',
+                  }}
+                >
+                  {isPolling
+                    ? 'Refreshing live query evidence every 3 seconds.'
+                    : result.status === 'completed'
+                      ? 'Live refresh completed for this query.'
+                      : result.status === 'degraded'
+                        ? `Query degraded${result.degradedReason ? `: ${result.degradedReason}` : '.'}`
+                        : 'Initial indexed result is ready.'}
+                  <div style={{ marginTop: '6px', color: 'var(--text-tertiary)' }}>
+                    Last updated {new Date(result.updatedAt).toLocaleString()}
+                  </div>
                 </div>
 
                 <div className="metric-grid">
@@ -151,6 +216,30 @@ export function Queries() {
                     <div style={{ color: 'var(--text-tertiary)', fontSize: '13px', marginBottom: '6px' }}>Confidence</div>
                     <div className="kpi-value">{result.confidenceLevel}</div>
                   </div>
+                </div>
+              </Card>
+
+              <Card>
+                <h3 style={{ marginBottom: '16px' }}>Live Pulse</h3>
+                <div className="list-stack">
+                  {result.pulsePoints5m.length === 0 && (
+                    <div style={{ color: 'var(--text-tertiary)' }}>No pulse buckets available yet.</div>
+                  )}
+                  {result.pulsePoints5m.slice(0, 6).map((bucket) => (
+                    <div key={bucket.bucketStart} className="list-row" style={{ gap: '12px', alignItems: 'flex-start' }}>
+                      <div style={{ minWidth: '150px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                        {new Date(bucket.bucketStart).toLocaleTimeString()} - {new Date(bucket.bucketEnd).toLocaleTimeString()}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: 'var(--text-primary)', marginBottom: '4px' }}>
+                          Mentions {bucket.mentionCount} · Qualified {bucket.qualifiedMentionCount}
+                        </div>
+                        <div style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                          Rate {formatRate(bucket.mentionRate)} · Quality {bucket.dataQuality} · Source {bucket.sourceType}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </Card>
 

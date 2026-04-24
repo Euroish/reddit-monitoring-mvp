@@ -9,3 +9,4 @@ coverage/
 *.log
 *.db
 *.sqlite
+docs/tmp-sing-box-*.json

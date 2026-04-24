@@ -20,6 +20,10 @@ const sessionCookieSecure = parseBooleanFlag(
   process.env.API_SESSION_COOKIE_SECURE,
   process.env.NODE_ENV === "production",
 );
+const allowInsecureSessionCookieInProduction = parseBooleanFlag(
+  process.env.API_ALLOW_INSECURE_SESSION_COOKIE,
+  false,
+);
 const rateLimitEnabled = parseBooleanFlag(process.env.API_RATE_LIMIT_ENABLED, true);
 const rateLimitPoints = parsePositiveInt(process.env.API_RATE_LIMIT_POINTS, 60);
 const rateLimitDurationSeconds = parsePositiveInt(
@@ -30,6 +34,7 @@ assertProductionLaunchConfig({
   nodeEnv: process.env.NODE_ENV,
   corsAllowOrigins: corsAllowOrigins,
   sessionCookieSecure,
+  allowInsecureSessionCookieInProduction,
 });
 const runtime = createPostgresPhase1Runtime();
 

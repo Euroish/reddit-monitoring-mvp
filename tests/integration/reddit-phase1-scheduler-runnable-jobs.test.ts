@@ -345,3 +345,46 @@ test("resolveSchedulerLiveProviderExecutionPlan promotes live lane to scrapling 
   assert.equal(plan.fallbackProvider, "scrapling");
   assert.match(plan.primaryReason ?? "", /unexpected_http_status:403/);
 });
+
+test("resolveSchedulerLiveProviderExecutionPlan blocks immediately on Reddit network policy failure", async () => {
+  let scraplingProbeAttempts = 0;
+  const plan = await resolveSchedulerLiveProviderExecutionPlan({
+    runMode: "live",
+    providerCapability: {
+      required: true,
+      provider: "http",
+      subreddit: "askreddit",
+    },
+    nowIso: "2026-04-23T03:00:00.000Z",
+    resolveConnectorForProviderHint: (providerHint) => {
+      if (providerHint === "scrapling") {
+        scraplingProbeAttempts += 1;
+      }
+      return providerHint === "http"
+        ? {
+            sourceCode: "reddit" as const,
+            async collectSubredditAbout() {
+              throw new Error(
+                "Reddit request failed: status=403, endpoint=/r/askreddit/about.json, body=<html><body>You've been blocked by network security. use your developer token</body></html>",
+              );
+            },
+            async collectSubredditPosts() {
+              throw new Error("not implemented");
+            },
+            async collect(args, ctx) {
+              return this.collectSubredditPosts(args, ctx);
+            },
+            async healthCheck() {
+              return false;
+            },
+          }
+        : new AboutProbeConnector(200);
+    },
+  });
+
+  assert.equal(plan.blocked, true);
+  assert.equal(plan.effectiveProvider, "http");
+  assert.equal(plan.primaryFailureCategory, "network_policy_block");
+  assert.equal(plan.fallbackProvider, undefined);
+  assert.equal(scraplingProbeAttempts, 0);
+});

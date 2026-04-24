@@ -2,6 +2,7 @@ export interface ProductionLaunchConfig {
   nodeEnv?: string;
   corsAllowOrigins: string[];
   sessionCookieSecure: boolean;
+  allowInsecureSessionCookieInProduction?: boolean;
 }
 
 function normalizeOrigin(raw: string): string {
@@ -31,7 +32,7 @@ export function assertProductionLaunchConfig(args: ProductionLaunchConfig): void
     return;
   }
 
-  if (!args.sessionCookieSecure) {
+  if (!args.sessionCookieSecure && !args.allowInsecureSessionCookieInProduction) {
     throw new Error("API_SESSION_COOKIE_SECURE must be true in production");
   }
 

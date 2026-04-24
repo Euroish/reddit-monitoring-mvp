@@ -65,8 +65,14 @@ async function main(): Promise<void> {
       nowIso: new Date().toISOString(),
     });
     if (!probe.ok) {
+      const failurePrefix =
+        probe.failureCategory === "network_policy_block"
+          ? `provider capability probe failed for ${provider} on r/${providerCapability.subreddit}: network_policy_block`
+          : `provider capability probe failed for ${provider} on r/${providerCapability.subreddit}`;
       throw new Error(
-        `provider capability probe failed for ${provider} on r/${providerCapability.subreddit}: ${probe.reason ?? "unknown error"}`,
+        `${failurePrefix}: ${probe.reason ?? "unknown error"}${
+          probe.remediationHint ? `; remediation=${probe.remediationHint}` : ""
+        }`,
       );
     }
     checks.push("provider_capability.runtime_ok");

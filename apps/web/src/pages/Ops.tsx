@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useMutation } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
@@ -14,6 +14,11 @@ export function Ops() {
   const [mode, setMode] = useState<'mock' | 'live'>('mock');
   const [crawlMode, setCrawlMode] = useState<'live' | 'backfill'>('live');
   const [postLimit, setPostLimit] = useState('20');
+  const [executionMode, setExecutionMode] = useState<'sync' | 'async'>('sync');
+
+  useEffect(() => {
+    setExecutionMode(mode === 'live' ? 'async' : 'sync');
+  }, [mode]);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['readyz'],
@@ -26,6 +31,9 @@ export function Ops() {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
+    onSuccess: () => {
+      void refetch();
+    },
   });
 
   const handleTriggerRun = (event: React.FormEvent<HTMLFormElement>) => {
@@ -36,6 +44,7 @@ export function Ops() {
       mode,
       crawlMode,
       subreddit: subreddit.trim() || undefined,
+      async: executionMode === 'async',
       postLimit:
         Number.isInteger(normalizedPostLimit) && normalizedPostLimit >= 1 && normalizedPostLimit <= 200
           ? normalizedPostLimit
@@ -154,6 +163,20 @@ export function Ops() {
                     <option value="backfill">backfill</option>
                   </Select>
                 </div>
+
+                <div>
+                  <label htmlFor="ops-execution-mode" style={{ display: 'block', marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    Execution
+                  </label>
+                  <Select
+                    id="ops-execution-mode"
+                    value={executionMode}
+                    onChange={(event) => setExecutionMode(event.target.value as 'sync' | 'async')}
+                  >
+                    <option value="sync">sync</option>
+                    <option value="async">async</option>
+                  </Select>
+                </div>
               </div>
 
               <div>
@@ -185,12 +208,18 @@ export function Ops() {
                     backgroundColor: 'rgba(255,255,255,0.02)',
                   }}
                 >
-                  <div style={{ marginBottom: '6px', fontWeight: 510 }}>Run queued</div>
+                  <div style={{ marginBottom: '6px', fontWeight: 510 }}>
+                    {executionMode === 'async' ? 'Run queued' : 'Run completed'}
+                  </div>
                   <div style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>
                     {triggerRun.data.mode} · {triggerRun.data.crawlMode} ·{' '}
                     {(triggerRun.data.requestedCanonicalNames.length > 0
                       ? triggerRun.data.requestedCanonicalNames.join(', ')
                       : 'all active targets')}
+                  </div>
+                  <div style={{ color: 'var(--text-tertiary)', fontSize: '13px', marginTop: '6px' }}>
+                    Requested {triggerRun.data.requestedCanonicalNames.length} · Processed {triggerRun.data.processedCanonicalNames.length}
+                    {executionMode === 'async' ? ' · background worker will consume queued jobs' : ' · returned from direct execution'}
                   </div>
                 </div>
               )}

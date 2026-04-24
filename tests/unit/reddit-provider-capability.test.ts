@@ -10,6 +10,7 @@ import type {
   RedditPostData,
 } from "../../src/connectors/reddit/reddit.types";
 import {
+  classifyRedditProviderCapabilityFailure,
   probeRedditProviderCapability,
   resolveRedditProviderCapabilityProbeConfigFromEnv,
 } from "../../src/runtime/reddit-provider-capability";
@@ -110,6 +111,7 @@ test("probeRedditProviderCapability reports unexpected http status failures", as
 
   assert.equal(result.ok, false);
   assert.equal(result.reason, "unexpected_http_status:403");
+  assert.equal(result.failureCategory, "unexpected_http_status");
 });
 
 test("probeRedditProviderCapability reports connector exceptions", async () => {
@@ -122,6 +124,58 @@ test("probeRedditProviderCapability reports connector exceptions", async () => {
 
   assert.equal(result.ok, false);
   assert.match(result.reason ?? "", /provider failed/);
+  assert.equal(result.failureCategory, "connector_error");
+});
+
+test("classifyRedditProviderCapabilityFailure detects Reddit network policy blocks", () => {
+  const classified = classifyRedditProviderCapabilityFailure(
+    "Reddit request failed: status=403, endpoint=/r/askreddit/about.json, body=<div>You've been blocked by network security. To continue, log in to your Reddit account or use your developer token</div>",
+  );
+
+  assert.equal(classified.failureCategory, "network_policy_block");
+  assert.match(classified.remediationHint ?? "", /developer token/i);
+});
+
+test("probeRedditProviderCapability classifies Reddit network policy block errors", async () => {
+  const result = await probeRedditProviderCapability({
+    connector: new ProviderCapabilityConnector("throw"),
+    provider: "http",
+    subreddit: "AskReddit",
+    nowIso: "2026-04-22T12:00:00.000Z",
+  });
+
+  assert.equal(result.failureCategory, "connector_error");
+});
+
+test("probeRedditProviderCapability classifies network policy body from connector exception", async () => {
+  const connector: RedditConnector = {
+    sourceCode: "reddit",
+    async collectSubredditAbout() {
+      throw new Error(
+        "Reddit request failed: status=403, endpoint=/r/askreddit/about.json, body=<html><body>whoa there, pardner! Your request has been blocked due to a network policy. use your developer token</body></html>",
+      );
+    },
+    async collectSubredditPosts() {
+      throw new Error("not implemented");
+    },
+    async collect(args, ctx) {
+      return this.collectSubredditPosts(args, ctx);
+    },
+    async healthCheck() {
+      return false;
+    },
+  };
+
+  const result = await probeRedditProviderCapability({
+    connector,
+    provider: "http",
+    subreddit: "AskReddit",
+    nowIso: "2026-04-22T12:00:00.000Z",
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.failureCategory, "network_policy_block");
+  assert.match(result.remediationHint ?? "", /different egress ip/i);
 });
 
 test("createRedditCapabilityProbeConnectorFromEnv disables circuit breaker fallback routing", () => {

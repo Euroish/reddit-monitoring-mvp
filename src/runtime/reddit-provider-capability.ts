@@ -17,7 +17,14 @@ export interface RedditProviderCapabilityProbeResult {
   httpStatus?: number;
   fetchedAt?: string;
   reason?: string;
+  failureCategory?: RedditProviderCapabilityFailureCategory;
+  remediationHint?: string;
 }
+
+export type RedditProviderCapabilityFailureCategory =
+  | "unexpected_http_status"
+  | "connector_error"
+  | "network_policy_block";
 
 export function resolveRedditProviderCapabilityProbeConfigFromEnv(
   env: NodeJS.ProcessEnv,
@@ -61,15 +68,50 @@ export async function probeRedditProviderCapability(args: {
         page.raw.httpStatus >= 200 && page.raw.httpStatus < 300
           ? undefined
           : `unexpected_http_status:${page.raw.httpStatus}`,
+      failureCategory:
+        page.raw.httpStatus >= 200 && page.raw.httpStatus < 300
+          ? undefined
+          : "unexpected_http_status",
     };
   } catch (error) {
+    const reason =
+      error instanceof Error ? error.message : "unknown provider capability error";
+    const classified = classifyRedditProviderCapabilityFailure(reason);
     return {
       ok: false,
       provider: args.provider,
       subreddit,
-      reason: error instanceof Error ? error.message : "unknown provider capability error",
+      reason,
+      failureCategory: classified.failureCategory,
+      remediationHint: classified.remediationHint,
     };
   }
+}
+
+export function classifyRedditProviderCapabilityFailure(reason: string | undefined): {
+  failureCategory: RedditProviderCapabilityFailureCategory;
+  remediationHint?: string;
+} {
+  const normalized = reason?.toLowerCase() ?? "";
+  if (
+    normalized.includes("blocked by network security") ||
+    normalized.includes("blocked due to a network policy") ||
+    normalized.includes("whoa there, pardner!") ||
+    normalized.includes("use your developer token") ||
+    normalized.includes("developer credentials") ||
+    normalized.includes("status=403") &&
+      (normalized.includes("body=<body class=theme-beta>") ||
+        normalized.includes("body=<!doctype html>"))
+  ) {
+    return {
+      failureCategory: "network_policy_block",
+      remediationHint:
+        "Reddit is blocking this host or unauthenticated lane; use OAuth/developer token, a different provider, or a different egress IP before enabling schedulers.",
+    };
+  }
+  return {
+    failureCategory: "connector_error",
+  };
 }
 
 function normalizeSubredditName(value: string | undefined): string | undefined {
