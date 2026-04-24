@@ -560,7 +560,38 @@ export interface TargetWorkbenchResponse {
     toIso: string;
     grain: "day";
     dayCount: number;
+    timeframe: "1d";
+    rangePreset?: "7d" | "30d" | "90d";
   };
+  availableTimeframes: Array<{
+    id: "1d" | "6h" | "1h";
+    label: string;
+    grain: "day" | "hour";
+    enabled: boolean;
+    reason?: string;
+  }>;
+  availableRanges: Array<{
+    id: "7d" | "30d" | "90d";
+    label: string;
+    dayCount: number;
+    defaultSelected: boolean;
+  }>;
+  indicators: Array<{
+    id:
+      | "heat_price"
+      | "ema_7"
+      | "ema_30"
+      | "total_new_posts"
+      | "qualified_post_count";
+    label: string;
+    family: "trend" | "activity";
+    unit: "score" | "count";
+    defaultVisible: boolean;
+    chartType: "line" | "bar";
+    axis: "primary" | "secondary";
+    description: string;
+    algorithmVersion?: string;
+  }>;
   series: Array<{
     id:
       | "heat_price"
@@ -601,6 +632,16 @@ export interface TargetWorkbenchResponse {
     id: "drivers" | "keyword_heat" | "reliability";
     title: string;
     kind: "driver_posts" | "keyword_table" | "provider_reliability";
+    defaultOpen: boolean;
+  }>;
+  annotations: Array<{
+    id: string;
+    at: string;
+    label: string;
+    kind: "anomaly";
+    severity: AnomalySeverity;
+    score: number;
+    sourceId: string;
   }>;
   drivers: SubredditDriverPostsResponse["drivers"];
   anomalies: SubredditAnomalyFeedResponse["events"];
@@ -620,6 +661,15 @@ export interface TargetWorkbenchResponse {
     lastErrorMessage?: string;
     updatedAt?: string;
   };
+  dataQuality: {
+    status: "complete" | "partial" | "empty";
+    pointCount: number;
+    expectedPointCount: number;
+    stale: boolean;
+    latestPointAt?: string;
+    generatedAtIso: string;
+    notes: string[];
+  };
 }
 
 export type WorkbenchComparableSeriesId =
@@ -638,6 +688,8 @@ export interface TargetComparisonWorkbenchResponse {
     toIso: string;
     grain: "day";
     dayCount: number;
+    timeframe: "1d";
+    rangePreset?: "7d" | "30d" | "90d";
   };
   series: Array<{
     id: WorkbenchComparableSeriesId;
@@ -670,6 +722,43 @@ export interface TargetComparisonWorkbenchResponse {
     latestTotalNewPosts: number | null;
     latestQualifiedPostCount: number | null;
   }>;
+}
+
+export type SavedWorkbenchViewKind = "target" | "comparison";
+
+export interface SavedWorkbenchViewResponseItem {
+  id: string;
+  name: string;
+  viewKind: SavedWorkbenchViewKind;
+  primaryTarget: string;
+  compareTargets: string[];
+  keywords: string[];
+  seriesIds: WorkbenchComparableSeriesId[];
+  routePath: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSavedWorkbenchViewRequest {
+  name: string;
+  viewKind: SavedWorkbenchViewKind;
+  primaryTarget: string;
+  compareTargets?: string[];
+  keywords?: string[];
+  seriesIds?: WorkbenchComparableSeriesId[];
+  routePath: string;
+}
+
+export interface CreateSavedWorkbenchViewResponse {
+  ok: true;
+  requestId: string;
+  view: SavedWorkbenchViewResponseItem;
+}
+
+export interface ListSavedWorkbenchViewsResponse {
+  ok: true;
+  requestId: string;
+  views: SavedWorkbenchViewResponseItem[];
 }
 
 export type AnomalySignalType = "volume" | "quality" | "keyword" | "driver";

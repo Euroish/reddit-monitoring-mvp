@@ -12,6 +12,8 @@ import type {
   AuthLogoutResponse,
   AuthMeResponse,
   AuthUserView,
+  CreateSavedWorkbenchViewRequest,
+  CreateSavedWorkbenchViewResponse,
   CreateInviteRequest,
   CreateInviteResponse,
   CrawlMode,
@@ -20,6 +22,7 @@ import type {
   CreateSubredditTargetRequest,
   CreateSubredditTargetResponse,
   GetKeywordQueryResponse,
+  ListSavedWorkbenchViewsResponse,
   MarketTrendResponse,
   RegisterAppUserRequest,
   RegisterAppUserResponse,
@@ -31,6 +34,7 @@ import type {
   TargetComparisonWorkbenchResponse,
   TargetWorkbenchResponse,
   WorkbenchComparableSeriesId,
+  SavedWorkbenchViewResponseItem,
   TriggerPhase1RunRequest,
   TriggerPhase1RunResponse,
 } from "../../../packages/contracts/src/http";
@@ -90,6 +94,7 @@ import type { MonitorTargetRepository } from "../../../src/domain/repositories/m
 import type { PostGrowthFactRepository } from "../../../src/domain/repositories/post-growth-fact-repository";
 import type { PostSearchDocumentRepository } from "../../../src/domain/repositories/post-search-document-repository";
 import type { ProviderHealthWindowRepository } from "../../../src/domain/repositories/provider-health-window-repository";
+import type { SavedWorkbenchViewRepository } from "../../../src/domain/repositories/saved-workbench-view-repository";
 import type { RawEventRepository } from "../../../src/domain/repositories/raw-event-repository";
 import type { SubredditDailyFactRepository } from "../../../src/domain/repositories/subreddit-daily-fact-repository";
 import type { SubredditTrendPointRepository } from "../../../src/domain/repositories/subreddit-trend-point-repository";
@@ -103,6 +108,7 @@ import {
   resolveGlobalKeywordDailyRange,
   resolveRunMode,
   resolveTrendRange,
+  resolveWorkbenchDailyRange,
 } from "./api-validation";
 import { buildReadinessState } from "./readyz-observability";
 import { resolveRedditProviderRoutingPolicyContextFromEnv } from "../../../src/runtime/reddit-provider-routing-policy";
@@ -191,6 +197,7 @@ export interface ApiRepositoryBundle {
   subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
   providerHealthWindowRepository?: ProviderHealthWindowRepository;
+  savedWorkbenchViewRepository?: SavedWorkbenchViewRepository;
 }
 
 function parseAnomalySignalTypeList(value: string | null): AnomalySignalType[] | undefined {
@@ -343,6 +350,61 @@ function parseComparisonSeriesList(value: string | null): WorkbenchComparableSer
     }
   }
   return seriesIds as WorkbenchComparableSeriesId[];
+}
+
+function normalizeCanonicalSubreddit(value: unknown, fieldName: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new BadRequestError(`${fieldName} is required`, "invalid_query_param");
+  }
+  return `r/${normalizeSubredditName(value.trim().replace(/^r\//i, ""))}`;
+}
+
+function parseSavedWorkbenchViewName(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new BadRequestError("name is required", "invalid_request_body");
+  }
+  const name = value.trim().replace(/\s+/g, " ");
+  if (name.length < 2 || name.length > 80) {
+    throw new BadRequestError("name must be between 2 and 80 characters", "invalid_request_body");
+  }
+  return name;
+}
+
+function parseStringArray(value: unknown, fieldName: string, maxItems: number): string[] {
+  if (value == null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new BadRequestError(`${fieldName} must be an array`, "invalid_request_body");
+  }
+  const items = Array.from(
+    new Set(
+      value
+        .map((item) => (typeof item === "string" ? item.trim() : ""))
+        .filter((item) => item.length > 0),
+    ),
+  );
+  if (items.length > maxItems) {
+    throw new BadRequestError(`${fieldName} supports at most ${maxItems} items`, "invalid_request_body");
+  }
+  return items;
+}
+
+function toSavedWorkbenchViewResponseItem(
+  view: Awaited<ReturnType<SavedWorkbenchViewRepository["upsert"]>>,
+): SavedWorkbenchViewResponseItem {
+  return {
+    id: view.id,
+    name: view.name,
+    viewKind: view.viewKind,
+    primaryTarget: view.primaryTarget,
+    compareTargets: view.compareTargets,
+    keywords: view.keywords,
+    seriesIds: view.seriesIds,
+    routePath: view.routePath,
+    createdAt: view.createdAt,
+    updatedAt: view.updatedAt,
+  };
 }
 
 function parseAgeBucketList(value: string | null): PostGrowthAgeBucket[] | undefined {
@@ -1773,10 +1835,120 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         return;
       }
 
+      if (pathname === "/v1/workbench/saved-views") {
+        if (!repos.savedWorkbenchViewRepository) {
+          respond({
+            statusCode: 501,
+            body: toApiError({
+              requestId,
+              message: "saved workbench views are not configured",
+              code: "feature_not_ready",
+            }),
+            errorCode: "feature_not_ready",
+          });
+          return;
+        }
+
+        if (!actor) {
+          actor = await resolveSessionActor({
+            req,
+            nowIso: now(),
+            appUserRepository: repos.appUserRepository,
+            appSessionRepository: repos.appSessionRepository,
+            cookieName: sessionCookieName,
+            sessionTokenService,
+          });
+        }
+        if (!actor || actor.type !== "session") {
+          respond({
+            statusCode: 401,
+            body: toApiError({
+              requestId,
+              message: "unauthorized",
+              code: "unauthorized",
+            }),
+            errorCode: "unauthorized",
+          });
+          return;
+        }
+
+        if (req.method === "GET") {
+          const limit =
+            parseOptionalIntegerParam({
+              value: url.searchParams.get("limit"),
+              name: "limit",
+              min: 1,
+              max: 50,
+            }) ?? 12;
+          const views = await repos.savedWorkbenchViewRepository.listByUser({
+            userId: actor.userId,
+            limit,
+          });
+          const payload: ListSavedWorkbenchViewsResponse = {
+            ok: true,
+            requestId,
+            views: views.map(toSavedWorkbenchViewResponseItem),
+          };
+          respond({
+            statusCode: 200,
+            body: payload,
+          });
+          return;
+        }
+
+        if (req.method === "POST") {
+          const body = await readJsonBody<CreateSavedWorkbenchViewRequest>(req);
+          if (!body) {
+            throw new BadRequestError("request body is required", "invalid_request_body");
+          }
+          if (body.viewKind !== "target" && body.viewKind !== "comparison") {
+            throw new BadRequestError("invalid viewKind", "invalid_request_body");
+          }
+          const compareTargets = parseStringArray(body.compareTargets, "compareTargets", 6)
+            .map((target) => normalizeCanonicalSubreddit(target, "compareTargets"));
+          const keywords = parseStringArray(body.keywords, "keywords", 12)
+            .map((keyword) => keyword.toLowerCase());
+          const seriesIds = parseComparisonSeriesList(
+            Array.isArray(body.seriesIds) ? body.seriesIds.join(",") : null,
+          );
+          const routePath = typeof body.routePath === "string" ? body.routePath.trim() : "";
+          if (!routePath.startsWith("/target/") || routePath.length > 400) {
+            throw new BadRequestError("invalid routePath", "invalid_request_body");
+          }
+          const nowIso = now();
+          const view = await repos.savedWorkbenchViewRepository.upsert({
+            id: randomUUID(),
+            userId: actor.userId,
+            name: parseSavedWorkbenchViewName(body.name),
+            viewKind: body.viewKind,
+            primaryTarget: normalizeCanonicalSubreddit(body.primaryTarget, "primaryTarget"),
+            compareTargets,
+            keywords,
+            seriesIds,
+            routePath,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          });
+          const payload: CreateSavedWorkbenchViewResponse = {
+            ok: true,
+            requestId,
+            view: toSavedWorkbenchViewResponseItem(view),
+          };
+          respond({
+            statusCode: 201,
+            body: payload,
+          });
+          return;
+        }
+      }
+
       if (req.method === "GET" && pathname === "/v1/workbench/compare") {
         const canonicalNames = parseComparisonTargetList(url.searchParams.get("targets"));
         const seriesIds = parseComparisonSeriesList(url.searchParams.get("series"));
-        const { fromIso, toIso } = resolveDailyRange(url.searchParams, now());
+        const { fromIso, toIso, timeframe, rangePreset } = resolveWorkbenchDailyRange(
+          url.searchParams,
+          now(),
+        );
         const fromDay = toUtcDay(fromIso);
         const toDay = toUtcDay(toIso);
 
@@ -1823,6 +1995,8 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           targets: resolvedTargets,
           fromIso,
           toIso,
+          timeframe,
+          rangePreset,
           dailyFactsByTargetId,
           seriesIds,
         });
@@ -1852,7 +2026,10 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           return;
         }
 
-        const { fromIso, toIso } = resolveDailyRange(url.searchParams, now());
+        const { fromIso, toIso, timeframe, rangePreset } = resolveWorkbenchDailyRange(
+          url.searchParams,
+          now(),
+        );
         const keywordLimit =
           parseOptionalIntegerParam({
             value: url.searchParams.get("keywordLimit"),
@@ -1964,6 +2141,8 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           target,
           fromIso,
           toIso,
+          timeframe,
+          rangePreset,
           dailyFacts,
           trendPoints,
           keywordDailyRows,

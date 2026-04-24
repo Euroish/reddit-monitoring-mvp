@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: analytics-workbench-planning
-updated_at: "2026-04-24 12:18:10"
+stage: analytics-workbench-contract-v2
+updated_at: "2026-04-24 13:37:55"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Deploy-smoke `GET /v1/workbench/compare` on the live host, then start the next analytics workflow object slice: saved comparison/query contexts or watchlist presets."
+next_action: "Deploy-smoke W6 Chart DTO v2 on the live API, then start W7 Market Board/Watchlist only after the new workbench contract is proven on host."
 tags:
 - codex
 - workspace
@@ -21,7 +21,7 @@ tags:
 - Status: active
 - Product: `Reddit analytics product shell on top of the verified HTTP/Scrapling data plane`
 - Product goal: build a durable browser-facing analytics product with session auth, explainable read models, charted target details, query analysis, and protected Ops visibility
-- Phase: `analytics workbench planning`
+- Phase: `analytics workbench contract v2`
 - Authority: `project.md` is the single execution source
 
 ## Product Hardening Focus
@@ -37,13 +37,17 @@ tags:
 - W1 Target Workbench Contract is complete: `TargetWorkbenchResponse`, `GET /v1/workbench/target/:targetId`, focused API tests, compiled deployment, and live host smoke are verified.
 - W2 Target Detail Workbench UI is complete locally: `/target/:targetId` consumes the workbench endpoint and renders series toggles, multi-series chart, driver posts, keyword heat, reliability, anomalies, and query-param keyword overlays.
 - W4 Comparison Mode is complete locally: `TargetComparisonWorkbenchResponse`, `GET /v1/workbench/compare`, normalized multi-target read model, target-detail comparison chart, market-backed suggested comparison controls, API contract test, and browser smoke are verified.
+- W5 Saved Workbench Contexts is complete locally: `saved_workbench_view`, user-owned save/list API, target-detail save current view control, recent saved context links, API auth coverage, and browser smoke are verified.
+- Current route correction from `docs/codex-handoff-tradingview-workbench.md`: do not advance immediately into broad watchlist/preset work. The strongest next slice is W6 Chart DTO v2 and workbench module extraction so TradingView-like behavior is contract-backed instead of frontend-only chart assembly.
+- W6 Chart DTO v2 is complete locally: target/comparison workbench APIs accept `range` and `timeframe`, target responses expose backend-driven indicators, available timeframes/ranges, anomaly annotations, and data-quality metadata, and the frontend chart/options/URL logic is extracted under `apps/web/src/features/workbench`.
 - Keep the completed frontend routes (`/login`, `/dashboard`, `/queries`, `/target/:targetId`, `/ops`) stable while extending API-backed workbench interactions.
 
 ## Current Focus
 
-- Resolve the state drift created by the recovery phase: Linux runtime is no longer the main blocker, but old dead-letter jobs still make readiness look degraded.
+- Keep live collection healthy while moving product architecture forward; old dead-letter jobs are cleanup debt unless fresh scheduled cycles fail.
 - Use `docs/analytics-workbench-framework-2026-04-24.md` as the next product framework source after the product shell design.
-- Optimize for the smallest analytics vertical slice: one workbench read-model contract, one API endpoint, one target-detail UI upgrade, and browser/API smoke evidence.
+- Use `docs/codex-handoff-tradingview-workbench.md` as the latest planning correction for the TradingView-like workbench direction.
+- Optimize for the smallest analytics vertical slice: Chart DTO v2 contract additions, read-model metadata, API-backed range/timeframe controls, frontend workbench module extraction, and browser/API smoke evidence.
 
 ## Change Policy
 
@@ -103,8 +107,30 @@ tags:
 - Do not let historical dead-letter jobs be mistaken for active provider failure; they are cleanup debt until new failures appear.
 - Do not build TradingView-like UI ahead of contracts. Workbench features must be backed by persisted facts/read models and stable DTOs.
 - Architecture optimization is allowed only when it directly supports Chart DTO v2, indicator/panel composition, query overlays, comparison, or analysis workflow ergonomics.
+- Next product sequence is W6 Chart DTO v2/module extraction, then W7 Market Board/Watchlist, then W8 saved presets/context expansion. Watchlist remains important, but follows a stable chart/workbench kernel.
 
 ## Activity Log
+
+### 2026-04-24 13:37:55
+
+- Scope: Completed the local W6 Chart DTO v2/workbench extraction slice. Added `resolveWorkbenchDailyRange()` for API-backed `range=7d|30d|90d` plus `timeframe=1d`, extended `TargetWorkbenchResponse` and comparison range metadata, added backend-driven indicator definitions, available timeframes/ranges, anomaly annotations, and data-quality metadata. Extracted frontend chart rendering/options and URL state into `apps/web/src/features/workbench`, added target-detail range/timeframe controls, and kept existing target/comparison/keyword/saved-view workflows intact.
+- Why now: The handoff correctly identified `TargetDetail.tsx` and the workbench DTO as the next structural bottleneck. This slice creates a stable chart/workbench kernel before broader Market Board/watchlist work.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/integration/api-server-trends.test.ts` passed (`16/16`) with assertions for workbench metadata and range/timeframe params. `npm --prefix apps/web run build` passed with only the existing large-chunk warning. `SMOKE_API_PORT=3100 SMOKE_WEB_PORT=5174 npm run smoke:web` passed and now covers target range controls in addition to target chart, keyword overlay, comparison chart, saved workbench view, Ops, auth guards, and mobile responsive review. `npm run build:api` passed.
+- Next: Deploy/restart the compiled API on the host and smoke `GET /v1/workbench/target/machinelearning?range=7d&timeframe=1d` plus `GET /v1/workbench/compare?...&range=30d&timeframe=1d`; after live DTO v2 is proven, begin W7 Market Board/Watchlist using the contract-backed chart kernel.
+
+### 2026-04-24 13:25:11
+
+- Scope: Re-read `docs/codex-handoff-tradingview-workbench.md` and adjusted the active development plan after W5. Promoted the next slice from deploy-smoke/watchlist presets to W6 Chart DTO v2 plus frontend workbench module extraction. The objective route is now: stable DTO/metadata first, API-backed range/timeframe controls second, reusable workbench chart/control module third, then Market Board/watchlist and saved presets after the chart kernel is stable.
+- Why now: W1-W5 already prove target, comparison, keyword overlay, and saved context workflows. Moving straight into watchlists would add workflow breadth while `TargetDetail.tsx` still owns too much chart/control logic and the contract lacks explicit indicator, panel, annotation, range/timeframe, and data-quality metadata.
+- Verify: Planning verification was source-based: read the handoff doc, current `project.md`, package scripts, and workbench-related API/frontend/test references. Live data validation passed from the deployed Linux env with `REDDIT_RUN_MODE=live REDDIT_CRAWL_MODE=incremental REDDIT_RUN_SUBREDDIT=machinelearning REDDIT_POST_LIMIT=25 npm run phase1:manual-run`; the run selected provider `http`, recorded 50 candidates, and completed `ok=true`. API readback also passed: authenticated `GET /v1/workbench/target/machinelearning?driverLimit=3&anomalyLimit=3` returned `ok=true`, target `r/machinelearning`, series `heat_price`, `ema_7`, `ema_30`, `total_new_posts`, `qualified_post_count`, three drivers, three anomalies, and reliability provider `http`. `/readyz` remains degraded only by the known 105 historical live dead-letter jobs.
+- Next: Implement W6 as one vertical slice: extend contracts/read model without breaking existing API clients, add range/timeframe query params backed by server filtering, expose backend-driven indicator/panel metadata and neutral annotation/data-quality fields, extract `apps/web/src/features/workbench/*`, keep `/target/:targetId` route behavior stable, then verify with `npm run typecheck`, targeted API tests, web build, and browser smoke.
+
+### 2026-04-24 12:48:46
+
+- Scope: Completed W5 Saved Workbench Contexts as the next workflow-object slice. Added `saved_workbench_view` migration, domain entity/repository, in-memory and Postgres repositories, contract DTOs, `POST /v1/workbench/saved-views`, and `GET /v1/workbench/saved-views`. The target detail workbench can now save the current URL-backed target/comparison/keyword context and shows recent saved context links for return navigation.
+- Why now: W4 made comparison usable, but repeat analyst workflows still disappeared after navigation. Saving the current workbench context is the smallest durable workflow object before broader watchlists or presets.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/integration/api-server-auth.test.ts` passed outside the sandbox (`13/13`), including session-owned saved comparison context and bearer rejection. `node --import tsx --test tests/integration/api-server-trends.test.ts` passed outside the sandbox (`16/16`). `npm --prefix apps/web run build` passed with only the existing Vite large-chunk warning. `SMOKE_API_PORT=3100 SMOKE_WEB_PORT=5174 npm run smoke:web` passed outside the sandbox, covering target chart, keyword overlay, comparison chart, saved workbench view creation/list refresh, Ops, auth guards, and mobile responsive review.
+- Next: Deploy-smoke the saved workbench views API plus `GET /v1/workbench/compare` on the live host, then extend workflow objects into watchlist presets.
 
 ### 2026-04-24 12:18:10
 

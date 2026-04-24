@@ -8,7 +8,9 @@ import type {
   AuthLoginResponse,
   AuthLogoutResponse,
   AuthMeResponse,
+  CreateSavedWorkbenchViewResponse,
   CreateInviteResponse,
+  ListSavedWorkbenchViewsResponse,
   MarketTrendResponse,
   RegisterAppUserResponse,
   TriggerPhase1RunResponse,
@@ -268,6 +270,81 @@ test("v1 routes accept session cookies while preserving bearer compatibility", a
     });
     assert.equal(bearerMarket.status, 200);
     assert.equal(bearerMarket.body.ok, true);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("workbench saved views persist session-owned comparison contexts", async () => {
+  const fixedNow = "2026-04-20T02:00:00.000Z";
+  const repos = createApiTestRepositories();
+  await seedAppUser({
+    repos,
+    email: "viewer@example.com",
+    password: "viewer-password",
+    role: "viewer",
+    nowIso: fixedNow,
+  });
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+    auth: {
+      bearerToken: "test-token",
+    },
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const loginResult = await login(baseUrl, "viewer@example.com", "viewer-password");
+    assert.equal(loginResult.status, 200);
+
+    const createResult = await postJson<CreateSavedWorkbenchViewResponse>(
+      `${baseUrl}/v1/workbench/saved-views`,
+      {
+        name: "Data science vs ML",
+        viewKind: "comparison",
+        primaryTarget: "datascience",
+        compareTargets: ["machinelearning"],
+        keywords: ["llm agent"],
+        seriesIds: ["heat_price", "total_new_posts"],
+        routePath: "/target/datascience?keywords=llm%20agent&compare=machinelearning",
+      },
+      {
+        cookie: loginResult.cookie ?? "",
+      },
+    );
+    assert.equal(createResult.status, 201);
+    assert.equal(createResult.body.ok, true);
+    assert.equal(createResult.body.view.primaryTarget, "r/datascience");
+    assert.deepEqual(createResult.body.view.compareTargets, ["r/machinelearning"]);
+    assert.deepEqual(createResult.body.view.seriesIds, ["heat_price", "total_new_posts"]);
+
+    const listResult = await getJson<ListSavedWorkbenchViewsResponse>(
+      `${baseUrl}/v1/workbench/saved-views`,
+      {
+        cookie: loginResult.cookie ?? "",
+      },
+    );
+    assert.equal(listResult.status, 200);
+    assert.equal(listResult.body.views.length, 1);
+    assert.equal(listResult.body.views[0]?.name, "Data science vs ML");
+
+    const bearerCreateResult = await postJson<ApiErrorResponse>(
+      `${baseUrl}/v1/workbench/saved-views`,
+      {
+        name: "machine owned",
+        viewKind: "target",
+        primaryTarget: "datascience",
+        routePath: "/target/datascience",
+      },
+      {
+        authorization: "Bearer test-token",
+      },
+    );
+    assert.equal(bearerCreateResult.status, 401);
+    assert.equal(bearerCreateResult.body.errorCode, "unauthorized");
   } finally {
     await stopServer(server);
   }

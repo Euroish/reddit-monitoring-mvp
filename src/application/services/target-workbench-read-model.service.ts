@@ -18,12 +18,61 @@ const SERIES_DEFS: Array<{
   label: string;
   family: "trend" | "activity";
   unit: "score" | "count";
+  defaultVisible: boolean;
+  chartType: "line" | "bar";
+  axis: "primary" | "secondary";
+  description: string;
 }> = [
-  { id: "heat_price", label: "Heat Price", family: "trend", unit: "score" },
-  { id: "ema_7", label: "EMA 7", family: "trend", unit: "score" },
-  { id: "ema_30", label: "EMA 30", family: "trend", unit: "score" },
-  { id: "total_new_posts", label: "Total New Posts", family: "activity", unit: "count" },
-  { id: "qualified_post_count", label: "Qualified Posts", family: "activity", unit: "count" },
+  {
+    id: "heat_price",
+    label: "Heat Price",
+    family: "trend",
+    unit: "score",
+    defaultVisible: true,
+    chartType: "line",
+    axis: "primary",
+    description: "Normalized heat signal from daily subreddit activity and quality facts.",
+  },
+  {
+    id: "ema_7",
+    label: "EMA 7",
+    family: "trend",
+    unit: "score",
+    defaultVisible: true,
+    chartType: "line",
+    axis: "primary",
+    description: "Seven-day exponential moving average for heat price.",
+  },
+  {
+    id: "ema_30",
+    label: "EMA 30",
+    family: "trend",
+    unit: "score",
+    defaultVisible: true,
+    chartType: "line",
+    axis: "primary",
+    description: "Thirty-day exponential moving average for heat price.",
+  },
+  {
+    id: "total_new_posts",
+    label: "Total New Posts",
+    family: "activity",
+    unit: "count",
+    defaultVisible: false,
+    chartType: "bar",
+    axis: "secondary",
+    description: "Total new posts observed in the daily materialized fact.",
+  },
+  {
+    id: "qualified_post_count",
+    label: "Qualified Posts",
+    family: "activity",
+    unit: "count",
+    defaultVisible: false,
+    chartType: "bar",
+    axis: "secondary",
+    description: "Posts that passed the configured quality threshold for the day.",
+  },
 ];
 
 export function buildTargetWorkbenchReadModel(args: {
@@ -32,6 +81,8 @@ export function buildTargetWorkbenchReadModel(args: {
   target: MonitorTarget;
   fromIso: string;
   toIso: string;
+  timeframe?: "1d";
+  rangePreset?: "7d" | "30d" | "90d";
   dailyFacts: SubredditDailyFact[];
   trendPoints: SubredditTrendPoint[];
   keywordDailyRows: KeywordTrendDaily[];
@@ -93,6 +144,8 @@ export function buildTargetWorkbenchReadModel(args: {
     events: args.anomalyEvents,
     limit: args.anomalyLimit ?? 10,
   }).events;
+  const latestPointAt = dailyInsights.daily.at(-1)?.day;
+  const materializedFactDays = new Set(args.dailyFacts.map((fact) => fact.day));
   const overlays = dailyInsights.keywordHeat.map((keyword) => ({
     id: `keyword_heat:${keyword.queryScope}:${keyword.keyword}`,
     label: keyword.keyword,
@@ -126,9 +179,37 @@ export function buildTargetWorkbenchReadModel(args: {
       toIso: dailyInsights.toIso,
       grain: "day",
       dayCount: dailyInsights.dayCount,
+      timeframe: args.timeframe ?? "1d",
+      ...(args.rangePreset ? { rangePreset: args.rangePreset } : {}),
     },
+    availableTimeframes: [
+      { id: "1d", label: "1D", grain: "day", enabled: true },
+      {
+        id: "6h",
+        label: "6H",
+        grain: "hour",
+        enabled: false,
+        reason: "Requires persisted intraday workbench facts.",
+      },
+      {
+        id: "1h",
+        label: "1H",
+        grain: "hour",
+        enabled: false,
+        reason: "Requires persisted intraday workbench facts.",
+      },
+    ],
+    availableRanges: [
+      { id: "7d", label: "7D", dayCount: 7, defaultSelected: args.rangePreset === "7d" },
+      { id: "30d", label: "30D", dayCount: 30, defaultSelected: args.rangePreset === "30d" },
+      { id: "90d", label: "90D", dayCount: 90, defaultSelected: args.rangePreset === "90d" },
+    ],
+    indicators: SERIES_DEFS,
     series: SERIES_DEFS.map((definition) => ({
-      ...definition,
+      id: definition.id,
+      label: definition.label,
+      family: definition.family,
+      unit: definition.unit,
       points: dailyInsights.daily.map((point) => ({
         at: point.day,
         value: valueForSeries(definition.id, point),
@@ -150,15 +231,67 @@ export function buildTargetWorkbenchReadModel(args: {
       }),
     },
     panels: [
-      { id: "drivers", title: "Driver Posts", kind: "driver_posts" },
-      { id: "keyword_heat", title: "Keyword Heat", kind: "keyword_table" },
-      { id: "reliability", title: "Reliability", kind: "provider_reliability" },
+      { id: "drivers", title: "Driver Posts", kind: "driver_posts", defaultOpen: true },
+      { id: "keyword_heat", title: "Keyword Heat", kind: "keyword_table", defaultOpen: true },
+      { id: "reliability", title: "Reliability", kind: "provider_reliability", defaultOpen: true },
     ],
+    annotations: anomalies.map((anomaly) => ({
+      id: `anomaly:${anomaly.eventId}`,
+      at: anomaly.observedAt,
+      label: `${anomaly.signalType}: ${anomaly.signalKey}`,
+      kind: "anomaly",
+      severity: anomaly.severity,
+      score: anomaly.anomalyScore,
+      sourceId: anomaly.eventId,
+    })),
     drivers,
     anomalies,
     keywordHeat: dailyInsights.keywordHeat,
     reliability: summarizeReliability(args.providerHealthWindows),
+    dataQuality: {
+      status:
+        materializedFactDays.size === 0
+          ? "empty"
+          : materializedFactDays.size < dailyInsights.dayCount
+            ? "partial"
+            : "complete",
+      pointCount: materializedFactDays.size,
+      expectedPointCount: dailyInsights.dayCount,
+      stale: latestPointAt
+        ? Date.parse(args.toIso) - Date.parse(`${latestPointAt}T00:00:00.000Z`) > 36 * 60 * 60 * 1000
+        : true,
+      ...(latestPointAt ? { latestPointAt } : {}),
+      generatedAtIso: args.generatedAtIso,
+      notes: buildDataQualityNotes({
+        pointCount: materializedFactDays.size,
+        expectedPointCount: dailyInsights.dayCount,
+        latestPointAt,
+        toIso: args.toIso,
+      }),
+    },
   };
+}
+
+function buildDataQualityNotes(args: {
+  pointCount: number;
+  expectedPointCount: number;
+  latestPointAt?: string;
+  toIso: string;
+}): string[] {
+  const notes: string[] = [];
+  if (args.pointCount === 0) {
+    notes.push("No materialized daily facts were found for the selected range.");
+  } else if (args.pointCount < args.expectedPointCount) {
+    notes.push("The selected range has gaps in materialized daily facts.");
+  }
+  if (
+    !args.latestPointAt ||
+    Date.parse(args.toIso) - Date.parse(`${args.latestPointAt}T00:00:00.000Z`) >
+      36 * 60 * 60 * 1000
+  ) {
+    notes.push("Latest materialized point is older than the selected range end.");
+  }
+  return notes;
 }
 
 function valueForSeries(

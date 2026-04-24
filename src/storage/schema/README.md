@@ -13,6 +13,7 @@
 - `010_queue_observability_upgrade.sql` adds `collection_job.crawl_mode` for live/backfill queue splits and extends `provider_health_window` with duplicate/lag/provider-diff observability counters.
 - `011_keyword_pulse_point_5m_and_query_cache.sql` adds `keyword_pulse_point_5m`, extends `keyword_query_sample_post` with `source_type`/`data_quality`, and adds a cache lookup index for reusable keyword sessions.
 - `012_collection_job_payload.sql` adds `collection_job.payload` so durable queue dispatch can preserve request-scoped execution hints such as post-limit overrides.
+- `020_saved_workbench_view.sql` adds user-owned saved workbench contexts for target/comparison workflows.
 - `metric_name` is enforced by PostgreSQL enum (`metric_name_enum`) and scope check:
   - target-level metrics require `content_id IS NULL`
   - content-level metrics require `content_id IS NOT NULL`

@@ -23,6 +23,7 @@ import {
   InMemoryPostSearchDocumentRepository,
   InMemoryProviderHealthWindowRepository,
   InMemoryRawEventRepository,
+  InMemorySavedWorkbenchViewRepository,
   InMemorySubredditDailyFactRepository,
   InMemorySubredditTrendPointRepository,
 } from "../src/storage/repositories/in-memory/in-memory.repositories";
@@ -60,6 +61,7 @@ function createSmokeRepositories() {
     subredditDailyFactRepository: new InMemorySubredditDailyFactRepository(),
     subredditTrendPointRepository: new InMemorySubredditTrendPointRepository(),
     providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
+    savedWorkbenchViewRepository: new InMemorySavedWorkbenchViewRepository(),
   };
 }
 
@@ -611,6 +613,9 @@ async function runOwnerDesktopFlow(page: Page) {
   await page.getByRole("heading", { name: "Reliability" }).waitFor();
   await page.getByText("Vector database benchmark drives analytics workflow discussion").waitFor();
   await page.locator("svg").first().waitFor();
+  await page.getByRole("button", { name: "7D" }).click();
+  await page.waitForURL(/range=7d/);
+  await page.getByRole("button", { name: "1D" }).waitFor();
   await assertNoHorizontalOverflow(page, "desktop target detail");
 
   console.log("web smoke: target detail keyword overlay");
@@ -632,6 +637,9 @@ async function runOwnerDesktopFlow(page: Page) {
   await page.getByText("r/machinelearning", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Remove r/machinelearning" }).waitFor();
   await page.locator("svg").nth(1).waitFor();
+  await page.getByRole("button", { name: "Save view" }).click();
+  await page.getByText("Saved.").waitFor();
+  await page.getByRole("link", { name: "r/datascience comparison" }).waitFor();
   await assertNoHorizontalOverflow(page, "desktop target detail comparison");
 
   console.log("web smoke: ops");
@@ -743,9 +751,11 @@ async function main() {
         checked: [
           "owner session persistence",
           "queries",
-          "target chart svg",
-          "target comparison chart",
+      "target chart svg",
+      "target range controls",
+      "target comparison chart",
           "target keyword overlay",
+          "saved workbench view",
           "ops readiness",
           "ops trigger",
           "logout redirect",

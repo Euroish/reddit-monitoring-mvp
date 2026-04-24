@@ -375,19 +375,37 @@ test("api server returns target workbench contract from materialized read models
   const baseUrl = await startServer(server);
   try {
     const result = await getJson<TargetWorkbenchResponse>(
-      `${baseUrl}/v1/workbench/target/datascienceworkbench?from=2026-04-10T00:00:00.000Z&to=2026-04-10T23:59:59.000Z&keywords=ai`,
+      `${baseUrl}/v1/workbench/target/datascienceworkbench?range=7d&to=2026-04-10T23:59:59.000Z&timeframe=1d&keywords=ai`,
     );
 
     assert.equal(result.status, 200);
     assert.equal(result.body.ok, true);
     assert.equal(result.body.target.canonicalName, "r/datascienceworkbench");
     assert.equal(result.body.range.grain, "day");
+    assert.equal(result.body.range.timeframe, "1d");
+    assert.equal(result.body.range.rangePreset, "7d");
+    assert.deepEqual(
+      result.body.availableTimeframes.map((timeframe) => [timeframe.id, timeframe.enabled]),
+      [
+        ["1d", true],
+        ["6h", false],
+        ["1h", false],
+      ],
+    );
+    assert.deepEqual(
+      result.body.indicators
+        .filter((indicator) => indicator.defaultVisible)
+        .map((indicator) => indicator.id),
+      ["heat_price", "ema_7", "ema_30"],
+    );
     assert.deepEqual(
       result.body.series.map((series) => series.id),
       ["heat_price", "ema_7", "ema_30", "total_new_posts", "qualified_post_count"],
     );
     assert.equal(
-      result.body.series.find((series) => series.id === "heat_price")?.points[0]?.value,
+      result.body.series
+        .find((series) => series.id === "heat_price")
+        ?.points.find((point) => point.at === "2026-04-10")?.value,
       42,
     );
     assert.equal(result.body.overlays[0]?.id, "keyword_heat:subreddit:ai");
@@ -406,9 +424,13 @@ test("api server returns target workbench contract from materialized read models
     assert.equal(result.body.drivers[0]?.title, "AI benchmark is moving fast");
     assert.deepEqual(result.body.drivers[0]?.matchedQueries, ["ai"]);
     assert.equal(result.body.anomalies[0]?.signalType, "keyword");
+    assert.equal(result.body.annotations[0]?.kind, "anomaly");
+    assert.equal(result.body.annotations[0]?.sourceId, result.body.anomalies[0]?.eventId);
     assert.equal(result.body.reliability.provider, "http");
     assert.equal(result.body.reliability.successCount, 3);
     assert.equal(result.body.reliability.duplicatePostRate, 0.1);
+    assert.equal(result.body.dataQuality.status, "partial");
+    assert.equal(result.body.dataQuality.pointCount, 1);
     assert.deepEqual(
       result.body.panels.map((panel) => panel.id),
       ["drivers", "keyword_heat", "reliability"],
@@ -479,11 +501,13 @@ test("api server returns target comparison workbench from multiple materialized 
   const baseUrl = await startServer(server);
   try {
     const result = await getJson<TargetComparisonWorkbenchResponse>(
-      `${baseUrl}/v1/workbench/compare?targets=datasciencecompare,mlcompare&series=heat_price,total_new_posts&from=2026-04-10T00:00:00.000Z&to=2026-04-11T23:59:59.000Z`,
+      `${baseUrl}/v1/workbench/compare?targets=datasciencecompare,mlcompare&series=heat_price,total_new_posts&range=30d&to=2026-04-11T23:59:59.000Z&timeframe=1d`,
     );
 
     assert.equal(result.status, 200);
     assert.equal(result.body.ok, true);
+    assert.equal(result.body.range.timeframe, "1d");
+    assert.equal(result.body.range.rangePreset, "30d");
     assert.deepEqual(
       result.body.targets.map((target) => target.canonicalName),
       ["r/datasciencecompare", "r/mlcompare"],

@@ -13,6 +13,7 @@ import type { MonitorTargetRepository } from "../../../domain/repositories/monit
 import type { PostSearchDocumentRepository } from "../../../domain/repositories/post-search-document-repository";
 import type { PostGrowthFactRepository } from "../../../domain/repositories/post-growth-fact-repository";
 import type { ProviderHealthWindowRepository } from "../../../domain/repositories/provider-health-window-repository";
+import type { SavedWorkbenchViewRepository } from "../../../domain/repositories/saved-workbench-view-repository";
 import type { SubredditDailyFactRepository } from "../../../domain/repositories/subreddit-daily-fact-repository";
 import type { RawEventRepository } from "../../../domain/repositories/raw-event-repository";
 import type { SubredditTrendPointRepository } from "../../../domain/repositories/subreddit-trend-point-repository";
@@ -33,6 +34,7 @@ import { PostgresPostSearchDocumentRepository } from "./postgres-post-search-doc
 import { PostgresPostGrowthFactRepository } from "./postgres-post-growth-fact.repository";
 import { PostgresProviderHealthWindowRepository } from "./postgres-provider-health-window.repository";
 import { PostgresRawEventRepository } from "./postgres-raw-event.repository";
+import { PostgresSavedWorkbenchViewRepository } from "./postgres-saved-workbench-view.repository";
 import { PostgresSubredditDailyFactRepository } from "./postgres-subreddit-daily-fact.repository";
 import { PostgresSubredditTrendPointRepository } from "./postgres-subreddit-trend-point.repository";
 
@@ -55,6 +57,7 @@ export interface RepositoryBundle {
   subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
   providerHealthWindowRepository: ProviderHealthWindowRepository;
+  savedWorkbenchViewRepository: SavedWorkbenchViewRepository;
 }
 
 export function createPostgresRepositoryBundle(db: PostgresClient): RepositoryBundle {
@@ -77,5 +80,6 @@ export function createPostgresRepositoryBundle(db: PostgresClient): RepositoryBu
     subredditDailyFactRepository: new PostgresSubredditDailyFactRepository(db),
     subredditTrendPointRepository: new PostgresSubredditTrendPointRepository(db),
     providerHealthWindowRepository: new PostgresProviderHealthWindowRepository(db),
+    savedWorkbenchViewRepository: new PostgresSavedWorkbenchViewRepository(db),
   };
 }

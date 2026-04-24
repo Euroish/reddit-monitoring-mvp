@@ -17,6 +17,11 @@ const DEFAULT_TREND_LOOKBACK_MINUTES = 72 * 60;
 const MAX_TREND_LOOKBACK_MINUTES = 30 * 24 * 60;
 const DEFAULT_DAILY_LOOKBACK_MINUTES = 14 * 24 * 60;
 const MAX_DAILY_LOOKBACK_MINUTES = 90 * 24 * 60;
+const WORKBENCH_RANGE_PRESET_DAYS = {
+  "7d": 7,
+  "30d": 30,
+  "90d": 90,
+} as const;
 const DEFAULT_GLOBAL_KEYWORD_LOOKBACK_DAYS = 30;
 const MAX_GLOBAL_KEYWORD_LOOKBACK_DAYS = 30;
 const MAX_KEYWORD_QUERY_LENGTH = 160;
@@ -137,6 +142,62 @@ export function resolveDailyRange(params: URLSearchParams, nowIso: string): { fr
   }
 
   return { fromIso, toIso };
+}
+
+export function resolveWorkbenchDailyRange(
+  params: URLSearchParams,
+  nowIso: string,
+): {
+  fromIso: string;
+  toIso: string;
+  timeframe: "1d";
+  rangePreset?: keyof typeof WORKBENCH_RANGE_PRESET_DAYS;
+} {
+  const requestedTimeframe = params.get("timeframe") ?? "1d";
+  if (requestedTimeframe !== "1d") {
+    throw new BadRequestError(
+      "timeframe must be 1d until intraday workbench facts are available",
+      "invalid_timeframe",
+    );
+  }
+
+  const requestedRange = params.get("range");
+  const rangePreset = parseWorkbenchRangePreset(requestedRange);
+  const toIso = parseIsoParam(params.get("to"), "to") ?? nowIso;
+  const fromIso =
+    parseIsoParam(params.get("from"), "from") ??
+    (rangePreset
+      ? new Date(
+          new Date(toIso).getTime() -
+            (WORKBENCH_RANGE_PRESET_DAYS[rangePreset] - 1) * 24 * 60 * 60 * 1000,
+        ).toISOString()
+      : new Date(new Date(toIso).getTime() - DEFAULT_DAILY_LOOKBACK_MINUTES * 60 * 1000).toISOString());
+
+  const resolved = resolveDailyRange(
+    new URLSearchParams({
+      from: fromIso,
+      to: toIso,
+    }),
+    nowIso,
+  );
+
+  return {
+    ...resolved,
+    timeframe: "1d",
+    ...(rangePreset ? { rangePreset } : {}),
+  };
+}
+
+function parseWorkbenchRangePreset(
+  value: string | null,
+): keyof typeof WORKBENCH_RANGE_PRESET_DAYS | undefined {
+  if (value === null || value.trim() === "") {
+    return undefined;
+  }
+  if (value === "7d" || value === "30d" || value === "90d") {
+    return value;
+  }
+  throw new BadRequestError("range must be one of 7d, 30d, 90d", "invalid_range_preset");
 }
 
 export function resolveGlobalKeywordDailyRange(

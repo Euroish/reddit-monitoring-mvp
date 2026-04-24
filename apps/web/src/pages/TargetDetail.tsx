@@ -1,115 +1,84 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import type { EChartsOption } from 'echarts';
-import * as echarts from 'echarts/core';
-import { LineChart } from 'echarts/charts';
-import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components';
-import { SVGRenderer } from 'echarts/renderers';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
 import { Card, Badge, Button, Input } from '../components/ui';
+import { WorkbenchChart } from '../features/workbench/components/WorkbenchChart';
+import {
+  buildComparisonChartOptions,
+  buildTargetWorkbenchChartOptions,
+  createInitialSeriesSelection,
+} from '../features/workbench/model/chartOptions';
+import {
+  buildComparisonPath,
+  buildWorkbenchPath,
+  normalizeWorkbenchRange,
+  parseCompareTargets,
+  parseCsvList,
+  WORKBENCH_RANGE_PRESETS,
+} from '../features/workbench/model/urlState';
 import type {
   MarketTrendResponse,
+  CreateSavedWorkbenchViewRequest,
+  CreateSavedWorkbenchViewResponse,
+  ListSavedWorkbenchViewsResponse,
   TargetComparisonWorkbenchResponse,
   TargetWorkbenchResponse,
 } from '../../../../packages/contracts/src/http';
-
-echarts.use([GridComponent, LegendComponent, LineChart, SVGRenderer, TooltipComponent]);
-
-const DEFAULT_SERIES = new Set(['heat_price', 'ema_7', 'ema_30']);
-const SERIES_COLORS: Record<string, string> = {
-  heat_price: '#5e6ad2',
-  ema_7: '#a07cc6',
-  ema_30: '#6f7785',
-  total_new_posts: '#10b981',
-  qualified_post_count: '#f59f00',
-};
-
-function buildWorkbenchPath(targetId: string | undefined, keywords: string | null) {
-  const params = new URLSearchParams({
-    driverLimit: '8',
-    anomalyLimit: '8',
-  });
-  if (keywords?.trim()) {
-    params.set('keywords', keywords.trim());
-  }
-  return `/v1/workbench/target/${targetId}?${params.toString()}`;
-}
-
-function buildComparisonPath(targetId: string | undefined, compare: string | null) {
-  const comparisonTargets = [
-    targetId,
-    ...(compare ?? '').split(',').map((value) => value.trim()).filter(Boolean),
-  ].filter(Boolean);
-  const params = new URLSearchParams({
-    targets: comparisonTargets.join(','),
-    series: 'heat_price,total_new_posts',
-  });
-  return `/v1/workbench/compare?${params.toString()}`;
-}
-
-function WorkbenchChart({ option }: { option: EChartsOption }) {
-  const chartElementRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!chartElementRef.current) return;
-
-    const chart = echarts.init(chartElementRef.current, undefined, { renderer: 'svg' });
-    chart.setOption(option, true);
-
-    const resizeObserver = new ResizeObserver(() => chart.resize());
-    resizeObserver.observe(chartElementRef.current);
-
-    return () => {
-      resizeObserver.disconnect();
-      chart.dispose();
-    };
-  }, [option]);
-
-  return <div ref={chartElementRef} style={{ height: '100%', width: '100%' }} />;
-}
 
 function formatNumber(value: number | null | undefined, digits = 0) {
   if (value == null || Number.isNaN(value)) return 'n/a';
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: digits }).format(value);
 }
 
-function parseCompareTargets(value: string | null) {
-  return Array.from(
-    new Set(
-      (value ?? '')
-        .split(',')
-        .map((item) => item.trim().replace(/^r\//i, ''))
-        .filter(Boolean),
-    ),
-  );
-}
-
 export function TargetDetail() {
   const { targetId } = useParams<{ targetId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useQueryClient();
   const keywords = searchParams.get('keywords');
+  const range = normalizeWorkbenchRange(searchParams.get('range'));
+  const timeframe = '1d' as const;
   const [overlayInput, setOverlayInput] = useState(keywords ?? '');
   const compare = searchParams.get('compare');
   const [compareInput, setCompareInput] = useState(compare ?? '');
-  const [activeSeries, setActiveSeries] = useState<Set<string>>(new Set(DEFAULT_SERIES));
+  const [activeSeries, setActiveSeries] = useState<Set<string>>(new Set());
   const [hiddenOverlayIds, setHiddenOverlayIds] = useState<Set<string>>(new Set());
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['target-workbench', targetId, keywords],
-    queryFn: () => fetchApi<TargetWorkbenchResponse>(buildWorkbenchPath(targetId, keywords)),
+    queryKey: ['target-workbench', targetId, keywords, range, timeframe],
+    queryFn: () =>
+      fetchApi<TargetWorkbenchResponse>(buildWorkbenchPath({ targetId, keywords, range, timeframe })),
     enabled: !!targetId,
   });
 
   const { data: comparisonData } = useQuery({
-    queryKey: ['target-comparison-workbench', targetId, compare],
-    queryFn: () => fetchApi<TargetComparisonWorkbenchResponse>(buildComparisonPath(targetId, compare)),
+    queryKey: ['target-comparison-workbench', targetId, compare, range, timeframe],
+    queryFn: () =>
+      fetchApi<TargetComparisonWorkbenchResponse>(
+        buildComparisonPath({ targetId, compare, range, timeframe }),
+      ),
     enabled: !!targetId && !!compare?.trim(),
   });
 
   const { data: marketData } = useQuery({
     queryKey: ['market-trend'],
     queryFn: () => fetchApi<MarketTrendResponse>('/v1/trends/market'),
+  });
+
+  const { data: savedViews } = useQuery({
+    queryKey: ['saved-workbench-views'],
+    queryFn: () => fetchApi<ListSavedWorkbenchViewsResponse>('/v1/workbench/saved-views?limit=6'),
+  });
+
+  const saveViewMutation = useMutation({
+    mutationFn: (payload: CreateSavedWorkbenchViewRequest) =>
+      fetchApi<CreateSavedWorkbenchViewResponse>('/v1/workbench/saved-views', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['saved-workbench-views'] });
+    },
   });
 
   useEffect(() => {
@@ -120,6 +89,12 @@ export function TargetDetail() {
   useEffect(() => {
     setCompareInput(compare ?? '');
   }, [compare]);
+
+  useEffect(() => {
+    if (data) {
+      setActiveSeries(createInitialSeriesSelection(data));
+    }
+  }, [data?.target.targetId]);
 
   const latestDailyPoint = useMemo(() => {
     if (!data?.series.length) return null;
@@ -153,129 +128,15 @@ export function TargetDetail() {
       .slice(0, 4);
   }, [marketData, selectedCompareTargets, targetId]);
 
-  const chartOptions = useMemo<EChartsOption>(() => {
-    if (!data || data.series.length === 0) return {};
+  const chartOptions = useMemo(
+    () => buildTargetWorkbenchChartOptions({ data, activeSeries, hiddenOverlayIds }),
+    [activeSeries, data, hiddenOverlayIds],
+  );
 
-    const dates = data.series[0]?.points.map((point) => point.at) ?? [];
-    const visibleSeries = data.series.filter((series) => activeSeries.has(series.id));
-    const chartSeries = visibleSeries.map((series) => ({
-      name: series.label,
-      type: 'line' as const,
-      data: series.points.map((point) => point.value),
-      smooth: true,
-      showSymbol: false,
-      itemStyle: { color: SERIES_COLORS[series.id] ?? '#8a8f98' },
-      lineStyle: {
-        width: series.id === 'heat_price' ? 3 : 2,
-        type: series.id.startsWith('ema_') ? 'dashed' as const : 'solid' as const,
-      },
-    }));
-    const overlaySeries = data.overlays.filter((overlay) => !hiddenOverlayIds.has(overlay.id)).slice(0, 3).map((overlay) => ({
-      name: overlay.label,
-      type: 'line' as const,
-      data: overlay.points.map((point) => point.value),
-      smooth: true,
-      showSymbol: false,
-      yAxisIndex: 1,
-      itemStyle: { color: '#e879f9' },
-      lineStyle: { width: 1.5, type: 'dotted' as const },
-    }));
-
-    return {
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: 'rgba(23, 24, 25, 0.94)',
-        borderColor: '#2b2d31',
-        textStyle: { color: '#eeeeee' },
-      },
-      legend: {
-        data: [...chartSeries, ...overlaySeries].map((series) => series.name),
-        textStyle: { color: '#888888' },
-        bottom: 0,
-      },
-      grid: {
-        left: '3%',
-        right: '5%',
-        bottom: '12%',
-        top: '4%',
-        containLabel: true,
-      },
-      xAxis: {
-        type: 'category',
-        boundaryGap: false,
-        data: dates,
-        axisLine: { lineStyle: { color: '#2b2d31' } },
-        axisLabel: { color: '#888888' },
-      },
-      yAxis: [
-        {
-          type: 'value',
-          splitLine: { lineStyle: { color: '#1a1b1e' } },
-          axisLabel: { color: '#888888' },
-        },
-        {
-          type: 'value',
-          splitLine: { show: false },
-          axisLabel: { color: '#8a8f98' },
-        },
-      ],
-      series: [...chartSeries, ...overlaySeries],
-    };
-  }, [activeSeries, data, hiddenOverlayIds]);
-
-  const comparisonChartOptions = useMemo<EChartsOption>(() => {
-    if (!comparisonData || comparisonData.comparisons.length === 0) return {};
-    const dates = comparisonData.comparisons[0]?.points.map((point) => point.at) ?? [];
-    const palette = ['#5e6ad2', '#10b981', '#f59f00', '#e879f9', '#38bdf8', '#f43f5e'];
-    const chartSeries = comparisonData.comparisons.map((comparison, index) => {
-      const seriesLabel = comparisonData.series.find((series) => series.id === comparison.seriesId)?.label ?? comparison.seriesId;
-      return {
-        name: `${comparison.canonicalName} ${seriesLabel}`,
-        type: 'line' as const,
-        data: comparison.points.map((point) => point.normalizedValue),
-        smooth: true,
-        showSymbol: false,
-        itemStyle: { color: palette[index % palette.length] },
-        lineStyle: {
-          width: comparison.seriesId === 'heat_price' ? 2.5 : 1.5,
-          type: comparison.seriesId === 'heat_price' ? 'solid' as const : 'dashed' as const,
-        },
-      };
-    });
-    return {
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: 'rgba(23, 24, 25, 0.94)',
-        borderColor: '#2b2d31',
-        textStyle: { color: '#eeeeee' },
-      },
-      legend: {
-        data: chartSeries.map((series) => series.name),
-        textStyle: { color: '#888888' },
-        bottom: 0,
-      },
-      grid: {
-        left: '3%',
-        right: '4%',
-        bottom: '15%',
-        top: '4%',
-        containLabel: true,
-      },
-      xAxis: {
-        type: 'category',
-        boundaryGap: false,
-        data: dates,
-        axisLine: { lineStyle: { color: '#2b2d31' } },
-        axisLabel: { color: '#888888' },
-      },
-      yAxis: {
-        type: 'value',
-        splitLine: { lineStyle: { color: '#1a1b1e' } },
-        axisLabel: { color: '#888888', formatter: '{value}' },
-      },
-      series: chartSeries,
-    };
-  }, [comparisonData]);
+  const comparisonChartOptions = useMemo(
+    () => buildComparisonChartOptions(comparisonData),
+    [comparisonData],
+  );
 
   const toggleSeries = (seriesId: string) => {
     setActiveSeries((current) => {
@@ -324,6 +185,13 @@ export function TargetDetail() {
     setSearchParams(next);
   };
 
+  const applyRange = (nextRange: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('range', nextRange);
+    next.set('timeframe', timeframe);
+    setSearchParams(next);
+  };
+
   const applyComparison = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const normalized = compareInput
@@ -368,6 +236,27 @@ export function TargetDetail() {
     setSearchParams(next);
   };
 
+  const saveCurrentView = () => {
+    if (!data) return;
+    const compareTargets = selectedCompareTargets.map((target) => `r/${target}`);
+    const keywordList = parseCsvList(keywords);
+    const routePath = `${window.location.pathname}${window.location.search}`;
+    saveViewMutation.mutate({
+      name: compareTargets.length > 0
+        ? `${data.target.canonicalName} comparison`
+        : `${data.target.canonicalName} workbench`,
+      viewKind: compareTargets.length > 0 ? 'comparison' : 'target',
+      primaryTarget: data.target.canonicalName,
+      compareTargets,
+      keywords: keywordList,
+      seriesIds: Array.from(activeSeries)
+        .filter((seriesId): seriesId is NonNullable<CreateSavedWorkbenchViewRequest['seriesIds']>[number] =>
+          ['heat_price', 'ema_7', 'ema_30', 'total_new_posts', 'qualified_post_count'].includes(seriesId),
+        ),
+      routePath,
+    });
+  };
+
   return (
     <div>
       <div className="page-header">
@@ -377,7 +266,8 @@ export function TargetDetail() {
               &larr; Back
             </Link>
             <h1 style={{ margin: 0 }} className="break-text">{data?.target.canonicalName ?? `r/${targetId}`}</h1>
-            {data && <Badge variant="neutral">{data.range.dayCount}d</Badge>}
+            {data && <Badge variant="neutral">{data.range.rangePreset ?? `${data.range.dayCount}d`}</Badge>}
+            {data && <Badge variant={data.dataQuality.status === 'complete' ? 'success' : 'neutral'}>{data.dataQuality.status}</Badge>}
             {data?.reliability.mode && <Badge variant="neutral">{data.reliability.mode}</Badge>}
           </div>
           <p className="page-subtitle">
@@ -413,7 +303,48 @@ export function TargetDetail() {
           <Card style={{ padding: '24px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', marginBottom: '20px' }}>
               <h3>Workbench Chart</h3>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                {WORKBENCH_RANGE_PRESETS.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => applyRange(preset)}
+                    style={{
+                      backgroundColor: range === preset ? 'rgba(94, 106, 210, 0.16)' : 'rgba(255,255,255,0.03)',
+                      border: '1px solid var(--border-standard)',
+                      borderRadius: '6px',
+                      color: range === preset ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      minHeight: '32px',
+                      padding: '6px 10px',
+                    }}
+                  >
+                    {preset.toUpperCase()}
+                  </button>
+                ))}
+                {data.availableTimeframes.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => item.enabled && applyRange(range)}
+                    disabled={!item.enabled}
+                    title={item.reason}
+                    style={{
+                      backgroundColor: item.id === data.range.timeframe ? 'rgba(16, 185, 129, 0.14)' : 'rgba(255,255,255,0.03)',
+                      border: '1px solid var(--border-standard)',
+                      borderRadius: '6px',
+                      color: item.enabled ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                      cursor: item.enabled ? 'pointer' : 'not-allowed',
+                      fontSize: '13px',
+                      minHeight: '32px',
+                      opacity: item.enabled ? 1 : 0.54,
+                      padding: '6px 10px',
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                ))}
                 {data.series.map((series) => (
                   <label
                     key={series.id}
@@ -531,6 +462,51 @@ export function TargetDetail() {
                     >
                       Compare {canonicalName}
                     </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'grid', gap: '10px', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ color: 'var(--text-primary)', fontSize: '13px', fontWeight: 590 }}>Saved contexts</div>
+                  <div style={{ color: 'var(--text-tertiary)', fontSize: '12px', marginTop: '2px' }}>
+                    Preserve this chart state for later analysis.
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="subtle"
+                  onClick={saveCurrentView}
+                  disabled={saveViewMutation.isPending}
+                >
+                  {saveViewMutation.isPending ? 'Saving...' : 'Save view'}
+                </Button>
+              </div>
+              {saveViewMutation.isSuccess && (
+                <div style={{ color: 'var(--status-emerald)', fontSize: '12px' }}>Saved.</div>
+              )}
+              {saveViewMutation.isError && (
+                <div style={{ color: '#ff4d4f', fontSize: '12px' }}>Could not save this view.</div>
+              )}
+              {savedViews && savedViews.views.length > 0 && (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {savedViews.views.slice(0, 4).map((view) => (
+                    <Link
+                      key={view.id}
+                      to={view.routePath}
+                      style={{
+                        backgroundColor: 'rgba(255,255,255,0.03)',
+                        border: '1px solid var(--border-standard)',
+                        borderRadius: '9999px',
+                        color: 'var(--text-secondary)',
+                        fontSize: '12px',
+                        minHeight: '28px',
+                        padding: '5px 10px',
+                      }}
+                    >
+                      {view.name}
+                    </Link>
                   ))}
                 </div>
               )}

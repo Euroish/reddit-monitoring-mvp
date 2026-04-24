@@ -25,6 +25,8 @@ export function buildTargetComparisonWorkbenchReadModel(args: {
   targets: MonitorTarget[];
   fromIso: string;
   toIso: string;
+  timeframe?: "1d";
+  rangePreset?: "7d" | "30d" | "90d";
   dailyFactsByTargetId: ReadonlyMap<string, readonly SubredditDailyFact[]>;
   seriesIds?: WorkbenchComparableSeriesId[];
 }): TargetComparisonWorkbenchResponse {
@@ -43,6 +45,8 @@ export function buildTargetComparisonWorkbenchReadModel(args: {
       toIso: args.toIso,
       grain: "day",
       dayCount,
+      timeframe: args.timeframe ?? "1d",
+      ...(args.rangePreset ? { rangePreset: args.rangePreset } : {}),
     },
     series: selectedSeries,
     targets: args.targets.map((target) => ({
