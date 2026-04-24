@@ -11,9 +11,12 @@ import type {
   SubredditDailyTrendResponse,
   SubredditDriverPostsResponse,
   SubredditTrendResponse,
+  TargetComparisonWorkbenchResponse,
+  TargetWorkbenchResponse,
   TriggerPhase1RunResponse,
 } from "../../packages/contracts/src/http";
 import { RedditMockConnector } from "../../src/connectors/reddit/reddit-mock.connector";
+import type { SubredditDailyFact } from "../../src/domain/entities/subreddit-daily-fact";
 import { stableUuidFromString } from "../../src/shared/ids/stable-id";
 import {
   createApiTestRepositories,
@@ -22,6 +25,39 @@ import {
   startServer,
   stopServer,
 } from "./api-server.helpers";
+
+function buildDailyFact(
+  targetId: string,
+  day: string,
+  overrides: Partial<SubredditDailyFact>,
+): SubredditDailyFact {
+  return {
+    targetId,
+    day,
+    postVolume: 10,
+    qualifiedPostVolume: 2,
+    sampledPostVolume: 10,
+    scoreSum: 100,
+    commentSum: 20,
+    subscriberCount: 10_000,
+    activeUserCount: 500,
+    activePostRatio: 0.7,
+    dispersionScore: 0.5,
+    impactScoreSum: 40,
+    impactPostVolume: 2,
+    topImpactShare: 0.4,
+    heatPrice: 40,
+    heatChangePct: 0,
+    ema7: 38,
+    ema30: 35,
+    subredditTier: "small",
+    qualityThresholdScore: 10,
+    qualityThresholdComments: 5,
+    algorithmVersion: "test_daily_fact",
+    explainPayload: {},
+    ...overrides,
+  };
+}
 
 test("api server can seed target, run phase1 and read trends", async () => {
   const fixedNow = "2026-04-10T12:00:00.000Z";
@@ -178,6 +214,296 @@ test("api server daily insights prefers materialized keyword rows when available
       result.body.keywordHeat.find((item) => item.keyword === "ai")?.source,
       "materialized_keyword_trend_daily",
     );
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("api server returns target workbench contract from materialized read models", async () => {
+  const fixedNow = "2026-04-12T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+  const targetId = stableUuidFromString("reddit:target:r/datascienceworkbench");
+  const contentId = stableUuidFromString("reddit:content:t3_workbench");
+
+  await repos.monitorTargetRepository.upsert({
+    id: targetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: "r/datascienceworkbench",
+    status: "active",
+    config: {},
+    createdAt: fixedNow,
+    updatedAt: fixedNow,
+  });
+
+  await repos.subredditDailyFactRepository.upsertMany([
+    {
+      targetId,
+      day: "2026-04-10",
+      postVolume: 12,
+      qualifiedPostVolume: 4,
+      sampledPostVolume: 12,
+      scoreSum: 120,
+      commentSum: 45,
+      subscriberCount: 12_000,
+      activeUserCount: 600,
+      activePostRatio: 0.8,
+      dispersionScore: 0.5,
+      impactScoreSum: 60,
+      impactPostVolume: 4,
+      topImpactShare: 0.4,
+      heatPrice: 42,
+      heatChangePct: 0.1,
+      ema7: 38,
+      ema30: 30,
+      subredditTier: "small",
+      qualityThresholdScore: 10,
+      qualityThresholdComments: 5,
+      algorithmVersion: "daily_fact_v1",
+      explainPayload: {},
+    },
+  ]);
+  await repos.keywordTrendDailyRepository.upsertMany([
+    {
+      targetId,
+      day: "2026-04-10",
+      keyword: "ai",
+      track: "explicit_query",
+      normalizedQueryText: "ai",
+      queryScope: "subreddit",
+      sampledPosts: 12,
+      matchedPosts: 5,
+      qualifiedMatchedPosts: 2,
+      mentionRate: 0.4,
+      qualifiedMentionRate: 0.16,
+      matchedScoreSum: 80,
+      matchedCommentSum: 30,
+      keywordHeat: 0.7,
+      algorithmVersion: "keyword_trend_v2_dual_track",
+      explainPayload: {},
+      sourceType: "live",
+    },
+  ]);
+  await repos.contentRepository.upsertMany([
+    {
+      id: contentId,
+      source: "reddit",
+      targetId,
+      externalId: "t3_workbench",
+      kind: "post",
+      title: "AI benchmark is moving fast",
+      bodyText: "driver post for ai workbench",
+      permalink: "/r/datascienceworkbench/comments/workbench",
+      createdAtSource: "2026-04-10T10:30:00.000Z",
+      firstSeenAt: "2026-04-10T10:31:00.000Z",
+      lastSeenAt: "2026-04-10T10:31:00.000Z",
+    },
+  ]);
+  await repos.postSearchDocumentRepository.upsertMany([
+    {
+      contentId,
+      targetId,
+      canonicalSubreddit: "r/datascienceworkbench",
+      title: "AI benchmark is moving fast",
+      bodySnippet: "driver post for ai workbench",
+      permalink: "/r/datascienceworkbench/comments/workbench",
+      createdAtSource: "2026-04-10T10:30:00.000Z",
+    },
+  ]);
+  await repos.postGrowthFactRepository.upsertMany([
+    {
+      targetId,
+      contentId,
+      ageBucket: "6h",
+      observedAt: "2026-04-10T12:00:00.000Z",
+      ageMinutes: 90,
+      score: 120,
+      comments: 45,
+      scoreVelocityPerHour: 80,
+      commentVelocityPerHour: 30,
+      cohortPostCount: 10,
+      cohortMedianScoreVelocity: 20,
+      cohortMedianCommentVelocity: 5,
+      velocityZScore: 2.2,
+      driverScore: 88,
+      algorithmVersion: "post_growth_v1",
+      explainPayload: {},
+    },
+  ]);
+  await repos.anomalyEventRepository.upsertMany([
+    {
+      targetId,
+      signalType: "keyword",
+      signalKey: "ai",
+      observedAt: "2026-04-10T12:00:00.000Z",
+      windowStart: "2026-04-10T00:00:00.000Z",
+      windowEnd: "2026-04-10T23:59:59.000Z",
+      anomalyScore: 0.9,
+      algorithmVersion: "anomaly_v1",
+      explainPayload: {},
+    },
+  ]);
+  await repos.providerHealthWindowRepository.record({
+    provider: "http",
+    targetId,
+    mode: "live",
+    windowStart: "2026-04-10T12:00:00.000Z",
+    requestCountDelta: 3,
+    successCountDelta: 3,
+    emptyResponseCountDelta: 0,
+    fallbackCountDelta: 0,
+    candidateCountDelta: 12,
+    acceptedCountDelta: 10,
+    filteredOutCountDelta: 0,
+    duplicatePostCountDelta: 1,
+    ingestLagSecondsSumDelta: 30,
+    ingestLagSampleCountDelta: 3,
+    providerDiffCountDelta: 0,
+    providerDiffSampleCountDelta: 0,
+    errorCountDelta: 0,
+    rateLimitCountDelta: 0,
+    timeoutCountDelta: 0,
+    circuitOpenCountDelta: 0,
+    updatedAt: fixedNow,
+  });
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+  const baseUrl = await startServer(server);
+  try {
+    const result = await getJson<TargetWorkbenchResponse>(
+      `${baseUrl}/v1/workbench/target/datascienceworkbench?from=2026-04-10T00:00:00.000Z&to=2026-04-10T23:59:59.000Z&keywords=ai`,
+    );
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.ok, true);
+    assert.equal(result.body.target.canonicalName, "r/datascienceworkbench");
+    assert.equal(result.body.range.grain, "day");
+    assert.deepEqual(
+      result.body.series.map((series) => series.id),
+      ["heat_price", "ema_7", "ema_30", "total_new_posts", "qualified_post_count"],
+    );
+    assert.equal(
+      result.body.series.find((series) => series.id === "heat_price")?.points[0]?.value,
+      42,
+    );
+    assert.equal(result.body.overlays[0]?.id, "keyword_heat:subreddit:ai");
+    assert.deepEqual(result.body.queryContext.requested, [
+      {
+        raw: "ai",
+        normalizedQueryText: "ai",
+        queryScope: "subreddit",
+        scopeCanonicalSubreddit: "r/datascienceworkbench",
+        overlayId: "keyword_heat:subreddit:ai",
+        hasOverlay: true,
+        matchedDriverCount: 1,
+      },
+    ]);
+    assert.equal(result.body.keywordHeat[0]?.totalMentions, 5);
+    assert.equal(result.body.drivers[0]?.title, "AI benchmark is moving fast");
+    assert.deepEqual(result.body.drivers[0]?.matchedQueries, ["ai"]);
+    assert.equal(result.body.anomalies[0]?.signalType, "keyword");
+    assert.equal(result.body.reliability.provider, "http");
+    assert.equal(result.body.reliability.successCount, 3);
+    assert.equal(result.body.reliability.duplicatePostRate, 0.1);
+    assert.deepEqual(
+      result.body.panels.map((panel) => panel.id),
+      ["drivers", "keyword_heat", "reliability"],
+    );
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("api server returns target comparison workbench from multiple materialized targets", async () => {
+  const fixedNow = "2026-04-12T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+  const datascienceTargetId = stableUuidFromString("reddit:target:r/datasciencecompare");
+  const machineLearningTargetId = stableUuidFromString("reddit:target:r/mlcompare");
+
+  for (const [targetId, canonicalName] of [
+    [datascienceTargetId, "r/datasciencecompare"],
+    [machineLearningTargetId, "r/mlcompare"],
+  ] as const) {
+    await repos.monitorTargetRepository.upsert({
+      id: targetId,
+      source: "reddit",
+      targetType: "subreddit",
+      canonicalName,
+      status: "active",
+      config: {},
+      createdAt: fixedNow,
+      updatedAt: fixedNow,
+    });
+  }
+
+  await repos.subredditDailyFactRepository.upsertMany([
+    buildDailyFact(datascienceTargetId, "2026-04-10", {
+      heatPrice: 50,
+      ema7: 48,
+      ema30: 45,
+      postVolume: 20,
+      qualifiedPostVolume: 5,
+    }),
+    buildDailyFact(datascienceTargetId, "2026-04-11", {
+      heatPrice: 75,
+      ema7: 55,
+      ema30: 47,
+      postVolume: 30,
+      qualifiedPostVolume: 8,
+    }),
+    buildDailyFact(machineLearningTargetId, "2026-04-10", {
+      heatPrice: 80,
+      ema7: 78,
+      ema30: 70,
+      postVolume: 40,
+      qualifiedPostVolume: 10,
+    }),
+    buildDailyFact(machineLearningTargetId, "2026-04-11", {
+      heatPrice: 120,
+      ema7: 90,
+      ema30: 75,
+      postVolume: 60,
+      qualifiedPostVolume: 15,
+    }),
+  ]);
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+  const baseUrl = await startServer(server);
+  try {
+    const result = await getJson<TargetComparisonWorkbenchResponse>(
+      `${baseUrl}/v1/workbench/compare?targets=datasciencecompare,mlcompare&series=heat_price,total_new_posts&from=2026-04-10T00:00:00.000Z&to=2026-04-11T23:59:59.000Z`,
+    );
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.ok, true);
+    assert.deepEqual(
+      result.body.targets.map((target) => target.canonicalName),
+      ["r/datasciencecompare", "r/mlcompare"],
+    );
+    assert.deepEqual(
+      result.body.series.map((series) => series.id),
+      ["heat_price", "total_new_posts"],
+    );
+    assert.equal(result.body.comparisons.length, 4);
+    const datascienceHeat = result.body.comparisons.find(
+      (item) => item.canonicalName === "r/datasciencecompare" && item.seriesId === "heat_price",
+    );
+    assert.equal(datascienceHeat?.baselineValue, 50);
+    assert.equal(datascienceHeat?.latestValue, 75);
+    assert.equal(datascienceHeat?.latestNormalizedValue, 150);
+    assert.deepEqual(
+      datascienceHeat?.points.map((point) => point.normalizedValue),
+      [100, 150],
+    );
+    assert.equal(result.body.summary[1]?.latestTotalNewPosts, 60);
   } finally {
     await stopServer(server);
   }

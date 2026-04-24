@@ -37,6 +37,8 @@ export interface CreateRedditConnectorOptions {
   userAgent?: string;
   httpTransport?: RedditHttpTransport;
   httpTimeoutMs?: number;
+  httpProxyUrl?: string;
+  httpProxyFailoverCommand?: string;
   scraplingProfile?: RedditScraplingProfile;
   scraplingPythonExecutable?: string;
   scraplingBridgeScriptPath?: string;
@@ -127,6 +129,8 @@ function createHttpLiveConnector(options: CreateRedditConnectorOptions): RedditH
     userAgent: options.userAgent,
     transport: options.httpTransport,
     timeoutMs: options.httpTimeoutMs,
+    proxyUrl: options.httpProxyUrl,
+    proxyFailoverCommand: options.httpProxyFailoverCommand,
   });
 }
 

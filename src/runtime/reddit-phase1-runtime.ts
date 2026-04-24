@@ -138,6 +138,8 @@ export function createRedditConnectorFromEnv(args: {
     liveProvider,
     httpTransport: resolveRedditHttpTransport(args.env.REDDIT_HTTP_TRANSPORT),
     httpTimeoutMs: parsePositiveInt(args.env.REDDIT_HTTP_TIMEOUT_MS, 12_000),
+    httpProxyUrl: args.env.REDDIT_HTTP_PROXY,
+    httpProxyFailoverCommand: args.env.REDDIT_HTTP_PROXY_FAILOVER_COMMAND,
     scraplingProfile,
     scraplingPythonExecutable: args.env.REDDIT_SCRAPLING_PYTHON,
     scraplingBridgeScriptPath: args.env.REDDIT_SCRAPLING_BRIDGE_SCRIPT,

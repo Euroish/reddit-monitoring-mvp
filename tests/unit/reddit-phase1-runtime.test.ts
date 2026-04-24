@@ -112,6 +112,22 @@ test("createRedditConnectorFromEnv passes through http timeout override", () => 
   assert.equal((connector as any).timeoutMs, 30000);
 });
 
+test("createRedditConnectorFromEnv passes through dedicated http proxy", () => {
+  const connector = createRedditConnectorFromEnv({
+    env: {
+      REDDIT_HTTP_PROXY: "http://127.0.0.1:1080",
+      REDDIT_HTTP_PROXY_FAILOVER_COMMAND: "/usr/local/sbin/reddit-collector-failover",
+      REDDIT_CB_ENABLED: "false",
+    },
+    mode: "live",
+    crawlMode: "live",
+  });
+
+  assert.equal(connector instanceof RedditHttpConnector, true);
+  assert.equal((connector as any).proxyUrl, "http://127.0.0.1:1080");
+  assert.equal((connector as any).proxyFailoverCommand, "/usr/local/sbin/reddit-collector-failover");
+});
+
 test("createRedditConnectorFromEnv allows provider override per execution target", () => {
   const connector = createRedditConnectorFromEnv({
     env: {

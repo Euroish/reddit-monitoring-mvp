@@ -28,6 +28,9 @@ import type {
   SubredditDriverPostsResponse,
   SubredditDailyTrendResponse,
   SubredditTrendResponse,
+  TargetComparisonWorkbenchResponse,
+  TargetWorkbenchResponse,
+  WorkbenchComparableSeriesId,
   TriggerPhase1RunRequest,
   TriggerPhase1RunResponse,
 } from "../../../packages/contracts/src/http";
@@ -60,6 +63,11 @@ import { buildSubredditDailyInsights } from "../../../src/application/services/s
 import { buildSubredditDriverPostReadModel } from "../../../src/application/services/subreddit-driver-post-read-model.service";
 import { buildGlobalKeywordDailyTrendReadModel } from "../../../src/application/services/global-keyword-daily-trend-read-model.service";
 import { buildSubredditTrendReadModel } from "../../../src/application/services/subreddit-trend-read-model";
+import {
+  buildTargetComparisonWorkbenchReadModel,
+  COMPARABLE_WORKBENCH_SERIES_IDS,
+} from "../../../src/application/services/target-comparison-workbench-read-model.service";
+import { buildTargetWorkbenchReadModel } from "../../../src/application/services/target-workbench-read-model.service";
 import type { RedditConnector } from "../../../src/connectors/reddit/reddit-connector.interface";
 import { DefaultRedditMapper } from "../../../src/connectors/reddit/reddit.mapper";
 import type { RedditMapper } from "../../../src/connectors/reddit/reddit-mapper.interface";
@@ -289,6 +297,52 @@ function parseKeywordList(value: string | null): string[] {
       .filter((keyword) => keyword.length >= 2),
     ),
   );
+}
+
+function parseComparisonTargetList(value: string | null): string[] {
+  if (value == null) {
+    throw new BadRequestError("targets query is required", "missing_targets");
+  }
+  const targets = Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+        .map((item) => `r/${normalizeSubredditName(item.replace(/^r\//i, ""))}`),
+    ),
+  );
+  if (targets.length < 2) {
+    throw new BadRequestError("at least two comparison targets are required", "invalid_query_param");
+  }
+  if (targets.length > 6) {
+    throw new BadRequestError("at most six comparison targets are supported", "invalid_query_param");
+  }
+  return targets;
+}
+
+function parseComparisonSeriesList(value: string | null): WorkbenchComparableSeriesId[] {
+  if (value == null || value.trim().length === 0) {
+    return ["heat_price"];
+  }
+  const allowed = new Set<string>(COMPARABLE_WORKBENCH_SERIES_IDS);
+  const seriesIds = Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0),
+    ),
+  );
+  if (seriesIds.length === 0) {
+    return ["heat_price"];
+  }
+  for (const seriesId of seriesIds) {
+    if (!allowed.has(seriesId)) {
+      throw new BadRequestError(`invalid comparison series: ${seriesId}`, "invalid_query_param");
+    }
+  }
+  return seriesIds as WorkbenchComparableSeriesId[];
 }
 
 function parseAgeBucketList(value: string | null): PostGrowthAgeBucket[] | undefined {
@@ -1715,6 +1769,225 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         respond({
           statusCode: 200,
           body: payload,
+        });
+        return;
+      }
+
+      if (req.method === "GET" && pathname === "/v1/workbench/compare") {
+        const canonicalNames = parseComparisonTargetList(url.searchParams.get("targets"));
+        const seriesIds = parseComparisonSeriesList(url.searchParams.get("series"));
+        const { fromIso, toIso } = resolveDailyRange(url.searchParams, now());
+        const fromDay = toUtcDay(fromIso);
+        const toDay = toUtcDay(toIso);
+
+        const targets = await Promise.all(
+          canonicalNames.map((canonicalName) =>
+            repos.monitorTargetRepository.findByCanonicalName(canonicalName),
+          ),
+        );
+        const missingCanonicalName = canonicalNames.find((_, index) => !targets[index]);
+        if (missingCanonicalName) {
+          respond({
+            statusCode: 404,
+            body: toApiError({
+              requestId,
+              message: `target not found: ${missingCanonicalName}`,
+              code: "target_not_found",
+            }),
+            canonicalName: missingCanonicalName,
+            errorCode: "target_not_found",
+          });
+          return;
+        }
+
+        const resolvedTargets = targets.filter((target): target is NonNullable<typeof target> =>
+          Boolean(target),
+        );
+        const dailyFactsByTargetId = new Map<string, Awaited<ReturnType<SubredditDailyFactRepository["listByTargetInRange"]>>>();
+        const dailyFactGroups = await Promise.all(
+          resolvedTargets.map((target) =>
+            repos.subredditDailyFactRepository.listByTargetInRange({
+              targetId: target.id,
+              fromDay,
+              toDay,
+            }),
+          ),
+        );
+        for (const [index, facts] of dailyFactGroups.entries()) {
+          dailyFactsByTargetId.set(resolvedTargets[index]!.id, facts);
+        }
+
+        const payload: TargetComparisonWorkbenchResponse = buildTargetComparisonWorkbenchReadModel({
+          requestId,
+          generatedAtIso: now(),
+          targets: resolvedTargets,
+          fromIso,
+          toIso,
+          dailyFactsByTargetId,
+          seriesIds,
+        });
+        respond({
+          statusCode: 200,
+          body: payload,
+        });
+        return;
+      }
+
+      if (req.method === "GET" && pathname.startsWith("/v1/workbench/target/")) {
+        const subredditRaw = pathname.replace("/v1/workbench/target/", "");
+        const subreddit = normalizeSubredditName(decodeSubredditPathSegment(subredditRaw));
+        const canonicalName = `r/${subreddit}`;
+        const target = await repos.monitorTargetRepository.findByCanonicalName(canonicalName);
+        if (!target) {
+          respond({
+            statusCode: 404,
+            body: toApiError({
+              requestId,
+              message: `target not found: ${canonicalName}`,
+              code: "target_not_found",
+            }),
+            canonicalName,
+            errorCode: "target_not_found",
+          });
+          return;
+        }
+
+        const { fromIso, toIso } = resolveDailyRange(url.searchParams, now());
+        const keywordLimit =
+          parseOptionalIntegerParam({
+            value: url.searchParams.get("keywordLimit"),
+            name: "keywordLimit",
+            min: 1,
+            max: 30,
+          }) ?? 10;
+        const driverLimit =
+          parseOptionalIntegerParam({
+            value: url.searchParams.get("driverLimit"),
+            name: "driverLimit",
+            min: 1,
+            max: 50,
+          }) ?? 10;
+        const anomalyLimit =
+          parseOptionalIntegerParam({
+            value: url.searchParams.get("anomalyLimit"),
+            name: "anomalyLimit",
+            min: 1,
+            max: 50,
+          }) ?? 10;
+        const rawKeywords = parseKeywordList(url.searchParams.get("keywords"));
+        const normalizedQueries = rawKeywords.map((keyword) => {
+          try {
+            const query = normalizeQueryV2(keyword, canonicalName);
+            return { ...query, raw: keyword };
+          } catch {
+            throw new BadRequestError(
+              `invalid keywords query: ${keyword}`,
+              "invalid_query_param",
+            );
+          }
+        });
+        const explicitQueryTexts = normalizedQueries.map((query) => query.normalizedQueryText);
+        const queryScopes =
+          normalizedQueries.length > 0
+            ? Array.from(new Set(normalizedQueries.map((query) => query.queryScope)))
+            : undefined;
+        const tracks =
+          normalizedQueries.length > 0 ? (["explicit_query"] as const) : undefined;
+        const fromDay = toUtcDay(fromIso);
+        const toDay = toUtcDay(toIso);
+        const [
+          dailyFacts,
+          trendPoints,
+          keywordDailyRows,
+          postGrowthFacts,
+          contents,
+          anomalyEvents,
+          providerHealthWindows,
+          queryMatchesByContentId,
+        ] = await Promise.all([
+          repos.subredditDailyFactRepository.listByTargetInRange({
+            targetId: target.id,
+            fromDay,
+            toDay,
+          }),
+          repos.subredditTrendPointRepository.listByTargetInRange({
+            targetId: target.id,
+            from: fromIso,
+            to: toIso,
+          }),
+          repos.keywordTrendDailyRepository?.listByTargetInRange({
+            targetId: target.id,
+            fromDay,
+            toDay,
+            keywords: explicitQueryTexts,
+            tracks: tracks ? [...tracks] : undefined,
+            queryScopes,
+            limit: keywordLimit,
+          }) ?? Promise.resolve([]),
+          repos.postGrowthFactRepository.listTopByTargetInRange({
+            targetId: target.id,
+            fromIso,
+            toIso,
+            limit: driverLimit,
+          }),
+          repos.contentRepository.findByTargetCreatedAtRange({
+            targetId: target.id,
+            from: fromIso,
+            to: toIso,
+            limit: Math.max(driverLimit * 5, 100),
+          }),
+          repos.anomalyEventRepository.listByTargetInRange({
+            targetId: target.id,
+            fromIso,
+            toIso,
+            limit: anomalyLimit,
+          }),
+          repos.providerHealthWindowRepository?.listByTargetInRange({
+            targetId: target.id,
+            from: fromIso,
+            to: toIso,
+            mode: "live",
+          }) ?? Promise.resolve([]),
+          resolveDriverKeywordMatches({
+            postSearchDocumentRepository: repos.postSearchDocumentRepository,
+            normalizedQueries,
+            canonicalName,
+            fromIso: new Date(new Date(fromIso).getTime() - 24 * 60 * 60 * 1000).toISOString(),
+            toIso,
+            limit: Math.max(driverLimit * 10, 200),
+          }),
+        ]);
+
+        const payload: TargetWorkbenchResponse = buildTargetWorkbenchReadModel({
+          requestId,
+          generatedAtIso: now(),
+          target,
+          fromIso,
+          toIso,
+          dailyFacts,
+          trendPoints,
+          keywordDailyRows,
+          postGrowthFacts,
+          contents,
+          anomalyEvents,
+          providerHealthWindows,
+          keywords: explicitQueryTexts,
+          normalizedQueries: normalizedQueries.map((query) => ({
+            raw: query.raw,
+            normalizedQueryText: query.normalizedQueryText,
+            queryScope: query.queryScope,
+            scopeCanonicalSubreddit: query.scopeCanonicalSubreddit,
+          })),
+          matchedQueriesByContentId: queryMatchesByContentId,
+          keywordLimit,
+          driverLimit,
+          anomalyLimit,
+        });
+        respond({
+          statusCode: 200,
+          body: payload,
+          targetId: target.id,
+          canonicalName,
         });
         return;
       }

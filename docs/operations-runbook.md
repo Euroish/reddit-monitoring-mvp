@@ -18,6 +18,8 @@ Optional env:
 - `REDDIT_USER_AGENT` (custom user-agent)
 - `REDDIT_RUN_SUBREDDIT` (default: `machinelearning`)
 - `REDDIT_HTTP_TRANSPORT` (`auto` default; on Windows use `powershell` if Node HTTP traffic is being reset while PowerShell requests still work)
+- `REDDIT_HTTP_PROXY` (optional dedicated collector egress, e.g. `http://127.0.0.1:1080` or `socks5h://127.0.0.1:1080` for a local sing-box mixed/SOCKS inbound)
+- `REDDIT_HTTP_PROXY_FAILOVER_COMMAND` (optional absolute path to a root-owned host-local command that switches the collector proxy node and restarts only the collector service; the connector triggers it at most once per proxied Reddit request)
 - `REDDIT_LIVE_PROVIDER` (`http` default, `apify`, or `scrapling`)
 - `REDDIT_SCRAPLING_PRIMARY_SUBREDDITS` (comma list for target-level promotion, e.g. `machinelearning,datascience`; promoted targets use `scrapling` primary while others keep `REDDIT_LIVE_PROVIDER`)
 - `REDDIT_SCRAPLING_PROFILE` (`http` default, `dynamic`, `stealth`)
@@ -34,7 +36,17 @@ pip install "scrapling[fetchers]"
 
 ## Network prerequisite for live mode
 
-If your environment uses a local proxy/VPN client and live Reddit calls are unstable (`ECONNRESET`, connect timeout), enable full-tunnel/TUN routing before running the worker.
+If your environment uses a local proxy/VPN client and live Reddit calls are unstable (`ECONNRESET`, connect timeout), prefer a dedicated collector egress before full-machine routing:
+
+```bash
+REDDIT_HTTP_PROXY=http://127.0.0.1:1080 REDDIT_HTTP_TRANSPORT=fetch REDDIT_LIVE_PROVIDER=http npm run worker:phase1:once
+```
+
+Use `http://127.0.0.1:1080` when sing-box exposes a `mixed` inbound. Use `socks5h://127.0.0.1:1080` only when the inbound is SOCKS-only.
+
+Keep subscription URLs and node credentials in `/etc/sing-box` or another host-only secret location. Do not commit them to this repo.
+
+If automatic node switching is enabled, keep the failover command outside the repo, owned by root, and callable only through a narrow sudoers rule. It must not enable TUN or change the default route; it should only refresh/select a collector node and restart the local collector proxy.
 
 This was the confirmed fix in the current environment.
 
@@ -220,7 +232,7 @@ For a successful live run, all four tables should increase from zero over time.
 
 3. Live run fails with network errors (`ECONNRESET`, timeout)
 - Cause: outbound routing/proxy path instability.
-- Action: enable TUN/full-tunnel mode and retry.
+- Action: first set `REDDIT_HTTP_PROXY` to the local sing-box mixed/SOCKS inbound and retry the provider smoke; if that still fails, enable TUN/full-tunnel mode and retry.
 - Windows fallback: if PowerShell can reach Reddit but Node live traffic still resets, set `REDDIT_HTTP_TRANSPORT=powershell` and rerun.
 
 4. Scrapling shadow lane fails with bridge timeouts

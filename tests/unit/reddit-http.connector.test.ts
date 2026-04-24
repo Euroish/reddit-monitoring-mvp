@@ -120,6 +120,105 @@ test("http connector retries network TypeError before succeeding", async () => {
   }
 });
 
+test("http connector routes requests through configured proxy without global fetch", async () => {
+  const originalFetch = global.fetch;
+  try {
+    let proxyCallCount = 0;
+    global.fetch = (async () => {
+      throw new Error("fetch should not be called when proxyUrl is configured");
+    }) as FetchLike;
+
+    const connector = new RedditHttpConnector({
+      proxyUrl: "socks5h://127.0.0.1:1080",
+      maxRetries: 1,
+      jitterRatio: 0,
+      proxyRunner: async (args) => {
+        proxyCallCount += 1;
+        assert.equal(args.proxyUrl, "socks5h://127.0.0.1:1080");
+        assert.equal(args.url, "https://www.reddit.com/r/datascience/about.json");
+        assert.equal(args.headers["User-Agent"], "reddit-monitoring-mvp/0.1");
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            data: {
+              display_name: "datascience",
+              name: "t5_datascience",
+              subscribers: 1000,
+              accounts_active: 50,
+            },
+          }),
+        };
+      },
+    });
+
+    const result = await connector.collectSubredditAbout({ subreddit: "datascience" }, ctx);
+    assert.equal(result.raw.httpStatus, 200);
+    assert.equal(proxyCallCount, 1);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("http connector triggers one proxy failover on blocked proxied response and retries request", async () => {
+  const originalFetch = global.fetch;
+  try {
+    let proxyCallCount = 0;
+    const failoverCalls: Array<{ command: string; endpoint: string; reason: string }> = [];
+    global.fetch = (async () => {
+      throw new Error("fetch should not be called when proxyUrl is configured");
+    }) as FetchLike;
+
+    const connector = new RedditHttpConnector({
+      proxyUrl: "http://127.0.0.1:1080",
+      proxyFailoverCommand: "/usr/local/sbin/reddit-collector-failover",
+      maxRetries: 0,
+      proxyFailoverRunner: async (args) => {
+        failoverCalls.push(args);
+      },
+      proxyRunner: async () => {
+        proxyCallCount += 1;
+        if (proxyCallCount === 1) {
+          return {
+            status: 403,
+            headers: {} as Record<string, string>,
+            body: "<html>blocked</html>",
+          };
+        }
+        return {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            data: {
+              display_name: "datascience",
+              name: "t5_datascience",
+              subscribers: 1000,
+              accounts_active: 50,
+            },
+          }),
+        };
+      },
+    });
+
+    const result = await connector.collectSubredditAbout({ subreddit: "datascience" }, ctx);
+    assert.equal(result.raw.httpStatus, 200);
+    assert.equal(proxyCallCount, 2);
+    assert.deepEqual(failoverCalls, [
+      {
+        command: "/usr/local/sbin/reddit-collector-failover",
+        endpoint: "/r/datascience/about.json",
+        reason: "status=403",
+      },
+    ]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("http connector does not retry non-retryable status", async () => {
   const originalFetch = global.fetch;
   try {

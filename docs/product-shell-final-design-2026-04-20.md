@@ -4,10 +4,13 @@
 状态：后续开发指导源
 适用范围：`E:\vibe coding\project`
 
-## 0.1 实施状态校准（2026-04-21）
+## 0.1 实施状态校准（2026-04-24）
 
 - `apps/web` 已完成 Phase D 最小闭环，并已通过真实浏览器/API smoke。
-- 当前活动阶段不是“前端壳待搭建”，而是 `Phase E: Public launch hardening`。
+- Phase E repo-side launch hardening is saturated.
+- Linux collection recovery is complete enough to resume product analytics work: the collector-only proxy, backend failover hook, scheduler, API, and materialization path are active on the host.
+- 当前活动阶段不是“前端壳待搭建”或单纯 `Phase E: Public launch hardening`，而是 `analytics-workbench-planning`。
+- TradingView-like product work should use `docs/analytics-workbench-framework-2026-04-24.md` as the next planning source.
 - 本文继续作为架构/验收设计源，但其中少量“当时现状”证据已转为历史快照，执行时应以 `obsidian-reddit专用/Projects/project.md` 的当前阶段和最新 activity 为准。
 
 ## 0. 结论

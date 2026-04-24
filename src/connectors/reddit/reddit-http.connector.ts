@@ -21,6 +21,8 @@ interface PowerShellRequestResult {
   body: string;
 }
 
+type ProxyRequestResult = PowerShellRequestResult;
+
 interface RedditHttpConnectorOptions {
   baseUrl?: string;
   userAgent?: string;
@@ -40,6 +42,20 @@ interface RedditHttpConnectorOptions {
     headers: Record<string, string>;
     timeoutMs: number;
   }) => Promise<PowerShellRequestResult>;
+  proxyUrl?: string;
+  proxyFailoverCommand?: string;
+  curlExecutable?: string;
+  proxyFailoverRunner?: (args: {
+    command: string;
+    endpoint: string;
+    reason: string;
+  }) => Promise<void>;
+  proxyRunner?: (args: {
+    url: string;
+    headers: Record<string, string>;
+    timeoutMs: number;
+    proxyUrl: string;
+  }) => Promise<ProxyRequestResult>;
 }
 
 export class RedditHttpConnector implements RedditConnector {
@@ -63,6 +79,20 @@ export class RedditHttpConnector implements RedditConnector {
     headers: Record<string, string>;
     timeoutMs: number;
   }) => Promise<PowerShellRequestResult>;
+  private readonly proxyUrl?: string;
+  private readonly proxyFailoverCommand?: string;
+  private readonly curlExecutable: string;
+  private readonly proxyFailoverRunner: (args: {
+    command: string;
+    endpoint: string;
+    reason: string;
+  }) => Promise<void>;
+  private readonly proxyRunner: (args: {
+    url: string;
+    headers: Record<string, string>;
+    timeoutMs: number;
+    proxyUrl: string;
+  }) => Promise<ProxyRequestResult>;
 
   constructor(options: RedditHttpConnectorOptions = {}) {
     this.accessToken = options.accessToken;
@@ -83,6 +113,11 @@ export class RedditHttpConnector implements RedditConnector {
     this.platform = options.platform ?? process.platform;
     this.powershellExecutable = options.powershellExecutable ?? "powershell.exe";
     this.powershellRunner = options.powershellRunner ?? ((args) => this.runPowerShellRequest(args));
+    this.proxyUrl = normalizeProxyUrl(options.proxyUrl);
+    this.proxyFailoverCommand = normalizeProxyFailoverCommand(options.proxyFailoverCommand);
+    this.curlExecutable = options.curlExecutable ?? "curl";
+    this.proxyFailoverRunner = options.proxyFailoverRunner ?? ((args) => this.runProxyFailoverCommand(args));
+    this.proxyRunner = options.proxyRunner ?? ((args) => this.runProxyRequest(args));
   }
 
   public async collect(
@@ -137,6 +172,9 @@ export class RedditHttpConnector implements RedditConnector {
     const url = this.buildUrl(path, params);
     if (this.transport === "powershell") {
       return this.requestJsonViaPowerShell<TPayload>(url, path, params, ctx);
+    }
+    if (this.proxyUrl) {
+      return this.requestJsonViaProxy<TPayload>(url, path, params, ctx);
     }
 
     let lastError: unknown;
@@ -270,6 +308,90 @@ export class RedditHttpConnector implements RedditConnector {
     throw lastError instanceof Error ? lastError : new Error("PowerShell Reddit request failed unexpectedly");
   }
 
+  private async requestJsonViaProxy<TPayload>(
+    url: URL,
+    path: string,
+    params: Record<string, string | number | boolean | undefined>,
+    ctx: ConnectorRequestContext,
+  ): Promise<ConnectorPage<TPayload>> {
+    let lastError: unknown;
+    let proxyFailoverAttempted = false;
+    for (let attempt = 0; attempt <= this.maxRetries; ) {
+      try {
+        const result = await this.proxyRunner({
+          url: url.toString(),
+          headers: this.buildHeaders(ctx),
+          timeoutMs: this.timeoutMs,
+          proxyUrl: this.proxyUrl as string,
+        });
+        const headers = new Headers(this.normalizeHeaderRecord(result.headers));
+        const rateLimit = this.readRateLimit(headers);
+        if (result.status >= 200 && result.status < 300) {
+          const payload = JSON.parse(result.body) as TPayload;
+          const raw: RawEnvelope<TPayload> = {
+            endpoint: path,
+            requestParams: params,
+            httpStatus: result.status,
+            responseHeaders: this.headersToRecord(headers),
+            payload,
+            fetchedAt: new Date().toISOString(),
+          };
+          return {
+            raw,
+            rateLimit,
+          };
+        }
+
+        if (
+          this.shouldTriggerProxyFailoverForStatus(result.status) &&
+          !proxyFailoverAttempted &&
+          this.proxyFailoverCommand
+        ) {
+          proxyFailoverAttempted = true;
+          await this.proxyFailoverRunner({
+            command: this.proxyFailoverCommand,
+            endpoint: path,
+            reason: `status=${result.status}`,
+          });
+          continue;
+        }
+
+        if (this.shouldRetryStatus(result.status) && attempt < this.maxRetries) {
+          await this.sleep(this.computeDelayMs({
+            attempt,
+            retryAfterMs: this.readRetryAfterMs(headers),
+            rateLimit,
+          }));
+          attempt += 1;
+          continue;
+        }
+
+        throw new Error(
+          `Reddit request failed: status=${result.status}, endpoint=${path}, body=${result.body.slice(0, 300)}`,
+        );
+      } catch (error) {
+        lastError = error;
+        if (!proxyFailoverAttempted && this.proxyFailoverCommand) {
+          proxyFailoverAttempted = true;
+          await this.proxyFailoverRunner({
+            command: this.proxyFailoverCommand,
+            endpoint: path,
+            reason: this.formatProxyFailoverReason(error),
+          });
+          continue;
+        }
+        if (attempt < this.maxRetries && this.shouldRetryError(error)) {
+          await this.sleep(this.computeDelayMs({ attempt }));
+          attempt += 1;
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error("Proxied Reddit request failed unexpectedly");
+  }
+
   private buildHeaders(ctx: ConnectorRequestContext): Record<string, string> {
     const headers: Record<string, string> = {
       "User-Agent": this.userAgent,
@@ -327,6 +449,17 @@ export class RedditHttpConnector implements RedditConnector {
       return true;
     }
     return error instanceof TypeError;
+  }
+
+  private shouldTriggerProxyFailoverForStatus(status: number): boolean {
+    return status === 403 || status === 407 || status === 429 || status === 502 || status === 503 || status === 504;
+  }
+
+  private formatProxyFailoverReason(error: unknown): string {
+    if (error instanceof Error && error.message) {
+      return error.message.slice(0, 160);
+    }
+    return String(error).slice(0, 160);
   }
 
   private shouldFallbackToPowerShell(error: unknown): boolean {
@@ -494,4 +627,144 @@ try {
       );
     });
   }
+
+  private async runProxyRequest(args: {
+    url: string;
+    headers: Record<string, string>;
+    timeoutMs: number;
+    proxyUrl: string;
+  }): Promise<ProxyRequestResult> {
+    const timeoutSeconds = Math.max(1, Math.ceil(args.timeoutMs / 1000));
+    const curlArgs = [
+      "--silent",
+      "--show-error",
+      "--location",
+      "--max-time",
+      String(timeoutSeconds),
+      "--proxy",
+      args.proxyUrl,
+      "--write-out",
+      "\n__REDDIT_MONITORING_HTTP_STATUS__:%{http_code}",
+      args.url,
+    ];
+    for (const [key, value] of Object.entries(args.headers)) {
+      curlArgs.splice(curlArgs.length - 1, 0, "--header", `${key}: ${value}`);
+    }
+
+    return new Promise((resolve, reject) => {
+      execFile(
+        this.curlExecutable,
+        curlArgs,
+        {
+          timeout: args.timeoutMs + 5000,
+          maxBuffer: 5 * 1024 * 1024,
+        },
+        (error, stdout, stderr) => {
+          const marker = "\n__REDDIT_MONITORING_HTTP_STATUS__:";
+          const markerIndex = stdout.lastIndexOf(marker);
+          if (markerIndex < 0) {
+            reject(
+              new Error(
+                `Proxied Reddit request failed: ${stderr.trim() || error?.message || "missing curl status marker"}`,
+              ),
+            );
+            return;
+          }
+
+          const body = stdout.slice(0, markerIndex);
+          const status = Number(stdout.slice(markerIndex + marker.length).trim());
+          if (!Number.isInteger(status) || status <= 0) {
+            reject(new Error(`Proxied Reddit request returned invalid status: ${stdout.slice(markerIndex).trim()}`));
+            return;
+          }
+          if (error && status === 0) {
+            reject(new Error(`Proxied Reddit request failed: ${stderr.trim() || error.message}`));
+            return;
+          }
+          resolve({
+            status,
+            headers: {},
+            body,
+          });
+        },
+      );
+    });
+  }
+
+  private async runProxyFailoverCommand(args: {
+    command: string;
+    endpoint: string;
+    reason: string;
+  }): Promise<void> {
+    const [file, ...baseArgs] = parseCommand(args.command);
+    const commandArgs = [
+      ...baseArgs,
+      "--endpoint",
+      args.endpoint,
+      "--reason",
+      args.reason,
+    ];
+
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        file,
+        commandArgs,
+        {
+          timeout: 30_000,
+          maxBuffer: 1024 * 1024,
+        },
+        (error, _stdout, stderr) => {
+          if (error) {
+            reject(
+              new Error(
+                `Reddit proxy failover command failed: ${stderr.trim() || error.message}`,
+              ),
+            );
+            return;
+          }
+          resolve();
+        },
+      );
+    });
+  }
+}
+
+function normalizeProxyUrl(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const protocol = new URL(trimmed).protocol;
+  if (!["http:", "https:", "socks4:", "socks4a:", "socks5:", "socks5h:"].includes(protocol)) {
+    throw new Error(`Unsupported REDDIT_HTTP_PROXY protocol: ${protocol}`);
+  }
+  return trimmed;
+}
+
+function normalizeProxyFailoverCommand(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const [file] = parseCommand(trimmed);
+  if (!file.startsWith("/")) {
+    throw new Error("REDDIT_HTTP_PROXY_FAILOVER_COMMAND must start with an absolute executable path");
+  }
+  return trimmed;
+}
+
+function parseCommand(value: string): string[] {
+  const parts = value.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((part) => {
+    if (
+      (part.startsWith('"') && part.endsWith('"')) ||
+      (part.startsWith("'") && part.endsWith("'"))
+    ) {
+      return part.slice(1, -1);
+    }
+    return part;
+  });
+  if (!parts || parts.length === 0) {
+    throw new Error("Command must not be empty");
+  }
+  return parts;
 }

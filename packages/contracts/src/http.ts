@@ -545,6 +545,133 @@ export interface SubredditAnomalyIncidentFeedResponse {
   }>;
 }
 
+export interface TargetWorkbenchResponse {
+  ok: true;
+  requestId: string;
+  generatedAtIso: string;
+  target: {
+    targetId: string;
+    canonicalName: string;
+    displayName: string;
+    targetType: "subreddit";
+  };
+  range: {
+    fromIso: string;
+    toIso: string;
+    grain: "day";
+    dayCount: number;
+  };
+  series: Array<{
+    id:
+      | "heat_price"
+      | "ema_7"
+      | "ema_30"
+      | "total_new_posts"
+      | "qualified_post_count";
+    label: string;
+    family: "trend" | "activity";
+    unit: "score" | "count";
+    points: Array<{
+      at: string;
+      value: number;
+    }>;
+  }>;
+  overlays: Array<{
+    id: string;
+    label: string;
+    kind: "keyword_heat";
+    queryScope: "subreddit" | "global";
+    points: Array<{
+      at: string;
+      value: number;
+    }>;
+  }>;
+  queryContext: {
+    requested: Array<{
+      raw: string;
+      normalizedQueryText: string;
+      queryScope: "subreddit" | "global";
+      scopeCanonicalSubreddit?: string;
+      overlayId?: string;
+      hasOverlay: boolean;
+      matchedDriverCount: number;
+    }>;
+  };
+  panels: Array<{
+    id: "drivers" | "keyword_heat" | "reliability";
+    title: string;
+    kind: "driver_posts" | "keyword_table" | "provider_reliability";
+  }>;
+  drivers: SubredditDriverPostsResponse["drivers"];
+  anomalies: SubredditAnomalyFeedResponse["events"];
+  keywordHeat: SubredditDailyTrendResponse["keywordHeat"];
+  reliability: {
+    provider: string | null;
+    mode: CrawlMode | null;
+    requestCount: number;
+    successCount: number;
+    errorCount: number;
+    timeoutCount: number;
+    circuitOpenCount: number;
+    duplicatePostRate: number | null;
+    ingestLagSecondsAvg: number | null;
+    lastStatusCode?: number;
+    lastErrorCode?: string;
+    lastErrorMessage?: string;
+    updatedAt?: string;
+  };
+}
+
+export type WorkbenchComparableSeriesId =
+  | "heat_price"
+  | "ema_7"
+  | "ema_30"
+  | "total_new_posts"
+  | "qualified_post_count";
+
+export interface TargetComparisonWorkbenchResponse {
+  ok: true;
+  requestId: string;
+  generatedAtIso: string;
+  range: {
+    fromIso: string;
+    toIso: string;
+    grain: "day";
+    dayCount: number;
+  };
+  series: Array<{
+    id: WorkbenchComparableSeriesId;
+    label: string;
+    unit: "score" | "count";
+  }>;
+  targets: Array<{
+    targetId: string;
+    canonicalName: string;
+    displayName: string;
+    targetType: "subreddit";
+  }>;
+  comparisons: Array<{
+    targetId: string;
+    canonicalName: string;
+    seriesId: WorkbenchComparableSeriesId;
+    baselineValue: number | null;
+    latestValue: number | null;
+    latestNormalizedValue: number | null;
+    points: Array<{
+      at: string;
+      value: number;
+      normalizedValue: number | null;
+    }>;
+  }>;
+  summary: Array<{
+    targetId: string;
+    canonicalName: string;
+    latestHeatPrice: number | null;
+    latestTotalNewPosts: number | null;
+    latestQualifiedPostCount: number | null;
+  }>;
+}
+
 export type AnomalySignalType = "volume" | "quality" | "keyword" | "driver";
 export type AnomalySeverity = "low" | "medium" | "high";
 

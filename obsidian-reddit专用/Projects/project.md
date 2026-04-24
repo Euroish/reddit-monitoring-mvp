@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: linux-runtime-recovery
-updated_at: "2026-04-24 08:49:58"
+stage: analytics-workbench-planning
+updated_at: "2026-04-24 12:18:10"
 repo_path: "E:\\vibe coding\\project"
-next_action: "On the rebuilt server, clone/pull GitHub `origin/main` from `Euroish/reddit-monitoring-mvp` as the canonical source, then redeploy from that code plus the documented Linux baseline: sing-box TUN is expected to be configured on the host, production env should use `REDDIT_LIVE_PROVIDER=http`, and the first operational slice is to restore `/etc/reddit-monitoring` env files, run migrations/builds, verify `scripts/linux-provider-smoke.ts`, `scripts/manual-phase1-run.ts`, `/readyz`, and one trend endpoint, then decide whether to enable `reddit-phase1-scheduler.service` continuously and seed the intended production subreddit set."
+next_action: "Deploy-smoke `GET /v1/workbench/compare` on the live host, then start the next analytics workflow object slice: saved comparison/query contexts or watchlist presets."
 tags:
 - codex
 - workspace
@@ -21,29 +21,35 @@ tags:
 - Status: active
 - Product: `Reddit analytics product shell on top of the verified HTTP/Scrapling data plane`
 - Product goal: build a durable browser-facing analytics product with session auth, explainable read models, charted target details, query analysis, and protected Ops visibility
-- Phase: `linux runtime recovery`
+- Phase: `analytics workbench planning`
 - Authority: `project.md` is the single execution source
 
 ## Product Hardening Focus
 
 - The frontend product shell is complete and verified through real browser/API smoke.
-- The verified P1.7 algorithm/read-model/provider baseline is frozen unless a regression blocks frontend product behavior.
+- The Linux collection lane is restored: collector-only proxy, backend-triggered node failover, scheduler, API, and materialization are all active on the host.
+- The latest verified scheduled cycle processed `r/askreddit`, `r/machinelearning`, `r/nba`, `r/pics`, `r/todayilearned`, and `r/worldnews` with zero failed targets and six materialized targets.
+- `/readyz` is still degraded only because of 105 historical live `dead_letter` jobs from the pre-proxy failure window; this is operational cleanup debt, not the active provider blocker.
+- The verified P1.7 algorithm/read-model/provider baseline remains stable unless a regression blocks product behavior.
 - Archived algorithm-development state lives at `Projects/Archive/algorithm-development-p1.7-2026-04-20.md`.
 - Phase E repo-side launch hardening is effectively saturated; keep it stable rather than extending it.
-- Current priority is Linux runtime recovery around real data acquisition, provider routing, scheduler safety, and materialization truth.
-- Keep the completed frontend routes (`/login`, `/dashboard`, `/queries`, `/target/:targetId`, `/ops`) stable while fixing the backend path that currently leaves the product without fresh data.
+- Current priority is shifting from recovery to product analytics: turn the existing product shell and read models into a TradingView-like Reddit analytics workbench.
+- W1 Target Workbench Contract is complete: `TargetWorkbenchResponse`, `GET /v1/workbench/target/:targetId`, focused API tests, compiled deployment, and live host smoke are verified.
+- W2 Target Detail Workbench UI is complete locally: `/target/:targetId` consumes the workbench endpoint and renders series toggles, multi-series chart, driver posts, keyword heat, reliability, anomalies, and query-param keyword overlays.
+- W4 Comparison Mode is complete locally: `TargetComparisonWorkbenchResponse`, `GET /v1/workbench/compare`, normalized multi-target read model, target-detail comparison chart, market-backed suggested comparison controls, API contract test, and browser smoke are verified.
+- Keep the completed frontend routes (`/login`, `/dashboard`, `/queries`, `/target/:targetId`, `/ops`) stable while extending API-backed workbench interactions.
 
 ## Current Focus
 
-- Restore actual Linux data collection first. The current cloud-server evidence shows the live lane selects `http`, immediately hits Reddit `403`, opens the provider circuit, processes zero targets, and leaves the product unable to perform its core function.
-- Treat launch hardening as frozen trailing work unless a specific launch-control change directly unblocks Linux recovery.
-- Optimize for the smallest runtime recovery slice: one real failing provider path, one concrete fix, one Linux verification loop, then write back.
+- Resolve the state drift created by the recovery phase: Linux runtime is no longer the main blocker, but old dead-letter jobs still make readiness look degraded.
+- Use `docs/analytics-workbench-framework-2026-04-24.md` as the next product framework source after the product shell design.
+- Optimize for the smallest analytics vertical slice: one workbench read-model contract, one API endpoint, one target-detail UI upgrade, and browser/API smoke evidence.
 
 ## Change Policy
 
-- Allowed: targeted runtime/provider fixes, scheduler safety changes, collector path fixes, minimal schema/runtime drift repairs, Linux verification helpers, and the narrow tests/docs needed to support those fixes.
-- Forbidden: unrelated frontend polish, extra launch-hardening work that does not unblock Linux recovery, broad architecture rewrites before one live collection lane works again, and speculative refactors not tied to the current Linux blocker.
-- Each round should end with runnable code, focused tests, and explicit Linux-aware verify evidence when the slice touches the failing runtime path.
+- Allowed: historical dead-letter cleanup/replay, analytics workbench framework/design, Chart DTO v2 contracts, target-detail read models, focused product UI upgrades, and narrow runtime fixes only if live collection regresses.
+- Forbidden: broad architecture rewrites, unrelated frontend polish, new provider experiments while the current collector lane is healthy, and launch-hardening expansion unrelated to product analytics.
+- Each round should end with runnable code or an explicit design artifact, focused tests where code changes, and browser/API evidence for product-facing changes.
 
 ## Autonomous Execution Policy
 
@@ -57,9 +63,16 @@ tags:
 
 - Archived algorithm flow: `Projects/Archive/algorithm-development-p1.7-2026-04-20.md`.
 - Canonical post-P1.7 product shell design: `docs/product-shell-final-design-2026-04-20.md`.
+- Canonical analytics workbench framework: `docs/analytics-workbench-framework-2026-04-24.md`.
 - Supporting acquisition baseline: `docs/scrapling-integration-flow.md`.
 - Architecture guardrails: `docs/architecture.md`.
 - Keep this file as execution memory; store deep details in `docs/` and link from activity entries.
+
+## Superseded Drift Notes
+
+- Historical activity entries mention `docs/backend-rebuild-plan-2026-04-22.md`, but that file is not present in the current repo. Treat those mentions as historical context only.
+- The active replacement for the missing TradingView-like analytics-module direction is `docs/analytics-workbench-framework-2026-04-24.md`.
+- Historical entries that describe Linux as blocked by Reddit `403` are superseded by the 2026-04-24 07:15 scheduler cycle, which processed and materialized six targets with zero failed targets.
 
 ## Linux Truth Sources
 
@@ -78,20 +91,97 @@ tags:
 ## Ongoing Development Flow
 
 - Workspace rule: keep `Projects/project.md` as the only active state source; treat any other `Projects` markdown file as archive/reference only.
-- Slice rule: each dev cycle ships one smallest complete vertical slice. While Linux recovery is active, prefer the path `Linux evidence -> runtime/provider path -> targeted fix -> focused tests -> Linux re-verify` over any local-only hardening sequence.
+- Slice rule: each dev cycle ships one smallest complete vertical slice. During analytics workbench planning, prefer the path `read-model contract -> API endpoint -> frontend integration -> browser/API smoke` over UI-only chart work.
 - Verify rule: every slice must include at least `npm run typecheck` plus targeted test commands for changed boundaries; run `npm run algo:phase1` when the slice crosses scheduler/materialization/API seams.
-- Evidence rule: store large verify artifacts under `docs/` and reference paths in the activity entry instead of pasting long logs. For live runtime blockers, the primary evidence should come from Linux output in `Projects/test.md` or a linked detail doc, not only local tests.
+- Evidence rule: store large verify artifacts under `docs/` and reference paths in the activity entry instead of pasting long logs. For product workbench changes, primary evidence should include API contract tests plus a browser smoke or screenshot-capable check.
 - Writeback rule: after each slice, update frontmatter `updated_at` and `next_action`, then append one `Scope/Why now/Verify/Next` entry at the top of the activity log.
-- Priority rule: restoring data collection on the cloud host outranks additional launch polish, frontend changes, and non-blocking architecture cleanup. Only resume broader product-shell or architecture work after the product can collect and materialize fresh data on Linux again.
+- Priority rule: keep live collection stable, then move product value forward through analytics workbench slices. If live collection regresses, runtime recovery temporarily retakes priority until one scheduled cycle succeeds again.
 
 ## Flow Reinforcement
 
-- Do not treat repo-side completion as stage completion when Linux still cannot perform the product's core function.
-- Do not continue adding local launch-hardening tests once Linux evidence shows the main blocker is collector/runtime failure.
-- When a live blocker is proven, the next slice must name the exact failing path (`provider`, `target`, `endpoint`, `error class`) and aim to fix only that path first.
-- Architecture optimization is allowed only after at least one Linux live collection lane works again, unless a structural change is the smallest fix for the proven blocker.
+- Do not re-open Linux runtime recovery unless a fresh scheduled cycle fails or provider smoke fails under the collector proxy.
+- Do not let historical dead-letter jobs be mistaken for active provider failure; they are cleanup debt until new failures appear.
+- Do not build TradingView-like UI ahead of contracts. Workbench features must be backed by persisted facts/read models and stable DTOs.
+- Architecture optimization is allowed only when it directly supports Chart DTO v2, indicator/panel composition, query overlays, comparison, or analysis workflow ergonomics.
 
 ## Activity Log
+
+### 2026-04-24 12:18:10
+
+- Scope: Hardened the W4 comparison workflow using `awesome-design-md-main` design references. Read the Linear, Sentry, and ClickHouse `DESIGN.md` files and applied the relevant product-workbench patterns: compact dark toolbar controls, pill/chip target selection, dense analytical hierarchy, and responsive control wrapping. Updated `apps/web/src/pages/TargetDetail.tsx` so comparison can be started from market-backed suggested targets instead of only free-text `compare=` input, while preserving URL-backed state and the API-backed comparison read model. Updated `scripts/smoke-web-product-shell.ts` to click the suggested `r/machinelearning` comparison chip and assert selected/remove state plus the comparison chart.
+- Why now: W4's first slice proved the comparison contract and chart. The remaining local UX gap was making comparison discoverable as an analysis workflow instead of a hidden query parameter or manual text field.
+- Verify: `npm run typecheck` passed. `npm --prefix apps/web run build` passed with only the existing Vite large-chunk warning. Initial `npm run smoke:web` was blocked by sandbox IPC (`listen EPERM` on `/tmp/tsx-0/*.pipe`), then the same command passed outside the sandbox with `SMOKE_API_PORT=3100 SMOKE_WEB_PORT=5174`, covering target chart, keyword overlay, market-backed comparison chip, comparison chart, Ops, auth guards, and mobile responsive review. `ss -ltnp` outside the sandbox confirmed no `3100`/`5174` listeners remained.
+- Next: Deploy-smoke `GET /v1/workbench/compare` on the live host, then start saved comparison/query contexts or watchlist presets as the next workflow-object slice.
+
+### 2026-04-24 12:08:19
+
+- Scope: Completed the W4 Comparison Mode vertical slice. Added `TargetComparisonWorkbenchResponse` and comparable series ids to `packages/contracts/src/http.ts`, implemented `buildTargetComparisonWorkbenchReadModel()` in `src/application/services/target-comparison-workbench-read-model.service.ts`, exposed `GET /v1/workbench/compare?targets=...&series=...`, and added a target-detail comparison workflow backed by the API instead of frontend joins. Extended `scripts/smoke-web-product-shell.ts` seed data and assertions so the browser smoke proves a two-target comparison chart.
+- Why now: The active next action required a comparison read model/contract before multi-target UI. The smallest useful slice was a URL-backed comparison on the existing target workbench, using normalized index values from persisted daily facts.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/integration/api-server-trends.test.ts` passed (`16/16`), including the new multi-target comparison contract test. `npm --prefix apps/web run build` passed with only the existing Vite large-chunk warning. `SMOKE_API_PORT=3100 SMOKE_WEB_PORT=5174 npm run smoke:web` passed after tightening the comparison text assertion and fixing mobile form overflow; the smoke covered target chart, keyword overlay, comparison chart, Ops, auth guards, and mobile responsive review. Confirmed smoke ports `3100` and `5174` were released.
+- Next: Harden comparison ergonomics with explicit target selector/timeframe controls, or deploy-smoke `GET /v1/workbench/compare` on the live host before starting saved workflow objects.
+
+### 2026-04-24 11:58:02
+
+- Scope: Completed W3 Query Overlay verification. Confirmed the target workbench now exposes query-param keyword overlays through explicit UI controls in `apps/web/src/pages/TargetDetail.tsx`, preserves the URL-backed `keywords` state, shows query context and driver matches from the API-backed read model, and locks the browser path in `scripts/smoke-web-product-shell.ts`.
+- Why now: W2 had already landed the workbench endpoint and target-detail UI, and the active next action was to turn the existing `?keywords=` path into a verifiable overlay workflow rather than leaving it implicit.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/integration/api-server-trends.test.ts` passed (`15/15`), including the target workbench contract and existing scoped query filtering coverage. `npm --prefix apps/web run build` passed with only the existing Vite large-chunk warning. `SMOKE_API_PORT=3100 SMOKE_WEB_PORT=5174 npm run smoke:web` passed, covering owner login, queries, target workbench chart, keyword overlay toggle and URL update, Ops, logout, viewer guard, and mobile responsive review.
+- Next: Start W4 Comparison Mode from `docs/analytics-workbench-framework-2026-04-24.md`: define the multi-target comparison contract/read model first, then add UI only after API tests prove the shape.
+
+### 2026-04-24 10:02:56
+
+- Scope: Completed W2 Target Detail Workbench UI. Updated `apps/web/src/pages/TargetDetail.tsx` to consume `GET /v1/workbench/target/:targetId`, render selectable workbench series, keyword overlays from `?keywords=...`, driver posts, keyword heat, reliability, and anomaly panels. Updated `scripts/smoke-web-product-shell.ts` with workbench seed data and assertions for chart/panels/keyword overlay/mobile overflow. Made `apps/web/vite.config.ts` and the smoke script support temporary API/web ports so browser verification does not collide with an already-running local API.
+- Why now: `Projects/上次未完成任务.md` showed W2 was started but not finished after W1. The next safe slice was to finish the frontend integration against the already verified workbench contract and prove it in a browser.
+- Verify: `npm run typecheck` passed. `npm --prefix apps/web run build` passed with only the existing Vite large-chunk warning. Installed missing local Playwright Chromium/runtime dependencies, then `SMOKE_API_PORT=3100 SMOKE_WEB_PORT=5174 npm run smoke:web` passed, covering owner login, queries, target workbench chart SVG, driver/keyword/reliability panels, keyword overlay URL, Ops, logout, viewer guard, and mobile responsive review. Confirmed temporary smoke ports `3100` and `5174` were released afterward.
+- Next: Start W3 Query Overlay: add explicit target-workbench overlay controls/context on top of the existing `?keywords=` API path, then verify with API-backed browser smoke.
+
+### 2026-04-24 07:25:39
+
+- Scope: Completed W1 Target Workbench Contract. Added `TargetWorkbenchResponse` to `packages/contracts`, implemented `buildTargetWorkbenchReadModel()` to assemble daily facts, trend points, keyword overlays, driver posts, anomaly events, and provider reliability, and exposed `GET /v1/workbench/target/:targetId` from the API. Added focused integration coverage in `tests/integration/api-server-trends.test.ts`. Built API dist, synced it to `/opt/reddit-monitoring/current/dist`, and restarted `reddit-api.service`.
+- Why now: After repairing project state drift, the next analytics-workbench slice needed a stable backend contract before any TradingView-like target UI work. This prevents UI-only chart logic and gives the frontend a single workbench DTO.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/integration/api-server-trends.test.ts` passed (`15/15`). `npm run build:api` passed. Live host smoke with authenticated `GET /v1/workbench/target/askreddit?keywords=ai&driverLimit=5&anomalyLimit=5` returned `ok=true`, target `r/askreddit`, series ids `heat_price`, `ema_7`, `ema_30`, `total_new_posts`, `qualified_post_count`, plus one overlay, five drivers, five anomalies, and reliability provider `http`.
+- Next: Start W2 UI integration: update `apps/web/src/pages/TargetDetail.tsx` to consume the workbench endpoint, add series toggles and driver/keyword/reliability panels, then verify with web build and browser smoke.
+
+### 2026-04-24 07:18:42
+
+- Scope: Repaired project state drift after live collection recovery. Promoted the active stage from `linux-runtime-recovery` to `analytics-workbench-planning`, replaced stale "restore collection first" language with the current host truth, added `docs/analytics-workbench-framework-2026-04-24.md` as the canonical next product framework, and updated `docs/product-shell-final-design-2026-04-20.md` status calibration so it no longer points at Phase E as the active stage.
+- Why now: The user correctly noted that collection is basically implemented and asked to fix status/drift before moving toward a TradingView-like product. The old project state still described the pre-proxy failure where every target hit Reddit `403`, even though the current scheduler has processed and materialized targets successfully.
+- Verify: `journalctl -u reddit-phase1-scheduler.service --since '2026-04-24 07:12:00'` shows the 07:15 cycle processed `r/askreddit`, `r/machinelearning`, `r/nba`, `r/pics`, `r/todayilearned`, and `r/worldnews`, with `failedTargets=[]`, `replayedJobs=6`, and `materializedTargets=6`. Authenticated `/readyz` reports only `dead_letter_jobs_present`, with queue backlog/scheduled/running all `0` and `deadLetter=105`. No code behavior changed in this slice.
+- Next: Decide whether to replay or clear the 105 historical live dead-letter jobs from the pre-proxy failure window, then start W1 from the analytics workbench framework: `TargetWorkbenchResponse`, `GET /v1/workbench/target/:targetId`, and focused API tests.
+
+### 2026-04-24 07:12:54
+
+- Scope: Added backend-triggered, collector-only node failover while preserving SSH/server safety. `RedditHttpConnector` now accepts `REDDIT_HTTP_PROXY_FAILOVER_COMMAND`; when a proxied Reddit request returns a block/rate-limit/upstream failure status or proxy error, it runs the command at most once for that request and retries. Wired the env through `createRedditConnectorFromEnv`, documented it in env examples/runbook, and added regression tests. On the host, moved collector node selection into `/root/sing-box-collector/node.env`, created root-owned `/usr/local/sbin/reddit-collector-failover`, restricted candidate switching to the verified Turkey/Vietnam node pool, and granted the `reddit-monitoring` service user only that command via `/etc/sudoers.d/reddit-collector-failover`. Rebuilt API/worker dist and synced it into `/opt/reddit-monitoring/current/dist`, then restarted API and scheduler.
+- Why now: The user wanted the backend to recover automatically when data collection fails, without risking server access. A full-machine VPN switch would threaten SSH; a root-owned local proxy failover keeps the default route unchanged and only restarts the collector proxy on `127.0.0.1:1080`.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/unit/reddit-http.connector.test.ts tests/unit/reddit-phase1-runtime.test.ts` passed (`19/19`). `npm run build:api` passed and compiled dist was synced to the running release. Host failover proof: forced `/root/sing-box-collector/node.env` to bad node index `91`, restarted `sing-box-collector.service`, then ran compiled `node /opt/reddit-monitoring/current/dist/scripts/linux-provider-smoke.js`; the first request triggered failover and the same smoke passed after selecting node index `101` (`iepl.vnz1.cat.bilibili.com`). Safety proof: default route remains `default via 10.0.196.1 dev ens17`, SSH still listens on `:22`, `sing-box` only listens on `127.0.0.1:1080`, and `sing-box-collector.service`, `reddit-api.service`, and `reddit-phase1-scheduler.service` are active.
+- Next: Watch the next scheduled cycle under the new failover-enabled runtime and confirm normal target processing. If `/readyz` stays degraded only because of old dead-letter jobs, decide whether to replay/clear those historical jobs.
+
+### 2026-04-24 06:55:38
+
+- Scope: Completed the collector-only VPN/proxy deployment with the new subscription link. Stored the subscription only in `/root/.secrets/sing-box-subscription.url` with `600` permissions, installed sing-box `1.13.11`, upgraded `/root/sing-box-collector/build-config.mjs` for sing-box 1.13 DNS/inbound config rules, skipped subscription metadata nodes, added explicit node selection support, and pinned `sing-box-collector.service` to the verified Turkey IEPL node (`SING_BOX_NODE_INDEX=90`). Installed and enabled `sing-box-collector.service`, merged `REDDIT_LIVE_PROVIDER=http`, `REDDIT_HTTP_TRANSPORT=fetch`, and `REDDIT_HTTP_PROXY=http://127.0.0.1:1080` into both scheduler/API env files, then restarted API and scheduler so live runtime uses the collector proxy.
+- Why now: The previous recovery state was blocked before host deployment. With the fresh user subscription, the server can now fetch nodes and run systemd, so the smallest useful slice was to finish the host-only proxy path and prove the Reddit provider/read-model path through it.
+- Verify: `sing-box check -c /root/sing-box-collector/config.json` passed after the config migration. `systemctl status sing-box-collector.service` shows active and listening on `127.0.0.1:1080`. A proxied Reddit JSON GET returned real `about.json` content. `REDDIT_HTTP_TRANSPORT=fetch REDDIT_LIVE_PROVIDER=http timeout 60s npx tsx scripts/linux-provider-smoke.ts` passed. `timeout 180s npx tsx scripts/manual-phase1-run.ts` succeeded for live `r/machinelearning`, writing `25` content rows and `1` `subreddit_trend_point`; Postgres also shows one fresh `http/live` provider success. `reddit-api.service` and `reddit-phase1-scheduler.service` are active after restart. `/readyz` still reports degraded because old dead-letter jobs are present, not because the provider smoke failed.
+- Next: Let the restarted scheduler complete the next interval under the new proxy env and check that scheduled target processing no longer returns Reddit `403`. Then either clear/replay the old dead-letter jobs or keep them as historical evidence, depending on whether Ops readiness should be green immediately.
+
+### 2026-04-24 06:45:59
+
+- Scope: Re-read the active project state for the requested VPN deployment, refreshed the user-provided subscription URL into `/root/.secrets/sing-box-subscription.url` with `600` permissions, and verified the prepared collector-only deployment files under `/root/sing-box-collector`. The intended path remains a local `sing-box` mixed proxy at `127.0.0.1:1080` for Reddit collection only, not host-wide TUN.
+- Why now: The user asked to complete the VPN deployment with the current subscription. Before touching services, it was necessary to confirm whether this shell could reach the subscription endpoint, install `sing-box`, write `/etc/reddit-monitoring`, and talk to systemd.
+- Verify: `/root/.secrets/sing-box-subscription.url` is present and root-only. `/root/sing-box-collector/deploy-on-host.sh`, `refresh-and-build.sh`, `build-config.mjs`, `sing-box-collector.service`, and `reddit-monitoring-proxy.env` are present with root-only permissions. Deployment cannot be completed inside this Codex sandbox: `refresh-and-build.sh` fails with `curl: (6) Could not resolve host`; direct `curl` to `1.1.1.1:443` cannot connect; `systemctl is-active ...` fails with `Failed to connect to bus: Operation not permitted`; writing `/etc/reddit-monitoring/*.env` backups fails with `Read-only file system`; and `sing-box` is not installed in this execution environment.
+- Next: Use the existing host deployment script from a real root shell outside the sandbox: `/root/sing-box-collector/deploy-on-host.sh`. After it succeeds, confirm `ss -ltnp` shows `127.0.0.1:1080`, `curl --proxy http://127.0.0.1:1080 -I https://www.reddit.com/r/askreddit/about.json` returns a non-blocked response, then run the repository Linux provider smoke and one manual phase1 collection before enabling continuous scheduling.
+
+### 2026-04-24 06:34:37
+
+- Scope: Stored the user-provided VPN subscription URL outside the repo at `/root/.secrets/sing-box-subscription.url` with `600` permissions, created `/root/sing-box-collector` as the host-only collector proxy workspace, and added root-only helper files there: `refresh-and-build.sh`, `build-config.mjs`, `sing-box-collector.service`, and `reddit-monitoring-proxy.env`. No subscription URL or token was written into Git-tracked files.
+- Why now: The user confirmed the route: Reddit collection needs VPN/TUN-like egress, while host administration should keep using the server's public IP. A collector-only local proxy preserves SSH/API/DB host routing and gives only the data acquisition layer a VPN exit.
+- Verify: Directory and file permissions were set to root-only. A fetch attempt through `refresh-and-build.sh` currently fails at DNS resolution for the subscription domain (`curl: could not resolve host`), so node decoding/config validation is blocked until DNS/network resolution is available on the server.
+- Next: Fix server DNS or run the refresh script in the real network environment, then install/copy the generated service to systemd, start the collector-only sing-box proxy, set `REDDIT_HTTP_PROXY=http://127.0.0.1:1080`, and verify Reddit provider smoke plus one manual collection run.
+
+### 2026-04-24 06:30:47
+
+- Scope: Added a dedicated collector egress path for Linux VPN/proxy recovery. `RedditHttpConnector` now supports `REDDIT_HTTP_PROXY` via a local curl-backed proxy runner while preserving the production `REDDIT_HTTP_TRANSPORT=fetch` contract, and `createRedditConnectorFromEnv` passes the proxy env into the HTTP connector. Documented the host-only sing-box mixed/SOCKS inbound pattern in env examples and the operations runbook so VPN subscription credentials stay out of Git.
+- Why now: User verified that Reddit collection fails without VPN/TUN and offered the VPN subscription endpoint. The durable fix should not force SSH, API, Postgres, and all system traffic through an unstable full-machine TUN when only Reddit collection needs the alternate egress. A collector-scoped proxy gives the data plane the proven VPN path while reducing host instability.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/unit/reddit-http.connector.test.ts tests/unit/reddit-phase1-runtime.test.ts` passed. `npx tsx --test ...` was blocked in this sandbox by `listen EPERM` on `/tmp/tsx-0/*.pipe`, so the equivalent Node test runner entrypoint was used.
+- Next: On Linux, configure sing-box with the user's subscription as a host-only secret and expose `127.0.0.1:1080` as a mixed inbound. Set `REDDIT_HTTP_PROXY=http://127.0.0.1:1080`, keep `REDDIT_LIVE_PROVIDER=http` and `REDDIT_HTTP_TRANSPORT=fetch`, then run `linux-provider-smoke` and `manual-phase1-run` before starting continuous scheduler operation.
 
 ### 2026-04-24 08:49:58
 
