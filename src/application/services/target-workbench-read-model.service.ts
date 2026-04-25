@@ -54,6 +54,39 @@ const SERIES_DEFS: Array<{
     description: "Thirty-day exponential moving average for heat price.",
   },
   {
+    id: "activity_index",
+    label: "Activity Index",
+    family: "activity",
+    unit: "score",
+    defaultVisible: true,
+    chartType: "line",
+    axis: "primary",
+    description:
+      "Confidence-weighted relative activity index. 100 is the target's observed baseline; low-sample days are damped toward neutral.",
+  },
+  {
+    id: "qualified_activity_index",
+    label: "Qualified Activity Index",
+    family: "activity",
+    unit: "score",
+    defaultVisible: false,
+    chartType: "line",
+    axis: "primary",
+    description:
+      "Confidence-weighted relative index for quality-qualified observed posts.",
+  },
+  {
+    id: "activity_confidence",
+    label: "Activity Confidence",
+    family: "activity",
+    unit: "score",
+    defaultVisible: false,
+    chartType: "bar",
+    axis: "secondary",
+    description:
+      "0-100 confidence score derived from observed sample density and engagement sample coverage.",
+  },
+  {
     id: "total_new_posts",
     label: "Observed New Posts",
     family: "activity",
@@ -438,6 +471,15 @@ function valueForSeries(
   }
   if (id === "ema_30") {
     return point.ema30;
+  }
+  if (id === "activity_index") {
+    return point.activityIndex;
+  }
+  if (id === "qualified_activity_index") {
+    return point.qualifiedActivityIndex;
+  }
+  if (id === "activity_confidence") {
+    return Number((point.activityConfidence * 100).toFixed(6));
   }
   if (id === "total_new_posts") {
     return point.totalNewPosts;

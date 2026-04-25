@@ -281,3 +281,50 @@ test("buildSubredditDailyInsights prefers daily fact fields when available", () 
   assert.equal(model.daily[2]?.subredditTier, "small");
   assert.equal(model.daily[2]?.algorithmVersion, "daily_fact_v1");
 });
+
+test("buildSubredditDailyInsights builds confidence-weighted relative activity indexes", () => {
+  const model = buildSubredditDailyInsights({
+    fromIso: "2026-04-10T00:00:00.000Z",
+    toIso: "2026-04-12T23:59:59.000Z",
+    dailyFacts: [
+      dailyFact({
+        day: "2026-04-10",
+        postVolume: 60,
+        qualifiedPostVolume: 12,
+        commentSum: 120,
+        heatPrice: 60,
+        heatChangePct: 0,
+        ema7: 60,
+        ema30: 60,
+      }),
+      dailyFact({
+        day: "2026-04-11",
+        postVolume: 4,
+        qualifiedPostVolume: 1,
+        commentSum: 8,
+        heatPrice: 20,
+        heatChangePct: -0.666667,
+        ema7: 50,
+        ema30: 57.419355,
+      }),
+      dailyFact({
+        day: "2026-04-12",
+        postVolume: 5,
+        qualifiedPostVolume: 1,
+        commentSum: 10,
+        heatPrice: 21,
+        heatChangePct: 0.05,
+        ema7: 42.75,
+        ema30: 55.069813,
+      }),
+    ].map((fact) => ({ ...fact, subredditTier: "large" as const })),
+    posts: [],
+  });
+
+  assert.equal(model.daily[0]?.activityConfidence, 1);
+  assert.equal(model.daily[1]?.activityConfidence, 0.632456);
+  assert.equal(model.daily[0]?.activityIndex, 300);
+  assert.equal(model.daily[1]?.activityIndex > 35, true);
+  assert.equal(model.daily[1]?.activityIndex < 100, true);
+  assert.equal(model.daily[1]?.explainPayload?.observedPostBaseline, 5);
+});

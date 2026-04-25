@@ -9,6 +9,9 @@ export const SERIES_COLORS: Record<string, string> = {
   heat_price: '#5e6ad2',
   ema_7: '#a07cc6',
   ema_30: '#6f7785',
+  activity_index: '#14b8a6',
+  qualified_activity_index: '#f97316',
+  activity_confidence: '#64748b',
   total_new_posts: '#10b981',
   qualified_post_count: '#f59f00',
 };
@@ -17,7 +20,7 @@ export function createInitialSeriesSelection(data: TargetWorkbenchResponse | und
   const defaults = data?.indicators
     .filter((indicator) => indicator.defaultVisible)
     .map((indicator) => indicator.id);
-  return new Set(defaults && defaults.length > 0 ? defaults : ['heat_price', 'ema_7', 'ema_30']);
+  return new Set(defaults && defaults.length > 0 ? defaults : ['heat_price', 'ema_7', 'ema_30', 'activity_index']);
 }
 
 export function buildTargetWorkbenchChartOptions(args: {

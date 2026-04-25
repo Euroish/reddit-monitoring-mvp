@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: analytics-workbench-contract-v2
-updated_at: "2026-04-25 04:00:39"
+updated_at: "2026-04-25 05:11:01"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Run a live r/nba or r/overwatch backfill from Ops, then inspect target workbench dataQuality.coverage for low_observed_post_density/front_loaded_backfill_sample before treating activity bars as trend evidence."
+next_action: "Let the scheduler complete one full cycle after the collector proxy repair, then verify no fresh failover/circuit_open failures and continue live r/nba/r/overwatch activity-index inspection."
 tags:
 - codex
 - workspace
@@ -147,6 +147,20 @@ tags:
 - Next product sequence is live W6 Chart DTO v2 smoke, P0 analytics truth fixes, P1 bounded 15-day backfill for newly added targets, then W7 Market Board/Watchlist and W8 saved presets/context expansion. Watchlist remains important, but follows a stable chart/workbench kernel and honest coverage model.
 
 ## Activity Log
+
+### 2026-04-25 05:11:01
+
+- Scope: Repaired the live Reddit collector proxy without changing host ingress, login, nginx, SSH, Postgres, firewall, or default routes. Diagnosis showed `sing-box.service` TUN was inactive, but the active path is `sing-box-collector.service` on `127.0.0.1:1080`; current node `SING_BOX_NODE_INDEX=101` timed out, while direct Reddit still returned the network-security `403`. Fetched the user subscription to `/tmp`, tested candidates on temporary `127.0.0.1:1081`, found `index=3` working, then switched the collector-only proxy. Also fixed scheduled auto-failover by adding a scheduler-only systemd drop-in with `NoNewPrivileges=false`, allowing the existing scoped sudoers rule for `/usr/local/sbin/reddit-collector-failover`; the helper selected working `index=90`.
+- Why now: The app-level 403 bypass had regressed because the selected collector node was dead and automatic node failover was blocked by systemd hardening. This affected collection but not the public API/login path.
+- Verify: Before fix, proxied `api.ipify.org` and proxied Reddit timed out; direct Reddit returned `403`. Temporary candidate smoke found `index=3` returned Reddit `HTTP 200`. Final collector state is `SING_BOX_NODE_INDEX=90`, proxy outbound `d3.catcat321.com:20017`, exit IP `212.68.49.177`, proxied Reddit `HTTP 200`. `scripts/linux-provider-smoke.ts` through `/etc/reddit-monitoring/scheduler.env` passed. `reddit-api`, `reddit-phase1-scheduler`, `nginx`, `ssh`, `postgresql`, and `sing-box-collector` were all active after the fix.
+- Next: Watch the next scheduler cycle for absence of fresh `failover command failed` and `provider.circuit_open` errors; then continue live target workbench checks for `activity_index`, `activity_confidence`, and sparse backfill coverage.
+
+### 2026-04-25 04:17:22
+
+- Scope: Upgraded the workbench activity trend from raw observed-count bars to stock-like relative indexes. Added `activity_index`, `qualified_activity_index`, and `activity_confidence` to the target/comparison workbench contracts. `activity_index` uses the target's observed median baseline and dampens low-sample days toward neutral based on tier-aware sample density and engagement-sample coverage, while raw observed counts remain available as audit series.
+- Why now: The user correctly challenged the binary choice between misleading `Total New Posts` and overly pessimistic `Observed New Posts`. High-volume subreddits need a relative trend line that behaves like a market index while still exposing confidence and sample limitations.
+- Verify: Direct Reddit JSON fetch from this shell returned Reddit network-security `403`, and local Postgres credentials were unavailable, so no live crawl was possible here. `node --import tsx --test tests/unit/subreddit-daily-insights.service.test.ts tests/unit/target-workbench-read-model.service.test.ts tests/integration/api-server-trends.test.ts` passed (`24/24`). `node --import tsx --test tests/integration/api-server-auth.test.ts` passed (`14/14`). `npm run typecheck` passed. `npm --prefix apps/web run build` passed with the existing large TargetDetail chunk warning.
+- Next: Run live backfill on the host where the Reddit provider/proxy works, then inspect `/v1/workbench/target/:targetId` for `activity_index`, `activity_confidence`, and coverage degraded reasons before tuning thresholds further.
 
 ### 2026-04-25 04:00:39
 

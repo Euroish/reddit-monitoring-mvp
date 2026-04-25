@@ -251,7 +251,16 @@ export function TargetDetail() {
       keywords: keywordList,
       seriesIds: Array.from(activeSeries)
         .filter((seriesId): seriesId is NonNullable<CreateSavedWorkbenchViewRequest['seriesIds']>[number] =>
-          ['heat_price', 'ema_7', 'ema_30', 'total_new_posts', 'qualified_post_count'].includes(seriesId),
+          [
+            'heat_price',
+            'ema_7',
+            'ema_30',
+            'activity_index',
+            'qualified_activity_index',
+            'activity_confidence',
+            'total_new_posts',
+            'qualified_post_count',
+          ].includes(seriesId),
         ),
       routePath,
     });

@@ -63,6 +63,9 @@ export interface DailyTrendPoint {
   day: string;
   totalNewPosts: number;
   totalDiscussion: number;
+  activityIndex: number;
+  qualifiedActivityIndex: number;
+  activityConfidence: number;
   postChangePct: number;
   discussionChangePct: number;
   postSpikeScore: number;
@@ -277,12 +280,42 @@ function buildDailyMetrics(args: {
   const history: number[] = [];
   const result: DailyTrendPoint[] = [];
   let previous: { totalNewPosts: number; totalDiscussion: number } | null = null;
+  const factSeries = args.days.map((day) => factByDay.get(day));
+  const observedPostBaseline = medianPositive(
+    factSeries.map((fact, index) => {
+      const day = args.days[index]!;
+      return fact?.postVolume ?? byDay.get(day)!.totalNewPosts;
+    }),
+  );
+  const qualifiedPostBaseline = medianPositive(
+    factSeries.map((fact) => fact?.qualifiedPostVolume ?? 0),
+  );
 
   for (const day of args.days) {
     const fallback = byDay.get(day)!;
     const fact = factByDay.get(day);
     const totalNewPosts = fact?.postVolume ?? fallback.totalNewPosts;
     const totalDiscussion = fact?.commentSum ?? fallback.totalDiscussion;
+    const minObservedPostsPerDay = fact ? minObservedPostsForTier(fact.subredditTier) : 2;
+    const sampleReliability =
+      fact && totalNewPosts > 0 ? clamp(fact.sampledPostVolume / totalNewPosts, 0, 1) : 0;
+    const activityConfidence =
+      totalNewPosts > 0
+        ? toFixedNumber(
+            Math.sqrt(clamp(totalNewPosts / minObservedPostsPerDay, 0, 1)) *
+              (fact ? sampleReliability : 0.5),
+          )
+        : 0;
+    const activityIndex = confidenceWeightedIndex({
+      observedValue: totalNewPosts,
+      baseline: observedPostBaseline,
+      confidence: activityConfidence,
+    });
+    const qualifiedActivityIndex = confidenceWeightedIndex({
+      observedValue: fact?.qualifiedPostVolume ?? 0,
+      baseline: qualifiedPostBaseline,
+      confidence: activityConfidence,
+    });
     const postChangePct = previous
       ? safePctChange(totalNewPosts, previous.totalNewPosts)
       : 0;
@@ -296,6 +329,9 @@ function buildDailyMetrics(args: {
       day,
       totalNewPosts,
       totalDiscussion,
+      activityIndex,
+      qualifiedActivityIndex,
+      activityConfidence,
       postChangePct: toFixedNumber(postChangePct),
       discussionChangePct: toFixedNumber(discussionChangePct),
       postSpikeScore,
@@ -312,7 +348,13 @@ function buildDailyMetrics(args: {
       qualityThresholdScore: fact?.qualityThresholdScore ?? 0,
       qualityThresholdComments: fact?.qualityThresholdComments ?? 0,
       algorithmVersion: fact?.algorithmVersion,
-      explainPayload: fact?.explainPayload,
+      explainPayload: {
+        ...(fact?.explainPayload ?? {}),
+        observedPostBaseline,
+        qualifiedPostBaseline,
+        activityConfidence,
+        minObservedPostsPerDay,
+      },
     });
 
     history.push(totalNewPosts);
@@ -323,6 +365,42 @@ function buildDailyMetrics(args: {
   }
 
   return result;
+}
+
+function confidenceWeightedIndex(args: {
+  observedValue: number;
+  baseline: number;
+  confidence: number;
+}): number {
+  if (args.baseline <= 0 || args.observedValue <= 0) {
+    return args.confidence > 0 ? toFixedNumber(100 * (1 - args.confidence)) : 0;
+  }
+  const rawIndex = clamp((args.observedValue / args.baseline) * 100, 0, 300);
+  return toFixedNumber(100 + (rawIndex - 100) * clamp(args.confidence, 0, 1));
+}
+
+function medianPositive(values: number[]): number {
+  const positive = values
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => a - b);
+  if (positive.length === 0) {
+    return 0;
+  }
+  const mid = Math.floor(positive.length / 2);
+  if (positive.length % 2 === 1) {
+    return positive[mid] ?? 0;
+  }
+  return ((positive[mid - 1] ?? 0) + (positive[mid] ?? 0)) / 2;
+}
+
+function minObservedPostsForTier(tier: SubredditDailyFact["subredditTier"]): number {
+  if (tier === "large") {
+    return 10;
+  }
+  if (tier === "mid") {
+    return 5;
+  }
+  return 2;
 }
 
 function buildKeywordHeat(args: {
@@ -467,6 +545,10 @@ function safePctChange(current: number, previous: number): number {
     return current > 0 ? 1 : 0;
   }
   return (current - previous) / previous;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function robustZScore(current: number, history: number[]): number {

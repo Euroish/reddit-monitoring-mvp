@@ -665,6 +665,9 @@ export interface TargetWorkbenchResponse {
       | "heat_price"
       | "ema_7"
       | "ema_30"
+      | "activity_index"
+      | "qualified_activity_index"
+      | "activity_confidence"
       | "total_new_posts"
       | "qualified_post_count";
     label: string;
@@ -681,6 +684,9 @@ export interface TargetWorkbenchResponse {
       | "heat_price"
       | "ema_7"
       | "ema_30"
+      | "activity_index"
+      | "qualified_activity_index"
+      | "activity_confidence"
       | "total_new_posts"
       | "qualified_post_count";
     label: string;
@@ -776,6 +782,9 @@ export type WorkbenchComparableSeriesId =
   | "heat_price"
   | "ema_7"
   | "ema_30"
+  | "activity_index"
+  | "qualified_activity_index"
+  | "activity_confidence"
   | "total_new_posts"
   | "qualified_post_count";
 
