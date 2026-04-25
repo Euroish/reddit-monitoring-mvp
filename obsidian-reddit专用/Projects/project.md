@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: analytics-workbench-contract-v2
-updated_at: "2026-04-25 05:39:55"
+updated_at: "2026-04-25 05:59:12"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Commit and push the collector 403/failover guardrail patch, then continue live r/nba/r/overwatch activity-index and sparse backfill coverage inspection."
+next_action: "Patch historical backfill tier/about propagation and unsampled observed-day heat semantics, then rerun live r/overwatch/r/nba coverage inspection."
 tags:
 - codex
 - workspace
@@ -1523,3 +1523,10 @@ tags:
 - Why now: The user had completed substantial algorithm/runtime changes, but browser behavior strongly suggested the host was still serving an older release bundle. Deployment evidence confirmed that suspicion: Nginx and systemd pointed at `/opt/reddit-monitoring/current`, whose assets had not been refreshed.
 - Verify: `npm run build` passed. `npm run smoke:compiled` passed. After sync/restart, `systemctl is-active reddit-api reddit-phase1-scheduler reddit-keyword-refresh nginx` all returned `active`. `curl -fsS http://127.0.0.1/healthz` returned `ok=true`. Nginx now serves `/assets/index-Dh3EX2UF.js` and `/assets/index-BUFcVQp6.css` from `/opt/reddit-monitoring/current/apps/web/dist`, with `Last-Modified: Sat, 25 Apr 2026 03:49:32 GMT`.
 - Next: Hard-refresh the browser once to force a fresh `index.html` fetch, then validate the algorithm-driven UI/output against the redeployed backend/runtime. If live behavior is still stale, the next check is release-specific API data rather than bundle drift.
+
+### 2026-04-25 05:59:12
+
+- Scope: Ran a live bounded backfill for `r/overwatch` on the host with the current production algorithm (`REDDIT_RUN_MODE=live`, `crawlMode=backfill`, `backfillPostLimit=500`, `backfillMaxIterationsPerTarget=24`, `backfillTargetDays=15`) and inspected live Postgres daily facts plus provider-health evidence for `r/overwatch`, `r/nba`, and `r/machinelearning`. The run materially improved `r/overwatch` observed volume on `2026-04-24/25`, but coverage remains sparse (`16` materialized days, `4` observed days, only `2` sampled days). Historical daily facts for both `r/overwatch` and `r/nba` still fall back to `subreddit_tier=micro` with `subscriber_count=0` on many earlier backfill days, which distorts thresholds/coverage semantics for large communities. `r/overwatch` also shows `post_volume>0` with `sampled_post_volume=0` on `2026-04-22/23`, while heat remains non-zero, so the current heat layer can still look active on unsampled observed days.
+- Why now: The user explicitly asked for a real SQL-backed run and analysis of the current algorithm instead of code-only reasoning. The strongest next evidence slice was to execute one fresh host backfill and compare live facts/coverage across a healthy large target (`r/nba`), a sparse problematic large target (`r/overwatch`), and a smaller reference target (`r/machinelearning`).
+- Verify: `systemctl is-active postgresql nginx reddit-api reddit-phase1-scheduler reddit-keyword-refresh` returned `active`. Host SQL showed `r/nba` (`16` materialized days / `13` observed days / median `9.5` posts) and `r/overwatch` (`16` / `4` / median `0`). `npm run phase1:manual-run` completed live backfill for `r/overwatch`. Post-run SQL confirmed `r/overwatch` facts at `2026-04-24 post_volume=183 sampled_post_volume=177 heat_price=61.383593` and `2026-04-25 post_volume=50 sampled_post_volume=50 heat_price=48.690038`, but also `2026-04-23 post_volume=69 sampled_post_volume=0 heat_price=6.36413` and `2026-04-22 post_volume=19 sampled_post_volume=0 heat_price=4.490576`. Recent provider-health rows summarized as `r/overwatch backfill: requests=23 accepted=196 filtered_out=379 duplicates=102 avg_ingest_lag_seconds=150153.82`; `r/nba backfill: requests=3 accepted=268 filtered_out=32 duplicates=116 avg_ingest_lag_seconds=568193.94`.
+- Next: Fix two truth-path issues before further chart interpretation: (1) propagate reliable about/tier signals across historical backfill days so large communities are not scored as `micro` on older slices, and (2) decide whether unsampled observed days should zero/dampen heat or emit a stronger degraded reason so sparse backfill does not present weakly sampled volume as trusted momentum.
