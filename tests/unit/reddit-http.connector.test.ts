@@ -184,7 +184,7 @@ test("http connector triggers one proxy failover on blocked proxied response and
           return {
             status: 403,
             headers: {} as Record<string, string>,
-            body: "<html>blocked</html>",
+            body: "<html>blocked by network security, use your developer token</html>",
           };
         }
         return {
@@ -214,6 +214,44 @@ test("http connector triggers one proxy failover on blocked proxied response and
         reason: "status=403",
       },
     ]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("http connector does not fail over on semantic reddit 403 responses", async () => {
+  const originalFetch = global.fetch;
+  try {
+    const failoverCalls: Array<{ command: string; endpoint: string; reason: string }> = [];
+    global.fetch = (async () => {
+      throw new Error("fetch should not be called when proxyUrl is configured");
+    }) as FetchLike;
+
+    const connector = new RedditHttpConnector({
+      proxyUrl: "http://127.0.0.1:1080",
+      proxyFailoverCommand: "/usr/local/sbin/reddit-collector-failover",
+      maxRetries: 0,
+      proxyFailoverRunner: async (args) => {
+        failoverCalls.push(args);
+      },
+      proxyRunner: async () => ({
+        status: 403,
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          reason: "private",
+          message: "Forbidden",
+          error: 403,
+        }),
+      }),
+    });
+
+    await assert.rejects(
+      () => connector.collectSubredditAbout({ subreddit: "one" }, ctx),
+      /status=403/,
+    );
+    assert.deepEqual(failoverCalls, []);
   } finally {
     global.fetch = originalFetch;
   }

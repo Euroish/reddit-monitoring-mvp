@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: analytics-workbench-contract-v2
-updated_at: "2026-04-25 05:11:01"
+updated_at: "2026-04-25 05:39:55"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Let the scheduler complete one full cycle after the collector proxy repair, then verify no fresh failover/circuit_open failures and continue live r/nba/r/overwatch activity-index inspection."
+next_action: "Commit and push the collector 403/failover guardrail patch, then continue live r/nba/r/overwatch activity-index and sparse backfill coverage inspection."
 tags:
 - codex
 - workspace
@@ -28,7 +28,7 @@ tags:
 
 - The frontend product shell is complete and verified through real browser/API smoke.
 - The Linux collection lane is restored: collector-only proxy, backend-triggered node failover, scheduler, API, and materialization are all active on the host.
-- The latest verified scheduled cycle processed `r/askreddit`, `r/machinelearning`, `r/nba`, `r/pics`, `r/todayilearned`, and `r/worldnews` with zero failed targets and six materialized targets.
+- The latest verified scheduled cycle processed the active monitored subreddit set through the collector-only proxy with `failedTargets: []`; `r/new` and `r/one` are paused because Reddit reports them as banned/private.
 - `/readyz` is still degraded only because of 105 historical live `dead_letter` jobs from the pre-proxy failure window; this is operational cleanup debt, not the active provider blocker.
 - The verified P1.7 algorithm/read-model/provider baseline remains stable unless a regression blocks product behavior.
 - Archived algorithm-development state lives at `Projects/Archive/algorithm-development-p1.7-2026-04-20.md`.
@@ -147,6 +147,13 @@ tags:
 - Next product sequence is live W6 Chart DTO v2 smoke, P0 analytics truth fixes, P1 bounded 15-day backfill for newly added targets, then W7 Market Board/Watchlist and W8 saved presets/context expansion. Watchlist remains important, but follows a stable chart/workbench kernel and honest coverage model.
 
 ## Activity Log
+
+### 2026-04-25 05:39:55
+
+- Scope: Stabilized the live Reddit 403 recovery path strictly at the collection layer. Kept host ingress, SSH, nginx, API, Postgres, firewall, and default routing unchanged. Updated the HTTP connector so proxy failover only triggers on Reddit network-security 403 bodies, proxy/auth/rate/gateway statuses, network errors, timeouts, or malformed/truncated proxy responses; semantic Reddit JSON errors such as private subreddit 403 no longer rotate collector nodes. Deployed the compiled connector patch to the active release and restarted only `reddit-phase1-scheduler`.
+- Why now: The collector proxy itself was working, but invalid monitored targets (`r/new` banned and `r/one` private) were being misclassified as proxy failure and could trigger noisy failover/circuit-open behavior.
+- Verify: Direct host Reddit request still returned network-security `HTTP 403`, while `curl --proxy http://127.0.0.1:1080 https://www.reddit.com/r/nba/new.json` returned `HTTP 200`. `linux-provider-smoke` with `/etc/reddit-monitoring/scheduler.env` passed. Targeted connector/provider tests and `npm run typecheck:core` passed. The 05:35 scheduler cycle completed with `failedTargets: []` across the active monitored set. `ssh`, `nginx`, `reddit-api`, `postgresql`, `reddit-phase1-scheduler`, and `sing-box-collector` were active; SSH still listened on `0.0.0.0:22` and `[::]:22`, and the collector proxy still listened only on `127.0.0.1:1080`.
+- Next: Commit and push the collector failover guardrail, then continue live `r/nba`/`r/overwatch` activity-index and sparse backfill coverage inspection.
 
 ### 2026-04-25 05:11:01
 

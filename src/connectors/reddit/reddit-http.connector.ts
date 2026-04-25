@@ -346,7 +346,7 @@ export class RedditHttpConnector implements RedditConnector {
         }
 
         if (
-          this.shouldTriggerProxyFailoverForStatus(result.status) &&
+          this.shouldTriggerProxyFailoverForStatus(result.status, result.body) &&
           !proxyFailoverAttempted &&
           this.proxyFailoverCommand
         ) {
@@ -374,7 +374,11 @@ export class RedditHttpConnector implements RedditConnector {
         );
       } catch (error) {
         lastError = error;
-        if (!proxyFailoverAttempted && this.proxyFailoverCommand) {
+        if (
+          !proxyFailoverAttempted &&
+          this.proxyFailoverCommand &&
+          this.shouldTriggerProxyFailoverForError(error)
+        ) {
           proxyFailoverAttempted = true;
           await this.proxyFailoverRunner({
             command: this.proxyFailoverCommand,
@@ -454,8 +458,18 @@ export class RedditHttpConnector implements RedditConnector {
     return error instanceof TypeError;
   }
 
-  private shouldTriggerProxyFailoverForStatus(status: number): boolean {
-    return status === 403 || status === 407 || status === 429 || status === 502 || status === 503 || status === 504;
+  private shouldTriggerProxyFailoverForStatus(status: number, body: string): boolean {
+    if (status === 403) {
+      return isRedditNetworkSecurityBlock(body);
+    }
+    return status === 407 || status === 429 || status === 502 || status === 503 || status === 504;
+  }
+
+  private shouldTriggerProxyFailoverForError(error: unknown): boolean {
+    if (error instanceof Error && error.message.startsWith("Reddit request failed: status=")) {
+      return false;
+    }
+    return true;
   }
 
   private formatProxyFailoverReason(error: unknown): string {
@@ -758,6 +772,15 @@ function normalizeProxyFailoverCommand(value: string | undefined): string | unde
     throw new Error("REDDIT_HTTP_PROXY_FAILOVER_COMMAND must start with an absolute executable path");
   }
   return trimmed;
+}
+
+function isRedditNetworkSecurityBlock(body: string): boolean {
+  const normalized = body.toLowerCase();
+  return (
+    normalized.includes("blocked by network security") ||
+    normalized.includes("blocked due to a network policy") ||
+    normalized.includes("use your developer token")
+  );
 }
 
 function parseCommand(value: string): string[] {
