@@ -9,6 +9,7 @@ import type {
   RedditCollectSubredditAboutArgs,
   RedditCollectSubredditPostsArgs,
   RedditListingPayload,
+  RedditPostListing,
   RedditPostData,
 } from "./reddit.types";
 
@@ -235,9 +236,12 @@ export class RedditApifyConnector implements RedditConnector {
   }
 
   private buildPostsInput(args: RedditCollectSubredditPostsArgs): Record<string, unknown> {
+    const listing = resolvePostListing(args.listing);
     return {
-      startUrls: [{ url: `https://www.reddit.com/r/${args.subreddit}/` }],
-      sortBy: "new",
+      startUrls: [{ url: buildApifyStartUrl(args) }],
+      sortBy: listing,
+      time: listing === "top" ? args.timeRange ?? "week" : undefined,
+      timeFilter: listing === "top" ? args.timeRange ?? "week" : undefined,
       maxPosts: args.limit,
       maxComments: 0,
       scrapePosts: true,
@@ -655,4 +659,17 @@ export class RedditApifyConnector implements RedditConnector {
     }
     return value as Record<string, unknown>;
   }
+}
+
+function resolvePostListing(listing: RedditPostListing | undefined): RedditPostListing {
+  return listing === "top" ? "top" : "new";
+}
+
+function buildApifyStartUrl(args: RedditCollectSubredditPostsArgs): string {
+  const listing = resolvePostListing(args.listing);
+  if (listing === "top") {
+    const timeRange = args.timeRange ?? "week";
+    return `https://www.reddit.com/r/${args.subreddit}/top/?t=${timeRange}`;
+  }
+  return `https://www.reddit.com/r/${args.subreddit}/`;
 }

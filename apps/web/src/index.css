@@ -233,6 +233,105 @@ select {
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
+.markets-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.markets-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.9fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.markets-summary-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.markets-summary-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-standard);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.markets-summary-label {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 10px;
+}
+
+.markets-summary-value {
+  color: var(--text-primary);
+  font-size: 30px;
+  font-weight: 620;
+  margin-bottom: 8px;
+}
+
+.markets-summary-note {
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.markets-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.markets-primary-link,
+.markets-secondary-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-standard);
+  font-size: 13px;
+  font-weight: 560;
+}
+
+.markets-primary-link {
+  background: rgba(94, 106, 210, 0.18);
+  color: var(--text-primary);
+}
+
+.markets-secondary-link {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+}
+
+.markets-stats-grid {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+}
+
+.markets-strip-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.markets-strip-tile {
+  display: block;
+  border: 1px solid var(--border-standard);
+  border-radius: 12px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.markets-board-grid {
+  display: grid;
+  gap: 24px;
+}
+
 @media (max-width: 720px) {
   h1 {
     font-size: 28px;
@@ -287,5 +386,10 @@ select {
 
   .chart-shell {
     height: 320px;
+  }
+
+  .markets-hero,
+  .markets-stats-grid {
+    grid-template-columns: 1fr;
   }
 }

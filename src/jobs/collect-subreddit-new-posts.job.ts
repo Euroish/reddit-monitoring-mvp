@@ -1,5 +1,10 @@
 import type { RedditConnector } from "../connectors/reddit/reddit-connector.interface";
 import type { RedditMapper } from "../connectors/reddit/reddit-mapper.interface";
+import type {
+  RedditCollectSubredditPostsArgs,
+  RedditPostListing,
+  RedditTopTimeRange,
+} from "../connectors/reddit/reddit.types";
 import type { Account } from "../domain/entities/account";
 import type { CollectionJob } from "../domain/entities/collection-job";
 import type { Content } from "../domain/entities/content";
@@ -12,6 +17,7 @@ import type { CrawlCursorRepository } from "../domain/repositories/crawl-cursor-
 import type { MetricsSnapshotRepository } from "../domain/repositories/metrics-snapshot-repository";
 import type { ProviderHealthWindowRepository } from "../domain/repositories/provider-health-window-repository";
 import type { RawEventRepository } from "../domain/repositories/raw-event-repository";
+import { resolveSubredditTier } from "../domain/services/subreddit-tiering.service";
 import { stableUuidFromString } from "../shared/ids/stable-id";
 import { buildDedupeKey, floorToWindow } from "../shared/time/windowing";
 import { resolveCollectionWindowMinutes } from "../workers/reddit-phase1-defaults";
@@ -41,6 +47,18 @@ const LIVE_OVERFLOW_TAIL_AGE_MAX_SECONDS =
   PHASE1_SAMPLING_THRESHOLDS.staleHead.severeIngestLagSecondsMin.httpPrimary;
 const REDDIT_PAGE_CAP_SIZE = 100;
 const REDDIT_PAGE_CAPPED_PROVIDERS = new Set(["reddit", "http", "scrapling"]);
+const BACKFILL_SUPPLEMENT_TRIGGER_AGE_SECONDS = 7 * 24 * 60 * 60;
+const BACKFILL_SUPPLEMENT_LIMIT = 100;
+const BACKFILL_TOP_TIME_WINDOWS: RedditTopTimeRange[] = ["week", "month"];
+const BACKFILL_TIERED_CANDIDATE_FILTERS: Record<
+  ReturnType<typeof resolveSubredditTier>,
+  { minScore: number; minComments: number; mode: "and" | "or" }
+> = {
+  micro: { minScore: 0, minComments: 0, mode: "or" },
+  small: { minScore: 5, minComments: 2, mode: "or" },
+  mid: { minScore: 25, minComments: 10, mode: "or" },
+  large: { minScore: 40, minComments: 20, mode: "or" },
+} as const;
 
 export interface CollectSubredditNewPostsDependencies {
   redditConnector: RedditConnector;
@@ -159,13 +177,19 @@ export async function runExistingSubredditNewPostsJob(
     await deps.collectionJobRepository.updateStatus(input.job.id, "succeeded");
     return true;
   }
-  const filter = resolveCandidateFilter(input.candidateFilter ?? payload.candidateFilter);
+  const filter = await resolveEffectiveCandidateFilter({
+    candidateFilter: input.candidateFilter ?? payload.candidateFilter,
+    mode,
+    targetId: input.job.targetId,
+    nowIso: input.nowIso,
+    metricsSnapshotRepository: deps.metricsSnapshotRepository,
+  });
   const providerHealthWindowStart = floorToWindow(input.nowIso, 5);
   const priorCursor = input.job.cursor;
   const requestedLimit = Math.max(1, input.limit ?? payload.postLimit ?? 50);
 
   try {
-    const pages = await collectObservedPages({
+    const observedPages = await collectObservedPages({
       redditConnector: deps.redditConnector,
       subreddit: input.subreddit,
       limit: requestedLimit,
@@ -176,6 +200,7 @@ export async function runExistingSubredditNewPostsJob(
       requestId: input.job.id,
       nowIso: input.nowIso,
     });
+    const pages = observedPages.pages;
     const allUpserts = [];
     const allMetricPoints = [];
     let emptyResponseCount = 0;
@@ -205,8 +230,10 @@ export async function runExistingSubredditNewPostsJob(
       metricPoints: allMetricPoints,
       filter,
     });
-    const observedExternalIds = Array.from(new Set(allUpserts.map((item) => item.externalId)));
-    const duplicateWithinPageCount = Math.max(0, allUpserts.length - observedExternalIds.length);
+    const observedExternalIds = Array.from(
+      new Set(filtered.upserts.map((item) => item.externalId)),
+    );
+    const duplicateWithinPageCount = Math.max(0, filtered.upserts.length - observedExternalIds.length);
     const existingExternalIds =
       observedExternalIds.length > 0
         ? await deps.contentRepository.findExistingExternalIds({
@@ -217,10 +244,10 @@ export async function runExistingSubredditNewPostsJob(
     const existingExternalIdSet = new Set(existingExternalIds);
     const existingDuplicateCount = existingExternalIds.length;
     const duplicatePostCount = duplicateWithinPageCount + existingDuplicateCount;
-    const newUpserts = allUpserts.filter(
+    const newAcceptedUpserts = filtered.upserts.filter(
       (item) => !existingExternalIdSet.has(item.externalId),
     );
-    const ingestLagStats = summarizeIngestLagSeconds(allUpserts, input.nowIso);
+    const ingestLagStats = summarizeIngestLagSeconds(filtered.upserts, input.nowIso);
     const providerDiffStats = summarizeProviderDiffStats(pages);
     const lastPage = pages[pages.length - 1];
     const scraplingObservability = summarizeScraplingObservability(pages);
@@ -233,7 +260,7 @@ export async function runExistingSubredditNewPostsJob(
     const accountsMap = new Map<string, Account>();
     const contents: Content[] = [];
 
-    for (const item of allUpserts) {
+    for (const item of filtered.upserts) {
       const accountId = stableUuidFromString(`reddit:account:${item.accountExternalId}`);
       if (!accountsMap.has(item.accountExternalId)) {
         accountsMap.set(item.accountExternalId, {
@@ -280,12 +307,12 @@ export async function runExistingSubredditNewPostsJob(
         targetId: input.job.targetId,
         granularity: "15m",
         metricName: "new_posts_15m",
-        metricValue: newUpserts.length,
+        metricValue: newAcceptedUpserts.length,
         collectionJobId: input.job.id,
       },
     ];
 
-    for (const point of allMetricPoints) {
+    for (const point of filtered.metricPoints) {
       const contentId = stableUuidFromString(`reddit:content:${point.externalId}`);
       if (typeof point.score === "number") {
         snapshots.push({
@@ -327,7 +354,7 @@ export async function runExistingSubredditNewPostsJob(
 
     await deps.metricsSnapshotRepository.appendMany(snapshots);
 
-    const finalCursor = lastPage.nextCursor;
+    const finalCursor = observedPages.finalCursor;
     if (mode === "backfill") {
       const cursorToPersist = finalCursor ?? BACKFILL_EOF_CURSOR;
       await deps.collectionJobRepository.saveCursor(input.job.id, cursorToPersist);
@@ -336,7 +363,7 @@ export async function runExistingSubredditNewPostsJob(
       const cursorToPersist = resolveObservedCursorSnapshot({
         mode,
         finalCursor,
-        lastPage,
+        lastPage: observedPages.lastCursorPage ?? lastPage,
       });
       if (cursorToPersist) {
         const existing =
@@ -614,11 +641,16 @@ async function collectObservedPages(args: {
   providerHint: string;
   requestId: string;
   nowIso: string;
-}): Promise<Array<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>>> {
+}): Promise<{
+  pages: Array<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>>;
+  finalCursor?: string;
+  lastCursorPage?: Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>;
+}> {
   const pages: Array<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>> = [];
   let after = args.after;
   let remainingBudget = args.limit;
   let observedProvider = args.providerHint;
+  let lastCursorPage: Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>> | undefined;
   let extraBudget =
     args.mode === "live"
       ? Math.max(args.limit, resolveLiveOverflowExtraBudget(args.limit, args.samplingTier))
@@ -630,18 +662,17 @@ async function collectObservedPages(args: {
       remainingBudget,
       observedProvider,
     });
-    const page = await args.redditConnector.collectSubredditPosts(
-      {
-        subreddit: args.subreddit,
-        limit: requestLimit,
-        after,
-      },
-      {
-        requestId: pageIndex === 0 ? args.requestId : `${args.requestId}:overflow:${pageIndex}`,
-        now: args.nowIso,
-      },
-    );
+    const page = await requestObservedPage({
+      redditConnector: args.redditConnector,
+      subreddit: args.subreddit,
+      limit: requestLimit,
+      after,
+      listing: "new",
+      requestId: pageIndex === 0 ? args.requestId : `${args.requestId}:overflow:${pageIndex}`,
+      nowIso: args.nowIso,
+    });
     pages.push(page);
+    lastCursorPage = page;
     observedProvider = resolveObservedPagingProvider({
       providerHint: observedProvider,
       responseHeaders: page.raw.responseHeaders,
@@ -684,6 +715,100 @@ async function collectObservedPages(args: {
     extraBudget = Math.max(0, extraBudget - nextBudget);
   }
 
+  if (
+    shouldCollectBackfillTopSupplement({
+      mode: args.mode,
+      after: args.after,
+      cursorPage: lastCursorPage,
+      requestedLimit: args.limit,
+      nowIso: args.nowIso,
+    })
+  ) {
+    pages.push(
+      ...(await collectBackfillSupplementalPages({
+        redditConnector: args.redditConnector,
+        subreddit: args.subreddit,
+        limit: Math.min(args.limit, BACKFILL_SUPPLEMENT_LIMIT),
+        requestId: args.requestId,
+        nowIso: args.nowIso,
+      })),
+    );
+  }
+
+  return {
+    pages,
+    finalCursor: lastCursorPage?.nextCursor,
+    lastCursorPage,
+  };
+}
+
+async function requestObservedPage(args: {
+  redditConnector: RedditConnector;
+  subreddit: string;
+  limit: number;
+  after?: string;
+  listing: RedditPostListing;
+  timeRange?: RedditTopTimeRange;
+  requestId: string;
+  nowIso: string;
+}): Promise<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>> {
+  const request: RedditCollectSubredditPostsArgs = {
+    subreddit: args.subreddit,
+    limit: args.limit,
+    after: args.after,
+    listing: args.listing,
+    timeRange: args.timeRange,
+  };
+  return args.redditConnector.collectSubredditPosts(request, {
+    requestId: args.requestId,
+    now: args.nowIso,
+  });
+}
+
+function shouldCollectBackfillTopSupplement(args: {
+  mode: CrawlMode;
+  after?: string;
+  cursorPage?: Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>;
+  requestedLimit: number;
+  nowIso: string;
+}): boolean {
+  if (args.mode !== "backfill" || args.after) {
+    return false;
+  }
+  if (args.requestedLimit < BACKFILL_SUPPLEMENT_LIMIT) {
+    return false;
+  }
+  if (!args.cursorPage) {
+    return true;
+  }
+  const ageBounds = resolvePageAgeBoundsSeconds(args.cursorPage, args.nowIso);
+  if (!ageBounds) {
+    return true;
+  }
+  return ageBounds.oldestAgeSeconds < BACKFILL_SUPPLEMENT_TRIGGER_AGE_SECONDS;
+}
+
+async function collectBackfillSupplementalPages(args: {
+  redditConnector: RedditConnector;
+  subreddit: string;
+  limit: number;
+  requestId: string;
+  nowIso: string;
+}): Promise<Array<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>>> {
+  const pages: Array<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>> = [];
+  for (const timeRange of BACKFILL_TOP_TIME_WINDOWS) {
+    pages.push(
+      await requestObservedPage({
+        redditConnector: args.redditConnector,
+        subreddit: args.subreddit,
+        limit: args.limit,
+        listing: "top",
+        timeRange,
+        requestId: `${args.requestId}:top:${timeRange}`,
+        nowIso: args.nowIso,
+      }),
+    );
+  }
   return pages;
 }
 
@@ -795,6 +920,60 @@ function resolveCandidateFilter(input: CollectSubredditNewPostsInput["candidateF
     minComments: Math.max(0, input?.minComments ?? 0),
     mode: input?.mode === "and" ? "and" : "or",
   } as const;
+}
+
+async function resolveEffectiveCandidateFilter(args: {
+  candidateFilter: CollectSubredditNewPostsInput["candidateFilter"];
+  mode: CrawlMode;
+  targetId: string;
+  nowIso: string;
+  metricsSnapshotRepository: MetricsSnapshotRepository;
+}) {
+  const explicit = resolveCandidateFilter(args.candidateFilter);
+  if (args.mode !== "backfill") {
+    return explicit;
+  }
+
+  const subscriberCount = await resolveLatestSubscriberCount({
+    targetId: args.targetId,
+    nowIso: args.nowIso,
+    metricsSnapshotRepository: args.metricsSnapshotRepository,
+  });
+  if (subscriberCount == null) {
+    return explicit;
+  }
+
+  const tier = resolveSubredditTier(subscriberCount);
+  const tiered = BACKFILL_TIERED_CANDIDATE_FILTERS[tier];
+  return {
+    minScore: Math.max(explicit.minScore, tiered.minScore),
+    minComments: Math.max(explicit.minComments, tiered.minComments),
+    mode:
+      explicit.mode === "and" || tiered.mode === "and"
+        ? "and"
+        : "or",
+  } as const;
+}
+
+async function resolveLatestSubscriberCount(args: {
+  targetId: string;
+  nowIso: string;
+  metricsSnapshotRepository: MetricsSnapshotRepository;
+}): Promise<number | null> {
+  const fromIso = new Date(
+    new Date(args.nowIso).getTime() - 30 * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const snapshots = await args.metricsSnapshotRepository.listByTargetInRange({
+    targetId: args.targetId,
+    from: fromIso,
+    to: args.nowIso,
+    metricNames: ["subscribers"],
+  });
+  const latest = snapshots.sort((left, right) => right.snapshotAt.localeCompare(left.snapshotAt))[0];
+  if (!latest) {
+    return null;
+  }
+  return Math.max(0, Math.round(Number(latest.metricValue)));
 }
 
 function filterCandidates(args: {
@@ -928,7 +1107,11 @@ function resolveProvider(args: {
   if (args.endpoint.startsWith("/apify/")) {
     return "apify";
   }
-  if (args.endpoint.includes("/new.json") || args.endpoint.includes("/about.json")) {
+  if (
+    args.endpoint.includes("/new.json") ||
+    args.endpoint.includes("/top.json") ||
+    args.endpoint.includes("/about.json")
+  ) {
     return "http";
   }
   return args.providerHint;

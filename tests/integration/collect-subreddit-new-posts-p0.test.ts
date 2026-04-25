@@ -177,12 +177,12 @@ test("collect subreddit new posts applies candidate filter and records provider 
   );
 
   assert.equal(rawEventRepository.all().length, 1);
-  assert.equal(contentRepository.all().length, 2);
+  assert.equal(contentRepository.all().length, 1);
   const snapshots = metricsSnapshotRepository.all();
   const newPostsMetric = snapshots.find((item) => item.metricName === "new_posts_15m");
-  assert.equal(newPostsMetric?.metricValue, 2);
-  assert.equal(snapshots.filter((item) => item.metricName === "score").length, 2);
-  assert.equal(snapshots.filter((item) => item.metricName === "num_comments").length, 2);
+  assert.equal(newPostsMetric?.metricValue, 1);
+  assert.equal(snapshots.filter((item) => item.metricName === "score").length, 1);
+  assert.equal(snapshots.filter((item) => item.metricName === "num_comments").length, 1);
 
   const providerRows = providerHealthWindowRepository.all();
   assert.equal(providerRows.length, 1);
@@ -193,7 +193,7 @@ test("collect subreddit new posts applies candidate filter and records provider 
   assert.equal(providerRows[0]?.acceptedCount, 1);
   assert.equal(providerRows[0]?.filteredOutCount, 1);
   assert.equal(providerRows[0]?.duplicatePostCount, 0);
-  assert.equal(providerRows[0]?.ingestLagSampleCount, 2);
+  assert.equal(providerRows[0]?.ingestLagSampleCount, 1);
   assert.equal(providerRows[0]?.providerDiffSampleCount, 0);
 });
 
@@ -829,6 +829,125 @@ test("collect subreddit new posts backfill mode paginates beyond single-page cap
   });
   assert.equal(crawlCursor?.cursor, "t3_cursor_2");
   assert.equal(crawlCursor?.rewindCursor, undefined);
+});
+
+test("collect subreddit new posts backfill applies tiered candidate filters from subscriber scale", async () => {
+  const nowIso = "2026-04-10T12:40:00.000Z";
+  const smallTargetId = stableUuidFromString("reddit:target:r/tier-small");
+  const largeTargetId = stableUuidFromString("reddit:target:r/tier-large");
+  const smallContentRepository = new InMemoryContentRepository();
+  const largeContentRepository = new InMemoryContentRepository();
+
+  const smallMetricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  await smallMetricsSnapshotRepository.appendMany([
+    {
+      snapshotAt: "2026-04-10T12:30:00.000Z",
+      source: "reddit",
+      targetId: smallTargetId,
+      granularity: "15m",
+      metricName: "subscribers",
+      metricValue: 25_000,
+      collectionJobId: stableUuidFromString("job:about:small"),
+    },
+  ]);
+
+  const largeMetricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  await largeMetricsSnapshotRepository.appendMany([
+    {
+      snapshotAt: "2026-04-10T12:30:00.000Z",
+      source: "reddit",
+      targetId: largeTargetId,
+      granularity: "15m",
+      metricName: "subscribers",
+      metricValue: 2_000_000,
+      collectionJobId: stableUuidFromString("job:about:large"),
+    },
+  ]);
+
+  const posts = [
+    {
+      name: "t3_borderline",
+      id: "borderline",
+      subreddit: "tiered",
+      author: "alice",
+      title: "borderline",
+      permalink: "/r/tiered/comments/borderline/post",
+      created_utc: 1_712_751_000,
+      score: 12,
+      num_comments: 4,
+    },
+    {
+      name: "t3_high",
+      id: "high",
+      subreddit: "tiered",
+      author: "bob",
+      title: "high",
+      permalink: "/r/tiered/comments/high/post",
+      created_utc: 1_712_751_060,
+      score: 80,
+      num_comments: 30,
+    },
+    {
+      name: "t3_score_led",
+      id: "score_led",
+      subreddit: "tiered",
+      author: "carol",
+      title: "score led",
+      permalink: "/r/tiered/comments/score_led/post",
+      created_utc: 1_712_751_120,
+      score: 90,
+      num_comments: 3,
+    },
+  ];
+
+  await collectSubredditNewPostsJob(
+    {
+      redditConnector: new ScriptedPostsConnector([{ provider: "http", posts }]),
+      redditMapper: new DefaultRedditMapper(),
+      collectionJobRepository: new InMemoryCollectionJobRepository(),
+      crawlCursorRepository: new InMemoryCrawlCursorRepository(),
+      rawEventRepository: new InMemoryRawEventRepository(),
+      accountRepository: new InMemoryAccountRepository(),
+      contentRepository: smallContentRepository,
+      metricsSnapshotRepository: smallMetricsSnapshotRepository,
+      providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
+    },
+    {
+      targetId: smallTargetId,
+      subreddit: "tiered",
+      nowIso,
+      mode: "backfill",
+      providerHint: "http",
+    },
+  );
+
+  await collectSubredditNewPostsJob(
+    {
+      redditConnector: new ScriptedPostsConnector([{ provider: "http", posts }]),
+      redditMapper: new DefaultRedditMapper(),
+      collectionJobRepository: new InMemoryCollectionJobRepository(),
+      crawlCursorRepository: new InMemoryCrawlCursorRepository(),
+      rawEventRepository: new InMemoryRawEventRepository(),
+      accountRepository: new InMemoryAccountRepository(),
+      contentRepository: largeContentRepository,
+      metricsSnapshotRepository: largeMetricsSnapshotRepository,
+      providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
+    },
+    {
+      targetId: largeTargetId,
+      subreddit: "tiered",
+      nowIso,
+      mode: "backfill",
+      providerHint: "http",
+    },
+  );
+
+  assert.equal(smallContentRepository.all().length, 3);
+  assert.equal(largeContentRepository.all().length, 2);
+  assert.deepEqual(
+    largeContentRepository.all().map((post) => post.externalId).sort(),
+    ["t3_high", "t3_score_led"],
+  );
 });
 
 test("collect subreddit new posts backfill recovers fallback cursor and rewrites under provider hint", async () => {

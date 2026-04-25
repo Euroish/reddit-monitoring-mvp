@@ -45,6 +45,9 @@ test("resolveRedditPhase1CycleOptionsFromEnv keeps backfill provider and mock pr
   const backfill = resolveRedditPhase1CycleOptionsFromEnv({
     env: {
       REDDIT_BACKFILL_PROVIDER: "apify",
+      REDDIT_BACKFILL_POST_LIMIT: "120",
+      REDDIT_BACKFILL_TARGET_DAYS: "15",
+      REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET: "9",
     },
     mode: "live",
     crawlMode: "backfill",
@@ -56,7 +59,43 @@ test("resolveRedditPhase1CycleOptionsFromEnv keeps backfill provider and mock pr
   });
 
   assert.equal(backfill.providerHint, "apify");
+  assert.equal(backfill.backfillPostLimit, 120);
+  assert.equal(backfill.backfillTargetDays, 15);
+  assert.equal(backfill.backfillMaxIterationsPerTarget, 9);
   assert.equal(mock.providerHint, "mock");
+});
+
+test("resolveRedditPhase1CycleOptionsFromEnv applies explicit bounded backfill overrides", () => {
+  const options = resolveRedditPhase1CycleOptionsFromEnv({
+    env: {
+      REDDIT_BACKFILL_PROVIDER: "http",
+      REDDIT_BACKFILL_POST_LIMIT: "100",
+      REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET: "24",
+      REDDIT_BACKFILL_TARGET_DAYS: "15",
+    },
+    mode: "live",
+    crawlMode: "backfill",
+    backfillPostLimit: 500,
+    backfillMaxIterationsPerTarget: 60,
+    backfillTargetDays: 20,
+  });
+
+  assert.equal(options.backfillPostLimit, 500);
+  assert.equal(options.backfillMaxIterationsPerTarget, 60);
+  assert.equal(options.backfillTargetDays, 20);
+});
+
+test("resolveRedditPhase1CycleOptionsFromEnv keeps bounded backfill defaults when env is absent", () => {
+  const options = resolveRedditPhase1CycleOptionsFromEnv({
+    env: {
+      REDDIT_BACKFILL_PROVIDER: "http",
+    },
+    mode: "live",
+    crawlMode: "backfill",
+  });
+
+  assert.equal(options.backfillPostLimit, 100);
+  assert.equal(options.backfillMaxIterationsPerTarget, 24);
 });
 
 test("resolveRedditPhase1CycleOptionsFromEnv parses target-level scrapling promotion list", () => {

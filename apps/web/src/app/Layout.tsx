@@ -19,7 +19,7 @@ export function Layout() {
           <div style={{ fontWeight: 590, color: 'var(--text-primary)' }}>Analytics MVP</div>
           {user && (
             <nav className="topbar-nav">
-              <Link to="/dashboard" style={{ fontSize: '14px', fontWeight: 510 }}>Dashboard</Link>
+              <Link to="/dashboard" style={{ fontSize: '14px', fontWeight: 510 }}>Markets</Link>
               <Link to="/queries" style={{ fontSize: '14px', fontWeight: 510 }}>Queries</Link>
               {(user.role === 'admin' || user.role === 'owner') && (
                 <Link to="/ops" style={{ fontSize: '14px', fontWeight: 510 }}>Ops</Link>

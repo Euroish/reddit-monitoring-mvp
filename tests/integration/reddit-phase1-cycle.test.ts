@@ -1,13 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import type { RedditConnector } from "../../src/connectors/reddit/reddit-connector.interface";
+import type { ConnectorPage, ConnectorRequestContext } from "../../src/connectors/shared/connector.interface";
 import { RedditMockConnector } from "../../src/connectors/reddit/reddit-mock.connector";
 import { DefaultRedditMapper } from "../../src/connectors/reddit/reddit.mapper";
+import type {
+  RedditAboutPayload,
+  RedditCollectSubredditAboutArgs,
+  RedditCollectSubredditPostsArgs,
+  RedditListingPayload,
+  RedditPostData,
+} from "../../src/connectors/reddit/reddit.types";
 import { stableUuidFromString } from "../../src/shared/ids/stable-id";
 import {
   InMemoryAccountRepository,
   InMemoryAnomalyEventRepository,
   InMemoryCollectionJobRepository,
   InMemoryContentRepository,
+  InMemoryCrawlCursorRepository,
   InMemoryMetricsSnapshotRepository,
   InMemoryMonitorTargetRepository,
   InMemoryPostGrowthFactRepository,
@@ -16,6 +26,136 @@ import {
   InMemorySubredditTrendPointRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
 import { runRedditPhase1Cycle } from "../../src/workers/reddit-phase1.worker";
+
+class ScriptedBackfillConnector implements RedditConnector {
+  public readonly sourceCode = "reddit" as const;
+  public readonly seenAfter: Array<string | undefined> = [];
+  public readonly seenRequests: RedditCollectSubredditPostsArgs[] = [];
+  private callIndex = 0;
+
+  constructor(
+    private readonly script: Array<{
+      nextCursor?: string;
+      posts: RedditPostData[];
+    }>,
+    private readonly about: {
+      subscribers: number;
+      accountsActive: number;
+    } = {
+      subscribers: 1_000_000,
+      accountsActive: 50_000,
+    },
+  ) {}
+
+  public async collect(
+    args: RedditCollectSubredditPostsArgs,
+    ctx: ConnectorRequestContext,
+  ): Promise<ConnectorPage<RedditListingPayload<RedditPostData>>> {
+    return this.collectSubredditPosts(args, ctx);
+  }
+
+  public async collectSubredditAbout(
+    args: RedditCollectSubredditAboutArgs,
+    ctx: ConnectorRequestContext,
+  ): Promise<ConnectorPage<RedditAboutPayload>> {
+    return {
+      raw: {
+        endpoint: `/r/${args.subreddit}/about.json`,
+        requestParams: {},
+        httpStatus: 200,
+        responseHeaders: {},
+        payload: {
+          data: {
+            display_name: args.subreddit,
+            subscribers: this.about.subscribers,
+            accounts_active: this.about.accountsActive,
+          },
+        },
+        fetchedAt: ctx.now,
+      },
+    };
+  }
+
+  public async collectSubredditPosts(
+    args: RedditCollectSubredditPostsArgs,
+    ctx: ConnectorRequestContext,
+  ): Promise<ConnectorPage<RedditListingPayload<RedditPostData>>> {
+    this.seenRequests.push({ ...args });
+    const listing = args.listing === "top" ? "top" : "new";
+    if (listing === "top") {
+      return {
+        raw: {
+          endpoint: `/r/${args.subreddit}/top.json`,
+          requestParams: {
+            limit: args.limit,
+            after: args.after,
+            t: args.timeRange ?? "week",
+          },
+          httpStatus: 200,
+          responseHeaders: {},
+          payload: {
+            data: {
+              after: undefined,
+              children: [],
+            },
+          },
+          fetchedAt: ctx.now,
+        },
+        nextCursor: undefined,
+      };
+    }
+
+    this.seenAfter.push(args.after);
+    const current = this.script[Math.min(this.callIndex, this.script.length - 1)]!;
+    this.callIndex += 1;
+    return {
+      raw: {
+        endpoint: `/r/${args.subreddit}/${listing}.json`,
+        requestParams: {
+          limit: args.limit,
+          after: args.after,
+          t: undefined,
+        },
+        httpStatus: 200,
+        responseHeaders: {},
+        payload: {
+          data: {
+            after: current.nextCursor,
+            children: current.posts.map((post) => ({ kind: "t3", data: post })),
+          },
+        },
+        fetchedAt: ctx.now,
+      },
+      nextCursor: current.nextCursor,
+    };
+  }
+
+  public async healthCheck(_ctx: ConnectorRequestContext): Promise<boolean> {
+    return true;
+  }
+}
+
+function buildBackfillPosts(args: {
+  subreddit: string;
+  prefix: string;
+  count: number;
+  baseCreatedUtc: number;
+  scoreForIndex?: (index: number) => number;
+  commentsForIndex?: (index: number) => number;
+}): RedditPostData[] {
+  return Array.from({ length: args.count }, (_, index) => ({
+    name: `t3_${args.prefix}_${index}`,
+    id: `${args.prefix}_${index}`,
+    subreddit: args.subreddit,
+    author: `user_${index}`,
+    title: `${args.prefix} title ${index}`,
+    permalink: `/r/${args.subreddit}/comments/${args.prefix}_${index}/post`,
+    created_utc: args.baseCreatedUtc + index,
+    score: args.scoreForIndex ? args.scoreForIndex(index) : 15 + (index % 5),
+    num_comments: args.commentsForIndex ? args.commentsForIndex(index) : 4 + (index % 3),
+    upvote_ratio: 0.8,
+  }));
+}
 
 test("phase1 cycle writes raw, normalized and trend data", async () => {
   const nowIso = "2026-04-10T12:00:00.000Z";
@@ -87,4 +227,348 @@ test("phase1 cycle writes raw, normalized and trend data", async () => {
   assert.equal(postGrowthFactRepository.all().length > 0, true);
   assert.equal(subredditTrendPointRepository.all().length > 0, true);
   assert.equal(anomalyEventRepository.all().some((row) => row.signalType === "volume"), true);
+});
+
+test("phase1 cycle backfill mode continues across multiple cursor windows until coverage target", async () => {
+  const nowIso = "2026-04-24T12:00:00.000Z";
+  const subreddit = "worldnews";
+  const targetId = stableUuidFromString(`reddit:target:r/${subreddit}`);
+
+  const monitorTargetRepository = new InMemoryMonitorTargetRepository();
+  const collectionJobRepository = new InMemoryCollectionJobRepository();
+  const rawEventRepository = new InMemoryRawEventRepository();
+  const accountRepository = new InMemoryAccountRepository();
+  const contentRepository = new InMemoryContentRepository();
+  const crawlCursorRepository = new InMemoryCrawlCursorRepository();
+  const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
+  const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
+  const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
+  const anomalyEventRepository = new InMemoryAnomalyEventRepository();
+
+  await monitorTargetRepository.upsert({
+    id: targetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: `r/${subreddit}`,
+    status: "active",
+    config: {},
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  });
+
+  const connector = new ScriptedBackfillConnector([
+    {
+      nextCursor: "t3_cursor_1",
+      posts: buildBackfillPosts({
+        subreddit,
+        prefix: "page1",
+        count: 3,
+        baseCreatedUtc: Math.floor(Date.parse("2026-04-24T10:00:00.000Z") / 1000),
+      }),
+    },
+    {
+      nextCursor: "t3_cursor_2",
+      posts: buildBackfillPosts({
+        subreddit,
+        prefix: "page2",
+        count: 3,
+        baseCreatedUtc: Math.floor(Date.parse("2026-04-18T10:00:00.000Z") / 1000),
+      }),
+    },
+    {
+      posts: buildBackfillPosts({
+        subreddit,
+        prefix: "page3",
+        count: 3,
+        baseCreatedUtc: Math.floor(Date.parse("2026-04-08T10:00:00.000Z") / 1000),
+      }),
+    },
+  ], {
+    subscribers: 5_000,
+    accountsActive: 800,
+  });
+
+  await runRedditPhase1Cycle(
+    {
+      monitorTargetRepository,
+      collectionJobRepository,
+      rawEventRepository,
+      accountRepository,
+      contentRepository,
+      crawlCursorRepository,
+      metricsSnapshotRepository,
+      subredditDailyFactRepository,
+      postGrowthFactRepository,
+      subredditTrendPointRepository,
+      anomalyEventRepository,
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+    },
+    nowIso,
+    {
+      targetCanonicalNames: [`r/${subreddit}`],
+      crawlMode: "backfill",
+      postLimit: 3,
+      backfillTargetDays: 15,
+      backfillMaxIterationsPerTarget: 5,
+    },
+  );
+
+  assert.deepEqual(connector.seenAfter, [undefined, "t3_cursor_1", "t3_cursor_1"]);
+  assert.equal(contentRepository.all().length, 9);
+  assert.equal(
+    contentRepository.all().some((row) => row.createdAtSource <= "2026-04-09T12:00:00.000Z"),
+    true,
+  );
+});
+
+test("phase1 cycle backfill default budget reaches 15-day coverage for higher-volume targets", async () => {
+  const nowIso = "2026-04-24T12:00:00.000Z";
+  const subreddit = "technology";
+  const targetId = stableUuidFromString(`reddit:target:r/${subreddit}`);
+
+  const monitorTargetRepository = new InMemoryMonitorTargetRepository();
+  const collectionJobRepository = new InMemoryCollectionJobRepository();
+  const rawEventRepository = new InMemoryRawEventRepository();
+  const accountRepository = new InMemoryAccountRepository();
+  const contentRepository = new InMemoryContentRepository();
+  const crawlCursorRepository = new InMemoryCrawlCursorRepository();
+  const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
+  const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
+  const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
+  const anomalyEventRepository = new InMemoryAnomalyEventRepository();
+
+  await monitorTargetRepository.upsert({
+    id: targetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: `r/${subreddit}`,
+    status: "active",
+    config: {},
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  });
+
+  const pageSpacingHours = 30;
+  const connector = new ScriptedBackfillConnector(
+    Array.from({ length: 13 }, (_, index) => {
+      const pageNumber = index + 1;
+      const nextCursor = pageNumber < 13 ? `t3_cursor_${pageNumber}` : undefined;
+      const newestPostIso = new Date(
+        Date.parse(nowIso) - index * pageSpacingHours * 60 * 60 * 1000,
+      ).toISOString();
+      return {
+        nextCursor,
+        posts: buildBackfillPosts({
+          subreddit,
+          prefix: `page${pageNumber}`,
+          count: 100,
+          baseCreatedUtc: Math.floor(Date.parse(newestPostIso) / 1000),
+          scoreForIndex: (postIndex) => (postIndex % 20 === 0 ? 80 : 12),
+          commentsForIndex: (postIndex) => (postIndex % 20 === 0 ? 30 : 4),
+        }),
+      };
+    }),
+    {
+      subscribers: 2_000_000,
+      accountsActive: 120_000,
+    },
+  );
+
+  await runRedditPhase1Cycle(
+    {
+      monitorTargetRepository,
+      collectionJobRepository,
+      rawEventRepository,
+      accountRepository,
+      contentRepository,
+      crawlCursorRepository,
+      metricsSnapshotRepository,
+      subredditDailyFactRepository,
+      postGrowthFactRepository,
+      subredditTrendPointRepository,
+      anomalyEventRepository,
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+    },
+    nowIso,
+    {
+      targetCanonicalNames: [`r/${subreddit}`],
+      crawlMode: "backfill",
+      backfillTargetDays: 15,
+    },
+  );
+
+  assert.equal(connector.seenAfter.length, 13);
+  assert.equal(
+    contentRepository.all().some((row) => row.createdAtSource <= "2026-04-09T12:00:00.000Z"),
+    true,
+  );
+  assert.equal(
+    subredditDailyFactRepository.all().some((fact) => fact.day <= "2026-04-09"),
+    true,
+  );
+});
+
+test("phase1 cycle backfill supplements high-volume subreddit with top listings when new-only depth stalls", async () => {
+  const nowIso = "2026-04-24T12:00:00.000Z";
+  const subreddit = "overwatch";
+  const targetId = stableUuidFromString(`reddit:target:r/${subreddit}`);
+
+  const monitorTargetRepository = new InMemoryMonitorTargetRepository();
+  const collectionJobRepository = new InMemoryCollectionJobRepository();
+  const rawEventRepository = new InMemoryRawEventRepository();
+  const accountRepository = new InMemoryAccountRepository();
+  const contentRepository = new InMemoryContentRepository();
+  const crawlCursorRepository = new InMemoryCrawlCursorRepository();
+  const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
+  const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
+  const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
+  const anomalyEventRepository = new InMemoryAnomalyEventRepository();
+
+  await monitorTargetRepository.upsert({
+    id: targetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: `r/${subreddit}`,
+    status: "active",
+    config: {},
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  });
+
+  class OverwatchBackfillConnector implements RedditConnector {
+    public readonly sourceCode = "reddit" as const;
+    public readonly seenRequests: RedditCollectSubredditPostsArgs[] = [];
+
+    public async collect(
+      args: RedditCollectSubredditPostsArgs,
+      ctx: ConnectorRequestContext,
+    ): Promise<ConnectorPage<RedditListingPayload<RedditPostData>>> {
+      return this.collectSubredditPosts(args, ctx);
+    }
+
+    public async collectSubredditAbout(
+      args: RedditCollectSubredditAboutArgs,
+      ctx: ConnectorRequestContext,
+    ): Promise<ConnectorPage<RedditAboutPayload>> {
+      return {
+        raw: {
+          endpoint: `/r/${args.subreddit}/about.json`,
+          requestParams: {},
+          httpStatus: 200,
+          responseHeaders: {},
+          payload: {
+            data: {
+              display_name: args.subreddit,
+              subscribers: 5_000_000,
+              accounts_active: 150_000,
+            },
+          },
+          fetchedAt: ctx.now,
+        },
+      };
+    }
+
+    public async collectSubredditPosts(
+      args: RedditCollectSubredditPostsArgs,
+      ctx: ConnectorRequestContext,
+    ): Promise<ConnectorPage<RedditListingPayload<RedditPostData>>> {
+      this.seenRequests.push({ ...args });
+      const listing = args.listing === "top" ? "top" : "new";
+      const posts =
+        listing === "new"
+          ? buildBackfillPosts({
+              subreddit,
+              prefix: "recent",
+              count: 100,
+              baseCreatedUtc: Math.floor(Date.parse("2026-04-21T12:00:00.000Z") / 1000),
+              scoreForIndex: (index) => (index % 20 === 0 ? 80 : 12),
+              commentsForIndex: (index) => (index % 20 === 0 ? 30 : 4),
+            })
+          : buildBackfillPosts({
+              subreddit,
+              prefix: `top_${args.timeRange ?? "week"}`,
+              count: 20,
+              baseCreatedUtc: Math.floor(
+                Date.parse(
+                  args.timeRange === "month"
+                    ? "2026-04-08T12:00:00.000Z"
+                    : "2026-04-14T12:00:00.000Z",
+                ) / 1000,
+              ),
+              scoreForIndex: () => 120,
+              commentsForIndex: () => 45,
+            });
+
+      return {
+        raw: {
+          endpoint: `/r/${args.subreddit}/${listing}.json`,
+          requestParams: {
+            limit: args.limit,
+            after: args.after,
+            t: listing === "top" ? args.timeRange ?? "week" : undefined,
+          },
+          httpStatus: 200,
+          responseHeaders: {},
+          payload: {
+            data: {
+              after: listing === "new" ? "t3_overwatch_cursor_1" : undefined,
+              children: posts.map((post) => ({ kind: "t3", data: post })),
+            },
+          },
+          fetchedAt: ctx.now,
+        },
+        nextCursor: listing === "new" ? "t3_overwatch_cursor_1" : undefined,
+      };
+    }
+
+    public async healthCheck(_ctx: ConnectorRequestContext): Promise<boolean> {
+      return true;
+    }
+  }
+
+  const connector = new OverwatchBackfillConnector();
+
+  await runRedditPhase1Cycle(
+    {
+      monitorTargetRepository,
+      collectionJobRepository,
+      rawEventRepository,
+      accountRepository,
+      contentRepository,
+      crawlCursorRepository,
+      metricsSnapshotRepository,
+      subredditDailyFactRepository,
+      postGrowthFactRepository,
+      subredditTrendPointRepository,
+      anomalyEventRepository,
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+    },
+    nowIso,
+    {
+      targetCanonicalNames: [`r/${subreddit}`],
+      crawlMode: "backfill",
+      backfillTargetDays: 15,
+      backfillMaxIterationsPerTarget: 3,
+    },
+  );
+
+  const oldEnoughPosts = await contentRepository.findByTargetCreatedAtRange({
+    targetId,
+    from: "1970-01-01T00:00:00.000Z",
+    to: "2026-04-09T12:00:00.000Z",
+    limit: 5,
+  });
+
+  assert.equal(oldEnoughPosts.length > 0, true);
+  assert.deepEqual(
+    connector.seenRequests.map((request) => `${request.listing ?? "new"}:${request.timeRange ?? "-"}`),
+    ["new:-", "top:week", "top:month"],
+  );
+  assert.equal(crawlCursorRepository.all().some((cursor) => cursor.cursor === "t3_overwatch_cursor_1"), true);
 });

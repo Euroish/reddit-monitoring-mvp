@@ -159,6 +159,23 @@ export interface ApiReadinessResponse {
   degradedReasons: string[];
 }
 
+export interface ApiStorageTableStatResponse {
+  tableName: string;
+  rowEstimate: number;
+  tableBytes: number;
+  indexBytes: number;
+  totalBytes: number;
+}
+
+export interface ApiStorageObservabilityResponse {
+  ok: true;
+  requestId: string;
+  service: "reddit-monitoring-mvp";
+  capturedAtIso: string;
+  databaseSizeBytes: number;
+  tables: ApiStorageTableStatResponse[];
+}
+
 export interface CreateSubredditTargetRequest {
   subreddit: string;
 }
@@ -178,6 +195,9 @@ export interface TriggerPhase1RunRequest {
   crawlMode?: CrawlMode;
   async?: boolean;
   postLimit?: number;
+  backfillPostLimit?: number;
+  backfillMaxIterationsPerTarget?: number;
+  backfillTargetDays?: number;
 }
 
 export interface TriggerPhase1RunResponse {
@@ -255,6 +275,14 @@ export interface KeywordQueryView {
   };
   dataQuality: KeywordQueryDataQualityView;
   sourceTypeSummary: Record<string, number>;
+  coverage: {
+    scope: "observed_corpus";
+    label: string;
+    description: string;
+    observedDocumentCount: number;
+    matchedDocumentCount: number;
+    seededDocumentCount: number;
+  };
   degradedReason?: string;
   explainPayload: Record<string, unknown>;
   createdAt: string;
@@ -380,11 +408,67 @@ export interface MarketTrendResponse {
   fromIso: string;
   toIso: string;
   targetCount: number;
+  coverage: {
+    scope: "monitored_targets";
+    label: string;
+    description: string;
+    monitoredTargetCount: number;
+  };
   rankings: {
     byHeat: MarketTrendRankItem[];
     bySurge: MarketTrendRankItem[];
     byDispersion: MarketTrendRankItem[];
   };
+}
+
+export interface MarketWorkbenchBreakoutItem {
+  targetId: string;
+  canonicalName: string;
+  observedAt: string;
+  ageBucket: "1h" | "6h" | "24h";
+  driverScore: number;
+  velocityZScore: number;
+  title: string;
+  permalink: string;
+  createdAtSource: string;
+  labels: string[];
+}
+
+export interface MarketWorkbenchAnomalyItem {
+  targetId: string;
+  canonicalName: string;
+  eventId: string;
+  signalType: AnomalySignalType;
+  signalKey: string;
+  observedAt: string;
+  anomalyScore: number;
+  severity: AnomalySeverity;
+}
+
+export interface MarketWorkbenchResponse {
+  ok: true;
+  requestId: string;
+  generatedAtIso: string;
+  fromIso: string;
+  toIso: string;
+  coverage: {
+    scope: "monitored_targets";
+    label: string;
+    description: string;
+    monitoredTargetCount: number;
+  };
+  summary: {
+    rankedTargetCount: number;
+    breakoutCount: number;
+    anomalyCount: number;
+  };
+  leaders: {
+    byHeat: MarketTrendRankItem[];
+    bySurge: MarketTrendRankItem[];
+    byDispersion: MarketTrendRankItem[];
+  };
+  breakouts: MarketWorkbenchBreakoutItem[];
+  anomalies: MarketWorkbenchAnomalyItem[];
 }
 
 export interface SubredditDailyTrendResponse {
@@ -665,6 +749,22 @@ export interface TargetWorkbenchResponse {
     status: "complete" | "partial" | "empty";
     pointCount: number;
     expectedPointCount: number;
+    coverage: {
+      scope: "materialized_observed_days";
+      status: "complete" | "partial" | "empty";
+      expectedDayCount: number;
+      materializedDayCount: number;
+      observedPostDayCount: number;
+      sampledPostDayCount: number;
+      lowObservedPostDayCount: number;
+      minObservedPostsPerDay: number;
+      observedPostTotal: number;
+      observedPostMedian: number;
+      firstThirdObservedPostShare: number;
+      zeroPostFactDayCount: number;
+      zeroSampleFactDayCount: number;
+      degradedReasons: string[];
+    };
     stale: boolean;
     latestPointAt?: string;
     generatedAtIso: string;

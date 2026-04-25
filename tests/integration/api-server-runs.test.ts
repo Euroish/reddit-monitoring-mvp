@@ -108,3 +108,64 @@ test("api server accepts async run trigger by default", async () => {
     await stopServer(server);
   }
 });
+
+test("api server executes backfill trigger synchronously even when async is requested", async () => {
+  const fixedNow = "2026-04-10T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+  const connectorCalls: Array<{ mode: string; crawlMode: string | undefined }> = [];
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: (mode, crawlMode) => {
+      connectorCalls.push({ mode, crawlMode });
+      return new RedditMockConnector();
+    },
+    now: () => fixedNow,
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const runResult = await postJson<TriggerPhase1RunResponse>(`${baseUrl}/v1/runs/reddit-phase1`, {
+      mode: "mock",
+      crawlMode: "backfill",
+      subreddit: "datascience",
+      async: true,
+      backfillPostLimit: 500,
+      backfillMaxIterationsPerTarget: 3,
+      backfillTargetDays: 15,
+    });
+
+    assert.equal(runResult.status, 200);
+    assert.equal(runResult.body.ok, true);
+    assert.equal(runResult.body.crawlMode, "backfill");
+    assert.deepEqual(runResult.body.processedCanonicalNames, ["r/datascience"]);
+    assert.equal(connectorCalls.length >= 1, true);
+    assert.equal(repos.rawEventRepository.all().length > 0, true);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("api server validates bounded backfill run controls", async () => {
+  const repos = createApiTestRepositories();
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const result = await postJson<ApiErrorResponse>(
+      `${baseUrl}/v1/runs/reddit-phase1`,
+      {
+        mode: "mock",
+        crawlMode: "backfill",
+        subreddit: "datascience",
+        backfillPostLimit: 1001,
+      },
+    );
+    assert.equal(result.status, 400);
+    assert.equal(result.body.errorCode, "invalid_backfill_post_limit");
+  } finally {
+    await stopServer(server);
+  }
+});

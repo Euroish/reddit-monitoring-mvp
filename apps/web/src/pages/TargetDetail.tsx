@@ -287,11 +287,11 @@ export function TargetDetail() {
               <div className="kpi-value">{formatNumber(latestDailyPoint?.heatPrice)}</div>
             </Card>
             <Card>
-              <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Daily Posts</div>
+              <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Observed Posts</div>
               <div className="kpi-value">{formatNumber(latestDailyPoint?.posts)}</div>
             </Card>
             <Card>
-              <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Qualified Posts</div>
+              <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Qualified Observed</div>
               <div className="kpi-value">{formatNumber(latestDailyPoint?.qualifiedPosts)}</div>
             </Card>
             <Card>
@@ -549,6 +549,19 @@ export function TargetDetail() {
             <div className="chart-shell">
               <WorkbenchChart option={chartOptions} />
             </div>
+            <div style={{ marginTop: '14px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+              Coverage {data.dataQuality.coverage.observedPostDayCount}/{data.dataQuality.coverage.expectedDayCount} observed days
+              {' '}· Median {formatNumber(data.dataQuality.coverage.observedPostMedian)} observed posts/day
+              {' '}· Low-density {data.dataQuality.coverage.lowObservedPostDayCount} days
+              {data.dataQuality.coverage.degradedReasons.length > 0
+                ? ` · ${data.dataQuality.coverage.degradedReasons.join(', ')}`
+                : ''}
+            </div>
+            {data.dataQuality.notes.length > 0 && (
+              <div style={{ marginTop: '8px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                {data.dataQuality.notes.join(' ')}
+              </div>
+            )}
           </Card>
 
           {comparisonData && (

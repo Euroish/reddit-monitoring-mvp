@@ -5,6 +5,7 @@ import type {
   ApiErrorResponse,
   CreateSubredditTargetResponse,
   GlobalKeywordDailyTrendResponse,
+  MarketWorkbenchResponse,
   MarketTrendResponse,
   SubredditAnomalyFeedResponse,
   SubredditAnomalyIncidentFeedResponse,
@@ -431,6 +432,13 @@ test("api server returns target workbench contract from materialized read models
     assert.equal(result.body.reliability.duplicatePostRate, 0.1);
     assert.equal(result.body.dataQuality.status, "partial");
     assert.equal(result.body.dataQuality.pointCount, 1);
+    assert.equal(result.body.dataQuality.coverage.scope, "materialized_observed_days");
+    assert.equal(result.body.dataQuality.coverage.expectedDayCount, 7);
+    assert.equal(result.body.dataQuality.coverage.materializedDayCount, 1);
+    assert.equal(result.body.dataQuality.coverage.observedPostDayCount, 1);
+    assert.deepEqual(result.body.dataQuality.coverage.degradedReasons, [
+      "materialized_fact_days_missing",
+    ]);
     assert.deepEqual(
       result.body.panels.map((panel) => panel.id),
       ["drivers", "keyword_heat", "reliability"],
@@ -1196,9 +1204,202 @@ test("api server returns market rankings across subreddits", async () => {
     assert.equal(marketResult.status, 200);
     assert.equal(marketResult.body.ok, true);
     assert.equal(marketResult.body.targetCount, 2);
+    assert.equal(marketResult.body.coverage.scope, "monitored_targets");
+    assert.equal(marketResult.body.coverage.label, "Top monitored subreddits");
+    assert.equal(marketResult.body.coverage.monitoredTargetCount, 2);
     assert.equal(marketResult.body.rankings.byHeat[0]?.canonicalName, "r/artificial");
     assert.equal(marketResult.body.rankings.bySurge[0]?.canonicalName, "r/artificial");
     assert.equal(marketResult.body.rankings.byDispersion[0]?.canonicalName, "r/machinelearning");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("api server returns market workbench leaders, breakouts, and anomalies", async () => {
+  const fixedNow = "2026-04-18T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+  const targetAi = stableUuidFromString("reddit:target:r/artificial");
+  const targetMl = stableUuidFromString("reddit:target:r/machinelearning");
+  const aiContentId = stableUuidFromString("reddit:content:t3_ai_breakout");
+  const mlContentId = stableUuidFromString("reddit:content:t3_ml_breakout");
+
+  await repos.monitorTargetRepository.upsert({
+    id: targetAi,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: "r/artificial",
+    status: "active",
+    config: {},
+    createdAt: fixedNow,
+    updatedAt: fixedNow,
+  });
+  await repos.monitorTargetRepository.upsert({
+    id: targetMl,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: "r/machinelearning",
+    status: "active",
+    config: {},
+    createdAt: fixedNow,
+    updatedAt: fixedNow,
+  });
+
+  await repos.subredditTrendPointRepository.upsertMany([
+    {
+      targetId: targetAi,
+      windowStart: "2026-04-18T11:45:00.000Z",
+      windowEnd: "2026-04-18T12:00:00.000Z",
+      newPosts: 12,
+      sampledPostCount: 12,
+      deltaNewPostsVsPrevWindow: 3,
+      deltaActiveUsersVsPrevWindow: 60,
+      heatChangePct: 0.3,
+      heatIndex: 91,
+      surgeScore: 0.88,
+      dispersionScore: 0.42,
+      trendScore: 0.74,
+    },
+    {
+      targetId: targetMl,
+      windowStart: "2026-04-18T11:45:00.000Z",
+      windowEnd: "2026-04-18T12:00:00.000Z",
+      newPosts: 8,
+      sampledPostCount: 8,
+      deltaNewPostsVsPrevWindow: 2,
+      deltaActiveUsersVsPrevWindow: 30,
+      heatChangePct: 0.15,
+      heatIndex: 66,
+      surgeScore: 0.41,
+      dispersionScore: 0.93,
+      trendScore: 0.33,
+    },
+  ]);
+
+  await repos.contentRepository.upsertMany([
+    {
+      id: aiContentId,
+      targetId: targetAi,
+      source: "reddit",
+      externalId: "t3_ai_breakout",
+      accountId: stableUuidFromString("reddit:account:ai"),
+      kind: "post",
+      title: "AI breakout post",
+      bodyText: "AI breakout body",
+      url: "https://example.com/ai-breakout",
+      permalink: "/r/artificial/comments/ai_breakout/post",
+      createdAtSource: "2026-04-18T11:10:00.000Z",
+      firstSeenAt: fixedNow,
+      lastSeenAt: fixedNow,
+    },
+    {
+      id: mlContentId,
+      targetId: targetMl,
+      source: "reddit",
+      externalId: "t3_ml_breakout",
+      accountId: stableUuidFromString("reddit:account:ml"),
+      kind: "post",
+      title: "ML breakout post",
+      bodyText: "ML breakout body",
+      url: "https://example.com/ml-breakout",
+      permalink: "/r/machinelearning/comments/ml_breakout/post",
+      createdAtSource: "2026-04-18T10:40:00.000Z",
+      firstSeenAt: fixedNow,
+      lastSeenAt: fixedNow,
+    },
+  ]);
+
+  await repos.postGrowthFactRepository.upsertMany([
+    {
+      targetId: targetAi,
+      contentId: aiContentId,
+      ageBucket: "1h",
+      observedAt: "2026-04-18T11:55:00.000Z",
+      ageMinutes: 45,
+      score: 120,
+      comments: 40,
+      scoreVelocityPerHour: 80,
+      commentVelocityPerHour: 22,
+      cohortPostCount: 12,
+      cohortMedianScoreVelocity: 14,
+      cohortMedianCommentVelocity: 4,
+      velocityZScore: 3.2,
+      driverScore: 97,
+      algorithmVersion: "post_growth_v1",
+      explainPayload: {},
+    },
+    {
+      targetId: targetMl,
+      contentId: mlContentId,
+      ageBucket: "6h",
+      observedAt: "2026-04-18T11:50:00.000Z",
+      ageMinutes: 70,
+      score: 80,
+      comments: 25,
+      scoreVelocityPerHour: 40,
+      commentVelocityPerHour: 12,
+      cohortPostCount: 9,
+      cohortMedianScoreVelocity: 12,
+      cohortMedianCommentVelocity: 3,
+      velocityZScore: 1.8,
+      driverScore: 78,
+      algorithmVersion: "post_growth_v1",
+      explainPayload: {},
+    },
+  ]);
+
+  await repos.anomalyEventRepository.upsertMany([
+    {
+      targetId: targetAi,
+      signalType: "volume",
+      signalKey: "subreddit",
+      observedAt: "2026-04-18T11:58:00.000Z",
+      windowStart: "2026-04-18T11:45:00.000Z",
+      windowEnd: "2026-04-18T12:00:00.000Z",
+      anomalyScore: 0.91,
+      algorithmVersion: "anomaly_event_v1",
+      explainPayload: {},
+    },
+    {
+      targetId: targetMl,
+      signalType: "keyword",
+      signalKey: "llm",
+      observedAt: "2026-04-18T11:52:00.000Z",
+      windowStart: "2026-04-18T11:45:00.000Z",
+      windowEnd: "2026-04-18T12:00:00.000Z",
+      anomalyScore: 0.66,
+      algorithmVersion: "anomaly_event_v1",
+      explainPayload: {},
+    },
+  ]);
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const result = await getJson<MarketWorkbenchResponse>(
+      `${baseUrl}/v1/workbench/market?from=2026-04-18T10:00:00.000Z&to=2026-04-18T12:15:00.000Z&rankingLimit=5&breakoutLimit=5&anomalyLimit=5`,
+    );
+    assert.equal(result.status, 200);
+    assert.equal(result.body.ok, true);
+    assert.equal(result.body.coverage.scope, "monitored_targets");
+    assert.equal(result.body.summary.rankedTargetCount, 2);
+    assert.equal(result.body.summary.breakoutCount, 2);
+    assert.equal(result.body.summary.anomalyCount, 2);
+    assert.equal(result.body.leaders.byHeat[0]?.canonicalName, "r/artificial");
+    assert.equal(result.body.leaders.byDispersion[0]?.canonicalName, "r/machinelearning");
+    assert.equal(result.body.breakouts[0]?.canonicalName, "r/artificial");
+    assert.deepEqual(result.body.breakouts[0]?.labels, ["breakout", "fresh"]);
+    assert.equal(result.body.breakouts[0]?.title, "AI breakout post");
+    assert.equal(result.body.anomalies[0]?.canonicalName, "r/artificial");
+    assert.equal(result.body.anomalies[0]?.severity, "high");
+    assert.equal(
+      result.body.anomalies[0]?.eventId,
+      "volume:subreddit:2026-04-18T11:58:00.000Z",
+    );
   } finally {
     await stopServer(server);
   }

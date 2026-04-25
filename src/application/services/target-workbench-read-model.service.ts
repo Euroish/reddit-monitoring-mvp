@@ -55,23 +55,23 @@ const SERIES_DEFS: Array<{
   },
   {
     id: "total_new_posts",
-    label: "Total New Posts",
+    label: "Observed New Posts",
     family: "activity",
     unit: "count",
     defaultVisible: false,
     chartType: "bar",
     axis: "secondary",
-    description: "Total new posts observed in the daily materialized fact.",
+    description: "Accepted posts observed by the bounded collector, not total subreddit volume.",
   },
   {
     id: "qualified_post_count",
-    label: "Qualified Posts",
+    label: "Qualified Observed Posts",
     family: "activity",
     unit: "count",
     defaultVisible: false,
     chartType: "bar",
     axis: "secondary",
-    description: "Posts that passed the configured quality threshold for the day.",
+    description: "Observed posts that passed the configured quality threshold for the day.",
   },
 ];
 
@@ -146,6 +146,10 @@ export function buildTargetWorkbenchReadModel(args: {
   }).events;
   const latestPointAt = dailyInsights.daily.at(-1)?.day;
   const materializedFactDays = new Set(args.dailyFacts.map((fact) => fact.day));
+  const coverage = summarizeObservedCoverage({
+    facts: args.dailyFacts,
+    expectedPointCount: dailyInsights.dayCount,
+  });
   const overlays = dailyInsights.keywordHeat.map((keyword) => ({
     id: `keyword_heat:${keyword.queryScope}:${keyword.keyword}`,
     label: keyword.keyword,
@@ -249,14 +253,10 @@ export function buildTargetWorkbenchReadModel(args: {
     keywordHeat: dailyInsights.keywordHeat,
     reliability: summarizeReliability(args.providerHealthWindows),
     dataQuality: {
-      status:
-        materializedFactDays.size === 0
-          ? "empty"
-          : materializedFactDays.size < dailyInsights.dayCount
-            ? "partial"
-            : "complete",
+      status: coverage.status,
       pointCount: materializedFactDays.size,
       expectedPointCount: dailyInsights.dayCount,
+      coverage,
       stale: latestPointAt
         ? Date.parse(args.toIso) - Date.parse(`${latestPointAt}T00:00:00.000Z`) > 36 * 60 * 60 * 1000
         : true,
@@ -265,6 +265,7 @@ export function buildTargetWorkbenchReadModel(args: {
       notes: buildDataQualityNotes({
         pointCount: materializedFactDays.size,
         expectedPointCount: dailyInsights.dayCount,
+        coverage,
         latestPointAt,
         toIso: args.toIso,
       }),
@@ -275,6 +276,7 @@ export function buildTargetWorkbenchReadModel(args: {
 function buildDataQualityNotes(args: {
   pointCount: number;
   expectedPointCount: number;
+  coverage: ReturnType<typeof summarizeObservedCoverage>;
   latestPointAt?: string;
   toIso: string;
 }): string[] {
@@ -284,6 +286,24 @@ function buildDataQualityNotes(args: {
   } else if (args.pointCount < args.expectedPointCount) {
     notes.push("The selected range has gaps in materialized daily facts.");
   }
+  if (args.coverage.degradedReasons.includes("observed_post_days_missing")) {
+    notes.push(
+      "Some materialized days have no observed posts; Reddit listing depth may be source-limited for this target.",
+    );
+  }
+  if (args.coverage.degradedReasons.includes("sampled_post_days_missing")) {
+    notes.push("Some observed days have no sampled engagement metrics.");
+  }
+  if (args.coverage.degradedReasons.includes("low_observed_post_density")) {
+    notes.push(
+      `Observed activity is too sparse for a reliable volume trend: ${args.coverage.lowObservedPostDayCount} day(s) are below ${args.coverage.minObservedPostsPerDay} observed posts.`,
+    );
+  }
+  if (args.coverage.degradedReasons.includes("front_loaded_backfill_sample")) {
+    notes.push(
+      "Observed posts are concentrated near the start of the range; the remaining days should be treated as source-limited samples, not actual subreddit volume.",
+    );
+  }
   if (
     !args.latestPointAt ||
     Date.parse(args.toIso) - Date.parse(`${args.latestPointAt}T00:00:00.000Z`) >
@@ -292,6 +312,118 @@ function buildDataQualityNotes(args: {
     notes.push("Latest materialized point is older than the selected range end.");
   }
   return notes;
+}
+
+function summarizeObservedCoverage(args: {
+  facts: SubredditDailyFact[];
+  expectedPointCount: number;
+}): TargetWorkbenchResponse["dataQuality"]["coverage"] {
+  const materializedDayCount = args.facts.length;
+  const observedPostDayCount = args.facts.filter((fact) => fact.postVolume > 0).length;
+  const sampledPostDayCount = args.facts.filter((fact) => fact.sampledPostVolume > 0).length;
+  const minObservedPostsPerDay = resolveMinObservedPostsPerDay(args.facts);
+  const lowObservedPostDayCount = args.facts.filter(
+    (fact) => fact.postVolume > 0 && fact.postVolume < minObservedPostsPerDay,
+  ).length;
+  const observedPostCounts = args.facts.map((fact) => Math.max(0, fact.postVolume));
+  const observedPostTotal = observedPostCounts.reduce((sum, count) => sum + count, 0);
+  const observedPostMedian = median(observedPostCounts);
+  const firstThirdObservedPostShare = computeFirstThirdShare(observedPostCounts);
+  const zeroPostFactDayCount = Math.max(0, materializedDayCount - observedPostDayCount);
+  const zeroSampleFactDayCount = Math.max(0, materializedDayCount - sampledPostDayCount);
+  const degradedReasons: string[] = [];
+
+  if (materializedDayCount < args.expectedPointCount) {
+    degradedReasons.push("materialized_fact_days_missing");
+  }
+  if (materializedDayCount > 0 && observedPostDayCount < materializedDayCount) {
+    degradedReasons.push("observed_post_days_missing");
+  }
+  if (observedPostDayCount > 0 && sampledPostDayCount < observedPostDayCount) {
+    degradedReasons.push("sampled_post_days_missing");
+  }
+  if (observedPostDayCount >= 3 && lowObservedPostDayCount > 0) {
+    degradedReasons.push("low_observed_post_density");
+  }
+  if (
+    materializedDayCount >= 7 &&
+    observedPostTotal > 0 &&
+    firstThirdObservedPostShare >= 0.7
+  ) {
+    degradedReasons.push("front_loaded_backfill_sample");
+  }
+
+  const status =
+    materializedDayCount === 0 || observedPostDayCount === 0
+      ? "empty"
+      : degradedReasons.length > 0
+        ? "partial"
+        : "complete";
+
+  return {
+    scope: "materialized_observed_days",
+    status,
+    expectedDayCount: args.expectedPointCount,
+    materializedDayCount,
+    observedPostDayCount,
+    sampledPostDayCount,
+    lowObservedPostDayCount,
+    minObservedPostsPerDay,
+    observedPostTotal,
+    observedPostMedian,
+    firstThirdObservedPostShare,
+    zeroPostFactDayCount,
+    zeroSampleFactDayCount,
+    degradedReasons,
+  };
+}
+
+function resolveMinObservedPostsPerDay(facts: SubredditDailyFact[]): number {
+  const tierRank = {
+    micro: 0,
+    small: 1,
+    mid: 2,
+    large: 3,
+  } satisfies Record<SubredditDailyFact["subredditTier"], number>;
+  const highestTier = facts.reduce<SubredditDailyFact["subredditTier"]>(
+    (current, fact) =>
+      tierRank[fact.subredditTier] > tierRank[current] ? fact.subredditTier : current,
+    "micro",
+  );
+  if (highestTier === "large") {
+    return 10;
+  }
+  if (highestTier === "mid") {
+    return 5;
+  }
+  return 2;
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) {
+    return 0;
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) {
+    return sorted[mid] ?? 0;
+  }
+  return ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2;
+}
+
+function computeFirstThirdShare(values: number[]): number {
+  if (values.length === 0) {
+    return 0;
+  }
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (total <= 0) {
+    return 0;
+  }
+  const firstThirdCount = Math.max(1, Math.ceil(values.length / 3));
+  const firstThirdTotal = values
+    .slice(0, firstThirdCount)
+    .reduce((sum, value) => sum + value, 0);
+  return firstThirdTotal / total;
 }
 
 function valueForSeries(

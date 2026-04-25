@@ -10,6 +10,7 @@ import type {
   RedditCollectSubredditAboutArgs,
   RedditCollectSubredditPostsArgs,
   RedditListingPayload,
+  RedditPostListing,
   RedditPostData,
 } from "./reddit.types";
 
@@ -139,10 +140,12 @@ export class RedditHttpConnector implements RedditConnector {
     args: RedditCollectSubredditPostsArgs,
     ctx: ConnectorRequestContext,
   ): Promise<ConnectorPage<RedditListingPayload<RedditPostData>>> {
-    const path = `/r/${encodeURIComponent(args.subreddit)}/new.json`;
+    const listing = resolvePostListing(args.listing);
+    const path = `/r/${encodeURIComponent(args.subreddit)}/${listing}.json`;
     const params: Record<string, string | number | boolean | undefined> = {
       limit: args.limit,
       after: args.after,
+      t: listing === "top" ? args.timeRange ?? "week" : undefined,
     };
 
     const page = await this.requestJson<RedditListingPayload<RedditPostData>>(path, params, ctx);
@@ -588,6 +591,10 @@ try {
     if ($stream) { $stream.Dispose() }
   }
 }
+
+function resolvePostListing(listing: RedditPostListing | undefined): RedditPostListing {
+  return listing === "top" ? "top" : "new";
+}
 [Console]::Out.WriteLine((@{ status = $status; headers = $headerMap; body = $content } | ConvertTo-Json -Compress -Depth 8))
 `;
     const encodedCommand = Buffer.from(script, "utf16le").toString("base64");
@@ -767,4 +774,8 @@ function parseCommand(value: string): string[] {
     throw new Error("Command must not be empty");
   }
   return parts;
+}
+
+function resolvePostListing(listing: RedditPostListing | undefined): RedditPostListing {
+  return listing === "top" ? "top" : "new";
 }

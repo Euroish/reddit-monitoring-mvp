@@ -20,6 +20,7 @@ import {
   InMemorySavedWorkbenchViewRepository,
   InMemorySubredditDailyFactRepository,
   InMemorySubredditTrendPointRepository,
+  InMemoryStorageObservabilityRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
 
 export interface JsonResponse<T> {
@@ -53,6 +54,7 @@ export function createApiTestRepositories() {
     subredditTrendPointRepository: new InMemorySubredditTrendPointRepository(),
     providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
     savedWorkbenchViewRepository: new InMemorySavedWorkbenchViewRepository(),
+    storageObservabilityRepository: new InMemoryStorageObservabilityRepository(),
   };
 }
 

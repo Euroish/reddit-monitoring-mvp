@@ -5,6 +5,7 @@ import { createApiServer } from "../../apps/api/src/create-api-server";
 import type {
   ApiErrorResponse,
   ApiReadinessResponse,
+  ApiStorageObservabilityResponse,
   AuthLoginResponse,
   AuthLogoutResponse,
   AuthMeResponse,
@@ -526,6 +527,83 @@ test("ops readiness resolves owner session when bearer auth is not configured", 
     assert.equal(ownerReady.status, 200);
     assert.equal(ownerReady.body.ok, true);
     assert.equal(ownerReady.body.status, "ready");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("ops storage observability requires owner or admin capability", async () => {
+  const fixedNow = "2026-04-24T15:10:00.000Z";
+  const repos = createApiTestRepositories();
+  await seedAppUser({
+    repos,
+    email: "viewer@example.com",
+    password: "viewer-password",
+    role: "viewer",
+    nowIso: fixedNow,
+  });
+  await seedAppUser({
+    repos,
+    email: "admin@example.com",
+    password: "admin-password",
+    role: "admin",
+    nowIso: fixedNow,
+  });
+  await seedAppUser({
+    repos,
+    email: "owner@example.com",
+    password: "owner-password",
+    role: "owner",
+    nowIso: fixedNow,
+  });
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+    auth: {
+      bearerToken: "test-token",
+    },
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const unauthenticated = await getJson<ApiErrorResponse>(`${baseUrl}/v1/ops/storage`);
+    assert.equal(unauthenticated.status, 401);
+    assert.equal(unauthenticated.body.errorCode, "unauthorized");
+
+    const viewerLogin = await login(baseUrl, "viewer@example.com", "viewer-password");
+    const viewerStorage = await getJson<ApiErrorResponse>(`${baseUrl}/v1/ops/storage`, {
+      cookie: viewerLogin.cookie ?? "",
+    });
+    assert.equal(viewerStorage.status, 403);
+    assert.equal(viewerStorage.body.errorCode, "forbidden");
+
+    const bearerStorage = await getJson<ApiErrorResponse>(`${baseUrl}/v1/ops/storage`, {
+      authorization: "Bearer test-token",
+    });
+    assert.equal(bearerStorage.status, 403);
+    assert.equal(bearerStorage.body.errorCode, "forbidden");
+
+    const adminLogin = await login(baseUrl, "admin@example.com", "admin-password");
+    const adminStorage = await getJson<ApiStorageObservabilityResponse>(`${baseUrl}/v1/ops/storage`, {
+      cookie: adminLogin.cookie ?? "",
+    });
+    assert.equal(adminStorage.status, 200);
+    assert.equal(adminStorage.body.ok, true);
+    assert.equal(adminStorage.body.service, "reddit-monitoring-mvp");
+    assert.equal(adminStorage.body.databaseSizeBytes, 0);
+    assert.deepEqual(
+      adminStorage.body.tables.map((table) => table.tableName),
+      ["raw_reddit_event", "metrics_snapshot"],
+    );
+
+    const ownerLogin = await login(baseUrl, "owner@example.com", "owner-password");
+    const ownerStorage = await getJson<ApiStorageObservabilityResponse>(`${baseUrl}/v1/ops/storage`, {
+      cookie: ownerLogin.cookie ?? "",
+    });
+    assert.equal(ownerStorage.status, 200);
+    assert.equal(ownerStorage.body.ok, true);
   } finally {
     await stopServer(server);
   }

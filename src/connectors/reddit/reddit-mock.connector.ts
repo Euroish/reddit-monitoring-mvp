@@ -52,6 +52,7 @@ export class RedditMockConnector implements RedditConnector {
     args: RedditCollectSubredditPostsArgs,
     ctx: ConnectorRequestContext,
   ): Promise<ConnectorPage<RedditListingPayload<RedditPostData>>> {
+    const listing = args.listing === "top" ? "top" : "new";
     const nowSec = Math.floor(new Date(ctx.now).getTime() / 1000);
     const payload: RedditListingPayload<RedditPostData> = {
       data: {
@@ -97,10 +98,11 @@ export class RedditMockConnector implements RedditConnector {
 
     return {
       raw: {
-        endpoint: `/r/${args.subreddit}/new.json`,
+        endpoint: `/r/${args.subreddit}/${listing}.json`,
         requestParams: {
           limit: args.limit,
           after: args.after,
+          t: listing === "top" ? args.timeRange ?? "week" : undefined,
         },
         httpStatus: 200,
         responseHeaders: {},
@@ -119,4 +121,3 @@ export class RedditMockConnector implements RedditConnector {
     return true;
   }
 }
-

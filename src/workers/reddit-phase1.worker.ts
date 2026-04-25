@@ -24,6 +24,9 @@ import { buildSubredditKeywordTrendDailyJob } from "../jobs/build-subreddit-keyw
 import { collectSubredditAboutJob } from "../jobs/collect-subreddit-about.job";
 import { collectSubredditNewPostsJob } from "../jobs/collect-subreddit-new-posts.job";
 import {
+  BACKFILL_COLLECTION_WINDOW_MINUTES,
+  DEFAULT_REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET,
+  DEFAULT_REDDIT_BACKFILL_POST_LIMIT,
   DEFAULT_REDDIT_POST_LIMIT_BASE,
   DEFAULT_REDDIT_POST_LIMIT_BOOST,
 } from "./reddit-phase1-defaults";
@@ -75,6 +78,7 @@ export interface RedditPhase1CycleOptions {
   postLimit?: number;
   basePostLimit?: number;
   boostPostLimit?: number;
+  backfillPostLimit?: number;
   samplingHealthLookbackMinutes?: number;
   boostWindowMinutes?: number;
   boostSurgeThreshold?: number;
@@ -88,6 +92,8 @@ export interface RedditPhase1CycleOptions {
   keywordDailyQualityMinScore?: number;
   keywordDailyQualityMinComments?: number;
   keywordDailyMaxKeywordsPerDay?: number;
+  backfillTargetDays?: number;
+  backfillMaxIterationsPerTarget?: number;
   crawlMode?: "live" | "backfill";
   providerHint?: string;
   postCandidateMinScore?: number;
@@ -185,6 +191,10 @@ export async function runRedditPhase1Cycle(
     basePostLimit,
     options.boostPostLimit ?? DEFAULT_REDDIT_POST_LIMIT_BOOST,
   );
+  const backfillPostLimit = Math.max(
+    boostPostLimit,
+    options.backfillPostLimit ?? DEFAULT_REDDIT_BACKFILL_POST_LIMIT,
+  );
   const samplingHealthLookbackMinutes = Math.max(
     5,
     options.samplingHealthLookbackMinutes ?? DEFAULT_SAMPLING_HEALTH_LOOKBACK_MINUTES,
@@ -198,6 +208,11 @@ export async function runRedditPhase1Cycle(
   const boostCooldownWindows = Math.max(0, options.boostCooldownWindows ?? 2);
   const keywordDailyLookbackDays = Math.max(1, options.keywordDailyLookbackDays ?? 90);
   const dailyFactLookbackDays = Math.max(30, options.dailyFactLookbackDays ?? 45);
+  const backfillTargetDays = Math.max(1, options.backfillTargetDays ?? 15);
+  const backfillMaxIterationsPerTarget = Math.max(
+    1,
+    options.backfillMaxIterationsPerTarget ?? DEFAULT_REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET,
+  );
   const keywordDailyQualityMinScore = Math.max(0, options.keywordDailyQualityMinScore ?? 10);
   const keywordDailyQualityMinComments = Math.max(0, options.keywordDailyQualityMinComments ?? 20);
   const keywordDailyMaxKeywordsPerDay = Math.max(1, options.keywordDailyMaxKeywordsPerDay ?? 50);
@@ -287,6 +302,7 @@ export async function runRedditPhase1Cycle(
               nowIso,
               basePostLimit,
               boostPostLimit,
+              backfillPostLimit,
               samplingHealthLookbackMinutes,
               boostWindowMinutes,
               boostSurgeThreshold,
@@ -321,29 +337,35 @@ export async function runRedditPhase1Cycle(
         baseInput,
       );
 
-      await collectSubredditNewPostsJob(
+      await runBoundedTargetBackfill(
         {
-          redditConnector: targetConnector,
-          redditMapper: deps.redditMapper,
+          contentRepository: deps.contentRepository,
+          crawlCursorRepository: deps.crawlCursorRepository,
           collectionJobRepository: deps.collectionJobRepository,
           rawEventRepository: deps.rawEventRepository,
           accountRepository: deps.accountRepository,
-          contentRepository: deps.contentRepository,
-          crawlCursorRepository: deps.crawlCursorRepository,
-          providerHealthWindowRepository: deps.providerHealthWindowRepository,
           metricsSnapshotRepository: deps.metricsSnapshotRepository,
+          providerHealthWindowRepository: deps.providerHealthWindowRepository,
+          redditConnector: targetConnector,
+          redditMapper: deps.redditMapper,
         },
         {
-          ...baseInput,
+          targetId: target.id,
+          subreddit,
+          nowIso,
+          crawlMode,
           limit: postLimit,
           samplingTier: postSamplingPlan.tier,
-          mode: crawlMode,
           providerHint: targetProviderHint,
           candidateFilter: {
             minScore: postCandidateMinScore,
             minComments: postCandidateMinComments,
             mode: postCandidateFilterMode,
           },
+          targetBackfillFromIso: new Date(
+            new Date(nowIso).getTime() - backfillTargetDays * 24 * 60 * 60 * 1000,
+          ).toISOString(),
+          maxIterationsPerTarget: backfillMaxIterationsPerTarget,
         },
       );
 
@@ -473,6 +495,119 @@ export async function runRedditPhase1Cycle(
   };
 }
 
+async function runBoundedTargetBackfill(
+  deps: Pick<
+    RedditPhase1WorkerDependencies,
+    | "accountRepository"
+    | "collectionJobRepository"
+    | "contentRepository"
+    | "crawlCursorRepository"
+    | "metricsSnapshotRepository"
+    | "providerHealthWindowRepository"
+    | "rawEventRepository"
+    | "redditConnector"
+    | "redditMapper"
+  >,
+  args: {
+    targetId: string;
+    subreddit: string;
+    nowIso: string;
+    crawlMode: "live" | "backfill";
+    limit: number;
+    samplingTier: SamplingTier;
+    providerHint?: string;
+    candidateFilter: {
+      minScore?: number;
+      minComments?: number;
+      mode?: "and" | "or";
+    };
+    targetBackfillFromIso: string;
+    maxIterationsPerTarget: number;
+  },
+): Promise<void> {
+  const iterations = args.crawlMode === "backfill" ? args.maxIterationsPerTarget : 1;
+
+  for (let iteration = 0; iteration < iterations; iteration += 1) {
+    const iterationNowIso = new Date(
+      new Date(args.nowIso).getTime() +
+        iteration * BACKFILL_COLLECTION_WINDOW_MINUTES * 60 * 1000,
+    ).toISOString();
+
+    await collectSubredditNewPostsJob(
+      {
+        redditConnector: deps.redditConnector,
+        redditMapper: deps.redditMapper,
+        collectionJobRepository: deps.collectionJobRepository,
+        rawEventRepository: deps.rawEventRepository,
+        accountRepository: deps.accountRepository,
+        contentRepository: deps.contentRepository,
+        crawlCursorRepository: deps.crawlCursorRepository,
+        providerHealthWindowRepository: deps.providerHealthWindowRepository,
+        metricsSnapshotRepository: deps.metricsSnapshotRepository,
+      },
+      {
+        targetId: args.targetId,
+        subreddit: args.subreddit,
+        nowIso: iterationNowIso,
+        limit: args.limit,
+        samplingTier: args.samplingTier,
+        mode: args.crawlMode,
+        providerHint: args.providerHint,
+        candidateFilter: args.candidateFilter,
+      },
+    );
+
+    if (args.crawlMode !== "backfill") {
+      return;
+    }
+
+    const reachedCoverage = await hasReachedBackfillCoverage({
+      contentRepository: deps.contentRepository,
+      targetId: args.targetId,
+      targetBackfillFromIso: args.targetBackfillFromIso,
+    });
+    if (reachedCoverage) {
+      return;
+    }
+
+    const reachedTerminalCursor = await hasBackfillReachedTerminalCursor({
+      crawlCursorRepository: deps.crawlCursorRepository,
+      targetId: args.targetId,
+    });
+    if (reachedTerminalCursor) {
+      return;
+    }
+  }
+}
+
+async function hasReachedBackfillCoverage(args: {
+  contentRepository: ContentRepository;
+  targetId: string;
+  targetBackfillFromIso: string;
+}): Promise<boolean> {
+  const olderPosts = await args.contentRepository.findByTargetCreatedAtRange({
+    targetId: args.targetId,
+    from: "1970-01-01T00:00:00.000Z",
+    to: args.targetBackfillFromIso,
+    limit: 1,
+  });
+  return olderPosts.length > 0;
+}
+
+async function hasBackfillReachedTerminalCursor(args: {
+  crawlCursorRepository?: CrawlCursorRepository;
+  targetId: string;
+}): Promise<boolean> {
+  if (!args.crawlCursorRepository) {
+    return false;
+  }
+  const cursors = await args.crawlCursorRepository.list({
+    targetId: args.targetId,
+    mode: "backfill",
+  });
+  return cursors.some((cursor) => cursor.cursor === "__backfill_eof__");
+}
+
 async function resolvePostSamplingLimit(args: {
   targetId: string;
   nowIso: string;
@@ -480,6 +615,7 @@ async function resolvePostSamplingLimit(args: {
   providerHint?: string;
   basePostLimit: number;
   boostPostLimit: number;
+  backfillPostLimit: number;
   samplingHealthLookbackMinutes: number;
   boostWindowMinutes: number;
   boostSurgeThreshold: number;
@@ -500,7 +636,7 @@ async function resolvePostSamplingLimit(args: {
   }
   if (args.mode === "backfill") {
     return {
-      limit: args.boostPostLimit,
+      limit: args.backfillPostLimit,
       tier: "boost",
     };
   }

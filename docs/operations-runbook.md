@@ -198,9 +198,20 @@ npm run ops:prune:raw-events
 ```
 
 Optional cleanup env:
-- `RAW_EVENT_RETENTION_DAYS` (default `30`)
+- `RAW_EVENT_RETENTION_DAYS` (default `7`)
 - `RAW_EVENT_PRUNE_BATCH_SIZE` (default `5000`)
 - `RAW_EVENT_PRUNE_LOOP=true` (keep deleting in batches until caught up)
+
+Metrics snapshot retention cleanup:
+
+```bash
+npm run ops:prune:metrics-snapshots
+```
+
+Optional cleanup env:
+- `METRICS_SNAPSHOT_RETENTION_DAYS` (default `30`)
+- `METRICS_SNAPSHOT_PRUNE_BATCH_SIZE` (default `10000`)
+- `METRICS_SNAPSHOT_PRUNE_LOOP=true` (keep deleting in batches until caught up)
 
 API notes:
 - `GET /v1/trends/subreddit/:subreddit` supports optional `from` / `to` ISO params.

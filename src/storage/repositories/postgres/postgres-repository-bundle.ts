@@ -17,6 +17,7 @@ import type { SavedWorkbenchViewRepository } from "../../../domain/repositories/
 import type { SubredditDailyFactRepository } from "../../../domain/repositories/subreddit-daily-fact-repository";
 import type { RawEventRepository } from "../../../domain/repositories/raw-event-repository";
 import type { SubredditTrendPointRepository } from "../../../domain/repositories/subreddit-trend-point-repository";
+import type { StorageObservabilityRepository } from "../../../domain/repositories/storage-observability-repository";
 import { PostgresClient } from "../../postgres/postgres-client";
 import { PostgresAccountRepository } from "./postgres-account.repository";
 import { PostgresAppInviteRepository } from "./postgres-app-invite.repository";
@@ -37,6 +38,7 @@ import { PostgresRawEventRepository } from "./postgres-raw-event.repository";
 import { PostgresSavedWorkbenchViewRepository } from "./postgres-saved-workbench-view.repository";
 import { PostgresSubredditDailyFactRepository } from "./postgres-subreddit-daily-fact.repository";
 import { PostgresSubredditTrendPointRepository } from "./postgres-subreddit-trend-point.repository";
+import { PostgresStorageObservabilityRepository } from "./postgres-storage-observability.repository";
 
 export interface RepositoryBundle {
   monitorTargetRepository: MonitorTargetRepository;
@@ -58,6 +60,7 @@ export interface RepositoryBundle {
   subredditTrendPointRepository: SubredditTrendPointRepository;
   providerHealthWindowRepository: ProviderHealthWindowRepository;
   savedWorkbenchViewRepository: SavedWorkbenchViewRepository;
+  storageObservabilityRepository: StorageObservabilityRepository;
 }
 
 export function createPostgresRepositoryBundle(db: PostgresClient): RepositoryBundle {
@@ -81,5 +84,6 @@ export function createPostgresRepositoryBundle(db: PostgresClient): RepositoryBu
     subredditTrendPointRepository: new PostgresSubredditTrendPointRepository(db),
     providerHealthWindowRepository: new PostgresProviderHealthWindowRepository(db),
     savedWorkbenchViewRepository: new PostgresSavedWorkbenchViewRepository(db),
+    storageObservabilityRepository: new PostgresStorageObservabilityRepository(db),
   };
 }

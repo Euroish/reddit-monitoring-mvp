@@ -26,6 +26,7 @@ import {
   InMemorySavedWorkbenchViewRepository,
   InMemorySubredditDailyFactRepository,
   InMemorySubredditTrendPointRepository,
+  InMemoryStorageObservabilityRepository,
 } from "../src/storage/repositories/in-memory/in-memory.repositories";
 import { stableUuidFromString } from "../src/shared/ids/stable-id";
 
@@ -62,6 +63,7 @@ function createSmokeRepositories() {
     subredditTrendPointRepository: new InMemorySubredditTrendPointRepository(),
     providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
     savedWorkbenchViewRepository: new InMemorySavedWorkbenchViewRepository(),
+    storageObservabilityRepository: new InMemoryStorageObservabilityRepository(() => FIXED_NOW),
   };
 }
 
@@ -589,9 +591,10 @@ async function assertNoHorizontalOverflow(page: Page, label: string) {
 async function runOwnerDesktopFlow(page: Page) {
   console.log("web smoke: owner login");
   await loginAs(page, OWNER_EMAIL, OWNER_PASSWORD);
-  await page.getByRole("heading", { name: "Dashboard" }).waitFor();
+  await page.getByRole("heading", { name: "Markets", exact: true }).waitFor();
+  await page.getByText("Top Heat").waitFor();
   await page.reload();
-  await page.getByRole("heading", { name: "Dashboard" }).waitFor();
+  await page.getByRole("heading", { name: "Markets", exact: true }).waitFor();
   await assertNoHorizontalOverflow(page, "desktop dashboard");
 
   console.log("web smoke: queries");
@@ -646,6 +649,8 @@ async function runOwnerDesktopFlow(page: Page) {
   await page.getByRole("link", { name: "Ops" }).click();
   await page.getByRole("heading", { name: "Operations" }).waitFor();
   await page.getByText("Overall Status").waitFor();
+  await page.getByText("Storage Footprint").waitFor();
+  await page.getByText("raw_reddit_event").waitFor();
   await fillByLabel(page, "Subreddit", "datascience");
   await fillByLabel(page, "Post limit", "12");
   await page.getByRole("button", { name: "Queue run" }).click();
@@ -662,7 +667,7 @@ async function runOwnerDesktopFlow(page: Page) {
 async function runViewerGuardFlow(page: Page) {
   console.log("web smoke: viewer guard");
   await loginAs(page, VIEWER_EMAIL, VIEWER_PASSWORD);
-  await page.getByRole("heading", { name: "Dashboard" }).waitFor();
+  await page.getByRole("heading", { name: "Markets", exact: true }).waitFor();
   if ((await page.getByRole("link", { name: "Ops" }).count()) !== 0) {
     throw new Error("Viewer unexpectedly saw Ops navigation");
   }
@@ -677,7 +682,7 @@ async function runMobileReview(browser: Awaited<ReturnType<typeof chromium.launc
 
   try {
     await loginAs(mobilePage, OWNER_EMAIL, OWNER_PASSWORD);
-    await mobilePage.getByRole("heading", { name: "Dashboard" }).waitFor();
+    await mobilePage.getByRole("heading", { name: "Markets", exact: true }).waitFor();
     await assertNoHorizontalOverflow(mobilePage, "mobile dashboard");
 
     await mobilePage.goto(`http://127.0.0.1:${WEB_PORT}/queries`);

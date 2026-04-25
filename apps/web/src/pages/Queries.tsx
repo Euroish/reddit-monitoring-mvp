@@ -88,7 +88,7 @@ export function Queries() {
     <div>
       <div className="page-header">
         <h1>Queries</h1>
-        <p className="page-subtitle">Keyword pulse and supporting posts</p>
+        <p className="page-subtitle">Observed-corpus keyword pulse and supporting posts</p>
       </div>
 
       <div className="responsive-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', alignItems: 'start' }}>
@@ -158,7 +158,7 @@ export function Queries() {
           {!result && !keywordQuery.isPending && (
             <Card>
               <div className="card-empty">
-                Run a keyword query to inspect coverage, quality, and matching posts.
+                Run a keyword query to inspect coverage, quality, and matching posts from the locally observed corpus.
               </div>
             </Card>
           )}
@@ -196,6 +196,24 @@ export function Queries() {
                         : 'Initial indexed result is ready.'}
                   <div style={{ marginTop: '6px', color: 'var(--text-tertiary)' }}>
                     Last updated {new Date(result.updatedAt).toLocaleString()}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    marginBottom: '20px',
+                    padding: '12px 14px',
+                    border: '1px solid var(--border-standard)',
+                    borderRadius: '6px',
+                    backgroundColor: 'rgba(255,255,255,0.02)',
+                  }}
+                >
+                  <div style={{ color: 'var(--text-primary)', fontSize: '13px', marginBottom: '4px' }}>
+                    {result.coverage.label}
+                  </div>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>{result.coverage.description}</div>
+                  <div style={{ marginTop: '6px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                    Observed documents {result.coverage.observedDocumentCount} · Matched {result.coverage.matchedDocumentCount} · Seeded this run {result.coverage.seededDocumentCount}
                   </div>
                 </div>
 

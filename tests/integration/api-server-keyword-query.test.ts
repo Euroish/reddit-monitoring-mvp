@@ -59,6 +59,10 @@ test("api server can create and fetch keyword query session", async () => {
     assert.equal(["low", "medium", "high"].includes(created.body.result.coverageLevel), true);
     assert.equal(["index", "live", "backfill"].includes(created.body.result.sourceType.primary), true);
     assert.equal(["low", "medium", "high"].includes(created.body.result.dataQuality.level), true);
+    assert.equal(created.body.result.coverage.scope, "observed_corpus");
+    assert.equal(created.body.result.coverage.label, "Observed monitored corpus");
+    assert.equal(created.body.result.coverage.observedDocumentCount, 2);
+    assert.equal(created.body.result.coverage.matchedDocumentCount, created.body.result.supportCount);
     assert.equal(created.body.result.samplePosts.length >= 1, true);
     assert.equal(created.body.result.samplePosts[0]?.sourceType, "index");
     assert.equal(created.body.result.pulsePoints5m.length >= 1, true);
@@ -71,6 +75,7 @@ test("api server can create and fetch keyword query session", async () => {
     assert.equal(fetched.body.result.queryId, created.body.result.queryId);
     assert.equal(fetched.body.result.queryText, "LLM agent");
     assert.equal(["low", "medium", "high"].includes(fetched.body.result.dataQuality.level), true);
+    assert.equal(fetched.body.result.coverage.scope, "observed_corpus");
     assert.equal(fetched.body.result.samplePosts.length >= 1, true);
     assert.equal(fetched.body.result.pulsePoints5m.length >= 1, true);
   } finally {

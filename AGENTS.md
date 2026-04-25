@@ -32,7 +32,7 @@ Avoid idle loops: once the next safe slice is clear, act instead of re-planning 
    - `task_plan.md`
    - `findings.md`
    - `progress.md`
-3. Use one state source only: Obsidian workspace `Projects/project.md`.
+3. Use one state source only: Obsidian workspace `obsidian-reddit专用/Projects/project.md`.
 4. Before execution, read only:
    - frontmatter
    - current focus / next action
@@ -45,3 +45,14 @@ Avoid idle loops: once the next safe slice is clear, act instead of re-planning 
 6. Keep updates compact; link to files/commands instead of pasting long logs.
 7. If details are large, write detail docs under `docs/` and reference them from `project.md`.
 
+## Startup Path Hygiene
+1. Treat `00_START_HERE.md` and `obsidian-reddit专用/Projects/project.md` as the live startup pair.
+2. Do not block on legacy paths that are absent in this repo, including `PROJECT.md`, `context/decision-log.md`, and old Obsidian export paths.
+3. If a user asks to read an advisory context file such as `context/codex-issue.md`, read it when present, then reconcile it against current repository evidence. If it is missing, state that it is not present and continue unless that file is the only possible source for the task.
+4. When startup docs and real filesystem state conflict, prefer the real filesystem state and fix the startup docs as part of the smallest complete workflow slice.
+
+## Product Analytics Flow
+1. Do not turn local sampled data into global-sounding product claims. If a ranking only covers monitored targets, label and model it as monitored coverage.
+2. Before adding new chart surfaces, prove the collection/materialization/read-model path can supply the requested range and expose empty, partial, degraded, and complete data-quality states.
+3. Prefer the sequence `semantics and coverage -> bounded backfill/materialization -> API contract -> frontend chart/workflow`.
+4. Keep small-server limits in the loop: bounded jobs, retention/size observability, and no unbounded all-Reddit crawling by default.

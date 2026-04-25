@@ -4,10 +4,16 @@ export interface RedditCollectSubredditAboutArgs {
   subreddit: string;
 }
 
+export type RedditPostListing = "new" | "top";
+
+export type RedditTopTimeRange = "day" | "week" | "month";
+
 export interface RedditCollectSubredditPostsArgs {
   subreddit: string;
   limit: number;
   after?: string;
+  listing?: RedditPostListing;
+  timeRange?: RedditTopTimeRange;
 }
 
 export interface RedditAboutPayload {
@@ -71,4 +77,3 @@ export interface NormalizedPostMetricPoint {
   numComments?: number;
   upvoteRatio?: number;
 }
-

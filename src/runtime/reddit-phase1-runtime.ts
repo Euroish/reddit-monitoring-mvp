@@ -18,6 +18,8 @@ import {
 } from "../storage/repositories/postgres/postgres-repository-bundle";
 import type { MonitorTargetRepository } from "../domain/repositories/monitor-target-repository";
 import {
+  DEFAULT_REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET,
+  DEFAULT_REDDIT_BACKFILL_POST_LIMIT,
   DEFAULT_REDDIT_POST_LIMIT_BASE,
   DEFAULT_REDDIT_POST_LIMIT_BOOST,
 } from "../workers/reddit-phase1-defaults";
@@ -26,6 +28,7 @@ import {
   parseBooleanFlag,
   parseCrawlMode,
   parseFilterMode,
+  parseNonNegativeInt,
   parseOptionalPositiveInt,
   parsePositiveFloat,
   parsePositiveInt,
@@ -54,6 +57,9 @@ export interface ResolveRedditPhase1CycleOptionsArgs {
   crawlMode?: Phase1CrawlMode;
   targetCanonicalNames?: string[];
   postLimit?: number;
+  backfillPostLimit?: number;
+  backfillMaxIterationsPerTarget?: number;
+  backfillTargetDays?: number;
   continueOnError?: boolean;
 }
 
@@ -195,6 +201,9 @@ export function resolveRedditPhase1CycleOptionsFromEnv(
       args.env.REDDIT_POST_LIMIT_BOOST,
       DEFAULT_REDDIT_POST_LIMIT_BOOST,
     ),
+    backfillPostLimit:
+      args.backfillPostLimit ??
+      parsePositiveInt(args.env.REDDIT_BACKFILL_POST_LIMIT, DEFAULT_REDDIT_BACKFILL_POST_LIMIT),
     samplingHealthLookbackMinutes: parsePositiveInt(
       args.env.REDDIT_POST_LIMIT_HEALTH_LOOKBACK_MINUTES,
       45,
@@ -247,6 +256,14 @@ export function resolveRedditPhase1CycleOptionsFromEnv(
       args.env.REDDIT_KEYWORD_DAILY_MAX_KEYWORDS_PER_DAY,
       50,
     ),
+    backfillTargetDays:
+      args.backfillTargetDays ?? parsePositiveInt(args.env.REDDIT_BACKFILL_TARGET_DAYS, 15),
+    backfillMaxIterationsPerTarget:
+      args.backfillMaxIterationsPerTarget ??
+      parseNonNegativeInt(
+        args.env.REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET,
+        DEFAULT_REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET,
+      ),
     disableAdaptiveSampling: !parseBooleanFlag(args.env.REDDIT_POST_LIMIT_ADAPTIVE, true),
     crawlMode,
     providerHint: resolveProviderHint({

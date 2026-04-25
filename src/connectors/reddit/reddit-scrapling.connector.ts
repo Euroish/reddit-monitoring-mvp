@@ -11,6 +11,7 @@ import type {
   RedditCollectSubredditAboutArgs,
   RedditCollectSubredditPostsArgs,
   RedditListingPayload,
+  RedditPostListing,
   RedditPostData,
 } from "./reddit.types";
 
@@ -124,10 +125,12 @@ export class RedditScraplingConnector implements RedditConnector {
     args: RedditCollectSubredditPostsArgs,
     ctx: ConnectorRequestContext,
   ): Promise<ConnectorPage<RedditListingPayload<RedditPostData>>> {
-    const pathValue = `/r/${encodeURIComponent(args.subreddit)}/new.json`;
+    const listing = resolvePostListing(args.listing);
+    const pathValue = `/r/${encodeURIComponent(args.subreddit)}/${listing}.json`;
     const params: Record<string, string | number | boolean | undefined> = {
       limit: args.limit,
       after: args.after,
+      t: listing === "top" ? args.timeRange ?? "week" : undefined,
     };
 
     const page = await this.requestJson<RedditListingPayload<RedditPostData>>(
@@ -505,4 +508,8 @@ export class RedditScraplingConnector implements RedditConnector {
       child.stdin.end();
     });
   }
+}
+
+function resolvePostListing(listing: RedditPostListing | undefined): RedditPostListing {
+  return listing === "top" ? "top" : "new";
 }

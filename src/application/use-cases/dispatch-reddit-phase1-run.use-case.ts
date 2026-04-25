@@ -26,6 +26,9 @@ export interface DispatchRedditPhase1RunInput {
   crawlMode: Phase1CrawlMode;
   subreddit?: string;
   postLimit?: number;
+  backfillPostLimit?: number;
+  backfillMaxIterationsPerTarget?: number;
+  backfillTargetDays?: number;
 }
 
 export interface DispatchRedditPhase1RunResult {
@@ -51,6 +54,9 @@ export async function dispatchRedditPhase1Run(
     crawlMode: input.crawlMode,
     targetCanonicalNames: requestedCanonicalNames,
     postLimit: input.postLimit,
+    backfillPostLimit: input.backfillPostLimit,
+    backfillMaxIterationsPerTarget: input.backfillMaxIterationsPerTarget,
+    backfillTargetDays: input.backfillTargetDays,
     continueOnError: true,
   });
 
@@ -77,7 +83,7 @@ export async function dispatchRedditPhase1Run(
         subreddit,
         nowIso,
         crawlMode: input.crawlMode,
-        limit: options.postLimit,
+        limit: input.crawlMode === "backfill" ? options.backfillPostLimit : options.postLimit,
         providerHint: options.providerHint,
         candidateFilter: {
           minScore: options.postCandidateMinScore,

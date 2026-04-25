@@ -7,6 +7,8 @@ import type {
   SubredditAnomalyFeedResponse,
   SubredditAnomalyIncidentFeedResponse,
   ApiReadinessResponse,
+  ApiStorageObservabilityResponse,
+  MarketWorkbenchResponse,
   AuthLoginRequest,
   AuthLoginResponse,
   AuthLogoutResponse,
@@ -71,6 +73,7 @@ import {
   buildTargetComparisonWorkbenchReadModel,
   COMPARABLE_WORKBENCH_SERIES_IDS,
 } from "../../../src/application/services/target-comparison-workbench-read-model.service";
+import { buildMarketWorkbenchReadModel } from "../../../src/application/services/market-workbench-read-model.service";
 import { buildTargetWorkbenchReadModel } from "../../../src/application/services/target-workbench-read-model.service";
 import type { RedditConnector } from "../../../src/connectors/reddit/reddit-connector.interface";
 import { DefaultRedditMapper } from "../../../src/connectors/reddit/reddit.mapper";
@@ -98,6 +101,7 @@ import type { SavedWorkbenchViewRepository } from "../../../src/domain/repositor
 import type { RawEventRepository } from "../../../src/domain/repositories/raw-event-repository";
 import type { SubredditDailyFactRepository } from "../../../src/domain/repositories/subreddit-daily-fact-repository";
 import type { SubredditTrendPointRepository } from "../../../src/domain/repositories/subreddit-trend-point-repository";
+import type { StorageObservabilityRepository } from "../../../src/domain/repositories/storage-observability-repository";
 import {
   BadRequestError,
   resolveCrawlMode,
@@ -198,6 +202,7 @@ export interface ApiRepositoryBundle {
   subredditTrendPointRepository: SubredditTrendPointRepository;
   providerHealthWindowRepository?: ProviderHealthWindowRepository;
   savedWorkbenchViewRepository?: SavedWorkbenchViewRepository;
+  storageObservabilityRepository?: StorageObservabilityRepository;
 }
 
 function parseAnomalySignalTypeList(value: string | null): AnomalySignalType[] | undefined {
@@ -488,8 +493,11 @@ function toUtcDay(iso: string): string {
 
 function toKeywordQueryView(args: {
   record: NonNullable<Awaited<ReturnType<KeywordQuerySessionRepository["findById"]>>>;
-}) {
+}): import("../../../packages/contracts/src/http").KeywordQueryView {
   const sourceTypeSummary = args.record.session.sourceTypeSummary;
+  const explainPayload = args.record.session.explainPayload;
+  const observedDocumentCount = Number(explainPayload.totalScopeDocs ?? 0);
+  const seededDocumentCount = Number(explainPayload.seededRows ?? 0);
   return {
     queryId: args.record.session.id,
     queryText: args.record.session.queryText,
@@ -514,8 +522,20 @@ function toKeywordQueryView(args: {
       degradedReason: args.record.session.degradedReason,
     }),
     sourceTypeSummary,
+    coverage: {
+      scope: "observed_corpus" as const,
+      label: args.record.session.canonicalSubreddit
+        ? "Observed subreddit corpus"
+        : "Observed monitored corpus",
+      description: args.record.session.canonicalSubreddit
+        ? "Results are computed only from locally indexed posts for this subreddit scope."
+        : "Results are computed only from locally indexed posts across monitored targets.",
+      observedDocumentCount,
+      matchedDocumentCount: args.record.session.supportCount,
+      seededDocumentCount,
+    },
     degradedReason: args.record.session.degradedReason,
-    explainPayload: args.record.session.explainPayload,
+    explainPayload,
     createdAt: args.record.session.createdAt,
     updatedAt: args.record.session.updatedAt,
     samplePosts: args.record.samples.map((sample) => ({
@@ -900,6 +920,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         (Boolean(bearerToken) &&
           protectedPathPrefixes.some((prefix) => pathname.startsWith(prefix))) ||
         pathname === "/v1/ops/readyz" ||
+        pathname === "/v1/ops/storage" ||
         isAuthAdminPath(pathname);
       if (bearerIsValid) {
         actor = { type: "machine" };
@@ -1451,6 +1472,48 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         return;
       }
 
+      if (req.method === "GET" && pathname === "/v1/ops/storage") {
+        if (!canUseOpsRead(actor)) {
+          respond({
+            statusCode: 403,
+            body: toApiError({
+              requestId,
+              message: "forbidden: requires ops capability",
+              code: "forbidden",
+            }),
+            errorCode: "forbidden",
+          });
+          return;
+        }
+        if (!repos.storageObservabilityRepository) {
+          respond({
+            statusCode: 501,
+            body: toApiError({
+              requestId,
+              message: "storage observability is not configured",
+              code: "feature_not_ready",
+            }),
+            errorCode: "feature_not_ready",
+          });
+          return;
+        }
+
+        const snapshot = await repos.storageObservabilityRepository.getSnapshot();
+        const payload: ApiStorageObservabilityResponse = {
+          ok: true,
+          requestId,
+          service: "reddit-monitoring-mvp",
+          capturedAtIso: snapshot.capturedAtIso,
+          databaseSizeBytes: snapshot.databaseSizeBytes,
+          tables: snapshot.tables,
+        };
+        respond({
+          statusCode: 200,
+          body: payload,
+        });
+        return;
+      }
+
       if (req.method === "POST" && pathname === "/v1/targets/subreddit") {
         const body = await readJsonBody<CreateSubredditTargetRequest>(req);
         if (!body || typeof body.subreddit !== "string" || body.subreddit.trim() === "") {
@@ -1533,7 +1596,8 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             ? normalizeSubredditName(body.subreddit)
             : undefined;
 
-        const runAsync = resolveAsyncRunPreference(body?.async, true);
+        const runAsync =
+          crawlMode === "backfill" ? false : resolveAsyncRunPreference(body?.async, true);
         let postLimit: number | undefined;
         if (body?.postLimit != null) {
           if (!Number.isInteger(body.postLimit) || body.postLimit < 1 || body.postLimit > 200) {
@@ -1549,6 +1613,67 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             return;
           }
           postLimit = body.postLimit;
+        }
+        let backfillPostLimit: number | undefined;
+        if (body?.backfillPostLimit != null) {
+          if (
+            !Number.isInteger(body.backfillPostLimit) ||
+            body.backfillPostLimit < 1 ||
+            body.backfillPostLimit > 1000
+          ) {
+            respond({
+              statusCode: 400,
+              body: toApiError({
+                requestId,
+                message: "backfillPostLimit must be an integer between 1 and 1000",
+                code: "invalid_backfill_post_limit",
+              }),
+              errorCode: "invalid_backfill_post_limit",
+            });
+            return;
+          }
+          backfillPostLimit = body.backfillPostLimit;
+        }
+        let backfillMaxIterationsPerTarget: number | undefined;
+        if (body?.backfillMaxIterationsPerTarget != null) {
+          if (
+            !Number.isInteger(body.backfillMaxIterationsPerTarget) ||
+            body.backfillMaxIterationsPerTarget < 1 ||
+            body.backfillMaxIterationsPerTarget > 120
+          ) {
+            respond({
+              statusCode: 400,
+              body: toApiError({
+                requestId,
+                message:
+                  "backfillMaxIterationsPerTarget must be an integer between 1 and 120",
+                code: "invalid_backfill_max_iterations",
+              }),
+              errorCode: "invalid_backfill_max_iterations",
+            });
+            return;
+          }
+          backfillMaxIterationsPerTarget = body.backfillMaxIterationsPerTarget;
+        }
+        let backfillTargetDays: number | undefined;
+        if (body?.backfillTargetDays != null) {
+          if (
+            !Number.isInteger(body.backfillTargetDays) ||
+            body.backfillTargetDays < 1 ||
+            body.backfillTargetDays > 30
+          ) {
+            respond({
+              statusCode: 400,
+              body: toApiError({
+                requestId,
+                message: "backfillTargetDays must be an integer between 1 and 30",
+                code: "invalid_backfill_target_days",
+              }),
+              errorCode: "invalid_backfill_target_days",
+            });
+            return;
+          }
+          backfillTargetDays = body.backfillTargetDays;
         }
         if (runAsync) {
           const runRequest = await dispatchRedditPhase1Run(
@@ -1566,6 +1691,9 @@ export function createApiServer(options: CreateApiServerOptions): Server {
               crawlMode,
               subreddit: requestedSubreddit,
               postLimit,
+              backfillPostLimit,
+              backfillMaxIterationsPerTarget,
+              backfillTargetDays,
             },
           );
           const payload: TriggerPhase1RunResponse = {
@@ -1600,6 +1728,9 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             crawlMode,
             subreddit: requestedSubreddit,
             postLimit,
+            backfillPostLimit,
+            backfillMaxIterationsPerTarget,
+            backfillTargetDays,
             continueOnError: true,
           },
         );
@@ -1999,6 +2130,105 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           rangePreset,
           dailyFactsByTargetId,
           seriesIds,
+        });
+        respond({
+          statusCode: 200,
+          body: payload,
+        });
+        return;
+      }
+
+      if (req.method === "GET" && pathname === "/v1/workbench/market") {
+        const { fromIso, toIso } = resolveTrendRange(url.searchParams, now());
+        const rankingLimit =
+          parseOptionalIntegerParam({
+            value: url.searchParams.get("rankingLimit"),
+            name: "rankingLimit",
+            min: 1,
+            max: 100,
+          }) ?? 12;
+        const breakoutLimit =
+          parseOptionalIntegerParam({
+            value: url.searchParams.get("breakoutLimit"),
+            name: "breakoutLimit",
+            min: 1,
+            max: 50,
+          }) ?? 8;
+        const anomalyLimit =
+          parseOptionalIntegerParam({
+            value: url.searchParams.get("anomalyLimit"),
+            name: "anomalyLimit",
+            min: 1,
+            max: 50,
+          }) ?? 8;
+        const targets = await repos.monitorTargetRepository.findActiveSubreddits();
+        const targetIds = targets.map((target) => target.id);
+        const breakoutContentFromIso = new Date(
+          new Date(fromIso).getTime() - 24 * 60 * 60 * 1000,
+        ).toISOString();
+
+        const [latestTrendPoints, breakoutFactsGroups, breakoutContentsGroups, anomalyGroups] =
+          await Promise.all([
+            repos.subredditTrendPointRepository.listLatestByTargetsInRange({
+              targetIds,
+              from: fromIso,
+              to: toIso,
+            }),
+            Promise.all(
+              targets.map((target) =>
+                repos.postGrowthFactRepository.listTopByTargetInRange({
+                  targetId: target.id,
+                  fromIso,
+                  toIso,
+                  limit: 1,
+                }),
+              ),
+            ),
+            Promise.all(
+              targets.map((target) =>
+                repos.contentRepository.findByTargetCreatedAtRange({
+                  targetId: target.id,
+                  from: breakoutContentFromIso,
+                  to: toIso,
+                  limit: 250,
+                }),
+              ),
+            ),
+            Promise.all(
+              targets.map((target) =>
+                repos.anomalyEventRepository.listByTargetInRange({
+                  targetId: target.id,
+                  fromIso,
+                  toIso,
+                  limit: anomalyLimit,
+                }),
+              ),
+            ),
+          ]);
+
+        const breakoutFactsByTargetId = new Map<string, Awaited<ReturnType<PostGrowthFactRepository["listTopByTargetInRange"]>>>();
+        const breakoutContentsByTargetId = new Map<string, Awaited<ReturnType<ContentRepository["findByTargetCreatedAtRange"]>>>();
+        const anomalyEventsByTargetId = new Map<string, Awaited<ReturnType<AnomalyEventRepository["listByTargetInRange"]>>>();
+
+        for (const [index, target] of targets.entries()) {
+          breakoutFactsByTargetId.set(target.id, breakoutFactsGroups[index] ?? []);
+          breakoutContentsByTargetId.set(target.id, breakoutContentsGroups[index] ?? []);
+          anomalyEventsByTargetId.set(target.id, anomalyGroups[index] ?? []);
+        }
+
+        const payload: MarketWorkbenchResponse = buildMarketWorkbenchReadModel({
+          requestId,
+          generatedAtIso: now(),
+          fromIso,
+          toIso,
+          targets,
+          latestTrendPoints,
+          breakoutFactsByTargetId,
+          breakoutContentsByTargetId,
+          anomalyEventsByTargetId,
+          rankingLimit,
+          breakoutLimit,
+          anomalyLimit,
         });
         respond({
           statusCode: 200,
@@ -2736,6 +2966,13 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           fromIso,
           toIso,
           targetCount: rankItems.length,
+          coverage: {
+            scope: "monitored_targets",
+            label: "Top monitored subreddits",
+            description:
+              "Rankings are computed only across active monitored subreddits with trend points in the requested range.",
+            monitoredTargetCount: rankItems.length,
+          },
           rankings: {
             byHeat: [...rankItems]
               .sort((a, b) => {

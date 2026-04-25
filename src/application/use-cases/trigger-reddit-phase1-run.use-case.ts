@@ -33,6 +33,9 @@ export interface TriggerRedditPhase1RunInput {
   crawlMode: Phase1CrawlMode;
   subreddit?: string;
   postLimit?: number;
+  backfillPostLimit?: number;
+  backfillMaxIterationsPerTarget?: number;
+  backfillTargetDays?: number;
   continueOnError?: boolean;
 }
 
@@ -68,6 +71,9 @@ export async function prepareTriggeredRedditPhase1Run(
     crawlMode: input.crawlMode,
     targetCanonicalNames: requestedCanonicalNames.length > 0 ? requestedCanonicalNames : undefined,
     postLimit: input.postLimit,
+    backfillPostLimit: input.backfillPostLimit,
+    backfillMaxIterationsPerTarget: input.backfillMaxIterationsPerTarget,
+    backfillTargetDays: input.backfillTargetDays,
     continueOnError: input.continueOnError,
   });
   const fetchExecutionEngine = createRedditFetchExecutionEngine({

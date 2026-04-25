@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: analytics-workbench-contract-v2
-updated_at: "2026-04-24 15:05:38"
+updated_at: "2026-04-25 04:00:39"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Keep P0 small: ship the retention defaults now documented in deploy env/runbook, then later expose storage observability in Ops before bounded 15-day new-target backfill."
+next_action: "Run a live r/nba or r/overwatch backfill from Ops, then inspect target workbench dataQuality.coverage for low_observed_post_density/front_loaded_backfill_sample before treating activity bars as trend evidence."
 tags:
 - codex
 - workspace
@@ -69,6 +69,16 @@ tags:
 - Use `docs/codex-handoff-tradingview-workbench.md` as the latest planning correction for the TradingView-like workbench direction.
 - Optimize for the smallest analytics vertical slice: Chart DTO v2 contract additions, read-model metadata, API-backed range/timeframe controls, frontend workbench module extraction, and browser/API smoke evidence.
 - Before adding broader chart surfaces, run the analytics truth gate: labels must match data coverage, local observed-corpus keyword results must expose coverage/degraded reasons, and empty/partial history must be visible rather than hidden by chart polish.
+
+## TradingView-Like Top Page Decomposition
+
+- Design cue: the current `https://www.tradingview.com/markets/` page on 2026-04-24 is organized as a broad markets landing page with a strong hero, grouped ranking sections, fast-scan strips, and drill-down links. Our equivalent must stay honest to monitored Reddit coverage rather than imply global Reddit coverage.
+- M0 shell, using existing `GET /v1/trends/market` only: upgrade `/dashboard` into a Markets page with hero, monitored-scope framing, quick-scan heat strip, and grouped boards for heat, surge, and dispersion. No new backend contract required.
+- M1 Market Board DTO v1: add a dedicated read model and endpoint for the top page so it stops overloading the generic market-trend contract. Required slices are market summary, breakout/anomaly rows, quick links into target detail, and data-quality/coverage metadata per section.
+- M2 workflow objects on the top page: surface saved comparisons, recent saved workbench contexts, and watchlist presets as first-class cards instead of requiring navigation into target detail first.
+- M3 interactive controls: add search, filter, sort, timeframe/range controls, and comparison launchers backed by stable API params rather than frontend-only reshaping.
+- M4 data expansion gate: only after the monitored Markets page is contract-backed should bounded 15-day new-target backfill feed empty/partial/degraded/completed states for newly added targets. Do not present sparse targets as fully ranked.
+- M5 breadth expansion: after M1-M4 stabilize, consider additional TradingView-like sections analogous to gainers, losers, sector buckets, or event rails, but only when corresponding Reddit read models and honest coverage labels exist.
 
 ## Change Policy
 
@@ -137,6 +147,69 @@ tags:
 - Next product sequence is live W6 Chart DTO v2 smoke, P0 analytics truth fixes, P1 bounded 15-day backfill for newly added targets, then W7 Market Board/Watchlist and W8 saved presets/context expansion. Watchlist remains important, but follows a stable chart/workbench kernel and honest coverage model.
 
 ## Activity Log
+
+### 2026-04-25 04:00:39
+
+- Scope: Made target workbench activity-series semantics honest for sparse 15-day backfills. `total_new_posts` now labels as observed collector sample volume, `qualified_post_count` labels as qualified observed posts, and `TargetWorkbenchResponse.dataQuality.coverage` exposes low-density days, minimum observed posts/day, observed total/median, and first-third concentration. Sparse front-loaded ranges such as an `r/nba` pattern now downgrade to `partial` with `low_observed_post_density` and `front_loaded_backfill_sample` reasons instead of looking like complete volume trends.
+- Why now: Backfill can fetch posts across 15 days, but high-volume subreddits may only have 3-5 accepted observed posts/day in the tail. Presenting those bars as total subreddit volume would create false trend confidence.
+- Verify: `node --import tsx --test tests/unit/target-workbench-read-model.service.test.ts tests/integration/api-server-trends.test.ts` passed (`19/19`). `npm run typecheck` passed.
+- Next: Run a live `r/nba` or `r/overwatch` backfill from Ops and compare `/v1/workbench/target/:targetId` coverage metadata against the chart before using activity bars as trend evidence.
+
+### 2026-04-25 03:41:40
+
+- Scope: Fixed the Ops frontend control that still behaved like a shared `postLimit` field. Live and backfill now use separate state and separate input IDs: live remains capped at 200, while backfill defaults to 500 and renders with `max=1000`.
+- Why now: The previous UI could still preserve a 200 live value when switching into backfill, making the newly added backfill API budget hard to use from the frontend.
+- Verify: `npm run typecheck` and `npm run build:web` passed. Vite reported the existing large-chunk warning only.
+- Next: Rebuild/redeploy the web asset bundle before testing the Ops page in browser; then run the `r/overwatch` live backfill smoke.
+
+### 2026-04-25 03:38:08
+
+- Scope: Removed the effective 200-post Ops/API ceiling from bounded backfill. The phase1 run contract now separates live `postLimit` from backfill controls (`backfillPostLimit`, `backfillMaxIterationsPerTarget`, `backfillTargetDays`), API validation allows bounded backfill budgets up to 1000 posts per cursor iteration, and Ops exposes those controls. API-triggered backfill now runs the synchronous bounded phase1 cycle even if async is requested, so it can advance cursor windows until coverage, EOF, or iteration budget instead of enqueueing one shallow collection job.
+- Why now: High-volume subreddits such as `r/overwatch` can burn through 200 `/new` posts in only 2-3 days, while lower-volume subreddits can cover 15 days inside the same cap. The previous shared `postLimit <= 200` control made successful trends depend on subreddit posting velocity rather than requested backfill coverage.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/unit/reddit-phase1-runtime.test.ts tests/integration/api-server-runs.test.ts tests/integration/reddit-phase1-cycle.test.ts` passed (`23/23`). `npm run algo:fast`, `npm run algo:phase1`, `npm run algo:phase1:full`, and `npm run algo:full` all passed; final `algo:full` completed `279/279`.
+- Next: Run a live `r/overwatch` backfill from Ops with `backfillPostLimit=500`, `backfillMaxIterationsPerTarget=24`, and `backfillTargetDays=15`, then inspect `/v1/workbench/target/overwatch` coverage versus `r/machinelearning`.
+
+### 2026-04-25 03:24:25
+
+- Scope: Tuned high-volume subreddit backfill for Reddit community behavior and exposed target coverage honesty in the workbench contract. Backfill candidate filters for mid/large subreddits now accept score-led or comment-led posts instead of requiring both, so game/media communities such as `r/overwatch` keep high-upvote low-comment candidates. `TargetWorkbenchResponse.dataQuality` now includes `materialized_observed_days` coverage, marks materialized zero-post days as `partial`/`empty` instead of false `complete`, and the target detail chart shows observed-day coverage and degraded reasons.
+- Why now: `r/machinelearning` can show a trend with discussion-heavy posts, while `r/overwatch` is more likely to be source-limited by Reddit listing depth and score-led engagement. The previous code could both filter out useful score-led candidates and hide sparse observed days behind continuous zero-filled daily facts.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/unit/target-workbench-read-model.service.test.ts tests/integration/collect-subreddit-new-posts-p0.test.ts tests/integration/api-server-trends.test.ts` passed (`31/31`). `npm run algo:fast`, `npm run algo:phase1`, `npm run algo:phase1:full`, and `npm run algo:full` all passed; final `algo:full` completed `276/276`.
+- Next: Run a live `r/overwatch` backfill/materialization smoke and inspect `/v1/workbench/target/overwatch` for observed-day coverage, partial/degraded reasons, and score-led driver posts versus `r/machinelearning`.
+
+### 2026-04-25 00:20:00
+
+- Scope: Fixed large-subreddit backfill source strategy so high-volume targets are no longer limited to `/new` only. Extended Reddit post-collection args/connectors to support bounded listing selection (`new` vs `top` with `week/month` windows), then changed `collectObservedPages()` to keep `/new` as the cursor source while adding a bounded `/top` supplement for first-pass high-volume backfill. Added an integration case proving an `r/overwatch`-like target can recover older qualified posts from `top/week` and `top/month` even when `/new` only exposes the newest few days.
+- Why now: The user verified that `r/overwatch` still only showed about 3 days of history. Repository evidence plus Reddit listing behavior showed this was a source-ceiling problem, not just threshold tuning: high-volume subreddits can exhaust Reddit `/new` pagination before 15-day coverage is reachable.
+- Verify: `node --import tsx --test tests/integration/reddit-phase1-cycle.test.ts tests/unit/reddit-apify.connector.test.ts tests/unit/reddit-scrapling.connector.test.ts` passed. `npm run typecheck`, `npm run algo:fast`, `npm run algo:phase1`, `npm run algo:phase1:full`, and `npm run algo:full` all passed; final `algo:full` completed `275/275`.
+- Next: Expose this distinction in API/Ops as explicit backfill coverage state and degraded reason, e.g. `source_limited_new_listing`, `supplemented_with_top`, `partial`, `complete`, so operators can see when a target needed bounded older-signal recovery instead of assuming `/new` coverage is complete.
+
+### 2026-04-24 18:14:20
+
+- Scope: Prioritized product data functionality ahead of further frontend work. Added a dedicated market workbench data contract and backend read model: `MarketWorkbenchResponse`, `buildMarketWorkbenchReadModel()`, and `GET /v1/workbench/market` now expose monitored-market leaders plus breakout and anomaly sections assembled from existing trend points, post-growth facts, content rows, and anomaly events without changing schema or widening collection yet.
+- Why now: The user explicitly asked to improve product data capabilities before doing more frontend. The smallest high-quality slice was to stop overloading the old generic market ranking endpoint and create a dedicated backend DTO that future Markets/TradingView-like surfaces can consume safely.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/integration/api-server-trends.test.ts` passed (`17/17`), including the new market workbench contract test for leaders, breakouts, and anomalies.
+- Next: Keep the same data-first path: extend `/v1/workbench/market` with workflow-object sections such as saved contexts/watchlist-ready rows and explicit empty/partial/degraded coverage states for newly added targets and future bounded backfill.
+
+### 2026-04-24 18:01:51
+
+- Scope: Re-prioritized the top-page direction around a TradingView-like monitored Markets experience. Updated the frontend shell so `/dashboard` now renders as a sectioned Markets board with a hero, monitored-scope summary cards, a heat strip, and grouped boards for heat, surge, and dispersion using the existing `GET /v1/trends/market` contract; also renamed the top-nav entry from `Dashboard` to `Markets` and updated browser smoke accordingly.
+- Why now: The user explicitly asked to move the final top page toward `https://www.tradingview.com/markets/`, but not to jump straight into a full rebuild. The smallest compliant slice was to decompose that goal in `project.md` and ship the M0 shell on top of already-verified monitored-market data instead of inventing new backend surfaces first.
+- Verify: `npm run typecheck` passed. `npm --prefix apps/web run build` passed with the existing large-chunk warning for `TargetDetail`. `SMOKE_API_PORT=3100 SMOKE_WEB_PORT=5174 npm run smoke:web` passed, including the new Markets heading, target drilldown, Ops, viewer guard, and mobile review.
+- Next: Implement M1 Market Board DTO v1 so the top page can add breakout/anomaly/watchlist-style sections without overloading the generic `MarketTrendResponse`.
+
+### 2026-04-24 17:56:26
+
+- Scope: Completed the Ops-facing storage observability slice. Wired `GET /v1/ops/storage` into `apps/web/src/pages/Ops.tsx` with a storage footprint card, database/table size formatting, and graceful feature-not-ready handling; updated `scripts/smoke-web-product-shell.ts` plus its in-memory runtime so browser smoke now covers the storage panel instead of skipping it.
+- Why now: With retention/pruning defaults and executable cleanup paths already in place, the remaining P0 gap was making the capacity signal visible in the actual product workflow before bounded new-target backfill starts.
+- Verify: `npm run typecheck` passed. `npm --prefix apps/web run build` passed. `SMOKE_API_PORT=3100 SMOKE_WEB_PORT=5174 npm run smoke:web` passed, including `/ops` storage, owner flow, viewer guard, and mobile review.
+- Next: Start P1 bounded 15-day backfill for newly added targets, beginning with the contract/job quotas and explicit degraded/failure states before any live rollout.
+
+### 2026-04-24 17:52:50
+
+- Scope: Completed the executable half of the P0 retention slice. Added `scripts/prune-metrics-snapshots.ts`, exposed `npm run ops:prune:metrics-snapshots`, aligned `scripts/prune-raw-events.ts` to the deployed small-VPS default of `7` days, and updated `docs/operations-runbook.md` so both raw-event and metrics-snapshot cleanup paths match `deploy/env/scheduler.env.example`.
+- Why now: `project.md` already recorded the retention defaults at the env/runbook level, but the runtime cleanup path was incomplete and the raw-event script/docs still disagreed on the real default. Closing that gap keeps the bounded-storage policy honest before any Ops UI work or new-target backfill.
+- Verify: `npm run typecheck` passed.
+- Next: Surface `GET /v1/ops/storage` in the Ops experience with the current owner/admin guard, then use that storage view to guide bounded retention/backfill operations.
 
 ### 2026-04-24 15:05:38
 
@@ -1401,3 +1474,31 @@ tags:
 - Why now: User requested that `R5` be made real and asked for deeper Scrapling fusion instead of leaving the repo at target-level `providerHint` routing only.
 - Verify: `npm run typecheck` passed. Targeted coverage passed: `npx tsx --test tests/unit/reddit-provider-routing-policy.test.ts tests/integration/reddit-phase1-provider-routing.test.ts tests/integration/api-server-readyz.test.ts`. Full gate passed: `npm run algo:phase1:full` (`29/29` phase1 unit + `8/8` phase1 integration after the new routing cases).
 - Next: Build the missing global keyword 30-day trend read model/API, then deepen Scrapling beyond provider-level evidence by capturing profile/session-level observability on technical targets so `dynamic` vs `http` escalation can be calibrated from persisted data instead of static thresholds alone.
+
+### 2026-04-24 18:29:57
+
+- Scope: Added bounded per-target backfill looping in `src/workers/reddit-phase1.worker.ts` so backfill runs can continue across multiple cursor windows until a configurable day-coverage target or terminal EOF, with env wiring in `src/runtime/reddit-phase1-runtime.ts`. Also tightened storage pressure in `src/jobs/collect-subreddit-new-posts.job.ts` so candidate filtering now gates persisted `content` rows and `metrics_snapshot` points instead of only observability counts.
+- Why now: User hit the current gap directly on `r/worldnews`: a single backfill run can page, but without repeated bounded iterations and real persistence filtering, high-volume subreddits both fail to form usable history quickly and risk storing too much low-value post/snapshot data.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/integration/collect-subreddit-new-posts-p0.test.ts tests/integration/reddit-phase1-cycle.test.ts` passed (`14/14`), including the new multi-iteration backfill coverage test and the candidate-filter persistence assertions.
+- Next: Surface explicit backfill coverage states (`empty/partial/degraded/complete`) through the workbench/API, then add raw-event pressure controls for high-volume backfill so filtered persistence also reduces operational evidence storage pressure.
+
+### 2026-04-25 00:00:00
+
+- Scope: Hardened bounded 15-day backfill defaults for higher-volume targets. Added explicit backfill defaults in [src/workers/reddit-phase1-defaults.ts](/root/reddit-monitoring-mvp/src/workers/reddit-phase1-defaults.ts), wired `backfillPostLimit` plus higher default iteration budget through [src/workers/reddit-phase1.worker.ts](/root/reddit-monitoring-mvp/src/workers/reddit-phase1.worker.ts) and [src/runtime/reddit-phase1-runtime.ts](/root/reddit-monitoring-mvp/src/runtime/reddit-phase1-runtime.ts), and added regression coverage in [tests/unit/reddit-phase1-runtime.test.ts](/root/reddit-monitoring-mvp/tests/unit/reddit-phase1-runtime.test.ts) plus [tests/integration/reddit-phase1-cycle.test.ts](/root/reddit-monitoring-mvp/tests/integration/reddit-phase1-cycle.test.ts) for a higher-volume target that previously needed more than 12 cursor pages to cross 15-day history.
+- Why now: Current backfill behavior was effectively budget-limited on busy subreddits because it reused live boost sizing (`40`) and only `12` default iterations, which can stall near 1-2 days of history even though the range target is 15 days.
+- Verify: `npm run algo:fast`, `npm run algo:phase1`, `npm run algo:phase1:full`, and `npm run algo:full` all passed. The new integration case proves default backfill now traverses 13 pages, reaches content on or before `2026-04-09`, and materializes a daily fact on or before `2026-04-09` without explicit per-run overrides.
+- Next: Expose backfill coverage progress in the API/workbench so operators can tell whether a 15-day request is empty, partial, degraded, or complete before adding more chart surfaces.
+
+### 2026-04-25 00:20:00
+
+- Scope: Added tiered backfill candidate filtering in [src/jobs/collect-subreddit-new-posts.job.ts](/root/reddit-monitoring-mvp/src/jobs/collect-subreddit-new-posts.job.ts) so backfill now derives `subreddit tier` from the latest `subscribers` snapshot and applies bounded per-tier thresholds before persisting posts. The current tier policy is permissive for `micro/small` and stricter for `mid/large`, while `live` collection remains unchanged. Added focused coverage in [tests/integration/collect-subreddit-new-posts-p0.test.ts](/root/reddit-monitoring-mvp/tests/integration/collect-subreddit-new-posts-p0.test.ts) and updated [tests/integration/reddit-phase1-cycle.test.ts](/root/reddit-monitoring-mvp/tests/integration/reddit-phase1-cycle.test.ts) so a large target now keeps only a few high-quality posts per page but still reaches 15-day history.
+- Why now: The latest backfill budget increase fixed page depth, but user feedback exposed the remaining imbalance: small subreddits can reach 15 days with sparse qualifying posts, while large subreddits still saturate persistence with too many relevant-enough posts and lose historical depth after 2-3 days.
+- Verify: `npx tsx --test tests/integration/collect-subreddit-new-posts-p0.test.ts tests/integration/reddit-phase1-cycle.test.ts` passed (`16/16`). `npm run algo:phase1`, `npm run algo:phase1:full`, and `npm run algo:full` all passed. The large-target regression now records `candidateCount=100`, `filteredOutCount=95`, `acceptedCount=5` per page while still reaching `2026-04-09` coverage; the small/large filter test confirms the same raw page keeps `2/2` posts for `small` but only `1/2` for `large`.
+- Next: Surface tier-aware backfill coverage and filtered-volume diagnostics in Ops/workbench so we can calibrate whether `mid/large` thresholds should be raised further or replaced with a per-day accepted-post cap.
+
+### 2026-04-25 03:51:00
+
+- Scope: Verified that the repo-side web build was newer than source but the live release under `/opt/reddit-monitoring/current` was still serving the older `2026-04-24` web/API artifacts. Rebuilt the current repo, backed up the release `dist` directories under `/opt/reddit-monitoring/backups`, synced fresh `dist/` and `apps/web/dist/` into `/opt/reddit-monitoring/current`, and restarted `reddit-api`, `reddit-phase1-scheduler`, and `reddit-keyword-refresh`.
+- Why now: The user had completed substantial algorithm/runtime changes, but browser behavior strongly suggested the host was still serving an older release bundle. Deployment evidence confirmed that suspicion: Nginx and systemd pointed at `/opt/reddit-monitoring/current`, whose assets had not been refreshed.
+- Verify: `npm run build` passed. `npm run smoke:compiled` passed. After sync/restart, `systemctl is-active reddit-api reddit-phase1-scheduler reddit-keyword-refresh nginx` all returned `active`. `curl -fsS http://127.0.0.1/healthz` returned `ok=true`. Nginx now serves `/assets/index-Dh3EX2UF.js` and `/assets/index-BUFcVQp6.css` from `/opt/reddit-monitoring/current/apps/web/dist`, with `Last-Modified: Sat, 25 Apr 2026 03:49:32 GMT`.
+- Next: Hard-refresh the browser once to force a fresh `index.html` fetch, then validate the algorithm-driven UI/output against the redeployed backend/runtime. If live behavior is still stale, the next check is release-specific API data rather than bundle drift.
