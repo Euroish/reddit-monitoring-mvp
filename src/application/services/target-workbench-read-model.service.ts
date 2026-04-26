@@ -249,11 +249,17 @@ export function buildTargetWorkbenchReadModel(args: {
       label: definition.label,
       family: definition.family,
       unit: definition.unit,
-      points: dailyInsights.daily.map((point) => ({
-        at: point.day,
-        value: valueForSeries(definition.id, point),
-        quality: point.pointQuality,
-      })),
+      points: dailyInsights.daily.map((point) => {
+        const quality = resolveSeriesPointQuality({
+          point,
+          backfillCursor: args.backfillCursor,
+        });
+        return {
+          at: point.day,
+          value: valueForSeries(definition.id, point, quality),
+          quality,
+        };
+      }),
     })),
     overlays,
     queryContext: {
@@ -348,6 +354,24 @@ function summarizeBackfillCoverage(
       : {}),
     updatedAt: backfillCursor.updatedAt,
   };
+}
+
+function resolveSeriesPointQuality(args: {
+  point: ReturnType<typeof buildSubredditDailyInsights>["daily"][number];
+  backfillCursor?: CrawlCursor | null;
+}): TargetWorkbenchResponse["series"][number]["points"][number]["quality"] {
+  if (
+    args.point.pointQuality === "observed_zero" &&
+    args.backfillCursor?.mode === "backfill" &&
+    args.backfillCursor.backfillCoverageStatus !== "covered" &&
+    args.backfillCursor.oldestObservedAt
+  ) {
+    const oldestObservedDay = args.backfillCursor.oldestObservedAt.slice(0, 10);
+    if (args.point.day < oldestObservedDay) {
+      return "missing";
+    }
+  }
+  return args.point.pointQuality;
 }
 
 function buildDataQualityNotes(args: {
@@ -506,8 +530,9 @@ function computeFirstThirdShare(values: number[]): number {
 function valueForSeries(
   id: WorkbenchSeriesId,
   point: ReturnType<typeof buildSubredditDailyInsights>["daily"][number],
+  quality: TargetWorkbenchResponse["series"][number]["points"][number]["quality"],
 ): number | null {
-  if (point.pointQuality === "missing") {
+  if (quality === "missing") {
     return null;
   }
   if (id === "heat_price") {

@@ -207,6 +207,61 @@ test("target workbench exposes explicit backfill coverage state when cursor evid
   assert.equal(response.dataQuality.backfill.observedDaySpan, 3);
 });
 
+test("target workbench downgrades zero-filled days before latest backfill window to missing", () => {
+  const targetId = stableUuidFromString("reddit:target:r/overwatch-late-window");
+  const generatedAtIso = "2026-04-26T12:00:00.000Z";
+  const response = buildTargetWorkbenchReadModel({
+    requestId: "test-request",
+    generatedAtIso,
+    target: {
+      id: targetId,
+      source: "reddit",
+      targetType: "subreddit",
+      canonicalName: "r/overwatch-late-window",
+      status: "active",
+      config: {},
+      createdAt: generatedAtIso,
+      updatedAt: generatedAtIso,
+    },
+    fromIso: "2026-04-21T00:00:00.000Z",
+    toIso: "2026-04-24T23:59:59.000Z",
+    timeframe: "1d",
+    rangePreset: "7d",
+    dailyFacts: [
+      fact(targetId, "2026-04-21", { postVolume: 0, sampledPostVolume: 0 }),
+      fact(targetId, "2026-04-22", { postVolume: 0, sampledPostVolume: 0 }),
+      fact(targetId, "2026-04-23", { postVolume: 10, sampledPostVolume: 10 }),
+      fact(targetId, "2026-04-24", { postVolume: 12, sampledPostVolume: 12 }),
+    ],
+    trendPoints: [],
+    keywordDailyRows: [],
+    postGrowthFacts: [],
+    contents: [],
+    anomalyEvents: [],
+    providerHealthWindows: [],
+    backfillCursor: {
+      provider: "http",
+      targetId,
+      mode: "backfill",
+      cursor: "t3_cursor_9",
+      oldestObservedAt: "2026-04-23T04:27:25.000Z",
+      newestObservedAt: "2026-04-24T12:00:00.000Z",
+      backfillTargetFromIso: "2026-04-10T12:00:00.000Z",
+      backfillCoverageStatus: "progressing",
+      backfillStopReason: "iteration_budget_exhausted",
+      updatedAt: generatedAtIso,
+    },
+  });
+
+  const heatSeries = response.series.find((series) => series.id === "heat_price");
+  assert.equal(heatSeries?.points[0]?.quality, "missing");
+  assert.equal(heatSeries?.points[0]?.value, null);
+  assert.equal(heatSeries?.points[1]?.quality, "missing");
+  assert.equal(heatSeries?.points[1]?.value, null);
+  assert.equal(heatSeries?.points[2]?.quality, "observed");
+  assert.equal(heatSeries?.points[2]?.value, 20);
+});
+
 function fact(
   targetId: string,
   day: string,

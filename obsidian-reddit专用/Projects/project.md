@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: analytics-workbench-contract-v2
-updated_at: "2026-04-26 04:57:43"
+updated_at: "2026-04-26 05:20:40"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Run the corrected combined truth path on live r/overwatch-class targets: verify that third-and-later backfill iterations now continue from the latest cursor while stop states and missing/null chart semantics still match host evidence, then choose between provider-aware same-window comparison and alternate-source escalation for targets that still stop at saturated_before_15d."
+next_action: "Make provider/window truth explicit in the workbench path for mixed-history targets: the latest http backfill window now advances correctly and zero-filled days before that window are downgraded to missing, but r/overwatch still mixes current http cursor evidence with older provider facts. Next slice is provider-aware same-window comparison or another explicit provenance layer before alternate-source escalation."
 tags:
 - codex
 - workspace
@@ -146,6 +146,13 @@ tags:
 - Corrected product sequence is: P1 high-volume history-window/source-saturation truth, then API/read-model coverage honesty, then scheduler/watchlist expansion for priority targets, then broader market/keyword surfaces. Do not reopen UI-first sequencing until the collection truth layer is stable.
 
 ## Activity Log
+
+### 2026-04-26 05:20:40
+
+- Scope: Verified the corrected backfill progression on the live host and then fixed the next product-truth gap it exposed. A real `r/overwatch` manual run through `/etc/reddit-monitoring/scheduler.env` and `npm run phase1:manual-run` now completed 24 bounded `http/backfill` iterations with migration `019_crawl_cursor_backfill_status.sql` applied, and live `crawl_cursor` moved from the old `apify` window (`oldest_observed_at=2026-04-25 22:56:00 UTC`) to a current `http` window with `oldest_observed_at=2026-04-23 04:27:25 UTC`, `newest_observed_at=2026-04-26 05:08:31 UTC`, `backfillCoverageStatus=progressing`, and `backfillStopReason=iteration_budget_exhausted`. That proved the main cursor bug was fixed. Live workbench reconstruction then exposed a remaining semantic leak: zero-filled legacy fact days before the latest backfill window were still rendering as `observed_zero`. Updated `target-workbench-read-model.service.ts` so zero-value points older than the latest non-covered backfill window downgrade to `missing/null` at DTO time, and added unit coverage for that case.
+- Why now: The corrected cursor path had to be proven against host evidence before any further provider strategy work. Once verified, the next highest-risk distortion was not collection itself but mixed-history chart semantics: the latest `http` backfill window only spans four observed days, yet older zero-filled facts could still make the chart look like trustworthy low activity instead of uncovered history.
+- Verify: Live run: `set -a && source /etc/reddit-monitoring/scheduler.env && set +a && REDDIT_RUN_MODE=live REDDIT_CRAWL_MODE=backfill REDDIT_RUN_SUBREDDIT=overwatch REDDIT_BACKFILL_POST_LIMIT=500 REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET=24 REDDIT_BACKFILL_TARGET_DAYS=15 timeout 240s npm run phase1:manual-run` passed. Live SQL showed the newest `http/backfill` cursor at `cursor=t3_1st8gn8`, `rewind_cursor=t3_1std4ho`, `oldest_observed_at=2026-04-23 04:27:25+00`, `newest_observed_at=2026-04-26 05:08:31+00`, while recent backfill jobs advanced through distinct cursors instead of replaying one overlap window. Repo verification passed: `node --import tsx --test tests/unit/target-workbench-read-model.service.test.ts tests/integration/api-server-trends.test.ts` (`22/22`) and `node --import tsx --test tests/integration/collect-subreddit-new-posts-p0.test.ts tests/integration/reddit-phase1-cycle.test.ts` (`21/21`). Live workbench reconstruction from the same Postgres repositories now returns `2026-04-18` and `2026-04-19` as `quality=missing, value=null` instead of `observed_zero`.
+- Next: The remaining truth gap is now narrower and explicit: `r/overwatch` still mixes the latest `http/backfill` window with older nonzero facts from previous history/provider runs. The next engineering slice should make provider/window provenance visible in the workbench path, or add a provider-aware same-window comparison layer, before attempting alternate-source escalation for targets that still fail to cover 15 honest days.
 
 ### 2026-04-26 04:57:43
 
