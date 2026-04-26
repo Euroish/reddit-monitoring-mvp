@@ -29,7 +29,11 @@ export class PostgresCrawlCursorRepository implements CrawlCursorRepository {
     return mapCrawlCursor(result.rows[0]);
   }
 
-  public async list(args: { mode?: "live" | "backfill"; targetId?: string }) {
+  public async list(args: {
+    mode?: "live" | "backfill";
+    targetId?: string;
+    provider?: string;
+  }) {
     const conditions: string[] = [];
     const values: string[] = [];
 
@@ -40,6 +44,10 @@ export class PostgresCrawlCursorRepository implements CrawlCursorRepository {
     if (args.targetId) {
       values.push(args.targetId);
       conditions.push(`target_id = $${values.length}`);
+    }
+    if (args.provider) {
+      values.push(args.provider);
+      conditions.push(`provider = $${values.length}`);
     }
 
     const whereClause =

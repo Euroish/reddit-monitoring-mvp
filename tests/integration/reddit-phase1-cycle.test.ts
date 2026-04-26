@@ -495,9 +495,13 @@ test("phase1 cycle backfill supplements high-volume subreddit with top listings 
               count: 20,
               baseCreatedUtc: Math.floor(
                 Date.parse(
-                  args.timeRange === "month"
-                    ? "2026-04-08T12:00:00.000Z"
-                    : "2026-04-14T12:00:00.000Z",
+                  args.timeRange === "all"
+                    ? "2026-04-06T12:00:00.000Z"
+                    : args.timeRange === "year"
+                      ? "2026-04-07T12:00:00.000Z"
+                      : args.timeRange === "month"
+                        ? "2026-04-08T12:00:00.000Z"
+                        : "2026-04-14T12:00:00.000Z",
                 ) / 1000,
               ),
               scoreForIndex: () => 120,
@@ -570,7 +574,14 @@ test("phase1 cycle backfill supplements high-volume subreddit with top listings 
     connector.seenRequests.map(
       (request) => `${request.listing ?? "new"}:${request.timeRange ?? "-"}:${request.after ?? "-"}`,
     ),
-    ["new:-:-", "top:week:-", "top:month:-", "new:-:t3_overwatch_cursor_1"],
+    [
+      "new:-:-",
+      "top:week:-",
+      "top:month:-",
+      "top:year:-",
+      "top:all:-",
+      "new:-:t3_overwatch_cursor_1",
+    ],
   );
   assert.equal(crawlCursorRepository.all().some((cursor) => cursor.cursor === "t3_overwatch_cursor_1"), true);
   const latestBackfillCursor = crawlCursorRepository
@@ -579,6 +590,10 @@ test("phase1 cycle backfill supplements high-volume subreddit with top listings 
   assert.equal(latestBackfillCursor?.oldestObservedAt, "2026-04-21T12:00:00.000Z");
   assert.equal(latestBackfillCursor?.backfillCoverageStatus, "saturated_before_15d");
   assert.equal(latestBackfillCursor?.backfillStopReason, "cursor_saturated");
+  assert.equal(
+    contentRepository.all().some((row) => row.createdAtSource <= "2026-04-07T12:00:00.000Z"),
+    true,
+  );
 });
 
 test("phase1 cycle backfill stops when cursor repeats without pushing chronological history older", async () => {
@@ -717,4 +732,108 @@ test("phase1 cycle backfill stops when cursor repeats without pushing chronologi
   assert.equal(latestBackfillCursor?.backfillCoverageStatus, "saturated_before_15d");
   assert.equal(latestBackfillCursor?.backfillStopReason, "cursor_saturated");
   assert.equal(collectionJobRepository.all().length, 3);
+});
+
+test("phase1 cycle backfill progress stays scoped to the active provider state", async () => {
+  const nowIso = "2026-04-24T12:00:00.000Z";
+  const subreddit = "providerstatescope";
+  const targetId = stableUuidFromString(`reddit:target:r/${subreddit}`);
+
+  const monitorTargetRepository = new InMemoryMonitorTargetRepository();
+  const collectionJobRepository = new InMemoryCollectionJobRepository();
+  const rawEventRepository = new InMemoryRawEventRepository();
+  const accountRepository = new InMemoryAccountRepository();
+  const contentRepository = new InMemoryContentRepository();
+  const crawlCursorRepository = new InMemoryCrawlCursorRepository();
+  const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
+  const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
+  const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
+  const anomalyEventRepository = new InMemoryAnomalyEventRepository();
+
+  await monitorTargetRepository.upsert({
+    id: targetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: `r/${subreddit}`,
+    status: "active",
+    config: {},
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  });
+
+  await crawlCursorRepository.upsert({
+    provider: "apify",
+    targetId,
+    mode: "backfill",
+    cursor: "t3_apify_stalled",
+    oldestObservedAt: "2026-04-22T12:00:00.000Z",
+    newestObservedAt: "2026-04-24T11:00:00.000Z",
+    backfillTargetFromIso: "2026-04-09T12:00:00.000Z",
+    backfillCoverageStatus: "saturated_before_15d",
+    backfillStopReason: "cursor_saturated",
+    lastFetchedAt: nowIso,
+    updatedAt: nowIso,
+  });
+
+  const connector = new ScriptedBackfillConnector([
+    {
+      nextCursor: "t3_http_cursor_1",
+      posts: buildBackfillPosts({
+        subreddit,
+        prefix: "http",
+        count: 3,
+        baseCreatedUtc: Math.floor(Date.parse("2026-04-20T12:00:00.000Z") / 1000),
+        scoreForIndex: () => 90,
+        commentsForIndex: () => 30,
+      }),
+    },
+  ]);
+
+  await runRedditPhase1Cycle(
+    {
+      monitorTargetRepository,
+      collectionJobRepository,
+      rawEventRepository,
+      accountRepository,
+      contentRepository,
+      crawlCursorRepository,
+      metricsSnapshotRepository,
+      subredditDailyFactRepository,
+      postGrowthFactRepository,
+      subredditTrendPointRepository,
+      anomalyEventRepository,
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+    },
+    nowIso,
+    {
+      targetCanonicalNames: [`r/${subreddit}`],
+      crawlMode: "backfill",
+      providerHint: "http",
+      postLimit: 3,
+      backfillTargetDays: 15,
+      backfillMaxIterationsPerTarget: 1,
+    },
+  );
+
+  assert.deepEqual(connector.seenAfter, [undefined]);
+
+  const httpCursor = await crawlCursorRepository.resolve({
+    provider: "http",
+    targetId,
+    mode: "backfill",
+  });
+  assert.equal(httpCursor?.cursor, "t3_http_cursor_1");
+  assert.equal(httpCursor?.backfillCoverageStatus, "progressing");
+  assert.equal(httpCursor?.backfillStopReason, "iteration_budget_exhausted");
+
+  const apifyCursor = await crawlCursorRepository.resolve({
+    provider: "apify",
+    targetId,
+    mode: "backfill",
+  });
+  assert.equal(apifyCursor?.cursor, "t3_apify_stalled");
+  assert.equal(apifyCursor?.backfillCoverageStatus, "saturated_before_15d");
+  assert.equal(apifyCursor?.backfillStopReason, "cursor_saturated");
 });

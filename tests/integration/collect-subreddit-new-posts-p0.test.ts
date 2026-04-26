@@ -1353,6 +1353,81 @@ test("collect subreddit new posts backfill ignores stale legacy terminal cursor 
   assert.equal(crawlCursor?.newestObservedAt, "2024-04-10T12:10:00.000Z");
 });
 
+test("collect subreddit new posts backfill can ignore terminal cursor when explicitly forced for a run", async () => {
+  const originalFlag = process.env.REDDIT_BACKFILL_IGNORE_TERMINAL_CURSOR;
+  process.env.REDDIT_BACKFILL_IGNORE_TERMINAL_CURSOR = "true";
+  try {
+    const targetId = stableUuidFromString("reddit:target:r/backfill-force-terminal-bypass");
+    const connector = new ScriptedPostsConnector([
+      {
+        nextCursor: "t3_forced_cursor_1",
+        provider: "http",
+        posts: [
+          {
+            name: "t3_forced_first",
+            id: "forced_first",
+            subreddit: "backfill-force-terminal-bypass",
+            author: "alice",
+            title: "forced first",
+            permalink: "/r/backfill-force-terminal-bypass/comments/forced_first/post",
+            created_utc: 1_712_751_000,
+            score: 40,
+            num_comments: 4,
+          },
+        ],
+      },
+    ]);
+    const crawlCursorRepository = new InMemoryCrawlCursorRepository();
+    await crawlCursorRepository.upsert({
+      provider: "http",
+      targetId,
+      mode: "backfill",
+      cursor: "__backfill_eof__",
+      oldestObservedAt: "2026-04-01T00:00:00.000Z",
+      newestObservedAt: "2026-04-10T00:00:00.000Z",
+      lastFetchedAt: "2026-04-10T12:00:00.000Z",
+      updatedAt: "2026-04-10T12:00:00.000Z",
+      backfillCoverageStatus: "source_limited",
+      backfillStopReason: "terminal_eof",
+    });
+
+    await collectSubredditNewPostsJob(
+      {
+        redditConnector: connector,
+        redditMapper: new DefaultRedditMapper(),
+        collectionJobRepository: new InMemoryCollectionJobRepository(),
+        crawlCursorRepository,
+        rawEventRepository: new InMemoryRawEventRepository(),
+        accountRepository: new InMemoryAccountRepository(),
+        contentRepository: new InMemoryContentRepository(),
+        metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+        providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
+      },
+      {
+        targetId,
+        subreddit: "backfill-force-terminal-bypass",
+        nowIso: "2026-04-10T12:15:00.000Z",
+        mode: "backfill",
+        providerHint: "http",
+      },
+    );
+
+    assert.deepEqual(connector.seenAfter, [undefined]);
+    const crawlCursor = await crawlCursorRepository.resolve({
+      provider: "http",
+      targetId,
+      mode: "backfill",
+    });
+    assert.equal(crawlCursor?.cursor, "t3_forced_cursor_1");
+  } finally {
+    if (originalFlag == null) {
+      delete process.env.REDDIT_BACKFILL_IGNORE_TERMINAL_CURSOR;
+    } else {
+      process.env.REDDIT_BACKFILL_IGNORE_TERMINAL_CURSOR = originalFlag;
+    }
+  }
+});
+
 test("collect subreddit new posts records duplicates and provider diff observability", async () => {
   const nowIso = "2026-04-10T12:00:00.000Z";
   const targetId = stableUuidFromString("reddit:target:r/datascience");

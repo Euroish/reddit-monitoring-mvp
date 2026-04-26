@@ -25,6 +25,6 @@ export interface UpsertCrawlCursorInput extends ResolveCrawlCursorInput {
 
 export interface CrawlCursorRepository {
   resolve(input: ResolveCrawlCursorInput): Promise<CrawlCursor | null>;
-  list(args: { mode?: CrawlMode; targetId?: string }): Promise<CrawlCursor[]>;
+  list(args: { mode?: CrawlMode; targetId?: string; provider?: string }): Promise<CrawlCursor[]>;
   upsert(input: UpsertCrawlCursorInput): Promise<void>;
 }

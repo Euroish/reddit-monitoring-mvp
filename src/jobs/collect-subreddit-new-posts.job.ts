@@ -50,7 +50,7 @@ const REDDIT_PAGE_CAP_SIZE = 100;
 const REDDIT_PAGE_CAPPED_PROVIDERS = new Set(["reddit", "http", "scrapling"]);
 const BACKFILL_SUPPLEMENT_TRIGGER_AGE_SECONDS = 7 * 24 * 60 * 60;
 const BACKFILL_SUPPLEMENT_LIMIT = 100;
-const BACKFILL_TOP_TIME_WINDOWS: RedditTopTimeRange[] = ["week", "month"];
+const BACKFILL_TOP_TIME_WINDOWS: RedditTopTimeRange[] = ["week", "month", "year", "all"];
 const BACKFILL_TIERED_CANDIDATE_FILTERS: Record<
   ReturnType<typeof resolveSubredditTier>,
   { minScore: number; minComments: number; mode: "and" | "or" }
@@ -96,6 +96,7 @@ export async function enqueueSubredditNewPostsJob(
   const windowStart = floorToWindow(input.nowIso, collectionWindowMinutes);
   const providerHint = resolveProviderHint(input.providerHint);
   const queueScope = resolveQueueScope({ mode, providerHint });
+  const ignoreTerminalBackfillCursor = shouldIgnoreTerminalBackfillCursorForRun();
   let resolvedCursor = input.after;
   if (!resolvedCursor && mode === "backfill" && deps.crawlCursorRepository) {
     const crawlCursorState = await resolveBackfillCursorState(deps.crawlCursorRepository, {
@@ -103,10 +104,16 @@ export async function enqueueSubredditNewPostsJob(
       targetId: input.targetId,
       mode,
       nowIso: input.nowIso,
+      ignoreTerminalCursor: ignoreTerminalBackfillCursor,
     });
     resolvedCursor = resolveBackfillCursor(crawlCursorState?.cursor);
   }
-  if (!input.after && mode === "backfill" && isBackfillTerminalCursor(resolvedCursor)) {
+  if (
+    !ignoreTerminalBackfillCursor &&
+    !input.after &&
+    mode === "backfill" &&
+    isBackfillTerminalCursor(resolvedCursor)
+  ) {
     return null;
   }
   const job: CollectionJob = {
@@ -609,6 +616,7 @@ async function resolveBackfillCursorState(
     targetId: string;
     mode: CrawlMode;
     nowIso?: string;
+    ignoreTerminalCursor?: boolean;
   },
 ): Promise<{ provider: string; cursor: CrawlCursor } | null> {
   for (const provider of resolveBackfillCursorProviders(args.providerHint)) {
@@ -618,6 +626,9 @@ async function resolveBackfillCursorState(
       mode: args.mode,
     });
     if (cursor) {
+      if (args.ignoreTerminalCursor && isBackfillTerminalCursor(cursor.cursor)) {
+        continue;
+      }
       if (shouldIgnoreLegacyBackfillTerminalCursor(cursor, args.nowIso)) {
         continue;
       }
@@ -678,6 +689,10 @@ function shouldIgnoreLegacyBackfillTerminalCursor(
     return true;
   }
   return nowMs - lastFetchedAtMs >= STALE_LEGACY_BACKFILL_CURSOR_MAX_AGE_MS;
+}
+
+function shouldIgnoreTerminalBackfillCursorForRun(): boolean {
+  return process.env.REDDIT_BACKFILL_IGNORE_TERMINAL_CURSOR === "true";
 }
 
 async function collectObservedPages(args: {

@@ -6,7 +6,7 @@ export interface RedditCollectSubredditAboutArgs {
 
 export type RedditPostListing = "new" | "top";
 
-export type RedditTopTimeRange = "day" | "week" | "month";
+export type RedditTopTimeRange = "day" | "week" | "month" | "year" | "all";
 
 export interface RedditCollectSubredditPostsArgs {
   subreddit: string;

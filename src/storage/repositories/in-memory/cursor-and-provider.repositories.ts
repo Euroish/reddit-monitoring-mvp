@@ -18,10 +18,18 @@ export class InMemoryCrawlCursorRepository implements CrawlCursorRepository {
     return this.byKey.get(this.toKey(input)) ?? null;
   }
 
-  public async list(args: { mode?: "live" | "backfill"; targetId?: string }): Promise<CrawlCursor[]> {
+  public async list(args: {
+    mode?: "live" | "backfill";
+    targetId?: string;
+    provider?: string;
+  }): Promise<CrawlCursor[]> {
     return Array.from(this.byKey.values())
       .filter((row) => {
-        return (!args.mode || row.mode === args.mode) && (!args.targetId || row.targetId === args.targetId);
+        return (
+          (!args.mode || row.mode === args.mode) &&
+          (!args.targetId || row.targetId === args.targetId) &&
+          (!args.provider || row.provider === args.provider)
+        );
       })
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.provider.localeCompare(b.provider));
   }
