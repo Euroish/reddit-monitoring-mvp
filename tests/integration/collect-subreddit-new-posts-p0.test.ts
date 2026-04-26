@@ -345,6 +345,44 @@ test("collect subreddit new posts keeps live and backfill jobs separate within t
   );
 });
 
+test("collect subreddit new posts keeps backfill jobs provider-aware within the same window", async () => {
+  const nowIso = "2026-04-24T12:00:00.000Z";
+  const targetId = stableUuidFromString("reddit:target:r/provider-scope");
+  const collectionJobRepository = new InMemoryCollectionJobRepository();
+
+  const httpJob = await enqueueSubredditNewPostsJob(
+    {
+      collectionJobRepository,
+      crawlCursorRepository: new InMemoryCrawlCursorRepository(),
+    },
+    {
+      targetId,
+      subreddit: "provider-scope",
+      nowIso,
+      mode: "backfill",
+      providerHint: "http",
+    },
+  );
+
+  const scraplingJob = await enqueueSubredditNewPostsJob(
+    {
+      collectionJobRepository,
+      crawlCursorRepository: new InMemoryCrawlCursorRepository(),
+    },
+    {
+      targetId,
+      subreddit: "provider-scope",
+      nowIso,
+      mode: "backfill",
+      providerHint: "scrapling",
+    },
+  );
+
+  assert.notEqual(httpJob?.id, scraplingJob?.id);
+  assert.notEqual(httpJob?.dedupeKey, scraplingJob?.dedupeKey);
+  assert.equal(collectionJobRepository.all().length, 2);
+});
+
 test("collect subreddit new posts live mode catches burst overflow pages in the same run", async () => {
   const targetId = stableUuidFromString("reddit:target:r/bursting");
   const connector = new ScriptedPostsConnector([

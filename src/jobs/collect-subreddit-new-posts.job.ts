@@ -95,6 +95,7 @@ export async function enqueueSubredditNewPostsJob(
   const collectionWindowMinutes = resolveCollectionWindowMinutes(mode);
   const windowStart = floorToWindow(input.nowIso, collectionWindowMinutes);
   const providerHint = resolveProviderHint(input.providerHint);
+  const queueScope = resolveQueueScope({ mode, providerHint });
   let resolvedCursor = input.after;
   if (!resolvedCursor && mode === "backfill" && deps.crawlCursorRepository) {
     const crawlCursorState = await resolveBackfillCursorState(deps.crawlCursorRepository, {
@@ -110,7 +111,7 @@ export async function enqueueSubredditNewPostsJob(
   }
   const job: CollectionJob = {
     id: stableUuidFromString(
-      `job:collect_subreddit_new_posts:${input.targetId}:${mode}:${windowStart}`,
+      `job:collect_subreddit_new_posts:${input.targetId}:${queueScope}:${windowStart}`,
     ),
     source: "reddit",
     targetId: input.targetId,
@@ -119,7 +120,7 @@ export async function enqueueSubredditNewPostsJob(
     status: "queued",
     scheduledAt: input.nowIso,
     nextRunAt: input.nowIso,
-    dedupeKey: buildDedupeKey("collect_subreddit_new_posts", input.targetId, windowStart, mode),
+    dedupeKey: buildDedupeKey("collect_subreddit_new_posts", input.targetId, windowStart, queueScope),
     retryCount: 0,
     cursor: resolvedCursor,
     payload: toNewPostsJobPayload({
@@ -592,6 +593,13 @@ function resolveObservedCursorSnapshot(args: {
   }
 
   return LIVE_CURSOR_SNAPSHOT;
+}
+
+function resolveQueueScope(args: { mode: CrawlMode; providerHint: string }): string {
+  if (args.mode !== "backfill") {
+    return args.mode;
+  }
+  return `${args.mode}:${args.providerHint}`;
 }
 
 async function resolveBackfillCursorState(

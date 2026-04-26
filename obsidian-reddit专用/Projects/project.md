@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: analytics-workbench-contract-v2
-updated_at: "2026-04-26 05:20:40"
+updated_at: "2026-04-26 07:13:50"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Make provider/window truth explicit in the workbench path for mixed-history targets: the latest http backfill window now advances correctly and zero-filled days before that window are downgraded to missing, but r/overwatch still mixes current http cursor evidence with older provider facts. Next slice is provider-aware same-window comparison or another explicit provenance layer before alternate-source escalation."
+next_action: "Treat `obsidian-reddit专用/Projects/回填逻辑问题分析.md` and `obsidian-reddit专用/Projects/项目代码读取权限 (1).md` as the active execution core and repair repo drift around that model. The immediate slice is not new UI: make historical subreddit trends coverage-driven instead of page-budget driven, keep provider/cursor/backfill state strictly provider-scoped, and preserve missing/source-limited days as non-zero semantic gaps end-to-end before expanding keyword/global/catalog surfaces."
 tags:
 - codex
 - workspace
@@ -63,11 +63,11 @@ tags:
 
 ## Current Focus
 
-- Keep live collection healthy while moving product architecture forward; old dead-letter jobs are cleanup debt unless fresh scheduled cycles fail.
-- Current active slice is high-volume target history truth, not new UI breadth: prove bounded 15-day coverage semantics on `r/overwatch`-class targets before extending dashboard/watchlist/query surfaces.
-- Implement explicit backfill window/source state so a target can be truthfully labeled `observed`, `partial`, `source_limited`, `saturated_before_15d`, or `missing` instead of inferring coverage from loose cursor side effects.
-- Push that state through `subreddit_daily_fact` / workbench read models / API DTOs so charts and keyword overlays cannot silently treat uncovered history as real zero activity.
-- Treat repeated HTTP `/new` reruns on already saturated targets as evidence, not as the solution. The next move is stronger history-window progression and/or alternate source escalation, not more budget-only retries.
+- The active source of product direction is currently the two advisory analyses `obsidian-reddit专用/Projects/回填逻辑问题分析.md` and `obsidian-reddit专用/Projects/项目代码读取权限 (1).md`; this file had drifted and should now be kept aligned to that narrower core.
+- Current active slice is historical-trend truth, not new UI breadth: rebuild 15-day subreddit trend collection around coverage semantics, not fixed post/page budgets.
+- Provider boundaries are part of the correctness model: `http`, `scrapling`, and `apify` must not share opaque backfill progress, cursor saturation, or health evidence in ways that pollute coverage conclusions.
+- Missing or uncovered history must stay `missing` / `source_limited`, not materialize as real zero-volume trend points anywhere in facts, read models, API DTOs, or charts.
+- The 6 product capabilities remain the delivery target, but they all depend on one trusted fact path: fetch layer -> content/index/facts -> workbench/search APIs -> UI, with monitored-coverage labels kept honest.
 
 ## TradingView-Like Top Page Decomposition
 
@@ -146,6 +146,34 @@ tags:
 - Corrected product sequence is: P1 high-volume history-window/source-saturation truth, then API/read-model coverage honesty, then scheduler/watchlist expansion for priority targets, then broader market/keyword surfaces. Do not reopen UI-first sequencing until the collection truth layer is stable.
 
 ## Activity Log
+
+### 2026-04-26 07:13:50
+
+- Scope: Corrected project-state drift after the user clarified that `project.md` was no longer the authoritative direction source and that `obsidian-reddit专用/Projects/回填逻辑问题分析.md` plus `obsidian-reddit专用/Projects/项目代码读取权限 (1).md` are the real current work core.
+- Why now: The previous read still gave too much authority to the latest `project.md` `next_action`, which narrowed execution to Scrapling provider provenance. That is a real blocker, but it is only one sub-problem inside the broader active slice defined by the two advisory analyses.
+- Verify: Re-read the later sections of both advisory markdown files and compared them against current repo code. The broader direction is consistent: historical trend collection must become coverage-driven, provider/cursor state must stay provider-scoped, and missing historical days must never masquerade as zero activity. Current repo evidence partially matches that direction but is incomplete: `resolveBackfillCursor()` is fixed, observed-only daily fact materialization exists, and provider-aware backfill queue dedupe exists; explicit provider-scoped backfill progress/status and a first-class coverage-driven historical collector do not.
+- Next: Use the two advisory markdown files as the execution frame for the next implementation slices. In order: (1) provider-scoped backfill state/provenance truth, (2) coverage-driven historical backfill semantics beyond page-budget paging, (3) read-model/API contract cleanup for missing/source-limited days, then (4) only after the fact path is trustworthy, continue broader keyword/global/catalog product surfaces.
+
+### 2026-04-26 07:12:40
+
+- Scope: Reconciled `obsidian-reddit专用/Projects/回填逻辑问题分析.md` and `obsidian-reddit专用/Projects/项目代码读取权限 (1).md` against the current `project.md`, active repo code, and uncommitted same-window comparison changes. Focused only on the live blocker path: backfill cursor semantics, provider/provenance truth, coverage/read-model semantics, and current queue/migration drift.
+- Why now: User explicitly asked for a concentrated read of the advisory analyses while keeping attention on the current mainline. The repo has moved since those markdown exports, so the useful next decision depends on separating already-fixed findings from the still-live truth leak.
+- Verify: Checked `00_START_HERE.md`, `obsidian-reddit专用/Projects/project.md`, `obsidian-reddit专用/Projects/回填逻辑问题分析.md`, `obsidian-reddit专用/Projects/项目代码读取权限 (1).md`, `src/jobs/collect-subreddit-new-posts.job.ts`, `src/workers/reddit-phase1.worker.ts`, `src/connectors/reddit/reddit-apify.connector.ts`, `src/connectors/reddit/reddit-http.connector.ts`, `src/connectors/reddit/reddit-scrapling.connector.ts`, `src/jobs/build-subreddit-daily-facts.job.ts`, `src/application/services/subreddit-daily-insights.service.ts`, `src/application/services/target-workbench-read-model.service.ts`, and the current `git diff`. Confirmed that the old `rewindCursor` replay bug is already fixed in code (`resolveBackfillCursor` now uses `cursor.cursor`), uncovered days are no longer materialized as fake zero facts, and backfill queue identity is now provider-aware. Also confirmed the still-live risk matches `next_action`: `resolveLatestBackfillCursor()` / `resolveLatestBackfillCursorProgress()` read the newest row across all backfill providers, while `persistBackfillCoverageState()` writes status back onto whichever cursor row happened to be latest. Combined with `resolveProvider()` trusting `x-provider`, Scrapling runs can still collapse observability into `http` and leave provider-specific EOF/status semantics inconsistent.
+- Next: Keep the active slice exactly on provider/window truth. Make backfill progress/status resolution provider-aware per active run, preserve effective selected provider alongside observed transport/provider headers, and add focused tests proving a same-window Scrapling EOF cannot leave `backfillCoverageStatus=progressing` or write its health evidence only into the HTTP lane. Do not expand into new UI or broader source experiments before that truth path is fixed.
+
+### 2026-04-26 06:46:31
+
+- Scope: Ran a real same-window `http` vs `scrapling` bounded backfill comparison for `r/overwatch` through the live host path after making backfill dedupe provider-aware. Used `/etc/reddit-monitoring/scheduler.env` plus two manual runs with identical budgets (`REDDIT_RUN_MODE=live`, `REDDIT_CRAWL_MODE=backfill`, `REDDIT_RUN_SUBREDDIT=overwatch`, `REDDIT_BACKFILL_POST_LIMIT=500`, `REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET=24`, `REDDIT_BACKFILL_TARGET_DAYS=15`) and then inspected `crawl_cursor`, `collection_job`, `provider_health_window`, `content`, and `subreddit_daily_fact`.
+- Why now: The repository work had reached the exact decision point described in the three `Projects` markdown analyses: before attempting a larger alternate-source path, prove with live evidence whether Scrapling materially improves history coverage on a real high-volume target once same-window queue collisions are removed.
+- Verify: Both manual runs completed successfully. Live SQL now shows three distinct `r/overwatch` backfill cursor rows: legacy `apify`, current `http`, and current `scrapling`. The key result is that `http` and `scrapling` finished with the same effective history boundary and cursor outcome: both ended at `cursor=__backfill_eof__` with `oldest_observed_at=2026-04-21 13:46:55 UTC` and `newest_observed_at=2026-04-26 05:08:31 UTC`, while content still spans only `2026-04-20 17:04:07 UTC` to `2026-04-26 06:41:08 UTC` and `subreddit_daily_fact` still materializes only 7 observed days (`2026-04-20` through `2026-04-26`, `715` posts total). Same-window provider comparison is now genuinely running: `collection_job` contains distinct backfill rows such as `...:backfill:http:2026-04-26T06:30:00.000Z` and `...:backfill:scrapling:2026-04-26T06:30:00.000Z`. But the live evidence also exposed a new provenance/state bug: the `scrapling` run was routed as `selectedProvider=\"scrapling\"`, yet `provider_health_window` rows still persisted only under `provider=http` with no Scrapling profile/session-key evidence, and the final `scrapling` cursor row is semantically inconsistent (`cursor=__backfill_eof__` but `backfillCoverageStatus=progressing`, `backfillStopReason=awaiting_progress`). That means the comparison lane exists, but the truth model still collapses effective provider evidence into the HTTP lane and does not faithfully persist Scrapling-specific completion semantics.
+- Next: Fix provider/provenance truth before more provider experiments: preserve the effective provider and Scrapling profile evidence through backfill observability/state writes, and correct the end-of-run status persistence so a Scrapling EOF row cannot remain `progressing`. Once that is fixed, rerun the same-window comparison to see whether dynamic Scrapling genuinely extends `oldestObservedAt`; if not, the repo has enough evidence to justify alternate-source escalation for `r/overwatch`-class targets.
+
+### 2026-04-26 06:43:12
+
+- Scope: Removed the next execution blocker in the same high-volume truth workflow: same-window provider comparison for backfill. `collect_subreddit_new_posts` queue identity is now provider-aware in backfill mode, so `http` and `scrapling` can enqueue distinct jobs in the same collection window instead of colliding on target+mode dedupe. Also corrected migration numbering drift by moving the crawl-cursor backfill status migration to `020_crawl_cursor_backfill_status.sql` so it no longer conflicts with the existing `019_...` file.
+- Why now: The current product and host evidence had already converged on the next decision point: before building a broader alternate-source path, we need a clean same-window comparison lane to prove whether Scrapling materially changes coverage on `r/overwatch` / `r/askreddit` / `r/pics` style targets. Without provider-aware dedupe, that comparison could not run honestly.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/integration/collect-subreddit-new-posts-p0.test.ts` passed (`17/17`). Added explicit integration coverage proving that backfill jobs in the same window now remain distinct when `providerHint` differs.
+- Next: Run the host comparison lane with the new provider-aware backfill queue, then inspect whether Scrapling materially improves oldest-observed progression or only changes duplicate/coverage evidence. If the improvement is still marginal, the next slice is bounded alternate-source escalation for targets that remain `saturated_before_15d`.
 
 ### 2026-04-26 05:20:40
 
