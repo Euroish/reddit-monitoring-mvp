@@ -116,7 +116,7 @@ export function createRedditConnectorFromEnv(args: {
   const configuredProvider =
     args.providerOverride ??
     (crawlMode === "backfill"
-      ? args.env.REDDIT_BACKFILL_PROVIDER
+      ? resolveConfiguredBackfillProvider(args.env)
       : args.env.REDDIT_LIVE_PROVIDER);
   const liveProvider = resolveRedditLiveProvider(configuredProvider);
   const scraplingProfile = resolveRedditScraplingProfile(
@@ -343,6 +343,11 @@ function resolveProviderHint(args: {
     return "mock";
   }
   return args.crawlMode === "backfill"
-    ? args.env.REDDIT_BACKFILL_PROVIDER ?? "apify"
+    ? resolveConfiguredBackfillProvider(args.env) ?? "http"
     : args.env.REDDIT_LIVE_PROVIDER ?? "http";
+}
+
+function resolveConfiguredBackfillProvider(env: NodeJS.ProcessEnv): string | undefined {
+  const configured = env.REDDIT_BACKFILL_PROVIDER?.trim();
+  return configured && configured.length > 0 ? configured : undefined;
 }

@@ -208,6 +208,9 @@ export class RedditApifyConnector implements RedditConnector {
           kind: "subreddit_posts",
           subreddit: args.subreddit,
           limit: args.limit,
+          after: args.after,
+          listing: args.listing ?? "new",
+          timeRange: args.timeRange,
           actorRunId: items.run.id,
         },
         httpStatus: 200,
@@ -222,7 +225,7 @@ export class RedditApifyConnector implements RedditConnector {
         },
         payload: {
           data: {
-            after: undefined,
+            after: mapped.nextCursor,
             children: mapped.children.map((post) => ({
               kind: "t3",
               data: post,
@@ -231,7 +234,7 @@ export class RedditApifyConnector implements RedditConnector {
         },
         fetchedAt: new Date().toISOString(),
       },
-      nextCursor: undefined,
+      nextCursor: mapped.nextCursor,
     };
   }
 
@@ -299,7 +302,7 @@ export class RedditApifyConnector implements RedditConnector {
   private mapItemsToListingPayload(
     args: RedditCollectSubredditPostsArgs,
     items: unknown[],
-  ): { children: RedditPostData[] } {
+  ): { children: RedditPostData[]; nextCursor?: string } {
     const children: RedditPostData[] = [];
     const fallbackCreatedUtc = Math.floor(Date.now() / 1000);
 
@@ -337,7 +340,8 @@ export class RedditApifyConnector implements RedditConnector {
       });
     }
 
-    return { children };
+    const nextCursor = children[children.length - 1]?.name;
+    return { children, nextCursor };
   }
 
   private async runActorAndFetchItems(args: {
@@ -667,9 +671,16 @@ function resolvePostListing(listing: RedditPostListing | undefined): RedditPostL
 
 function buildApifyStartUrl(args: RedditCollectSubredditPostsArgs): string {
   const listing = resolvePostListing(args.listing);
+  const url = new URL(
+    listing === "top"
+      ? `https://www.reddit.com/r/${args.subreddit}/top/`
+      : `https://www.reddit.com/r/${args.subreddit}/new/`,
+  );
   if (listing === "top") {
-    const timeRange = args.timeRange ?? "week";
-    return `https://www.reddit.com/r/${args.subreddit}/top/?t=${timeRange}`;
+    url.searchParams.set("t", args.timeRange ?? "week");
   }
-  return `https://www.reddit.com/r/${args.subreddit}/`;
+  if (args.after) {
+    url.searchParams.set("after", args.after);
+  }
+  return url.toString();
 }

@@ -40,8 +40,11 @@ export function scoreSubredditDailyFacts(
       draft.postVolume > 0 ? draft.sampledPostVolume / draft.postVolume : 0;
     const qualifiedShare =
       draft.postVolume > 0 ? draft.qualifiedPostVolume / draft.postVolume : 0;
+    const unsampledObservedDay = draft.postVolume > 0 && draft.sampledPostVolume <= 0;
     const heatRaw =
       draft.postVolume <= 0 && draft.scoreSum <= 0 && draft.commentSum <= 0
+        ? 0
+        : unsampledObservedDay
         ? 0
         : 0.12 * log1p(draft.postVolume) +
           0.22 * log1p(draft.scoreSum) +
@@ -94,6 +97,7 @@ export function scoreSubredditDailyFacts(
         heatRaw: toFixedNumber(heatRaw),
         sampleReliability: toFixedNumber(sampleReliability),
         qualifiedShare: toFixedNumber(qualifiedShare),
+        unsampledObservedDay,
       },
     });
 

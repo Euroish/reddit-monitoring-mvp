@@ -8,7 +8,8 @@ export interface CrawlCursor {
   mode: CrawlMode;
   cursor: string;
   rewindCursor?: string;
+  oldestObservedAt?: ISODateTime;
+  newestObservedAt?: ISODateTime;
   lastFetchedAt?: ISODateTime;
   updatedAt: ISODateTime;
 }
-

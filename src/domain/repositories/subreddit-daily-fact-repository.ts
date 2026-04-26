@@ -2,6 +2,12 @@ import type { SubredditDailyFact } from "../entities/subreddit-daily-fact";
 
 export interface SubredditDailyFactRepository {
   upsertMany(facts: SubredditDailyFact[]): Promise<void>;
+  replaceRange(args: {
+    targetId: string;
+    fromDay: string;
+    toDay: string;
+    facts: SubredditDailyFact[];
+  }): Promise<void>;
   listByTargetInRange(args: {
     targetId: string;
     fromDay: string;

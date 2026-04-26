@@ -5,6 +5,14 @@ export function floorToWindow(isoTime: string, windowMinutes: number): string {
   return new Date(flooredMs).toISOString();
 }
 
-export function buildDedupeKey(jobType: string, targetId: string, windowStartIso: string): string {
-  return `${jobType}:${targetId}:${windowStartIso}`;
+export function buildDedupeKey(
+  jobType: string,
+  targetId: string,
+  windowStartIso: string,
+  scope?: string,
+): string {
+  const normalizedScope = scope?.trim();
+  return normalizedScope && normalizedScope.length > 0
+    ? `${jobType}:${targetId}:${normalizedScope}:${windowStartIso}`
+    : `${jobType}:${targetId}:${windowStartIso}`;
 }

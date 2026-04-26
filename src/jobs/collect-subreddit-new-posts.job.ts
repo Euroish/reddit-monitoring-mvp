@@ -41,6 +41,7 @@ export interface CollectSubredditNewPostsInput extends RedditCollectionJobInput 
 
 const BACKFILL_EOF_CURSOR = "__backfill_eof__";
 const LIVE_CURSOR_SNAPSHOT = "__live_cursor_head__";
+const STALE_LEGACY_BACKFILL_CURSOR_MAX_AGE_MS = 60 * 60 * 1000;
 const LIVE_OVERFLOW_HEAD_FRESHNESS_MAX_SECONDS =
   PHASE1_SAMPLING_THRESHOLDS.staleHead.ingestLagSecondsMin.httpPrimary;
 const LIVE_OVERFLOW_TAIL_AGE_MAX_SECONDS =
@@ -100,6 +101,7 @@ export async function enqueueSubredditNewPostsJob(
       providerHint,
       targetId: input.targetId,
       mode,
+      nowIso: input.nowIso,
     });
     resolvedCursor = resolveBackfillCursor(crawlCursorState?.cursor);
   }
@@ -107,7 +109,9 @@ export async function enqueueSubredditNewPostsJob(
     return null;
   }
   const job: CollectionJob = {
-    id: stableUuidFromString(`job:collect_subreddit_new_posts:${input.targetId}:${windowStart}`),
+    id: stableUuidFromString(
+      `job:collect_subreddit_new_posts:${input.targetId}:${mode}:${windowStart}`,
+    ),
     source: "reddit",
     targetId: input.targetId,
     jobType: "collect_subreddit_new_posts",
@@ -115,7 +119,7 @@ export async function enqueueSubredditNewPostsJob(
     status: "queued",
     scheduledAt: input.nowIso,
     nextRunAt: input.nowIso,
-    dedupeKey: buildDedupeKey("collect_subreddit_new_posts", input.targetId, windowStart),
+    dedupeKey: buildDedupeKey("collect_subreddit_new_posts", input.targetId, windowStart, mode),
     retryCount: 0,
     cursor: resolvedCursor,
     payload: toNewPostsJobPayload({
@@ -372,6 +376,7 @@ export async function runExistingSubredditNewPostsJob(
                 providerHint,
                 targetId: input.job.targetId,
                 mode,
+                nowIso: input.nowIso,
               })
             : null;
         const rewindCursor = existing?.cursor.cursor ?? priorCursor;
@@ -386,6 +391,14 @@ export async function runExistingSubredditNewPostsJob(
             rewindCursor &&
             rewindCursor !== finalCursor
               ? rewindCursor
+              : undefined,
+          oldestObservedAt:
+            mode === "backfill"
+              ? mergeOldestObservedAt(existing?.cursor.oldestObservedAt, observedPages.oldestObservedAt)
+              : undefined,
+          newestObservedAt:
+            mode === "backfill"
+              ? mergeNewestObservedAt(existing?.cursor.newestObservedAt, observedPages.newestObservedAt)
               : undefined,
           lastFetchedAt: input.nowIso,
           updatedAt: input.nowIso,
@@ -584,6 +597,7 @@ async function resolveBackfillCursorState(
     providerHint: string;
     targetId: string;
     mode: CrawlMode;
+    nowIso?: string;
   },
 ): Promise<{ provider: string; cursor: CrawlCursor } | null> {
   for (const provider of resolveBackfillCursorProviders(args.providerHint)) {
@@ -593,6 +607,9 @@ async function resolveBackfillCursorState(
       mode: args.mode,
     });
     if (cursor) {
+      if (shouldIgnoreLegacyBackfillTerminalCursor(cursor, args.nowIso)) {
+        continue;
+      }
       return {
         provider,
         cursor,
@@ -610,7 +627,7 @@ function resolveBackfillCursorProviders(providerHint: string): string[] {
     return ["scrapling", "http"];
   }
   if (providerHint === "reddit") {
-    return ["reddit", "scrapling", "apify", "http"];
+    return ["reddit", "http", "scrapling", "apify"];
   }
   return [providerHint];
 }
@@ -631,6 +648,27 @@ function isBackfillTerminalCursor(cursor: string | undefined): boolean {
   return cursor === BACKFILL_EOF_CURSOR;
 }
 
+function shouldIgnoreLegacyBackfillTerminalCursor(
+  cursor: CrawlCursor,
+  nowIso: string | undefined,
+): boolean {
+  if (!isBackfillTerminalCursor(cursor.cursor)) {
+    return false;
+  }
+  if (cursor.oldestObservedAt || cursor.newestObservedAt) {
+    return false;
+  }
+  if (!cursor.lastFetchedAt || !nowIso) {
+    return true;
+  }
+  const lastFetchedAtMs = new Date(cursor.lastFetchedAt).getTime();
+  const nowMs = new Date(nowIso).getTime();
+  if (!Number.isFinite(lastFetchedAtMs) || !Number.isFinite(nowMs)) {
+    return true;
+  }
+  return nowMs - lastFetchedAtMs >= STALE_LEGACY_BACKFILL_CURSOR_MAX_AGE_MS;
+}
+
 async function collectObservedPages(args: {
   redditConnector: RedditConnector;
   subreddit: string;
@@ -645,12 +683,16 @@ async function collectObservedPages(args: {
   pages: Array<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>>;
   finalCursor?: string;
   lastCursorPage?: Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>;
+  oldestObservedAt?: string;
+  newestObservedAt?: string;
 }> {
   const pages: Array<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>> = [];
   let after = args.after;
   let remainingBudget = args.limit;
   let observedProvider = args.providerHint;
   let lastCursorPage: Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>> | undefined;
+  let oldestObservedAt: string | undefined;
+  let newestObservedAt: string | undefined;
   let extraBudget =
     args.mode === "live"
       ? Math.max(args.limit, resolveLiveOverflowExtraBudget(args.limit, args.samplingTier))
@@ -673,6 +715,11 @@ async function collectObservedPages(args: {
     });
     pages.push(page);
     lastCursorPage = page;
+    const pageObservedBounds = resolvePageObservedDateBounds(page);
+    if (pageObservedBounds) {
+      oldestObservedAt = mergeOldestObservedAt(oldestObservedAt, pageObservedBounds.oldestObservedAt);
+      newestObservedAt = mergeNewestObservedAt(newestObservedAt, pageObservedBounds.newestObservedAt);
+    }
     observedProvider = resolveObservedPagingProvider({
       providerHint: observedProvider,
       responseHeaders: page.raw.responseHeaders,
@@ -739,6 +786,8 @@ async function collectObservedPages(args: {
     pages,
     finalCursor: lastCursorPage?.nextCursor,
     lastCursorPage,
+    oldestObservedAt,
+    newestObservedAt,
   };
 }
 
@@ -912,6 +961,63 @@ function resolvePageAgeBoundsSeconds(
     freshestAgeSeconds: Math.max(0, Math.floor((nowMs - freshestCreatedMs) / 1000)),
     oldestAgeSeconds: Math.max(0, Math.floor((nowMs - oldestCreatedMs) / 1000)),
   };
+}
+
+function resolvePageObservedDateBounds(
+  page: Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>,
+): {
+  oldestObservedAt: string;
+  newestObservedAt: string;
+} | null {
+  let oldestObservedMs = Number.POSITIVE_INFINITY;
+  let newestObservedMs = Number.NEGATIVE_INFINITY;
+  let sampleCount = 0;
+  for (const child of page.raw.payload.data.children) {
+    const createdUtc = child?.data?.created_utc;
+    if (typeof createdUtc !== "number" || !Number.isFinite(createdUtc)) {
+      continue;
+    }
+    const createdMs = createdUtc * 1000;
+    if (!Number.isFinite(createdMs)) {
+      continue;
+    }
+    oldestObservedMs = Math.min(oldestObservedMs, createdMs);
+    newestObservedMs = Math.max(newestObservedMs, createdMs);
+    sampleCount += 1;
+  }
+  if (sampleCount <= 0) {
+    return null;
+  }
+  return {
+    oldestObservedAt: new Date(oldestObservedMs).toISOString(),
+    newestObservedAt: new Date(newestObservedMs).toISOString(),
+  };
+}
+
+function mergeOldestObservedAt(
+  previous: string | undefined,
+  next: string | undefined,
+): string | undefined {
+  if (!previous) {
+    return next;
+  }
+  if (!next) {
+    return previous;
+  }
+  return previous <= next ? previous : next;
+}
+
+function mergeNewestObservedAt(
+  previous: string | undefined,
+  next: string | undefined,
+): string | undefined {
+  if (!previous) {
+    return next;
+  }
+  if (!next) {
+    return previous;
+  }
+  return previous >= next ? previous : next;
 }
 
 function resolveCandidateFilter(input: CollectSubredditNewPostsInput["candidateFilter"]) {

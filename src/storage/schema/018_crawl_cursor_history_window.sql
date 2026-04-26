@@ -1,0 +1,7 @@
+BEGIN;
+
+ALTER TABLE crawl_cursor
+  ADD COLUMN IF NOT EXISTS oldest_observed_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS newest_observed_at TIMESTAMPTZ;
+
+COMMIT;

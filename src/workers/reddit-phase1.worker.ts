@@ -528,6 +528,13 @@ async function runBoundedTargetBackfill(
   const iterations = args.crawlMode === "backfill" ? args.maxIterationsPerTarget : 1;
 
   for (let iteration = 0; iteration < iterations; iteration += 1) {
+    const priorBackfillProgress =
+      args.crawlMode === "backfill"
+        ? await resolveLatestBackfillCursorProgress({
+            crawlCursorRepository: deps.crawlCursorRepository,
+            targetId: args.targetId,
+          })
+        : null;
     const iterationNowIso = new Date(
       new Date(args.nowIso).getTime() +
         iteration * BACKFILL_COLLECTION_WINDOW_MINUTES * 60 * 1000,
@@ -562,7 +569,7 @@ async function runBoundedTargetBackfill(
     }
 
     const reachedCoverage = await hasReachedBackfillCoverage({
-      contentRepository: deps.contentRepository,
+      crawlCursorRepository: deps.crawlCursorRepository,
       targetId: args.targetId,
       targetBackfillFromIso: args.targetBackfillFromIso,
     });
@@ -577,21 +584,35 @@ async function runBoundedTargetBackfill(
     if (reachedTerminalCursor) {
       return;
     }
+
+    const nextBackfillProgress = await resolveLatestBackfillCursorProgress({
+      crawlCursorRepository: deps.crawlCursorRepository,
+      targetId: args.targetId,
+    });
+    if (
+      hasBackfillCursorSaturated({
+        previous: priorBackfillProgress,
+        next: nextBackfillProgress,
+      })
+    ) {
+      return;
+    }
   }
 }
 
 async function hasReachedBackfillCoverage(args: {
-  contentRepository: ContentRepository;
+  crawlCursorRepository?: CrawlCursorRepository;
   targetId: string;
   targetBackfillFromIso: string;
 }): Promise<boolean> {
-  const olderPosts = await args.contentRepository.findByTargetCreatedAtRange({
+  const latestProgress = await resolveLatestBackfillCursorProgress({
+    crawlCursorRepository: args.crawlCursorRepository,
     targetId: args.targetId,
-    from: "1970-01-01T00:00:00.000Z",
-    to: args.targetBackfillFromIso,
-    limit: 1,
   });
-  return olderPosts.length > 0;
+  return (
+    latestProgress?.oldestObservedAt != null &&
+    latestProgress.oldestObservedAt <= args.targetBackfillFromIso
+  );
 }
 
 async function hasBackfillReachedTerminalCursor(args: {
@@ -606,6 +627,55 @@ async function hasBackfillReachedTerminalCursor(args: {
     mode: "backfill",
   });
   return cursors.some((cursor) => cursor.cursor === "__backfill_eof__");
+}
+
+async function resolveLatestBackfillCursorProgress(args: {
+  crawlCursorRepository?: CrawlCursorRepository;
+  targetId: string;
+}): Promise<{
+  cursor: string;
+  oldestObservedAt?: string;
+} | null> {
+  if (!args.crawlCursorRepository) {
+    return null;
+  }
+  const cursors = await args.crawlCursorRepository.list({
+    targetId: args.targetId,
+    mode: "backfill",
+  });
+  const latest = cursors[0];
+  if (!latest) {
+    return null;
+  }
+  return {
+    cursor: latest.cursor,
+    oldestObservedAt: latest.oldestObservedAt,
+  };
+}
+
+function hasBackfillCursorSaturated(args: {
+  previous: {
+    cursor: string;
+    oldestObservedAt?: string;
+  } | null;
+  next: {
+    cursor: string;
+    oldestObservedAt?: string;
+  } | null;
+}): boolean {
+  if (!args.previous || !args.next) {
+    return false;
+  }
+  if (args.next.cursor === "__backfill_eof__") {
+    return false;
+  }
+  if (!args.previous.oldestObservedAt || !args.next.oldestObservedAt) {
+    return false;
+  }
+  return (
+    args.previous.cursor === args.next.cursor &&
+    args.previous.oldestObservedAt === args.next.oldestObservedAt
+  );
 }
 
 async function resolvePostSamplingLimit(args: {

@@ -139,6 +139,25 @@ export class InMemorySubredditDailyFactRepository implements SubredditDailyFactR
     }
   }
 
+  public async replaceRange(args: {
+    targetId: string;
+    fromDay: string;
+    toDay: string;
+    facts: SubredditDailyFact[];
+  }): Promise<void> {
+    for (const [key, fact] of this.facts.entries()) {
+      if (
+        fact.targetId === args.targetId &&
+        fact.day >= args.fromDay &&
+        fact.day <= args.toDay
+      ) {
+        this.facts.delete(key);
+      }
+    }
+
+    await this.upsertMany(args.facts);
+  }
+
   public async listByTargetInRange(args: {
     targetId: string;
     fromDay: string;

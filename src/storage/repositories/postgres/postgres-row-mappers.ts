@@ -95,6 +95,8 @@ export interface CrawlCursorRow {
   mode: "live" | "backfill";
   cursor: string;
   rewind_cursor: string | null;
+  oldest_observed_at: string | Date | null;
+  newest_observed_at: string | Date | null;
   last_fetched_at: string | Date | null;
   updated_at: string | Date;
 }
@@ -402,6 +404,8 @@ export function mapCrawlCursor(row: CrawlCursorRow): CrawlCursor {
     mode: row.mode,
     cursor: row.cursor,
     rewindCursor: row.rewind_cursor ?? undefined,
+    oldestObservedAt: toIso(row.oldest_observed_at),
+    newestObservedAt: toIso(row.newest_observed_at),
     lastFetchedAt: toIso(row.last_fetched_at),
     updatedAt: toIso(row.updated_at)!,
   };

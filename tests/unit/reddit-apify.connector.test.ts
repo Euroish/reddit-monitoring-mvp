@@ -88,6 +88,7 @@ test("apify connector collects subreddit posts via actor run + dataset", async (
       {
         subreddit: "machinelearning",
         limit: 20,
+        after: "t3_after_cursor",
       },
       ctx,
     );
@@ -95,6 +96,8 @@ test("apify connector collects subreddit posts via actor run + dataset", async (
     assert.equal(page.raw.responseHeaders["x-provider"], "apify");
     assert.equal(page.raw.payload.data.children.length, 1);
     assert.equal(page.raw.payload.data.children[0]?.data.name, "t3_abc123");
+    assert.equal(page.raw.payload.data.after, "t3_abc123");
+    assert.equal(page.nextCursor, "t3_abc123");
     assert.equal(page.raw.payload.data.children[0]?.data.author, "alice");
     assert.equal(page.raw.payload.data.children[0]?.data.num_comments, 8);
     assert.equal(calls.length, 3);
@@ -110,13 +113,84 @@ test("apify connector collects subreddit posts via actor run + dataset", async (
       scrapeUsers?: boolean;
     };
     assert.deepEqual(inputBody.startUrls, [
-      { url: "https://www.reddit.com/r/machinelearning/" },
+      { url: "https://www.reddit.com/r/machinelearning/new/?after=t3_after_cursor" },
     ]);
     assert.equal(inputBody.maxPosts, 20);
     assert.equal(inputBody.sortBy, "new");
     assert.equal(inputBody.scrapePosts, true);
     assert.equal(inputBody.scrapeComments, false);
     assert.equal(inputBody.scrapeUsers, false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("apify connector builds top listing start url with time range", async () => {
+  const originalFetch = global.fetch;
+  const calls: Array<{ body?: string }> = [];
+  try {
+    global.fetch = (async (input, init) => {
+      const url = String(input);
+      calls.push({
+        body: typeof init?.body === "string" ? init.body : undefined,
+      });
+      if (url.includes("/acts/") && url.endsWith("/runs")) {
+        return createJsonResponse(
+          {
+            data: {
+              id: "run-top-1",
+              status: "RUNNING",
+            },
+          },
+          201,
+        );
+      }
+      if (url.includes("/actor-runs/run-top-1?waitForFinish=")) {
+        return createJsonResponse({
+          data: {
+            id: "run-top-1",
+            status: "SUCCEEDED",
+            defaultDatasetId: "dataset-top-1",
+          },
+        });
+      }
+      if (url.includes("/actor-runs/run-top-1/dataset/items")) {
+        return createJsonResponse([
+          {
+            id: "top123",
+            subreddit: "machinelearning",
+            author: "alice",
+            title: "top post",
+            permalink: "/r/machinelearning/comments/top123/top_post/",
+            created_utc: 1_712_500_000,
+          },
+        ]);
+      }
+      return createJsonResponse({}, 404);
+    }) as FetchLike;
+
+    const connector = new RedditApifyConnector({
+      actorRunEndpoint: "https://api.apify.com/v2/acts/example~reddit-scraper/runs",
+      token: "apify-token",
+      fallbackOnError: false,
+    });
+
+    await connector.collectSubredditPosts(
+      {
+        subreddit: "machinelearning",
+        limit: 20,
+        listing: "top",
+        timeRange: "month",
+      },
+      ctx,
+    );
+
+    const inputBody = JSON.parse(calls[0]?.body ?? "{}") as {
+      startUrls?: Array<{ url?: string }>;
+    };
+    assert.deepEqual(inputBody.startUrls, [
+      { url: "https://www.reddit.com/r/machinelearning/top/?t=month" },
+    ]);
   } finally {
     global.fetch = originalFetch;
   }

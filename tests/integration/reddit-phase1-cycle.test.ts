@@ -567,8 +567,150 @@ test("phase1 cycle backfill supplements high-volume subreddit with top listings 
 
   assert.equal(oldEnoughPosts.length > 0, true);
   assert.deepEqual(
-    connector.seenRequests.map((request) => `${request.listing ?? "new"}:${request.timeRange ?? "-"}`),
-    ["new:-", "top:week", "top:month"],
+    connector.seenRequests.map(
+      (request) => `${request.listing ?? "new"}:${request.timeRange ?? "-"}:${request.after ?? "-"}`,
+    ),
+    ["new:-:-", "top:week:-", "top:month:-", "new:-:t3_overwatch_cursor_1"],
   );
   assert.equal(crawlCursorRepository.all().some((cursor) => cursor.cursor === "t3_overwatch_cursor_1"), true);
+  const latestBackfillCursor = crawlCursorRepository
+    .all()
+    .find((cursor) => cursor.targetId === targetId && cursor.mode === "backfill");
+  assert.equal(latestBackfillCursor?.oldestObservedAt, "2026-04-21T12:00:00.000Z");
+});
+
+test("phase1 cycle backfill stops when cursor repeats without pushing chronological history older", async () => {
+  const nowIso = "2026-04-24T12:00:00.000Z";
+  const subreddit = "cursorstalled";
+  const targetId = stableUuidFromString(`reddit:target:r/${subreddit}`);
+
+  const monitorTargetRepository = new InMemoryMonitorTargetRepository();
+  const collectionJobRepository = new InMemoryCollectionJobRepository();
+  const rawEventRepository = new InMemoryRawEventRepository();
+  const accountRepository = new InMemoryAccountRepository();
+  const contentRepository = new InMemoryContentRepository();
+  const crawlCursorRepository = new InMemoryCrawlCursorRepository();
+  const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
+  const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
+  const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
+  const anomalyEventRepository = new InMemoryAnomalyEventRepository();
+
+  await monitorTargetRepository.upsert({
+    id: targetId,
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: `r/${subreddit}`,
+    status: "active",
+    config: {},
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  });
+
+  class SaturatedBackfillConnector implements RedditConnector {
+    public readonly sourceCode = "reddit" as const;
+    public readonly seenAfter: Array<string | undefined> = [];
+
+    public async collect(
+      args: RedditCollectSubredditPostsArgs,
+      ctx: ConnectorRequestContext,
+    ): Promise<ConnectorPage<RedditListingPayload<RedditPostData>>> {
+      return this.collectSubredditPosts(args, ctx);
+    }
+
+    public async collectSubredditAbout(
+      args: RedditCollectSubredditAboutArgs,
+      ctx: ConnectorRequestContext,
+    ): Promise<ConnectorPage<RedditAboutPayload>> {
+      return {
+        raw: {
+          endpoint: `/r/${args.subreddit}/about.json`,
+          requestParams: {},
+          httpStatus: 200,
+          responseHeaders: {},
+          payload: {
+            data: {
+              display_name: args.subreddit,
+              subscribers: 1_000_000,
+              accounts_active: 20_000,
+            },
+          },
+          fetchedAt: ctx.now,
+        },
+      };
+    }
+
+    public async collectSubredditPosts(
+      args: RedditCollectSubredditPostsArgs,
+      ctx: ConnectorRequestContext,
+    ): Promise<ConnectorPage<RedditListingPayload<RedditPostData>>> {
+      this.seenAfter.push(args.after);
+      const posts = buildBackfillPosts({
+        subreddit,
+        prefix: args.after ? "repeat" : "head",
+        count: 3,
+        baseCreatedUtc: Math.floor(Date.parse("2026-04-22T12:00:00.000Z") / 1000),
+        scoreForIndex: () => 90,
+        commentsForIndex: () => 30,
+      });
+      return {
+        raw: {
+          endpoint: `/r/${args.subreddit}/new.json`,
+          requestParams: {
+            limit: args.limit,
+            after: args.after,
+          },
+          httpStatus: 200,
+          responseHeaders: {},
+          payload: {
+            data: {
+              after: "t3_repeat_cursor",
+              children: posts.map((post) => ({ kind: "t3", data: post })),
+            },
+          },
+          fetchedAt: ctx.now,
+        },
+        nextCursor: "t3_repeat_cursor",
+      };
+    }
+
+    public async healthCheck(_ctx: ConnectorRequestContext): Promise<boolean> {
+      return true;
+    }
+  }
+
+  const connector = new SaturatedBackfillConnector();
+
+  await runRedditPhase1Cycle(
+    {
+      monitorTargetRepository,
+      collectionJobRepository,
+      rawEventRepository,
+      accountRepository,
+      contentRepository,
+      crawlCursorRepository,
+      metricsSnapshotRepository,
+      subredditDailyFactRepository,
+      postGrowthFactRepository,
+      subredditTrendPointRepository,
+      anomalyEventRepository,
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+    },
+    nowIso,
+    {
+      targetCanonicalNames: [`r/${subreddit}`],
+      crawlMode: "backfill",
+      postLimit: 3,
+      backfillTargetDays: 15,
+      backfillMaxIterationsPerTarget: 5,
+    },
+  );
+
+  assert.deepEqual(connector.seenAfter, [undefined, "t3_repeat_cursor"]);
+  const latestBackfillCursor = crawlCursorRepository
+    .all()
+    .find((cursor) => cursor.targetId === targetId && cursor.mode === "backfill");
+  assert.equal(latestBackfillCursor?.oldestObservedAt, "2026-04-22T12:00:00.000Z");
+  assert.equal(collectionJobRepository.all().length, 3);
 });

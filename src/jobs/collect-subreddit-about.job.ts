@@ -29,16 +29,19 @@ export async function enqueueSubredditAboutJob(
   input: RedditCollectionJobInput,
 ): Promise<CollectionJob> {
   const windowStart = floorToWindow(input.nowIso, 15);
+  const crawlMode = input.crawlMode ?? "live";
   const job: CollectionJob = {
-    id: stableUuidFromString(`job:collect_subreddit_about:${input.targetId}:${windowStart}`),
+    id: stableUuidFromString(
+      `job:collect_subreddit_about:${input.targetId}:${crawlMode}:${windowStart}`,
+    ),
     source: "reddit",
     targetId: input.targetId,
     jobType: "collect_subreddit_about",
-    crawlMode: input.crawlMode,
+    crawlMode,
     status: "queued",
     scheduledAt: input.nowIso,
     nextRunAt: input.nowIso,
-    dedupeKey: buildDedupeKey("collect_subreddit_about", input.targetId, windowStart),
+    dedupeKey: buildDedupeKey("collect_subreddit_about", input.targetId, windowStart, crawlMode),
     retryCount: 0,
   };
 

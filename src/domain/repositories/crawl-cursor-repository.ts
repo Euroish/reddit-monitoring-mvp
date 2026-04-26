@@ -9,6 +9,8 @@ export interface ResolveCrawlCursorInput {
 export interface UpsertCrawlCursorInput extends ResolveCrawlCursorInput {
   cursor: string;
   rewindCursor?: string;
+  oldestObservedAt?: string;
+  newestObservedAt?: string;
   lastFetchedAt?: string;
   updatedAt: string;
 }

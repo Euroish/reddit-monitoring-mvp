@@ -34,6 +34,8 @@ export class InMemoryCrawlCursorRepository implements CrawlCursorRepository {
       mode: input.mode,
       cursor: input.cursor,
       rewindCursor: input.rewindCursor,
+      oldestObservedAt: input.oldestObservedAt,
+      newestObservedAt: input.newestObservedAt,
       lastFetchedAt: input.lastFetchedAt,
       updatedAt: input.updatedAt,
     });

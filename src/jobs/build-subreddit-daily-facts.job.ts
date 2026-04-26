@@ -49,7 +49,7 @@ export async function buildSubredditDailyFactsJob(
       targetId: input.targetId,
       from: input.fromIso,
       to: input.toIso,
-      metricNames: ["score", "num_comments"],
+      metricNames: ["score", "num_comments", "new_posts_15m"],
     }),
     deps.metricsSnapshotRepository.listByTargetInRange({
       targetId: input.targetId,
@@ -61,9 +61,13 @@ export async function buildSubredditDailyFactsJob(
 
   const postsByDay = groupPostsByDay(posts);
   const latestMetricsByContentId = resolveLatestPostMetricsByContentId(engagementSnapshots);
+  const observedDays = resolveObservedDays(days, posts, engagementSnapshots);
   const aboutSignalsByDay = resolveAboutSignalsByDay(days, aboutSnapshots);
 
-  const drafts = days.map((day) => {
+  const drafts = days.flatMap((day) => {
+    if (!observedDays.has(day)) {
+      return [];
+    }
     const dayPosts = postsByDay.get(day) ?? [];
     const postSignals = dayPosts.map((post) => {
       const metrics = latestMetricsByContentId.get(post.id) ?? { score: 0, comments: 0 };
@@ -79,7 +83,11 @@ export async function buildSubredditDailyFactsJob(
         impactContribution,
       };
     });
-    const about = aboutSignalsByDay.get(day) ?? { subscribers: 0, activeUsers: 0 };
+    const about = aboutSignalsByDay.get(day) ?? {
+      subscribers: 0,
+      activeUsers: 0,
+      carryMode: "empty" as const,
+    };
     const subredditTier = resolveSubredditTier(about.subscribers);
     const qualityThreshold = resolveDailyQualityThreshold({
       tier: subredditTier,
@@ -120,7 +128,9 @@ export async function buildSubredditDailyFactsJob(
       }
     }
 
-    return {
+    const unsampledObservedDay = dayPosts.length > 0 && sampledPostVolume === 0;
+
+    return [{
       targetId: input.targetId,
       day,
       postVolume: dayPosts.length,
@@ -147,14 +157,20 @@ export async function buildSubredditDailyFactsJob(
         percentileComments: qualityThreshold.percentileComments,
         subscriberCount: about.subscribers,
         activeUserCount: about.activeUsers,
+        observedDay: true,
+        unsampledObservedDay,
+        aboutSnapshotCarryMode: about.carryMode,
       },
-    };
+    }];
   });
 
   const facts = scoreSubredditDailyFacts(drafts);
-  if (facts.length > 0) {
-    await deps.subredditDailyFactRepository.upsertMany(facts);
-  }
+  await deps.subredditDailyFactRepository.replaceRange({
+    targetId: input.targetId,
+    fromDay: days[0]!,
+    toDay: days[days.length - 1]!,
+    facts,
+  });
   return facts;
 }
 
@@ -222,18 +238,69 @@ function resolveLatestPostMetricsByContentId(
   return result;
 }
 
+function resolveObservedDays(
+  days: string[],
+  posts: Content[],
+  snapshots: MetricsSnapshot[],
+): Set<string> {
+  const daySet = new Set(days);
+  const observed = new Set<string>();
+
+  for (const post of posts) {
+    const day = toUtcDay(post.createdAtSource);
+    if (daySet.has(day)) {
+      observed.add(day);
+    }
+  }
+
+  for (const snapshot of snapshots) {
+    if (snapshot.metricName !== "new_posts_15m") {
+      continue;
+    }
+    const day = toUtcDay(snapshot.snapshotAt);
+    if (daySet.has(day)) {
+      observed.add(day);
+    }
+  }
+
+  return observed;
+}
+
 function resolveAboutSignalsByDay(
   days: string[],
   snapshots: MetricsSnapshot[],
-): Map<string, { subscribers: number; activeUsers: number }> {
+): Map<string, {
+  subscribers: number;
+  activeUsers: number;
+  carryMode: "historical_backfill" | "forward_fill" | "snapshot_exact" | "empty";
+}> {
   const sortedSnapshots = [...snapshots].sort((a, b) => a.snapshotAt.localeCompare(b.snapshotAt));
-  const result = new Map<string, { subscribers: number; activeUsers: number }>();
+  const result = new Map<string, {
+    subscribers: number;
+    activeUsers: number;
+    carryMode: "historical_backfill" | "forward_fill" | "snapshot_exact" | "empty";
+  }>();
   let currentSubscribers = 0;
   let currentActiveUsers = 0;
+  let currentCarryMode: "historical_backfill" | "forward_fill" | "snapshot_exact" | "empty" = "empty";
   let snapshotIndex = 0;
+
+  if (sortedSnapshots.length > 0) {
+    const earliestSubscribers = sortedSnapshots.find((snapshot) => snapshot.metricName === "subscribers");
+    const earliestActiveUsers = sortedSnapshots.find((snapshot) => snapshot.metricName === "active_users");
+    if (earliestSubscribers) {
+      currentSubscribers = Math.max(0, Math.round(Number(earliestSubscribers.metricValue)));
+      currentCarryMode = "historical_backfill";
+    }
+    if (earliestActiveUsers) {
+      currentActiveUsers = Math.max(0, Math.round(Number(earliestActiveUsers.metricValue)));
+      currentCarryMode = currentCarryMode === "empty" ? "historical_backfill" : currentCarryMode;
+    }
+  }
 
   for (const day of days) {
     const dayEndIso = `${day}T23:59:59.999Z`;
+    let daySawSnapshot = false;
     while (
       snapshotIndex < sortedSnapshots.length &&
       sortedSnapshots[snapshotIndex]!.snapshotAt <= dayEndIso
@@ -245,12 +312,23 @@ function resolveAboutSignalsByDay(
       if (snapshot.metricName === "active_users") {
         currentActiveUsers = Math.max(0, Math.round(Number(snapshot.metricValue)));
       }
+      daySawSnapshot = true;
       snapshotIndex += 1;
     }
     result.set(day, {
       subscribers: currentSubscribers,
       activeUsers: currentActiveUsers,
+      carryMode: daySawSnapshot
+        ? "snapshot_exact"
+        : currentCarryMode === "historical_backfill"
+          ? "historical_backfill"
+          : currentCarryMode === "empty"
+            ? "empty"
+            : "forward_fill",
     });
+    if (daySawSnapshot) {
+      currentCarryMode = "forward_fill";
+    }
   }
 
   return result;

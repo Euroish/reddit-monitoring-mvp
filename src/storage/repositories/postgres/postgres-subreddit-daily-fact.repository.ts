@@ -91,6 +91,75 @@ export class PostgresSubredditDailyFactRepository implements SubredditDailyFactR
     });
   }
 
+  public async replaceRange(args: {
+    targetId: string;
+    fromDay: string;
+    toDay: string;
+    facts: SubredditDailyFact[];
+  }): Promise<void> {
+    await this.db.withTransaction(async (client) => {
+      await client.query(
+        `
+        DELETE FROM subreddit_daily_fact
+        WHERE target_id = $1
+          AND day >= $2::date
+          AND day <= $3::date
+        `,
+        [args.targetId, args.fromDay, args.toDay],
+      );
+
+      if (args.facts.length === 0) {
+        return;
+      }
+
+      const chunkSize = 250;
+      for (const group of chunkArray(args.facts, chunkSize)) {
+        const values: unknown[] = [];
+        for (const fact of group) {
+          values.push(
+            fact.targetId,
+            fact.day,
+            fact.postVolume,
+            fact.qualifiedPostVolume,
+            fact.sampledPostVolume,
+            fact.scoreSum,
+            fact.commentSum,
+            fact.subscriberCount,
+            fact.activeUserCount,
+            fact.activePostRatio,
+            fact.dispersionScore,
+            fact.impactScoreSum,
+            fact.impactPostVolume,
+            fact.topImpactShare,
+            fact.heatPrice,
+            fact.heatChangePct,
+            fact.ema7,
+            fact.ema30,
+            fact.subredditTier,
+            fact.qualityThresholdScore,
+            fact.qualityThresholdComments,
+            fact.algorithmVersion,
+            fact.explainPayload ?? {},
+          );
+        }
+
+        const placeholders = buildValuesPlaceholders(group.length, 23);
+        await client.query(
+          `
+          INSERT INTO subreddit_daily_fact (
+            target_id, day, post_volume, qualified_post_volume, sampled_post_volume, score_sum,
+            comment_sum, subscriber_count, active_user_count, active_post_ratio, dispersion_score,
+            impact_score_sum, impact_post_volume, top_impact_share, heat_price, heat_change_pct,
+            ema7, ema30, subreddit_tier, quality_threshold_score, quality_threshold_comments,
+            algorithm_version, explain_payload
+          ) VALUES ${placeholders}
+          `,
+          values,
+        );
+      }
+    });
+  }
+
   public async listByTargetInRange(args: {
     targetId: string;
     fromDay: string;

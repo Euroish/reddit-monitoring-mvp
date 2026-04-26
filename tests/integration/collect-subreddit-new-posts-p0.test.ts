@@ -10,7 +10,10 @@ import type {
   RedditListingPayload,
   RedditPostData,
 } from "../../src/connectors/reddit/reddit.types";
-import { collectSubredditNewPostsJob } from "../../src/jobs/collect-subreddit-new-posts.job";
+import {
+  collectSubredditNewPostsJob,
+  enqueueSubredditNewPostsJob,
+} from "../../src/jobs/collect-subreddit-new-posts.job";
 import { stableUuidFromString } from "../../src/shared/ids/stable-id";
 import {
   InMemoryAccountRepository,
@@ -298,6 +301,47 @@ test("collect subreddit new posts live mode re-polls head page every 5 minutes",
       { snapshotAt: "2026-04-10T12:00:00.000Z", metricValue: 1 },
       { snapshotAt: "2026-04-10T12:05:00.000Z", metricValue: 1 },
     ],
+  );
+});
+
+test("collect subreddit new posts keeps live and backfill jobs separate within the same window", async () => {
+  const nowIso = "2026-04-26T03:24:33.545Z";
+  const targetId = stableUuidFromString("reddit:target:r/window-scope");
+  const collectionJobRepository = new InMemoryCollectionJobRepository();
+
+  const liveJob = await enqueueSubredditNewPostsJob(
+    {
+      collectionJobRepository,
+      crawlCursorRepository: new InMemoryCrawlCursorRepository(),
+    },
+    {
+      targetId,
+      subreddit: "window-scope",
+      nowIso,
+      mode: "live",
+      providerHint: "http",
+    },
+  );
+  const backfillJob = await enqueueSubredditNewPostsJob(
+    {
+      collectionJobRepository,
+      crawlCursorRepository: new InMemoryCrawlCursorRepository(),
+    },
+    {
+      targetId,
+      subreddit: "window-scope",
+      nowIso,
+      mode: "backfill",
+      providerHint: "http",
+    },
+  );
+
+  assert.notEqual(liveJob?.id, backfillJob?.id);
+  assert.notEqual(liveJob?.dedupeKey, backfillJob?.dedupeKey);
+  assert.equal(collectionJobRepository.all().length, 2);
+  assert.deepEqual(
+    collectionJobRepository.all().map((job) => job.crawlMode).sort(),
+    ["backfill", "live"],
   );
 });
 
@@ -1099,6 +1143,74 @@ test("collect subreddit new posts backfill marks terminal EOF and skips later no
   assert.equal(crawlCursor?.cursor, "__backfill_eof__");
   assert.equal(crawlCursor?.rewindCursor, undefined);
   assert.equal(collectionJobRepository.all().length, 2);
+});
+
+test("collect subreddit new posts backfill ignores stale legacy terminal cursor without observed bounds", async () => {
+  const targetId = stableUuidFromString("reddit:target:r/backfill-legacy-eof");
+  const connector = new ScriptedPostsConnector([
+    {
+      nextCursor: "t3_cursor_reset_1",
+      provider: "http",
+      posts: [
+        {
+          name: "t3_reset_first",
+          id: "reset_first",
+          subreddit: "backfill-legacy-eof",
+          author: "alice",
+          title: "reset first",
+          permalink: "/r/backfill-legacy-eof/comments/reset_first/post",
+          created_utc: 1_712_751_000,
+          score: 40,
+          num_comments: 4,
+        },
+      ],
+    },
+  ]);
+  const collectionJobRepository = new InMemoryCollectionJobRepository();
+  const crawlCursorRepository = new InMemoryCrawlCursorRepository();
+
+  await crawlCursorRepository.upsert({
+    provider: "apify",
+    targetId,
+    mode: "backfill",
+    cursor: "__backfill_eof__",
+    lastFetchedAt: "2026-04-25T15:47:26.607Z",
+    updatedAt: "2026-04-25T15:47:26.607Z",
+  });
+
+  await collectSubredditNewPostsJob(
+    {
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+      collectionJobRepository,
+      crawlCursorRepository,
+      rawEventRepository: new InMemoryRawEventRepository(),
+      accountRepository: new InMemoryAccountRepository(),
+      contentRepository: new InMemoryContentRepository(),
+      metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+      providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
+    },
+    {
+      targetId,
+      subreddit: "backfill-legacy-eof",
+      nowIso: "2026-04-26T03:14:34.354Z",
+      mode: "backfill",
+      providerHint: "apify",
+    },
+  );
+
+  assert.deepEqual(connector.seenAfter, [undefined]);
+  const createdJobs = collectionJobRepository.all();
+  assert.equal(createdJobs.length, 1);
+  assert.equal(createdJobs[0]?.crawlMode, "backfill");
+  const crawlCursor = await crawlCursorRepository.resolve({
+    provider: "apify",
+    targetId,
+    mode: "backfill",
+  });
+  assert.equal(crawlCursor?.cursor, "t3_cursor_reset_1");
+  assert.equal(crawlCursor?.oldestObservedAt, "2024-04-10T12:10:00.000Z");
+  assert.equal(crawlCursor?.newestObservedAt, "2024-04-10T12:10:00.000Z");
 });
 
 test("collect subreddit new posts records duplicates and provider diff observability", async () => {

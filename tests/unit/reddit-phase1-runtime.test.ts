@@ -41,10 +41,9 @@ test("resolveRedditPhase1CycleOptionsFromEnv keeps http-first live defaults alig
   assert.equal(options.continueOnError, true);
 });
 
-test("resolveRedditPhase1CycleOptionsFromEnv keeps backfill provider and mock provider distinct", () => {
+test("resolveRedditPhase1CycleOptionsFromEnv defaults backfill to http while keeping mock distinct", () => {
   const backfill = resolveRedditPhase1CycleOptionsFromEnv({
     env: {
-      REDDIT_BACKFILL_PROVIDER: "apify",
       REDDIT_BACKFILL_POST_LIMIT: "120",
       REDDIT_BACKFILL_TARGET_DAYS: "15",
       REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET: "9",
@@ -58,11 +57,23 @@ test("resolveRedditPhase1CycleOptionsFromEnv keeps backfill provider and mock pr
     crawlMode: "live",
   });
 
-  assert.equal(backfill.providerHint, "apify");
+  assert.equal(backfill.providerHint, "http");
   assert.equal(backfill.backfillPostLimit, 120);
   assert.equal(backfill.backfillTargetDays, 15);
   assert.equal(backfill.backfillMaxIterationsPerTarget, 9);
   assert.equal(mock.providerHint, "mock");
+});
+
+test("createRedditConnectorFromEnv defaults backfill connector to http when provider is unset", () => {
+  const connector = createRedditConnectorFromEnv({
+    env: {
+      REDDIT_CB_ENABLED: "false",
+    },
+    mode: "live",
+    crawlMode: "backfill",
+  });
+
+  assert.equal(connector instanceof RedditHttpConnector, true);
 });
 
 test("resolveRedditPhase1CycleOptionsFromEnv applies explicit bounded backfill overrides", () => {
