@@ -61,6 +61,7 @@ const AUTO_KEYWORD_STOP_WORDS = new Set([
 
 export interface DailyTrendPoint {
   day: string;
+  pointQuality: "observed" | "observed_zero" | "missing";
   totalNewPosts: number;
   totalDiscussion: number;
   activityIndex: number;
@@ -327,6 +328,7 @@ function buildDailyMetrics(args: {
 
     result.push({
       day,
+      pointQuality: !fact ? "missing" : fact.postVolume > 0 ? "observed" : "observed_zero",
       totalNewPosts,
       totalDiscussion,
       activityIndex,

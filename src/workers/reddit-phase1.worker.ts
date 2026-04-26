@@ -1,6 +1,11 @@
 import type { RedditConnector } from "../connectors/reddit/reddit-connector.interface";
 import type { RedditMapper } from "../connectors/reddit/reddit-mapper.interface";
 import type { RedditLiveProvider } from "../connectors/reddit/create-reddit-connector";
+import type {
+  BackfillCoverageStatus,
+  BackfillStopReason,
+  CrawlCursor,
+} from "../domain/entities/crawl-cursor";
 import type { AccountRepository } from "../domain/repositories/account-repository";
 import type { CollectionJobRepository } from "../domain/repositories/collection-job-repository";
 import type { ContentRepository } from "../domain/repositories/content-repository";
@@ -568,20 +573,36 @@ async function runBoundedTargetBackfill(
       return;
     }
 
-    const reachedCoverage = await hasReachedBackfillCoverage({
+    const latestCursor = await resolveLatestBackfillCursor({
       crawlCursorRepository: deps.crawlCursorRepository,
       targetId: args.targetId,
+    });
+    const reachedCoverage = hasReachedBackfillCoverage({
+      latestCursor,
       targetBackfillFromIso: args.targetBackfillFromIso,
     });
     if (reachedCoverage) {
+      await persistBackfillCoverageState({
+        crawlCursorRepository: deps.crawlCursorRepository,
+        latestCursor,
+        targetBackfillFromIso: args.targetBackfillFromIso,
+        status: "covered",
+        stopReason: "coverage_reached",
+        updatedAt: iterationNowIso,
+      });
       return;
     }
 
-    const reachedTerminalCursor = await hasBackfillReachedTerminalCursor({
-      crawlCursorRepository: deps.crawlCursorRepository,
-      targetId: args.targetId,
-    });
+    const reachedTerminalCursor = hasBackfillReachedTerminalCursor(latestCursor);
     if (reachedTerminalCursor) {
+      await persistBackfillCoverageState({
+        crawlCursorRepository: deps.crawlCursorRepository,
+        latestCursor,
+        targetBackfillFromIso: args.targetBackfillFromIso,
+        status: "source_limited",
+        stopReason: "terminal_eof",
+        updatedAt: iterationNowIso,
+      });
       return;
     }
 
@@ -595,38 +616,70 @@ async function runBoundedTargetBackfill(
         next: nextBackfillProgress,
       })
     ) {
+      await persistBackfillCoverageState({
+        crawlCursorRepository: deps.crawlCursorRepository,
+        latestCursor: await resolveLatestBackfillCursor({
+          crawlCursorRepository: deps.crawlCursorRepository,
+          targetId: args.targetId,
+        }),
+        targetBackfillFromIso: args.targetBackfillFromIso,
+        status: "saturated_before_15d",
+        stopReason: "cursor_saturated",
+        updatedAt: iterationNowIso,
+      });
       return;
     }
+
+    await persistBackfillCoverageState({
+      crawlCursorRepository: deps.crawlCursorRepository,
+      latestCursor,
+      targetBackfillFromIso: args.targetBackfillFromIso,
+      status: "progressing",
+      stopReason: "awaiting_progress",
+      updatedAt: iterationNowIso,
+    });
   }
+
+  await persistBackfillCoverageState({
+    crawlCursorRepository: deps.crawlCursorRepository,
+    latestCursor: await resolveLatestBackfillCursor({
+      crawlCursorRepository: deps.crawlCursorRepository,
+      targetId: args.targetId,
+    }),
+    targetBackfillFromIso: args.targetBackfillFromIso,
+    status: "progressing",
+    stopReason: "iteration_budget_exhausted",
+    updatedAt: args.nowIso,
+  });
 }
 
-async function hasReachedBackfillCoverage(args: {
-  crawlCursorRepository?: CrawlCursorRepository;
-  targetId: string;
+function hasReachedBackfillCoverage(args: {
+  latestCursor: CrawlCursor | null;
   targetBackfillFromIso: string;
-}): Promise<boolean> {
-  const latestProgress = await resolveLatestBackfillCursorProgress({
-    crawlCursorRepository: args.crawlCursorRepository,
-    targetId: args.targetId,
-  });
+}): boolean {
+  const latestProgress = args.latestCursor;
   return (
     latestProgress?.oldestObservedAt != null &&
     latestProgress.oldestObservedAt <= args.targetBackfillFromIso
   );
 }
 
-async function hasBackfillReachedTerminalCursor(args: {
+function hasBackfillReachedTerminalCursor(latestCursor: CrawlCursor | null): boolean {
+  return latestCursor?.cursor === "__backfill_eof__";
+}
+
+async function resolveLatestBackfillCursor(args: {
   crawlCursorRepository?: CrawlCursorRepository;
   targetId: string;
-}): Promise<boolean> {
+}): Promise<CrawlCursor | null> {
   if (!args.crawlCursorRepository) {
-    return false;
+    return null;
   }
   const cursors = await args.crawlCursorRepository.list({
     targetId: args.targetId,
     mode: "backfill",
   });
-  return cursors.some((cursor) => cursor.cursor === "__backfill_eof__");
+  return cursors[0] ?? null;
 }
 
 async function resolveLatestBackfillCursorProgress(args: {
@@ -676,6 +729,33 @@ function hasBackfillCursorSaturated(args: {
     args.previous.cursor === args.next.cursor &&
     args.previous.oldestObservedAt === args.next.oldestObservedAt
   );
+}
+
+async function persistBackfillCoverageState(args: {
+  crawlCursorRepository?: CrawlCursorRepository;
+  latestCursor: CrawlCursor | null;
+  targetBackfillFromIso: string;
+  status: BackfillCoverageStatus;
+  stopReason: BackfillStopReason;
+  updatedAt: string;
+}): Promise<void> {
+  if (!args.crawlCursorRepository || !args.latestCursor) {
+    return;
+  }
+  await args.crawlCursorRepository.upsert({
+    provider: args.latestCursor.provider,
+    targetId: args.latestCursor.targetId,
+    mode: args.latestCursor.mode,
+    cursor: args.latestCursor.cursor,
+    rewindCursor: args.latestCursor.rewindCursor,
+    oldestObservedAt: args.latestCursor.oldestObservedAt,
+    newestObservedAt: args.latestCursor.newestObservedAt,
+    backfillTargetFromIso: args.targetBackfillFromIso,
+    backfillCoverageStatus: args.status,
+    backfillStopReason: args.stopReason,
+    lastFetchedAt: args.latestCursor.lastFetchedAt,
+    updatedAt: args.updatedAt,
+  });
 }
 
 async function resolvePostSamplingLimit(args: {

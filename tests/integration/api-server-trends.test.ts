@@ -367,6 +367,18 @@ test("api server returns target workbench contract from materialized read models
     circuitOpenCountDelta: 0,
     updatedAt: fixedNow,
   });
+  await repos.crawlCursorRepository.upsert({
+    provider: "http",
+    targetId,
+    mode: "backfill",
+    cursor: "t3_cursor_gap",
+    oldestObservedAt: "2026-04-10T00:00:00.000Z",
+    newestObservedAt: "2026-04-10T23:00:00.000Z",
+    backfillTargetFromIso: "2026-04-03T23:59:59.000Z",
+    backfillCoverageStatus: "progressing",
+    backfillStopReason: "iteration_budget_exhausted",
+    updatedAt: fixedNow,
+  });
 
   const server = createApiServer({
     repositories: repos,
@@ -418,6 +430,24 @@ test("api server returns target workbench contract from materialized read models
         ?.points.find((point) => point.at === "2026-04-10")?.value,
       42,
     );
+    assert.equal(
+      result.body.series
+        .find((series) => series.id === "heat_price")
+        ?.points.find((point) => point.at === "2026-04-10")?.quality,
+      "observed",
+    );
+    assert.equal(
+      result.body.series
+        .find((series) => series.id === "heat_price")
+        ?.points.find((point) => point.at === "2026-04-04")?.value,
+      null,
+    );
+    assert.equal(
+      result.body.series
+        .find((series) => series.id === "heat_price")
+        ?.points.find((point) => point.at === "2026-04-04")?.quality,
+      "missing",
+    );
     assert.equal(result.body.overlays[0]?.id, "keyword_heat:subreddit:ai");
     assert.deepEqual(result.body.queryContext.requested, [
       {
@@ -441,6 +471,9 @@ test("api server returns target workbench contract from materialized read models
     assert.equal(result.body.reliability.duplicatePostRate, 0.1);
     assert.equal(result.body.dataQuality.status, "partial");
     assert.equal(result.body.dataQuality.pointCount, 1);
+    assert.equal(result.body.dataQuality.backfill.status, "progressing");
+    assert.equal(result.body.dataQuality.backfill.stopReason, "iteration_budget_exhausted");
+    assert.equal(result.body.dataQuality.backfill.provider, "http");
     assert.equal(result.body.dataQuality.coverage.scope, "materialized_observed_days");
     assert.equal(result.body.dataQuality.coverage.expectedDayCount, 7);
     assert.equal(result.body.dataQuality.coverage.materializedDayCount, 1);

@@ -12,7 +12,9 @@ export class PostgresCrawlCursorRepository implements CrawlCursorRepository {
   public async resolve(input: ResolveCrawlCursorInput) {
     const result = await this.db.query<CrawlCursorRow>(
       `
-      SELECT provider, target_id, mode, cursor, rewind_cursor, oldest_observed_at, newest_observed_at, last_fetched_at, updated_at
+      SELECT provider, target_id, mode, cursor, rewind_cursor, oldest_observed_at, newest_observed_at,
+             backfill_target_from_iso, backfill_coverage_status, backfill_stop_reason,
+             last_fetched_at, updated_at
       FROM crawl_cursor
       WHERE provider = $1
         AND target_id = $2
@@ -44,7 +46,9 @@ export class PostgresCrawlCursorRepository implements CrawlCursorRepository {
       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     const result = await this.db.query<CrawlCursorRow>(
       `
-      SELECT provider, target_id, mode, cursor, rewind_cursor, oldest_observed_at, newest_observed_at, last_fetched_at, updated_at
+      SELECT provider, target_id, mode, cursor, rewind_cursor, oldest_observed_at, newest_observed_at,
+             backfill_target_from_iso, backfill_coverage_status, backfill_stop_reason,
+             last_fetched_at, updated_at
       FROM crawl_cursor
       ${whereClause}
       ORDER BY updated_at DESC, provider ASC, target_id ASC
@@ -58,14 +62,19 @@ export class PostgresCrawlCursorRepository implements CrawlCursorRepository {
     await this.db.query(
       `
       INSERT INTO crawl_cursor (
-        provider, target_id, mode, cursor, rewind_cursor, oldest_observed_at, newest_observed_at, last_fetched_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        provider, target_id, mode, cursor, rewind_cursor, oldest_observed_at, newest_observed_at,
+        backfill_target_from_iso, backfill_coverage_status, backfill_stop_reason,
+        last_fetched_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       ON CONFLICT (provider, target_id, mode)
       DO UPDATE SET
         cursor = EXCLUDED.cursor,
         rewind_cursor = EXCLUDED.rewind_cursor,
         oldest_observed_at = EXCLUDED.oldest_observed_at,
         newest_observed_at = EXCLUDED.newest_observed_at,
+        backfill_target_from_iso = EXCLUDED.backfill_target_from_iso,
+        backfill_coverage_status = EXCLUDED.backfill_coverage_status,
+        backfill_stop_reason = EXCLUDED.backfill_stop_reason,
         last_fetched_at = EXCLUDED.last_fetched_at,
         updated_at = EXCLUDED.updated_at
       `,
@@ -77,6 +86,9 @@ export class PostgresCrawlCursorRepository implements CrawlCursorRepository {
         input.rewindCursor ?? null,
         input.oldestObservedAt ?? null,
         input.newestObservedAt ?? null,
+        input.backfillTargetFromIso ?? null,
+        input.backfillCoverageStatus ?? null,
+        input.backfillStopReason ?? null,
         input.lastFetchedAt ?? null,
         input.updatedAt,
       ],

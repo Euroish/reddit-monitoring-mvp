@@ -400,6 +400,9 @@ export async function runExistingSubredditNewPostsJob(
             mode === "backfill"
               ? mergeNewestObservedAt(existing?.cursor.newestObservedAt, observedPages.newestObservedAt)
               : undefined,
+          backfillTargetFromIso: existing?.cursor.backfillTargetFromIso,
+          backfillCoverageStatus: existing?.cursor.backfillCoverageStatus,
+          backfillStopReason: existing?.cursor.backfillStopReason,
           lastFetchedAt: input.nowIso,
           updatedAt: input.nowIso,
         });
@@ -640,7 +643,7 @@ function resolveBackfillCursor(cursor: CrawlCursor | undefined): string | undefi
   if (!cursor) {
     return undefined;
   }
-  const candidate = cursor.rewindCursor ?? cursor.cursor;
+  const candidate = cursor.cursor;
   return isBackfillTerminalCursor(candidate) ? BACKFILL_EOF_CURSOR : candidate;
 }
 

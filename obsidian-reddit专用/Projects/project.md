@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: analytics-workbench-contract-v2
-updated_at: "2026-04-26 03:45:00"
+updated_at: "2026-04-26 04:57:43"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Tighten the real history-window/source-depth path for high-volume targets: r/overwatch now backfills again, but oldestObservedAt still only reaches late 2026-04-25, so the next slice is overlap/source-limited progression rather than stale-EOF recovery."
+next_action: "Run the corrected combined truth path on live r/overwatch-class targets: verify that third-and-later backfill iterations now continue from the latest cursor while stop states and missing/null chart semantics still match host evidence, then choose between provider-aware same-window comparison and alternate-source escalation for targets that still stop at saturated_before_15d."
 tags:
 - codex
 - workspace
@@ -33,16 +33,15 @@ tags:
 - The verified P1.7 algorithm/read-model/provider baseline remains stable unless a regression blocks product behavior.
 - Archived algorithm-development state lives at `Projects/Archive/algorithm-development-p1.7-2026-04-20.md`.
 - Phase E repo-side launch hardening is effectively saturated; keep it stable rather than extending it.
-- Current priority is shifting from recovery to product analytics: turn the existing product shell and read models into a TradingView-like Reddit analytics workbench.
+- Current priority is no longer frontend/workbench expansion. The mainline is now collection truth for high-volume targets: real 15-day history coverage, bounded source-depth behavior, duplicate saturation honesty, and API/read-model coverage semantics.
 - W1 Target Workbench Contract is complete: `TargetWorkbenchResponse`, `GET /v1/workbench/target/:targetId`, focused API tests, compiled deployment, and live host smoke are verified.
 - W2 Target Detail Workbench UI is complete locally: `/target/:targetId` consumes the workbench endpoint and renders series toggles, multi-series chart, driver posts, keyword heat, reliability, anomalies, and query-param keyword overlays.
 - W4 Comparison Mode is complete locally: `TargetComparisonWorkbenchResponse`, `GET /v1/workbench/compare`, normalized multi-target read model, target-detail comparison chart, market-backed suggested comparison controls, API contract test, and browser smoke are verified.
 - W5 Saved Workbench Contexts is complete locally: `saved_workbench_view`, user-owned save/list API, target-detail save current view control, recent saved context links, API auth coverage, and browser smoke are verified.
-- Current route correction from `docs/codex-handoff-tradingview-workbench.md`: do not advance immediately into broad watchlist/preset work. The strongest next slice is W6 Chart DTO v2 and workbench module extraction so TradingView-like behavior is contract-backed instead of frontend-only chart assembly.
 - W6 Chart DTO v2 is complete and live-verified: target/comparison workbench APIs accept `range` and `timeframe`, target responses expose backend-driven indicators, available timeframes/ranges, anomaly annotations, and data-quality metadata, the frontend chart/options/URL logic is extracted under `apps/web/src/features/workbench`, and the live host now serves the W6 target/comparison DTO endpoints plus updated web assets.
 - GitHub `main` is synchronized at `6bcee8eeae7a87f8377aca25cef966a9ea910112` (`Build workbench chart DTO v2`).
 - Browser-origin hotfix is applied on the host: `http://38.12.6.154` is now allowed by API CORS and Nginx `server_name`; API preflight for that origin is verified.
-- `context/codex-issue.md` is advisory evidence for the next product direction: fix monitored/global semantics and coverage honesty first, then add bounded 15-day target backfill, then expand TradingView-like chart surfaces.
+- Current repo evidence from `2026-04-26` overrides older planning drift: repeated HTTP-first `/new` backfill already proved that medium/large targets can still saturate at 3-7 observed days, so the next engineering slice is per-window backfill/source state rather than more chart breadth or more budget-only reruns.
 - Keep the completed frontend routes (`/login`, `/dashboard`, `/queries`, `/target/:targetId`, `/ops`) stable while extending API-backed workbench interactions.
 
 ## Product Positioning and Capacity Policy
@@ -57,18 +56,18 @@ tags:
 ## Data Structure and Code Simplification Timing
 
 - Immediate P0 cleanup is allowed only when it directly supports truth/capacity guardrails: naming monitored rankings honestly, adding coverage/degraded metadata, adding retention/size observability, and removing duplicate UI/read-model mapping created by those changes.
-- Do not start broad repository cleanup before live W6 smoke and P0 analytics truth are complete; cosmetic shrinking would compete with the product correctness work.
+- Do not start broad repository cleanup before the high-volume history-window/source-saturation slice is implemented and live-verified; cosmetic shrinking would compete with product correctness work.
 - P1 backfill is the next structural proving ground. Keep implementation explicit enough to expose job payloads, quotas, materialization boundaries, and failure states. Avoid premature abstraction while backfill behavior is still being verified.
-- The right larger cleanup gate is after P1 bounded 15-day backfill has passed tests and one live run: then consolidate repeated DTO/data-quality shapes, extract shared capacity/coverage helpers, prune duplicate chart option code, and simplify repository/query paths around the proven facts tables.
-- W7 Market Board/Watchlist should start only after that post-P1 cleanup gate, so new charts reuse a stable compact workbench kernel instead of copying target-detail logic.
+- The right larger cleanup gate is after P1 bounded 15-day backfill has passed tests and one live run on `r/overwatch`-class targets: then consolidate repeated DTO/data-quality shapes, extract shared capacity/coverage helpers, prune duplicate chart option code, and simplify repository/query paths around the proven facts tables.
+- W7 Market Board/Watchlist or broader keyword surfaces should start only after that post-P1 cleanup gate, so new charts reuse a stable compact workbench kernel instead of copying target-detail logic on top of untrusted collection semantics.
 
 ## Current Focus
 
 - Keep live collection healthy while moving product architecture forward; old dead-letter jobs are cleanup debt unless fresh scheduled cycles fail.
-- Use `docs/analytics-workbench-framework-2026-04-24.md` as the next product framework source after the product shell design.
-- Use `docs/codex-handoff-tradingview-workbench.md` as the latest planning correction for the TradingView-like workbench direction.
-- Optimize for the smallest analytics vertical slice: Chart DTO v2 contract additions, read-model metadata, API-backed range/timeframe controls, frontend workbench module extraction, and browser/API smoke evidence.
-- Before adding broader chart surfaces, run the analytics truth gate: labels must match data coverage, local observed-corpus keyword results must expose coverage/degraded reasons, and empty/partial history must be visible rather than hidden by chart polish.
+- Current active slice is high-volume target history truth, not new UI breadth: prove bounded 15-day coverage semantics on `r/overwatch`-class targets before extending dashboard/watchlist/query surfaces.
+- Implement explicit backfill window/source state so a target can be truthfully labeled `observed`, `partial`, `source_limited`, `saturated_before_15d`, or `missing` instead of inferring coverage from loose cursor side effects.
+- Push that state through `subreddit_daily_fact` / workbench read models / API DTOs so charts and keyword overlays cannot silently treat uncovered history as real zero activity.
+- Treat repeated HTTP `/new` reruns on already saturated targets as evidence, not as the solution. The next move is stronger history-window progression and/or alternate source escalation, not more budget-only retries.
 
 ## TradingView-Like Top Page Decomposition
 
@@ -143,10 +142,38 @@ tags:
 - Do not let historical dead-letter jobs be mistaken for active provider failure; they are cleanup debt until new failures appear.
 - Do not build TradingView-like UI ahead of contracts. Workbench features must be backed by persisted facts/read models and stable DTOs.
 - Do not present monitored-target rankings or local observed-corpus keyword analysis as whole-Reddit coverage unless a real discovery/global universe layer exists.
-- Architecture optimization is allowed only when it directly supports Chart DTO v2, indicator/panel composition, query overlays, comparison, or analysis workflow ergonomics.
-- Next product sequence is live W6 Chart DTO v2 smoke, P0 analytics truth fixes, P1 bounded 15-day backfill for newly added targets, then W7 Market Board/Watchlist and W8 saved presets/context expansion. Watchlist remains important, but follows a stable chart/workbench kernel and honest coverage model.
+- Architecture optimization is allowed only when it directly supports bounded history-window backfill, coverage/source-quality DTOs, query overlays on trusted facts, comparison, or analysis workflow ergonomics.
+- Corrected product sequence is: P1 high-volume history-window/source-saturation truth, then API/read-model coverage honesty, then scheduler/watchlist expansion for priority targets, then broader market/keyword surfaces. Do not reopen UI-first sequencing until the collection truth layer is stable.
 
 ## Activity Log
+
+### 2026-04-26 04:57:43
+
+- Scope: Closed the remaining cursor-progression bug in the active high-volume backfill slice. `resolveBackfillCursor()` no longer replays `rewindCursor` as the default next start point, so bounded backfill now advances from the latest persisted `cursor` while still keeping `rewindCursor` only as overlap evidence. Updated the backfill integration tests to assert the corrected A -> B -> C progression path and aligned the phase1 cycle expectation with the new third-iteration behavior.
+- Why now: The prior backfill-state and missing/null chart slices were directionally correct, but the main progression bug was still present underneath them. Leaving `rewindCursor` as the default next start would keep replaying an older window, which is exactly the failure mode that front-loads budget into the newest days and makes `saturated_before_15d` look worse than the real source depth.
+- Verify: `node --import tsx --test tests/integration/collect-subreddit-new-posts-p0.test.ts` passed (`16/16`). `node --import tsx --test tests/integration/reddit-phase1-cycle.test.ts` passed (`5/5`). `node --import tsx --test tests/unit/target-workbench-read-model.service.test.ts tests/integration/api-server-trends.test.ts` passed (`21/21`).
+- Next: Re-run the live host truth path on `r/overwatch`-class targets and check whether third-and-later bounded backfill iterations now move `oldestObservedAt` materially older instead of replaying the prior overlap window. If real targets still stop early after this fix, the next slice is provider-aware same-window comparison or alternate-source escalation rather than more cursor-budget retries.
+
+### 2026-04-26 04:27:09
+
+- Scope: Continued directly from the backfill stop-state slice and fixed the next core semantic gap from the three `Projects` markdown analyses: missing/uncovered days were still being emitted as chart zeroes. `subreddit-daily-insights.service.ts` now marks each day as `observed`, `observed_zero`, or `missing`; `TargetWorkbenchResponse.series.points` now carries `quality` and returns `value: null` for missing days; and the workbench/API tests now assert that uncovered days are serialized as `missing + null` rather than synthetic zero activity.
+- Why now: Backfill coverage status alone explains why a target stopped early, but it does not fix the product-level distortion if the chart still renders uncovered days as real zeroes. The next smallest vertical slice was therefore point-level honesty on the existing target workbench contract instead of a new provider or a broader UI rewrite.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/unit/target-workbench-read-model.service.test.ts tests/integration/api-server-trends.test.ts` passed (`21/21`). Assertions now cover observed points, observed-zero points, and missing/null points in the workbench response.
+- Next: Use the host path to verify that the combined truth model now reads correctly on real sparse targets: overall backfill state should explain why coverage stopped, while chart points for uncovered days should remain null instead of collapsing into false zero-volume history. After that, the next engineering choice is provider-aware same-window comparison versus alternate-source escalation for `saturated_before_15d` targets.
+
+### 2026-04-26 04:24:30
+
+- Scope: Implemented the first narrow high-volume backfill truth slice without adding a new table. Extended `crawl_cursor` with explicit backfill coverage/status fields, taught `runBoundedTargetBackfill()` to persist `covered` / `source_limited` / `saturated_before_15d` stop states against the existing backfill stopping logic, preserved that state through collection upserts, and exposed it in `TargetWorkbenchResponse.dataQuality.backfill` so the workbench can now report why a 15-day window is incomplete instead of leaving the cause implicit.
+- Why now: The repo had already proved that repeated HTTP-first `/new` backfill can saturate at 3-7 observed days on high-volume targets. The smallest useful slice was not a new provider or a new chart, but making the current bounded backfill path explain its own stop condition through the same DTO the product already consumes.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/unit/target-workbench-read-model.service.test.ts tests/integration/reddit-phase1-cycle.test.ts tests/integration/api-server-trends.test.ts` passed (`25/25`). Coverage assertions now prove `covered` and `saturated_before_15d` states in phase1 tests, and the target workbench/API tests prove the new `dataQuality.backfill` payload is exposed.
+- Next: Use the host lane to run this state on real `r/overwatch` / `r/askreddit` / `r/pics` style targets and check whether the new status matches observed duplicate/coverage evidence. If it does, the next implementation slice is either provider-aware same-window comparison support or alternate-source escalation for targets that still stop at `saturated_before_15d`.
+
+### 2026-04-26 04:18:23
+
+- Scope: Rewrote the active-state sections of this file to remove stale W6-forward sequencing and re-center execution on the current blocker proven by today's repo and host evidence: high-volume subreddit backfill still saturates early, so the mainline is now bounded history-window/source-saturation truth rather than more chart/workbench expansion.
+- Why now: The three current `Projects` markdown sources had converged while `project.md` itself had drifted. It still over-emphasized completed W6/product-shell work and older planning language, which would keep future rounds pointed at frontend breadth instead of the real engineering bottleneck.
+- Verify: Read and reconciled `project.md`, `回填逻辑问题分析.md`, and `项目代码读取权限 (1).md`. The corrected state now matches the latest live evidence already recorded here on `2026-04-26 03:45:00`, `04:10:00`, and `03:26:46`: HTTP-first backfill is active, stale EOF/dedupe blockers are cleared, but `r/askreddit`/`r/pics`/`r/todayilearned`/`r/overwatch` still saturate before honest 15-day coverage.
+- Next: Execute the narrow P1 slice now reflected in frontmatter: implement explicit per-window backfill/source state, expose coverage and `source_limited` semantics through read models/API, and verify the result on `r/overwatch`-class targets before resuming broader product feature work.
 
 ### 2026-04-26 03:26:46
 

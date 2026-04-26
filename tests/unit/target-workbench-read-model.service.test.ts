@@ -38,6 +38,10 @@ test("target workbench data quality stays partial when materialized days have no
   });
 
   assert.equal(response.dataQuality.status, "partial");
+  assert.equal(response.dataQuality.backfill.status, "missing");
+  assert.equal(response.series[0]?.points[0]?.quality, "observed");
+  assert.equal(response.series[0]?.points[1]?.quality, "observed_zero");
+  assert.equal(response.series[0]?.points[1]?.value, 0);
   assert.equal(response.dataQuality.coverage.expectedDayCount, 3);
   assert.equal(response.dataQuality.coverage.materializedDayCount, 3);
   assert.equal(response.dataQuality.coverage.observedPostDayCount, 1);
@@ -114,6 +118,93 @@ test("target workbench data quality marks sparse front-loaded backfill as partia
     response.indicators.find((indicator) => indicator.id === "total_new_posts")?.label,
     "Observed New Posts",
   );
+  assert.equal(response.series[0]?.points[0]?.quality, "observed");
+});
+
+test("target workbench series marks uncovered days as missing with null values", () => {
+  const targetId = stableUuidFromString("reddit:target:r/missingdays");
+  const generatedAtIso = "2026-04-24T12:00:00.000Z";
+  const response = buildTargetWorkbenchReadModel({
+    requestId: "test-request",
+    generatedAtIso,
+    target: {
+      id: targetId,
+      source: "reddit",
+      targetType: "subreddit",
+      canonicalName: "r/missingdays",
+      status: "active",
+      config: {},
+      createdAt: generatedAtIso,
+      updatedAt: generatedAtIso,
+    },
+    fromIso: "2026-04-22T00:00:00.000Z",
+    toIso: "2026-04-24T23:59:59.000Z",
+    timeframe: "1d",
+    rangePreset: "7d",
+    dailyFacts: [fact(targetId, "2026-04-24", { postVolume: 12, sampledPostVolume: 12 })],
+    trendPoints: [],
+    keywordDailyRows: [],
+    postGrowthFacts: [],
+    contents: [],
+    anomalyEvents: [],
+    providerHealthWindows: [],
+  });
+
+  const heatSeries = response.series.find((series) => series.id === "heat_price");
+  assert.equal(heatSeries?.points[0]?.quality, "missing");
+  assert.equal(heatSeries?.points[0]?.value, null);
+  assert.equal(heatSeries?.points[1]?.quality, "missing");
+  assert.equal(heatSeries?.points[1]?.value, null);
+  assert.equal(heatSeries?.points[2]?.quality, "observed");
+  assert.equal(heatSeries?.points[2]?.value, 20);
+});
+
+test("target workbench exposes explicit backfill coverage state when cursor evidence exists", () => {
+  const targetId = stableUuidFromString("reddit:target:r/askreddit");
+  const generatedAtIso = "2026-04-24T12:00:00.000Z";
+  const response = buildTargetWorkbenchReadModel({
+    requestId: "test-request",
+    generatedAtIso,
+    target: {
+      id: targetId,
+      source: "reddit",
+      targetType: "subreddit",
+      canonicalName: "r/askreddit",
+      status: "active",
+      config: {},
+      createdAt: generatedAtIso,
+      updatedAt: generatedAtIso,
+    },
+    fromIso: "2026-04-10T00:00:00.000Z",
+    toIso: "2026-04-24T23:59:59.000Z",
+    timeframe: "1d",
+    rangePreset: "30d",
+    dailyFacts: [fact(targetId, "2026-04-24", { postVolume: 12, sampledPostVolume: 12 })],
+    trendPoints: [],
+    keywordDailyRows: [],
+    postGrowthFacts: [],
+    contents: [],
+    anomalyEvents: [],
+    providerHealthWindows: [],
+    backfillCursor: {
+      provider: "http",
+      targetId,
+      mode: "backfill",
+      cursor: "t3_cursor_7",
+      oldestObservedAt: "2026-04-22T00:00:00.000Z",
+      newestObservedAt: "2026-04-24T12:00:00.000Z",
+      backfillTargetFromIso: "2026-04-09T12:00:00.000Z",
+      backfillCoverageStatus: "saturated_before_15d",
+      backfillStopReason: "cursor_saturated",
+      updatedAt: generatedAtIso,
+    },
+  });
+
+  assert.equal(response.dataQuality.backfill.status, "saturated_before_15d");
+  assert.equal(response.dataQuality.backfill.stopReason, "cursor_saturated");
+  assert.equal(response.dataQuality.backfill.provider, "http");
+  assert.equal(response.dataQuality.backfill.targetFromIso, "2026-04-09T12:00:00.000Z");
+  assert.equal(response.dataQuality.backfill.observedDaySpan, 3);
 });
 
 function fact(

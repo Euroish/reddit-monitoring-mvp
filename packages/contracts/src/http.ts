@@ -694,7 +694,8 @@ export interface TargetWorkbenchResponse {
     unit: "score" | "count";
     points: Array<{
       at: string;
-      value: number;
+      value: number | null;
+      quality: "observed" | "observed_zero" | "missing";
     }>;
   }>;
   overlays: Array<{
@@ -755,6 +756,26 @@ export interface TargetWorkbenchResponse {
     status: "complete" | "partial" | "empty";
     pointCount: number;
     expectedPointCount: number;
+    backfill: {
+      status:
+        | "missing"
+        | "progressing"
+        | "covered"
+        | "source_limited"
+        | "saturated_before_15d";
+      stopReason?:
+        | "awaiting_progress"
+        | "coverage_reached"
+        | "terminal_eof"
+        | "cursor_saturated"
+        | "iteration_budget_exhausted";
+      provider?: string;
+      targetFromIso?: string;
+      oldestObservedAt?: string;
+      newestObservedAt?: string;
+      observedDaySpan?: number;
+      updatedAt?: string;
+    };
     coverage: {
       scope: "materialized_observed_days";
       status: "complete" | "partial" | "empty";

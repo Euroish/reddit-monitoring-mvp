@@ -2310,6 +2310,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           contents,
           anomalyEvents,
           providerHealthWindows,
+          backfillCursor,
           queryMatchesByContentId,
         ] = await Promise.all([
           repos.subredditDailyFactRepository.listByTargetInRange({
@@ -2355,6 +2356,12 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             to: toIso,
             mode: "live",
           }) ?? Promise.resolve([]),
+          repos.crawlCursorRepository
+            ?.list({
+              targetId: target.id,
+              mode: "backfill",
+            })
+            .then((rows) => rows[0] ?? null) ?? Promise.resolve(null),
           resolveDriverKeywordMatches({
             postSearchDocumentRepository: repos.postSearchDocumentRepository,
             normalizedQueries,
@@ -2380,6 +2387,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           contents,
           anomalyEvents,
           providerHealthWindows,
+          backfillCursor,
           keywords: explicitQueryTexts,
           normalizedQueries: normalizedQueries.map((query) => ({
             raw: query.raw,

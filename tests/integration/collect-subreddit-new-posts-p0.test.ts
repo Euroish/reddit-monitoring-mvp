@@ -994,7 +994,7 @@ test("collect subreddit new posts backfill applies tiered candidate filters from
   );
 });
 
-test("collect subreddit new posts backfill recovers fallback cursor and rewrites under provider hint", async () => {
+test("collect subreddit new posts backfill advances from latest cursor instead of replaying rewind cursor", async () => {
   const targetId = stableUuidFromString("reddit:target:r/apify-backfill");
   const connector = new ScriptedPostsConnector([
     {
@@ -1050,9 +1050,111 @@ test("collect subreddit new posts backfill recovers fallback cursor and rewrites
     },
   );
 
-  assert.deepEqual(connector.seenAfter, ["t3_cursor_1"]);
+  assert.deepEqual(connector.seenAfter, ["t3_cursor_2"]);
   const crawlCursor = await crawlCursorRepository.resolve({
     provider: "apify",
+    targetId,
+    mode: "backfill",
+  });
+  assert.equal(crawlCursor?.cursor, "t3_cursor_3");
+  assert.equal(crawlCursor?.rewindCursor, "t3_cursor_2");
+});
+
+test("collect subreddit new posts backfill keeps progressing across three cursor windows", async () => {
+  const targetId = stableUuidFromString("reddit:target:r/backfill-forward-progress");
+  const connector = new ScriptedPostsConnector([
+    {
+      nextCursor: "t3_cursor_1",
+      provider: "http",
+      posts: [
+        {
+          name: "t3_first",
+          id: "first",
+          subreddit: "backfill-forward-progress",
+          author: "alice",
+          title: "first",
+          permalink: "/r/backfill-forward-progress/comments/first/post",
+          created_utc: 1_712_751_000,
+          score: 40,
+          num_comments: 4,
+        },
+      ],
+    },
+    {
+      nextCursor: "t3_cursor_2",
+      provider: "http",
+      posts: [
+        {
+          name: "t3_second",
+          id: "second",
+          subreddit: "backfill-forward-progress",
+          author: "bob",
+          title: "second",
+          permalink: "/r/backfill-forward-progress/comments/second/post",
+          created_utc: 1_712_750_000,
+          score: 41,
+          num_comments: 5,
+        },
+      ],
+    },
+    {
+      nextCursor: "t3_cursor_3",
+      provider: "http",
+      posts: [
+        {
+          name: "t3_third",
+          id: "third",
+          subreddit: "backfill-forward-progress",
+          author: "charlie",
+          title: "third",
+          permalink: "/r/backfill-forward-progress/comments/third/post",
+          created_utc: 1_712_749_000,
+          score: 42,
+          num_comments: 6,
+        },
+      ],
+    },
+  ]);
+  const collectionJobRepository = new InMemoryCollectionJobRepository();
+  const crawlCursorRepository = new InMemoryCrawlCursorRepository();
+
+  const deps = {
+    redditConnector: connector,
+    redditMapper: new DefaultRedditMapper(),
+    collectionJobRepository,
+    crawlCursorRepository,
+    rawEventRepository: new InMemoryRawEventRepository(),
+    accountRepository: new InMemoryAccountRepository(),
+    contentRepository: new InMemoryContentRepository(),
+    metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+    providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
+  };
+
+  await collectSubredditNewPostsJob(deps, {
+    targetId,
+    subreddit: "backfill-forward-progress",
+    nowIso: "2026-04-10T12:00:00.000Z",
+    mode: "backfill",
+    providerHint: "http",
+  });
+  await collectSubredditNewPostsJob(deps, {
+    targetId,
+    subreddit: "backfill-forward-progress",
+    nowIso: "2026-04-10T12:16:00.000Z",
+    mode: "backfill",
+    providerHint: "http",
+  });
+  await collectSubredditNewPostsJob(deps, {
+    targetId,
+    subreddit: "backfill-forward-progress",
+    nowIso: "2026-04-10T12:32:00.000Z",
+    mode: "backfill",
+    providerHint: "http",
+  });
+
+  assert.deepEqual(connector.seenAfter, [undefined, "t3_cursor_1", "t3_cursor_2"]);
+  const crawlCursor = await crawlCursorRepository.resolve({
+    provider: "http",
     targetId,
     mode: "backfill",
   });

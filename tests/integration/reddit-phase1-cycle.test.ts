@@ -315,7 +315,7 @@ test("phase1 cycle backfill mode continues across multiple cursor windows until 
     },
   );
 
-  assert.deepEqual(connector.seenAfter, [undefined, "t3_cursor_1", "t3_cursor_1"]);
+  assert.deepEqual(connector.seenAfter, [undefined, "t3_cursor_1", "t3_cursor_2"]);
   assert.equal(contentRepository.all().length, 9);
   assert.equal(
     contentRepository.all().some((row) => row.createdAtSource <= "2026-04-09T12:00:00.000Z"),
@@ -577,6 +577,8 @@ test("phase1 cycle backfill supplements high-volume subreddit with top listings 
     .all()
     .find((cursor) => cursor.targetId === targetId && cursor.mode === "backfill");
   assert.equal(latestBackfillCursor?.oldestObservedAt, "2026-04-21T12:00:00.000Z");
+  assert.equal(latestBackfillCursor?.backfillCoverageStatus, "saturated_before_15d");
+  assert.equal(latestBackfillCursor?.backfillStopReason, "cursor_saturated");
 });
 
 test("phase1 cycle backfill stops when cursor repeats without pushing chronological history older", async () => {
@@ -712,5 +714,7 @@ test("phase1 cycle backfill stops when cursor repeats without pushing chronologi
     .all()
     .find((cursor) => cursor.targetId === targetId && cursor.mode === "backfill");
   assert.equal(latestBackfillCursor?.oldestObservedAt, "2026-04-22T12:00:00.000Z");
+  assert.equal(latestBackfillCursor?.backfillCoverageStatus, "saturated_before_15d");
+  assert.equal(latestBackfillCursor?.backfillStopReason, "cursor_saturated");
   assert.equal(collectionJobRepository.all().length, 3);
 });

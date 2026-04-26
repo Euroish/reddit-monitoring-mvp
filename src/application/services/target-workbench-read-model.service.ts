@@ -1,6 +1,7 @@
 import type { TargetWorkbenchResponse } from "../../../packages/contracts/src/http";
 import type { AnomalyEvent } from "../../domain/entities/anomaly-event";
 import type { Content } from "../../domain/entities/content";
+import type { CrawlCursor } from "../../domain/entities/crawl-cursor";
 import type { KeywordTrendDaily } from "../../domain/entities/keyword-trend-daily";
 import type { MonitorTarget } from "../../domain/entities/monitor-target";
 import type { PostGrowthFact } from "../../domain/entities/post-growth-fact";
@@ -123,6 +124,7 @@ export function buildTargetWorkbenchReadModel(args: {
   contents: Content[];
   anomalyEvents: AnomalyEvent[];
   providerHealthWindows: ProviderHealthWindow[];
+  backfillCursor?: CrawlCursor | null;
   keywords?: string[];
   normalizedQueries?: Array<{
     raw: string;
@@ -250,6 +252,7 @@ export function buildTargetWorkbenchReadModel(args: {
       points: dailyInsights.daily.map((point) => ({
         at: point.day,
         value: valueForSeries(definition.id, point),
+        quality: point.pointQuality,
       })),
     })),
     overlays,
@@ -289,6 +292,7 @@ export function buildTargetWorkbenchReadModel(args: {
       status: coverage.status,
       pointCount: materializedFactDays.size,
       expectedPointCount: dailyInsights.dayCount,
+      backfill: summarizeBackfillCoverage(args.backfillCursor),
       coverage,
       stale: latestPointAt
         ? Date.parse(args.toIso) - Date.parse(`${latestPointAt}T00:00:00.000Z`) > 36 * 60 * 60 * 1000
@@ -303,6 +307,46 @@ export function buildTargetWorkbenchReadModel(args: {
         toIso: args.toIso,
       }),
     },
+  };
+}
+
+function summarizeBackfillCoverage(
+  backfillCursor?: CrawlCursor | null,
+): TargetWorkbenchResponse["dataQuality"]["backfill"] {
+  if (!backfillCursor || backfillCursor.mode !== "backfill") {
+    return {
+      status: "missing",
+    };
+  }
+  return {
+    status: backfillCursor.backfillCoverageStatus ?? "progressing",
+    ...(backfillCursor.backfillStopReason
+      ? { stopReason: backfillCursor.backfillStopReason }
+      : {}),
+    provider: backfillCursor.provider,
+    ...(backfillCursor.backfillTargetFromIso
+      ? { targetFromIso: backfillCursor.backfillTargetFromIso }
+      : {}),
+    ...(backfillCursor.oldestObservedAt
+      ? { oldestObservedAt: backfillCursor.oldestObservedAt }
+      : {}),
+    ...(backfillCursor.newestObservedAt
+      ? { newestObservedAt: backfillCursor.newestObservedAt }
+      : {}),
+    ...(backfillCursor.oldestObservedAt && backfillCursor.newestObservedAt
+      ? {
+          observedDaySpan:
+            Math.max(
+              1,
+              Math.floor(
+                (Date.parse(backfillCursor.newestObservedAt) -
+                  Date.parse(backfillCursor.oldestObservedAt)) /
+                  (24 * 60 * 60 * 1000),
+              ) + 1,
+            ) || 1,
+        }
+      : {}),
+    updatedAt: backfillCursor.updatedAt,
   };
 }
 
@@ -462,7 +506,10 @@ function computeFirstThirdShare(values: number[]): number {
 function valueForSeries(
   id: WorkbenchSeriesId,
   point: ReturnType<typeof buildSubredditDailyInsights>["daily"][number],
-): number {
+): number | null {
+  if (point.pointQuality === "missing") {
+    return null;
+  }
   if (id === "heat_price") {
     return point.heatPrice;
   }

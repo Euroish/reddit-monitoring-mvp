@@ -1,4 +1,9 @@
-import type { CrawlCursor, CrawlMode } from "../entities/crawl-cursor";
+import type {
+  BackfillCoverageStatus,
+  BackfillStopReason,
+  CrawlCursor,
+  CrawlMode,
+} from "../entities/crawl-cursor";
 
 export interface ResolveCrawlCursorInput {
   provider: string;
@@ -11,6 +16,9 @@ export interface UpsertCrawlCursorInput extends ResolveCrawlCursorInput {
   rewindCursor?: string;
   oldestObservedAt?: string;
   newestObservedAt?: string;
+  backfillTargetFromIso?: string;
+  backfillCoverageStatus?: BackfillCoverageStatus;
+  backfillStopReason?: BackfillStopReason;
   lastFetchedAt?: string;
   updatedAt: string;
 }

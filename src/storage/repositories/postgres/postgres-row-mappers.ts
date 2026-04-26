@@ -97,6 +97,21 @@ export interface CrawlCursorRow {
   rewind_cursor: string | null;
   oldest_observed_at: string | Date | null;
   newest_observed_at: string | Date | null;
+  backfill_target_from_iso: string | Date | null;
+  backfill_coverage_status:
+    | "missing"
+    | "progressing"
+    | "covered"
+    | "source_limited"
+    | "saturated_before_15d"
+    | null;
+  backfill_stop_reason:
+    | "awaiting_progress"
+    | "coverage_reached"
+    | "terminal_eof"
+    | "cursor_saturated"
+    | "iteration_budget_exhausted"
+    | null;
   last_fetched_at: string | Date | null;
   updated_at: string | Date;
 }
@@ -406,6 +421,9 @@ export function mapCrawlCursor(row: CrawlCursorRow): CrawlCursor {
     rewindCursor: row.rewind_cursor ?? undefined,
     oldestObservedAt: toIso(row.oldest_observed_at),
     newestObservedAt: toIso(row.newest_observed_at),
+    backfillTargetFromIso: toIso(row.backfill_target_from_iso),
+    backfillCoverageStatus: row.backfill_coverage_status ?? undefined,
+    backfillStopReason: row.backfill_stop_reason ?? undefined,
     lastFetchedAt: toIso(row.last_fetched_at),
     updatedAt: toIso(row.updated_at)!,
   };
