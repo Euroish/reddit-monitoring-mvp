@@ -82,6 +82,13 @@ tags:
 
 ## Activity Log
 
+### 2026-04-27 12:02:00
+
+- Scope: Synced the latest verified code to GitHub `main` and created a complete-source branch `sync/full-source-from-server` from the current full server worktree so local frontend work can clone a complete repo state.
+- Why now: The user wants to start frontend work locally, but the older remote snapshot had been incomplete. Pushing `main` first and then publishing a dedicated full-source branch removes that mismatch without changing server runtime behavior.
+- Verify: `git push origin main` advanced `origin/main` to `cb281bc`. `git push -u origin sync/full-source-from-server` created and tracked the new branch at the same commit. `git branch -vv` shows both branches pointing at `cb281bc`.
+- Next: Clone `sync/full-source-from-server` locally for frontend work, then keep UI changes on a separate frontend branch so the cloud server stays unchanged until it explicitly pulls those commits.
+
 ### 2026-04-27 02:46:11
 
 - Scope: Landed the minimal `P1.2` slice without adding a new state system. Extended [crawl-cursor.ts](/root/reddit-monitoring-mvp/src/domain/entities/crawl-cursor.ts) and [021_live_crawl_cursor_coverage.sql](/root/reddit-monitoring-mvp/src/storage/schema/021_live_crawl_cursor_coverage.sql) with live coverage fields, taught [collect-subreddit-new-posts.job.ts](/root/reddit-monitoring-mvp/src/jobs/collect-subreddit-new-posts.job.ts) to persist requested live-window start plus listing-horizon and partial/source-limited status, and exposed that state through [target-workbench-read-model.service.ts](/root/reddit-monitoring-mvp/src/application/services/target-workbench-read-model.service.ts) and the target workbench API path in [create-api-server.ts](/root/reddit-monitoring-mvp/apps/api/src/create-api-server.ts).
