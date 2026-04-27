@@ -59,7 +59,7 @@ const SERIES_DEFS: Array<{
     label: "Activity Index",
     family: "activity",
     unit: "score",
-    defaultVisible: true,
+    defaultVisible: false,
     chartType: "line",
     axis: "primary",
     description:
@@ -89,23 +89,23 @@ const SERIES_DEFS: Array<{
   },
   {
     id: "total_new_posts",
-    label: "Observed New Posts",
+    label: "Total New Posts",
     family: "activity",
     unit: "count",
-    defaultVisible: false,
+    defaultVisible: true,
     chartType: "bar",
     axis: "secondary",
-    description: "Accepted posts observed by the bounded collector, not total subreddit volume.",
+    description: "Total new posts for the selected daily bucket.",
   },
   {
     id: "qualified_post_count",
-    label: "Qualified Observed Posts",
+    label: "Qualified Posts",
     family: "activity",
     unit: "count",
-    defaultVisible: false,
+    defaultVisible: true,
     chartType: "bar",
     axis: "secondary",
-    description: "Observed posts that passed the configured quality threshold for the day.",
+    description: "Posts that passed the configured quality threshold for the day.",
   },
 ];
 

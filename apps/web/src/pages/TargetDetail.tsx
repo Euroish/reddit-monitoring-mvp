@@ -296,11 +296,11 @@ export function TargetDetail() {
               <div className="kpi-value">{formatNumber(latestDailyPoint?.heatPrice)}</div>
             </Card>
             <Card>
-              <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Observed Posts</div>
+              <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Total New Posts</div>
               <div className="kpi-value">{formatNumber(latestDailyPoint?.posts)}</div>
             </Card>
             <Card>
-              <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Qualified Observed</div>
+              <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Qualified Posts</div>
               <div className="kpi-value">{formatNumber(latestDailyPoint?.qualifiedPosts)}</div>
             </Card>
             <Card>

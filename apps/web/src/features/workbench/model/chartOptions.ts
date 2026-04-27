@@ -20,7 +20,11 @@ export function createInitialSeriesSelection(data: TargetWorkbenchResponse | und
   const defaults = data?.indicators
     .filter((indicator) => indicator.defaultVisible)
     .map((indicator) => indicator.id);
-  return new Set(defaults && defaults.length > 0 ? defaults : ['heat_price', 'ema_7', 'ema_30', 'activity_index']);
+  return new Set(
+    defaults && defaults.length > 0
+      ? defaults
+      : ['heat_price', 'ema_7', 'ema_30', 'total_new_posts', 'qualified_post_count'],
+  );
 }
 
 export function buildTargetWorkbenchChartOptions(args: {

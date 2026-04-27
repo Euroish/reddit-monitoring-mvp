@@ -16,8 +16,8 @@ const SERIES_DEFS: Array<{
   { id: "activity_index", label: "Activity Index", unit: "score" },
   { id: "qualified_activity_index", label: "Qualified Activity Index", unit: "score" },
   { id: "activity_confidence", label: "Activity Confidence", unit: "score" },
-  { id: "total_new_posts", label: "Observed New Posts", unit: "count" },
-  { id: "qualified_post_count", label: "Qualified Observed Posts", unit: "count" },
+  { id: "total_new_posts", label: "Total New Posts", unit: "count" },
+  { id: "qualified_post_count", label: "Qualified Posts", unit: "count" },
 ];
 
 export const COMPARABLE_WORKBENCH_SERIES_IDS = SERIES_DEFS.map((series) => series.id);

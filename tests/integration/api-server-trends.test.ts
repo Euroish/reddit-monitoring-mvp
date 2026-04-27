@@ -421,7 +421,7 @@ test("api server returns target workbench contract from materialized read models
       result.body.indicators
         .filter((indicator) => indicator.defaultVisible)
         .map((indicator) => indicator.id),
-      ["heat_price", "ema_7", "ema_30", "activity_index"],
+      ["heat_price", "ema_7", "ema_30", "total_new_posts", "qualified_post_count"],
     );
     assert.deepEqual(
       result.body.series.map((series) => series.id),

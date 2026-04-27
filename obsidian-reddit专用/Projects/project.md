@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: collector-storage-truth
-updated_at: "2026-04-27 02:46:11"
+stage: coverage-gated-total-truth
+updated_at: "2026-04-27 15:15:00"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Keep the harness narrow and move to the next slice: add a real all-target catalog/list path, then align the remaining daily-trend and workbench surfaces to the same `missing` / `source_limited` truth model already exposed through live coverage state."
+next_action: "Implement the smallest coverage/provenance slice: separate total-eligible `new` listing evidence from discovery/supplemental evidence, then gate `Total New Posts` / `Qualified Posts` behind complete coverage while exposing observed counts for partial/source-limited days."
 tags:
 - codex
 - workspace
@@ -19,15 +19,17 @@ tags:
 
 - Repository: `E:\vibe coding\project`
 - Authority: `project.md` is the only execution state source.
-- Planning harness: exactly these three active markdowns constrain scope:
-  - `obsidian-reddit专用/Projects/数据库优化与重复命中分析.md`
-  - `obsidian-reddit专用/Projects/reddit-monitoring-mvp-optimal-plan.md`
-  - `obsidian-reddit专用/Projects/开发方案分析.md`
-- Product truth: current product is a bounded monitored Reddit analytics workbench, not whole-Reddit discovery and not guaranteed full-history recovery.
+- Archive: old route notes and exported analysis files are historical inputs only after reconciliation; they do not constrain execution.
+- Product truth: current product is a bounded monitored Reddit analytics workbench. It may show `Total New Posts` only for target/range/day data with complete coverage proof; otherwise it must show observed counts and coverage status.
 
 ## Current Decision
 
-- Mainline is `live-observed` collection, not retrospective 15-day history recovery.
+- Mainline is coverage-gated Reddit analysis, not blind retrospective 15-day history recovery and not a blanket "all listings max 1000 posts" rule.
+- Reddit `/new` pagination has practical horizon limits that vary by subreddit activity, cursor behavior, page budget, live accumulation, and supplement sources. Small subreddits may be complete for 15 days; high-volume subreddits may only be complete after continuous live monitoring from activation time.
+- Every monitored target needs an activation boundary. Data after activation can become commercial-grade total only if live windows remain continuous; data before activation remains backfill-proven total only when coverage reaches the requested start, otherwise observed.
+- Missed scheduler windows, failed collection windows, cursor stalls, and rate-limit gaps must degrade coverage. A day cannot stay `complete` if the collection evidence has a continuity gap that could hide posts.
+- `new` listing evidence is the only channel eligible for total post-volume analysis. `top` / `hot` / search / manual supplement evidence is discovery-only unless a future source can prove time-contiguous completeness.
+- `Total New Posts` and `Qualified Posts` remain the product-facing default labels when coverage is complete. For incomplete, partial, or source-limited ranges, the same raw counts must be labeled observed and not exported as true total.
 - Normal runtime path is `http` primary plus `scrapling` fallback capability only.
 - Legacy `apify` main-path code is removed because it had become drift-heavy and no longer belongs to the active requirements.
 - Automatic collection must remain storage-safe:
@@ -35,6 +37,7 @@ tags:
   - repeated listing observation must not keep inflating `metrics_snapshot`
   - `raw_reddit_event` and `metrics_snapshot` must have bounded retention
 - Missing or uncovered history must remain `missing` / `source_limited`, never fake zero.
+- `activity_index` / `activity_confidence` may exist as secondary diagnostics, but they must not replace raw post-count defaults unless the product explicitly changes KPI semantics.
 
 ## Requirement Status
 
@@ -44,17 +47,29 @@ tags:
   - global observed-corpus keyword query
   - subreddit keyword overlay / keyword heat
 - Still unfinished:
-  - all-target catalog/list path instead of only top-page slices
-  - old daily trend surfaces aligned to `missing` / `source_limited`
-  - active-lane code/data-structure simplification after storage truth is fixed
+  - collection provenance or equivalent source semantics that distinguish total-eligible `new_listing` evidence from discovery-only supplement evidence
+  - day/range coverage facts that can prove `complete`, `partial`, `source_limited`, or `unknown`
+  - live continuity evidence: activation time, expected windows, collected windows, missed windows, and degradation reasons
+  - daily facts/read models that split complete total counts from observed counts instead of overloading one field
+  - coverage acceptance fixtures for small, medium, and high-volume subreddits so AskReddit/Overwatch/small-subreddit behavior stays explainable
+  - old daily trend, comparison, export, and UI surfaces aligned to coverage-gated total semantics
+  - all-target catalog/list path after core data semantics are stable
+  - active-lane code/data-structure simplification after coverage truth is fixed
 
 ## Explicit Task Stack
 
-- `P1.3` Add a real target catalog/list path for all recorded or monitored subreddit targets. Do not make the current `slice(0, 8)` top-page boards the only browse surface.
-- `P2.1` Unify API/UI semantics so missing or uncovered days stay `null` plus `missing` / `source_limited`, never fake zero.
-- `P2.2` Keep keyword and market-facing product surfaces inside observed-corpus truth. No whole-Reddit wording without a real discovery/history layer.
-- `P2.3` Bring the older subreddit daily trend surfaces into the same truth model as workbench responses.
-- `P3.1` Simplify data structure and code only where it directly supports the active lane: reduce duplicated DTO/data-quality shapes, trim provider branching, and shrink storage/write-path complexity after `P0` is stable.
+- `P0.1` Add collection provenance or equivalent fields so posts/facts know whether they came from total-eligible `new_listing` collection or discovery-only supplement collection.
+- `P0.2` Exclude `top` / `hot` / search / manual supplement posts from total daily post-volume calculations. They may remain available for driver posts, keyword discovery, and examples.
+- `P0.3` Add per-target/day or per-range coverage facts with `complete`, `partial`, `source_limited`, and `unknown` status plus a concrete basis such as `live_continuous`, `backfill_reached_day_start`, `iteration_budget_exhausted`, or `cursor_saturated`.
+- `P0.4` Split post-count semantics in daily facts/read models: complete total counts are nullable unless coverage is complete; observed counts remain available for partial/source-limited ranges.
+- `P0.5` Add live continuity accounting: target activation time, expected collection windows, successful windows, missed/failed windows, and rate-limit/degraded reasons. Coverage must downgrade when a gap can hide posts.
+- `P0.6` Add regression fixtures/tests for three real product cases: small subreddit complete historical coverage, medium subreddit continuing backfill after budget exhaustion, and high-volume subreddit total only since uninterrupted monitoring activation.
+- `P1.1` Update API/UI display rules so complete coverage defaults to `Total New Posts` / `Qualified Posts`, while incomplete coverage defaults to observed labels with coverage badges and no fake zero.
+- `P1.2` Change bounded backfill semantics so `iteration_budget_exhausted` means continue/schedule more work, not a final proof of source limitation.
+- `P1.3` Add operational observability for commercial use: per-target freshness, last successful crawl, missed-window count, source-limited count, and storage growth/retention status.
+- `P2.1` Bring old daily trend, comparison, keyword, export, and report surfaces into the same coverage-gated truth model.
+- `P2.2` Add the all-target catalog/list path only after the core total/observed semantics are stable.
+- `P3.1` Simplify duplicated data-quality DTOs and provider branching only where it directly supports the active coverage/provenance lane.
 
 ## Guardrails
 
@@ -63,14 +78,16 @@ tags:
   - retention/prune automation
   - favorite-target scheduling
   - coverage/data-quality contract fixes
-  - smallest UI/API changes needed to expose honest observed-corpus semantics
+  - smallest UI/API changes needed to expose coverage-gated total/observed semantics
 - Forbidden:
   - new provider expansion
   - broad architecture rewrites
-  - dashboard expansion outside current requirements
+  - dashboard/catalog expansion before total/observed semantics are trustworthy
   - whole-Reddit wording without a real discovery layer
-  - backfill-first sequencing as the default runtime path
-  - cleanup that touches many layers before collector/storage truth is fixed
+  - treating `top` / `hot` / search supplement data as total post-volume evidence
+  - treating `iteration_budget_exhausted` as a final coverage conclusion
+  - marking a day/range complete without activation/continuity evidence or backfill reaching the requested start
+  - cleanup that touches many layers before coverage/provenance truth is fixed
 
 ## Startup Rules
 
@@ -78,9 +95,37 @@ tags:
 - Do not use `planning-with-files` in this repo.
 - Do not create or maintain `task_plan.md`, `findings.md`, or `progress.md`.
 - Keep summaries short and execution-oriented.
-- When drift appears between old notes and current code, current code plus the three-file planning harness wins.
+- When drift appears between archived notes and current code, reconcile against current code and this file; do not re-open archived plans as active harnesses.
 
 ## Activity Log
+
+### 2026-04-27 15:15:00
+
+- Scope: Paused automatic Reddit collection before publishing the current code/state snapshot. Stopped and disabled `reddit-phase1-scheduler.service`; API and keyword refresh services were left running.
+- Why now: The current product data truth work is being reset around coverage/provenance semantics. Continuing automatic collection while pushing the corrected state could keep generating data under the old incomplete semantics.
+- Verify: `systemctl is-active reddit-phase1-scheduler.service` returned `inactive`; `systemctl is-enabled reddit-phase1-scheduler.service` returned `disabled`. `npm run typecheck` passed. `node --import tsx --test tests/unit/target-workbench-read-model.service.test.ts tests/integration/api-server-trends.test.ts` passed with 23 tests.
+- Next: Commit and push the current restored post-count defaults plus project-state/archive cleanup to GitHub, then resume collection only after the next coverage/provenance slice is ready or explicitly requested.
+
+### 2026-04-27 15:08:00
+
+- Scope: Tightened the coverage-gated plan with the missing commercial-grade constraints: target activation boundaries, live continuity/missed-window degradation, operational freshness/retention observability, and regression fixtures for small, medium, and high-volume subreddit behavior.
+- Why now: The previous state captured provenance and total/observed separation, but did not explicitly force the system to prove uninterrupted monitoring after activation. Without that, a UI could still label post counts as `Total` after silent scheduler or rate-limit gaps.
+- Verify: Documentation-only refinement. No tests were run.
+- Next: Treat `P0.1` through `P0.6` as the complete core slice before catalog/dashboard expansion.
+
+### 2026-04-27 15:03:00
+
+- Scope: Reconciled the latest root notes `核心问题分析.md` and `前端升级指标变更 (1).md` against the unarchived `Projects` notes, archived the reconciled Markdown files, and collapsed the execution state back into this file. Updated the active lane from simple observed-corpus wording to coverage-gated total/observed semantics: `new` listing evidence may support total counts only with coverage proof; supplement sources remain discovery-only; `activity_index` stays secondary.
+- Why now: The old active planning harness had started pulling in conflicting claims: a too-simple "1000 listing limit" explanation, catalog-first frontend work, and default activity/confidence KPIs. The core issue is now narrower and more important: separate collection provenance, prove coverage, and prevent incomplete data from being labeled as total.
+- Verify: Documentation-only reconciliation. `Projects` root now contains only `project.md`; the reconciled notes are under `obsidian-reddit专用/Projects/Archive/`. No tests were run for this state update. The previously restored post-count code changes and tests remain separate working-tree changes.
+- Next: Implement `P0.1` through `P0.4` as the next development slice before adding catalog/dashboard expansion.
+
+### 2026-04-27 12:40:00
+
+- Scope: Restored the default product-facing workbench post metrics to `Total New Posts` and `Qualified Posts` without changing collector or daily-fact storage truth. Updated [target-workbench-read-model.service.ts](/root/reddit-monitoring-mvp/src/application/services/target-workbench-read-model.service.ts), [target-comparison-workbench-read-model.service.ts](/root/reddit-monitoring-mvp/src/application/services/target-comparison-workbench-read-model.service.ts), [urlState.ts](/root/reddit-monitoring-mvp/apps/web/src/features/workbench/model/urlState.ts), [chartOptions.ts](/root/reddit-monitoring-mvp/apps/web/src/features/workbench/model/chartOptions.ts), and [TargetDetail.tsx](/root/reddit-monitoring-mvp/apps/web/src/pages/TargetDetail.tsx) so activity/confidence remains available as secondary diagnostics but no longer drives default UI semantics.
+- Why now: A newly uploaded audit note showed that current repo `main` had drifted into default `Activity Index / Activity Confidence / Observed New Posts` semantics even though the product core still expects raw post-count surfaces as the primary default. That drift would make local frontend work and future deploys diverge from the server's trusted `Total New Posts / Qualified Posts` behavior.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/unit/target-workbench-read-model.service.test.ts tests/integration/api-server-trends.test.ts` passed.
+- Next: Keep the active lane narrow. Continue `P1.3` catalog/list work, but preserve raw post-count defaults unless a separate explicitly-approved product change redefines the primary KPI semantics.
 
 ### 2026-04-27 12:02:00
 

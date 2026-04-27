@@ -117,7 +117,15 @@ test("target workbench data quality marks sparse front-loaded backfill as partia
   );
   assert.equal(
     response.indicators.find((indicator) => indicator.id === "total_new_posts")?.label,
-    "Observed New Posts",
+    "Total New Posts",
+  );
+  assert.equal(
+    response.indicators.find((indicator) => indicator.id === "total_new_posts")?.defaultVisible,
+    true,
+  );
+  assert.equal(
+    response.indicators.find((indicator) => indicator.id === "qualified_post_count")?.label,
+    "Qualified Posts",
   );
   assert.equal(response.series[0]?.points[0]?.quality, "observed");
 });

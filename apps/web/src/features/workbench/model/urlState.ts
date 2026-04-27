@@ -36,7 +36,7 @@ export function buildComparisonPath(args: {
   ].filter(Boolean);
   const params = new URLSearchParams({
     targets: comparisonTargets.join(','),
-    series: 'heat_price,activity_index',
+    series: 'heat_price,total_new_posts',
     range: args.range,
     timeframe: args.timeframe,
   });
