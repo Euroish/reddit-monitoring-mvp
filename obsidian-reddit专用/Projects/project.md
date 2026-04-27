@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: collector-storage-truth
-updated_at: "2026-04-27 01:44:01"
+updated_at: "2026-04-27 02:46:11"
 repo_path: "E:\\vibe coding\\project"
-next_action: "Continue the collector/storage truth slice from the now-trimmed runtime: implement live-window acceptance, suppress stale-post metric writes, automate raw-event and metrics retention, then wire favorite-target 8-hour scheduling and honest coverage semantics on top of the reduced `http + scrapling` path."
+next_action: "Keep the harness narrow and move to the next slice: add a real all-target catalog/list path, then align the remaining daily-trend and workbench surfaces to the same `missing` / `source_limited` truth model already exposed through live coverage state."
 tags:
 - codex
 - workspace
@@ -44,23 +44,12 @@ tags:
   - global observed-corpus keyword query
   - subreddit keyword overlay / keyword heat
 - Still unfinished:
-  - live-window acceptance for automatic collection
-  - stale-post metric suppression
-  - prune automation as default ops path
-  - favorite-target 8-hour scheduling via `monitor_target.config_json`
-  - explicit live coverage/source-limited state
   - all-target catalog/list path instead of only top-page slices
   - old daily trend surfaces aligned to `missing` / `source_limited`
   - active-lane code/data-structure simplification after storage truth is fixed
 
 ## Explicit Task Stack
 
-- `P0.1` Implement live-window acceptance in [collect-subreddit-new-posts.job.ts](/root/reddit-monitoring-mvp/src/jobs/collect-subreddit-new-posts.job.ts) with default `REDDIT_LIVE_WINDOW_HOURS=8` and `REDDIT_LIVE_WINDOW_OVERLAP_MINUTES=30`.
-- `P0.2` Stop stale-post metric growth: write content-level metrics only for newly accepted posts, or inside a short bounded active-post window such as `REDDIT_ACTIVE_POST_TRACKING_HOURS=48`.
-- `P0.3` Automate retention for `raw_reddit_event` and `metrics_snapshot` using the existing prune scripts and runtime/deploy scheduling.
-- `P0.4` Preserve duplicate-post safety under automation: keep `content` dedupe intact and ensure repeated listing hits do not translate into unbounded write amplification.
-- `P1.1` Move normal collection to favorite-target 8-hour scheduling. Short term may use env-selected targets; long term must read `monitor_target.config_json` and respect per-target cadence/favorite policy.
-- `P1.2` Add explicit live coverage/source-limit state for each run: requested window start, oldest/newest observed post, listing-horizon hit, partial status.
 - `P1.3` Add a real target catalog/list path for all recorded or monitored subreddit targets. Do not make the current `slice(0, 8)` top-page boards the only browse surface.
 - `P2.1` Unify API/UI semantics so missing or uncovered days stay `null` plus `missing` / `source_limited`, never fake zero.
 - `P2.2` Keep keyword and market-facing product surfaces inside observed-corpus truth. No whole-Reddit wording without a real discovery/history layer.
@@ -92,6 +81,34 @@ tags:
 - When drift appears between old notes and current code, current code plus the three-file planning harness wins.
 
 ## Activity Log
+
+### 2026-04-27 02:46:11
+
+- Scope: Landed the minimal `P1.2` slice without adding a new state system. Extended [crawl-cursor.ts](/root/reddit-monitoring-mvp/src/domain/entities/crawl-cursor.ts) and [021_live_crawl_cursor_coverage.sql](/root/reddit-monitoring-mvp/src/storage/schema/021_live_crawl_cursor_coverage.sql) with live coverage fields, taught [collect-subreddit-new-posts.job.ts](/root/reddit-monitoring-mvp/src/jobs/collect-subreddit-new-posts.job.ts) to persist requested live-window start plus listing-horizon and partial/source-limited status, and exposed that state through [target-workbench-read-model.service.ts](/root/reddit-monitoring-mvp/src/application/services/target-workbench-read-model.service.ts) and the target workbench API path in [create-api-server.ts](/root/reddit-monitoring-mvp/apps/api/src/create-api-server.ts).
+- Why now: The harness was already narrowed to `P1.2+`. The cheapest path to honest live coverage semantics was to reuse `crawl_cursor` as the single per-target/run evidence store rather than introduce another table or planning layer.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/integration/collect-subreddit-new-posts-p0.test.ts tests/unit/target-workbench-read-model.service.test.ts tests/integration/api-server-trends.test.ts tests/unit/reddit-phase1-runtime.test.ts` passed.
+- Next: Keep the next slice small. Build `P1.3` all-target catalog/list and then align the remaining older daily-trend surfaces to the same `missing` / `source_limited` semantics already available in workbench responses.
+
+### 2026-04-27 02:30:00
+
+- Scope: Removed already-completed work from the live task lists and archived it instead of keeping it in the active queue. Kept `project.md` and `reddit-monitoring-mvp-optimal-plan.md` as execution-facing state, while treating `开发方案分析.md` as historical analysis rather than an active checklist.
+- Why now: The user asked to delete or archive completed items. Leaving finished `P0` and `P1.1` work in current task sections would keep re-opening already-verified slices and encourage unnecessary code changes.
+- Verify: `project.md` now only lists unfinished `P1.2+` work in the explicit task stack. `reddit-monitoring-mvp-optimal-plan.md` now archives completed `P0`/`P1.1` items instead of presenting them as still-open implementation tasks.
+- Next: Keep execution narrow on `P1.2`, `P1.3`, and the remaining missing/source-limited semantics only.
+
+### 2026-04-27 02:26:57
+
+- Scope: Landed the first real `P1.1` slice for favorite-target live scheduling. Added deterministic 5-minute slot scheduling for favorite targets in [reddit-target-scheduling.ts](/root/reddit-monitoring-mvp/src/workers/reddit-target-scheduling.ts), wired [reddit-phase1.worker.ts](/root/reddit-monitoring-mvp/src/workers/reddit-phase1.worker.ts) to honor `monitor_target.config_json` favorite/cadence policy when no explicit target list is requested, and fixed [reddit-phase1-runtime.ts](/root/reddit-monitoring-mvp/src/runtime/reddit-phase1-runtime.ts) so env-seeded active targets no longer wipe existing monitor-target config.
+- Why now: After closing `P0`, the next narrow blocker was that normal live collection still scanned every active target and the runtime kept overwriting `config_json`, which made per-target cadence impossible in practice.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/unit/reddit-target-scheduling.test.ts tests/unit/reddit-phase1-runtime.test.ts tests/integration/reddit-phase1-cycle.test.ts` passed.
+- Next: Stay on truth semantics. Implement `P1.2` by recording requested live window, oldest/newest observed post, listing-horizon hit, and partial/source-limited status per run/target, then expose that state through the existing read path without fake completeness.
+
+### 2026-04-27 02:19:45
+
+- Scope: Closed the `P0` collector/storage truth slice on the reduced `http + scrapling` path. Added live-window acceptance and active-post metric gating in [collect-subreddit-new-posts.job.ts](/root/reddit-monitoring-mvp/src/jobs/collect-subreddit-new-posts.job.ts), centralized retention pruning in [retention-prune.ts](/root/reddit-monitoring-mvp/src/ops/retention-prune.ts), reused that logic from the prune scripts, and scheduled bounded raw-event / metrics retention from [reddit-phase1-scheduler.ts](/root/reddit-monitoring-mvp/workers/reddit-phase1-scheduler.ts).
+- Why now: `project.md` explicitly prioritized `P0.1` through `P0.4` before any favorite-target cadence or coverage work. The runtime needed to stop accepting stale live posts, stop rewriting metrics for long-old posts, and make retention an automatic default path instead of a manual script-only operation.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/integration/collect-subreddit-new-posts-p0.test.ts tests/integration/reddit-phase1-scheduler-runnable-jobs.test.ts` passed.
+- Next: Implement `P1.1` and `P1.2` narrowly: read favorite/cadence policy from `monitor_target.config_json`, schedule the 8-hour lane honestly, then expose requested-window / observed-window / source-limited live coverage state.
 
 ### 2026-04-27 01:44:01
 

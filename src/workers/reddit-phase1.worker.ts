@@ -36,6 +36,7 @@ import {
   DEFAULT_REDDIT_POST_LIMIT_BOOST,
 } from "./reddit-phase1-defaults";
 import { PHASE1_SAMPLING_THRESHOLDS } from "./reddit-phase1-thresholds";
+import { selectTargetsForLiveCollection } from "./reddit-target-scheduling";
 
 interface RedditExecutionStrategy {
   selectedProvider: RedditLiveProvider;
@@ -238,7 +239,10 @@ export async function runRedditPhase1Cycle(
 
   const targets =
     requestedCanonicalNames.length === 0
-      ? await deps.monitorTargetRepository.findActiveSubreddits()
+      ? selectTargetsForLiveCollection({
+          targets: await deps.monitorTargetRepository.findActiveSubreddits(),
+          nowIso,
+        })
       : (
           await Promise.all(
             requestedCanonicalNames.map((name) =>

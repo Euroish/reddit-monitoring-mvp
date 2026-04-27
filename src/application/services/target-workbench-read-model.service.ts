@@ -124,6 +124,7 @@ export function buildTargetWorkbenchReadModel(args: {
   contents: Content[];
   anomalyEvents: AnomalyEvent[];
   providerHealthWindows: ProviderHealthWindow[];
+  liveCursor?: CrawlCursor | null;
   backfillCursor?: CrawlCursor | null;
   keywords?: string[];
   normalizedQueries?: Array<{
@@ -252,6 +253,7 @@ export function buildTargetWorkbenchReadModel(args: {
       points: dailyInsights.daily.map((point) => {
         const quality = resolveSeriesPointQuality({
           point,
+          liveCursor: args.liveCursor,
           backfillCursor: args.backfillCursor,
         });
         return {
@@ -298,6 +300,7 @@ export function buildTargetWorkbenchReadModel(args: {
       status: coverage.status,
       pointCount: materializedFactDays.size,
       expectedPointCount: dailyInsights.dayCount,
+      live: summarizeLiveCoverage(args.liveCursor),
       backfill: summarizeBackfillCoverage(args.backfillCursor),
       coverage,
       stale: latestPointAt
@@ -313,6 +316,47 @@ export function buildTargetWorkbenchReadModel(args: {
         toIso: args.toIso,
       }),
     },
+  };
+}
+
+function summarizeLiveCoverage(
+  liveCursor?: CrawlCursor | null,
+): TargetWorkbenchResponse["dataQuality"]["live"] {
+  if (!liveCursor || liveCursor.mode !== "live") {
+    return {
+      status: "missing",
+    };
+  }
+
+  return {
+    status: liveCursor.liveCoverageStatus ?? "partial",
+    provider: liveCursor.provider,
+    ...(liveCursor.liveRequestedFromIso
+      ? { requestedFromIso: liveCursor.liveRequestedFromIso }
+      : {}),
+    ...(liveCursor.oldestObservedAt
+      ? { oldestObservedAt: liveCursor.oldestObservedAt }
+      : {}),
+    ...(liveCursor.newestObservedAt
+      ? { newestObservedAt: liveCursor.newestObservedAt }
+      : {}),
+    ...(typeof liveCursor.liveListingHorizonHit === "boolean"
+      ? { listingHorizonHit: liveCursor.liveListingHorizonHit }
+      : {}),
+    ...(liveCursor.oldestObservedAt && liveCursor.newestObservedAt
+      ? {
+          observedHourSpan:
+            Math.max(
+              1,
+              Math.floor(
+                (Date.parse(liveCursor.newestObservedAt) -
+                  Date.parse(liveCursor.oldestObservedAt)) /
+                  (60 * 60 * 1000),
+              ) + 1,
+            ) || 1,
+        }
+      : {}),
+    updatedAt: liveCursor.updatedAt,
   };
 }
 
@@ -358,8 +402,20 @@ function summarizeBackfillCoverage(
 
 function resolveSeriesPointQuality(args: {
   point: ReturnType<typeof buildSubredditDailyInsights>["daily"][number];
+  liveCursor?: CrawlCursor | null;
   backfillCursor?: CrawlCursor | null;
 }): TargetWorkbenchResponse["series"][number]["points"][number]["quality"] {
+  if (
+    args.point.pointQuality === "observed_zero" &&
+    args.liveCursor?.mode === "live" &&
+    args.liveCursor.liveCoverageStatus === "source_limited" &&
+    args.liveCursor.liveRequestedFromIso
+  ) {
+    const requestedObservedDay = args.liveCursor.liveRequestedFromIso.slice(0, 10);
+    if (args.point.day >= requestedObservedDay) {
+      return "missing";
+    }
+  }
   if (
     args.point.pointQuality === "observed_zero" &&
     args.backfillCursor?.mode === "backfill" &&

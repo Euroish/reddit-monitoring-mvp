@@ -26,6 +26,7 @@ import {
   InMemorySubredditTrendPointRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
 import { runRedditPhase1Cycle } from "../../src/workers/reddit-phase1.worker";
+import { isFavoriteTargetDueForLiveCollection } from "../../src/workers/reddit-target-scheduling";
 
 class ScriptedBackfillConnector implements RedditConnector {
   public readonly sourceCode = "reddit" as const;
@@ -135,6 +136,86 @@ class ScriptedBackfillConnector implements RedditConnector {
   }
 }
 
+class TrackingLiveConnector implements RedditConnector {
+  public readonly sourceCode = "reddit" as const;
+  public readonly seenSubreddits: string[] = [];
+
+  public async collect(
+    args: RedditCollectSubredditPostsArgs,
+    ctx: ConnectorRequestContext,
+  ): Promise<ConnectorPage<RedditListingPayload<RedditPostData>>> {
+    return this.collectSubredditPosts(args, ctx);
+  }
+
+  public async collectSubredditAbout(
+    args: RedditCollectSubredditAboutArgs,
+    ctx: ConnectorRequestContext,
+  ): Promise<ConnectorPage<RedditAboutPayload>> {
+    return {
+      raw: {
+        endpoint: `/r/${args.subreddit}/about.json`,
+        requestParams: {},
+        httpStatus: 200,
+        responseHeaders: {},
+        payload: {
+          data: {
+            display_name: args.subreddit,
+            subscribers: 1000,
+            accounts_active: 100,
+          },
+        },
+        fetchedAt: ctx.now,
+      },
+    };
+  }
+
+  public async collectSubredditPosts(
+    args: RedditCollectSubredditPostsArgs,
+    ctx: ConnectorRequestContext,
+  ): Promise<ConnectorPage<RedditListingPayload<RedditPostData>>> {
+    this.seenSubreddits.push(args.subreddit);
+    return {
+      raw: {
+        endpoint: `/r/${args.subreddit}/new.json`,
+        requestParams: {
+          limit: args.limit,
+          after: args.after,
+        },
+        httpStatus: 200,
+        responseHeaders: {},
+        payload: {
+          data: {
+            after: undefined,
+            children: [
+              {
+                kind: "t3",
+                data: {
+                  name: `t3_${args.subreddit}_0`,
+                  id: `${args.subreddit}_0`,
+                  subreddit: args.subreddit,
+                  author: "alice",
+                  title: `${args.subreddit} live post`,
+                  permalink: `/r/${args.subreddit}/comments/live/post`,
+                  created_utc: Math.floor(new Date(ctx.now).getTime() / 1000),
+                  score: 10,
+                  num_comments: 2,
+                  upvote_ratio: 0.8,
+                },
+              },
+            ],
+          },
+        },
+        fetchedAt: ctx.now,
+      },
+      nextCursor: undefined,
+    };
+  }
+
+  public async healthCheck(): Promise<boolean> {
+    return true;
+  }
+}
+
 function buildBackfillPosts(args: {
   subreddit: string;
   prefix: string;
@@ -227,6 +308,76 @@ test("phase1 cycle writes raw, normalized and trend data", async () => {
   assert.equal(postGrowthFactRepository.all().length > 0, true);
   assert.equal(subredditTrendPointRepository.all().length > 0, true);
   assert.equal(anomalyEventRepository.all().some((row) => row.signalType === "volume"), true);
+});
+
+test("phase1 cycle live mode only processes favorite targets due for the current cadence slot", async () => {
+  const nowIso = "2026-04-27T02:20:00.000Z";
+  const favoriteConfig = {
+    collection: {
+      live: {
+        favorite: true,
+        cadenceHours: 8,
+      },
+    },
+  };
+  const candidates = Array.from({ length: 512 }, (_, index) => {
+    const canonicalName = `r/favorite-${index}`;
+    return {
+      id: stableUuidFromString(`reddit:target:${canonicalName}`),
+      source: "reddit" as const,
+      targetType: "subreddit" as const,
+      canonicalName,
+      status: "active" as const,
+      config: favoriteConfig,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+  });
+  const dueTarget = candidates.find((target) =>
+    isFavoriteTargetDueForLiveCollection({
+      target,
+      nowIso,
+    }),
+  );
+  const laterTarget = candidates.find(
+    (target) =>
+      !isFavoriteTargetDueForLiveCollection({
+        target,
+        nowIso,
+      }),
+  );
+  if (!dueTarget || !laterTarget) {
+    throw new Error("failed to construct due and non-due favorite targets for cadence test");
+  }
+
+  const monitorTargetRepository = new InMemoryMonitorTargetRepository();
+  await monitorTargetRepository.upsert(dueTarget);
+  await monitorTargetRepository.upsert(laterTarget);
+
+  const connector = new TrackingLiveConnector();
+  const result = await runRedditPhase1Cycle(
+    {
+      monitorTargetRepository,
+      collectionJobRepository: new InMemoryCollectionJobRepository(),
+      rawEventRepository: new InMemoryRawEventRepository(),
+      accountRepository: new InMemoryAccountRepository(),
+      contentRepository: new InMemoryContentRepository(),
+      metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+      subredditDailyFactRepository: new InMemorySubredditDailyFactRepository(),
+      postGrowthFactRepository: new InMemoryPostGrowthFactRepository(),
+      subredditTrendPointRepository: new InMemorySubredditTrendPointRepository(),
+      anomalyEventRepository: new InMemoryAnomalyEventRepository(),
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+    },
+    nowIso,
+    {
+      crawlMode: "live",
+    },
+  );
+
+  assert.deepEqual(result.processedCanonicalNames, [dueTarget.canonicalName]);
+  assert.deepEqual(connector.seenSubreddits, [dueTarget.canonicalName.replace(/^r\//, "")]);
 });
 
 test("phase1 cycle backfill mode continues across multiple cursor windows until coverage target", async () => {

@@ -13,6 +13,7 @@ export type BackfillStopReason =
   | "terminal_eof"
   | "cursor_saturated"
   | "iteration_budget_exhausted";
+export type LiveCoverageStatus = "missing" | "partial" | "complete" | "source_limited";
 
 export interface CrawlCursor {
   provider: string;
@@ -22,6 +23,9 @@ export interface CrawlCursor {
   rewindCursor?: string;
   oldestObservedAt?: ISODateTime;
   newestObservedAt?: ISODateTime;
+  liveRequestedFromIso?: ISODateTime;
+  liveCoverageStatus?: LiveCoverageStatus;
+  liveListingHorizonHit?: boolean;
   backfillTargetFromIso?: ISODateTime;
   backfillCoverageStatus?: BackfillCoverageStatus;
   backfillStopReason?: BackfillStopReason;

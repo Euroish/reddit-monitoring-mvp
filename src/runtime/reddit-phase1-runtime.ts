@@ -280,18 +280,19 @@ export async function upsertActiveSubredditTarget(args: {
   const normalizedSubreddit = args.subreddit.trim().replace(/^r\//i, "").toLowerCase();
   const canonicalName = `r/${normalizedSubreddit}`;
   const targetId = stableUuidFromString(`reddit:target:${canonicalName}`);
+  const existing = await args.monitorTargetRepository.findByCanonicalName(canonicalName);
   await args.monitorTargetRepository.upsert({
-    id: targetId,
+    id: existing?.id ?? targetId,
     source: "reddit",
     targetType: "subreddit",
     canonicalName,
     status: "active",
-    config: {},
-    createdAt: args.nowIso,
+    config: existing?.config ?? {},
+    createdAt: existing?.createdAt ?? args.nowIso,
     updatedAt: args.nowIso,
   });
   return {
-    targetId,
+    targetId: existing?.id ?? targetId,
     canonicalName,
   };
 }

@@ -2310,6 +2310,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           contents,
           anomalyEvents,
           providerHealthWindows,
+          liveCursor,
           backfillCursor,
           queryMatchesByContentId,
         ] = await Promise.all([
@@ -2359,6 +2360,12 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           repos.crawlCursorRepository
             ?.list({
               targetId: target.id,
+              mode: "live",
+            })
+            .then((rows) => rows[0] ?? null) ?? Promise.resolve(null),
+          repos.crawlCursorRepository
+            ?.list({
+              targetId: target.id,
               mode: "backfill",
             })
             .then((rows) => rows[0] ?? null) ?? Promise.resolve(null),
@@ -2387,6 +2394,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           contents,
           anomalyEvents,
           providerHealthWindows,
+          liveCursor,
           backfillCursor,
           keywords: explicitQueryTexts,
           normalizedQueries: normalizedQueries.map((query) => ({

@@ -370,6 +370,18 @@ test("api server returns target workbench contract from materialized read models
   await repos.crawlCursorRepository.upsert({
     provider: "http",
     targetId,
+    mode: "live",
+    cursor: "t3_live_cursor_gap",
+    oldestObservedAt: "2026-04-10T18:00:00.000Z",
+    newestObservedAt: "2026-04-10T23:00:00.000Z",
+    liveRequestedFromIso: "2026-04-10T15:30:00.000Z",
+    liveCoverageStatus: "source_limited",
+    liveListingHorizonHit: true,
+    updatedAt: fixedNow,
+  });
+  await repos.crawlCursorRepository.upsert({
+    provider: "http",
+    targetId,
     mode: "backfill",
     cursor: "t3_cursor_gap",
     oldestObservedAt: "2026-04-10T00:00:00.000Z",
@@ -471,6 +483,10 @@ test("api server returns target workbench contract from materialized read models
     assert.equal(result.body.reliability.duplicatePostRate, 0.1);
     assert.equal(result.body.dataQuality.status, "partial");
     assert.equal(result.body.dataQuality.pointCount, 1);
+    assert.equal(result.body.dataQuality.live.status, "source_limited");
+    assert.equal(result.body.dataQuality.live.provider, "http");
+    assert.equal(result.body.dataQuality.live.requestedFromIso, "2026-04-10T15:30:00.000Z");
+    assert.equal(result.body.dataQuality.live.listingHorizonHit, true);
     assert.equal(result.body.dataQuality.backfill.status, "progressing");
     assert.equal(result.body.dataQuality.backfill.stopReason, "iteration_budget_exhausted");
     assert.equal(result.body.dataQuality.backfill.provider, "http");

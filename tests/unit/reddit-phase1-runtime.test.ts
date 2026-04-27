@@ -10,6 +10,7 @@ import {
   resolveRedditPhase1CycleOptionsFromEnv,
   upsertActiveSubredditTarget,
 } from "../../src/runtime/reddit-phase1-runtime";
+import { stableUuidFromString } from "../../src/shared/ids/stable-id";
 import { InMemoryMonitorTargetRepository } from "../../src/storage/repositories/in-memory/in-memory.repositories";
 
 test("resolveRedditPhase1CycleOptionsFromEnv keeps http-first live defaults aligned", () => {
@@ -258,4 +259,43 @@ test("upsertActiveSubredditTarget normalizes canonical naming once", async () =>
   assert.equal(result.canonicalName, "r/datascience");
   const stored = await monitorTargetRepository.findByCanonicalName("r/datascience");
   assert.equal(stored?.canonicalName, "r/datascience");
+});
+
+test("upsertActiveSubredditTarget preserves existing monitor target config", async () => {
+  const monitorTargetRepository = new InMemoryMonitorTargetRepository();
+  await monitorTargetRepository.upsert({
+    id: stableUuidFromString("reddit:target:r/datascience"),
+    source: "reddit",
+    targetType: "subreddit",
+    canonicalName: "r/datascience",
+    status: "paused",
+    config: {
+      collection: {
+        live: {
+          favorite: true,
+          cadenceHours: 8,
+        },
+      },
+    },
+    createdAt: "2026-04-14T00:00:00.000Z",
+    updatedAt: "2026-04-14T00:00:00.000Z",
+  });
+
+  await upsertActiveSubredditTarget({
+    monitorTargetRepository,
+    subreddit: "datascience",
+    nowIso: "2026-04-15T00:00:00.000Z",
+  });
+
+  const stored = await monitorTargetRepository.findByCanonicalName("r/datascience");
+  assert.deepEqual(stored?.config, {
+    collection: {
+      live: {
+        favorite: true,
+        cadenceHours: 8,
+      },
+    },
+  });
+  assert.equal(stored?.status, "active");
+  assert.equal(stored?.createdAt, "2026-04-14T00:00:00.000Z");
 });

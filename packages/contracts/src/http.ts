@@ -756,6 +756,16 @@ export interface TargetWorkbenchResponse {
     status: "complete" | "partial" | "empty";
     pointCount: number;
     expectedPointCount: number;
+    live: {
+      status: "missing" | "partial" | "complete" | "source_limited";
+      provider?: string;
+      requestedFromIso?: string;
+      oldestObservedAt?: string;
+      newestObservedAt?: string;
+      listingHorizonHit?: boolean;
+      observedHourSpan?: number;
+      updatedAt?: string;
+    };
     backfill: {
       status:
         | "missing"

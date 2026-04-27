@@ -25,6 +25,9 @@ import {
   InMemoryRawEventRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
 
+process.env.REDDIT_LIVE_WINDOW_HOURS ??= "100000";
+process.env.REDDIT_LIVE_WINDOW_OVERLAP_MINUTES ??= "0";
+
 class ScriptedPostsConnector implements RedditConnector {
   public readonly sourceCode = "reddit" as const;
   public readonly seenAfter: Array<string | undefined> = [];
@@ -301,6 +304,297 @@ test("collect subreddit new posts live mode re-polls head page every 5 minutes",
       { snapshotAt: "2026-04-10T12:00:00.000Z", metricValue: 1 },
       { snapshotAt: "2026-04-10T12:05:00.000Z", metricValue: 1 },
     ],
+  );
+});
+
+test("collect subreddit new posts live mode ignores posts outside the configured live window", async (t) => {
+  const previousHours = process.env.REDDIT_LIVE_WINDOW_HOURS;
+  const previousOverlap = process.env.REDDIT_LIVE_WINDOW_OVERLAP_MINUTES;
+  process.env.REDDIT_LIVE_WINDOW_HOURS = "8";
+  process.env.REDDIT_LIVE_WINDOW_OVERLAP_MINUTES = "30";
+  t.after(() => {
+    if (previousHours == null) {
+      delete process.env.REDDIT_LIVE_WINDOW_HOURS;
+    } else {
+      process.env.REDDIT_LIVE_WINDOW_HOURS = previousHours;
+    }
+    if (previousOverlap == null) {
+      delete process.env.REDDIT_LIVE_WINDOW_OVERLAP_MINUTES;
+    } else {
+      process.env.REDDIT_LIVE_WINDOW_OVERLAP_MINUTES = previousOverlap;
+    }
+  });
+
+  const nowIso = "2026-04-10T12:00:00.000Z";
+  const targetId = stableUuidFromString("reddit:target:r/live-window");
+  const connector = new ScriptedPostsConnector([
+    {
+      provider: "http",
+      posts: [
+        {
+          name: "t3_recent",
+          id: "recent",
+          subreddit: "live-window",
+          author: "alice",
+          title: "recent",
+          permalink: "/r/live-window/comments/recent/post",
+          created_utc: Math.floor(new Date("2026-04-10T04:15:00.000Z").getTime() / 1000),
+          score: 80,
+          num_comments: 9,
+        },
+        {
+          name: "t3_stale",
+          id: "stale",
+          subreddit: "live-window",
+          author: "bob",
+          title: "stale",
+          permalink: "/r/live-window/comments/stale/post",
+          created_utc: Math.floor(new Date("2026-04-10T03:20:00.000Z").getTime() / 1000),
+          score: 150,
+          num_comments: 20,
+        },
+      ],
+    },
+  ]);
+  const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+
+  await collectSubredditNewPostsJob(
+    {
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+      collectionJobRepository: new InMemoryCollectionJobRepository(),
+      crawlCursorRepository: new InMemoryCrawlCursorRepository(),
+      rawEventRepository: new InMemoryRawEventRepository(),
+      accountRepository: new InMemoryAccountRepository(),
+      contentRepository: new InMemoryContentRepository(),
+      metricsSnapshotRepository,
+      providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
+    },
+    {
+      targetId,
+      subreddit: "live-window",
+      nowIso,
+      mode: "live",
+      providerHint: "http",
+    },
+  );
+
+  const snapshots = metricsSnapshotRepository.all();
+  assert.equal(snapshots.find((item) => item.metricName === "new_posts_15m")?.metricValue, 1);
+  const crawlCursorRepository = new InMemoryCrawlCursorRepository();
+  await collectSubredditNewPostsJob(
+    {
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+      collectionJobRepository: new InMemoryCollectionJobRepository(),
+      crawlCursorRepository,
+      rawEventRepository: new InMemoryRawEventRepository(),
+      accountRepository: new InMemoryAccountRepository(),
+      contentRepository: new InMemoryContentRepository(),
+      metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+      providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
+    },
+    {
+      targetId,
+      subreddit: "live-window",
+      nowIso,
+      mode: "live",
+      providerHint: "http",
+    },
+  );
+  const crawlCursor = await crawlCursorRepository.resolve({
+    provider: "http",
+    targetId,
+    mode: "live",
+  });
+  assert.equal(crawlCursor?.liveRequestedFromIso, "2026-04-10T03:30:00.000Z");
+  assert.equal(crawlCursor?.liveCoverageStatus, "complete");
+  assert.equal(crawlCursor?.liveListingHorizonHit, false);
+  assert.deepEqual(
+    snapshots
+      .filter((item) => item.metricName === "score")
+      .map((item) => item.contentId)
+      .sort(),
+    [stableUuidFromString("reddit:content:t3_recent")],
+  );
+});
+
+test("collect subreddit new posts records source-limited live coverage when listing horizon is hit before window coverage", async (t) => {
+  const previousHours = process.env.REDDIT_LIVE_WINDOW_HOURS;
+  const previousOverlap = process.env.REDDIT_LIVE_WINDOW_OVERLAP_MINUTES;
+  process.env.REDDIT_LIVE_WINDOW_HOURS = "8";
+  process.env.REDDIT_LIVE_WINDOW_OVERLAP_MINUTES = "30";
+  t.after(() => {
+    if (previousHours == null) {
+      delete process.env.REDDIT_LIVE_WINDOW_HOURS;
+    } else {
+      process.env.REDDIT_LIVE_WINDOW_HOURS = previousHours;
+    }
+    if (previousOverlap == null) {
+      delete process.env.REDDIT_LIVE_WINDOW_OVERLAP_MINUTES;
+    } else {
+      process.env.REDDIT_LIVE_WINDOW_OVERLAP_MINUTES = previousOverlap;
+    }
+  });
+
+  const targetId = stableUuidFromString("reddit:target:r/live-source-limited");
+  const connector = new ScriptedPostsConnector([
+    {
+      nextCursor: "t3_live_1",
+      provider: "http",
+      posts: buildPostsBatch({
+        subreddit: "live-source-limited",
+        prefix: "page1",
+        count: 2,
+        baseCreatedUtc: Math.floor(new Date("2026-04-10T11:00:00.000Z").getTime() / 1000),
+      }),
+    },
+    {
+      nextCursor: "t3_live_2",
+      provider: "http",
+      posts: buildPostsBatch({
+        subreddit: "live-source-limited",
+        prefix: "page2",
+        count: 2,
+        baseCreatedUtc: Math.floor(new Date("2026-04-10T10:30:00.000Z").getTime() / 1000),
+      }),
+    },
+    {
+      nextCursor: "t3_live_3",
+      provider: "http",
+      posts: buildPostsBatch({
+        subreddit: "live-source-limited",
+        prefix: "page3",
+        count: 2,
+        baseCreatedUtc: Math.floor(new Date("2026-04-10T10:00:00.000Z").getTime() / 1000),
+      }),
+    },
+  ]);
+  const crawlCursorRepository = new InMemoryCrawlCursorRepository();
+
+  await collectSubredditNewPostsJob(
+    {
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+      collectionJobRepository: new InMemoryCollectionJobRepository(),
+      crawlCursorRepository,
+      rawEventRepository: new InMemoryRawEventRepository(),
+      accountRepository: new InMemoryAccountRepository(),
+      contentRepository: new InMemoryContentRepository(),
+      metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+      providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
+    },
+    {
+      targetId,
+      subreddit: "live-source-limited",
+      nowIso: "2026-04-10T12:00:00.000Z",
+      mode: "live",
+      providerHint: "http",
+      limit: 2,
+    },
+  );
+
+  const crawlCursor = await crawlCursorRepository.resolve({
+    provider: "http",
+    targetId,
+    mode: "live",
+  });
+  assert.equal(crawlCursor?.liveRequestedFromIso, "2026-04-10T03:30:00.000Z");
+  assert.equal(crawlCursor?.liveCoverageStatus, "source_limited");
+  assert.equal(crawlCursor?.liveListingHorizonHit, true);
+});
+
+test("collect subreddit new posts suppresses stale metric rewrites outside the active tracking window", async (t) => {
+  const previousTrackingHours = process.env.REDDIT_ACTIVE_POST_TRACKING_HOURS;
+  process.env.REDDIT_ACTIVE_POST_TRACKING_HOURS = "48";
+  t.after(() => {
+    if (previousTrackingHours == null) {
+      delete process.env.REDDIT_ACTIVE_POST_TRACKING_HOURS;
+    } else {
+      process.env.REDDIT_ACTIVE_POST_TRACKING_HOURS = previousTrackingHours;
+    }
+  });
+
+  const targetId = stableUuidFromString("reddit:target:r/metric-window");
+  const connector = new ScriptedPostsConnector([
+    {
+      provider: "http",
+      posts: [
+        {
+          name: "t3_old-but-new-to-db",
+          id: "old-but-new-to-db",
+          subreddit: "metric-window",
+          author: "alice",
+          title: "new content still writes first metrics",
+          permalink: "/r/metric-window/comments/old-but-new-to-db/post",
+          created_utc: Math.floor(new Date("2026-04-08T13:00:00.000Z").getTime() / 1000),
+          score: 100,
+          num_comments: 11,
+        },
+        {
+          name: "t3_old-existing",
+          id: "old-existing",
+          subreddit: "metric-window",
+          author: "bob",
+          title: "old existing should not rewrite metrics",
+          permalink: "/r/metric-window/comments/old-existing/post",
+          created_utc: Math.floor(new Date("2026-04-08T10:00:00.000Z").getTime() / 1000),
+          score: 200,
+          num_comments: 21,
+        },
+      ],
+    },
+  ]);
+
+  const contentRepository = new InMemoryContentRepository();
+  await contentRepository.upsertMany([
+    {
+      id: stableUuidFromString("reddit:content:t3_old-existing"),
+      source: "reddit",
+      targetId,
+      accountId: stableUuidFromString("reddit:account:bob"),
+      externalId: "t3_old-existing",
+      kind: "post",
+      title: "already stored",
+      bodyText: "",
+      permalink: "/r/metric-window/comments/old-existing/post",
+      createdAtSource: "2026-04-08T10:00:00.000Z",
+      firstSeenAt: "2026-04-08T10:05:00.000Z",
+      lastSeenAt: "2026-04-08T10:05:00.000Z",
+    },
+  ]);
+  const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+
+  await collectSubredditNewPostsJob(
+    {
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+      collectionJobRepository: new InMemoryCollectionJobRepository(),
+      crawlCursorRepository: new InMemoryCrawlCursorRepository(),
+      rawEventRepository: new InMemoryRawEventRepository(),
+      accountRepository: new InMemoryAccountRepository(),
+      contentRepository,
+      metricsSnapshotRepository,
+      providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
+    },
+    {
+      targetId,
+      subreddit: "metric-window",
+      nowIso: "2026-04-10T12:00:00.000Z",
+      mode: "live",
+      providerHint: "http",
+    },
+  );
+
+  const scoreSnapshots = metricsSnapshotRepository.all().filter((item) => item.metricName === "score");
+  assert.equal(scoreSnapshots.length, 1);
+  assert.equal(
+    scoreSnapshots[0]?.contentId,
+    stableUuidFromString("reddit:content:t3_old-but-new-to-db"),
+  );
+  assert.equal(
+    metricsSnapshotRepository.all().find((item) => item.metricName === "new_posts_15m")?.metricValue,
+    1,
   );
 });
 

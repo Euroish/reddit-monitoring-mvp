@@ -20,7 +20,12 @@ import type { RawEventRepository } from "../domain/repositories/raw-event-reposi
 import { resolveSubredditTier } from "../domain/services/subreddit-tiering.service";
 import { stableUuidFromString } from "../shared/ids/stable-id";
 import { buildDedupeKey, floorToWindow } from "../shared/time/windowing";
-import { resolveCollectionWindowMinutes } from "../workers/reddit-phase1-defaults";
+import {
+  resolveActivePostTrackingHours,
+  resolveCollectionWindowMinutes,
+  resolveLiveWindowHours,
+  resolveLiveWindowOverlapMinutes,
+} from "../workers/reddit-phase1-defaults";
 import { PHASE1_SAMPLING_THRESHOLDS } from "../workers/reddit-phase1-thresholds";
 import { computeRetryDelayMs, resolveJobRetryPolicy } from "./job-retry-policy";
 import type {
@@ -237,10 +242,17 @@ export async function runExistingSubredditNewPostsJob(
       allUpserts.push(...pageUpserts);
       allMetricPoints.push(...pageMetricPoints);
     }
-    const filtered = filterCandidates({
+    const candidateFiltered = filterCandidates({
       upserts: allUpserts,
       metricPoints: allMetricPoints,
       filter,
+    });
+    const filtered = applyLiveWindowAcceptance({
+      upserts: candidateFiltered.upserts,
+      metricPoints: candidateFiltered.metricPoints,
+      filteredOutCount: candidateFiltered.filteredOutCount,
+      mode,
+      nowIso: input.nowIso,
     });
     const observedExternalIds = Array.from(
       new Set(filtered.upserts.map((item) => item.externalId)),
@@ -259,6 +271,12 @@ export async function runExistingSubredditNewPostsJob(
     const newAcceptedUpserts = filtered.upserts.filter(
       (item) => !existingExternalIdSet.has(item.externalId),
     );
+    const metricsToWrite = selectMetricPointsForWrite({
+      upserts: filtered.upserts,
+      metricPoints: filtered.metricPoints,
+      newAcceptedExternalIds: new Set(newAcceptedUpserts.map((item) => item.externalId)),
+      nowIso: input.nowIso,
+    });
     const ingestLagStats = summarizeIngestLagSeconds(filtered.upserts, input.nowIso);
     const providerDiffStats = summarizeProviderDiffStats(pages);
     const lastPage = pages[pages.length - 1];
@@ -324,7 +342,7 @@ export async function runExistingSubredditNewPostsJob(
       },
     ];
 
-    for (const point of filtered.metricPoints) {
+    for (const point of metricsToWrite) {
       const contentId = stableUuidFromString(`reddit:content:${point.externalId}`);
       if (typeof point.score === "number") {
         snapshots.push({
@@ -372,6 +390,13 @@ export async function runExistingSubredditNewPostsJob(
       await deps.collectionJobRepository.saveCursor(input.job.id, cursorToPersist);
     }
     if (deps.crawlCursorRepository) {
+      const liveCoverage = summarizeLiveCoverage({
+        mode,
+        nowIso: input.nowIso,
+        oldestObservedAt: observedPages.oldestObservedAt,
+        newestObservedAt: observedPages.newestObservedAt,
+        listingHorizonHit: observedPages.listingHorizonHit,
+      });
       const cursorToPersist = resolveObservedCursorSnapshot({
         mode,
         finalCursor,
@@ -400,6 +425,9 @@ export async function runExistingSubredditNewPostsJob(
             rewindCursor !== finalCursor
               ? rewindCursor
               : undefined,
+          liveRequestedFromIso: liveCoverage?.requestedFromIso,
+          liveCoverageStatus: liveCoverage?.status,
+          liveListingHorizonHit: liveCoverage?.listingHorizonHit,
           oldestObservedAt:
             mode === "backfill"
               ? mergeOldestObservedAt(existing?.cursor.oldestObservedAt, observedPages.oldestObservedAt)
@@ -708,6 +736,7 @@ async function collectObservedPages(args: {
   lastCursorPage?: Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>;
   oldestObservedAt?: string;
   newestObservedAt?: string;
+  listingHorizonHit: boolean;
 }> {
   const pages: Array<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>> = [];
   let after = args.after;
@@ -716,6 +745,7 @@ async function collectObservedPages(args: {
   let lastCursorPage: Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>> | undefined;
   let oldestObservedAt: string | undefined;
   let newestObservedAt: string | undefined;
+  let listingHorizonHit = false;
   let extraBudget =
     args.mode === "live"
       ? Math.max(args.limit, resolveLiveOverflowExtraBudget(args.limit, args.samplingTier))
@@ -769,6 +799,7 @@ async function collectObservedPages(args: {
       extraBudget <= 0 ||
       pageIndex >= maxLivePages - 1
     ) {
+      listingHorizonHit = true;
       break;
     }
     if (shouldStopLiveOverflowByAge({
@@ -811,6 +842,7 @@ async function collectObservedPages(args: {
     lastCursorPage,
     oldestObservedAt,
     newestObservedAt,
+    listingHorizonHit,
   };
 }
 
@@ -1146,6 +1178,113 @@ function filterCandidates(args: {
     upserts: filteredUpserts,
     metricPoints: filteredMetricPoints,
     filteredOutCount: Math.max(0, args.upserts.length - filteredUpserts.length),
+  };
+}
+
+function applyLiveWindowAcceptance(args: {
+  upserts: ReturnType<RedditMapper["toPostUpserts"]>;
+  metricPoints: ReturnType<RedditMapper["toPostMetricPoints"]>;
+  filteredOutCount: number;
+  mode: CrawlMode;
+  nowIso: string;
+}): {
+  upserts: ReturnType<RedditMapper["toPostUpserts"]>;
+  metricPoints: ReturnType<RedditMapper["toPostMetricPoints"]>;
+  filteredOutCount: number;
+} {
+  if (args.mode !== "live") {
+    return args;
+  }
+
+  const liveWindowStartIso = resolveLiveWindowStartIso(args.nowIso);
+  const acceptedExternalIds = new Set<string>();
+  const filteredUpserts = args.upserts.filter((post) => {
+    if (post.createdAtSource < liveWindowStartIso) {
+      return false;
+    }
+    acceptedExternalIds.add(post.externalId);
+    return true;
+  });
+  const filteredMetricPoints = args.metricPoints.filter((metric) =>
+    acceptedExternalIds.has(metric.externalId),
+  );
+  return {
+    upserts: filteredUpserts,
+    metricPoints: filteredMetricPoints,
+    filteredOutCount: args.filteredOutCount + Math.max(0, args.upserts.length - filteredUpserts.length),
+  };
+}
+
+function selectMetricPointsForWrite(args: {
+  upserts: ReturnType<RedditMapper["toPostUpserts"]>;
+  metricPoints: ReturnType<RedditMapper["toPostMetricPoints"]>;
+  newAcceptedExternalIds: ReadonlySet<string>;
+  nowIso: string;
+}): ReturnType<RedditMapper["toPostMetricPoints"]> {
+  const activeWindowStartIso = resolveActivePostTrackingStartIso(args.nowIso);
+  const upsertsByExternalId = new Map(args.upserts.map((item) => [item.externalId, item]));
+  return args.metricPoints.filter((metric) => {
+    if (args.newAcceptedExternalIds.has(metric.externalId)) {
+      return true;
+    }
+    const post = upsertsByExternalId.get(metric.externalId);
+    if (!post) {
+      return false;
+    }
+    return post.createdAtSource >= activeWindowStartIso;
+  });
+}
+
+function resolveLiveWindowStartIso(nowIso: string): string {
+  const totalMinutes =
+    resolveLiveWindowHours() * 60 +
+    resolveLiveWindowOverlapMinutes();
+  return new Date(new Date(nowIso).getTime() - totalMinutes * 60 * 1000).toISOString();
+}
+
+function resolveActivePostTrackingStartIso(nowIso: string): string {
+  const activeWindowHours = resolveActivePostTrackingHours();
+  return new Date(new Date(nowIso).getTime() - activeWindowHours * 60 * 60 * 1000).toISOString();
+}
+
+function summarizeLiveCoverage(args: {
+  mode: CrawlMode;
+  nowIso: string;
+  oldestObservedAt?: string;
+  newestObservedAt?: string;
+  listingHorizonHit: boolean;
+}):
+  | {
+      requestedFromIso: string;
+      status: "partial" | "complete" | "source_limited";
+      listingHorizonHit: boolean;
+    }
+  | undefined {
+  if (args.mode !== "live") {
+    return undefined;
+  }
+
+  const requestedFromIso = resolveLiveWindowStartIso(args.nowIso);
+  if (!args.oldestObservedAt || !args.newestObservedAt) {
+    return {
+      requestedFromIso,
+      status: "partial",
+      listingHorizonHit: args.listingHorizonHit,
+    };
+  }
+
+  if (args.listingHorizonHit && args.oldestObservedAt > requestedFromIso) {
+    return {
+      requestedFromIso,
+      status: "source_limited",
+      listingHorizonHit: true,
+    };
+  }
+
+  return {
+    requestedFromIso,
+    status: args.oldestObservedAt <= requestedFromIso ? "complete" : "partial",
+    listingHorizonHit: args.listingHorizonHit,
   };
 }
 

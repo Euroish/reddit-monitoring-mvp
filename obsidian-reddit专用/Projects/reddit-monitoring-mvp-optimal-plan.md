@@ -158,218 +158,23 @@ accepted_new_post =
 
 ## 3. 当前仍需实现的功能 / 任务
 
-## P0：数据真实性与 SQL 压力收束
+### 已归档完成
 
-### P0.1 Live window filter
-
-文件：
+以下项已落地，不再保留在当前待办：
 
 ```text
-src/jobs/collect-subreddit-new-posts.job.ts
+P0.1 live window filter
+P0.2 old post metrics 限制
+P0.3 raw/metrics prune 自动化默认路径
+P0.4 duplicate-post safety under automation
+P1.1 favorite-target 8-hour scheduling first slice
 ```
 
-新增逻辑：
-
-```text
-live 模式只把 createdAtSource 落在当前采集窗口内的 post 作为 newAcceptedUpserts
-```
-
-建议：
-
-```ts
-const liveWindowFromIso = new Date(
-  Date.parse(input.nowIso) -
-    (liveWindowHours * 60 + liveWindowOverlapMinutes) * 60 * 1000,
-).toISOString();
-```
-
-过滤规则：
-
-```text
-mode === live:
-  keep if createdAtSource >= liveWindowFromIso
-
-mode === backfill:
-  保持旧行为，但仅用于 repair / diagnostic
-```
-
-验收：
-
-```text
-第一次启动不会把过去 listing 里的旧帖子全部算成当天新增。
-8 小时周期内的重复 post 不重复计入 new_posts_15m / daily facts。
-```
+它们的执行真相以 `project.md` activity log 和当前代码为准。
 
 ---
 
-### P0.2 旧 post 不再写入趋势计算 snapshots
-
-当前问题：
-
-```text
-filtered.metricPoints 会为本轮看到的所有 post 写 score / num_comments / upvote_ratio snapshots。
-即使 post 已存在，也会继续膨胀 metrics_snapshot。
-```
-
-目标：
-
-```text
-默认只给 newAcceptedUpserts 写 content-level metrics。
-```
-
-可选增强：
-
-```text
-只追踪 createdAtSource >= now - 48h 的活跃 post，用于 driver post / growth。
-```
-
-建议变量：
-
-```text
-REDDIT_ACTIVE_POST_TRACKING_HOURS=48
-```
-
-验收：
-
-```text
-metrics_snapshot 增速与新 post 或 48h 活跃窗口绑定，不再随重复 listing 无限增长。
-```
-
----
-
-### P0.3 raw events 和 metrics prune 自动化
-
-已有脚本：
-
-```text
-scripts/prune-raw-events.ts
-scripts/prune-metrics-snapshots.ts
-```
-
-仍需实现：
-
-```text
-systemd timer / cron / deployment job
-```
-
-建议配置：
-
-```env
-RAW_EVENT_RETENTION_DAYS=2
-RAW_EVENT_PRUNE_LOOP=true
-RAW_EVENT_PRUNE_BATCH_SIZE=5000
-
-METRICS_SNAPSHOT_RETENTION_DAYS=21
-METRICS_SNAPSHOT_PRUNE_LOOP=true
-METRICS_SNAPSHOT_PRUNE_BATCH_SIZE=10000
-```
-
-验收：
-
-```text
-raw_reddit_event 不再长期堆积。
-metrics_snapshot 保留足够计算 recent trends，但不会无限增长。
-daily facts / keyword facts / driver facts 长期保留。
-```
-
----
-
-### P0.4 统一 missing day 语义
-
-当前 workbench series 已支持：
-
-```text
-value: number | null
-quality: observed | observed_zero | missing
-```
-
-仍需检查并统一所有 API/UI：
-
-```text
-SubredditDailyTrendResponse
-TargetWorkbenchResponse
-comparison workbench
-front-end charts
-tooltip
-legend
-```
-
-规则：
-
-```text
-missing = null / gap / gray area
-observed_zero = 真实观测到 0
-observed = 有观测数据
-source_limited = 数据源不可达，不得画成真实 0
-```
-
-验收：
-
-```text
-未覆盖日不会显示成 0。
-前端 tooltip 明确显示 Missing coverage, not zero posts。
-```
-
----
-
-## P1：8 小时 favorite subreddit 自动采集
-
-### P1.1 当前可立即使用的 env 方案
-
-配置：
-
-```env
-REDDIT_RUN_MODE=live
-REDDIT_LIVE_PROVIDER=http
-PHASE1_SCHEDULER_INTERVAL_MS=28800000
-PHASE1_SCHEDULER_RUN_ON_START=true
-REDDIT_POST_LIMIT=1000
-REDDIT_POST_LIMIT_ADAPTIVE=false
-REDDIT_RUN_SUBREDDITS=sub1,sub2,sub3,...,sub50
-```
-
-用途：
-
-```text
-先让 50 个关注 subreddit 稳定运行 15 天。
-```
-
----
-
-### P1.2 DB favorite policy
-
-当前 env list 适合短期启动，但长期应落库。
-
-建议使用 `monitor_target.config_json`：
-
-```json
-{
-  "favorite": true,
-  "crawlIntervalHours": 8,
-  "desiredObservedDays": 15,
-  "providerPolicy": "http_primary",
-  "liveWindowHours": 8,
-  "liveWindowOverlapMinutes": 30
-}
-```
-
-新增或修改：
-
-```text
-target config parser
-scheduler target selection
-favorite-only live crawl
-```
-
-验收：
-
-```text
-favorite targets 每 8 小时自动采集。
-非 favorite 不进入高频抓取。
-backfill 不被每 8 小时重复触发。
-```
-
----
+## P1：当前主线
 
 ### P1.3 超大 subreddit coverage 标记
 

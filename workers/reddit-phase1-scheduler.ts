@@ -16,6 +16,11 @@ import {
 } from "../src/runtime/reddit-phase1-runtime";
 import { createRedditFetchExecutionEngine } from "../src/runtime/reddit-fetch-execution-engine";
 import {
+  resolveRetentionPruneConfig,
+  runRetentionPrune,
+  shouldRunRetentionPrune,
+} from "../src/ops/retention-prune";
+import {
   probeRedditProviderCapability,
   resolveRedditProviderCapabilityProbeConfigFromEnv,
 } from "../src/runtime/reddit-provider-capability";
@@ -452,6 +457,33 @@ export async function materializeTouchedTargets(args: {
   return materialized;
 }
 
+export async function maybeRunScheduledRetentionPrune(args: {
+  db: Parameters<typeof runRetentionPrune>[0]["db"];
+  env: NodeJS.ProcessEnv;
+  nowIso: string;
+  lastRunAtIso?: string;
+}): Promise<{
+  ran: boolean;
+  result?: {
+    rawEventsDeleted: number;
+    metricsSnapshotsDeleted: number;
+  };
+}> {
+  const config = resolveRetentionPruneConfig(args.env);
+  if (!shouldRunRetentionPrune({ config, nowIso: args.nowIso, lastRunAtIso: args.lastRunAtIso })) {
+    return { ran: false };
+  }
+
+  const result = await runRetentionPrune({
+    db: args.db,
+    config,
+  });
+  return {
+    ran: true,
+    result,
+  };
+}
+
 async function main(): Promise<void> {
   const intervalMs = parseIntervalMs(process.env.PHASE1_SCHEDULER_INTERVAL_MS);
   const runOnBoot = parseBooleanFlag(process.env.PHASE1_SCHEDULER_RUN_ON_START, false);
@@ -495,6 +527,7 @@ async function main(): Promise<void> {
   let inFlight = false;
   let stopped = false;
   let timer: NodeJS.Timeout | undefined;
+  let lastRetentionPruneAtIso: string | undefined;
 
   const runCycle = async (): Promise<void> => {
     if (stopped || inFlight) {
@@ -641,6 +674,15 @@ async function main(): Promise<void> {
         env: cycleEnv,
         runMode,
       });
+      const retentionPrune = await maybeRunScheduledRetentionPrune({
+        db: runtime.db,
+        env: cycleEnv,
+        nowIso,
+        lastRunAtIso: lastRetentionPruneAtIso,
+      });
+      if (retentionPrune.ran) {
+        lastRetentionPruneAtIso = nowIso;
+      }
 
       // eslint-disable-next-line no-console
       console.log(
@@ -654,6 +696,7 @@ async function main(): Promise<void> {
           failedTargets: result.failedTargets,
           replayedJobs: replayed.executedJobs,
           materializedTargets,
+          retentionPrune,
         }),
       );
     } catch (error) {

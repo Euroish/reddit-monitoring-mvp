@@ -13,6 +13,7 @@ export class PostgresCrawlCursorRepository implements CrawlCursorRepository {
     const result = await this.db.query<CrawlCursorRow>(
       `
       SELECT provider, target_id, mode, cursor, rewind_cursor, oldest_observed_at, newest_observed_at,
+             live_requested_from_iso, live_coverage_status, live_listing_horizon_hit,
              backfill_target_from_iso, backfill_coverage_status, backfill_stop_reason,
              last_fetched_at, updated_at
       FROM crawl_cursor
@@ -55,6 +56,7 @@ export class PostgresCrawlCursorRepository implements CrawlCursorRepository {
     const result = await this.db.query<CrawlCursorRow>(
       `
       SELECT provider, target_id, mode, cursor, rewind_cursor, oldest_observed_at, newest_observed_at,
+             live_requested_from_iso, live_coverage_status, live_listing_horizon_hit,
              backfill_target_from_iso, backfill_coverage_status, backfill_stop_reason,
              last_fetched_at, updated_at
       FROM crawl_cursor
@@ -71,15 +73,19 @@ export class PostgresCrawlCursorRepository implements CrawlCursorRepository {
       `
       INSERT INTO crawl_cursor (
         provider, target_id, mode, cursor, rewind_cursor, oldest_observed_at, newest_observed_at,
+        live_requested_from_iso, live_coverage_status, live_listing_horizon_hit,
         backfill_target_from_iso, backfill_coverage_status, backfill_stop_reason,
         last_fetched_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       ON CONFLICT (provider, target_id, mode)
       DO UPDATE SET
         cursor = EXCLUDED.cursor,
         rewind_cursor = EXCLUDED.rewind_cursor,
         oldest_observed_at = EXCLUDED.oldest_observed_at,
         newest_observed_at = EXCLUDED.newest_observed_at,
+        live_requested_from_iso = EXCLUDED.live_requested_from_iso,
+        live_coverage_status = EXCLUDED.live_coverage_status,
+        live_listing_horizon_hit = EXCLUDED.live_listing_horizon_hit,
         backfill_target_from_iso = EXCLUDED.backfill_target_from_iso,
         backfill_coverage_status = EXCLUDED.backfill_coverage_status,
         backfill_stop_reason = EXCLUDED.backfill_stop_reason,
@@ -94,6 +100,9 @@ export class PostgresCrawlCursorRepository implements CrawlCursorRepository {
         input.rewindCursor ?? null,
         input.oldestObservedAt ?? null,
         input.newestObservedAt ?? null,
+        input.liveRequestedFromIso ?? null,
+        input.liveCoverageStatus ?? null,
+        input.liveListingHorizonHit ?? null,
         input.backfillTargetFromIso ?? null,
         input.backfillCoverageStatus ?? null,
         input.backfillStopReason ?? null,

@@ -38,6 +38,7 @@ test("target workbench data quality stays partial when materialized days have no
   });
 
   assert.equal(response.dataQuality.status, "partial");
+  assert.equal(response.dataQuality.live.status, "missing");
   assert.equal(response.dataQuality.backfill.status, "missing");
   assert.equal(response.series[0]?.points[0]?.quality, "observed");
   assert.equal(response.series[0]?.points[1]?.quality, "observed_zero");
@@ -205,6 +206,56 @@ test("target workbench exposes explicit backfill coverage state when cursor evid
   assert.equal(response.dataQuality.backfill.provider, "http");
   assert.equal(response.dataQuality.backfill.targetFromIso, "2026-04-09T12:00:00.000Z");
   assert.equal(response.dataQuality.backfill.observedDaySpan, 3);
+});
+
+test("target workbench exposes explicit live coverage state when live cursor evidence exists", () => {
+  const targetId = stableUuidFromString("reddit:target:r/live-coverage");
+  const generatedAtIso = "2026-04-24T12:00:00.000Z";
+  const response = buildTargetWorkbenchReadModel({
+    requestId: "test-request",
+    generatedAtIso,
+    target: {
+      id: targetId,
+      source: "reddit",
+      targetType: "subreddit",
+      canonicalName: "r/live-coverage",
+      status: "active",
+      config: {},
+      createdAt: generatedAtIso,
+      updatedAt: generatedAtIso,
+    },
+    fromIso: "2026-04-22T00:00:00.000Z",
+    toIso: "2026-04-24T23:59:59.000Z",
+    timeframe: "1d",
+    rangePreset: "7d",
+    dailyFacts: [fact(targetId, "2026-04-24", { postVolume: 12, sampledPostVolume: 12 })],
+    trendPoints: [],
+    keywordDailyRows: [],
+    postGrowthFacts: [],
+    contents: [],
+    anomalyEvents: [],
+    providerHealthWindows: [],
+    liveCursor: {
+      provider: "http",
+      targetId,
+      mode: "live",
+      cursor: "t3_live_cursor",
+      oldestObservedAt: "2026-04-24T06:00:00.000Z",
+      newestObservedAt: "2026-04-24T11:45:00.000Z",
+      liveRequestedFromIso: "2026-04-24T03:30:00.000Z",
+      liveCoverageStatus: "source_limited",
+      liveListingHorizonHit: true,
+      updatedAt: generatedAtIso,
+    },
+  });
+
+  assert.equal(response.dataQuality.live.status, "source_limited");
+  assert.equal(response.dataQuality.live.provider, "http");
+  assert.equal(response.dataQuality.live.requestedFromIso, "2026-04-24T03:30:00.000Z");
+  assert.equal(response.dataQuality.live.oldestObservedAt, "2026-04-24T06:00:00.000Z");
+  assert.equal(response.dataQuality.live.newestObservedAt, "2026-04-24T11:45:00.000Z");
+  assert.equal(response.dataQuality.live.listingHorizonHit, true);
+  assert.equal(response.dataQuality.live.observedHourSpan, 6);
 });
 
 test("target workbench downgrades zero-filled days before latest backfill window to missing", () => {

@@ -26,6 +26,7 @@ import {
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
 import {
   executeRunnableCollectionJobs,
+  maybeRunScheduledRetentionPrune,
   resolveSchedulerLiveProviderExecutionPlan,
   resolveSchedulerRunnableProviderHint,
 } from "../../workers/reddit-phase1-scheduler";
@@ -275,6 +276,63 @@ test("resolveSchedulerRunnableProviderHint reroutes live jobs from failed http t
     }),
     "http",
   );
+});
+
+test("maybeRunScheduledRetentionPrune runs on first eligible cycle and respects interval gating", async () => {
+  const calls: Array<{ text: string; params?: unknown[] }> = [];
+  const db = {
+    async query<T extends { id?: number }>(text: string, params?: unknown[]) {
+      calls.push({ text, params });
+      const rowCount = calls.length <= 2 ? 1 : 0;
+      return {
+        command: "DELETE",
+        rowCount,
+        oid: 0,
+        fields: [],
+        rows: Array.from({ length: rowCount }, (_, index) => ({ id: index + 1 })) as T[],
+      } as unknown as import("pg").QueryResult<T>;
+    },
+  };
+
+  const first = await maybeRunScheduledRetentionPrune({
+    db,
+    env: {
+      REDDIT_RETENTION_PRUNE_INTERVAL_MINUTES: "60",
+      RAW_EVENT_PRUNE_BATCH_SIZE: "10",
+      METRICS_SNAPSHOT_PRUNE_BATCH_SIZE: "10",
+    },
+    nowIso: "2026-04-12T12:00:00.000Z",
+  });
+  assert.equal(first.ran, true);
+  assert.deepEqual(first.result, {
+    rawEventsDeleted: 1,
+    metricsSnapshotsDeleted: 1,
+  });
+
+  const skipped = await maybeRunScheduledRetentionPrune({
+    db,
+    env: {
+      REDDIT_RETENTION_PRUNE_INTERVAL_MINUTES: "60",
+    },
+    nowIso: "2026-04-12T12:30:00.000Z",
+    lastRunAtIso: "2026-04-12T12:00:00.000Z",
+  });
+  assert.deepEqual(skipped, { ran: false });
+
+  const second = await maybeRunScheduledRetentionPrune({
+    db,
+    env: {
+      REDDIT_RETENTION_PRUNE_INTERVAL_MINUTES: "60",
+    },
+    nowIso: "2026-04-12T13:05:00.000Z",
+    lastRunAtIso: "2026-04-12T12:00:00.000Z",
+  });
+  assert.equal(second.ran, true);
+  assert.deepEqual(second.result, {
+    rawEventsDeleted: 0,
+    metricsSnapshotsDeleted: 0,
+  });
+  assert.equal(calls.length, 4);
 });
 
 class AboutProbeConnector implements RedditConnector {
