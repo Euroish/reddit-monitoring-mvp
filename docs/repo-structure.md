@@ -55,7 +55,6 @@ src/
     shared/
       connector.interface.ts
     reddit/
-      reddit-apify.connector.ts
       reddit-connector.interface.ts
       reddit-http.connector.ts
       reddit-mock.connector.ts

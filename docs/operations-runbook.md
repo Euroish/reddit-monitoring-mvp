@@ -20,7 +20,7 @@ Optional env:
 - `REDDIT_HTTP_TRANSPORT` (`auto` default; on Windows use `powershell` if Node HTTP traffic is being reset while PowerShell requests still work)
 - `REDDIT_HTTP_PROXY` (optional dedicated collector egress, e.g. `http://127.0.0.1:1080` or `socks5h://127.0.0.1:1080` for a local sing-box mixed/SOCKS inbound)
 - `REDDIT_HTTP_PROXY_FAILOVER_COMMAND` (optional absolute path to a root-owned host-local command that switches the collector proxy node and restarts only the collector service; the connector triggers it at most once per proxied Reddit request)
-- `REDDIT_LIVE_PROVIDER` (`http` default, `apify`, or `scrapling`)
+- `REDDIT_LIVE_PROVIDER` (`http` default or `scrapling`)
 - `REDDIT_SCRAPLING_PRIMARY_SUBREDDITS` (comma list for target-level promotion, e.g. `machinelearning,datascience`; promoted targets use `scrapling` primary while others keep `REDDIT_LIVE_PROVIDER`)
 - `REDDIT_SCRAPLING_PROFILE` (`http` default, `dynamic`, `stealth`)
 - `REDDIT_SCRAPLING_PYTHON` (Python executable path; default `python`)

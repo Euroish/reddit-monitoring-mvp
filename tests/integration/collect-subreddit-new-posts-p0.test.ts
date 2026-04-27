@@ -1033,7 +1033,7 @@ test("collect subreddit new posts backfill applies tiered candidate filters from
 });
 
 test("collect subreddit new posts backfill advances from latest cursor instead of replaying rewind cursor", async () => {
-  const targetId = stableUuidFromString("reddit:target:r/apify-backfill");
+  const targetId = stableUuidFromString("reddit:target:r/scrapling-backfill");
   const connector = new ScriptedPostsConnector([
     {
       nextCursor: "t3_cursor_3",
@@ -1043,10 +1043,10 @@ test("collect subreddit new posts backfill advances from latest cursor instead o
         {
           name: "t3_third",
           id: "third",
-          subreddit: "apify-backfill",
+          subreddit: "scrapling-backfill",
           author: "charlie",
           title: "third",
-          permalink: "/r/apify-backfill/comments/third/post",
+          permalink: "/r/scrapling-backfill/comments/third/post",
           created_utc: 1_712_752_100,
           score: 44,
           num_comments: 7,
@@ -1081,16 +1081,16 @@ test("collect subreddit new posts backfill advances from latest cursor instead o
     },
     {
       targetId,
-      subreddit: "apify-backfill",
+      subreddit: "scrapling-backfill",
       nowIso: "2026-04-10T12:20:00.000Z",
       mode: "backfill",
-      providerHint: "apify",
+      providerHint: "scrapling",
     },
   );
 
   assert.deepEqual(connector.seenAfter, ["t3_cursor_2"]);
   const crawlCursor = await crawlCursorRepository.resolve({
-    provider: "apify",
+    provider: "scrapling",
     targetId,
     mode: "backfill",
   });
@@ -1310,7 +1310,7 @@ test("collect subreddit new posts backfill ignores stale legacy terminal cursor 
   const crawlCursorRepository = new InMemoryCrawlCursorRepository();
 
   await crawlCursorRepository.upsert({
-    provider: "apify",
+    provider: "legacy_apify",
     targetId,
     mode: "backfill",
     cursor: "__backfill_eof__",
@@ -1335,7 +1335,7 @@ test("collect subreddit new posts backfill ignores stale legacy terminal cursor 
       subreddit: "backfill-legacy-eof",
       nowIso: "2026-04-26T03:14:34.354Z",
       mode: "backfill",
-      providerHint: "apify",
+      providerHint: "http",
     },
   );
 
@@ -1344,7 +1344,7 @@ test("collect subreddit new posts backfill ignores stale legacy terminal cursor 
   assert.equal(createdJobs.length, 1);
   assert.equal(createdJobs[0]?.crawlMode, "backfill");
   const crawlCursor = await crawlCursorRepository.resolve({
-    provider: "apify",
+    provider: "http",
     targetId,
     mode: "backfill",
   });
@@ -1433,7 +1433,7 @@ test("collect subreddit new posts records duplicates and provider diff observabi
   const targetId = stableUuidFromString("reddit:target:r/datascience");
   const connector = new ScriptedPostsConnector([
     {
-      provider: "apify",
+      provider: "scrapling",
       posts: [
         {
           name: "t3_repeat",
@@ -1497,7 +1497,7 @@ test("collect subreddit new posts records duplicates and provider diff observabi
       subreddit: "datascience",
       nowIso,
       mode: "live",
-      providerHint: "apify",
+      providerHint: "scrapling",
     },
   );
 

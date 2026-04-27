@@ -1,4 +1,3 @@
-import { RedditApifyConnector } from "./reddit-apify.connector";
 import {
   type RedditCircuitBreakerConnectorOptions,
   RedditCircuitBreakerConnector,
@@ -12,7 +11,7 @@ import {
 } from "./reddit-scrapling.connector";
 
 export type RedditRunMode = "mock" | "live";
-export type RedditLiveProvider = "http" | "apify" | "scrapling";
+export type RedditLiveProvider = "http" | "scrapling";
 
 export function resolveRedditHttpTransport(value: string | undefined): RedditHttpTransport {
   if (value === "fetch" || value === "powershell") {
@@ -44,21 +43,12 @@ export interface CreateRedditConnectorOptions {
   scraplingBridgeScriptPath?: string;
   scraplingTimeoutMs?: number;
   scraplingMaxRetries?: number;
-  apifyActorRunEndpoint?: string;
-  apifyToken?: string;
-  apifyFallbackToHttp?: boolean;
-  apifyCompareWithHttp?: boolean;
-  apifyRunWaitForFinishSeconds?: number;
-  apifyRunPollAttempts?: number;
   circuitBreaker?: (Omit<RedditCircuitBreakerConnectorOptions, "fallbackConnector"> & {
     enabled?: boolean;
   });
 }
 
 export function resolveRedditLiveProvider(value: string | undefined): RedditLiveProvider {
-  if (value === "apify") {
-    return "apify";
-  }
   if (value === "scrapling") {
     return "scrapling";
   }
@@ -78,9 +68,7 @@ export function createRedditConnector(options: CreateRedditConnectorOptions): Re
   }
 
   const fallbackConnector =
-    provider === "apify"
-      ? createHttpLiveConnector(options)
-      : provider === "scrapling"
+    provider === "scrapling"
       ? createHttpLiveConnector(options)
       : undefined;
 
@@ -102,20 +90,6 @@ function createPrimaryLiveConnector(
   options: CreateRedditConnectorOptions,
   provider: RedditLiveProvider,
 ): RedditConnector {
-  if (provider === "apify") {
-    const circuitBreakerEnabled = options.circuitBreaker?.enabled ?? false;
-    return new RedditApifyConnector({
-      actorRunEndpoint: options.apifyActorRunEndpoint,
-      token: options.apifyToken,
-      fallbackAccessToken: options.accessToken,
-      fallbackUserAgent: options.userAgent,
-      fallbackOnError: circuitBreakerEnabled ? false : options.apifyFallbackToHttp,
-      compareWithHttp: options.apifyCompareWithHttp,
-      runWaitForFinishSeconds: options.apifyRunWaitForFinishSeconds,
-      runPollAttempts: options.apifyRunPollAttempts,
-    });
-  }
-
   if (provider === "scrapling") {
     return createScraplingLiveConnector(options);
   }

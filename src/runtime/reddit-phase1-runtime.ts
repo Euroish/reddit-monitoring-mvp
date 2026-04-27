@@ -156,15 +156,6 @@ export function createRedditConnectorFromEnv(args: {
     scraplingMaxRetries: parsePositiveInt(args.env.REDDIT_SCRAPLING_MAX_RETRIES, 2),
     accessToken: args.env.REDDIT_ACCESS_TOKEN,
     userAgent: args.env.REDDIT_USER_AGENT,
-    apifyActorRunEndpoint: args.env.APIFY_REDDIT_ACTOR_RUN_ENDPOINT,
-    apifyToken: args.env.APIFY_TOKEN,
-    apifyFallbackToHttp: parseBooleanFlag(args.env.APIFY_FALLBACK_TO_HTTP, true),
-    apifyCompareWithHttp: parseBooleanFlag(args.env.APIFY_COMPARE_WITH_HTTP, false),
-    apifyRunWaitForFinishSeconds: parsePositiveInt(
-      args.env.APIFY_RUN_WAIT_FOR_FINISH_SECONDS,
-      60,
-    ),
-    apifyRunPollAttempts: parsePositiveInt(args.env.APIFY_RUN_POLL_ATTEMPTS, 3),
     circuitBreaker,
   });
 }

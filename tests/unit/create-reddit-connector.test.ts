@@ -6,7 +6,6 @@ import {
   resolveRedditLiveProvider,
   resolveRedditScraplingProfile,
 } from "../../src/connectors/reddit/create-reddit-connector";
-import { RedditApifyConnector } from "../../src/connectors/reddit/reddit-apify.connector";
 import { RedditCircuitBreakerConnector } from "../../src/connectors/reddit/reddit-circuit-breaker.connector";
 import { RedditHttpConnector } from "../../src/connectors/reddit/reddit-http.connector";
 import { RedditMockConnector } from "../../src/connectors/reddit/reddit-mock.connector";
@@ -14,7 +13,6 @@ import { RedditScraplingConnector } from "../../src/connectors/reddit/reddit-scr
 
 test("resolveRedditLiveProvider defaults to http", () => {
   assert.equal(resolveRedditLiveProvider(undefined), "http");
-  assert.equal(resolveRedditLiveProvider("apify"), "apify");
   assert.equal(resolveRedditLiveProvider("scrapling"), "scrapling");
   assert.equal(resolveRedditLiveProvider("http"), "http");
   assert.equal(resolveRedditLiveProvider("unexpected"), "http");
@@ -45,14 +43,6 @@ test("createRedditConnector supports explicit http provider", () => {
     liveProvider: "http",
   });
   assert.equal(connector instanceof RedditHttpConnector, true);
-});
-
-test("createRedditConnector supports explicit apify provider", () => {
-  const connector = createRedditConnector({
-    mode: "live",
-    liveProvider: "apify",
-  });
-  assert.equal(connector instanceof RedditApifyConnector, true);
 });
 
 test("createRedditConnector supports explicit scrapling provider", () => {

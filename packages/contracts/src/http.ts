@@ -123,7 +123,7 @@ export interface ApiReadinessResponse {
       }>;
     };
     routingPolicy: {
-      defaultLiveProvider: "http" | "apify" | "scrapling" | null;
+      defaultLiveProvider: "http" | "scrapling" | null;
       targetCount: number;
       promotedScraplingTargetCount: number;
       demotedHttpTargetCount: number;

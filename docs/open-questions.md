@@ -44,6 +44,6 @@ Decision date: 2026-04-10
 
 - Decision: keep `RedditConnector` as stable domain boundary.
 - Current provider choices:
-  - `RedditApifyConnector` (primary live provider; actor-run + dataset flow)
-  - `RedditHttpConnector` (fallback/compare provider, still switchable via `REDDIT_LIVE_PROVIDER=http`)
+  - `RedditHttpConnector` (primary live provider)
+  - `RedditScraplingConnector` (fallback / difficult-target capability)
   - `RedditMockConnector` (deterministic local testing)

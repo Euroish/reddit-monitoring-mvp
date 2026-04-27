@@ -115,7 +115,7 @@ export async function runPhase1OnceWithPostgres(
 
 function resolveProviderOverride(providerHint: string | undefined): string | undefined {
   const normalized = providerHint?.trim().toLowerCase();
-  if (normalized === "http" || normalized === "apify" || normalized === "scrapling") {
+  if (normalized === "http" || normalized === "scrapling") {
     return normalized;
   }
   return undefined;

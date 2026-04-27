@@ -431,7 +431,7 @@ function normalizeProviderHint(
   fallbackProvider: RedditLiveProvider,
 ): string {
   const normalized = value?.trim().toLowerCase();
-  if (normalized === "http" || normalized === "apify" || normalized === "scrapling") {
+  if (normalized === "http" || normalized === "scrapling") {
     return normalized;
   }
   return fallbackProvider;

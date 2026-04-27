@@ -323,14 +323,14 @@ test("adaptive sampling for http-primary applies cold-start warmup without trend
   assert.equal(limit, 16);
 });
 
-test("adaptive sampling for generic provider applies smaller cold-start warmup", async () => {
+test("adaptive sampling for scrapling provider uses the retained live-provider warmup", async () => {
   const limit = await runCycleWithRecentPoints({
     boostCooldownWindows: 0,
-    providerHint: "apify",
+    providerHint: "scrapling",
     points: [],
   });
 
-  assert.equal(limit, 12);
+  assert.equal(limit, 16);
 });
 
 test("adaptive sampling for http-primary elevates on degraded transport evidence without trend points", async () => {
@@ -705,7 +705,7 @@ test("adaptive sampling for http-primary elevates on provider switch instability
         circuitOpenCount: 0,
       },
       {
-        provider: "apify",
+        provider: "scrapling",
         requestCount: 4,
         successCount: 4,
         emptyResponseCount: 0,
@@ -759,7 +759,7 @@ test("adaptive sampling for http-primary treats exact provider switch thresholds
         circuitOpenCount: 0,
       },
       {
-        provider: "apify",
+        provider: "scrapling",
         requestCount: switchShareCount,
         successCount: switchShareCount,
         emptyResponseCount: 0,
@@ -782,4 +782,3 @@ test("adaptive sampling for http-primary treats exact provider switch thresholds
 
   assert.equal(limit, 18);
 });
-

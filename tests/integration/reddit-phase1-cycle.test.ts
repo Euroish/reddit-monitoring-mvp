@@ -763,10 +763,10 @@ test("phase1 cycle backfill progress stays scoped to the active provider state",
   });
 
   await crawlCursorRepository.upsert({
-    provider: "apify",
+    provider: "legacy_apify",
     targetId,
     mode: "backfill",
-    cursor: "t3_apify_stalled",
+    cursor: "t3_legacy_stalled",
     oldestObservedAt: "2026-04-22T12:00:00.000Z",
     newestObservedAt: "2026-04-24T11:00:00.000Z",
     backfillTargetFromIso: "2026-04-09T12:00:00.000Z",
@@ -828,12 +828,12 @@ test("phase1 cycle backfill progress stays scoped to the active provider state",
   assert.equal(httpCursor?.backfillCoverageStatus, "progressing");
   assert.equal(httpCursor?.backfillStopReason, "iteration_budget_exhausted");
 
-  const apifyCursor = await crawlCursorRepository.resolve({
-    provider: "apify",
+  const legacyCursor = await crawlCursorRepository.resolve({
+    provider: "legacy_apify",
     targetId,
     mode: "backfill",
   });
-  assert.equal(apifyCursor?.cursor, "t3_apify_stalled");
-  assert.equal(apifyCursor?.backfillCoverageStatus, "saturated_before_15d");
-  assert.equal(apifyCursor?.backfillStopReason, "cursor_saturated");
+  assert.equal(legacyCursor?.cursor, "t3_legacy_stalled");
+  assert.equal(legacyCursor?.backfillCoverageStatus, "saturated_before_15d");
+  assert.equal(legacyCursor?.backfillStopReason, "cursor_saturated");
 });

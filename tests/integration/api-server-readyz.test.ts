@@ -624,7 +624,7 @@ test("api server readyz isolates degraded reasons for each provider-health scena
     },
     {
       slug: "provider-switch-high",
-      expectedReasons: ["provider_switch_elevated:apify", "provider_switch_elevated:http"],
+      expectedReasons: ["provider_switch_elevated:http", "provider_switch_elevated:scrapling"],
       seed: async (repos, targetId) => {
         await repos.providerHealthWindowRepository.record({
           provider: "http",
@@ -650,7 +650,7 @@ test("api server readyz isolates degraded reasons for each provider-health scena
           updatedAt: fixedNow,
         });
         await repos.providerHealthWindowRepository.record({
-          provider: "apify",
+          provider: "scrapling",
           targetId,
           mode: "live",
           windowStart: "2026-04-10T11:55:00.000Z",
@@ -743,7 +743,7 @@ test("api server readyz exposes provider switch evidence across providers", asyn
     updatedAt: fixedNow,
   });
   await repos.providerHealthWindowRepository.record({
-    provider: "apify",
+    provider: "scrapling",
     targetId,
     mode: "live",
     windowStart: "2026-04-10T11:55:00.000Z",
@@ -778,12 +778,12 @@ test("api server readyz exposes provider switch evidence across providers", asyn
 
     assert.equal(readyResult.status, 200);
     assert.equal(readyResult.body.observability.providerSwitchShare, 0.3);
-    assert.equal(readyResult.body.observability.byProvider[0]?.provider, "apify");
-    assert.equal(readyResult.body.observability.byProvider[0]?.providerSwitchShare, 0.7);
-    assert.equal(readyResult.body.observability.byProvider[1]?.provider, "http");
-    assert.equal(readyResult.body.observability.byProvider[1]?.providerSwitchShare, 0.3);
+    assert.equal(readyResult.body.observability.byProvider[0]?.provider, "http");
+    assert.equal(readyResult.body.observability.byProvider[0]?.providerSwitchShare, 0.3);
+    assert.equal(readyResult.body.observability.byProvider[1]?.provider, "scrapling");
+    assert.equal(readyResult.body.observability.byProvider[1]?.providerSwitchShare, 0.7);
     assert.equal(
-      readyResult.body.degradedReasons.includes("provider_switch_elevated:apify"),
+      readyResult.body.degradedReasons.includes("provider_switch_elevated:scrapling"),
       true,
     );
     assert.equal(
@@ -1368,8 +1368,8 @@ test("api server readyz keeps dominant provider-switch share at exact threshold 
     updatedAt: fixedNow,
   });
   await repos.providerHealthWindowRepository.record({
-    provider: "apify",
-    targetId: stableUuidFromString("reddit:target:r/provider-switch-apify"),
+    provider: "scrapling",
+    targetId: stableUuidFromString("reddit:target:r/provider-switch-scrapling"),
     mode: "live",
     windowStart: "2026-04-10T11:55:00.000Z",
     requestCountDelta: requestCount - dominantProviderRequestCount,
@@ -2079,5 +2079,3 @@ test("api server readyz exposes scrapling profile and session-key evidence from 
     await stopServer(server);
   }
 });
-
-

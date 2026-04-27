@@ -29,22 +29,16 @@ live-observed Reddit corpus
 
 ## 1. 已完成或应剔除的旧任务
 
-### 1.1 已完成：Apify after cursor 与 nextCursor
+### 1.1 已剔除：旧 Apify after cursor 与 nextCursor 任务
 
-旧文档中要求：
+旧文档中曾要求：
 
 ```text
-reddit-apify.connector.ts 使用 args.after
-从最后一条 post 推导 nextCursor
+Apify 使用 `after`
+从最后一条 post 推导 `nextCursor`
 ```
 
-当前 main 已实现：
-
-- `buildApifyStartUrl(args)` 会在 `args.after` 存在时写入 `after` query。
-- `mapItemsToListingPayload()` 会使用最后一个 mapped post 的 `name` 作为 `nextCursor`。
-- `collectSubredditPostsViaApify()` 会返回 `nextCursor: mapped.nextCursor`。
-
-处理：从待办中删除。
+当前已不再保留 Apify 作为主运行路径 provider，因此这条历史任务直接从当前执行面剔除，不再作为代码待办。
 
 ---
 
@@ -637,13 +631,13 @@ favorite_first
 ```text
 http/oauth = primary live provider
 scrapling = fallback for blocked/difficult targets
-apify = experimental fallback only
+apify = removed from current main runtime path
 ```
 
 要求：
 
 ```text
-Apify 不作为主产品数据源。
+Apify 不再作为当前主产品运行路径的一部分。
 Apify 不用于承诺历史完整性。
 不同 provider 的 cursor / health 必须隔离。
 ```

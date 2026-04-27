@@ -642,14 +642,11 @@ async function resolveBackfillCursorState(
 }
 
 function resolveBackfillCursorProviders(providerHint: string): string[] {
-  if (providerHint === "apify") {
-    return ["apify", "http"];
-  }
   if (providerHint === "scrapling") {
     return ["scrapling", "http"];
   }
   if (providerHint === "reddit") {
-    return ["reddit", "http", "scrapling", "apify"];
+    return ["reddit", "http", "scrapling"];
   }
   return [providerHint];
 }
@@ -1235,9 +1232,6 @@ function resolveProvider(args: {
   const fromHeader = args.responseHeaders["x-provider"];
   if (fromHeader && fromHeader.trim().length > 0) {
     return fromHeader.trim().toLowerCase();
-  }
-  if (args.endpoint.startsWith("/apify/")) {
-    return "apify";
   }
   if (
     args.endpoint.includes("/new.json") ||

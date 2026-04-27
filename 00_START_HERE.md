@@ -10,6 +10,7 @@ Read only these files before starting work:
 6. `docs/architecture-sketch.md` (only for architecture / data-model / implementation tasks)
 
 Execution truth lives only in `obsidian-reddit专用/Projects/project.md`.
+Current planning harness is constrained by the three active markdowns in `obsidian-reddit专用/Projects`: `数据库优化与重复命中分析.md`, `reddit-monitoring-mvp-optimal-plan.md`, and `开发方案分析.md`.
 Do not depend on `PROJECT.md`, `context/decision-log.md`, or old Obsidian export paths; they are not present in this repo. If a task references an advisory context file such as `context/codex-issue.md`, read it when present, but reconcile it against the current repository state before changing code or plans. If the file is missing, report that and proceed from current repo evidence unless the task truly depends on it.
 
 ## Default working style
