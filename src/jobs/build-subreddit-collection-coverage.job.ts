@@ -5,6 +5,7 @@ import type {
 } from "../domain/entities/subreddit-collection-coverage";
 import type { ContentRepository } from "../domain/repositories/content-repository";
 import type { CrawlCursorRepository } from "../domain/repositories/crawl-cursor-repository";
+import type { ProviderHealthWindowRepository } from "../domain/repositories/provider-health-window-repository";
 import type { SubredditCollectionCoverageRepository } from "../domain/repositories/subreddit-collection-coverage-repository";
 import type { SubredditDailyFactRepository } from "../domain/repositories/subreddit-daily-fact-repository";
 
@@ -13,6 +14,7 @@ export interface BuildSubredditCollectionCoverageDependencies {
   subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditCollectionCoverageRepository: SubredditCollectionCoverageRepository;
   crawlCursorRepository?: CrawlCursorRepository;
+  providerHealthWindowRepository?: ProviderHealthWindowRepository;
 }
 
 export interface BuildSubredditCollectionCoverageInput {
@@ -32,7 +34,7 @@ export async function buildSubredditCollectionCoverageJob(
   }
   const fromDay = days[0]!;
   const toDay = days[days.length - 1]!;
-  const [facts, posts, liveCursors, backfillCursors] = await Promise.all([
+  const [facts, posts, liveCursors, backfillCursors, providerHealthWindows] = await Promise.all([
     deps.subredditDailyFactRepository.listByTargetInRange({
       targetId: input.targetId,
       fromDay,
@@ -53,6 +55,12 @@ export async function buildSubredditCollectionCoverageJob(
       targetId: input.targetId,
       mode: "backfill",
     }) ?? Promise.resolve([]),
+    deps.providerHealthWindowRepository?.listByTargetInRange({
+      targetId: input.targetId,
+      from: input.fromIso,
+      to: input.toIso,
+      mode: "live",
+    }) ?? Promise.resolve([]),
   ]);
 
   const factByDay = new Map(facts.map((fact) => [fact.day, fact]));
@@ -67,6 +75,11 @@ export async function buildSubredditCollectionCoverageJob(
   const backfillCursor = backfillCursors
     .slice()
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  const rateLimitedDaySet = new Set(
+    providerHealthWindows
+      .filter((window) => window.rateLimitCount > 0)
+      .map((window) => window.windowStart.slice(0, 10)),
+  );
 
   const rows = days.map((day): SubredditCollectionCoverage => {
     const fact = factByDay.get(day);
@@ -74,6 +87,7 @@ export async function buildSubredditCollectionCoverageJob(
     const statusAndBasis = resolveCoverageStatus({
       day,
       observedPostCount: fact?.postVolume ?? 0,
+      rateLimited: rateLimitedDaySet.has(day),
       liveCursor,
       backfillCursor,
     });
@@ -115,10 +129,12 @@ export async function buildSubredditCollectionCoverageJob(
 function resolveCoverageStatus(args: {
   day: string;
   observedPostCount: number;
+  rateLimited: boolean;
   liveCursor?: {
     liveCoverageStatus?: string;
     liveRequestedFromIso?: string;
     liveListingHorizonHit?: boolean;
+    newestObservedAt?: string;
   };
   backfillCursor?: {
     cursor: string;
@@ -133,6 +149,15 @@ function resolveCoverageStatus(args: {
   missedLiveWindowCount: number;
 } {
   const dayStartIso = `${args.day}T00:00:00.000Z`;
+  const dayEndIso = `${args.day}T23:59:59.999Z`;
+  if (args.rateLimited) {
+    return {
+      status: args.observedPostCount > 0 ? "partial" : "source_limited",
+      basis: "rate_limited",
+      liveWindowCount: args.liveCursor?.liveRequestedFromIso ? 1 : 0,
+      missedLiveWindowCount: 0,
+    };
+  }
   if (
     args.backfillCursor?.backfillCoverageStatus === "covered" &&
     args.backfillCursor.oldestObservedAt &&
@@ -154,6 +179,41 @@ function resolveCoverageStatus(args: {
       status: "complete",
       basis: "terminal_eof_reached",
       liveWindowCount: 0,
+      missedLiveWindowCount: 0,
+    };
+  }
+  if (
+    args.liveCursor?.liveCoverageStatus === "complete" &&
+    args.liveCursor.liveRequestedFromIso &&
+    args.liveCursor.liveRequestedFromIso <= dayStartIso &&
+    args.liveCursor.newestObservedAt &&
+    args.liveCursor.newestObservedAt >= dayEndIso
+  ) {
+    return {
+      status: "complete",
+      basis: "live_continuous",
+      liveWindowCount: 1,
+      missedLiveWindowCount: 0,
+    };
+  }
+  if (
+    args.liveCursor?.liveCoverageStatus === "complete" &&
+    args.liveCursor.liveRequestedFromIso &&
+    args.liveCursor.liveRequestedFromIso > dayStartIso &&
+    args.observedPostCount > 0
+  ) {
+    return {
+      status: "partial",
+      basis: "missed_live_window",
+      liveWindowCount: 1,
+      missedLiveWindowCount: 1,
+    };
+  }
+  if (args.backfillCursor?.backfillStopReason === "iteration_budget_exhausted") {
+    return {
+      status: args.observedPostCount > 0 ? "partial" : "unknown",
+      basis: "iteration_budget_exhausted",
+      liveWindowCount: args.liveCursor?.liveRequestedFromIso ? 1 : 0,
       missedLiveWindowCount: 0,
     };
   }

@@ -17,6 +17,7 @@ import type {
   TriggerPhase1RunResponse,
 } from "../../packages/contracts/src/http";
 import { RedditMockConnector } from "../../src/connectors/reddit/reddit-mock.connector";
+import type { SubredditCollectionCoverage } from "../../src/domain/entities/subreddit-collection-coverage";
 import type { SubredditDailyFact } from "../../src/domain/entities/subreddit-daily-fact";
 import { stableUuidFromString } from "../../src/shared/ids/stable-id";
 import {
@@ -57,6 +58,22 @@ function buildDailyFact(
     algorithmVersion: "test_daily_fact",
     explainPayload: {},
     ...overrides,
+  };
+}
+
+function buildCompleteCoverage(targetId: string, day: string): SubredditCollectionCoverage {
+  return {
+    targetId,
+    day,
+    coverageStatus: "complete",
+    coverageBasis: "backfill_reached_day_start",
+    observedPostCount: 1,
+    totalEligiblePostCount: 1,
+    liveWindowCount: 0,
+    missedLiveWindowCount: 0,
+    listingHorizonHit: false,
+    sourceLimited: false,
+    generatedAt: "2026-04-12T12:00:00.000Z",
   };
 }
 
@@ -193,6 +210,9 @@ test("api server daily insights prefers materialized keyword rows when available
       },
       sourceType: "live",
     },
+  ]);
+  await repos.subredditCollectionCoverageRepository.upsertMany([
+    buildCompleteCoverage(targetId, "2026-04-12"),
   ]);
 
   const server = createApiServer({
@@ -561,6 +581,12 @@ test("api server returns target comparison workbench from multiple materialized 
       qualifiedPostVolume: 15,
     }),
   ]);
+  await repos.subredditCollectionCoverageRepository.upsertMany([
+    buildCompleteCoverage(datascienceTargetId, "2026-04-10"),
+    buildCompleteCoverage(datascienceTargetId, "2026-04-11"),
+    buildCompleteCoverage(machineLearningTargetId, "2026-04-10"),
+    buildCompleteCoverage(machineLearningTargetId, "2026-04-11"),
+  ]);
 
   const server = createApiServer({
     repositories: repos,
@@ -597,6 +623,90 @@ test("api server returns target comparison workbench from multiple materialized 
       [100, 150],
     );
     assert.equal(result.body.summary[1]?.latestTotalNewPosts, 60);
+    assert.equal(
+      result.body.comparisons
+        .find((item) => item.canonicalName === "r/mlcompare" && item.seriesId === "total_new_posts")
+        ?.points.at(-1)?.valueSemantics,
+      "complete_total",
+    );
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("api server comparison workbench hides incomplete total series", async () => {
+  const fixedNow = "2026-04-12T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+  const firstTargetId = stableUuidFromString("reddit:target:r/partialcompareone");
+  const secondTargetId = stableUuidFromString("reddit:target:r/partialcomparetwo");
+
+  for (const [targetId, canonicalName] of [
+    [firstTargetId, "r/partialcompareone"],
+    [secondTargetId, "r/partialcomparetwo"],
+  ] as const) {
+    await repos.monitorTargetRepository.upsert({
+      id: targetId,
+      source: "reddit",
+      targetType: "subreddit",
+      canonicalName,
+      status: "active",
+      config: {},
+      createdAt: fixedNow,
+      updatedAt: fixedNow,
+    });
+  }
+
+  await repos.subredditDailyFactRepository.upsertMany([
+    buildDailyFact(firstTargetId, "2026-04-11", {
+      postVolume: 30,
+      qualifiedPostVolume: 8,
+    }),
+    buildDailyFact(secondTargetId, "2026-04-11", {
+      postVolume: 60,
+      qualifiedPostVolume: 15,
+    }),
+  ]);
+  await repos.subredditCollectionCoverageRepository.upsertMany([
+    {
+      ...buildCompleteCoverage(firstTargetId, "2026-04-11"),
+      observedPostCount: 30,
+      totalEligiblePostCount: 30,
+    },
+    {
+      ...buildCompleteCoverage(secondTargetId, "2026-04-11"),
+      coverageStatus: "partial",
+      coverageBasis: "iteration_budget_exhausted",
+      observedPostCount: 60,
+      totalEligiblePostCount: 60,
+    },
+  ]);
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+  const baseUrl = await startServer(server);
+  try {
+    const result = await getJson<TargetComparisonWorkbenchResponse>(
+      `${baseUrl}/v1/workbench/compare?targets=partialcompareone,partialcomparetwo&series=total_new_posts,observed_new_posts&range=7d&to=2026-04-11T23:59:59.000Z&timeframe=1d`,
+    );
+
+    assert.equal(result.status, 200);
+    const incompleteTotal = result.body.comparisons.find(
+      (item) => item.canonicalName === "r/partialcomparetwo" && item.seriesId === "total_new_posts",
+    );
+    const incompleteObserved = result.body.comparisons.find(
+      (item) => item.canonicalName === "r/partialcomparetwo" && item.seriesId === "observed_new_posts",
+    );
+    assert.equal(incompleteTotal?.latestValue, null);
+    assert.equal(incompleteTotal?.points.at(-1)?.value, null);
+    assert.equal(incompleteTotal?.points.at(-1)?.coverageStatus, "partial");
+    assert.equal(incompleteTotal?.points.at(-1)?.valueSemantics, "missing");
+    assert.equal(incompleteObserved?.latestValue, 60);
+    assert.equal(incompleteObserved?.points.at(-1)?.valueSemantics, "observed_total");
+    assert.equal(result.body.summary[1]?.latestTotalNewPosts, null);
+    assert.equal(result.body.summary[1]?.latestQualifiedPostCount, null);
   } finally {
     await stopServer(server);
   }
@@ -778,6 +888,9 @@ test("api server returns daily insights and keyword heat", async () => {
       },
       sourceType: "live",
     },
+  ]);
+  await repos.subredditCollectionCoverageRepository.upsertMany([
+    buildCompleteCoverage(targetId, "2026-04-12"),
   ]);
 
   const server = createApiServer({

@@ -482,7 +482,22 @@ export interface SubredditDailyTrendResponse {
   dayCount: number;
   daily: Array<{
     day: string;
-    totalNewPosts: number;
+    observedNewPosts: number;
+    observedQualifiedPosts: number;
+    totalNewPosts: number | null;
+    totalQualifiedPosts: number | null;
+    coverageStatus: "complete" | "partial" | "source_limited" | "unknown";
+    coverageBasis?:
+      | "live_continuous"
+      | "backfill_reached_day_start"
+      | "terminal_eof_reached"
+      | "iteration_budget_exhausted"
+      | "cursor_saturated"
+      | "missed_live_window"
+      | "rate_limited"
+      | "observed_without_proof"
+      | "no_collection_evidence";
+    valueSemantics: "complete_total" | "observed_total" | "missing";
     totalDiscussion: number;
     postChangePct: number;
     discussionChangePct: number;
@@ -873,8 +888,20 @@ export interface TargetComparisonWorkbenchResponse {
     latestNormalizedValue: number | null;
     points: Array<{
       at: string;
-      value: number;
+      value: number | null;
       normalizedValue: number | null;
+      coverageStatus?: "complete" | "partial" | "source_limited" | "unknown";
+      coverageBasis?:
+        | "live_continuous"
+        | "backfill_reached_day_start"
+        | "terminal_eof_reached"
+        | "iteration_budget_exhausted"
+        | "cursor_saturated"
+        | "missed_live_window"
+        | "rate_limited"
+        | "observed_without_proof"
+        | "no_collection_evidence";
+      valueSemantics?: "complete_total" | "observed_total" | "missing";
     }>;
   }>;
   summary: Array<{

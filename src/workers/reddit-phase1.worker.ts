@@ -406,6 +406,7 @@ export async function runRedditPhase1Cycle(
             subredditDailyFactRepository: deps.subredditDailyFactRepository,
             subredditCollectionCoverageRepository: deps.subredditCollectionCoverageRepository,
             crawlCursorRepository: deps.crawlCursorRepository,
+            providerHealthWindowRepository: deps.providerHealthWindowRepository,
           },
           {
             targetId: target.id,

@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: coverage-facts-readmodel-p2-landed
-updated_at: "2026-04-28 05:16:31"
+stage: coverage-semantics-hardening-landed
+updated_at: "2026-04-28 06:02:10"
 repo_path: "/root/reddit-monitoring-mvp"
-next_action: "Add deeper operational fixtures for missed live windows, source-limited continuation, and legacy export/report alignment after the core coverage/read-model semantics are stable."
+next_action: "Keep coverage semantics stable while adding only focused product surfaces; no remaining standalone export/report generator was found in the current repo."
 tags:
 - codex
 - workspace
@@ -27,12 +27,14 @@ tags:
 ## Current Reconciled State
 
 - The latest archived analysis note `Archive/算法与抓取代码分析 (1)-2026-04-28.md` matches the active design direction: the core problem is not "grab more pages"; it is missing provenance, missing day/range coverage proof, and overloading observed corpus counts as total counts.
+- The advisory note `new analyse.md` was read on 2026-04-28 and reconciled as a secondary input, not an active execution source. Its useful signal is that the project is past the initial P0/P1 storage work and should now focus on proving the remaining coverage and output semantics against current code.
 - `content` provenance and `total_eligible` now exist as the first landed P0 slice.
 - The collection path now tags `new` listing posts as `new_listing` / `total_eligible=true` and `top` supplement posts as `top_supplement` / `total_eligible=false`.
 - Candidate filters no longer shrink the content/total denominator; they still narrow analytics metric candidates.
 - Daily facts now read only total-eligible content for observed post volume.
 - Day-level coverage facts now materialize from total-eligible content, daily facts, and live/backfill cursor evidence.
-- API/read-model/chart semantics now expose complete totals only when coverage is complete and observed counts otherwise.
+- Target workbench, comparison workbench, and daily trend API/read-model semantics now expose complete totals only when coverage is complete and observed counts otherwise.
+- Current repo search did not find a standalone export/report generator path. Treat any future export/report surface as required to reuse the same coverage semantics before release.
 
 ## Core Decision
 
@@ -44,7 +46,9 @@ tags:
 - Missing history stays `missing`, `partial`, `source_limited`, or `unknown`. Never materialize uncovered days as fake zero.
 - Small subreddits may become complete for a 15-day historical window if backfill reaches the day start or true terminal EOF. Medium/high-volume subreddits usually need uninterrupted live monitoring from activation time before totals are commercially defensible.
 
-## Optimal Implementation Plan
+## Implementation Flow
+
+Use this as a neutral harness for the next work slice. Current code evidence has priority over archived notes and advisory analysis.
 
 ### P0: Provenance And Total Eligibility
 
@@ -95,9 +99,16 @@ tags:
 - `P0.4` Done: Update daily fact materialization to count only total-eligible `new` listing posts for observed volume.
 - `P1.1` Done: Add coverage fact storage/read path with day granularity and concrete coverage status/basis.
 - `P1.2` Done: Wire backfill progress and live/source-limited cursor evidence into coverage facts.
-- `P1.3` Partial: Added regression coverage for backfill-proven complete days vs observed-without-proof partial days; missed-window/source-limited fixture expansion remains.
+- `P1.3` Done: Added regression coverage for backfill-proven complete days, live-continuous complete days, missed live windows, iteration-budget continuation, and rate-limited live windows.
 - `P2.1` Done: Update API contracts/read models/UI display rules for total-vs-observed semantics and coverage-aware chart/KPI behavior.
-- `P2.2` Partial: Comparison read-model semantics are aligned; legacy export/report surfaces still need a focused pass.
+- `P2.2` Done: Target workbench, comparison read-model, and legacy daily trend API semantics are aligned. No standalone export/report generator exists in the current repo evidence.
+
+## Next Slice Harness
+
+- Objective: prevent remaining output paths from presenting observed or partial data as complete totals.
+- Evidence to inspect first: coverage job resolver, comparison read model, daily insights/trend read models, API routes, export/report generation paths, and existing tests for these surfaces.
+- Expected implementation order: add focused fixtures for missed live windows and source-limited continuation, then gate or relabel comparison/export/report totals using the same coverage semantics as target workbench.
+- Stop condition: stop when the next output path would require a product choice about labels, retention, or historical completeness that cannot be inferred from current coverage facts.
 
 ## Guardrails
 
@@ -114,6 +125,20 @@ tags:
 - Documentation-only state updates do not require tests, but must leave `Projects` root containing only `project.md`.
 
 ## Activity Log
+
+### 2026-04-28 06:02:10
+
+- Scope: Landed the coverage-semantics hardening slice. Coverage materialization now emits `live_continuous`, `missed_live_window`, `iteration_budget_exhausted`, and `rate_limited` evidence from existing cursor/provider-health inputs; comparison workbench and daily trend API outputs now gate complete totals on coverage facts while exposing observed counts separately.
+- Why now: The remaining drift risk was that comparison or legacy daily trend paths could still present observed or partial rows as totals after target workbench had been fixed.
+- Verify: Focused coverage/API tests passed. `npm run typecheck`, `npm run algo:fast`, `npm run algo:phase1`, `npm run algo:phase1:full`, `npm run algo:full`, and `npm run verify:repo` passed; full suite passed 309 tests. Web build retained the existing Vite chunk-size warning.
+- Next: Keep new chart/export/report work behind the same coverage contract. No standalone export/report generator was found in the current repo evidence.
+
+### 2026-04-28 05:46:43
+
+- Scope: Read `new analyse.md`, reconciled it against `project.md` and current code evidence, archived it under `Projects/Archive/`, and updated `project.md` to use a neutral coverage-semantics hardening harness.
+- Why now: The advisory analysis was directionally useful but overstated some alignment, especially comparison totals. The active state needed to separate landed target workbench semantics from remaining comparison/export/report verification.
+- Verify: Documentation/state reconciliation only. Checked `00_START_HERE.md`, `project.md`, `new analyse.md`, `target-comparison-workbench-read-model.service.ts`, `target-workbench-read-model.service.ts`, `build-subreddit-collection-coverage.job.ts`, and `Projects` root contents. No tests were run.
+- Next: Verify and harden missed live window/source-limited fixtures, comparison totals, and legacy export/report wording against coverage semantics.
 
 ### 2026-04-28 05:16:31
 

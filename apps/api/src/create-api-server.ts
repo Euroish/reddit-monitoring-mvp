@@ -2109,17 +2109,32 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           Boolean(target),
         );
         const dailyFactsByTargetId = new Map<string, Awaited<ReturnType<SubredditDailyFactRepository["listByTargetInRange"]>>>();
-        const dailyFactGroups = await Promise.all(
-          resolvedTargets.map((target) =>
-            repos.subredditDailyFactRepository.listByTargetInRange({
-              targetId: target.id,
-              fromDay,
-              toDay,
-            }),
+        const coverageByTargetId = new Map<string, Awaited<ReturnType<SubredditCollectionCoverageRepository["listByTargetInRange"]>>>();
+        const [dailyFactGroups, coverageGroups] = await Promise.all([
+          Promise.all(
+            resolvedTargets.map((target) =>
+              repos.subredditDailyFactRepository.listByTargetInRange({
+                targetId: target.id,
+                fromDay,
+                toDay,
+              }),
+            ),
           ),
-        );
+          Promise.all(
+            resolvedTargets.map((target) =>
+              repos.subredditCollectionCoverageRepository?.listByTargetInRange({
+                targetId: target.id,
+                fromDay,
+                toDay,
+              }) ?? Promise.resolve([]),
+            ),
+          ),
+        ]);
         for (const [index, facts] of dailyFactGroups.entries()) {
           dailyFactsByTargetId.set(resolvedTargets[index]!.id, facts);
+        }
+        for (const [index, coverageRows] of coverageGroups.entries()) {
+          coverageByTargetId.set(resolvedTargets[index]!.id, coverageRows);
         }
 
         const payload: TargetComparisonWorkbenchResponse = buildTargetComparisonWorkbenchReadModel({
@@ -2131,6 +2146,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           timeframe,
           rangePreset,
           dailyFactsByTargetId,
+          coverageByTargetId,
           seriesIds,
         });
         respond({
@@ -2774,7 +2790,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             : undefined;
         const tracks =
           normalizedQueries.length > 0 ? (["explicit_query"] as const) : undefined;
-        const [dailyFacts, points, keywordDailyRows] = await Promise.all([
+        const [dailyFacts, points, keywordDailyRows, coverageRows] = await Promise.all([
           repos.subredditDailyFactRepository.listByTargetInRange({
             targetId: target.id,
             fromDay: toUtcDay(fromIso),
@@ -2794,7 +2810,13 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             queryScopes,
             limit: keywordLimit,
           }) ?? Promise.resolve([]),
+          repos.subredditCollectionCoverageRepository?.listByTargetInRange({
+            targetId: target.id,
+            fromDay: toUtcDay(fromIso),
+            toDay: toUtcDay(toIso),
+          }) ?? Promise.resolve([]),
         ]);
+        const coverageByDay = new Map(coverageRows.map((coverage) => [coverage.day, coverage]));
 
         const readModel = buildSubredditDailyInsights({
           dailyFacts,
@@ -2818,7 +2840,26 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           dayCount: readModel.dayCount,
           daily: readModel.daily.map((point) => ({
             day: point.day,
-            totalNewPosts: point.totalNewPosts,
+            observedNewPosts: point.totalNewPosts,
+            observedQualifiedPosts: point.qualifiedPostVolume,
+            totalNewPosts:
+              coverageByDay.get(point.day)?.coverageStatus === "complete"
+                ? point.totalNewPosts
+                : null,
+            totalQualifiedPosts:
+              coverageByDay.get(point.day)?.coverageStatus === "complete"
+                ? point.qualifiedPostVolume
+                : null,
+            coverageStatus: coverageByDay.get(point.day)?.coverageStatus ?? "unknown",
+            ...(coverageByDay.get(point.day)?.coverageBasis
+              ? { coverageBasis: coverageByDay.get(point.day)!.coverageBasis }
+              : {}),
+            valueSemantics:
+              point.pointQuality === "missing"
+                ? "missing"
+                : coverageByDay.get(point.day)?.coverageStatus === "complete"
+                  ? "complete_total"
+                  : "observed_total",
             totalDiscussion: point.totalDiscussion,
             postChangePct: point.postChangePct,
             discussionChangePct: point.discussionChangePct,
