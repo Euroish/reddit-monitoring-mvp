@@ -42,6 +42,7 @@ export interface CreateInviteRequest {
   roleOnAccept?: AppUserRole;
   maxUses?: number;
   expiresAt?: string;
+  code?: string;
 }
 
 export interface CreateInviteResponse {
@@ -66,6 +67,22 @@ export interface RegisterAppUserRequest {
 }
 
 export interface RegisterAppUserResponse {
+  ok: true;
+  requestId: string;
+  user: AuthUserView;
+}
+
+export interface ListAppUsersResponse {
+  ok: true;
+  requestId: string;
+  users: AuthUserView[];
+}
+
+export interface UpdateAppUserStatusRequest {
+  status: AppUserStatus;
+}
+
+export interface UpdateAppUserStatusResponse {
   ok: true;
   requestId: string;
   user: AuthUserView;

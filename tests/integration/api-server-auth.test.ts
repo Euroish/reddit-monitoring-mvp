@@ -11,10 +11,12 @@ import type {
   AuthMeResponse,
   CreateSavedWorkbenchViewResponse,
   CreateInviteResponse,
+  ListAppUsersResponse,
   ListSavedWorkbenchViewsResponse,
   MarketTrendResponse,
   RegisterAppUserResponse,
   TriggerPhase1RunResponse,
+  UpdateAppUserStatusResponse,
 } from "../../packages/contracts/src/http";
 import { PasswordHashingService } from "../../src/application/services/password-hashing.service";
 import { RedditMockConnector } from "../../src/connectors/reddit/reddit-mock.connector";
@@ -271,6 +273,125 @@ test("v1 routes accept session cookies while preserving bearer compatibility", a
     });
     assert.equal(bearerMarket.status, 200);
     assert.equal(bearerMarket.body.ok, true);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("admin routes list users and update user status without affecting other accounts", async () => {
+  const fixedNow = "2026-04-20T02:00:00.000Z";
+  const repos = createApiTestRepositories();
+  await seedAppUser({
+    repos,
+    email: "admin@example.com",
+    password: "admin-password",
+    role: "admin",
+    nowIso: fixedNow,
+  });
+  await seedAppUser({
+    repos,
+    email: "viewer@example.com",
+    password: "viewer-password",
+    role: "viewer",
+    status: "pending",
+    nowIso: "2026-04-20T01:00:00.000Z",
+  });
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+    auth: {
+      bearerToken: "test-token",
+    },
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const loginResult = await login(baseUrl, "admin@example.com", "admin-password");
+    assert.equal(loginResult.status, 200);
+
+    const users = await getJson<ListAppUsersResponse>(`${baseUrl}/auth/users`, {
+      cookie: loginResult.cookie ?? "",
+    });
+    assert.equal(users.status, 200);
+    assert.equal(users.body.ok, true);
+    assert.equal(users.body.users.length, 2);
+    const viewer = users.body.users.find((user) => user.email === "viewer@example.com");
+    assert.ok(viewer);
+    assert.equal(viewer.status, "pending");
+
+    const updated = await postJson<UpdateAppUserStatusResponse>(
+      `${baseUrl}/auth/users/${viewer.id}/status`,
+      { status: "disabled" },
+      {
+        cookie: loginResult.cookie ?? "",
+      },
+    );
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.user.email, "viewer@example.com");
+    assert.equal(updated.body.user.status, "disabled");
+
+    const refreshed = await getJson<ListAppUsersResponse>(`${baseUrl}/auth/users`, {
+      cookie: loginResult.cookie ?? "",
+    });
+    assert.equal(refreshed.status, 200);
+    const refreshedAdmin = refreshed.body.users.find((user) => user.email === "admin@example.com");
+    const refreshedViewer = refreshed.body.users.find((user) => user.email === "viewer@example.com");
+    assert.ok(refreshedAdmin);
+    assert.ok(refreshedViewer);
+    assert.equal(refreshedAdmin.status, "active");
+    assert.equal(refreshedViewer.status, "disabled");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("invite creation returns 6-digit codes and registration accepts them", async () => {
+  const fixedNow = "2026-04-20T02:00:00.000Z";
+  const repos = createApiTestRepositories();
+  await seedAppUser({
+    repos,
+    email: "owner@example.com",
+    password: "owner-password",
+    role: "owner",
+    nowIso: fixedNow,
+  });
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+    auth: {
+      bearerToken: "test-token",
+    },
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const loginResult = await login(baseUrl, "owner@example.com", "owner-password");
+    assert.equal(loginResult.status, 200);
+
+    const invite = await postJson<CreateInviteResponse>(
+      `${baseUrl}/auth/invites`,
+      { roleOnAccept: "viewer", maxUses: 1 },
+      {
+        cookie: loginResult.cookie ?? "",
+      },
+    );
+    assert.equal(invite.status, 201);
+    assert.match(invite.body.code, /^\d{6}$/);
+
+    const registered = await postJson<RegisterAppUserResponse>(`${baseUrl}/auth/register`, {
+      email: "newuser@example.com",
+      password: "new-user-password",
+      inviteCode: invite.body.code,
+      displayName: "new user",
+    });
+    assert.equal(registered.status, 201);
+    assert.equal(registered.body.user.email, "newuser@example.com");
+    assert.equal(registered.body.user.status, "pending");
+    assert.equal(registered.body.user.role, "viewer");
   } finally {
     await stopServer(server);
   }

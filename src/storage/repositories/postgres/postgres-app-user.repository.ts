@@ -177,6 +177,17 @@ export class PostgresAppUserRepository implements AppUserRepository {
     return result.rows.length > 0 ? mapAppUser(result.rows[0]) : null;
   }
 
+  public async list(): Promise<AppUser[]> {
+    const result = await this.db.query<AppUserRow>(
+      `
+      SELECT id, email, display_name, role, status, created_at, updated_at
+      FROM app_user
+      ORDER BY created_at DESC, email ASC
+      `,
+    );
+    return result.rows.map(mapAppUser);
+  }
+
   public async updateStatus(
     id: string,
     status: AppUser["status"],

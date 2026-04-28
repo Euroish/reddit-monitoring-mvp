@@ -60,6 +60,15 @@ export class InMemoryAppUserRepository implements AppUserRepository {
     return this.byId.get(id) ?? null;
   }
 
+  public async list(): Promise<AppUser[]> {
+    return Array.from(this.byId.values()).sort((left, right) => {
+      if (left.createdAt === right.createdAt) {
+        return left.email.localeCompare(right.email);
+      }
+      return right.createdAt.localeCompare(left.createdAt);
+    });
+  }
+
   public async updateStatus(
     id: string,
     status: AppUser["status"],

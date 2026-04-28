@@ -26,9 +26,12 @@ import type {
   GetKeywordQueryResponse,
   ListSavedWorkbenchViewsResponse,
   MarketTrendResponse,
+  ListAppUsersResponse,
   RegisterAppUserRequest,
   RegisterAppUserResponse,
   RunMode,
+  UpdateAppUserStatusRequest,
+  UpdateAppUserStatusResponse,
   GlobalKeywordDailyTrendResponse,
   SubredditDriverPostsResponse,
   SubredditDailyTrendResponse,
@@ -49,6 +52,7 @@ import { dispatchRedditPhase1Run } from "../../../src/application/use-cases/disp
 import { prepareTriggeredRedditPhase1Run } from "../../../src/application/use-cases/trigger-reddit-phase1-run.use-case";
 import { activateAppUser } from "../../../src/application/use-cases/activate-app-user.use-case";
 import { createAppInvite } from "../../../src/application/use-cases/create-app-invite.use-case";
+import { CreateAppInviteError } from "../../../src/application/use-cases/create-app-invite.use-case";
 import { getCurrentAppUser } from "../../../src/application/use-cases/get-current-app-user.use-case";
 import { AuthError, loginAppUser } from "../../../src/application/use-cases/login-app-user.use-case";
 import { logoutAppUser } from "../../../src/application/use-cases/logout-app-user.use-case";
@@ -767,12 +771,18 @@ function isPrivilegedWritePath(pathname: string): boolean {
     pathname === "/v1/targets/subreddit" ||
     pathname === "/v1/runs/reddit-phase1" ||
     pathname === "/auth/invites" ||
-    /^\/auth\/users\/[^/]+\/activate$/.test(pathname)
+    /^\/auth\/users\/[^/]+\/activate$/.test(pathname) ||
+    /^\/auth\/users\/[^/]+\/status$/.test(pathname)
   );
 }
 
 function isAuthAdminPath(pathname: string): boolean {
-  return pathname === "/auth/invites" || /^\/auth\/users\/[^/]+\/activate$/.test(pathname);
+  return (
+    pathname === "/auth/invites" ||
+    pathname === "/auth/users" ||
+    /^\/auth\/users\/[^/]+\/activate$/.test(pathname) ||
+    /^\/auth\/users\/[^/]+\/status$/.test(pathname)
+  );
 }
 
 function isSupportedAppUserRole(value: unknown): value is AppUser["role"] {
@@ -787,9 +797,22 @@ function canUseOpsRead(actor: ApiActor | null): boolean {
   );
 }
 
+function canUseAuthAdminRead(actor: ApiActor | null): boolean {
+  return actor?.type === "machine" || canUseOpsRead(actor);
+}
+
 function parseUserIdFromActivatePath(pathname: string): string | null {
   const match = /^\/auth\/users\/([^/]+)\/activate$/.exec(pathname);
   return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function parseUserIdFromStatusPath(pathname: string): string | null {
+  const match = /^\/auth\/users\/([^/]+)\/status$/.exec(pathname);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function isSupportedAppUserStatus(value: unknown): value is AppUser["status"] {
+  return value === "pending" || value === "active" || value === "disabled";
 }
 
 export function createApiServer(options: CreateApiServerOptions): Server {
@@ -955,6 +978,19 @@ export function createApiServer(options: CreateApiServerOptions): Server {
       }
 
       if (actor && needsPrivilegedAuth && !canUseOpsWrite(actor)) {
+        respond({
+          statusCode: 403,
+          body: toApiError({
+            requestId,
+            message: "forbidden",
+            code: "forbidden",
+          }),
+          errorCode: "forbidden",
+        });
+        return;
+      }
+
+      if (pathname === "/auth/users" && !canUseAuthAdminRead(actor)) {
         respond({
           statusCode: 403,
           body: toApiError({
@@ -1263,6 +1299,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         const roleOnAccept = body?.roleOnAccept ?? "viewer";
         const maxUses = body?.maxUses ?? 1;
         const expiresAt = typeof body?.expiresAt === "string" ? body.expiresAt : undefined;
+        const code = typeof body?.code === "string" ? body.code : undefined;
         if (
           !isSupportedAppUserRole(roleOnAccept) ||
           !Number.isInteger(maxUses) ||
@@ -1282,33 +1319,77 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           return;
         }
 
-        const result = await createAppInvite(
-          {
-            appInviteRepository: repos.appInviteRepository,
-            sessionTokenService,
-            now,
-          },
-          {
-            roleOnAccept,
-            maxUses,
-            expiresAt,
-          },
-        );
-        const payload: CreateInviteResponse = {
+        try {
+          const result = await createAppInvite(
+            {
+              appInviteRepository: repos.appInviteRepository,
+              sessionTokenService,
+              now,
+            },
+            {
+              roleOnAccept,
+              maxUses,
+              expiresAt,
+              code,
+            },
+          );
+          const payload: CreateInviteResponse = {
+            ok: true,
+            requestId,
+            invite: {
+              id: result.invite.id,
+              roleOnAccept: result.invite.roleOnAccept,
+              maxUses: result.invite.maxUses,
+              usedCount: result.invite.usedCount,
+              expiresAt: result.invite.expiresAt,
+              createdAt: result.invite.createdAt,
+            },
+            code: result.code,
+          };
+          respond({
+            statusCode: 201,
+            body: payload,
+          });
+          return;
+        } catch (error) {
+          if (error instanceof CreateAppInviteError) {
+            respond({
+              statusCode: error.code === "invite_code_conflict" ? 409 : 400,
+              body: toApiError({
+                requestId,
+                message: error.message,
+                code: error.code,
+              }),
+              errorCode: error.code,
+            });
+            return;
+          }
+          throw error;
+  }
+}
+
+      if (req.method === "GET" && pathname === "/auth/users") {
+        if (!repos.appUserRepository) {
+          respond({
+            statusCode: 503,
+            body: toApiError({
+              requestId,
+              message: "auth repositories are unavailable",
+              code: "auth_unavailable",
+            }),
+            errorCode: "auth_unavailable",
+          });
+          return;
+        }
+
+        const users = await repos.appUserRepository.list();
+        const payload: ListAppUsersResponse = {
           ok: true,
           requestId,
-          invite: {
-            id: result.invite.id,
-            roleOnAccept: result.invite.roleOnAccept,
-            maxUses: result.invite.maxUses,
-            usedCount: result.invite.usedCount,
-            expiresAt: result.invite.expiresAt,
-            createdAt: result.invite.createdAt,
-          },
-          code: result.code,
+          users: users.map(toAuthUserView),
         };
         respond({
-          statusCode: 201,
+          statusCode: 200,
           body: payload,
         });
         return;
@@ -1361,6 +1442,74 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         }
 
         const payload: AuthMeResponse = {
+          ok: true,
+          requestId,
+          user: toAuthUserView(user),
+        };
+        respond({
+          statusCode: 200,
+          body: payload,
+        });
+        return;
+      }
+
+      if (req.method === "POST" && pathname.startsWith("/auth/users/") && pathname.endsWith("/status")) {
+        if (!repos.appUserRepository) {
+          respond({
+            statusCode: 503,
+            body: toApiError({
+              requestId,
+              message: "auth repositories are unavailable",
+              code: "auth_unavailable",
+            }),
+            errorCode: "auth_unavailable",
+          });
+          return;
+        }
+
+        const userId = parseUserIdFromStatusPath(pathname);
+        if (!userId) {
+          respond({
+            statusCode: 400,
+            body: toApiError({
+              requestId,
+              message: "invalid user id",
+              code: "invalid_user_id",
+            }),
+            errorCode: "invalid_user_id",
+          });
+          return;
+        }
+
+        const body = await readJsonBody<UpdateAppUserStatusRequest>(req);
+        if (!body || !isSupportedAppUserStatus(body.status)) {
+          respond({
+            statusCode: 400,
+            body: toApiError({
+              requestId,
+              message: "invalid user status",
+              code: "invalid_user_status",
+            }),
+            errorCode: "invalid_user_status",
+          });
+          return;
+        }
+
+        const user = await repos.appUserRepository.updateStatus(userId, body.status, now());
+        if (!user) {
+          respond({
+            statusCode: 404,
+            body: toApiError({
+              requestId,
+              message: "user not found",
+              code: "user_not_found",
+            }),
+            errorCode: "user_not_found",
+          });
+          return;
+        }
+
+        const payload: UpdateAppUserStatusResponse = {
           ok: true,
           requestId,
           user: toAuthUserView(user),

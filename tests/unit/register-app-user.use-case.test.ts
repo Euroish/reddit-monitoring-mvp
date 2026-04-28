@@ -46,6 +46,9 @@ test("registerAppUser uses atomic registration path without consuming invite on 
     async findById() {
       return null;
     },
+    async list() {
+      return [];
+    },
     async updateStatus() {
       return null;
     },

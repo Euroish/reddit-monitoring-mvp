@@ -20,5 +20,6 @@ export interface AppUserRepository {
   ): Promise<CreateWithConsumedInviteResult>;
   findByEmailWithPassword(email: string): Promise<AppUserWithPassword | null>;
   findById(id: string): Promise<AppUser | null>;
+  list(): Promise<AppUser[]>;
   updateStatus(id: string, status: AppUser["status"], updatedAt: string): Promise<AppUser | null>;
 }
