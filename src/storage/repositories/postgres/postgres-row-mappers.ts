@@ -51,6 +51,12 @@ export interface ContentRow {
   created_at_source: string | Date;
   first_seen_at: string | Date;
   last_seen_at: string | Date;
+  discovery_source?: "new_listing" | "top_supplement" | "unknown";
+  first_collection_mode?: "live" | "backfill" | null;
+  first_listing?: "new" | "top" | "unknown" | null;
+  first_time_range?: string | null;
+  first_collection_job_id?: string | null;
+  total_eligible?: boolean;
 }
 
 export interface MetricsSnapshotRow {
@@ -376,6 +382,12 @@ export function mapContent(row: ContentRow): Content {
     createdAtSource: toIso(row.created_at_source)!,
     firstSeenAt: toIso(row.first_seen_at)!,
     lastSeenAt: toIso(row.last_seen_at)!,
+    discoverySource: row.discovery_source ?? "new_listing",
+    firstCollectionMode: row.first_collection_mode ?? undefined,
+    firstListing: row.first_listing ?? undefined,
+    firstTimeRange: row.first_time_range ?? undefined,
+    firstCollectionJobId: row.first_collection_job_id ?? undefined,
+    totalEligible: row.total_eligible ?? true,
   };
 }
 

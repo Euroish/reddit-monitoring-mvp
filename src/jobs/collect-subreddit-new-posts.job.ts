@@ -35,6 +35,26 @@ import type {
   RedditSamplingTier,
 } from "./reddit-job.types";
 
+type RedditPostPage = Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>;
+
+interface CollectedPostPage {
+  page: RedditPostPage;
+  discoverySource: Content["discoverySource"];
+  listing: Content["firstListing"];
+  timeRange?: RedditTopTimeRange;
+  totalEligible: boolean;
+}
+
+type NormalizedPostUpserts = ReturnType<RedditMapper["toPostUpserts"]>;
+type NormalizedPostMetricPoints = ReturnType<RedditMapper["toPostMetricPoints"]>;
+
+type ProvenancePostUpsert = NormalizedPostUpserts[number] & {
+  discoverySource: Content["discoverySource"];
+  firstListing: Content["firstListing"];
+  firstTimeRange?: string;
+  totalEligible: boolean;
+};
+
 export interface CollectSubredditNewPostsInput extends RedditCollectionJobInput {
   limit?: number;
   samplingTier?: RedditSamplingTier;
@@ -217,21 +237,31 @@ export async function runExistingSubredditNewPostsJob(
       requestId: input.job.id,
       nowIso: input.nowIso,
     });
-    const pages = observedPages.pages;
-    const allUpserts = [];
-    const allMetricPoints = [];
+    const collectedPages = observedPages.pages;
+    const pages = collectedPages.map((item) => item.page);
+    const allUpserts: ProvenancePostUpsert[] = [];
+    const allMetricPoints: NormalizedPostMetricPoints = [];
     let emptyResponseCount = 0;
 
-    for (const page of pages) {
+    for (const collectedPage of collectedPages) {
+      const page = collectedPage.page;
       await deps.rawEventRepository.append({
         collectionJobId: input.job.id,
         targetId: input.job.targetId,
         envelope: page.raw,
       });
-      const pageUpserts = deps.redditMapper.toPostUpserts(input.job.targetId, page.raw, {
-        requestId: input.job.id,
-        now: input.nowIso,
-      });
+      const pageUpserts = deps.redditMapper
+        .toPostUpserts(input.job.targetId, page.raw, {
+          requestId: input.job.id,
+          now: input.nowIso,
+        })
+        .map((item): ProvenancePostUpsert => ({
+          ...item,
+          discoverySource: collectedPage.discoverySource,
+          firstListing: collectedPage.listing,
+          firstTimeRange: collectedPage.timeRange,
+          totalEligible: collectedPage.totalEligible,
+        }));
       const pageMetricPoints = deps.redditMapper.toPostMetricPoints(page.raw, {
         requestId: input.job.id,
         now: input.nowIso,
@@ -242,22 +272,26 @@ export async function runExistingSubredditNewPostsJob(
       allUpserts.push(...pageUpserts);
       allMetricPoints.push(...pageMetricPoints);
     }
-    const candidateFiltered = filterCandidates({
+    const corpusAccepted = applyLiveWindowAcceptance({
       upserts: allUpserts,
       metricPoints: allMetricPoints,
-      filter,
-    });
-    const filtered = applyLiveWindowAcceptance({
-      upserts: candidateFiltered.upserts,
-      metricPoints: candidateFiltered.metricPoints,
-      filteredOutCount: candidateFiltered.filteredOutCount,
+      filteredOutCount: 0,
       mode,
       nowIso: input.nowIso,
     });
+    const candidateFiltered = filterCandidates({
+      upserts: corpusAccepted.upserts,
+      metricPoints: corpusAccepted.metricPoints,
+      filter,
+    });
+    const filtered = {
+      ...candidateFiltered,
+      filteredOutCount: corpusAccepted.filteredOutCount + candidateFiltered.filteredOutCount,
+    };
     const observedExternalIds = Array.from(
-      new Set(filtered.upserts.map((item) => item.externalId)),
+      new Set(corpusAccepted.upserts.map((item) => item.externalId)),
     );
-    const duplicateWithinPageCount = Math.max(0, filtered.upserts.length - observedExternalIds.length);
+    const duplicateWithinPageCount = Math.max(0, corpusAccepted.upserts.length - observedExternalIds.length);
     const existingExternalIds =
       observedExternalIds.length > 0
         ? await deps.contentRepository.findExistingExternalIds({
@@ -268,16 +302,17 @@ export async function runExistingSubredditNewPostsJob(
     const existingExternalIdSet = new Set(existingExternalIds);
     const existingDuplicateCount = existingExternalIds.length;
     const duplicatePostCount = duplicateWithinPageCount + existingDuplicateCount;
-    const newAcceptedUpserts = filtered.upserts.filter(
+    const newAcceptedUpserts = corpusAccepted.upserts.filter(
       (item) => !existingExternalIdSet.has(item.externalId),
     );
+    const newAcceptedTotalEligibleUpserts = newAcceptedUpserts.filter((item) => item.totalEligible);
     const metricsToWrite = selectMetricPointsForWrite({
       upserts: filtered.upserts,
       metricPoints: filtered.metricPoints,
       newAcceptedExternalIds: new Set(newAcceptedUpserts.map((item) => item.externalId)),
       nowIso: input.nowIso,
     });
-    const ingestLagStats = summarizeIngestLagSeconds(filtered.upserts, input.nowIso);
+    const ingestLagStats = summarizeIngestLagSeconds(corpusAccepted.upserts, input.nowIso);
     const providerDiffStats = summarizeProviderDiffStats(pages);
     const lastPage = pages[pages.length - 1];
     const scraplingObservability = summarizeScraplingObservability(pages);
@@ -290,7 +325,7 @@ export async function runExistingSubredditNewPostsJob(
     const accountsMap = new Map<string, Account>();
     const contents: Content[] = [];
 
-    for (const item of filtered.upserts) {
+    for (const item of corpusAccepted.upserts) {
       const accountId = stableUuidFromString(`reddit:account:${item.accountExternalId}`);
       if (!accountsMap.has(item.accountExternalId)) {
         accountsMap.set(item.accountExternalId, {
@@ -319,6 +354,12 @@ export async function runExistingSubredditNewPostsJob(
         createdAtSource: item.createdAtSource,
         firstSeenAt: input.nowIso,
         lastSeenAt: input.nowIso,
+        discoverySource: item.discoverySource,
+        firstCollectionMode: mode,
+        firstListing: item.firstListing,
+        firstTimeRange: item.firstTimeRange,
+        firstCollectionJobId: input.job.id,
+        totalEligible: item.totalEligible,
       });
     }
 
@@ -337,7 +378,7 @@ export async function runExistingSubredditNewPostsJob(
         targetId: input.job.targetId,
         granularity: "15m",
         metricName: "new_posts_15m",
-        metricValue: newAcceptedUpserts.length,
+        metricValue: newAcceptedTotalEligibleUpserts.length,
         collectionJobId: input.job.id,
       },
     ];
@@ -456,7 +497,7 @@ export async function runExistingSubredditNewPostsJob(
       emptyResponseCountDelta: emptyResponseCount,
       fallbackCountDelta: pages.filter((page) => hasFallback(page.raw.responseHeaders)).length,
       candidateCountDelta: allUpserts.length,
-      acceptedCountDelta: filtered.upserts.length,
+      acceptedCountDelta: corpusAccepted.upserts.length,
       filteredOutCountDelta: filtered.filteredOutCount,
       duplicatePostCountDelta: duplicatePostCount,
       ingestLagSecondsSumDelta: ingestLagStats.sumSeconds,
@@ -485,7 +526,7 @@ export async function runExistingSubredditNewPostsJob(
       requestCount: pages.length,
       candidateCount: allUpserts.length,
       filteredOutCount: filtered.filteredOutCount,
-      acceptedCount: filtered.upserts.length,
+      acceptedCount: corpusAccepted.upserts.length,
       duplicatePostCount,
       ingestLagStats,
       providerDiffStats,
@@ -731,18 +772,18 @@ async function collectObservedPages(args: {
   requestId: string;
   nowIso: string;
 }): Promise<{
-  pages: Array<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>>;
+  pages: CollectedPostPage[];
   finalCursor?: string;
-  lastCursorPage?: Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>;
+  lastCursorPage?: RedditPostPage;
   oldestObservedAt?: string;
   newestObservedAt?: string;
   listingHorizonHit: boolean;
 }> {
-  const pages: Array<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>> = [];
+  const pages: CollectedPostPage[] = [];
   let after = args.after;
   let remainingBudget = args.limit;
   let observedProvider = args.providerHint;
-  let lastCursorPage: Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>> | undefined;
+  let lastCursorPage: RedditPostPage | undefined;
   let oldestObservedAt: string | undefined;
   let newestObservedAt: string | undefined;
   let listingHorizonHit = false;
@@ -766,7 +807,12 @@ async function collectObservedPages(args: {
       requestId: pageIndex === 0 ? args.requestId : `${args.requestId}:overflow:${pageIndex}`,
       nowIso: args.nowIso,
     });
-    pages.push(page);
+    pages.push({
+      page,
+      discoverySource: "new_listing",
+      listing: "new",
+      totalEligible: true,
+    });
     lastCursorPage = page;
     const pageObservedBounds = resolvePageObservedDateBounds(page);
     if (pageObservedBounds) {
@@ -855,7 +901,7 @@ async function requestObservedPage(args: {
   timeRange?: RedditTopTimeRange;
   requestId: string;
   nowIso: string;
-}): Promise<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>> {
+}): Promise<RedditPostPage> {
   const request: RedditCollectSubredditPostsArgs = {
     subreddit: args.subreddit,
     limit: args.limit,
@@ -898,11 +944,11 @@ async function collectBackfillSupplementalPages(args: {
   limit: number;
   requestId: string;
   nowIso: string;
-}): Promise<Array<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>>> {
-  const pages: Array<Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>> = [];
+}): Promise<CollectedPostPage[]> {
+  const pages: CollectedPostPage[] = [];
   for (const timeRange of BACKFILL_TOP_TIME_WINDOWS) {
-    pages.push(
-      await requestObservedPage({
+    pages.push({
+      page: await requestObservedPage({
         redditConnector: args.redditConnector,
         subreddit: args.subreddit,
         limit: args.limit,
@@ -911,7 +957,11 @@ async function collectBackfillSupplementalPages(args: {
         requestId: `${args.requestId}:top:${timeRange}`,
         nowIso: args.nowIso,
       }),
-    );
+      discoverySource: "top_supplement",
+      listing: "top",
+      timeRange,
+      totalEligible: false,
+    });
   }
   return pages;
 }
@@ -1137,13 +1187,13 @@ async function resolveLatestSubscriberCount(args: {
   return Math.max(0, Math.round(Number(latest.metricValue)));
 }
 
-function filterCandidates(args: {
-  upserts: ReturnType<RedditMapper["toPostUpserts"]>;
-  metricPoints: ReturnType<RedditMapper["toPostMetricPoints"]>;
+function filterCandidates<TPost extends NormalizedPostUpserts[number]>(args: {
+  upserts: TPost[];
+  metricPoints: NormalizedPostMetricPoints;
   filter: ReturnType<typeof resolveCandidateFilter>;
 }): {
-  upserts: ReturnType<RedditMapper["toPostUpserts"]>;
-  metricPoints: ReturnType<RedditMapper["toPostMetricPoints"]>;
+  upserts: TPost[];
+  metricPoints: NormalizedPostMetricPoints;
   filteredOutCount: number;
 } {
   if (args.filter.minScore <= 0 && args.filter.minComments <= 0) {
@@ -1181,15 +1231,15 @@ function filterCandidates(args: {
   };
 }
 
-function applyLiveWindowAcceptance(args: {
-  upserts: ReturnType<RedditMapper["toPostUpserts"]>;
-  metricPoints: ReturnType<RedditMapper["toPostMetricPoints"]>;
+function applyLiveWindowAcceptance<TPost extends NormalizedPostUpserts[number]>(args: {
+  upserts: TPost[];
+  metricPoints: NormalizedPostMetricPoints;
   filteredOutCount: number;
   mode: CrawlMode;
   nowIso: string;
 }): {
-  upserts: ReturnType<RedditMapper["toPostUpserts"]>;
-  metricPoints: ReturnType<RedditMapper["toPostMetricPoints"]>;
+  upserts: TPost[];
+  metricPoints: NormalizedPostMetricPoints;
   filteredOutCount: number;
 } {
   if (args.mode !== "live") {
@@ -1216,11 +1266,11 @@ function applyLiveWindowAcceptance(args: {
 }
 
 function selectMetricPointsForWrite(args: {
-  upserts: ReturnType<RedditMapper["toPostUpserts"]>;
-  metricPoints: ReturnType<RedditMapper["toPostMetricPoints"]>;
+  upserts: NormalizedPostUpserts;
+  metricPoints: NormalizedPostMetricPoints;
   newAcceptedExternalIds: ReadonlySet<string>;
   nowIso: string;
-}): ReturnType<RedditMapper["toPostMetricPoints"]> {
+}): NormalizedPostMetricPoints {
   const activeWindowStartIso = resolveActivePostTrackingStartIso(args.nowIso);
   const upsertsByExternalId = new Map(args.upserts.map((item) => [item.externalId, item]));
   return args.metricPoints.filter((metric) => {

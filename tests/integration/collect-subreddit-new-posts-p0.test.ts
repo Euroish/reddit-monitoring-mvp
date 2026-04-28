@@ -183,10 +183,17 @@ test("collect subreddit new posts applies candidate filter and records provider 
   );
 
   assert.equal(rawEventRepository.all().length, 1);
-  assert.equal(contentRepository.all().length, 1);
+  assert.equal(contentRepository.all().length, 2);
+  assert.deepEqual(
+    contentRepository.all().map((item) => [item.externalId, item.totalEligible]).sort(),
+    [
+      ["t3_high", true],
+      ["t3_low", true],
+    ],
+  );
   const snapshots = metricsSnapshotRepository.all();
   const newPostsMetric = snapshots.find((item) => item.metricName === "new_posts_15m");
-  assert.equal(newPostsMetric?.metricValue, 1);
+  assert.equal(newPostsMetric?.metricValue, 2);
   assert.equal(snapshots.filter((item) => item.metricName === "score").length, 1);
   assert.equal(snapshots.filter((item) => item.metricName === "num_comments").length, 1);
 
@@ -196,10 +203,10 @@ test("collect subreddit new posts applies candidate filter and records provider 
   assert.equal(providerRows[0]?.requestCount, 1);
   assert.equal(providerRows[0]?.successCount, 1);
   assert.equal(providerRows[0]?.candidateCount, 2);
-  assert.equal(providerRows[0]?.acceptedCount, 1);
+  assert.equal(providerRows[0]?.acceptedCount, 2);
   assert.equal(providerRows[0]?.filteredOutCount, 1);
   assert.equal(providerRows[0]?.duplicatePostCount, 0);
-  assert.equal(providerRows[0]?.ingestLagSampleCount, 1);
+  assert.equal(providerRows[0]?.ingestLagSampleCount, 2);
   assert.equal(providerRows[0]?.providerDiffSampleCount, 0);
 });
 
@@ -1319,10 +1326,21 @@ test("collect subreddit new posts backfill applies tiered candidate filters from
   );
 
   assert.equal(smallContentRepository.all().length, 3);
-  assert.equal(largeContentRepository.all().length, 2);
+  assert.equal(largeContentRepository.all().length, 3);
   assert.deepEqual(
     largeContentRepository.all().map((post) => post.externalId).sort(),
-    ["t3_high", "t3_score_led"],
+    ["t3_borderline", "t3_high", "t3_score_led"],
+  );
+  assert.deepEqual(
+    largeMetricsSnapshotRepository
+      .all()
+      .filter((snapshot) => snapshot.contentId && snapshot.metricName === "score")
+      .map((snapshot) => snapshot.contentId)
+      .sort(),
+    [
+      stableUuidFromString("reddit:content:t3_high"),
+      stableUuidFromString("reddit:content:t3_score_led"),
+    ].sort(),
   );
 });
 

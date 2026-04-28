@@ -35,15 +35,22 @@ export class PostgresContentRepository implements ContentRepository {
             content.createdAtSource,
             content.firstSeenAt,
             content.lastSeenAt,
+            content.discoverySource ?? "new_listing",
+            content.firstCollectionMode ?? null,
+            content.firstListing ?? null,
+            content.firstTimeRange ?? null,
+            content.firstCollectionJobId ?? null,
+            content.totalEligible ?? true,
           );
         }
 
-        const placeholders = buildValuesPlaceholders(group.length, 13);
+        const placeholders = buildValuesPlaceholders(group.length, 19);
         await client.query(
           `
           INSERT INTO content (
             id, source_id, target_id, account_id, external_id, kind, title, body_text, url, permalink,
-            created_at_source, first_seen_at, last_seen_at
+            created_at_source, first_seen_at, last_seen_at, discovery_source, first_collection_mode,
+            first_listing, first_time_range, first_collection_job_id, total_eligible
           ) VALUES ${placeholders}
           ON CONFLICT (source_id, external_id)
           DO UPDATE SET
@@ -55,7 +62,8 @@ export class PostgresContentRepository implements ContentRepository {
             permalink = EXCLUDED.permalink,
             created_at_source = EXCLUDED.created_at_source,
             first_seen_at = LEAST(content.first_seen_at, EXCLUDED.first_seen_at),
-            last_seen_at = GREATEST(content.last_seen_at, EXCLUDED.last_seen_at)
+            last_seen_at = GREATEST(content.last_seen_at, EXCLUDED.last_seen_at),
+            total_eligible = content.total_eligible OR EXCLUDED.total_eligible
           `,
           values,
         );
@@ -97,7 +105,8 @@ export class PostgresContentRepository implements ContentRepository {
     const result = await this.db.query<ContentRow>(
       `
       SELECT id, target_id, account_id, external_id, kind, title, body_text, url, permalink,
-             created_at_source, first_seen_at, last_seen_at
+             created_at_source, first_seen_at, last_seen_at, discovery_source, first_collection_mode,
+             first_listing, first_time_range, first_collection_job_id, total_eligible
       FROM content
       WHERE target_id = $1
       ORDER BY created_at_source DESC
@@ -114,19 +123,22 @@ export class PostgresContentRepository implements ContentRepository {
     from: string;
     to: string;
     limit?: number;
+    totalEligibleOnly?: boolean;
   }): Promise<Content[]> {
     const result = await this.db.query<ContentRow>(
       `
       SELECT id, target_id, account_id, external_id, kind, title, body_text, url, permalink,
-             created_at_source, first_seen_at, last_seen_at
+             created_at_source, first_seen_at, last_seen_at, discovery_source, first_collection_mode,
+             first_listing, first_time_range, first_collection_job_id, total_eligible
       FROM content
       WHERE target_id = $1
         AND created_at_source >= $2
         AND created_at_source <= $3
+        AND ($5::boolean = FALSE OR total_eligible = TRUE)
       ORDER BY created_at_source ASC
       LIMIT $4
       `,
-      [args.targetId, args.from, args.to, args.limit ?? 5000],
+      [args.targetId, args.from, args.to, args.limit ?? 5000, args.totalEligibleOnly ?? false],
     );
 
     return result.rows.map(mapContent);

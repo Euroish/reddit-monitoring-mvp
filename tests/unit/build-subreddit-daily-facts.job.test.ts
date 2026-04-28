@@ -288,6 +288,119 @@ test("buildSubredditDailyFactsJob preserves observed zero-post days when collect
   assert.equal(subredditDailyFactRepository.all().length, 2);
 });
 
+test("buildSubredditDailyFactsJob excludes discovery-only posts from post volume", async () => {
+  const targetId = stableUuidFromString("reddit:target:r/datascience:provenance");
+  const totalPostId = stableUuidFromString("reddit:content:t3_total");
+  const supplementPostId = stableUuidFromString("reddit:content:t3_supplement");
+  const contentRepository = new InMemoryContentRepository();
+  const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
+
+  await contentRepository.upsertMany([
+    {
+      id: totalPostId,
+      source: "reddit",
+      targetId,
+      externalId: "t3_total",
+      kind: "post",
+      title: "New listing post",
+      permalink: "/r/datascience/comments/total",
+      createdAtSource: "2026-04-10T11:00:00.000Z",
+      firstSeenAt: "2026-04-10T11:00:00.000Z",
+      lastSeenAt: "2026-04-10T11:00:00.000Z",
+      discoverySource: "new_listing",
+      firstListing: "new",
+      totalEligible: true,
+    },
+    {
+      id: supplementPostId,
+      source: "reddit",
+      targetId,
+      externalId: "t3_supplement",
+      kind: "post",
+      title: "Top supplement post",
+      permalink: "/r/datascience/comments/supplement",
+      createdAtSource: "2026-04-10T12:00:00.000Z",
+      firstSeenAt: "2026-04-10T12:00:00.000Z",
+      lastSeenAt: "2026-04-10T12:00:00.000Z",
+      discoverySource: "top_supplement",
+      firstListing: "top",
+      firstTimeRange: "week",
+      totalEligible: false,
+    },
+  ]);
+
+  await metricsSnapshotRepository.appendMany([
+    {
+      snapshotAt: "2026-04-10T12:05:00.000Z",
+      source: "reddit",
+      targetId,
+      contentId: totalPostId,
+      granularity: "15m",
+      metricName: "score",
+      metricValue: 20,
+      collectionJobId: stableUuidFromString("job:score:total"),
+    },
+    {
+      snapshotAt: "2026-04-10T12:05:00.000Z",
+      source: "reddit",
+      targetId,
+      contentId: totalPostId,
+      granularity: "15m",
+      metricName: "num_comments",
+      metricValue: 8,
+      collectionJobId: stableUuidFromString("job:comments:total"),
+    },
+    {
+      snapshotAt: "2026-04-10T12:05:00.000Z",
+      source: "reddit",
+      targetId,
+      contentId: supplementPostId,
+      granularity: "15m",
+      metricName: "score",
+      metricValue: 500,
+      collectionJobId: stableUuidFromString("job:score:supplement"),
+    },
+    {
+      snapshotAt: "2026-04-10T12:05:00.000Z",
+      source: "reddit",
+      targetId,
+      contentId: supplementPostId,
+      granularity: "15m",
+      metricName: "num_comments",
+      metricValue: 200,
+      collectionJobId: stableUuidFromString("job:comments:supplement"),
+    },
+    {
+      snapshotAt: "2026-04-10T10:00:00.000Z",
+      source: "reddit",
+      targetId,
+      granularity: "15m",
+      metricName: "subscribers",
+      metricValue: 12_000,
+      collectionJobId: stableUuidFromString("job:about:provenance"),
+    },
+  ]);
+
+  const facts = await buildSubredditDailyFactsJob(
+    {
+      contentRepository,
+      metricsSnapshotRepository,
+      subredditDailyFactRepository,
+    },
+    {
+      targetId,
+      fromIso: "2026-04-10T00:00:00.000Z",
+      toIso: "2026-04-10T23:59:59.000Z",
+    },
+  );
+
+  assert.equal(facts.length, 1);
+  assert.equal(facts[0]?.postVolume, 1);
+  assert.equal(facts[0]?.scoreSum, 20);
+  assert.equal(facts[0]?.commentSum, 8);
+});
+
 test("buildSubredditDailyFactsJob backfills earliest known about snapshot across earlier observed days", async () => {
   const targetId = stableUuidFromString("reddit:target:r/overwatch:about-backfill");
   const contentId = stableUuidFromString("reddit:content:t3_about_backfill");

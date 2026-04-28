@@ -44,6 +44,7 @@ export async function buildSubredditDailyFactsJob(
       from: input.fromIso,
       to: input.toIso,
       limit: 50_000,
+      totalEligibleOnly: true,
     }),
     deps.metricsSnapshotRepository.listByTargetInRange({
       targetId: input.targetId,

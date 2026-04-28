@@ -28,7 +28,26 @@ export class InMemoryContentRepository implements ContentRepository {
 
   public async upsertMany(contents: Content[]): Promise<void> {
     for (const content of contents) {
-      this.byExternalId.set(content.externalId, content);
+      const current = this.byExternalId.get(content.externalId);
+      this.byExternalId.set(content.externalId, {
+        ...content,
+        firstSeenAt:
+          current && current.firstSeenAt < content.firstSeenAt
+            ? current.firstSeenAt
+            : content.firstSeenAt,
+        lastSeenAt:
+          current && current.lastSeenAt > content.lastSeenAt
+            ? current.lastSeenAt
+            : content.lastSeenAt,
+        discoverySource: current?.discoverySource ?? content.discoverySource ?? "new_listing",
+        firstCollectionMode: current?.firstCollectionMode ?? content.firstCollectionMode,
+        firstListing: current?.firstListing ?? content.firstListing,
+        firstTimeRange: current?.firstTimeRange ?? content.firstTimeRange,
+        firstCollectionJobId: current?.firstCollectionJobId ?? content.firstCollectionJobId,
+        totalEligible: current
+          ? (current.totalEligible ?? true) || (content.totalEligible ?? true)
+          : content.totalEligible ?? true,
+      });
     }
   }
 
@@ -69,13 +88,15 @@ export class InMemoryContentRepository implements ContentRepository {
     from: string;
     to: string;
     limit?: number;
+    totalEligibleOnly?: boolean;
   }): Promise<Content[]> {
     return Array.from(this.byExternalId.values())
       .filter((content) => {
         return (
           content.targetId === args.targetId &&
           content.createdAtSource >= args.from &&
-          content.createdAtSource <= args.to
+          content.createdAtSource <= args.to &&
+          (!args.totalEligibleOnly || (content.totalEligible ?? true))
         );
       })
       .sort((a, b) => a.createdAtSource.localeCompare(b.createdAtSource))

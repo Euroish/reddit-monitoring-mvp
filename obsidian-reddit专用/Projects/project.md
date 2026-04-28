@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: coverage-provenance-core
-updated_at: "2026-04-28 04:50:00"
+stage: coverage-provenance-p0-landed
+updated_at: "2026-04-28 05:00:00"
 repo_path: "/root/reddit-monitoring-mvp"
-next_action: "Implement the smallest end-to-end coverage/provenance slice: tag `content` with collection provenance and total eligibility, keep `new` listing as the only total-volume candidate source, and make daily/read-model post counts split observed counts from coverage-proven totals."
+next_action: "Implement coverage facts and read-model/API semantics: add day or range coverage status/basis, wire live continuity/backfill evidence into it, then expose nullable complete totals plus observed counts."
 tags:
 - codex
 - workspace
@@ -27,9 +27,10 @@ tags:
 ## Current Reconciled State
 
 - The latest archived analysis note `Archive/算法与抓取代码分析 (1)-2026-04-28.md` matches the active design direction: the core problem is not "grab more pages"; it is missing provenance, missing day/range coverage proof, and overloading observed corpus counts as total counts.
-- Current code still has no `content` provenance fields such as `discovery_source` or `total_eligible`.
-- Current code still mixes `new` and `top` supplement pages in the collection path before content/fact materialization.
-- Current daily facts still derive post volume from observed content counts, not from a coverage-gated total/observed split.
+- `content` provenance and `total_eligible` now exist as the first landed P0 slice.
+- The collection path now tags `new` listing posts as `new_listing` / `total_eligible=true` and `top` supplement posts as `top_supplement` / `total_eligible=false`.
+- Candidate filters no longer shrink the content/total denominator; they still narrow analytics metric candidates.
+- Daily facts now read only total-eligible content for observed post volume, but complete total fields and coverage facts are still pending.
 - Current coverage evidence exists mainly around `crawl_cursor` live/backfill status, not as a day-level or range-level fact that can control API/UI semantics.
 - Current default UI labels have been restored to `Total New Posts` / `Qualified Posts`, but the data model still needs the backing proof system so those labels are only valid when coverage is complete.
 
@@ -88,11 +89,11 @@ tags:
 
 ## Explicit Task Stack
 
-- `P0.1` Add `content` provenance and total-eligibility fields across domain, schema, Postgres repository, and in-memory/test repositories.
-- `P0.2` Split `collect-subreddit-new-posts.job.ts` page collection/write semantics so `new_listing` and `top_supplement` are no longer indistinguishable after ingestion.
-- `P0.3` Stop candidate filtering from shrinking the total-corpus denominator; keep filtering for analytics candidates and qualified/driver surfaces.
-- `P0.4` Update daily fact materialization to count only total-eligible `new` listing posts for observed volume, while leaving complete total fields nullable until coverage is complete.
-- `P1.1` Add coverage fact storage/read path with day or range granularity and concrete coverage basis.
+- `P0.1` Done: Add `content` provenance and total-eligibility fields across domain, schema, Postgres repository, and in-memory/test repositories.
+- `P0.2` Done: Split `collect-subreddit-new-posts.job.ts` page collection/write semantics so `new_listing` and `top_supplement` are no longer indistinguishable after ingestion.
+- `P0.3` Done: Stop candidate filtering from shrinking the total-corpus denominator; keep filtering for analytics candidates and qualified/driver surfaces.
+- `P0.4` Done: Update daily fact materialization to count only total-eligible `new` listing posts for observed volume.
+- `P1.1` Next: Add coverage fact storage/read path with day or range granularity and concrete coverage basis.
 - `P1.2` Wire live continuity and backfill progress into coverage facts, including missed-window degradation.
 - `P1.3` Add small/medium/high-volume regression fixtures for complete, partial/progressing, and activation-only total behavior.
 - `P2.1` Update API contracts/read models/UI display rules for total-vs-observed semantics and coverage badges.
@@ -113,6 +114,13 @@ tags:
 - Documentation-only state updates do not require tests, but must leave `Projects` root containing only `project.md`.
 
 ## Activity Log
+
+### 2026-04-28 05:00:00
+
+- Scope: Landed the P0 provenance/eligibility slice. Added content collection provenance and total eligibility fields, persisted them through Postgres and in-memory repositories, tagged `new` listing pages as total-eligible and `top` supplement pages as discovery-only, kept candidate filters out of the total-corpus denominator, and changed daily fact materialization to query only total-eligible content.
+- Why now: The active blocker was that observed content, discovery supplements, and total-volume candidates were indistinguishable. Without this separation, coverage facts and UI/API total-vs-observed semantics would still be built on contaminated counts.
+- Verify: `npm run typecheck` passed. `node --import tsx --test tests/integration/collect-subreddit-new-posts-p0.test.ts tests/unit/build-subreddit-daily-facts.job.test.ts` passed with 26 tests. `npm run algo:fast`, `npm run algo:phase1`, and `npm run algo:phase1:full` passed.
+- Next: Implement `P1.1` coverage fact storage/read path and wire live/backfill continuity evidence into it before changing API/UI totals.
 
 ### 2026-04-28 04:50:00
 

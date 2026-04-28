@@ -10,5 +10,6 @@ export interface ContentRepository {
     from: string;
     to: string;
     limit?: number;
+    totalEligibleOnly?: boolean;
   }): Promise<Content[]>;
 }
