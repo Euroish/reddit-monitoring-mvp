@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: coverage-semantics-hardening-landed
-updated_at: "2026-04-28 06:02:10"
+stage: storage-pressure-harness
+updated_at: "2026-04-28 06:35:13"
 repo_path: "/root/reddit-monitoring-mvp"
-next_action: "Keep coverage semantics stable while adding only focused product surfaces; no remaining standalone export/report generator was found in the current repo."
+next_action: "Evaluate P3.2 metrics storage compression while preserving post score/comment engagement data and compatibility reads."
 tags:
 - codex
 - workspace
@@ -20,21 +20,17 @@ tags:
 
 - Authority: this file is the only active execution state source.
 - Startup pair: `00_START_HERE.md` plus this file.
-- Archive: Markdown notes under `obsidian-reddit专用/Projects/Archive/` are historical inputs only after reconciliation against current code and this file.
+- Archive: keep empty by default. External analysis notes are temporary inputs only; read, reconcile against code, update this file, then remove.
 - Product truth: this is a bounded monitored Reddit analytics workbench. It may display `Total New Posts` / `Qualified Posts` only for target/day/range data with coverage proof. Otherwise the product must label the same raw counts as observed and expose coverage status.
 - Runtime path: `http` primary plus `scrapling` fallback capability. Legacy Apify is not an active main path.
 
-## Current Reconciled State
+## Current State
 
-- The latest archived analysis note `Archive/算法与抓取代码分析 (1)-2026-04-28.md` matches the active design direction: the core problem is not "grab more pages"; it is missing provenance, missing day/range coverage proof, and overloading observed corpus counts as total counts.
-- The advisory note `new analyse.md` was read on 2026-04-28 and reconciled as a secondary input, not an active execution source. Its useful signal is that the project is past the initial P0/P1 storage work and should now focus on proving the remaining coverage and output semantics against current code.
-- `content` provenance and `total_eligible` now exist as the first landed P0 slice.
-- The collection path now tags `new` listing posts as `new_listing` / `total_eligible=true` and `top` supplement posts as `top_supplement` / `total_eligible=false`.
-- Candidate filters no longer shrink the content/total denominator; they still narrow analytics metric candidates.
-- Daily facts now read only total-eligible content for observed post volume.
-- Day-level coverage facts now materialize from total-eligible content, daily facts, and live/backfill cursor evidence.
-- Target workbench, comparison workbench, and daily trend API/read-model semantics now expose complete totals only when coverage is complete and observed counts otherwise.
-- Current repo search did not find a standalone export/report generator path. Treat any future export/report surface as required to reuse the same coverage semantics before release.
+- Coverage semantics are landed: `content.total_eligible`, collection provenance, day-level coverage facts, target workbench, comparison workbench, and legacy daily trend API all distinguish observed counts from complete totals.
+- `post_volume` / `qualified_post_volume` in daily facts remain observed eligible facts. They become product-facing totals only through a coverage-complete read-model gate.
+- The next unresolved product risk is storage pressure and collector complexity, not another chart or ranking surface.
+- The corrected advisory note `代码优化建议分析.md` was read on 2026-04-28 and reconciled as a temporary input. Its storage-pressure and collector-structure diagnosis remains useful; its recommendation to later connect read models to coverage is already complete in current code.
+- Current repo search did not find a standalone export/report generator path. Future export/report work must reuse coverage-aware API/read-model fields.
 
 ## Core Decision
 
@@ -46,52 +42,7 @@ tags:
 - Missing history stays `missing`, `partial`, `source_limited`, or `unknown`. Never materialize uncovered days as fake zero.
 - Small subreddits may become complete for a 15-day historical window if backfill reaches the day start or true terminal EOF. Medium/high-volume subreddits usually need uninterrupted live monitoring from activation time before totals are commercially defensible.
 
-## Implementation Flow
-
-Use this as a neutral harness for the next work slice. Current code evidence has priority over archived notes and advisory analysis.
-
-### P0: Provenance And Total Eligibility
-
-- Add collection provenance to `content` and repository upserts:
-  - `discovery_source`
-  - `first_collection_mode`
-  - `first_listing`
-  - `first_time_range`
-  - `first_collection_job_id`
-  - `total_eligible`
-- Split collection writes so `new` listing posts are written as `total_eligible=true`, while `top` supplement posts are written as `total_eligible=false`.
-- Preserve supplement data for driver posts, keyword samples, and examples, but exclude it from post-volume totals.
-- Ensure total-corpus ingestion is not blocked by score/comment candidate filters.
-
-### P1: Coverage Facts
-
-- Add day-level or range-level coverage facts for monitored targets.
-- Required statuses: `complete`, `partial`, `source_limited`, `unknown`.
-- Required basis examples: `live_continuous`, `backfill_reached_day_start`, `terminal_eof_reached`, `iteration_budget_exhausted`, `cursor_saturated`, `missed_live_window`, `rate_limited`.
-- Add activation and continuity accounting: activation time, expected windows, successful windows, missed windows, failed/rate-limited windows, and degradation reason.
-- Downgrade coverage whenever a collection gap could hide posts.
-
-### P2: Facts, API, UI Semantics
-
-- Split daily/read-model counts:
-  - observed new posts
-  - observed qualified posts
-  - complete total new posts, nullable unless coverage is complete
-  - complete qualified posts, nullable unless coverage is complete
-- Keep `Total New Posts` / `Qualified Posts` as product-facing labels only when coverage is complete.
-- For incomplete ranges, display observed labels and coverage badges; exports must not call partial/source-limited data total.
-- Align old daily trend, comparison, keyword, export, and report paths after the core fact/read-model semantics are stable.
-
-### P3: Operational Hardening
-
-- Add regression fixtures for three product cases:
-  - small subreddit: historical backfill reaches requested day start and can mark complete
-  - medium subreddit: budget exhausted and continuation remains partial/progressing
-  - high-volume subreddit: totals valid only after uninterrupted activation-time monitoring
-- Add operational observability: per-target freshness, last successful crawl, missed-window count, source-limited count, storage growth, and retention status.
-- Simplify duplicated DTO/provider branching only where it directly supports the coverage/provenance lane.
-
-## Explicit Task Stack
+## Completed Stack
 
 - `P0.1` Done: Add `content` provenance and total-eligibility fields across domain, schema, Postgres repository, and in-memory/test repositories.
 - `P0.2` Done: Split `collect-subreddit-new-posts.job.ts` page collection/write semantics so `new_listing` and `top_supplement` are no longer indistinguishable after ingestion.
@@ -102,18 +53,22 @@ Use this as a neutral harness for the next work slice. Current code evidence has
 - `P1.3` Done: Added regression coverage for backfill-proven complete days, live-continuous complete days, missed live windows, iteration-budget continuation, and rate-limited live windows.
 - `P2.1` Done: Update API contracts/read models/UI display rules for total-vs-observed semantics and coverage-aware chart/KPI behavior.
 - `P2.2` Done: Target workbench, comparison read-model, and legacy daily trend API semantics are aligned. No standalone export/report generator exists in the current repo evidence.
+- `P3.1` Done: Replace default full raw payload persistence with lightweight fetch-event summaries while retaining full raw payloads for HTTP errors, normalization failures, anomalous empty responses, provider diff evidence, and debug mode.
 
-## Next Slice Harness
+## Next Slice Harness: Storage Pressure
 
-- Objective: prevent remaining output paths from presenting observed or partial data as complete totals.
-- Evidence to inspect first: coverage job resolver, comparison read model, daily insights/trend read models, API routes, export/report generation paths, and existing tests for these surfaces.
-- Expected implementation order: add focused fixtures for missed live windows and source-limited continuation, then gate or relabel comparison/export/report totals using the same coverage semantics as target workbench.
-- Stop condition: stop when the next output path would require a product choice about labels, retention, or historical completeness that cannot be inferred from current coverage facts.
+- Objective: reduce database growth without weakening collection truth, coverage proof, or debugability.
+- P3.1 Raw fetch event summary: done. Successful normal pages write lightweight fetch metadata by default; exception/debug paths retain full raw payloads.
+- P3.2 Metrics storage compression: evaluate replacing post-level EAV `metrics_snapshot` writes with a `post_engagement_latest` or bounded `post_engagement_snapshot` path. Keep target-level snapshots and compatibility reads until tests prove daily facts and growth facts no longer need EAV rows.
+- P3.3 Text/search retention: keep `content.body_text` nullable/short for ordinary posts; preserve longer text only for qualified, high-impact, keyword-hit, or manually saved posts. Keep search snippets bounded.
+- P3.4 Collector structure reduction: only after storage writes are bounded, split `collect-subreddit-new-posts.job.ts` around concrete data structures: `CollectedPageRecord`, `NormalizedBatch`, `PersistencePlan`, and `CollectionOutcome`.
+- Already closed from the corrected advisory: coverage-aware read-model gating for target workbench, comparison workbench, and daily trend API. Do not reopen this as a storage slice unless a new uncovered output path is found in code.
+- Stop condition: stop before changing retention defaults or dropping legacy tables unless migrations, fallback reads, and focused storage/read-model tests are in the same slice.
 
 ## Guardrails
 
 - Allowed: collector/storage truth fixes, provenance fields, coverage facts, retention/prune automation, favorite-target scheduling, coverage/data-quality contract fixes, and the smallest UI/API updates needed to expose honest total/observed semantics.
-- Forbidden: provider expansion, broad architecture rewrites, catalog/dashboard expansion before total/observed semantics are trustworthy, whole-Reddit wording, treating supplement listings as total evidence, treating `iteration_budget_exhausted` as final source limitation, or cleanup that touches many layers without improving coverage/provenance truth.
+- Forbidden: provider expansion, broad architecture rewrites, catalog/dashboard expansion, whole-Reddit wording, treating supplement listings as total evidence, treating `iteration_budget_exhausted` as final source limitation, or cleanup that touches many layers without reducing storage pressure or improving coverage/provenance truth.
 - Keep `activity_index` / `activity_confidence` as optional diagnostics. They do not replace raw post-count defaults unless the product explicitly changes KPI semantics.
 
 ## Verification Policy
@@ -125,6 +80,27 @@ Use this as a neutral harness for the next work slice. Current code evidence has
 - Documentation-only state updates do not require tests, but must leave `Projects` root containing only `project.md`.
 
 ## Activity Log
+
+### 2026-04-28 06:35:13
+
+- Scope: Landed P3.1 raw fetch event summary. Added `reddit_fetch_event`, changed raw event persistence so normal successful fetches keep lightweight metadata/hash while exceptions keep full raw payloads, and kept post score/comment engagement normalization and writes unchanged.
+- Why now: The storage-pressure harness needed database growth reduction without dropping post data or weakening coverage/debug truth.
+- Verify: `npm run typecheck`, `npm run algo:phase1:full`, and focused integration/migration tests passed. The focused set first exposed an ops storage table-list expectation drift; the test contract was updated and rerun green.
+- Next: Evaluate P3.2 metrics storage compression with compatibility reads before changing retention defaults or dropping legacy metric rows.
+
+### 2026-04-28 06:28:14
+
+- Scope: Re-read the corrected `代码优化建议分析.md` upload and reconciled it against current code. Kept the storage-pressure harness, clarified that coverage/read-model gating is already complete, and removed the temporary advisory note from active project state.
+- Why now: The previous advisory input had state drift. The corrected note still supports the same next storage-pressure sequence, but its read-model coverage recommendation should not be treated as pending work.
+- Verify: Documentation/state reconciliation only. Checked the corrected advisory, current `project.md`, root `Projects` files, and git status. No tests were run.
+- Next: Implement P3.1 raw fetch event summary before metrics compression or collect-job restructuring.
+
+### 2026-04-28 06:19:19
+
+- Scope: Read and reconciled `代码优化建议分析.md`; shifted the active harness from coverage-semantics hardening to storage-pressure reduction; deleted historical Archive Markdown inputs and removed the temporary advisory note from active project state.
+- Why now: Coverage/read-model semantics are already landed. The remaining useful signal from the advisory note is storage growth risk in raw payloads, post metrics EAV rows, text/search duplication, and collect-job complexity.
+- Verify: Documentation/state cleanup only. Checked current `project.md`, the advisory note, Archive contents, and git status. No tests were run.
+- Next: Implement P3.1 raw fetch event summary as the smallest storage-pressure slice.
 
 ### 2026-04-28 06:02:10
 

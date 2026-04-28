@@ -84,15 +84,29 @@ export async function runExistingSubredditAboutJob(
       { requestId: input.job.id, now: input.nowIso },
     );
 
+    let normalized: ReturnType<RedditMapper["toSubredditSnapshot"]>;
+    try {
+      normalized = deps.redditMapper.toSubredditSnapshot(page.raw, {
+        requestId: input.job.id,
+        now: input.nowIso,
+      });
+    } catch (error) {
+      await deps.rawEventRepository.append({
+        collectionJobId: input.job.id,
+        targetId: input.job.targetId,
+        envelope: page.raw,
+        retention: {
+          retainRawPayload: true,
+          reason: "normalization_failure",
+        },
+      });
+      throw error;
+    }
+
     await deps.rawEventRepository.append({
       collectionJobId: input.job.id,
       targetId: input.job.targetId,
       envelope: page.raw,
-    });
-
-    const normalized = deps.redditMapper.toSubredditSnapshot(page.raw, {
-      requestId: input.job.id,
-      now: input.nowIso,
     });
 
     const snapshots: MetricsSnapshot[] = [];

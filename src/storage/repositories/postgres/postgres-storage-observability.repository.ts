@@ -18,6 +18,7 @@ interface DatabaseSizeRow {
 }
 
 const OBSERVED_TABLES = [
+  "reddit_fetch_event",
   "raw_reddit_event",
   "metrics_snapshot",
   "content",

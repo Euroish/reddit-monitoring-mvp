@@ -20,20 +20,32 @@ export class InMemoryRawEventRepository implements RawEventRepository {
     collectionJobId: string;
     targetId: string;
     envelope: RawEnvelope;
+    retainRawPayload: boolean;
+    retentionReason?: string;
   }> = [];
 
   public async append<TPayload>(event: {
     collectionJobId: string;
     targetId: string;
     envelope: RawEnvelope<TPayload>;
+    retention?: {
+      retainRawPayload?: boolean;
+      reason?: string;
+    };
   }): Promise<void> {
-    this.events.push(event);
+    this.events.push({
+      ...event,
+      retainRawPayload: event.retention?.retainRawPayload === true || event.envelope.httpStatus >= 400,
+      retentionReason: event.retention?.reason,
+    });
   }
 
   public all(): Array<{
     collectionJobId: string;
     targetId: string;
     envelope: RawEnvelope;
+    retainRawPayload: boolean;
+    retentionReason?: string;
   }> {
     return [...this.events];
   }

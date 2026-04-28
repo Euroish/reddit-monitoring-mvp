@@ -16,7 +16,10 @@ import type { ContentRepository } from "../domain/repositories/content-repositor
 import type { CrawlCursorRepository } from "../domain/repositories/crawl-cursor-repository";
 import type { MetricsSnapshotRepository } from "../domain/repositories/metrics-snapshot-repository";
 import type { ProviderHealthWindowRepository } from "../domain/repositories/provider-health-window-repository";
-import type { RawEventRepository } from "../domain/repositories/raw-event-repository";
+import type {
+  RawEventRepository,
+  RawEventRetentionReason,
+} from "../domain/repositories/raw-event-repository";
 import { resolveSubredditTier } from "../domain/services/subreddit-tiering.service";
 import { stableUuidFromString } from "../shared/ids/stable-id";
 import { buildDedupeKey, floorToWindow } from "../shared/time/windowing";
@@ -245,26 +248,46 @@ export async function runExistingSubredditNewPostsJob(
 
     for (const collectedPage of collectedPages) {
       const page = collectedPage.page;
+      let pageUpserts: ProvenancePostUpsert[];
+      let pageMetricPoints: NormalizedPostMetricPoints;
+      try {
+        pageUpserts = deps.redditMapper
+          .toPostUpserts(input.job.targetId, page.raw, {
+            requestId: input.job.id,
+            now: input.nowIso,
+          })
+          .map((item): ProvenancePostUpsert => ({
+            ...item,
+            discoverySource: collectedPage.discoverySource,
+            firstListing: collectedPage.listing,
+            firstTimeRange: collectedPage.timeRange,
+            totalEligible: collectedPage.totalEligible,
+          }));
+        pageMetricPoints = deps.redditMapper.toPostMetricPoints(page.raw, {
+          requestId: input.job.id,
+          now: input.nowIso,
+        });
+      } catch (error) {
+        await deps.rawEventRepository.append({
+          collectionJobId: input.job.id,
+          targetId: input.job.targetId,
+          envelope: page.raw,
+          retention: {
+            retainRawPayload: true,
+            reason: "normalization_failure",
+          },
+        });
+        throw error;
+      }
+      const rawEventRetention = resolveRawEventRetention({
+        emptyResponse: pageUpserts.length === 0,
+        providerDiffStats: resolveProviderDiffStats(page.raw.responseHeaders),
+      });
       await deps.rawEventRepository.append({
         collectionJobId: input.job.id,
         targetId: input.job.targetId,
         envelope: page.raw,
-      });
-      const pageUpserts = deps.redditMapper
-        .toPostUpserts(input.job.targetId, page.raw, {
-          requestId: input.job.id,
-          now: input.nowIso,
-        })
-        .map((item): ProvenancePostUpsert => ({
-          ...item,
-          discoverySource: collectedPage.discoverySource,
-          firstListing: collectedPage.listing,
-          firstTimeRange: collectedPage.timeRange,
-          totalEligible: collectedPage.totalEligible,
-        }));
-      const pageMetricPoints = deps.redditMapper.toPostMetricPoints(page.raw, {
-        requestId: input.job.id,
-        now: input.nowIso,
+        retention: rawEventRetention,
       });
       if (pageUpserts.length === 0) {
         emptyResponseCount += 1;
@@ -1535,6 +1558,33 @@ function summarizeProviderDiffStats(
     diffCount,
     sampleCount,
   };
+}
+
+function resolveRawEventRetention(args: {
+  emptyResponse: boolean;
+  providerDiffStats: {
+    diffCount: number;
+    sampleCount: number;
+  };
+}):
+  | {
+      retainRawPayload: boolean;
+      reason: RawEventRetentionReason;
+    }
+  | undefined {
+  if (args.providerDiffStats.diffCount > 0) {
+    return {
+      retainRawPayload: true,
+      reason: "provider_diff",
+    };
+  }
+  if (args.emptyResponse) {
+    return {
+      retainRawPayload: true,
+      reason: "empty_response",
+    };
+  }
+  return undefined;
 }
 
 function logProviderObservability(args: {

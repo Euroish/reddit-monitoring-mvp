@@ -12,6 +12,13 @@ export class InMemoryStorageObservabilityRepository implements StorageObservabil
       databaseSizeBytes: 0,
       tables: [
         {
+          tableName: "reddit_fetch_event",
+          rowEstimate: 0,
+          tableBytes: 0,
+          indexBytes: 0,
+          totalBytes: 0,
+        },
+        {
           tableName: "raw_reddit_event",
           rowEstimate: 0,
           tableBytes: 0,
