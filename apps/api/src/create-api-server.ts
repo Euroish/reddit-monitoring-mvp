@@ -198,6 +198,7 @@ export interface ApiRepositoryBundle {
   keywordQuerySessionRepository?: KeywordQuerySessionRepository;
   postSearchDocumentRepository?: PostSearchDocumentRepository;
   postGrowthFactRepository: PostGrowthFactRepository;
+  postEngagementRepository?: import("../../../src/domain/repositories/post-engagement-repository").PostEngagementRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
   subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditCollectionCoverageRepository?: SubredditCollectionCoverageRepository;

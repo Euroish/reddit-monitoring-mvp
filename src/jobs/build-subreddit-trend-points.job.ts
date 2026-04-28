@@ -1,5 +1,6 @@
 import type { SubredditTrendPoint } from "../domain/entities/subreddit-trend-point";
 import type { MetricsSnapshotRepository } from "../domain/repositories/metrics-snapshot-repository";
+import type { PostEngagementRepository } from "../domain/repositories/post-engagement-repository";
 import type { SubredditDailyFactRepository } from "../domain/repositories/subreddit-daily-fact-repository";
 import type { SubredditTrendPointRepository } from "../domain/repositories/subreddit-trend-point-repository";
 import { scoreTrendWindows } from "../domain/services/trend-scoring.service";
@@ -7,6 +8,7 @@ import { floorToWindow } from "../shared/time/windowing";
 
 export interface BuildSubredditTrendPointsDependencies {
   metricsSnapshotRepository: MetricsSnapshotRepository;
+  postEngagementRepository: PostEngagementRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
   subredditDailyFactRepository?: SubredditDailyFactRepository;
 }
@@ -29,12 +31,12 @@ export async function buildSubredditTrendPointsJob(
   deps: BuildSubredditTrendPointsDependencies,
   input: BuildSubredditTrendPointsInput,
 ): Promise<SubredditTrendPoint[]> {
-  const [snapshots, dailyFacts] = await Promise.all([
+  const [targetSnapshots, dailyFacts] = await Promise.all([
     deps.metricsSnapshotRepository.listByTargetInRange({
       targetId: input.targetId,
       from: input.fromIso,
       to: input.toIso,
-      metricNames: ["new_posts_15m", "active_users", "subscribers", "score", "num_comments"],
+      metricNames: ["new_posts_15m", "active_users", "subscribers"],
     }),
     deps.subredditDailyFactRepository?.listByTargetInRange({
       targetId: input.targetId,
@@ -42,6 +44,11 @@ export async function buildSubredditTrendPointsJob(
       toDay: toUtcDay(input.toIso),
     }) ?? Promise.resolve([]),
   ]);
+  const windowedEngagement = await deps.postEngagementRepository.listWindowedByTargetInRange({
+    targetId: input.targetId,
+    from: floorToWindow(input.fromIso, TREND_WINDOW_MINUTES),
+    to: floorToWindow(input.toIso, TREND_WINDOW_MINUTES),
+  });
   const dailyFactByDay = new Map(dailyFacts.map((fact) => [fact.day, fact] as const));
 
   const byWindow = new Map<
@@ -58,7 +65,7 @@ export async function buildSubredditTrendPointsJob(
     }
   >();
 
-  for (const snapshot of snapshots) {
+  for (const snapshot of targetSnapshots) {
     const windowStart = floorToWindow(snapshot.snapshotAt, TREND_WINDOW_MINUTES);
     if (!byWindow.has(windowStart)) {
       byWindow.set(windowStart, {
@@ -85,18 +92,26 @@ export async function buildSubredditTrendPointsJob(
       current.subscribers = Number(snapshot.metricValue);
       current.hasSubscribers = true;
     }
-    if (snapshot.contentId && snapshot.metricName === "score") {
-      const postMetrics = current.postMetrics.get(snapshot.contentId) ?? {};
-      postMetrics.score = Number(snapshot.metricValue);
-      current.postMetrics.set(snapshot.contentId, postMetrics);
-    }
-    if (snapshot.contentId && snapshot.metricName === "num_comments") {
-      const postMetrics = current.postMetrics.get(snapshot.contentId) ?? {};
-      postMetrics.numComments = Number(snapshot.metricValue);
-      current.postMetrics.set(snapshot.contentId, postMetrics);
-    }
   }
-
+  for (const row of windowedEngagement) {
+    if (!byWindow.has(row.windowStart)) {
+      byWindow.set(row.windowStart, {
+        newPosts: 0,
+        activeUsers: 0,
+        subscribers: 0,
+        hasNewPosts: false,
+        hasActiveUsers: false,
+        hasSubscribers: false,
+        granularity: TREND_GRANULARITY,
+        postMetrics: new Map(),
+      });
+    }
+    const current = byWindow.get(row.windowStart)!;
+    current.postMetrics.set(row.contentId, {
+      score: row.score,
+      numComments: row.numComments,
+    });
+  }
   const windows = Array.from(byWindow.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([windowStart, current]) => {

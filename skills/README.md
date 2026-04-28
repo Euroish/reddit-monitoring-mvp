@@ -12,6 +12,19 @@ It must not duplicate active phase, next action, freeze state, or temporary task
 
 ## Core Routing
 
+### Default engineering behavior
+
+Start with:
+
+1. `karpathy-guidelines`
+
+Use for:
+
+- coding
+- code review
+- debugging
+- refactor tasks
+
 ### Scope and product boundary
 
 Start with:

@@ -6,6 +6,7 @@ import {
   InMemoryContentRepository,
   InMemoryKeywordTrendDailyRepository,
   InMemoryMetricsSnapshotRepository,
+  InMemoryPostEngagementRepository,
   InMemorySubredditDailyFactRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
 
@@ -15,6 +16,7 @@ test("buildSubredditKeywordTrendDailyJob materializes mention and qualified rate
   const contentBId = stableUuidFromString("reddit:content:t3_b");
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const keywordTrendDailyRepository = new InMemoryKeywordTrendDailyRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
 
@@ -47,46 +49,24 @@ test("buildSubredditKeywordTrendDailyJob materializes mention and qualified rate
     },
   ]);
 
-  await metricsSnapshotRepository.appendMany([
+  await postEngagementRepository.upsertLatestMany([
     {
-      snapshotAt: "2026-04-10T12:05:00.000Z",
-      source: "reddit",
-      targetId,
       contentId: contentAId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 25,
-      collectionJobId: stableUuidFromString("job:score:a"),
+      targetId,
+      source: "reddit",
+      observedAt: "2026-04-10T12:05:00.000Z",
+      score: 25,
+      numComments: 30,
+      collectionJobId: stableUuidFromString("job:engagement:a"),
     },
     {
-      snapshotAt: "2026-04-10T12:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: contentAId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 30,
-      collectionJobId: stableUuidFromString("job:comments:a"),
-    },
-    {
-      snapshotAt: "2026-04-10T12:05:00.000Z",
-      source: "reddit",
-      targetId,
       contentId: contentBId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 5,
-      collectionJobId: stableUuidFromString("job:score:b"),
-    },
-    {
-      snapshotAt: "2026-04-10T12:05:00.000Z",
-      source: "reddit",
       targetId,
-      contentId: contentBId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 4,
-      collectionJobId: stableUuidFromString("job:comments:b"),
+      source: "reddit",
+      observedAt: "2026-04-10T12:05:00.000Z",
+      score: 5,
+      numComments: 4,
+      collectionJobId: stableUuidFromString("job:engagement:b"),
     },
   ]);
 
@@ -94,6 +74,7 @@ test("buildSubredditKeywordTrendDailyJob materializes mention and qualified rate
     {
       contentRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       keywordTrendDailyRepository,
       subredditDailyFactRepository,
     },
@@ -123,6 +104,7 @@ test("buildSubredditKeywordTrendDailyJob uses daily fact thresholds and denomina
   const contentBId = stableUuidFromString("reddit:content:t3_override_b");
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const keywordTrendDailyRepository = new InMemoryKeywordTrendDailyRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
 
@@ -155,46 +137,24 @@ test("buildSubredditKeywordTrendDailyJob uses daily fact thresholds and denomina
     },
   ]);
 
-  await metricsSnapshotRepository.appendMany([
+  await postEngagementRepository.upsertLatestMany([
     {
-      snapshotAt: "2026-04-11T12:05:00.000Z",
-      source: "reddit",
-      targetId,
       contentId: contentAId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 25,
-      collectionJobId: stableUuidFromString("job:override:score:a"),
+      targetId,
+      source: "reddit",
+      observedAt: "2026-04-11T12:05:00.000Z",
+      score: 25,
+      numComments: 30,
+      collectionJobId: stableUuidFromString("job:override:engagement:a"),
     },
     {
-      snapshotAt: "2026-04-11T12:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: contentAId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 30,
-      collectionJobId: stableUuidFromString("job:override:comments:a"),
-    },
-    {
-      snapshotAt: "2026-04-11T12:05:00.000Z",
-      source: "reddit",
-      targetId,
       contentId: contentBId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 12,
-      collectionJobId: stableUuidFromString("job:override:score:b"),
-    },
-    {
-      snapshotAt: "2026-04-11T12:05:00.000Z",
-      source: "reddit",
       targetId,
-      contentId: contentBId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 8,
-      collectionJobId: stableUuidFromString("job:override:comments:b"),
+      source: "reddit",
+      observedAt: "2026-04-11T12:05:00.000Z",
+      score: 12,
+      numComments: 8,
+      collectionJobId: stableUuidFromString("job:override:engagement:b"),
     },
   ]);
 
@@ -230,6 +190,7 @@ test("buildSubredditKeywordTrendDailyJob uses daily fact thresholds and denomina
     {
       contentRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       keywordTrendDailyRepository,
       subredditDailyFactRepository,
     },
@@ -258,6 +219,7 @@ test("buildSubredditKeywordTrendDailyJob clamps sampled posts to observed posts 
   const contentBId = stableUuidFromString("reddit:content:t3_floor_b");
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const keywordTrendDailyRepository = new InMemoryKeywordTrendDailyRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
 
@@ -290,46 +252,24 @@ test("buildSubredditKeywordTrendDailyJob clamps sampled posts to observed posts 
     },
   ]);
 
-  await metricsSnapshotRepository.appendMany([
+  await postEngagementRepository.upsertLatestMany([
     {
-      snapshotAt: "2026-04-12T11:05:00.000Z",
-      source: "reddit",
-      targetId,
       contentId: contentAId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 20,
-      collectionJobId: stableUuidFromString("job:floor:score:a"),
+      targetId,
+      source: "reddit",
+      observedAt: "2026-04-12T11:05:00.000Z",
+      score: 20,
+      numComments: 12,
+      collectionJobId: stableUuidFromString("job:floor:engagement:a"),
     },
     {
-      snapshotAt: "2026-04-12T11:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: contentAId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 12,
-      collectionJobId: stableUuidFromString("job:floor:comments:a"),
-    },
-    {
-      snapshotAt: "2026-04-12T11:05:00.000Z",
-      source: "reddit",
-      targetId,
       contentId: contentBId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 18,
-      collectionJobId: stableUuidFromString("job:floor:score:b"),
-    },
-    {
-      snapshotAt: "2026-04-12T11:05:00.000Z",
-      source: "reddit",
       targetId,
-      contentId: contentBId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 14,
-      collectionJobId: stableUuidFromString("job:floor:comments:b"),
+      source: "reddit",
+      observedAt: "2026-04-12T11:05:00.000Z",
+      score: 18,
+      numComments: 14,
+      collectionJobId: stableUuidFromString("job:floor:engagement:b"),
     },
   ]);
 
@@ -365,6 +305,7 @@ test("buildSubredditKeywordTrendDailyJob clamps sampled posts to observed posts 
     {
       contentRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       keywordTrendDailyRepository,
       subredditDailyFactRepository,
     },
@@ -392,6 +333,7 @@ test("buildSubredditKeywordTrendDailyJob materializes explicit queries alongside
   const contentId = stableUuidFromString("reddit:content:t3_explicit_query");
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const keywordTrendDailyRepository = new InMemoryKeywordTrendDailyRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
 
@@ -411,26 +353,15 @@ test("buildSubredditKeywordTrendDailyJob materializes explicit queries alongside
     },
   ]);
 
-  await metricsSnapshotRepository.appendMany([
+  await postEngagementRepository.upsertLatestMany([
     {
-      snapshotAt: "2026-04-13T10:05:00.000Z",
-      source: "reddit",
-      targetId,
       contentId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 20,
-      collectionJobId: stableUuidFromString("job:explicit:score"),
-    },
-    {
-      snapshotAt: "2026-04-13T10:05:00.000Z",
-      source: "reddit",
       targetId,
-      contentId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 15,
-      collectionJobId: stableUuidFromString("job:explicit:comments"),
+      source: "reddit",
+      observedAt: "2026-04-13T10:05:00.000Z",
+      score: 20,
+      numComments: 15,
+      collectionJobId: stableUuidFromString("job:explicit:engagement"),
     },
   ]);
 
@@ -438,6 +369,7 @@ test("buildSubredditKeywordTrendDailyJob materializes explicit queries alongside
     {
       contentRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       keywordTrendDailyRepository,
       subredditDailyFactRepository,
     },

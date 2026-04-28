@@ -6,6 +6,7 @@ import {
   InMemoryContentRepository,
   InMemoryKeywordTrendDailyRepository,
   InMemoryMetricsSnapshotRepository,
+  InMemoryPostEngagementRepository,
   InMemoryPostGrowthFactRepository,
   InMemorySubredditDailyFactRepository,
   InMemorySubredditTrendPointRepository,
@@ -75,6 +76,7 @@ test("materializeTouchedTargets runs replay materialization in deterministic ano
 
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const subredditDailyFactRepository = new TrackingSubredditDailyFactRepository(order);
   const subredditTrendPointRepository = new TrackingSubredditTrendPointRepository(order);
   const postGrowthFactRepository = new TrackingPostGrowthFactRepository(order);
@@ -130,72 +132,55 @@ test("materializeTouchedTargets runs replay materialization in deterministic ano
       metricValue: 5100,
       collectionJobId: jobId,
     },
+  ]);
+  await postEngagementRepository.upsertLatestMany([
     {
-      snapshotAt: "2026-04-13T11:30:00.000Z",
-      source: "reddit",
-      targetId,
       contentId: contentRows[0]!.id,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 420,
+      targetId,
+      source: "reddit",
+      observedAt: "2026-04-13T11:30:00.000Z",
+      score: 420,
+      numComments: 120,
       collectionJobId: jobId,
     },
     {
-      snapshotAt: "2026-04-13T11:30:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: contentRows[0]!.id,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 120,
-      collectionJobId: jobId,
-    },
-    {
-      snapshotAt: "2026-04-13T11:30:00.000Z",
-      source: "reddit",
-      targetId,
       contentId: contentRows[1]!.id,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 80,
+      targetId,
+      source: "reddit",
+      observedAt: "2026-04-13T11:30:00.000Z",
+      score: 80,
+      numComments: 26,
       collectionJobId: jobId,
     },
     {
-      snapshotAt: "2026-04-13T11:30:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: contentRows[1]!.id,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 26,
-      collectionJobId: jobId,
-    },
-    {
-      snapshotAt: "2026-04-13T11:30:00.000Z",
-      source: "reddit",
-      targetId,
       contentId: contentRows[2]!.id,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 35,
-      collectionJobId: jobId,
-    },
-    {
-      snapshotAt: "2026-04-13T11:30:00.000Z",
-      source: "reddit",
       targetId,
-      contentId: contentRows[2]!.id,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 11,
+      source: "reddit",
+      observedAt: "2026-04-13T11:30:00.000Z",
+      score: 35,
+      numComments: 11,
       collectionJobId: jobId,
     },
   ]);
+  await postEngagementRepository.upsertWindowedMany(
+    contentRows.map((row, index) => ({
+      targetId,
+      contentId: row.id,
+      source: "reddit" as const,
+      windowStart: "2026-04-13T06:00:00.000Z",
+      windowEnd: "2026-04-13T12:00:00.000Z",
+      observedAt: "2026-04-13T11:30:00.000Z",
+      score: [420, 80, 35][index],
+      numComments: [120, 26, 11][index],
+      collectionJobId: jobId,
+    })),
+  );
 
   const materializedCount = await materializeTouchedTargets({
     repos: {
       contentRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       subredditDailyFactRepository,
       postGrowthFactRepository,
       keywordTrendDailyRepository,

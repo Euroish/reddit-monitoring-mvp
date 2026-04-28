@@ -13,6 +13,19 @@ export class PostgresMetricsSnapshotRepository implements MetricsSnapshotReposit
       return;
     }
 
+    for (const snapshot of snapshots) {
+      if (
+        snapshot.contentId != null ||
+        (snapshot.metricName !== "subscribers" &&
+          snapshot.metricName !== "active_users" &&
+          snapshot.metricName !== "new_posts_15m")
+      ) {
+        throw new Error(
+          "metrics_snapshot only accepts target-level subscribers, active_users, and new_posts_15m rows",
+        );
+      }
+    }
+
     const deduped = this.dedupeSnapshots(snapshots);
     const sourceId = SOURCE_IDS.reddit;
     const chunkSize = 1000;

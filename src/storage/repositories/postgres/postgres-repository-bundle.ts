@@ -12,6 +12,7 @@ import type { MetricsSnapshotRepository } from "../../../domain/repositories/met
 import type { MonitorTargetRepository } from "../../../domain/repositories/monitor-target-repository";
 import type { PostSearchDocumentRepository } from "../../../domain/repositories/post-search-document-repository";
 import type { PostGrowthFactRepository } from "../../../domain/repositories/post-growth-fact-repository";
+import type { PostEngagementRepository } from "../../../domain/repositories/post-engagement-repository";
 import type { ProviderHealthWindowRepository } from "../../../domain/repositories/provider-health-window-repository";
 import type { SavedWorkbenchViewRepository } from "../../../domain/repositories/saved-workbench-view-repository";
 import type { SubredditDailyFactRepository } from "../../../domain/repositories/subreddit-daily-fact-repository";
@@ -34,6 +35,7 @@ import { PostgresMetricsSnapshotRepository } from "./postgres-metrics-snapshot.r
 import { PostgresMonitorTargetRepository } from "./postgres-monitor-target.repository";
 import { PostgresPostSearchDocumentRepository } from "./postgres-post-search-document.repository";
 import { PostgresPostGrowthFactRepository } from "./postgres-post-growth-fact.repository";
+import { PostgresPostEngagementRepository } from "./postgres-post-engagement.repository";
 import { PostgresProviderHealthWindowRepository } from "./postgres-provider-health-window.repository";
 import { PostgresRawEventRepository } from "./postgres-raw-event.repository";
 import { PostgresSavedWorkbenchViewRepository } from "./postgres-saved-workbench-view.repository";
@@ -57,6 +59,7 @@ export interface RepositoryBundle {
   keywordQuerySessionRepository: KeywordQuerySessionRepository;
   postSearchDocumentRepository: PostSearchDocumentRepository;
   postGrowthFactRepository: PostGrowthFactRepository;
+  postEngagementRepository: PostEngagementRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
   subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditCollectionCoverageRepository: SubredditCollectionCoverageRepository;
@@ -82,6 +85,7 @@ export function createPostgresRepositoryBundle(db: PostgresClient): RepositoryBu
     keywordQuerySessionRepository: new PostgresKeywordQuerySessionRepository(db),
     postSearchDocumentRepository: new PostgresPostSearchDocumentRepository(db),
     postGrowthFactRepository: new PostgresPostGrowthFactRepository(db),
+    postEngagementRepository: new PostgresPostEngagementRepository(db),
     metricsSnapshotRepository: new PostgresMetricsSnapshotRepository(db),
     subredditDailyFactRepository: new PostgresSubredditDailyFactRepository(db),
     subredditCollectionCoverageRepository: new PostgresSubredditCollectionCoverageRepository(db),

@@ -44,6 +44,7 @@ import type { CrawlCursorRepository } from "../src/domain/repositories/crawl-cur
 import type { KeywordTrendDailyRepository } from "../src/domain/repositories/keyword-trend-daily-repository";
 import type { ProviderHealthWindowRepository } from "../src/domain/repositories/provider-health-window-repository";
 import type { MetricsSnapshotRepository } from "../src/domain/repositories/metrics-snapshot-repository";
+import type { PostEngagementRepository } from "../src/domain/repositories/post-engagement-repository";
 import type { PostGrowthFactRepository } from "../src/domain/repositories/post-growth-fact-repository";
 import type { SubredditDailyFactRepository } from "../src/domain/repositories/subreddit-daily-fact-repository";
 import type { SubredditTrendPointRepository } from "../src/domain/repositories/subreddit-trend-point-repository";
@@ -84,6 +85,7 @@ interface RunnableJobRepositories {
   crawlCursorRepository: CrawlCursorRepository;
   providerHealthWindowRepository: ProviderHealthWindowRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
+  postEngagementRepository?: PostEngagementRepository;
   subredditDailyFactRepository: SubredditDailyFactRepository;
   postGrowthFactRepository?: PostGrowthFactRepository;
   keywordTrendDailyRepository?: KeywordTrendDailyRepository;
@@ -348,6 +350,7 @@ export async function materializeTouchedTargets(args: {
     RunnableJobRepositories,
     | "contentRepository"
     | "metricsSnapshotRepository"
+    | "postEngagementRepository"
     | "subredditDailyFactRepository"
     | "postGrowthFactRepository"
     | "keywordTrendDailyRepository"
@@ -362,6 +365,10 @@ export async function materializeTouchedTargets(args: {
   env: NodeJS.ProcessEnv;
   runMode: SchedulerRunMode;
 }): Promise<number> {
+  if (!args.repos.postEngagementRepository) {
+    throw new Error("postEngagementRepository is required for scheduler materialization");
+  }
+  const postEngagementRepository = args.repos.postEngagementRepository;
   let materialized = 0;
   for (const target of args.targets) {
     const options = resolveRedditPhase1CycleOptionsFromEnv({
@@ -377,6 +384,7 @@ export async function materializeTouchedTargets(args: {
       {
         contentRepository: args.repos.contentRepository,
         metricsSnapshotRepository: args.repos.metricsSnapshotRepository,
+        postEngagementRepository,
         subredditDailyFactRepository: args.repos.subredditDailyFactRepository,
       },
       {
@@ -388,6 +396,7 @@ export async function materializeTouchedTargets(args: {
     await buildSubredditTrendPointsJob(
       {
         metricsSnapshotRepository: args.repos.metricsSnapshotRepository,
+        postEngagementRepository,
         subredditTrendPointRepository: args.repos.subredditTrendPointRepository,
         subredditDailyFactRepository: args.repos.subredditDailyFactRepository,
       },
@@ -405,6 +414,7 @@ export async function materializeTouchedTargets(args: {
         {
           contentRepository: args.repos.contentRepository,
           metricsSnapshotRepository: args.repos.metricsSnapshotRepository,
+          postEngagementRepository,
           postGrowthFactRepository: args.repos.postGrowthFactRepository,
         },
         {
@@ -422,6 +432,7 @@ export async function materializeTouchedTargets(args: {
         {
           contentRepository: args.repos.contentRepository,
           metricsSnapshotRepository: args.repos.metricsSnapshotRepository,
+          postEngagementRepository,
           keywordTrendDailyRepository: args.repos.keywordTrendDailyRepository,
           subredditDailyFactRepository: args.repos.subredditDailyFactRepository,
         },
@@ -467,6 +478,7 @@ export async function maybeRunScheduledRetentionPrune(args: {
   result?: {
     rawEventsDeleted: number;
     metricsSnapshotsDeleted: number;
+    postEngagementWindowsDeleted: number;
   };
 }> {
   const config = resolveRetentionPruneConfig(args.env);

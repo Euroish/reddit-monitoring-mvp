@@ -21,6 +21,8 @@ const OBSERVED_TABLES = [
   "reddit_fetch_event",
   "raw_reddit_event",
   "metrics_snapshot",
+  "post_engagement_latest",
+  "post_engagement_window",
   "content",
   "post_search_document",
   "subreddit_daily_fact",

@@ -9,12 +9,17 @@ import type { Account } from "../domain/entities/account";
 import type { CollectionJob } from "../domain/entities/collection-job";
 import type { Content } from "../domain/entities/content";
 import type { MetricsSnapshot } from "../domain/entities/metrics-snapshot";
+import type {
+  PostEngagementLatest,
+  PostEngagementWindow,
+} from "../domain/entities/post-engagement";
 import type { CrawlCursor, CrawlMode } from "../domain/entities/crawl-cursor";
 import type { AccountRepository } from "../domain/repositories/account-repository";
 import type { CollectionJobRepository } from "../domain/repositories/collection-job-repository";
 import type { ContentRepository } from "../domain/repositories/content-repository";
 import type { CrawlCursorRepository } from "../domain/repositories/crawl-cursor-repository";
 import type { MetricsSnapshotRepository } from "../domain/repositories/metrics-snapshot-repository";
+import type { PostEngagementRepository } from "../domain/repositories/post-engagement-repository";
 import type { ProviderHealthWindowRepository } from "../domain/repositories/provider-health-window-repository";
 import type {
   RawEventRepository,
@@ -22,6 +27,7 @@ import type {
 } from "../domain/repositories/raw-event-repository";
 import { resolveSubredditTier } from "../domain/services/subreddit-tiering.service";
 import { stableUuidFromString } from "../shared/ids/stable-id";
+import { retainStoredPostBodyText } from "../shared/text/content-text-retention";
 import { buildDedupeKey, floorToWindow } from "../shared/time/windowing";
 import {
   resolveActivePostTrackingHours,
@@ -98,6 +104,7 @@ export interface CollectSubredditNewPostsDependencies {
   accountRepository: AccountRepository;
   contentRepository: ContentRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
+  postEngagementRepository?: PostEngagementRepository;
   providerHealthWindowRepository?: ProviderHealthWindowRepository;
 }
 
@@ -345,12 +352,16 @@ export async function runExistingSubredditNewPostsJob(
       endpoint: lastPage.raw.endpoint,
     });
 
-    const accountsMap = new Map<string, Account>();
-    const contents: Content[] = [];
+	    const accountsMap = new Map<string, Account>();
+	    const contents: Content[] = [];
+	    const metricPointByExternalId = new Map(
+	      corpusAccepted.metricPoints.map((point) => [point.externalId, point] as const),
+	    );
 
-    for (const item of corpusAccepted.upserts) {
-      const accountId = stableUuidFromString(`reddit:account:${item.accountExternalId}`);
-      if (!accountsMap.has(item.accountExternalId)) {
+	    for (const item of corpusAccepted.upserts) {
+	      const metricPoint = metricPointByExternalId.get(item.externalId);
+	      const accountId = stableUuidFromString(`reddit:account:${item.accountExternalId}`);
+	      if (!accountsMap.has(item.accountExternalId)) {
         accountsMap.set(item.accountExternalId, {
           id: accountId,
           source: "reddit",
@@ -368,11 +379,15 @@ export async function runExistingSubredditNewPostsJob(
         source: "reddit",
         targetId: item.targetId,
         accountId,
-        externalId: item.externalId,
-        kind: "post",
-        title: item.title,
-        bodyText: item.bodyText,
-        url: item.url,
+	        externalId: item.externalId,
+	        kind: "post",
+	        title: item.title,
+	        bodyText: retainStoredPostBodyText({
+	          bodyText: item.bodyText,
+	          score: metricPoint?.score,
+	          numComments: metricPoint?.numComments,
+	        }),
+	        url: item.url,
         permalink: item.permalink,
         createdAtSource: item.createdAtSource,
         firstSeenAt: input.nowIso,
@@ -406,47 +421,19 @@ export async function runExistingSubredditNewPostsJob(
       },
     ];
 
-    for (const point of metricsToWrite) {
-      const contentId = stableUuidFromString(`reddit:content:${point.externalId}`);
-      if (typeof point.score === "number") {
-        snapshots.push({
-          snapshotAt: windowStart,
-          source: "reddit",
-          targetId: input.job.targetId,
-          contentId,
-          granularity: "15m",
-          metricName: "score",
-          metricValue: point.score,
-          collectionJobId: input.job.id,
-        });
-      }
-      if (typeof point.numComments === "number") {
-        snapshots.push({
-          snapshotAt: windowStart,
-          source: "reddit",
-          targetId: input.job.targetId,
-          contentId,
-          granularity: "15m",
-          metricName: "num_comments",
-          metricValue: point.numComments,
-          collectionJobId: input.job.id,
-        });
-      }
-      if (typeof point.upvoteRatio === "number") {
-        snapshots.push({
-          snapshotAt: windowStart,
-          source: "reddit",
-          targetId: input.job.targetId,
-          contentId,
-          granularity: "15m",
-          metricName: "upvote_ratio",
-          metricValue: point.upvoteRatio,
-          collectionJobId: input.job.id,
-        });
-      }
-    }
-
     await deps.metricsSnapshotRepository.appendMany(snapshots);
+    const engagementRows = buildPostEngagementRows({
+      targetId: input.job.targetId,
+      collectionJobId: input.job.id,
+      observedAt: windowStart,
+      metricsToWrite,
+    });
+    if (deps.postEngagementRepository) {
+      await Promise.all([
+        deps.postEngagementRepository.upsertLatestMany(engagementRows.latest),
+        deps.postEngagementRepository.upsertWindowedMany(engagementRows.windowed),
+      ]);
+    }
 
     const finalCursor = observedPages.finalCursor;
     if (mode === "backfill") {
@@ -599,6 +586,53 @@ export async function runExistingSubredditNewPostsJob(
     throw error;
   }
 }
+
+function buildPostEngagementRows(args: {
+  targetId: string;
+  collectionJobId: string;
+  observedAt: string;
+  metricsToWrite: NormalizedPostMetricPoints;
+}): {
+  latest: PostEngagementLatest[];
+  windowed: PostEngagementWindow[];
+} {
+  const windowStart = floorToWindow(args.observedAt, 360);
+  const windowEnd = new Date(
+    new Date(windowStart).getTime() + 360 * 60 * 1000,
+  ).toISOString();
+  const latest: PostEngagementLatest[] = [];
+  const windowed: PostEngagementWindow[] = [];
+
+  for (const point of args.metricsToWrite) {
+    if (
+      typeof point.score !== "number" &&
+      typeof point.numComments !== "number" &&
+      typeof point.upvoteRatio !== "number"
+    ) {
+      continue;
+    }
+    const contentId = stableUuidFromString(`reddit:content:${point.externalId}`);
+    const row = {
+      contentId,
+      targetId: args.targetId,
+      source: "reddit" as const,
+      observedAt: args.observedAt,
+      score: typeof point.score === "number" ? point.score : undefined,
+      numComments: typeof point.numComments === "number" ? point.numComments : undefined,
+      upvoteRatio: typeof point.upvoteRatio === "number" ? point.upvoteRatio : undefined,
+      collectionJobId: args.collectionJobId,
+    };
+    latest.push(row);
+    windowed.push({
+      ...row,
+      windowStart,
+      windowEnd,
+    });
+  }
+
+  return { latest, windowed };
+}
+
 
 function resolveNewPostsJobPayload(
   payload: Record<string, unknown> | undefined,

@@ -10,6 +10,10 @@ import type {
 } from "../../../domain/entities/keyword-query-session";
 import type { MetricsSnapshot } from "../../../domain/entities/metrics-snapshot";
 import type { MonitorTarget } from "../../../domain/entities/monitor-target";
+import type {
+  PostEngagementLatest,
+  PostEngagementWindow,
+} from "../../../domain/entities/post-engagement";
 import type { PostSearchDocument } from "../../../domain/entities/post-search-document";
 import type { PostGrowthFact } from "../../../domain/entities/post-growth-fact";
 import type { ProviderHealthWindow } from "../../../domain/entities/provider-health-window";
@@ -76,6 +80,32 @@ export interface MetricsSnapshotRow {
   metric_value: string | number;
   collection_job_id: string;
   created_at: string | Date;
+}
+
+export interface PostEngagementLatestRow {
+  content_id: string;
+  target_id: string;
+  observed_at: string | Date;
+  score: string | number | null;
+  num_comments: string | number | null;
+  upvote_ratio: string | number | null;
+  collection_job_id: string;
+  created_at: string | Date;
+  updated_at: string | Date;
+}
+
+export interface PostEngagementWindowRow {
+  target_id: string;
+  content_id: string;
+  window_start: string | Date;
+  window_end: string | Date;
+  observed_at: string | Date;
+  score: string | number | null;
+  num_comments: string | number | null;
+  upvote_ratio: string | number | null;
+  collection_job_id: string;
+  created_at: string | Date;
+  updated_at: string | Date;
 }
 
 export interface CollectionJobRow {
@@ -433,6 +463,38 @@ export function mapMetricsSnapshot(row: MetricsSnapshotRow): MetricsSnapshot {
     metricValue: Number(row.metric_value),
     collectionJobId: row.collection_job_id,
     createdAt: toIso(row.created_at),
+  };
+}
+
+export function mapPostEngagementLatest(row: PostEngagementLatestRow): PostEngagementLatest {
+  return {
+    contentId: row.content_id,
+    targetId: row.target_id,
+    source: "reddit",
+    observedAt: toIso(row.observed_at)!,
+    score: row.score == null ? undefined : Number(row.score),
+    numComments: row.num_comments == null ? undefined : Number(row.num_comments),
+    upvoteRatio: row.upvote_ratio == null ? undefined : Number(row.upvote_ratio),
+    collectionJobId: row.collection_job_id,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
+export function mapPostEngagementWindow(row: PostEngagementWindowRow): PostEngagementWindow {
+  return {
+    contentId: row.content_id,
+    targetId: row.target_id,
+    source: "reddit",
+    windowStart: toIso(row.window_start)!,
+    windowEnd: toIso(row.window_end)!,
+    observedAt: toIso(row.observed_at)!,
+    score: row.score == null ? undefined : Number(row.score),
+    numComments: row.num_comments == null ? undefined : Number(row.num_comments),
+    upvoteRatio: row.upvote_ratio == null ? undefined : Number(row.upvote_ratio),
+    collectionJobId: row.collection_job_id,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
   };
 }
 

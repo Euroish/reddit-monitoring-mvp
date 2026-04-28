@@ -307,6 +307,7 @@ test("maybeRunScheduledRetentionPrune runs on first eligible cycle and respects 
   assert.deepEqual(first.result, {
     rawEventsDeleted: 1,
     metricsSnapshotsDeleted: 1,
+    postEngagementWindowsDeleted: 0,
   });
 
   const skipped = await maybeRunScheduledRetentionPrune({
@@ -331,8 +332,9 @@ test("maybeRunScheduledRetentionPrune runs on first eligible cycle and respects 
   assert.deepEqual(second.result, {
     rawEventsDeleted: 0,
     metricsSnapshotsDeleted: 0,
+    postEngagementWindowsDeleted: 0,
   });
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 6);
 });
 
 class AboutProbeConnector implements RedditConnector {

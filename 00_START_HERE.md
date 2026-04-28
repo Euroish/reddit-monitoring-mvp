@@ -5,9 +5,10 @@ Read only these files before starting work:
 1. `AGENTS.md`
 2. `obsidian-reddit专用/Projects/project.md`
 3. `skills/README.md`
-4. `skills/reddit-monitoring/SKILL.md`
-5. `skills/algorithm-dev-suite/SKILL.md` (only for algorithm / scoring / threshold / observability tasks)
-6. `docs/architecture-sketch.md` (only for architecture / data-model / implementation tasks)
+4. `skills/karpathy-guidelines/SKILL.md` (default for coding / review / debugging / refactor tasks)
+5. `skills/reddit-monitoring/SKILL.md`
+6. `skills/algorithm-dev-suite/SKILL.md` (only for algorithm / scoring / threshold / observability tasks)
+7. `docs/architecture-sketch.md` (only for architecture / data-model / implementation tasks)
 
 Execution truth lives only in `obsidian-reddit专用/Projects/project.md`.
 Archived Markdown notes under `obsidian-reddit专用/Projects/Archive/` are historical inputs only. Do not treat them as an active planning harness unless the user explicitly asks to re-read one, and always reconcile them against current code plus `project.md`.

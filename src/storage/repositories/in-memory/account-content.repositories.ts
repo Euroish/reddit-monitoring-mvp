@@ -4,6 +4,10 @@ import type { PostSearchDocument } from "../../../domain/entities/post-search-do
 import type { AccountRepository } from "../../../domain/repositories/account-repository";
 import type { ContentRepository } from "../../../domain/repositories/content-repository";
 import type { PostSearchDocumentRepository } from "../../../domain/repositories/post-search-document-repository";
+import {
+  buildSearchText,
+  retainSearchBodySnippet,
+} from "../../../shared/text/content-text-retention";
 
 export class InMemoryAccountRepository implements AccountRepository {
   private readonly byExternalId = new Map<string, Account>();
@@ -113,7 +117,10 @@ export class InMemoryPostSearchDocumentRepository implements PostSearchDocumentR
 
   public async upsertMany(rows: PostSearchDocument[]): Promise<void> {
     for (const row of rows) {
-      this.byContentId.set(row.contentId, row);
+      this.byContentId.set(row.contentId, {
+        ...row,
+        bodySnippet: retainSearchBodySnippet(row.bodySnippet),
+      });
     }
   }
 
@@ -153,11 +160,17 @@ export class InMemoryPostSearchDocumentRepository implements PostSearchDocumentR
         if (args.createdAtTo && row.createdAtSource >= args.createdAtTo) {
           return false;
         }
-        const haystack = `${row.title} ${row.bodySnippet ?? ""}`.toLowerCase();
+        const haystack = buildSearchText({
+          title: row.title,
+          bodyText: row.bodySnippet,
+        });
         return normalizedTokens.some((token) => haystack.includes(token));
       })
       .map((row) => {
-        const haystack = `${row.title} ${row.bodySnippet ?? ""}`.toLowerCase();
+        const haystack = buildSearchText({
+          title: row.title,
+          bodyText: row.bodySnippet,
+        });
         let score = 0;
         for (const token of normalizedTokens) {
           if (haystack.includes(token)) {

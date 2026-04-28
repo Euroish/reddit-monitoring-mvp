@@ -14,6 +14,7 @@ import type { KeywordQuerySessionRepository } from "../domain/repositories/keywo
 import type { KeywordTrendDailyRepository } from "../domain/repositories/keyword-trend-daily-repository";
 import type { MetricsSnapshotRepository } from "../domain/repositories/metrics-snapshot-repository";
 import type { MonitorTargetRepository } from "../domain/repositories/monitor-target-repository";
+import type { PostEngagementRepository } from "../domain/repositories/post-engagement-repository";
 import type { PostGrowthFactRepository } from "../domain/repositories/post-growth-fact-repository";
 import type { ProviderHealthWindowRepository } from "../domain/repositories/provider-health-window-repository";
 import type { RawEventRepository } from "../domain/repositories/raw-event-repository";
@@ -62,6 +63,7 @@ export interface RedditPhase1WorkerDependencies {
   postGrowthFactRepository?: PostGrowthFactRepository;
   anomalyEventRepository?: AnomalyEventRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
+  postEngagementRepository?: PostEngagementRepository;
   subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditCollectionCoverageRepository?: SubredditCollectionCoverageRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
@@ -357,6 +359,7 @@ export async function runRedditPhase1Cycle(
           rawEventRepository: deps.rawEventRepository,
           accountRepository: deps.accountRepository,
           metricsSnapshotRepository: deps.metricsSnapshotRepository,
+          postEngagementRepository: deps.postEngagementRepository,
           providerHealthWindowRepository: deps.providerHealthWindowRepository,
           redditConnector: targetConnector,
           redditMapper: deps.redditMapper,
@@ -381,113 +384,120 @@ export async function runRedditPhase1Cycle(
         },
       );
 
-      const fromIso = new Date(
-        new Date(nowIso).getTime() - trendLookbackMinutes * 60 * 1000,
-      ).toISOString();
-      const dailyFactFromIso = new Date(
-        new Date(nowIso).getTime() - dailyFactLookbackDays * 24 * 60 * 60 * 1000,
-      ).toISOString();
-      await buildSubredditDailyFactsJob(
-        {
-          contentRepository: deps.contentRepository,
-          metricsSnapshotRepository: deps.metricsSnapshotRepository,
-          subredditDailyFactRepository: deps.subredditDailyFactRepository,
-        },
-        {
-          targetId: target.id,
-          fromIso: dailyFactFromIso,
-          toIso: nowIso,
-        },
-      );
-      if (deps.subredditCollectionCoverageRepository) {
-        await buildSubredditCollectionCoverageJob(
-          {
-            contentRepository: deps.contentRepository,
-            subredditDailyFactRepository: deps.subredditDailyFactRepository,
-            subredditCollectionCoverageRepository: deps.subredditCollectionCoverageRepository,
-            crawlCursorRepository: deps.crawlCursorRepository,
-            providerHealthWindowRepository: deps.providerHealthWindowRepository,
-          },
-          {
-            targetId: target.id,
-            fromIso: dailyFactFromIso,
-            toIso: nowIso,
-            generatedAtIso: nowIso,
-          },
-        );
-      }
-      await buildSubredditTrendPointsJob(
-        {
-          metricsSnapshotRepository: deps.metricsSnapshotRepository,
-          subredditTrendPointRepository: deps.subredditTrendPointRepository,
-          subredditDailyFactRepository: deps.subredditDailyFactRepository,
-        },
-        {
-          targetId: target.id,
-          fromIso,
-          toIso: nowIso,
-        },
-      );
-      if (deps.postGrowthFactRepository) {
-        const postGrowthFromIso = new Date(
-          new Date(nowIso).getTime() - 24 * 60 * 60 * 1000,
-        ).toISOString();
-        await buildPostGrowthFactsJob(
-          {
-            contentRepository: deps.contentRepository,
-            metricsSnapshotRepository: deps.metricsSnapshotRepository,
-            postGrowthFactRepository: deps.postGrowthFactRepository,
-          },
-          {
-            targetId: target.id,
-            fromIso: postGrowthFromIso,
-            toIso: nowIso,
-          },
-        );
-      }
+	      const fromIso = new Date(
+	        new Date(nowIso).getTime() - trendLookbackMinutes * 60 * 1000,
+	      ).toISOString();
+	      const dailyFactFromIso = new Date(
+	        new Date(nowIso).getTime() - dailyFactLookbackDays * 24 * 60 * 60 * 1000,
+	      ).toISOString();
+	      if (deps.postEngagementRepository) {
+	        const postEngagementRepository = deps.postEngagementRepository;
+	        await buildSubredditDailyFactsJob(
+	          {
+	            contentRepository: deps.contentRepository,
+	            metricsSnapshotRepository: deps.metricsSnapshotRepository,
+	            postEngagementRepository,
+	            subredditDailyFactRepository: deps.subredditDailyFactRepository,
+	          },
+	          {
+	            targetId: target.id,
+	            fromIso: dailyFactFromIso,
+	            toIso: nowIso,
+	          },
+	        );
+	        if (deps.subredditCollectionCoverageRepository) {
+	          await buildSubredditCollectionCoverageJob(
+	            {
+	              contentRepository: deps.contentRepository,
+	              subredditDailyFactRepository: deps.subredditDailyFactRepository,
+	              subredditCollectionCoverageRepository: deps.subredditCollectionCoverageRepository,
+	              crawlCursorRepository: deps.crawlCursorRepository,
+	              providerHealthWindowRepository: deps.providerHealthWindowRepository,
+	            },
+	            {
+	              targetId: target.id,
+	              fromIso: dailyFactFromIso,
+	              toIso: nowIso,
+	              generatedAtIso: nowIso,
+	            },
+	          );
+	        }
+	        await buildSubredditTrendPointsJob(
+	          {
+	            metricsSnapshotRepository: deps.metricsSnapshotRepository,
+	            postEngagementRepository,
+	            subredditTrendPointRepository: deps.subredditTrendPointRepository,
+	            subredditDailyFactRepository: deps.subredditDailyFactRepository,
+	          },
+	          {
+	            targetId: target.id,
+	            fromIso,
+	            toIso: nowIso,
+	          },
+	        );
+	        if (deps.postGrowthFactRepository) {
+	          const postGrowthFromIso = new Date(
+	            new Date(nowIso).getTime() - 24 * 60 * 60 * 1000,
+	          ).toISOString();
+	          await buildPostGrowthFactsJob(
+	            {
+	              contentRepository: deps.contentRepository,
+	              metricsSnapshotRepository: deps.metricsSnapshotRepository,
+	              postEngagementRepository,
+	              postGrowthFactRepository: deps.postGrowthFactRepository,
+	            },
+	            {
+	              targetId: target.id,
+	              fromIso: postGrowthFromIso,
+	              toIso: nowIso,
+	            },
+	          );
+	        }
 
-      if (deps.keywordTrendDailyRepository) {
-        const explicitQueries = deps.keywordQuerySessionRepository
-          ? (
-              await deps.keywordQuerySessionRepository.listLiveRefreshCandidates({
-                statuses: ["initial_ready", "live_refreshing", "completed"],
-                limit: 60,
-              })
-            )
-              .filter((session) => {
-                if (!session.canonicalSubreddit) {
-                  return true;
-                }
-                return (
-                  toCanonicalSubredditName(session.canonicalSubreddit) ===
-                  toCanonicalSubredditName(target.canonicalName)
-                );
-              })
-              .map((session) => session.queryText)
-          : [];
-        const keywordFromIso = new Date(
-          new Date(nowIso).getTime() - keywordDailyLookbackDays * 24 * 60 * 60 * 1000,
-        ).toISOString();
-        await buildSubredditKeywordTrendDailyJob(
-          {
-            contentRepository: deps.contentRepository,
-            metricsSnapshotRepository: deps.metricsSnapshotRepository,
-            keywordTrendDailyRepository: deps.keywordTrendDailyRepository,
-            subredditDailyFactRepository: deps.subredditDailyFactRepository,
-          },
-          {
-            targetId: target.id,
-            canonicalSubreddit: target.canonicalName,
-            explicitQueries,
-            fromIso: keywordFromIso,
-            toIso: nowIso,
-            qualityMinScore: keywordDailyQualityMinScore,
-            qualityMinComments: keywordDailyQualityMinComments,
-            maxKeywordsPerDay: keywordDailyMaxKeywordsPerDay,
-            sourceType: crawlMode,
-          },
-        );
-      }
+	        if (deps.keywordTrendDailyRepository) {
+	          const explicitQueries = deps.keywordQuerySessionRepository
+	            ? (
+	                await deps.keywordQuerySessionRepository.listLiveRefreshCandidates({
+	                  statuses: ["initial_ready", "live_refreshing", "completed"],
+	                  limit: 60,
+	                })
+	              )
+	                .filter((session) => {
+	                  if (!session.canonicalSubreddit) {
+	                    return true;
+	                  }
+	                  return (
+	                    toCanonicalSubredditName(session.canonicalSubreddit) ===
+	                    toCanonicalSubredditName(target.canonicalName)
+	                  );
+	                })
+	                .map((session) => session.queryText)
+	            : [];
+	          const keywordFromIso = new Date(
+	            new Date(nowIso).getTime() - keywordDailyLookbackDays * 24 * 60 * 60 * 1000,
+	          ).toISOString();
+	          await buildSubredditKeywordTrendDailyJob(
+	            {
+	              contentRepository: deps.contentRepository,
+	              metricsSnapshotRepository: deps.metricsSnapshotRepository,
+	              postEngagementRepository,
+	              keywordTrendDailyRepository: deps.keywordTrendDailyRepository,
+	              subredditDailyFactRepository: deps.subredditDailyFactRepository,
+	            },
+	            {
+	              targetId: target.id,
+	              canonicalSubreddit: target.canonicalName,
+	              explicitQueries,
+	              fromIso: keywordFromIso,
+	              toIso: nowIso,
+	              qualityMinScore: keywordDailyQualityMinScore,
+	              qualityMinComments: keywordDailyQualityMinComments,
+	              maxKeywordsPerDay: keywordDailyMaxKeywordsPerDay,
+	              sourceType: crawlMode,
+	            },
+	          );
+	        }
+	      }
       if (deps.anomalyEventRepository) {
         await buildAnomalyEventsJob(
           {
@@ -532,6 +542,7 @@ async function runBoundedTargetBackfill(
     | "contentRepository"
     | "crawlCursorRepository"
     | "metricsSnapshotRepository"
+    | "postEngagementRepository"
     | "providerHealthWindowRepository"
     | "rawEventRepository"
     | "redditConnector"
@@ -582,6 +593,7 @@ async function runBoundedTargetBackfill(
         crawlCursorRepository: deps.crawlCursorRepository,
         providerHealthWindowRepository: deps.providerHealthWindowRepository,
         metricsSnapshotRepository: deps.metricsSnapshotRepository,
+        postEngagementRepository: deps.postEngagementRepository,
       },
       {
         targetId: args.targetId,

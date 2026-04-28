@@ -21,9 +21,14 @@ import {
   InMemoryContentRepository,
   InMemoryCrawlCursorRepository,
   InMemoryMetricsSnapshotRepository,
+  InMemoryPostEngagementRepository,
   InMemoryProviderHealthWindowRepository,
   InMemoryRawEventRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
+import {
+  ORDINARY_POST_BODY_MAX_CHARS,
+  RETAINED_POST_BODY_MAX_CHARS,
+} from "../../src/shared/text/content-text-retention";
 
 process.env.REDDIT_LIVE_WINDOW_HOURS ??= "100000";
 process.env.REDDIT_LIVE_WINDOW_OVERLAP_MINUTES ??= "0";
@@ -153,6 +158,7 @@ test("collect subreddit new posts applies candidate filter and records provider 
   const accountRepository = new InMemoryAccountRepository();
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const crawlCursorRepository = new InMemoryCrawlCursorRepository();
   const providerHealthWindowRepository = new InMemoryProviderHealthWindowRepository();
 
@@ -166,6 +172,7 @@ test("collect subreddit new posts applies candidate filter and records provider 
       accountRepository,
       contentRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       providerHealthWindowRepository,
     },
     {
@@ -194,8 +201,10 @@ test("collect subreddit new posts applies candidate filter and records provider 
   const snapshots = metricsSnapshotRepository.all();
   const newPostsMetric = snapshots.find((item) => item.metricName === "new_posts_15m");
   assert.equal(newPostsMetric?.metricValue, 2);
-  assert.equal(snapshots.filter((item) => item.metricName === "score").length, 1);
-  assert.equal(snapshots.filter((item) => item.metricName === "num_comments").length, 1);
+  assert.equal(snapshots.filter((item) => item.metricName === "score").length, 0);
+  assert.equal(snapshots.filter((item) => item.metricName === "num_comments").length, 0);
+  assert.equal(postEngagementRepository.allLatest().length, 1);
+  assert.equal(postEngagementRepository.allWindows().length, 1);
 
   const providerRows = providerHealthWindowRepository.all();
   assert.equal(providerRows.length, 1);
@@ -208,6 +217,72 @@ test("collect subreddit new posts applies candidate filter and records provider 
   assert.equal(providerRows[0]?.duplicatePostCount, 0);
   assert.equal(providerRows[0]?.ingestLagSampleCount, 2);
   assert.equal(providerRows[0]?.providerDiffSampleCount, 0);
+});
+
+test("collect subreddit new posts bounds stored body text by post value tier", async () => {
+  const nowIso = "2026-04-10T12:00:00.000Z";
+  const targetId = stableUuidFromString("reddit:target:r/bodyretention");
+  const connector = new ScriptedPostsConnector([
+    {
+      provider: "http",
+      posts: [
+        {
+          name: "t3_ordinary_body",
+          id: "ordinary_body",
+          subreddit: "bodyretention",
+          author: "ordinary_author",
+          title: "ordinary post",
+          selftext: "o".repeat(ORDINARY_POST_BODY_MAX_CHARS + 120),
+          permalink: "/r/bodyretention/comments/ordinary/post",
+          created_utc: 1_712_750_000,
+          score: 5,
+          num_comments: 1,
+          upvote_ratio: 0.7,
+        },
+        {
+          name: "t3_qualified_body",
+          id: "qualified_body",
+          subreddit: "bodyretention",
+          author: "qualified_author",
+          title: "qualified post",
+          selftext: "q".repeat(RETAINED_POST_BODY_MAX_CHARS + 120),
+          permalink: "/r/bodyretention/comments/qualified/post",
+          created_utc: 1_712_750_060,
+          score: 120,
+          num_comments: 40,
+          upvote_ratio: 0.96,
+        },
+      ],
+    },
+  ]);
+
+  const contentRepository = new InMemoryContentRepository();
+
+  await collectSubredditNewPostsJob(
+    {
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+      collectionJobRepository: new InMemoryCollectionJobRepository(),
+      crawlCursorRepository: new InMemoryCrawlCursorRepository(),
+      rawEventRepository: new InMemoryRawEventRepository(),
+      accountRepository: new InMemoryAccountRepository(),
+      contentRepository,
+      metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+      postEngagementRepository: new InMemoryPostEngagementRepository(),
+      providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
+    },
+    {
+      targetId,
+      subreddit: "bodyretention",
+      nowIso,
+      mode: "live",
+      providerHint: "http",
+    },
+  );
+
+  const byExternalId = new Map(contentRepository.all().map((row) => [row.externalId, row] as const));
+  assert.equal(byExternalId.get("t3_ordinary_body")?.bodyText?.length, ORDINARY_POST_BODY_MAX_CHARS);
+  assert.equal(byExternalId.get("t3_qualified_body")?.bodyText?.length, RETAINED_POST_BODY_MAX_CHARS);
 });
 
 test("collect subreddit new posts live mode re-polls head page every 5 minutes", async () => {
@@ -417,13 +492,7 @@ test("collect subreddit new posts live mode ignores posts outside the configured
   assert.equal(crawlCursor?.liveRequestedFromIso, "2026-04-10T03:30:00.000Z");
   assert.equal(crawlCursor?.liveCoverageStatus, "complete");
   assert.equal(crawlCursor?.liveListingHorizonHit, false);
-  assert.deepEqual(
-    snapshots
-      .filter((item) => item.metricName === "score")
-      .map((item) => item.contentId)
-      .sort(),
-    [stableUuidFromString("reddit:content:t3_recent")],
-  );
+  assert.equal(snapshots.filter((item) => item.metricName === "score").length, 0);
 });
 
 test("collect subreddit new posts records source-limited live coverage when listing horizon is hit before window coverage", async (t) => {
@@ -582,6 +651,7 @@ test("collect subreddit new posts suppresses stale metric rewrites outside the a
       accountRepository: new InMemoryAccountRepository(),
       contentRepository,
       metricsSnapshotRepository,
+      postEngagementRepository: new InMemoryPostEngagementRepository(),
       providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
     },
     {
@@ -594,11 +664,7 @@ test("collect subreddit new posts suppresses stale metric rewrites outside the a
   );
 
   const scoreSnapshots = metricsSnapshotRepository.all().filter((item) => item.metricName === "score");
-  assert.equal(scoreSnapshots.length, 1);
-  assert.equal(
-    scoreSnapshots[0]?.contentId,
-    stableUuidFromString("reddit:content:t3_old-but-new-to-db"),
-  );
+  assert.equal(scoreSnapshots.length, 0);
   assert.equal(
     metricsSnapshotRepository.all().find((item) => item.metricName === "new_posts_15m")?.metricValue,
     1,
@@ -1222,6 +1288,7 @@ test("collect subreddit new posts backfill applies tiered candidate filters from
   const largeContentRepository = new InMemoryContentRepository();
 
   const smallMetricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const smallPostEngagementRepository = new InMemoryPostEngagementRepository();
   await smallMetricsSnapshotRepository.appendMany([
     {
       snapshotAt: "2026-04-10T12:30:00.000Z",
@@ -1235,6 +1302,7 @@ test("collect subreddit new posts backfill applies tiered candidate filters from
   ]);
 
   const largeMetricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const largePostEngagementRepository = new InMemoryPostEngagementRepository();
   await largeMetricsSnapshotRepository.appendMany([
     {
       snapshotAt: "2026-04-10T12:30:00.000Z",
@@ -1290,11 +1358,12 @@ test("collect subreddit new posts backfill applies tiered candidate filters from
       collectionJobRepository: new InMemoryCollectionJobRepository(),
       crawlCursorRepository: new InMemoryCrawlCursorRepository(),
       rawEventRepository: new InMemoryRawEventRepository(),
-      accountRepository: new InMemoryAccountRepository(),
-      contentRepository: smallContentRepository,
-      metricsSnapshotRepository: smallMetricsSnapshotRepository,
-      providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
-    },
+        accountRepository: new InMemoryAccountRepository(),
+        contentRepository: smallContentRepository,
+        metricsSnapshotRepository: smallMetricsSnapshotRepository,
+        postEngagementRepository: smallPostEngagementRepository,
+        providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
+      },
     {
       targetId: smallTargetId,
       subreddit: "tiered",
@@ -1311,11 +1380,12 @@ test("collect subreddit new posts backfill applies tiered candidate filters from
       collectionJobRepository: new InMemoryCollectionJobRepository(),
       crawlCursorRepository: new InMemoryCrawlCursorRepository(),
       rawEventRepository: new InMemoryRawEventRepository(),
-      accountRepository: new InMemoryAccountRepository(),
-      contentRepository: largeContentRepository,
-      metricsSnapshotRepository: largeMetricsSnapshotRepository,
-      providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
-    },
+        accountRepository: new InMemoryAccountRepository(),
+        contentRepository: largeContentRepository,
+        metricsSnapshotRepository: largeMetricsSnapshotRepository,
+        postEngagementRepository: largePostEngagementRepository,
+        providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
+      },
     {
       targetId: largeTargetId,
       subreddit: "tiered",
@@ -1332,11 +1402,7 @@ test("collect subreddit new posts backfill applies tiered candidate filters from
     ["t3_borderline", "t3_high", "t3_score_led"],
   );
   assert.deepEqual(
-    largeMetricsSnapshotRepository
-      .all()
-      .filter((snapshot) => snapshot.contentId && snapshot.metricName === "score")
-      .map((snapshot) => snapshot.contentId)
-      .sort(),
+    largePostEngagementRepository.allLatest().map((snapshot) => snapshot.contentId).sort(),
     [
       stableUuidFromString("reddit:content:t3_high"),
       stableUuidFromString("reddit:content:t3_score_led"),

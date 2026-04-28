@@ -32,6 +32,20 @@ export class InMemoryStorageObservabilityRepository implements StorageObservabil
           indexBytes: 0,
           totalBytes: 0,
         },
+        {
+          tableName: "post_engagement_latest",
+          rowEstimate: 0,
+          tableBytes: 0,
+          indexBytes: 0,
+          totalBytes: 0,
+        },
+        {
+          tableName: "post_engagement_window",
+          rowEstimate: 0,
+          tableBytes: 0,
+          indexBytes: 0,
+          totalBytes: 0,
+        },
       ],
     };
   }

@@ -3,6 +3,7 @@ import type { MetricsSnapshot } from "../domain/entities/metrics-snapshot";
 import type { PostGrowthAgeBucket, PostGrowthFact } from "../domain/entities/post-growth-fact";
 import type { ContentRepository } from "../domain/repositories/content-repository";
 import type { MetricsSnapshotRepository } from "../domain/repositories/metrics-snapshot-repository";
+import type { PostEngagementRepository } from "../domain/repositories/post-engagement-repository";
 import type { PostGrowthFactRepository } from "../domain/repositories/post-growth-fact-repository";
 
 const MAX_AGE_MINUTES = 24 * 60;
@@ -15,6 +16,7 @@ const DRIVER_SCORE_ZSCALE = 15;
 export interface BuildPostGrowthFactsDependencies {
   contentRepository: ContentRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
+  postEngagementRepository?: PostEngagementRepository;
   postGrowthFactRepository: PostGrowthFactRepository;
 }
 
@@ -53,23 +55,33 @@ export async function buildPostGrowthFactsJob(
   }
 
   const contentFromIso = new Date(fromDate.getTime() - MAX_AGE_MINUTES * 60 * 1000).toISOString();
-  const [contents, snapshots] = await Promise.all([
-    deps.contentRepository.findByTargetCreatedAtRange({
-      targetId: input.targetId,
-      from: contentFromIso,
-      to: input.toIso,
-      limit: 100_000,
-    }),
-    deps.metricsSnapshotRepository.listByTargetInRange({
-      targetId: input.targetId,
+  const contents = await deps.contentRepository.findByTargetCreatedAtRange({
+    targetId: input.targetId,
+    from: contentFromIso,
+    to: input.toIso,
+    limit: 100_000,
+  });
+  const contentIds = contents.map((content) => content.id);
+  const latestMetricsByContentId = new Map<
+    string,
+    { observedAt: string; score?: number; comments?: number }
+  >();
+  if (deps.postEngagementRepository && contentIds.length > 0) {
+    const rows = await deps.postEngagementRepository.listLatestByContentIdsInRange({
+      contentIds,
       from: input.fromIso,
       to: input.toIso,
-      metricNames: ["score", "num_comments"],
-    }),
-  ]);
+    });
+    for (const row of rows) {
+      latestMetricsByContentId.set(row.contentId, {
+        observedAt: row.observedAt,
+        score: row.score,
+        comments: row.numComments,
+      });
+    }
+  }
 
   const contentById = new Map(contents.map((content) => [content.id, content] as const));
-  const latestMetricsByContentId = resolveLatestMetricsByContentId(snapshots);
   const candidates = buildCandidates(input.targetId, contentById, latestMetricsByContentId);
   if (candidates.length === 0) {
     return [];

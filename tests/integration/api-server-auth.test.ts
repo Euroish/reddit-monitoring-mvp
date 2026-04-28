@@ -595,7 +595,13 @@ test("ops storage observability requires owner or admin capability", async () =>
     assert.equal(adminStorage.body.databaseSizeBytes, 0);
     assert.deepEqual(
       adminStorage.body.tables.map((table) => table.tableName),
-      ["reddit_fetch_event", "raw_reddit_event", "metrics_snapshot"],
+      [
+        "reddit_fetch_event",
+        "raw_reddit_event",
+        "metrics_snapshot",
+        "post_engagement_latest",
+        "post_engagement_window",
+      ],
     );
 
     const ownerLogin = await login(baseUrl, "owner@example.com", "owner-password");

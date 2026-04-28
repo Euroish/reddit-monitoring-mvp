@@ -5,6 +5,7 @@ import { stableUuidFromString } from "../../src/shared/ids/stable-id";
 import {
   InMemoryContentRepository,
   InMemoryMetricsSnapshotRepository,
+  InMemoryPostEngagementRepository,
   InMemoryPostGrowthFactRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
 
@@ -12,6 +13,7 @@ test("buildPostGrowthFactsJob materializes 1h/6h/24h rows with cohort normalizat
   const targetId = stableUuidFromString("reddit:target:r/machinelearning");
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
 
   const content1hA = stableUuidFromString("reddit:content:t3_1ha");
@@ -84,23 +86,19 @@ test("buildPostGrowthFactsJob materializes 1h/6h/24h rows with cohort normalizat
   ]);
 
   const observedAt = "2026-04-17T12:00:00.000Z";
-  await metricsSnapshotRepository.appendMany([
-    metric(targetId, content1hA, "score", 90, observedAt, "job:1ha:score"),
-    metric(targetId, content1hA, "num_comments", 18, observedAt, "job:1ha:comments"),
-    metric(targetId, content1hB, "score", 36, observedAt, "job:1hb:score"),
-    metric(targetId, content1hB, "num_comments", 6, observedAt, "job:1hb:comments"),
-    metric(targetId, content6h, "score", 84, observedAt, "job:6h:score"),
-    metric(targetId, content6h, "num_comments", 12, observedAt, "job:6h:comments"),
-    metric(targetId, content24h, "score", 120, observedAt, "job:24h:score"),
-    metric(targetId, content24h, "num_comments", 20, observedAt, "job:24h:comments"),
-    metric(targetId, contentOld, "score", 300, observedAt, "job:old:score"),
-    metric(targetId, contentOld, "num_comments", 50, observedAt, "job:old:comments"),
+  await postEngagementRepository.upsertLatestMany([
+    engagement(targetId, content1hA, 90, 18, observedAt, "job:1ha"),
+    engagement(targetId, content1hB, 36, 6, observedAt, "job:1hb"),
+    engagement(targetId, content6h, 84, 12, observedAt, "job:6h"),
+    engagement(targetId, content24h, 120, 20, observedAt, "job:24h"),
+    engagement(targetId, contentOld, 300, 50, observedAt, "job:old"),
   ]);
 
   const rows = await buildPostGrowthFactsJob(
     {
       contentRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       postGrowthFactRepository,
     },
     {
@@ -169,6 +167,25 @@ function metric(
     granularity: "15m" as const,
     metricName,
     metricValue,
+    collectionJobId: stableUuidFromString(jobSeed),
+  };
+}
+
+function engagement(
+  targetId: string,
+  contentId: string,
+  score: number,
+  numComments: number,
+  observedAt: string,
+  jobSeed: string,
+) {
+  return {
+    contentId,
+    targetId,
+    source: "reddit" as const,
+    observedAt,
+    score,
+    numComments,
     collectionJobId: stableUuidFromString(jobSeed),
   };
 }

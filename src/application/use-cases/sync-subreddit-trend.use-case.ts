@@ -5,6 +5,7 @@ import type { CollectionJobRepository } from "../../domain/repositories/collecti
 import type { ContentRepository } from "../../domain/repositories/content-repository";
 import type { CrawlCursorRepository } from "../../domain/repositories/crawl-cursor-repository";
 import type { MetricsSnapshotRepository } from "../../domain/repositories/metrics-snapshot-repository";
+import type { PostEngagementRepository } from "../../domain/repositories/post-engagement-repository";
 import type { ProviderHealthWindowRepository } from "../../domain/repositories/provider-health-window-repository";
 import type { RawEventRepository } from "../../domain/repositories/raw-event-repository";
 import { collectSubredditAboutJob } from "../../jobs/collect-subreddit-about.job";
@@ -19,6 +20,7 @@ export interface SyncSubredditTrendDependencies {
   crawlCursorRepository?: CrawlCursorRepository;
   providerHealthWindowRepository?: ProviderHealthWindowRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
+  postEngagementRepository: PostEngagementRepository;
   collectionJobRepository: CollectionJobRepository;
 }
 
@@ -60,6 +62,7 @@ export async function syncSubredditTrend(
       crawlCursorRepository: deps.crawlCursorRepository,
       providerHealthWindowRepository: deps.providerHealthWindowRepository,
       metricsSnapshotRepository: deps.metricsSnapshotRepository,
+      postEngagementRepository: deps.postEngagementRepository,
     },
     { ...base, limit: 50 },
   );

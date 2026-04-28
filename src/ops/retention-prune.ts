@@ -20,11 +20,15 @@ export interface RetentionPruneConfig {
   metricsSnapshotRetentionDays: number;
   metricsSnapshotBatchSize: number;
   metricsSnapshotLoopUntilDone: boolean;
+  postEngagementWindowRetentionDays: number;
+  postEngagementWindowBatchSize: number;
+  postEngagementWindowLoopUntilDone: boolean;
 }
 
 export interface RetentionPruneResult {
   rawEventsDeleted: number;
   metricsSnapshotsDeleted: number;
+  postEngagementWindowsDeleted: number;
 }
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
@@ -61,6 +65,18 @@ export function resolveRetentionPruneConfig(
     metricsSnapshotRetentionDays: parsePositiveInt(env.METRICS_SNAPSHOT_RETENTION_DAYS, 30),
     metricsSnapshotBatchSize: parsePositiveInt(env.METRICS_SNAPSHOT_PRUNE_BATCH_SIZE, 10000),
     metricsSnapshotLoopUntilDone: parseBoolean(env.METRICS_SNAPSHOT_PRUNE_LOOP, true),
+    postEngagementWindowRetentionDays: parsePositiveInt(
+      env.POST_ENGAGEMENT_WINDOW_RETENTION_DAYS,
+      7,
+    ),
+    postEngagementWindowBatchSize: parsePositiveInt(
+      env.POST_ENGAGEMENT_WINDOW_PRUNE_BATCH_SIZE,
+      10000,
+    ),
+    postEngagementWindowLoopUntilDone: parseBoolean(
+      env.POST_ENGAGEMENT_WINDOW_PRUNE_LOOP,
+      true,
+    ),
   };
 }
 
@@ -97,9 +113,15 @@ export async function runRetentionPrune(args: {
     batchSize: args.config.metricsSnapshotBatchSize,
     loopUntilDone: args.config.metricsSnapshotLoopUntilDone,
   });
+  const postEngagementWindowsDeleted = await prunePostEngagementWindows(args.db, {
+    retentionDays: args.config.postEngagementWindowRetentionDays,
+    batchSize: args.config.postEngagementWindowBatchSize,
+    loopUntilDone: args.config.postEngagementWindowLoopUntilDone,
+  });
   return {
     rawEventsDeleted,
     metricsSnapshotsDeleted,
+    postEngagementWindowsDeleted,
   };
 }
 
@@ -152,7 +174,8 @@ export async function pruneMetricsSnapshots(
       WITH candidates AS (
         SELECT target_id, snapshot_at, metric_name, content_id
         FROM metrics_snapshot
-        WHERE snapshot_at < NOW() - ($1::int * INTERVAL '1 day')
+        WHERE content_id IS NULL
+          AND snapshot_at < NOW() - ($1::int * INTERVAL '1 day')
         ORDER BY snapshot_at ASC
         LIMIT $2
       )
@@ -163,6 +186,42 @@ export async function pruneMetricsSnapshots(
         AND m.metric_name = c.metric_name
         AND m.content_id IS NOT DISTINCT FROM c.content_id
       RETURNING m.target_id, m.snapshot_at, m.metric_name, m.content_id
+      `,
+      [args.retentionDays, args.batchSize],
+    );
+    const deletedCount = deleted.rows.length;
+    totalDeleted += deletedCount;
+    if (!args.loopUntilDone || deletedCount < args.batchSize) {
+      return totalDeleted;
+    }
+  }
+}
+
+export async function prunePostEngagementWindows(
+  db: SqlQueryable,
+  args: {
+    retentionDays: number;
+    batchSize: number;
+    loopUntilDone: boolean;
+  },
+): Promise<number> {
+  let totalDeleted = 0;
+  while (true) {
+    const deleted = await db.query<DeleteIdRow>(
+      `
+      WITH candidates AS (
+        SELECT target_id, content_id, window_start
+        FROM post_engagement_window
+        WHERE window_start < NOW() - ($1::int * INTERVAL '1 day')
+        ORDER BY window_start ASC
+        LIMIT $2
+      )
+      DELETE FROM post_engagement_window w
+      USING candidates c
+      WHERE w.target_id = c.target_id
+        AND w.content_id = c.content_id
+        AND w.window_start = c.window_start
+      RETURNING 1 AS id
       `,
       [args.retentionDays, args.batchSize],
     );

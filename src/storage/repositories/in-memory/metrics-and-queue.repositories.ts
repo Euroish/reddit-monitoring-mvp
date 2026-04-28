@@ -1,12 +1,17 @@
 import type { CollectionJob, CollectionJobStatus } from "../../../domain/entities/collection-job";
 import type { MetricsSnapshot } from "../../../domain/entities/metrics-snapshot";
 import type {
+  PostEngagementLatest,
+  PostEngagementWindow,
+} from "../../../domain/entities/post-engagement";
+import type {
   CollectionJobOperationalCounters,
   CollectionJobFailurePolicy,
   CollectionJobOperationalSummary,
   CollectionJobRepository,
 } from "../../../domain/repositories/collection-job-repository";
 import type { MetricsSnapshotRepository } from "../../../domain/repositories/metrics-snapshot-repository";
+import type { PostEngagementRepository } from "../../../domain/repositories/post-engagement-repository";
 
 export class InMemoryMetricsSnapshotRepository implements MetricsSnapshotRepository {
   private readonly byUniqueKey = new Map<string, MetricsSnapshot>();
@@ -79,6 +84,101 @@ export class InMemoryMetricsSnapshotRepository implements MetricsSnapshotReposit
   public all(): MetricsSnapshot[] {
     return Array.from(this.byUniqueKey.values());
   }
+}
+
+export class InMemoryPostEngagementRepository implements PostEngagementRepository {
+  private readonly latestByContentId = new Map<string, PostEngagementLatest>();
+  private readonly windowsByKey = new Map<string, PostEngagementWindow>();
+
+  public async upsertLatestMany(rows: PostEngagementLatest[]): Promise<void> {
+    for (const row of rows) {
+      const current = this.latestByContentId.get(row.contentId);
+      if (!current || row.observedAt >= current.observedAt) {
+        this.latestByContentId.set(row.contentId, mergeLatest(current, row));
+      }
+    }
+  }
+
+  public async upsertWindowedMany(rows: PostEngagementWindow[]): Promise<void> {
+    for (const row of rows) {
+      const key = `${row.targetId}|${row.contentId}|${row.windowStart}`;
+      const current = this.windowsByKey.get(key);
+      if (!current || row.observedAt >= current.observedAt) {
+        this.windowsByKey.set(key, mergeWindow(current, row));
+      }
+    }
+  }
+
+  public async listLatestByContentIdsInRange(args: {
+    contentIds: string[];
+    from: string;
+    to: string;
+  }): Promise<PostEngagementLatest[]> {
+    const contentIds = new Set(args.contentIds);
+    return Array.from(this.latestByContentId.values())
+      .filter((row) => {
+        return (
+          contentIds.has(row.contentId) &&
+          row.observedAt >= args.from &&
+          row.observedAt <= args.to
+        );
+      })
+      .sort((a, b) => a.observedAt.localeCompare(b.observedAt) || a.contentId.localeCompare(b.contentId));
+  }
+
+  public async listWindowedByTargetInRange(args: {
+    targetId: string;
+    from: string;
+    to: string;
+  }): Promise<PostEngagementWindow[]> {
+    return Array.from(this.windowsByKey.values())
+      .filter((row) => {
+        return (
+          row.targetId === args.targetId &&
+          row.windowStart >= args.from &&
+          row.windowStart <= args.to
+        );
+      })
+      .sort((a, b) => a.windowStart.localeCompare(b.windowStart) || a.contentId.localeCompare(b.contentId));
+  }
+
+  public allLatest(): PostEngagementLatest[] {
+    return Array.from(this.latestByContentId.values());
+  }
+
+  public allWindows(): PostEngagementWindow[] {
+    return Array.from(this.windowsByKey.values());
+  }
+}
+
+function mergeLatest(
+  current: PostEngagementLatest | undefined,
+  next: PostEngagementLatest,
+): PostEngagementLatest {
+  if (!current) {
+    return next;
+  }
+  return {
+    ...next,
+    score: next.score ?? current.score,
+    numComments: next.numComments ?? current.numComments,
+    upvoteRatio: next.upvoteRatio ?? current.upvoteRatio,
+  };
+}
+
+function mergeWindow(
+  current: PostEngagementWindow | undefined,
+  next: PostEngagementWindow,
+): PostEngagementWindow {
+  if (!current) {
+    return next;
+  }
+  return {
+    ...next,
+    score: next.score ?? current.score,
+    numComments: next.numComments ?? current.numComments,
+    upvoteRatio: next.upvoteRatio ?? current.upvoteRatio,
+  };
 }
 
 export class InMemoryCollectionJobRepository implements CollectionJobRepository {

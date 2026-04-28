@@ -7,6 +7,7 @@ import type { KeywordTrendDaily } from "../domain/entities/keyword-trend-daily";
 import type { ContentRepository } from "../domain/repositories/content-repository";
 import type { KeywordTrendDailyRepository } from "../domain/repositories/keyword-trend-daily-repository";
 import type { MetricsSnapshotRepository } from "../domain/repositories/metrics-snapshot-repository";
+import type { PostEngagementRepository } from "../domain/repositories/post-engagement-repository";
 import type { SubredditDailyFactRepository } from "../domain/repositories/subreddit-daily-fact-repository";
 
 const AUTO_KEYWORD_STOP_WORDS = new Set([
@@ -90,6 +91,7 @@ interface DayDraft {
 export interface BuildSubredditKeywordTrendDailyDependencies {
   contentRepository: ContentRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
+  postEngagementRepository: PostEngagementRepository;
   keywordTrendDailyRepository: KeywordTrendDailyRepository;
   subredditDailyFactRepository?: SubredditDailyFactRepository;
 }
@@ -123,18 +125,12 @@ export async function buildSubredditKeywordTrendDailyJob(
     canonicalSubreddit: input.canonicalSubreddit,
   });
 
-  const [posts, snapshots, dailyFacts] = await Promise.all([
+  const [posts, dailyFacts] = await Promise.all([
     deps.contentRepository.findByTargetCreatedAtRange({
       targetId: input.targetId,
       from: input.fromIso,
       to: input.toIso,
       limit: 50000,
-    }),
-    deps.metricsSnapshotRepository.listByTargetInRange({
-      targetId: input.targetId,
-      from: input.fromIso,
-      to: input.toIso,
-      metricNames: ["score", "num_comments"],
     }),
     deps.subredditDailyFactRepository?.listByTargetInRange({
       targetId: input.targetId,
@@ -147,7 +143,12 @@ export async function buildSubredditKeywordTrendDailyJob(
     return [];
   }
 
-  const postMetrics = resolveLatestPostMetricsByContentId(snapshots);
+  const postMetrics = await resolveLatestKeywordPostMetrics({
+    postEngagementRepository: deps.postEngagementRepository,
+    postIds: posts.map((post) => post.id),
+    from: input.fromIso,
+    to: input.toIso,
+  });
   const dailyFactByDay = new Map(dailyFacts.map((fact) => [fact.day, fact] as const));
   const dayDrafts = new Map<string, DayDraft>();
 
@@ -234,6 +235,29 @@ export async function buildSubredditKeywordTrendDailyJob(
     await deps.keywordTrendDailyRepository.upsertMany(rows);
   }
   return rows;
+}
+
+async function resolveLatestKeywordPostMetrics(args: {
+  postEngagementRepository: PostEngagementRepository;
+  postIds: string[];
+  from: string;
+  to: string;
+}): Promise<Map<string, { score: number; comments: number }>> {
+  const metrics = new Map<string, { score: number; comments: number }>();
+  if (args.postIds.length > 0) {
+    const rows = await args.postEngagementRepository.listLatestByContentIdsInRange({
+      contentIds: args.postIds,
+      from: args.from,
+      to: args.to,
+    });
+    for (const row of rows) {
+      metrics.set(row.contentId, {
+        score: Math.max(0, row.score ?? 0),
+        comments: Math.max(0, row.numComments ?? 0),
+      });
+    }
+  }
+  return metrics;
 }
 
 function addKeywordSignal(args: {

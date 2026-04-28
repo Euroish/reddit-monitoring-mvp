@@ -2,6 +2,11 @@ import type { PostSearchDocument } from "../../../domain/entities/post-search-do
 import type { PostSearchDocumentRepository } from "../../../domain/repositories/post-search-document-repository";
 import type { SqlQueryable } from "../../postgres/postgres-client";
 import {
+  buildSearchText,
+  retainSearchBodySnippet,
+  SEARCH_BODY_SNIPPET_MAX_CHARS,
+} from "../../../shared/text/content-text-retention";
+import {
   mapPostSearchDocument,
   type PostSearchDocumentRow,
 } from "./postgres-row-mappers";
@@ -32,10 +37,13 @@ export class PostgresPostSearchDocumentRepository
         row.targetId,
         row.canonicalSubreddit,
         row.title,
-        row.bodySnippet ?? null,
+        retainSearchBodySnippet(row.bodySnippet) ?? null,
         row.permalink,
         row.createdAtSource,
-        `${row.title} ${row.bodySnippet ?? ""}`.toLowerCase(),
+        buildSearchText({
+          title: row.title,
+          bodyText: row.bodySnippet,
+        }),
       );
       valueIndex += 8;
     }
@@ -71,10 +79,10 @@ export class PostgresPostSearchDocumentRepository
         c.target_id,
         t.canonical_name,
         c.title,
-        LEFT(c.body_text, 800),
+        LEFT(c.body_text, ${SEARCH_BODY_SNIPPET_MAX_CHARS}),
         c.permalink,
         c.created_at_source,
-        LOWER(CONCAT_WS(' ', c.title, COALESCE(c.body_text, ''))),
+        LOWER(CONCAT_WS(' ', c.title, LEFT(COALESCE(c.body_text, ''), ${SEARCH_BODY_SNIPPET_MAX_CHARS}))),
         NOW()
       FROM content c
       INNER JOIN monitor_target t

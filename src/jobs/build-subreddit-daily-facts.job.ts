@@ -1,5 +1,6 @@
 import type { Content } from "../domain/entities/content";
 import type { MetricsSnapshot } from "../domain/entities/metrics-snapshot";
+import type { PostEngagementRepository } from "../domain/repositories/post-engagement-repository";
 import type { SubredditDailyFact } from "../domain/entities/subreddit-daily-fact";
 import { scoreSubredditDailyFacts } from "../domain/services/subreddit-daily-heat.service";
 import {
@@ -17,6 +18,7 @@ const HIGH_IMPACT_THRESHOLD = 6;
 export interface BuildSubredditDailyFactsDependencies {
   contentRepository: ContentRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
+  postEngagementRepository: PostEngagementRepository;
   subredditDailyFactRepository: SubredditDailyFactRepository;
 }
 
@@ -38,7 +40,7 @@ export async function buildSubredditDailyFactsJob(
   const aboutFromIso = new Date(
     new Date(`${days[0]}T00:00:00.000Z`).getTime() - 24 * 60 * 60 * 1000,
   ).toISOString();
-  const [posts, engagementSnapshots, aboutSnapshots] = await Promise.all([
+  const [posts, aboutSnapshots] = await Promise.all([
     deps.contentRepository.findByTargetCreatedAtRange({
       targetId: input.targetId,
       from: input.fromIso,
@@ -48,21 +50,28 @@ export async function buildSubredditDailyFactsJob(
     }),
     deps.metricsSnapshotRepository.listByTargetInRange({
       targetId: input.targetId,
-      from: input.fromIso,
-      to: input.toIso,
-      metricNames: ["score", "num_comments", "new_posts_15m"],
-    }),
-    deps.metricsSnapshotRepository.listByTargetInRange({
-      targetId: input.targetId,
       from: aboutFromIso,
       to: input.toIso,
       metricNames: ["subscribers", "active_users"],
     }),
   ]);
 
+  const [latestMetricsByContentId, newPostSnapshots] = await Promise.all([
+    resolveLatestPostEngagement({
+      postEngagementRepository: deps.postEngagementRepository,
+      posts,
+      from: input.fromIso,
+      to: input.toIso,
+    }),
+    deps.metricsSnapshotRepository.listByTargetInRange({
+      targetId: input.targetId,
+      from: input.fromIso,
+      to: input.toIso,
+      metricNames: ["new_posts_15m"],
+    }),
+  ]);
   const postsByDay = groupPostsByDay(posts);
-  const latestMetricsByContentId = resolveLatestPostMetricsByContentId(engagementSnapshots);
-  const observedDays = resolveObservedDays(days, posts, engagementSnapshots);
+  const observedDays = resolveObservedDays(days, posts, newPostSnapshots);
   const aboutSignalsByDay = resolveAboutSignalsByDay(days, aboutSnapshots);
 
   const drafts = days.flatMap((day) => {
@@ -173,6 +182,30 @@ export async function buildSubredditDailyFactsJob(
     facts,
   });
   return facts;
+}
+
+async function resolveLatestPostEngagement(args: {
+  postEngagementRepository: PostEngagementRepository;
+  posts: Content[];
+  from: string;
+  to: string;
+}): Promise<Map<string, { score: number; comments: number }>> {
+  const contentIds = args.posts.map((post) => post.id);
+  const latestMetricsByContentId = new Map<string, { score: number; comments: number }>();
+  if (contentIds.length > 0) {
+    const rows = await args.postEngagementRepository.listLatestByContentIdsInRange({
+      contentIds,
+      from: args.from,
+      to: args.to,
+    });
+    for (const row of rows) {
+      latestMetricsByContentId.set(row.contentId, {
+        score: Math.max(0, row.score ?? 0),
+        comments: Math.max(0, row.numComments ?? 0),
+      });
+    }
+  }
+  return latestMetricsByContentId;
 }
 
 function enumerateUtcDays(fromIso: string, toIso: string): string[] {

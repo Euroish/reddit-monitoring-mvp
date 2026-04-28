@@ -5,6 +5,7 @@ import { stableUuidFromString } from "../../src/shared/ids/stable-id";
 import {
   InMemoryContentRepository,
   InMemoryMetricsSnapshotRepository,
+  InMemoryPostEngagementRepository,
   InMemorySubredditDailyFactRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
 
@@ -15,6 +16,7 @@ test("buildSubredditDailyFactsJob skips uncovered days instead of materializing 
   const contentCId = stableUuidFromString("reddit:content:t3_c");
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
 
   await contentRepository.upsertMany([
@@ -58,66 +60,6 @@ test("buildSubredditDailyFactsJob skips uncovered days instead of materializing 
 
   await metricsSnapshotRepository.appendMany([
     {
-      snapshotAt: "2026-04-10T12:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: contentAId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 50,
-      collectionJobId: stableUuidFromString("job:score:a"),
-    },
-    {
-      snapshotAt: "2026-04-10T12:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: contentAId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 20,
-      collectionJobId: stableUuidFromString("job:comments:a"),
-    },
-    {
-      snapshotAt: "2026-04-10T12:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: contentBId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 4,
-      collectionJobId: stableUuidFromString("job:score:b"),
-    },
-    {
-      snapshotAt: "2026-04-10T12:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: contentBId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 1,
-      collectionJobId: stableUuidFromString("job:comments:b"),
-    },
-    {
-      snapshotAt: "2026-04-11T13:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: contentCId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 30,
-      collectionJobId: stableUuidFromString("job:score:c"),
-    },
-    {
-      snapshotAt: "2026-04-11T13:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: contentCId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 12,
-      collectionJobId: stableUuidFromString("job:comments:c"),
-    },
-    {
       snapshotAt: "2026-04-10T10:00:00.000Z",
       source: "reddit",
       targetId,
@@ -154,11 +96,41 @@ test("buildSubredditDailyFactsJob skips uncovered days instead of materializing 
       collectionJobId: stableUuidFromString("job:about:4"),
     },
   ]);
+  await postEngagementRepository.upsertLatestMany([
+    {
+      contentId: contentAId,
+      targetId,
+      source: "reddit",
+      observedAt: "2026-04-10T12:05:00.000Z",
+      score: 50,
+      numComments: 20,
+      collectionJobId: stableUuidFromString("job:engagement:a"),
+    },
+    {
+      contentId: contentBId,
+      targetId,
+      source: "reddit",
+      observedAt: "2026-04-10T12:05:00.000Z",
+      score: 4,
+      numComments: 1,
+      collectionJobId: stableUuidFromString("job:engagement:b"),
+    },
+    {
+      contentId: contentCId,
+      targetId,
+      source: "reddit",
+      observedAt: "2026-04-11T13:05:00.000Z",
+      score: 30,
+      numComments: 12,
+      collectionJobId: stableUuidFromString("job:engagement:c"),
+    },
+  ]);
 
   const facts = await buildSubredditDailyFactsJob(
     {
       contentRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       subredditDailyFactRepository,
     },
     {
@@ -198,6 +170,7 @@ test("buildSubredditDailyFactsJob preserves observed zero-post days when collect
   const contentId = stableUuidFromString("reddit:content:t3_observed");
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
 
   await contentRepository.upsertMany([
@@ -216,26 +189,6 @@ test("buildSubredditDailyFactsJob preserves observed zero-post days when collect
   ]);
 
   await metricsSnapshotRepository.appendMany([
-    {
-      snapshotAt: "2026-04-10T12:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 10,
-      collectionJobId: stableUuidFromString("job:score:observed"),
-    },
-    {
-      snapshotAt: "2026-04-10T12:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 2,
-      collectionJobId: stableUuidFromString("job:comments:observed"),
-    },
     {
       snapshotAt: "2026-04-10T10:00:00.000Z",
       source: "reddit",
@@ -264,11 +217,23 @@ test("buildSubredditDailyFactsJob preserves observed zero-post days when collect
       collectionJobId: stableUuidFromString("job:new-posts:observed-zero"),
     },
   ]);
+  await postEngagementRepository.upsertLatestMany([
+    {
+      contentId,
+      targetId,
+      source: "reddit",
+      observedAt: "2026-04-10T12:05:00.000Z",
+      score: 10,
+      numComments: 2,
+      collectionJobId: stableUuidFromString("job:engagement:observed"),
+    },
+  ]);
 
   const facts = await buildSubredditDailyFactsJob(
     {
       contentRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       subredditDailyFactRepository,
     },
     {
@@ -294,6 +259,7 @@ test("buildSubredditDailyFactsJob excludes discovery-only posts from post volume
   const supplementPostId = stableUuidFromString("reddit:content:t3_supplement");
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
 
   await contentRepository.upsertMany([
@@ -332,46 +298,6 @@ test("buildSubredditDailyFactsJob excludes discovery-only posts from post volume
 
   await metricsSnapshotRepository.appendMany([
     {
-      snapshotAt: "2026-04-10T12:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: totalPostId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 20,
-      collectionJobId: stableUuidFromString("job:score:total"),
-    },
-    {
-      snapshotAt: "2026-04-10T12:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: totalPostId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 8,
-      collectionJobId: stableUuidFromString("job:comments:total"),
-    },
-    {
-      snapshotAt: "2026-04-10T12:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: supplementPostId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 500,
-      collectionJobId: stableUuidFromString("job:score:supplement"),
-    },
-    {
-      snapshotAt: "2026-04-10T12:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: supplementPostId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 200,
-      collectionJobId: stableUuidFromString("job:comments:supplement"),
-    },
-    {
       snapshotAt: "2026-04-10T10:00:00.000Z",
       source: "reddit",
       targetId,
@@ -381,11 +307,32 @@ test("buildSubredditDailyFactsJob excludes discovery-only posts from post volume
       collectionJobId: stableUuidFromString("job:about:provenance"),
     },
   ]);
+  await postEngagementRepository.upsertLatestMany([
+    {
+      contentId: totalPostId,
+      targetId,
+      source: "reddit",
+      observedAt: "2026-04-10T12:05:00.000Z",
+      score: 20,
+      numComments: 8,
+      collectionJobId: stableUuidFromString("job:engagement:total"),
+    },
+    {
+      contentId: supplementPostId,
+      targetId,
+      source: "reddit",
+      observedAt: "2026-04-10T12:05:00.000Z",
+      score: 500,
+      numComments: 200,
+      collectionJobId: stableUuidFromString("job:engagement:supplement"),
+    },
+  ]);
 
   const facts = await buildSubredditDailyFactsJob(
     {
       contentRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       subredditDailyFactRepository,
     },
     {
@@ -406,6 +353,7 @@ test("buildSubredditDailyFactsJob backfills earliest known about snapshot across
   const contentId = stableUuidFromString("reddit:content:t3_about_backfill");
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
 
   await contentRepository.upsertMany([
@@ -425,26 +373,6 @@ test("buildSubredditDailyFactsJob backfills earliest known about snapshot across
 
   await metricsSnapshotRepository.appendMany([
     {
-      snapshotAt: "2026-04-10T12:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 50,
-      collectionJobId: stableUuidFromString("job:score:about-backfill"),
-    },
-    {
-      snapshotAt: "2026-04-10T12:05:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 20,
-      collectionJobId: stableUuidFromString("job:comments:about-backfill"),
-    },
-    {
       snapshotAt: "2026-04-11T10:00:00.000Z",
       source: "reddit",
       targetId,
@@ -463,11 +391,23 @@ test("buildSubredditDailyFactsJob backfills earliest known about snapshot across
       collectionJobId: stableUuidFromString("job:about:backfill:2"),
     },
   ]);
+  await postEngagementRepository.upsertLatestMany([
+    {
+      contentId,
+      targetId,
+      source: "reddit",
+      observedAt: "2026-04-10T12:05:00.000Z",
+      score: 50,
+      numComments: 20,
+      collectionJobId: stableUuidFromString("job:engagement:about-backfill"),
+    },
+  ]);
 
   const facts = await buildSubredditDailyFactsJob(
     {
       contentRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       subredditDailyFactRepository,
     },
     {
@@ -490,6 +430,7 @@ test("buildSubredditDailyFactsJob zeros heat for unsampled observed days", async
   const contentId = stableUuidFromString("reddit:content:t3_unsampled_heat");
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
 
   await contentRepository.upsertMany([
@@ -532,6 +473,7 @@ test("buildSubredditDailyFactsJob zeros heat for unsampled observed days", async
     {
       contentRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       subredditDailyFactRepository,
     },
     {

@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: storage-pressure-harness
-updated_at: "2026-04-28 06:35:13"
+updated_at: "2026-04-28 10:05:00"
 repo_path: "/root/reddit-monitoring-mvp"
-next_action: "Evaluate P3.2 metrics storage compression while preserving post score/comment engagement data and compatibility reads."
+next_action: "Implement P3.4: simplify `collect-subreddit-new-posts.job.ts` around concrete collected-page, normalized-batch, persistence-plan, and outcome structures now that storage writes are bounded."
 tags:
 - codex
 - workspace
@@ -24,12 +24,29 @@ tags:
 - Product truth: this is a bounded monitored Reddit analytics workbench. It may display `Total New Posts` / `Qualified Posts` only for target/day/range data with coverage proof. Otherwise the product must label the same raw counts as observed and expose coverage status.
 - Runtime path: `http` primary plus `scrapling` fallback capability. Legacy Apify is not an active main path.
 
+## Attention Hygiene
+
+- Live state files: only `00_START_HERE.md` and this file. `AGENTS.md`, skill docs, and architecture notes are static constraints, not task queues.
+- `obsidian-reddit专用/Projects/` root must contain only `project.md`. Any uploaded analysis note belongs in `Archive/` or should be removed after reconciliation.
+- Advisory filenames previously read in this repo are historical inputs only. Do not carry their headings or proposed todo lists forward unless the same issue is still visible in current code.
+- Ignore local tool state such as untracked `.codex/` during project planning unless the user explicitly asks to inspect tool internals. It is workspace noise, not product state.
+- Do not create parallel planning surfaces in repo root, `context/`, or ad hoc markdown files for the same execution slice.
+
+## Harness Rules
+
+- One slice at a time: active execution is the smallest complete storage-pressure slice that preserves collection truth and reduces either row growth or collector complexity.
+- Evidence before design: current filesystem and current code win over remembered analysis notes, prior chat summaries, or archived markdown.
+- Structure follows storage: collector refactors are valid only when they remove work made unnecessary by a landed data-model or repository change.
+- Compatibility is explicit: when replacing storage or read paths, keep fallback reads or migration compatibility until focused tests prove parity.
+- Stop when the next step would require widening product scope, rewriting unrelated layers, or changing retention defaults without migrations and tests in the same slice.
+
 ## Current State
 
 - Coverage semantics are landed: `content.total_eligible`, collection provenance, day-level coverage facts, target workbench, comparison workbench, and legacy daily trend API all distinguish observed counts from complete totals.
 - `post_volume` / `qualified_post_volume` in daily facts remain observed eligible facts. They become product-facing totals only through a coverage-complete read-model gate.
 - The next unresolved product risk is storage pressure and collector complexity, not another chart or ranking surface.
-- The corrected advisory note `代码优化建议分析.md` was read on 2026-04-28 and reconciled as a temporary input. Its storage-pressure and collector-structure diagnosis remains useful; its recommendation to later connect read models to coverage is already complete in current code.
+- `post_engagement_latest` plus bounded `post_engagement_window` storage now back new writes and materialization reads. Legacy post-level `metrics_snapshot` fallback reads were removed, target-only cleanup is migration-backed, and retention prunes engagement windows separately.
+- No advisory markdown file is currently active. Prior storage/collector notes were reconciled and should not be re-opened unless new repo evidence disagrees with the current harness.
 - Current repo search did not find a standalone export/report generator path. Future export/report work must reuse coverage-aware API/read-model fields.
 
 ## Core Decision
@@ -54,22 +71,64 @@ tags:
 - `P2.1` Done: Update API contracts/read models/UI display rules for total-vs-observed semantics and coverage-aware chart/KPI behavior.
 - `P2.2` Done: Target workbench, comparison read-model, and legacy daily trend API semantics are aligned. No standalone export/report generator exists in the current repo evidence.
 - `P3.1` Done: Replace default full raw payload persistence with lightweight fetch-event summaries while retaining full raw payloads for HTTP errors, normalization failures, anomalous empty responses, provider diff evidence, and debug mode.
+- `P3.2a`-`P3.2d` Done: Split target metrics from post engagement storage, add narrow latest/windowed post-engagement repositories, migrate daily/growth/keyword/trend jobs to the new reads with compatibility fallback, and switch ordinary collection writes to target snapshots plus structured engagement upserts.
 
 ## Next Slice Harness: Storage Pressure
 
 - Objective: reduce database growth without weakening collection truth, coverage proof, or debugability.
 - P3.1 Raw fetch event summary: done. Successful normal pages write lightweight fetch metadata by default; exception/debug paths retain full raw payloads.
-- P3.2 Metrics storage compression: evaluate replacing post-level EAV `metrics_snapshot` writes with a `post_engagement_latest` or bounded `post_engagement_snapshot` path. Keep target-level snapshots and compatibility reads until tests prove daily facts and growth facts no longer need EAV rows.
-- P3.3 Text/search retention: keep `content.body_text` nullable/short for ordinary posts; preserve longer text only for qualified, high-impact, keyword-hit, or manually saved posts. Keep search snippets bounded.
+- P3.2 Metrics storage compression: done through cleanup/retention. Target snapshots are target-only, structured post engagement owns post-level reads, cleanup migrations prune legacy rows, and retention prunes bounded engagement windows separately.
+- P3.3 Text/search retention: done. Ordinary `content.body_text` is now bounded, higher-value posts retain a longer but still capped body, and `post_search_document` snippets/search text are bounded so search keeps working without duplicating large bodies.
 - P3.4 Collector structure reduction: only after storage writes are bounded, split `collect-subreddit-new-posts.job.ts` around concrete data structures: `CollectedPageRecord`, `NormalizedBatch`, `PersistencePlan`, and `CollectionOutcome`.
 - Already closed from the corrected advisory: coverage-aware read-model gating for target workbench, comparison workbench, and daily trend API. Do not reopen this as a storage slice unless a new uncovered output path is found in code.
 - Stop condition: stop before changing retention defaults or dropping legacy tables unless migrations, fallback reads, and focused storage/read-model tests are in the same slice.
+
+### P3.2 Execution Order
+
+- P3.2a Schema split first: keep `metrics_snapshot` for target-level `subscribers` / `active_users` / `new_posts_15m` only; add `post_engagement_latest` for latest per-post score/comment/upvote state and a bounded windowed post-engagement table for historical read paths that still need per-window post metrics.
+- P3.2b Query contraction second: replace generic range scans that load many post-level EAV rows into TypeScript maps with narrow repository methods such as latest subscriber lookup, latest engagement by content, and bounded windowed engagement by target/range.
+- P3.2c Reader migration third: move `build-subreddit-daily-facts.job.ts`, `build-post-growth-facts.job.ts`, and `build-subreddit-keyword-trend-daily.job.ts` to latest-engagement reads; move `build-subreddit-trend-points.job.ts` to bounded windowed engagement reads; keep compatibility fallback reads until focused tests prove parity.
+- P3.2d Writer migration fourth: update `collect-subreddit-new-posts.job.ts` so ordinary collection writes one target snapshot row plus structured post-engagement upserts instead of per-metric EAV rows. Do not start `P3.4` before this lands.
+- P3.2e Retention and cleanup last: done. Legacy post-level `metrics_snapshot` rows are pruned by migration, retention no longer treats them as active data, and fallback reads have been removed.
+
+### P3.2 Design Guard
+
+- Do not optimize `metrics_snapshot` with more indexes alone. The main pressure is row explosion and compatibility reads rebuilding latest post state in memory.
+- `post_engagement_latest` must be keyed for cheap per-post replacement and direct readback by `content_id`/`target_id`.
+- Windowed post engagement must be bounded to the exact history needed by growth/trend jobs; avoid recreating unbounded per-15-minute EAV history under a new name.
+- Keep repository contracts honest: target metrics and post engagement are different shapes and should no longer share one generic list method.
+- Preserve collection truth: candidate filtering may still reduce engagement persistence, but it must not change `content` corpus eligibility or `new_posts_15m` observed counts.
+- Treat `collect-subreddit-new-posts.job.ts` simplification as a follow-on benefit of the storage split, not as an independent rewrite.
+
+### P3.4 Structure Harness
+
+- `CollectedPageRecord`: one fetched page plus listing/provenance metadata and raw-event retention decision.
+- `NormalizedBatch`: merged post/account/upvote/comment normalization output keyed by external id so duplicate filtering and active-window checks happen once.
+- `PersistencePlan`: the exact write set for accounts, content, target snapshots, post engagement latest/window rows, provider health deltas, and cursor updates.
+- `CollectionOutcome`: counters/evidence only; job status transitions and observability should consume this instead of recomputing counts from mutable arrays.
+
+### Verification Harness For P3.2/P3.4
+
+- Focused repository tests: SQL contract tests for new tables/indexes and compatibility reads.
+- Focused job tests: `collect-subreddit-new-posts` integration coverage for live/backfill writes, duplicate handling, candidate filtering, and target observed-count semantics.
+- Focused read-model/materialization tests: daily facts, growth facts, keyword trend, and trend points parity between legacy and compressed storage paths.
+- Required gate when code changes: `npm run algo:fast`, `npm run algo:phase1`, and `npm run algo:phase1:full` because this slice touches collection/storage/materialization boundaries.
 
 ## Guardrails
 
 - Allowed: collector/storage truth fixes, provenance fields, coverage facts, retention/prune automation, favorite-target scheduling, coverage/data-quality contract fixes, and the smallest UI/API updates needed to expose honest total/observed semantics.
 - Forbidden: provider expansion, broad architecture rewrites, catalog/dashboard expansion, whole-Reddit wording, treating supplement listings as total evidence, treating `iteration_budget_exhausted` as final source limitation, or cleanup that touches many layers without reducing storage pressure or improving coverage/provenance truth.
 - Keep `activity_index` / `activity_confidence` as optional diagnostics. They do not replace raw post-count defaults unless the product explicitly changes KPI semantics.
+
+## Drift Checks
+
+- Before execution, check only:
+  - frontmatter `stage`, `updated_at`, and `next_action`
+  - `Current State`
+  - latest 1-3 relevant `Activity Log` entries
+- If the next action and current code disagree, fix this file first, then execute.
+- If a file outside the startup pair appears to define "current plan", treat that as drift and either archive it or explicitly mark it non-active here.
+- If the worktree contains unrelated local artifacts, ignore them unless they affect build/test/runtime behavior.
 
 ## Verification Policy
 
@@ -81,12 +140,54 @@ tags:
 
 ## Activity Log
 
+### 2026-04-28 08:20:00
+
+- Scope: Landed the P3.2 storage split slice. Added `post_engagement_latest` and bounded `post_engagement_window` storage plus Postgres/in-memory repositories; kept `metrics_snapshot` target-level for ordinary writes; migrated daily facts, post growth, keyword trend, and trend-point materialization to new engagement reads with explicit fallback to legacy post-level snapshots; and wired live/backfill collection to write structured post engagement in the normal runtime path.
+- Why now: Post-level EAV `metrics_snapshot` writes were the active storage-pressure hotspot and forced broad range scans rebuilding latest engagement in memory. The smallest honest fix was to separate target snapshots from post engagement before any collector structure refactor.
+- Verify: `npm run typecheck`, focused unit/integration tests for daily facts, growth facts, keyword trend, trend points, collector writes, and ops storage observability passed. Required gates `npm run algo:fast`, `npm run algo:phase1`, and `npm run algo:phase1:full` passed.
+- Next: Implement `P3.2e` by proving Postgres migration/repository parity, then prune legacy post-level `metrics_snapshot` rows, tighten retention, and remove compatibility fallbacks before starting `P3.3` or `P3.4`.
+
+### 2026-04-28 08:55:00
+
+- Scope: Closed `P3.2e`. Added the target-only cleanup migration for `metrics_snapshot`, tightened retention to prune bounded `post_engagement_window` history separately, removed legacy post-level fallback reads from daily/growth/keyword/trend materialization, and updated phase1/Postgres repository tests plus fixtures to assert the structured engagement path instead of legacy EAV row counts.
+- Why now: The storage split was already landed, so the remaining pressure and drift came from compatibility paths and stale test expectations that still treated post-level `metrics_snapshot` rows as the canonical source.
+- Verify: `npm run typecheck`, focused collector/materialization/Postgres repository tests, `npm run algo:fast`, `npm run algo:phase1`, and `npm run algo:phase1:full` passed.
+- Next: Implement `P3.3` by bounding ordinary post text/search retention while preserving longer text for qualified, high-impact, keyword-hit, or manually saved posts.
+
+### 2026-04-28 10:05:00
+
+- Scope: Closed `P3.3`. Added a shared text-retention policy that bounds ordinary stored post bodies while retaining a longer capped body for qualified/high-impact posts, applied that policy in collection writes, and bounded `post_search_document` snippet/search text duplication in both direct upserts and `seedFromContent`.
+- Why now: After `P3.2`, the next storage-pressure hotspot was duplicated post text: full `content.body_text` plus a second search-document copy/index source. This slice reduces that duplication without removing keyword-trend or keyword-query functionality.
+- Verify: `npm run typecheck`, focused text-retention/search/collector tests, `npm run algo:fast`, `npm run algo:phase1`, and `npm run algo:phase1:full` passed.
+- Next: Implement `P3.4` by simplifying `collect-subreddit-new-posts.job.ts` around concrete collection/persistence structures now that raw payloads, metrics, engagement, and text retention are bounded.
+
+### 2026-04-28 06:54:59
+
+- Scope: Tightened the execution harness in `project.md` around attention hygiene, live-state boundaries, and drift checks; removed current-state dependence on prior advisory filenames and documented local tool-state noise handling.
+- Why now: The repo state is clean enough to proceed, but the active state file still carried historical advisory framing that can pull attention away from the current storage-pressure slice.
+- Verify: Documentation/state reconciliation only. Checked repo root, `Projects` root, startup docs, and worktree status; confirmed `Projects` root contains only `project.md` and the only visible local-noise artifact is untracked `.codex/`.
+- Next: Use this tightened harness as the sole execution frame and implement `P3.2a` before any collector refactor or retention-default change.
+
+### 2026-04-28 06:51:05
+
+- Scope: Re-read the active storage-pressure harness, inspected `metrics_snapshot` schema/repositories plus `collect-subreddit-new-posts.job.ts` and downstream daily/growth/keyword/trend jobs, and tightened the project execution plan around a target-vs-post metrics split before collector refactoring.
+- Why now: The real bottleneck is not one slow SQL statement. Post-level EAV writes are inflating row count, forcing broad range scans, and keeping collector persistence logic coupled to a generic metric shape.
+- Verify: Planning/state update only. Reconciled `project.md` against current schema/repository/job code and current startup docs. No tests were run.
+- Next: Implement `P3.2a` with new post-engagement storage plus narrow repository reads, then migrate daily/growth/keyword/trend jobs before pruning legacy EAV rows or splitting the collector job.
+
 ### 2026-04-28 06:35:13
 
 - Scope: Landed P3.1 raw fetch event summary. Added `reddit_fetch_event`, changed raw event persistence so normal successful fetches keep lightweight metadata/hash while exceptions keep full raw payloads, and kept post score/comment engagement normalization and writes unchanged.
 - Why now: The storage-pressure harness needed database growth reduction without dropping post data or weakening coverage/debug truth.
 - Verify: `npm run typecheck`, `npm run algo:phase1:full`, and focused integration/migration tests passed. The focused set first exposed an ops storage table-list expectation drift; the test contract was updated and rerun green.
 - Next: Evaluate P3.2 metrics storage compression with compatibility reads before changing retention defaults or dropping legacy metric rows.
+
+### 2026-04-28 07:00:00
+
+- Scope: Replaced `AGENTS.md` with the requested single-rule instruction set, imported `skills/karpathy-guidelines` into the repo, and wired startup routing so the skill is read by default for coding/review/debug/refactor work.
+- Why now: The task was to switch the repo's default agent behavior to the Karpathy-style guardrails and enable that skill immediately instead of waiting on external session refresh.
+- Verify: Updated `AGENTS.md`, `00_START_HERE.md`, `skills/README.md`, `skills/karpathy-guidelines/SKILL.md`, and `skills/karpathy-guidelines/.import-source.txt`. Global Codex skill installation was verified separately after the file changes.
+- Next: Restart Codex in a new session if you want the globally installed `~/.codex/skills/karpathy-guidelines` entry to appear in the runtime skill registry as well.
 
 ### 2026-04-28 06:28:14
 

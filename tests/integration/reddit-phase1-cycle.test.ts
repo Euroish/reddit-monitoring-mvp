@@ -20,6 +20,7 @@ import {
   InMemoryCrawlCursorRepository,
   InMemoryMetricsSnapshotRepository,
   InMemoryMonitorTargetRepository,
+  InMemoryPostEngagementRepository,
   InMemoryPostGrowthFactRepository,
   InMemoryRawEventRepository,
   InMemorySubredditDailyFactRepository,
@@ -249,6 +250,7 @@ test("phase1 cycle writes raw, normalized and trend data", async () => {
   const accountRepository = new InMemoryAccountRepository();
   const contentRepository = new InMemoryContentRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
   const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
   const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
@@ -289,6 +291,7 @@ test("phase1 cycle writes raw, normalized and trend data", async () => {
       accountRepository,
       contentRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       subredditDailyFactRepository,
       postGrowthFactRepository,
       subredditTrendPointRepository,
@@ -303,7 +306,9 @@ test("phase1 cycle writes raw, normalized and trend data", async () => {
   assert.equal(rawEventRepository.all().length, 2);
   assert.equal(accountRepository.all().length, 2);
   assert.equal(contentRepository.all().length, 2);
-  assert.equal(metricsSnapshotRepository.all().length, 9);
+  assert.equal(metricsSnapshotRepository.all().length, 3);
+  assert.equal(postEngagementRepository.allLatest().length, 2);
+  assert.equal(postEngagementRepository.allWindows().length, 2);
   assert.equal(subredditDailyFactRepository.all().length > 0, true);
   assert.equal(postGrowthFactRepository.all().length > 0, true);
   assert.equal(subredditTrendPointRepository.all().length > 0, true);
@@ -363,6 +368,7 @@ test("phase1 cycle live mode only processes favorite targets due for the current
       accountRepository: new InMemoryAccountRepository(),
       contentRepository: new InMemoryContentRepository(),
       metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+      postEngagementRepository: new InMemoryPostEngagementRepository(),
       subredditDailyFactRepository: new InMemorySubredditDailyFactRepository(),
       postGrowthFactRepository: new InMemoryPostGrowthFactRepository(),
       subredditTrendPointRepository: new InMemorySubredditTrendPointRepository(),
@@ -392,6 +398,7 @@ test("phase1 cycle backfill mode continues across multiple cursor windows until 
   const contentRepository = new InMemoryContentRepository();
   const crawlCursorRepository = new InMemoryCrawlCursorRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
   const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
   const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
@@ -449,6 +456,7 @@ test("phase1 cycle backfill mode continues across multiple cursor windows until 
       contentRepository,
       crawlCursorRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       subredditDailyFactRepository,
       postGrowthFactRepository,
       subredditTrendPointRepository,
@@ -486,6 +494,7 @@ test("phase1 cycle backfill default budget reaches 15-day coverage for higher-vo
   const contentRepository = new InMemoryContentRepository();
   const crawlCursorRepository = new InMemoryCrawlCursorRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
   const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
   const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
@@ -537,6 +546,7 @@ test("phase1 cycle backfill default budget reaches 15-day coverage for higher-vo
       contentRepository,
       crawlCursorRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       subredditDailyFactRepository,
       postGrowthFactRepository,
       subredditTrendPointRepository,
@@ -575,6 +585,7 @@ test("phase1 cycle backfill supplements high-volume subreddit with top listings 
   const contentRepository = new InMemoryContentRepository();
   const crawlCursorRepository = new InMemoryCrawlCursorRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
   const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
   const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
@@ -697,6 +708,7 @@ test("phase1 cycle backfill supplements high-volume subreddit with top listings 
       contentRepository,
       crawlCursorRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       subredditDailyFactRepository,
       postGrowthFactRepository,
       subredditTrendPointRepository,
@@ -759,6 +771,7 @@ test("phase1 cycle backfill stops when cursor repeats without pushing chronologi
   const contentRepository = new InMemoryContentRepository();
   const crawlCursorRepository = new InMemoryCrawlCursorRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
   const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
   const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
@@ -858,6 +871,7 @@ test("phase1 cycle backfill stops when cursor repeats without pushing chronologi
       contentRepository,
       crawlCursorRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       subredditDailyFactRepository,
       postGrowthFactRepository,
       subredditTrendPointRepository,
@@ -897,6 +911,7 @@ test("phase1 cycle backfill progress stays scoped to the active provider state",
   const contentRepository = new InMemoryContentRepository();
   const crawlCursorRepository = new InMemoryCrawlCursorRepository();
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
   const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
   const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
@@ -950,6 +965,7 @@ test("phase1 cycle backfill progress stays scoped to the active provider state",
       contentRepository,
       crawlCursorRepository,
       metricsSnapshotRepository,
+      postEngagementRepository,
       subredditDailyFactRepository,
       postGrowthFactRepository,
       subredditTrendPointRepository,

@@ -4,6 +4,7 @@ import { buildSubredditTrendPointsJob } from "../../src/jobs/build-subreddit-tre
 import { stableUuidFromString } from "../../src/shared/ids/stable-id";
 import {
   InMemoryMetricsSnapshotRepository,
+  InMemoryPostEngagementRepository,
   InMemorySubredditDailyFactRepository,
   InMemorySubredditTrendPointRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
@@ -13,6 +14,7 @@ test("buildSubredditTrendPointsJob uses day-fact thresholds for qualified post c
   const postAId = stableUuidFromString("reddit:content:t3_threshold_a");
   const postBId = stableUuidFromString("reddit:content:t3_threshold_b");
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
 
@@ -44,45 +46,29 @@ test("buildSubredditTrendPointsJob uses day-fact thresholds for qualified post c
       metricValue: 50_000,
       collectionJobId: stableUuidFromString("job:subscribers"),
     },
+  ]);
+  await postEngagementRepository.upsertWindowedMany([
     {
-      snapshotAt: "2026-04-11T12:30:00.000Z",
-      source: "reddit",
       targetId,
       contentId: postAId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 35,
-      collectionJobId: stableUuidFromString("job:score:a"),
+      source: "reddit",
+      windowStart: "2026-04-11T12:00:00.000Z",
+      windowEnd: "2026-04-11T18:00:00.000Z",
+      observedAt: "2026-04-11T12:30:00.000Z",
+      score: 35,
+      numComments: 30,
+      collectionJobId: stableUuidFromString("job:window:a"),
     },
     {
-      snapshotAt: "2026-04-11T12:30:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: postAId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 30,
-      collectionJobId: stableUuidFromString("job:comments:a"),
-    },
-    {
-      snapshotAt: "2026-04-11T12:30:00.000Z",
-      source: "reddit",
       targetId,
       contentId: postBId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 45,
-      collectionJobId: stableUuidFromString("job:score:b"),
-    },
-    {
-      snapshotAt: "2026-04-11T12:30:00.000Z",
       source: "reddit",
-      targetId,
-      contentId: postBId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 25,
-      collectionJobId: stableUuidFromString("job:comments:b"),
+      windowStart: "2026-04-11T12:00:00.000Z",
+      windowEnd: "2026-04-11T18:00:00.000Z",
+      observedAt: "2026-04-11T12:30:00.000Z",
+      score: 45,
+      numComments: 25,
+      collectionJobId: stableUuidFromString("job:window:b"),
     },
   ]);
 
@@ -117,6 +103,7 @@ test("buildSubredditTrendPointsJob uses day-fact thresholds for qualified post c
   const points = await buildSubredditTrendPointsJob(
     {
       metricsSnapshotRepository,
+      postEngagementRepository,
       subredditTrendPointRepository,
       subredditDailyFactRepository,
     },
@@ -137,6 +124,7 @@ test("buildSubredditTrendPointsJob falls back to legacy high-score threshold wit
   const postAId = stableUuidFromString("reddit:content:t3_legacy_a");
   const postBId = stableUuidFromString("reddit:content:t3_legacy_b");
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
   const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
 
   await metricsSnapshotRepository.appendMany([
@@ -167,51 +155,36 @@ test("buildSubredditTrendPointsJob falls back to legacy high-score threshold wit
       metricValue: 150_000,
       collectionJobId: stableUuidFromString("job:legacy:subscribers"),
     },
+  ]);
+  await postEngagementRepository.upsertWindowedMany([
     {
-      snapshotAt: "2026-04-12T12:30:00.000Z",
-      source: "reddit",
       targetId,
       contentId: postAId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 45,
-      collectionJobId: stableUuidFromString("job:legacy:score:a"),
+      source: "reddit",
+      windowStart: "2026-04-12T12:00:00.000Z",
+      windowEnd: "2026-04-12T18:00:00.000Z",
+      observedAt: "2026-04-12T12:30:00.000Z",
+      score: 45,
+      numComments: 25,
+      collectionJobId: stableUuidFromString("job:legacy:window:a"),
     },
     {
-      snapshotAt: "2026-04-12T12:30:00.000Z",
-      source: "reddit",
-      targetId,
-      contentId: postAId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 25,
-      collectionJobId: stableUuidFromString("job:legacy:comments:a"),
-    },
-    {
-      snapshotAt: "2026-04-12T12:30:00.000Z",
-      source: "reddit",
       targetId,
       contentId: postBId,
-      granularity: "15m",
-      metricName: "score",
-      metricValue: 35,
-      collectionJobId: stableUuidFromString("job:legacy:score:b"),
-    },
-    {
-      snapshotAt: "2026-04-12T12:30:00.000Z",
       source: "reddit",
-      targetId,
-      contentId: postBId,
-      granularity: "15m",
-      metricName: "num_comments",
-      metricValue: 40,
-      collectionJobId: stableUuidFromString("job:legacy:comments:b"),
+      windowStart: "2026-04-12T12:00:00.000Z",
+      windowEnd: "2026-04-12T18:00:00.000Z",
+      observedAt: "2026-04-12T12:30:00.000Z",
+      score: 35,
+      numComments: 40,
+      collectionJobId: stableUuidFromString("job:legacy:window:b"),
     },
   ]);
 
   const points = await buildSubredditTrendPointsJob(
     {
       metricsSnapshotRepository,
+      postEngagementRepository,
       subredditTrendPointRepository,
     },
     {
