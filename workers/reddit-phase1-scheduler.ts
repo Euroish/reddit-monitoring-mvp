@@ -53,6 +53,31 @@ import type { RedditLiveProvider } from "../src/connectors/reddit/create-reddit-
 
 export type SchedulerRunMode = "mock" | "live";
 
+export type TouchedTargetReason =
+  | "new_content"
+  | "engagement_update"
+  | "coverage_update"
+  | "about_update";
+
+export interface TouchedTargetScopeWindow {
+  granularity: "15m" | "1h" | "6h" | "1d";
+  start: string;
+  end: string;
+}
+
+export interface TouchedTargetScope {
+  affectedDays: string[];
+  affectedWindows: TouchedTargetScopeWindow[];
+  reasons: TouchedTargetReason[];
+}
+
+export interface TouchedTarget {
+  targetId: string;
+  canonicalName: string;
+  crawlMode: "live" | "backfill";
+  scope: TouchedTargetScope;
+}
+
 export interface SchedulerLiveProviderExecutionPlan {
   configuredProvider: RedditLiveProvider;
   effectiveProvider: RedditLiveProvider;
@@ -106,25 +131,14 @@ export async function executeRunnableCollectionJobs(args: {
   runMode: SchedulerRunMode;
 }): Promise<{
   executedJobs: number;
-  touchedTargets: Array<{
-    targetId: string;
-    canonicalName: string;
-    crawlMode: "live" | "backfill";
-  }>;
+  touchedTargets: TouchedTarget[];
 }> {
   const runnableJobs = await args.repos.collectionJobRepository.findRunnableJobs(
     args.nowIso,
     args.runnableJobLimit,
   );
   let executedJobs = 0;
-  const touchedTargets = new Map<
-    string,
-    {
-      targetId: string;
-      canonicalName: string;
-      crawlMode: "live" | "backfill";
-    }
-  >();
+  const touchedTargets = new Map<string, TouchedTarget>();
 
   for (const job of runnableJobs) {
     const target = await args.repos.monitorTargetRepository.findById(job.targetId);
@@ -156,11 +170,19 @@ export async function executeRunnableCollectionJobs(args: {
         );
         if (executed) {
           executedJobs += 1;
-          touchedTargets.set(target.id, {
-            targetId: target.id,
-            canonicalName: target.canonicalName,
-            crawlMode: job.crawlMode ?? "live",
-          });
+          touchedTargets.set(
+            target.id,
+            mergeTouchedTarget(
+              touchedTargets.get(target.id),
+              createTouchedTarget({
+                targetId: target.id,
+                canonicalName: target.canonicalName,
+                crawlMode: job.crawlMode ?? "live",
+                nowIso: args.nowIso,
+                reasons: ["about_update", "coverage_update"],
+              }),
+            ),
+          );
         }
         continue;
       }
@@ -193,11 +215,19 @@ export async function executeRunnableCollectionJobs(args: {
         );
         if (executed) {
           executedJobs += 1;
-          touchedTargets.set(target.id, {
-            targetId: target.id,
-            canonicalName: target.canonicalName,
-            crawlMode: job.crawlMode ?? "live",
-          });
+          touchedTargets.set(
+            target.id,
+            mergeTouchedTarget(
+              touchedTargets.get(target.id),
+              createTouchedTarget({
+                targetId: target.id,
+                canonicalName: target.canonicalName,
+                crawlMode: job.crawlMode ?? "live",
+                nowIso: args.nowIso,
+                reasons: ["new_content", "engagement_update", "coverage_update"],
+              }),
+            ),
+          );
         }
         continue;
       }
@@ -357,10 +387,7 @@ export async function materializeTouchedTargets(args: {
     | "anomalyEventRepository"
     | "subredditTrendPointRepository"
   >;
-  targets: Array<{
-    targetId: string;
-    crawlMode: "live" | "backfill";
-  }>;
+  targets: TouchedTarget[];
   nowIso: string;
   env: NodeJS.ProcessEnv;
   runMode: SchedulerRunMode;
@@ -376,10 +403,26 @@ export async function materializeTouchedTargets(args: {
       mode: args.runMode,
       crawlMode: target.crawlMode,
     });
-    const fromIso = new Date(new Date(args.nowIso).getTime() - 72 * 60 * 60 * 1000).toISOString();
-    const dailyFactFromIso = new Date(
+    const fallbackTrendFromIso = new Date(
+      new Date(args.nowIso).getTime() - 72 * 60 * 60 * 1000,
+    ).toISOString();
+    const fallbackDailyFromIso = new Date(
       new Date(args.nowIso).getTime() - options.dailyFactLookbackDays! * 24 * 60 * 60 * 1000,
     ).toISOString();
+    const fallbackKeywordFromIso = new Date(
+      new Date(args.nowIso).getTime() - options.keywordDailyLookbackDays! * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const fallbackPostGrowthFromIso = new Date(
+      new Date(args.nowIso).getTime() - 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const scopeRanges = resolveMaterializationScopeRanges({
+      scope: target.scope,
+      nowIso: args.nowIso,
+      fallbackTrendFromIso,
+      fallbackDailyFromIso,
+      fallbackKeywordFromIso,
+      fallbackPostGrowthFromIso,
+    });
     await buildSubredditDailyFactsJob(
       {
         contentRepository: args.repos.contentRepository,
@@ -389,7 +432,7 @@ export async function materializeTouchedTargets(args: {
       },
       {
         targetId: target.targetId,
-        fromIso: dailyFactFromIso,
+        fromIso: scopeRanges.dailyFactFromIso,
         toIso: args.nowIso,
       },
     );
@@ -402,14 +445,11 @@ export async function materializeTouchedTargets(args: {
       },
       {
         targetId: target.targetId,
-        fromIso,
+        fromIso: scopeRanges.trendFromIso,
         toIso: args.nowIso,
       },
     );
     if (args.repos.postGrowthFactRepository) {
-      const postGrowthFromIso = new Date(
-        new Date(args.nowIso).getTime() - 24 * 60 * 60 * 1000,
-      ).toISOString();
       await buildPostGrowthFactsJob(
         {
           contentRepository: args.repos.contentRepository,
@@ -419,15 +459,12 @@ export async function materializeTouchedTargets(args: {
         },
         {
           targetId: target.targetId,
-          fromIso: postGrowthFromIso,
+          fromIso: scopeRanges.postGrowthFromIso,
           toIso: args.nowIso,
         },
       );
     }
     if (args.repos.keywordTrendDailyRepository) {
-      const keywordFromIso = new Date(
-        new Date(args.nowIso).getTime() - options.keywordDailyLookbackDays! * 24 * 60 * 60 * 1000,
-      ).toISOString();
       await buildSubredditKeywordTrendDailyJob(
         {
           contentRepository: args.repos.contentRepository,
@@ -438,7 +475,7 @@ export async function materializeTouchedTargets(args: {
         },
         {
           targetId: target.targetId,
-          fromIso: keywordFromIso,
+          fromIso: scopeRanges.keywordFromIso,
           toIso: args.nowIso,
           qualityMinScore: options.keywordDailyQualityMinScore,
           qualityMinComments: options.keywordDailyQualityMinComments,
@@ -458,7 +495,7 @@ export async function materializeTouchedTargets(args: {
         },
         {
           targetId: target.targetId,
-          fromIso,
+          fromIso: scopeRanges.trendFromIso,
           toIso: args.nowIso,
         },
       );
@@ -466,6 +503,136 @@ export async function materializeTouchedTargets(args: {
     materialized += 1;
   }
   return materialized;
+}
+
+function createTouchedTarget(args: {
+  targetId: string;
+  canonicalName: string;
+  crawlMode: "live" | "backfill";
+  nowIso: string;
+  reasons: TouchedTargetReason[];
+}): TouchedTarget {
+  return {
+    targetId: args.targetId,
+    canonicalName: args.canonicalName,
+    crawlMode: args.crawlMode,
+    scope: {
+      affectedDays: [toUtcDay(args.nowIso)],
+      affectedWindows: [{
+        granularity: "6h",
+        start: floorIsoToWindow(args.nowIso, 6 * 60),
+        end: ceilIsoFromWindow(args.nowIso, 6 * 60),
+      }],
+      reasons: [...new Set(args.reasons)],
+    },
+  };
+}
+
+function mergeTouchedTarget(
+  current: TouchedTarget | undefined,
+  next: TouchedTarget,
+): TouchedTarget {
+  if (!current) {
+    return next;
+  }
+
+  return {
+    targetId: current.targetId,
+    canonicalName: current.canonicalName,
+    crawlMode: current.crawlMode === "live" ? "live" : next.crawlMode,
+    scope: {
+      affectedDays: sortStrings([...new Set([...current.scope.affectedDays, ...next.scope.affectedDays])]),
+      affectedWindows: dedupeAndSortScopeWindows([
+        ...current.scope.affectedWindows,
+        ...next.scope.affectedWindows,
+      ]),
+      reasons: sortStrings([...new Set([...current.scope.reasons, ...next.scope.reasons])]) as TouchedTargetReason[],
+    },
+  };
+}
+
+function resolveMaterializationScopeRanges(args: {
+  scope: TouchedTargetScope | undefined;
+  nowIso: string;
+  fallbackTrendFromIso: string;
+  fallbackDailyFromIso: string;
+  fallbackKeywordFromIso: string;
+  fallbackPostGrowthFromIso: string;
+}): {
+  trendFromIso: string;
+  dailyFactFromIso: string;
+  keywordFromIso: string;
+  postGrowthFromIso: string;
+} {
+  const earliestDayIso = resolveEarliestScopeDayStart(args.scope?.affectedDays);
+  const earliestWindowStart = resolveEarliestScopeWindowStart(args.scope?.affectedWindows);
+
+  return {
+    trendFromIso: earliestWindowStart ?? args.fallbackTrendFromIso,
+    dailyFactFromIso: earliestDayIso ?? args.fallbackDailyFromIso,
+    keywordFromIso: earliestDayIso ?? args.fallbackKeywordFromIso,
+    postGrowthFromIso: earliestWindowStart ?? args.fallbackPostGrowthFromIso,
+  };
+}
+
+function resolveEarliestScopeDayStart(days: readonly string[] | undefined): string | undefined {
+  if (!days || days.length === 0) {
+    return undefined;
+  }
+  const sortedDays = [...days].sort((a, b) => a.localeCompare(b));
+  const earliest = sortedDays[0];
+  return earliest ? `${earliest}T00:00:00.000Z` : undefined;
+}
+
+function resolveEarliestScopeWindowStart(
+  windows: readonly TouchedTargetScopeWindow[] | undefined,
+): string | undefined {
+  if (!windows || windows.length === 0) {
+    return undefined;
+  }
+  return [...windows]
+    .sort((a, b) => a.start.localeCompare(b.start))[0]
+    ?.start;
+}
+
+function dedupeAndSortScopeWindows(
+  windows: readonly TouchedTargetScopeWindow[],
+): TouchedTargetScopeWindow[] {
+  const byKey = new Map<string, TouchedTargetScopeWindow>();
+  for (const window of windows) {
+    byKey.set(`${window.granularity}|${window.start}|${window.end}`, window);
+  }
+  return Array.from(byKey.values()).sort((a, b) => {
+    const byStart = a.start.localeCompare(b.start);
+    if (byStart !== 0) {
+      return byStart;
+    }
+    const byEnd = a.end.localeCompare(b.end);
+    if (byEnd !== 0) {
+      return byEnd;
+    }
+    return a.granularity.localeCompare(b.granularity);
+  });
+}
+
+function sortStrings<T extends string>(values: readonly T[]): T[] {
+  return [...values].sort((a, b) => a.localeCompare(b));
+}
+
+function toUtcDay(iso: string): string {
+  return iso.slice(0, 10);
+}
+
+function floorIsoToWindow(iso: string, windowMinutes: number): string {
+  const date = new Date(iso);
+  const time = date.getTime();
+  const windowMs = windowMinutes * 60 * 1000;
+  return new Date(Math.floor(time / windowMs) * windowMs).toISOString();
+}
+
+function ceilIsoFromWindow(iso: string, windowMinutes: number): string {
+  return new Date(new Date(floorIsoToWindow(iso, windowMinutes)).getTime() + windowMinutes * 60 * 1000)
+    .toISOString();
 }
 
 export async function maybeRunScheduledRetentionPrune(args: {

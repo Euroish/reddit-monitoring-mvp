@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: market-homepage-frontend-slice
-updated_at: "2026-04-28 12:10:00"
+stage: backend-framework-simplification-slice
+updated_at: "2026-04-28 09:06:42"
 repo_path: "/root/reddit-monitoring-mvp"
-next_action: "Implement the frontend market homepage against the landed `targets[]` workbench contract so users can see every monitored subreddit plus crawl/coverage freshness alongside the existing leaders, breakouts, and anomalies."
+next_action: "Implement the smallest backend framework simplification slice: add explicit `TouchedScope`-style invalidation and materialization scope tracking so future fact/projection features stop creating ad hoc rebuild paths."
 tags:
 - codex
 - workspace
@@ -47,7 +47,10 @@ tags:
 - The storage-pressure slice is closed through `P3.4`, and `P4.1` market target-status visibility is now landed on the backend.
 - `post_engagement_latest` plus bounded `post_engagement_window` storage now back new writes and materialization reads. Legacy post-level `metrics_snapshot` fallback reads were removed, target-only cleanup is migration-backed, and retention prunes engagement windows separately.
 - `P3.4` is now landed: `collect-subreddit-new-posts.job.ts` has explicit collection-page, normalized-batch, persistence-plan, and outcome seams instead of one monolithic mutable flow.
-- No advisory markdown file is currently active. Prior storage/collector notes were reconciled and should not be re-opened unless new repo evidence disagrees with the current harness.
+- Current backend shape already has the right macro layers: evidence, canonical entities, derived facts/materialization, and read-model services. The active gap is not missing layers; it is that invalidation scope and serving-projection boundaries are still too implicit.
+- Data-structure/framework direction is now confirmed: do not freeze product behavior and do not do a broad rename. Simplify long-term evolution by standardizing `collection output -> touched scope -> fact pipeline -> serving projection`.
+- `post_engagement_daily`, explicit materialization manifests, and market-serving projections are design-approved next-step candidates, but none of them are landed yet in current code.
+- The uploaded `后端功能分析.md` is a temporary advisory input only. `project.md` remains the sole active execution state source.
 - Current repo search did not find a standalone export/report generator path. Future export/report work must reuse coverage-aware API/read-model fields.
 - Current repo evidence shows the market workbench contract now includes `targets[]` with per-target crawl freshness, live/backfill coverage status, latest observed headline metrics, and a compact live reliability summary.
 
@@ -76,14 +79,18 @@ tags:
 - `P3.2a`-`P3.2d` Done: Split target metrics from post engagement storage, add narrow latest/windowed post-engagement repositories, migrate daily/growth/keyword/trend jobs to the new reads with compatibility fallback, and switch ordinary collection writes to target snapshots plus structured engagement upserts.
 - `P3.4` Done: Simplify `collect-subreddit-new-posts.job.ts` around concrete `CollectedPageRecord`, `NormalizedBatch`, `PersistencePlan`, and `CollectionOutcome` structures so collection truth, persistence writes, and observability counters are separated without changing behavior.
 - `P4.1` Done: Extend the market workbench contract/read model/API so it returns a coverage-aware `targets[]` status surface for every monitored subreddit, including live/backfill cursor state, latest observed headline metrics, latest coverage row, and compact live reliability/freshness fields.
+- `P4.2a` Done: Reconcile `后端功能分析.md` against current code and lock the backend simplification direction into project state. Verified conclusion: the repo already has raw/entity/fact/read-model layering; the next structural work is explicit invalidation/materialization scope, not broad renaming or early architecture freeze.
 
-## Next Slice Harness: Market Homepage Frontend
+## Next Slice Harness: Backend Framework Simplification
 
-- Objective: wire the homepage to the landed market workbench `targets[]` contract so users can inspect all monitored subreddits, not just ranked subsets.
-- Verified backend state: `leaders`, `targets`, `breakouts`, and `anomalies` are all returned from the same market workbench response.
-- Recommended next slice: implement the frontend market target table/card surface with honest labels for freshness, live/backfill status, observed headline metrics, and stale states.
-- Keep the next slice presentation-focused. Do not reopen backend analysis features unless frontend integration reveals a concrete contract gap.
-- Stop condition: stop before expanding into comments, new ranking families, or speculative market analytics beyond the landed contract.
+- Objective: simplify the backend growth path so future analytics features reuse one data-structure protocol instead of adding new cross-layer rebuild logic.
+- Verified current state: collection truth, coverage semantics, target-status backend, and structured engagement storage are landed; what remains weak is explicit rebuild scope and projection boundaries.
+- Recommended next slice: implement the smallest end-to-end structural addition that pays off long-term:
+  - a per-target `TouchedScope` / affected-day-window invalidation structure
+  - downstream materialization input that consumes explicit scope rather than only "touched target"
+  - no product expansion and no large rename
+- Keep the slice framework-focused. Do not reopen frontend, provider expansion, or speculative analytics families in the same step.
+- Stop condition: stop before introducing generic orchestration engines, extra infrastructure, or broad persistence rewrites.
 
 ### P3.2 Execution Order
 
@@ -141,6 +148,13 @@ tags:
 - Documentation-only state updates do not require tests, but must leave `Projects` root containing only `project.md`.
 
 ## Activity Log
+
+### 2026-04-28 09:06:42
+
+- Scope: Re-read `project.md`, the uploaded `后端功能分析.md`, and the current backend architecture/materialization code; then updated active project state to record the verified backend data-structure direction.
+- Why now: The user clarified that the project still needs long-term feature growth, so the right move is framework simplification without premature freeze. Current code evidence shows the layering largely exists already; the next structural gap is explicit invalidation/materialization scope.
+- Verify: Documentation/state reconciliation only. Checked `docs/architecture.md`, `src/domain/entities/content.ts`, `src/domain/entities/post-engagement.ts`, `src/jobs/build-subreddit-daily-facts.job.ts`, `src/jobs/build-post-growth-facts.job.ts`, `src/application/services/market-workbench-read-model.service.ts`, `src/application/services/target-workbench-read-model.service.ts`, and `workers/reddit-phase1-scheduler.ts`. No tests were run because no product code changed.
+- Next: Implement the smallest backend simplification slice around explicit `TouchedScope`-style invalidation and materialization scope tracking before resuming market homepage frontend work.
 
 ### 2026-04-28 12:10:00
 

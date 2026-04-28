@@ -158,6 +158,17 @@ test("executeRunnableCollectionJobs preserves backfill cursor and provider healt
       targetId,
       canonicalName: "r/machinelearning",
       crawlMode: "backfill",
+      scope: {
+        affectedDays: ["2026-04-12"],
+        affectedWindows: [
+          {
+            granularity: "6h",
+            start: "2026-04-12T12:00:00.000Z",
+            end: "2026-04-12T18:00:00.000Z",
+          },
+        ],
+        reasons: ["new_content", "engagement_update", "coverage_update"],
+      },
     },
   ]);
   const crawlCursor = await crawlCursorRepository.resolve({
