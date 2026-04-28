@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: storage-pressure-harness
-updated_at: "2026-04-28 10:05:00"
+stage: market-homepage-frontend-slice
+updated_at: "2026-04-28 12:10:00"
 repo_path: "/root/reddit-monitoring-mvp"
-next_action: "Implement P3.4: simplify `collect-subreddit-new-posts.job.ts` around concrete collected-page, normalized-batch, persistence-plan, and outcome structures now that storage writes are bounded."
+next_action: "Implement the frontend market homepage against the landed `targets[]` workbench contract so users can see every monitored subreddit plus crawl/coverage freshness alongside the existing leaders, breakouts, and anomalies."
 tags:
 - codex
 - workspace
@@ -44,10 +44,12 @@ tags:
 
 - Coverage semantics are landed: `content.total_eligible`, collection provenance, day-level coverage facts, target workbench, comparison workbench, and legacy daily trend API all distinguish observed counts from complete totals.
 - `post_volume` / `qualified_post_volume` in daily facts remain observed eligible facts. They become product-facing totals only through a coverage-complete read-model gate.
-- The next unresolved product risk is storage pressure and collector complexity, not another chart or ranking surface.
+- The storage-pressure slice is closed through `P3.4`, and `P4.1` market target-status visibility is now landed on the backend.
 - `post_engagement_latest` plus bounded `post_engagement_window` storage now back new writes and materialization reads. Legacy post-level `metrics_snapshot` fallback reads were removed, target-only cleanup is migration-backed, and retention prunes engagement windows separately.
+- `P3.4` is now landed: `collect-subreddit-new-posts.job.ts` has explicit collection-page, normalized-batch, persistence-plan, and outcome seams instead of one monolithic mutable flow.
 - No advisory markdown file is currently active. Prior storage/collector notes were reconciled and should not be re-opened unless new repo evidence disagrees with the current harness.
 - Current repo search did not find a standalone export/report generator path. Future export/report work must reuse coverage-aware API/read-model fields.
+- Current repo evidence shows the market workbench contract now includes `targets[]` with per-target crawl freshness, live/backfill coverage status, latest observed headline metrics, and a compact live reliability summary.
 
 ## Core Decision
 
@@ -72,16 +74,16 @@ tags:
 - `P2.2` Done: Target workbench, comparison read-model, and legacy daily trend API semantics are aligned. No standalone export/report generator exists in the current repo evidence.
 - `P3.1` Done: Replace default full raw payload persistence with lightweight fetch-event summaries while retaining full raw payloads for HTTP errors, normalization failures, anomalous empty responses, provider diff evidence, and debug mode.
 - `P3.2a`-`P3.2d` Done: Split target metrics from post engagement storage, add narrow latest/windowed post-engagement repositories, migrate daily/growth/keyword/trend jobs to the new reads with compatibility fallback, and switch ordinary collection writes to target snapshots plus structured engagement upserts.
+- `P3.4` Done: Simplify `collect-subreddit-new-posts.job.ts` around concrete `CollectedPageRecord`, `NormalizedBatch`, `PersistencePlan`, and `CollectionOutcome` structures so collection truth, persistence writes, and observability counters are separated without changing behavior.
+- `P4.1` Done: Extend the market workbench contract/read model/API so it returns a coverage-aware `targets[]` status surface for every monitored subreddit, including live/backfill cursor state, latest observed headline metrics, latest coverage row, and compact live reliability/freshness fields.
 
-## Next Slice Harness: Storage Pressure
+## Next Slice Harness: Market Homepage Frontend
 
-- Objective: reduce database growth without weakening collection truth, coverage proof, or debugability.
-- P3.1 Raw fetch event summary: done. Successful normal pages write lightweight fetch metadata by default; exception/debug paths retain full raw payloads.
-- P3.2 Metrics storage compression: done through cleanup/retention. Target snapshots are target-only, structured post engagement owns post-level reads, cleanup migrations prune legacy rows, and retention prunes bounded engagement windows separately.
-- P3.3 Text/search retention: done. Ordinary `content.body_text` is now bounded, higher-value posts retain a longer but still capped body, and `post_search_document` snippets/search text are bounded so search keeps working without duplicating large bodies.
-- P3.4 Collector structure reduction: only after storage writes are bounded, split `collect-subreddit-new-posts.job.ts` around concrete data structures: `CollectedPageRecord`, `NormalizedBatch`, `PersistencePlan`, and `CollectionOutcome`.
-- Already closed from the corrected advisory: coverage-aware read-model gating for target workbench, comparison workbench, and daily trend API. Do not reopen this as a storage slice unless a new uncovered output path is found in code.
-- Stop condition: stop before changing retention defaults or dropping legacy tables unless migrations, fallback reads, and focused storage/read-model tests are in the same slice.
+- Objective: wire the homepage to the landed market workbench `targets[]` contract so users can inspect all monitored subreddits, not just ranked subsets.
+- Verified backend state: `leaders`, `targets`, `breakouts`, and `anomalies` are all returned from the same market workbench response.
+- Recommended next slice: implement the frontend market target table/card surface with honest labels for freshness, live/backfill status, observed headline metrics, and stale states.
+- Keep the next slice presentation-focused. Do not reopen backend analysis features unless frontend integration reveals a concrete contract gap.
+- Stop condition: stop before expanding into comments, new ranking families, or speculative market analytics beyond the landed contract.
 
 ### P3.2 Execution Order
 
@@ -139,6 +141,20 @@ tags:
 - Documentation-only state updates do not require tests, but must leave `Projects` root containing only `project.md`.
 
 ## Activity Log
+
+### 2026-04-28 12:10:00
+
+- Scope: Closed `P4.1` by extending the market workbench backend contract/read model/API with a coverage-aware `targets[]` surface built from active targets, latest daily facts, latest trend points, collection coverage, live/backfill cursors, and recent live provider-health windows.
+- Why now: The verified market gap was homepage visibility for the whole monitored target set. That gap is smaller and more immediately useful than inventing new analysis families before the frontend can show current crawl state honestly.
+- Verify: `npm run typecheck`; `node --import tsx --test tests/integration/api-server-trends.test.ts`; `npm run algo:fast`; `npm run algo:phase1`; `npm run algo:phase1:full` all passed.
+- Next: Build the frontend market homepage against the landed `targets[]` contract and keep total-vs-observed wording aligned with the existing coverage semantics.
+
+### 2026-04-28 11:20:00
+
+- Scope: Re-read `project.md` plus the uploaded `后端功能分析.md`, reconciled the note against current code, closed `P3.4`, and advanced the active execution frame from storage-pressure cleanup to the next verified product gap.
+- Why now: Storage writes are already bounded. The remaining drift was a monolithic collector flow plus an external analysis note living beside the active state file and competing with verified repo truth.
+- Verify: `npm run typecheck`; `node --import tsx --test tests/integration/collect-subreddit-new-posts-p0.test.ts`; `npm run algo:fast`; `npm run algo:phase1`; `npm run algo:phase1:full` all passed. Verified current market read-model code still lacks a full per-target status list.
+- Next: Implement `P4.1` by extending the market homepage/backend with a coverage-aware monitored-target status surface built from existing targets, cursor state, provider-health windows, and materialized facts.
 
 ### 2026-04-28 08:20:00
 

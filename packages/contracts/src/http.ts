@@ -445,6 +445,74 @@ export interface MarketWorkbenchAnomalyItem {
   severity: AnomalySeverity;
 }
 
+export interface MarketWorkbenchTargetStatusItem {
+  targetId: string;
+  canonicalName: string;
+  status: "active" | "paused";
+  latestObservedDay?: string;
+  latestObservedPosts?: number;
+  latestQualifiedPosts?: number;
+  latestHeatIndex?: number;
+  latestTrendScore?: number;
+  latestCoverageDay?: string;
+  latestCoverageStatus?: "complete" | "partial" | "source_limited" | "unknown";
+  latestCoverageBasis?:
+    | "live_continuous"
+    | "backfill_reached_day_start"
+    | "terminal_eof_reached"
+    | "iteration_budget_exhausted"
+    | "cursor_saturated"
+    | "missed_live_window"
+    | "rate_limited"
+    | "observed_without_proof"
+    | "no_collection_evidence";
+  lastLiveFetchedAt?: string;
+  lastBackfillFetchedAt?: string;
+  stale: boolean;
+  live: {
+    status: "missing" | "partial" | "complete" | "source_limited";
+    provider?: string;
+    requestedFromIso?: string;
+    oldestObservedAt?: string;
+    newestObservedAt?: string;
+    listingHorizonHit?: boolean;
+    observedHourSpan?: number;
+    updatedAt?: string;
+  };
+  backfill: {
+    status:
+      | "missing"
+      | "progressing"
+      | "covered"
+      | "source_limited"
+      | "saturated_before_15d";
+    stopReason?:
+      | "awaiting_progress"
+      | "coverage_reached"
+      | "terminal_eof"
+      | "cursor_saturated"
+      | "iteration_budget_exhausted";
+    provider?: string;
+    targetFromIso?: string;
+    oldestObservedAt?: string;
+    newestObservedAt?: string;
+    observedDaySpan?: number;
+    updatedAt?: string;
+  };
+  reliability: {
+    provider: string | null;
+    mode: CrawlMode | null;
+    requestCount: number;
+    successCount: number;
+    errorCount: number;
+    timeoutCount: number;
+    circuitOpenCount: number;
+    duplicatePostRate: number | null;
+    ingestLagSecondsAvg: number | null;
+    updatedAt?: string;
+  };
+}
+
 export interface MarketWorkbenchResponse {
   ok: true;
   requestId: string;
@@ -467,6 +535,7 @@ export interface MarketWorkbenchResponse {
     bySurge: MarketTrendRankItem[];
     byDispersion: MarketTrendRankItem[];
   };
+  targets: MarketWorkbenchTargetStatusItem[];
   breakouts: MarketWorkbenchBreakoutItem[];
   anomalies: MarketWorkbenchAnomalyItem[];
 }

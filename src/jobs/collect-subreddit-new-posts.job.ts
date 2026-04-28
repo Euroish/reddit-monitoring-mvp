@@ -17,10 +17,16 @@ import type { CrawlCursor, CrawlMode } from "../domain/entities/crawl-cursor";
 import type { AccountRepository } from "../domain/repositories/account-repository";
 import type { CollectionJobRepository } from "../domain/repositories/collection-job-repository";
 import type { ContentRepository } from "../domain/repositories/content-repository";
-import type { CrawlCursorRepository } from "../domain/repositories/crawl-cursor-repository";
+import type {
+  CrawlCursorRepository,
+  UpsertCrawlCursorInput,
+} from "../domain/repositories/crawl-cursor-repository";
 import type { MetricsSnapshotRepository } from "../domain/repositories/metrics-snapshot-repository";
 import type { PostEngagementRepository } from "../domain/repositories/post-engagement-repository";
-import type { ProviderHealthWindowRepository } from "../domain/repositories/provider-health-window-repository";
+import type {
+  ProviderHealthWindowRepository,
+  RecordProviderHealthWindowInput,
+} from "../domain/repositories/provider-health-window-repository";
 import type {
   RawEventRepository,
   RawEventRetentionReason,
@@ -46,12 +52,16 @@ import type {
 
 type RedditPostPage = Awaited<ReturnType<RedditConnector["collectSubredditPosts"]>>;
 
-interface CollectedPostPage {
+interface CollectedPageRecord {
   page: RedditPostPage;
   discoverySource: Content["discoverySource"];
   listing: Content["firstListing"];
   timeRange?: RedditTopTimeRange;
   totalEligible: boolean;
+  rawEventRetention?: {
+    retainRawPayload: boolean;
+    reason: RawEventRetentionReason;
+  };
 }
 
 type NormalizedPostUpserts = ReturnType<RedditMapper["toPostUpserts"]>;
@@ -63,6 +73,59 @@ type ProvenancePostUpsert = NormalizedPostUpserts[number] & {
   firstTimeRange?: string;
   totalEligible: boolean;
 };
+
+interface NormalizedPageRecord {
+  collectedPage: CollectedPageRecord;
+  upserts: ProvenancePostUpsert[];
+  metricPoints: NormalizedPostMetricPoints;
+}
+
+interface NormalizedBatch {
+  pages: NormalizedPageRecord[];
+  upserts: ProvenancePostUpsert[];
+  metricPoints: NormalizedPostMetricPoints;
+  emptyResponseCount: number;
+}
+
+interface PersistencePlan {
+  rawEvents: Array<{
+    envelope: RedditPostPage["raw"];
+    retention?: {
+      retainRawPayload: boolean;
+      reason: RawEventRetentionReason;
+    };
+  }>;
+  accounts: Account[];
+  contents: Content[];
+  snapshots: MetricsSnapshot[];
+  engagementRows: {
+    latest: PostEngagementLatest[];
+    windowed: PostEngagementWindow[];
+  };
+  providerHealthDelta: RecordProviderHealthWindowInput;
+  collectionJobCursor?: string;
+  crawlCursorUpsert?: UpsertCrawlCursorInput;
+}
+
+interface CollectionOutcome {
+  provider: string;
+  mode: CrawlMode;
+  requestCount: number;
+  candidateCount: number;
+  acceptedCount: number;
+  filteredOutCount: number;
+  duplicatePostCount: number;
+  emptyResponseCount: number;
+  ingestLagStats: {
+    sumSeconds: number;
+    sampleCount: number;
+  };
+  providerDiffStats: {
+    diffCount: number;
+    sampleCount: number;
+  };
+  recordedAt: string;
+}
 
 export interface CollectSubredditNewPostsInput extends RedditCollectionJobInput {
   limit?: number;
@@ -247,300 +310,47 @@ export async function runExistingSubredditNewPostsJob(
       requestId: input.job.id,
       nowIso: input.nowIso,
     });
-    const collectedPages = observedPages.pages;
-    const pages = collectedPages.map((item) => item.page);
-    const allUpserts: ProvenancePostUpsert[] = [];
-    const allMetricPoints: NormalizedPostMetricPoints = [];
-    let emptyResponseCount = 0;
-
-    for (const collectedPage of collectedPages) {
-      const page = collectedPage.page;
-      let pageUpserts: ProvenancePostUpsert[];
-      let pageMetricPoints: NormalizedPostMetricPoints;
-      try {
-        pageUpserts = deps.redditMapper
-          .toPostUpserts(input.job.targetId, page.raw, {
-            requestId: input.job.id,
-            now: input.nowIso,
-          })
-          .map((item): ProvenancePostUpsert => ({
-            ...item,
-            discoverySource: collectedPage.discoverySource,
-            firstListing: collectedPage.listing,
-            firstTimeRange: collectedPage.timeRange,
-            totalEligible: collectedPage.totalEligible,
-          }));
-        pageMetricPoints = deps.redditMapper.toPostMetricPoints(page.raw, {
-          requestId: input.job.id,
-          now: input.nowIso,
-        });
-      } catch (error) {
-        await deps.rawEventRepository.append({
-          collectionJobId: input.job.id,
-          targetId: input.job.targetId,
-          envelope: page.raw,
-          retention: {
-            retainRawPayload: true,
-            reason: "normalization_failure",
-          },
-        });
-        throw error;
-      }
-      const rawEventRetention = resolveRawEventRetention({
-        emptyResponse: pageUpserts.length === 0,
-        providerDiffStats: resolveProviderDiffStats(page.raw.responseHeaders),
-      });
-      await deps.rawEventRepository.append({
-        collectionJobId: input.job.id,
-        targetId: input.job.targetId,
-        envelope: page.raw,
-        retention: rawEventRetention,
-      });
-      if (pageUpserts.length === 0) {
-        emptyResponseCount += 1;
-      }
-      allUpserts.push(...pageUpserts);
-      allMetricPoints.push(...pageMetricPoints);
-    }
-    const corpusAccepted = applyLiveWindowAcceptance({
-      upserts: allUpserts,
-      metricPoints: allMetricPoints,
-      filteredOutCount: 0,
-      mode,
-      nowIso: input.nowIso,
-    });
-    const candidateFiltered = filterCandidates({
-      upserts: corpusAccepted.upserts,
-      metricPoints: corpusAccepted.metricPoints,
-      filter,
-    });
-    const filtered = {
-      ...candidateFiltered,
-      filteredOutCount: corpusAccepted.filteredOutCount + candidateFiltered.filteredOutCount,
-    };
-    const observedExternalIds = Array.from(
-      new Set(corpusAccepted.upserts.map((item) => item.externalId)),
-    );
-    const duplicateWithinPageCount = Math.max(0, corpusAccepted.upserts.length - observedExternalIds.length);
-    const existingExternalIds =
-      observedExternalIds.length > 0
-        ? await deps.contentRepository.findExistingExternalIds({
-            targetId: input.job.targetId,
-            externalIds: observedExternalIds,
-          })
-        : [];
-    const existingExternalIdSet = new Set(existingExternalIds);
-    const existingDuplicateCount = existingExternalIds.length;
-    const duplicatePostCount = duplicateWithinPageCount + existingDuplicateCount;
-    const newAcceptedUpserts = corpusAccepted.upserts.filter(
-      (item) => !existingExternalIdSet.has(item.externalId),
-    );
-    const newAcceptedTotalEligibleUpserts = newAcceptedUpserts.filter((item) => item.totalEligible);
-    const metricsToWrite = selectMetricPointsForWrite({
-      upserts: filtered.upserts,
-      metricPoints: filtered.metricPoints,
-      newAcceptedExternalIds: new Set(newAcceptedUpserts.map((item) => item.externalId)),
-      nowIso: input.nowIso,
-    });
-    const ingestLagStats = summarizeIngestLagSeconds(corpusAccepted.upserts, input.nowIso);
-    const providerDiffStats = summarizeProviderDiffStats(pages);
-    const lastPage = pages[pages.length - 1];
-    const scraplingObservability = summarizeScraplingObservability(pages);
-    const effectiveProvider = resolveProvider({
-      providerHint,
-      responseHeaders: lastPage.raw.responseHeaders,
-      endpoint: lastPage.raw.endpoint,
-    });
-
-	    const accountsMap = new Map<string, Account>();
-	    const contents: Content[] = [];
-	    const metricPointByExternalId = new Map(
-	      corpusAccepted.metricPoints.map((point) => [point.externalId, point] as const),
-	    );
-
-	    for (const item of corpusAccepted.upserts) {
-	      const metricPoint = metricPointByExternalId.get(item.externalId);
-	      const accountId = stableUuidFromString(`reddit:account:${item.accountExternalId}`);
-	      if (!accountsMap.has(item.accountExternalId)) {
-        accountsMap.set(item.accountExternalId, {
-          id: accountId,
-          source: "reddit",
-          externalId: item.accountExternalId,
-          username: item.accountExternalId,
-          isDeleted: item.accountExternalId === "[deleted]",
-          firstSeenAt: input.nowIso,
-          lastSeenAt: input.nowIso,
-        });
-      }
-
-      const contentId = stableUuidFromString(`reddit:content:${item.externalId}`);
-      contents.push({
-        id: contentId,
-        source: "reddit",
-        targetId: item.targetId,
-        accountId,
-	        externalId: item.externalId,
-	        kind: "post",
-	        title: item.title,
-	        bodyText: retainStoredPostBodyText({
-	          bodyText: item.bodyText,
-	          score: metricPoint?.score,
-	          numComments: metricPoint?.numComments,
-	        }),
-	        url: item.url,
-        permalink: item.permalink,
-        createdAtSource: item.createdAtSource,
-        firstSeenAt: input.nowIso,
-        lastSeenAt: input.nowIso,
-        discoverySource: item.discoverySource,
-        firstCollectionMode: mode,
-        firstListing: item.firstListing,
-        firstTimeRange: item.firstTimeRange,
-        firstCollectionJobId: input.job.id,
-        totalEligible: item.totalEligible,
-      });
-    }
-
-    if (accountsMap.size > 0) {
-      await deps.accountRepository.upsertMany(Array.from(accountsMap.values()));
-    }
-
-    if (contents.length > 0) {
-      await deps.contentRepository.upsertMany(contents);
-    }
-
-    const snapshots: MetricsSnapshot[] = [
-      {
-        snapshotAt: windowStart,
-        source: "reddit",
-        targetId: input.job.targetId,
-        granularity: "15m",
-        metricName: "new_posts_15m",
-        metricValue: newAcceptedTotalEligibleUpserts.length,
-        collectionJobId: input.job.id,
-      },
-    ];
-
-    await deps.metricsSnapshotRepository.appendMany(snapshots);
-    const engagementRows = buildPostEngagementRows({
+    const normalizedBatch = await normalizeCollectedPages({
+      redditMapper: deps.redditMapper,
+      rawEventRepository: deps.rawEventRepository,
       targetId: input.job.targetId,
       collectionJobId: input.job.id,
-      observedAt: windowStart,
-      metricsToWrite,
+      nowIso: input.nowIso,
+      pages: observedPages.pages,
     });
-    if (deps.postEngagementRepository) {
-      await Promise.all([
-        deps.postEngagementRepository.upsertLatestMany(engagementRows.latest),
-        deps.postEngagementRepository.upsertWindowedMany(engagementRows.windowed),
-      ]);
-    }
-
-    const finalCursor = observedPages.finalCursor;
-    if (mode === "backfill") {
-      const cursorToPersist = finalCursor ?? BACKFILL_EOF_CURSOR;
-      await deps.collectionJobRepository.saveCursor(input.job.id, cursorToPersist);
-    }
-    if (deps.crawlCursorRepository) {
-      const liveCoverage = summarizeLiveCoverage({
-        mode,
-        nowIso: input.nowIso,
-        oldestObservedAt: observedPages.oldestObservedAt,
-        newestObservedAt: observedPages.newestObservedAt,
-        listingHorizonHit: observedPages.listingHorizonHit,
-      });
-      const cursorToPersist = resolveObservedCursorSnapshot({
-        mode,
-        finalCursor,
-        lastPage: observedPages.lastCursorPage ?? lastPage,
-      });
-      if (cursorToPersist) {
-        const existing =
-          mode === "backfill"
-            ? await resolveBackfillCursorState(deps.crawlCursorRepository, {
-                providerHint,
-                targetId: input.job.targetId,
-                mode,
-                nowIso: input.nowIso,
-              })
-            : null;
-        const rewindCursor = existing?.cursor.cursor ?? priorCursor;
-        await deps.crawlCursorRepository.upsert({
-          provider: resolveCursorProviderKey(providerHint, effectiveProvider),
-          targetId: input.job.targetId,
-          mode,
-          cursor: cursorToPersist,
-          rewindCursor:
-            mode === "backfill" &&
-            finalCursor &&
-            rewindCursor &&
-            rewindCursor !== finalCursor
-              ? rewindCursor
-              : undefined,
-          liveRequestedFromIso: liveCoverage?.requestedFromIso,
-          liveCoverageStatus: liveCoverage?.status,
-          liveListingHorizonHit: liveCoverage?.listingHorizonHit,
-          oldestObservedAt:
-            mode === "backfill"
-              ? mergeOldestObservedAt(existing?.cursor.oldestObservedAt, observedPages.oldestObservedAt)
-              : undefined,
-          newestObservedAt:
-            mode === "backfill"
-              ? mergeNewestObservedAt(existing?.cursor.newestObservedAt, observedPages.newestObservedAt)
-              : undefined,
-          backfillTargetFromIso: existing?.cursor.backfillTargetFromIso,
-          backfillCoverageStatus: existing?.cursor.backfillCoverageStatus,
-          backfillStopReason: existing?.cursor.backfillStopReason,
-          lastFetchedAt: input.nowIso,
-          updatedAt: input.nowIso,
-        });
-      }
-    }
-
-    await deps.providerHealthWindowRepository?.record({
-      provider: effectiveProvider,
+    const { plan, outcome } = await buildPersistencePlan({
+      crawlCursorRepository: deps.crawlCursorRepository,
+      contentRepository: deps.contentRepository,
       targetId: input.job.targetId,
+      collectionJobId: input.job.id,
+      nowIso: input.nowIso,
       mode,
-      windowStart: providerHealthWindowStart,
-      requestCountDelta: pages.length,
-      successCountDelta: pages.filter((page) => page.raw.httpStatus >= 200 && page.raw.httpStatus < 300)
-        .length,
-      emptyResponseCountDelta: emptyResponseCount,
-      fallbackCountDelta: pages.filter((page) => hasFallback(page.raw.responseHeaders)).length,
-      candidateCountDelta: allUpserts.length,
-      acceptedCountDelta: corpusAccepted.upserts.length,
-      filteredOutCountDelta: filtered.filteredOutCount,
-      duplicatePostCountDelta: duplicatePostCount,
-      ingestLagSecondsSumDelta: ingestLagStats.sumSeconds,
-      ingestLagSampleCountDelta: ingestLagStats.sampleCount,
-      providerDiffCountDelta: providerDiffStats.diffCount,
-      providerDiffSampleCountDelta: providerDiffStats.sampleCount,
-      errorCountDelta: 0,
-      rateLimitCountDelta: 0,
-      timeoutCountDelta: 0,
-      circuitOpenCountDelta: 0,
-      scraplingHttpProfileCountDelta: scraplingObservability.httpProfileCount,
-      scraplingDynamicProfileCountDelta: scraplingObservability.dynamicProfileCount,
-      scraplingStealthProfileCountDelta: scraplingObservability.stealthProfileCount,
-      scraplingSessionKeyCountDelta: scraplingObservability.sessionKeyCount,
-      scraplingSessionKeyReuseCountDelta: scraplingObservability.sessionKeyReuseCount,
-      lastStatusCode: lastPage.raw.httpStatus,
-      lastScraplingProfile: scraplingObservability.lastProfile,
-      lastScraplingFetcher: scraplingObservability.lastFetcher,
-      lastScraplingSessionKey: scraplingObservability.lastSessionKey,
-      updatedAt: input.nowIso,
+      windowStart,
+      providerHint,
+      providerHealthWindowStart,
+      priorCursor,
+      filter,
+      observedPages,
+      normalizedBatch,
+    });
+
+    await applyPersistencePlan(deps, {
+      targetId: input.job.targetId,
+      collectionJobId: input.job.id,
+      plan,
     });
     logProviderObservability({
       targetId: input.job.targetId,
-      provider: effectiveProvider,
-      mode,
-      requestCount: pages.length,
-      candidateCount: allUpserts.length,
-      filteredOutCount: filtered.filteredOutCount,
-      acceptedCount: corpusAccepted.upserts.length,
-      duplicatePostCount,
-      ingestLagStats,
-      providerDiffStats,
-      nowIso: input.nowIso,
+      provider: outcome.provider,
+      mode: outcome.mode,
+      requestCount: outcome.requestCount,
+      candidateCount: outcome.candidateCount,
+      filteredOutCount: outcome.filteredOutCount,
+      acceptedCount: outcome.acceptedCount,
+      duplicatePostCount: outcome.duplicatePostCount,
+      ingestLagStats: outcome.ingestLagStats,
+      providerDiffStats: outcome.providerDiffStats,
+      nowIso: outcome.recordedAt,
     });
 
     await deps.collectionJobRepository.updateStatus(input.job.id, "succeeded");
@@ -631,6 +441,415 @@ function buildPostEngagementRows(args: {
   }
 
   return { latest, windowed };
+}
+
+async function normalizeCollectedPages(args: {
+  redditMapper: RedditMapper;
+  rawEventRepository: RawEventRepository;
+  targetId: string;
+  collectionJobId: string;
+  nowIso: string;
+  pages: CollectedPageRecord[];
+}): Promise<NormalizedBatch> {
+  const normalizedPages: NormalizedPageRecord[] = [];
+  const upserts: ProvenancePostUpsert[] = [];
+  const metricPoints: NormalizedPostMetricPoints = [];
+  let emptyResponseCount = 0;
+
+  for (const collectedPage of args.pages) {
+    const page = collectedPage.page;
+    let pageUpserts: ProvenancePostUpsert[];
+    let pageMetricPoints: NormalizedPostMetricPoints;
+    try {
+      pageUpserts = args.redditMapper
+        .toPostUpserts(args.targetId, page.raw, {
+          requestId: args.collectionJobId,
+          now: args.nowIso,
+        })
+        .map((item): ProvenancePostUpsert => ({
+          ...item,
+          discoverySource: collectedPage.discoverySource,
+          firstListing: collectedPage.listing,
+          firstTimeRange: collectedPage.timeRange,
+          totalEligible: collectedPage.totalEligible,
+        }));
+      pageMetricPoints = args.redditMapper.toPostMetricPoints(page.raw, {
+        requestId: args.collectionJobId,
+        now: args.nowIso,
+      });
+    } catch (error) {
+      await args.rawEventRepository.append({
+        collectionJobId: args.collectionJobId,
+        targetId: args.targetId,
+        envelope: page.raw,
+        retention: {
+          retainRawPayload: true,
+          reason: "normalization_failure",
+        },
+      });
+      throw error;
+    }
+
+    const rawEventRetention = resolveRawEventRetention({
+      emptyResponse: pageUpserts.length === 0,
+      providerDiffStats: resolveProviderDiffStats(page.raw.responseHeaders),
+    });
+    const pageRecord: CollectedPageRecord = {
+      ...collectedPage,
+      rawEventRetention,
+    };
+    if (pageUpserts.length === 0) {
+      emptyResponseCount += 1;
+    }
+    normalizedPages.push({
+      collectedPage: pageRecord,
+      upserts: pageUpserts,
+      metricPoints: pageMetricPoints,
+    });
+    upserts.push(...pageUpserts);
+    metricPoints.push(...pageMetricPoints);
+  }
+
+  return {
+    pages: normalizedPages,
+    upserts,
+    metricPoints,
+    emptyResponseCount,
+  };
+}
+
+async function buildPersistencePlan(args: {
+  crawlCursorRepository?: CrawlCursorRepository;
+  contentRepository: ContentRepository;
+  targetId: string;
+  collectionJobId: string;
+  nowIso: string;
+  mode: CrawlMode;
+  windowStart: string;
+  providerHint: string;
+  providerHealthWindowStart: string;
+  priorCursor?: string;
+  filter: ReturnType<typeof resolveCandidateFilter>;
+  observedPages: {
+    pages: CollectedPageRecord[];
+    finalCursor?: string;
+    lastCursorPage?: RedditPostPage;
+    oldestObservedAt?: string;
+    newestObservedAt?: string;
+    listingHorizonHit: boolean;
+  };
+  normalizedBatch: NormalizedBatch;
+}): Promise<{
+  plan: PersistencePlan;
+  outcome: CollectionOutcome;
+}> {
+  const corpusAccepted = applyLiveWindowAcceptance({
+    upserts: args.normalizedBatch.upserts,
+    metricPoints: args.normalizedBatch.metricPoints,
+    filteredOutCount: 0,
+    mode: args.mode,
+    nowIso: args.nowIso,
+  });
+  const candidateFiltered = filterCandidates({
+    upserts: corpusAccepted.upserts,
+    metricPoints: corpusAccepted.metricPoints,
+    filter: args.filter,
+  });
+  const filtered = {
+    ...candidateFiltered,
+    filteredOutCount: corpusAccepted.filteredOutCount + candidateFiltered.filteredOutCount,
+  };
+  const observedExternalIds = Array.from(
+    new Set(corpusAccepted.upserts.map((item) => item.externalId)),
+  );
+  const duplicateWithinPageCount = Math.max(0, corpusAccepted.upserts.length - observedExternalIds.length);
+  const existingExternalIds =
+    observedExternalIds.length > 0
+      ? await args.contentRepository.findExistingExternalIds({
+          targetId: args.targetId,
+          externalIds: observedExternalIds,
+        })
+      : [];
+  const existingExternalIdSet = new Set(existingExternalIds);
+  const duplicatePostCount = duplicateWithinPageCount + existingExternalIds.length;
+  const newAcceptedUpserts = corpusAccepted.upserts.filter(
+    (item) => !existingExternalIdSet.has(item.externalId),
+  );
+  const metricsToWrite = selectMetricPointsForWrite({
+    upserts: filtered.upserts,
+    metricPoints: filtered.metricPoints,
+    newAcceptedExternalIds: new Set(newAcceptedUpserts.map((item) => item.externalId)),
+    nowIso: args.nowIso,
+  });
+  const pages = args.normalizedBatch.pages.map((item) => item.collectedPage.page);
+  const lastPage = pages[pages.length - 1];
+  const providerDiffStats = summarizeProviderDiffStats(pages);
+  const scraplingObservability = summarizeScraplingObservability(pages);
+  const effectiveProvider = resolveProvider({
+    providerHint: args.providerHint,
+    responseHeaders: lastPage.raw.responseHeaders,
+    endpoint: lastPage.raw.endpoint,
+  });
+  const ingestLagStats = summarizeIngestLagSeconds(corpusAccepted.upserts, args.nowIso);
+  const accounts = buildAccounts(corpusAccepted.upserts, args.nowIso);
+  const contents = buildContents({
+    upserts: corpusAccepted.upserts,
+    metricPoints: corpusAccepted.metricPoints,
+    nowIso: args.nowIso,
+    mode: args.mode,
+    collectionJobId: args.collectionJobId,
+  });
+  const engagementRows = buildPostEngagementRows({
+    targetId: args.targetId,
+    collectionJobId: args.collectionJobId,
+    observedAt: args.windowStart,
+    metricsToWrite,
+  });
+  const plan: PersistencePlan = {
+    rawEvents: args.normalizedBatch.pages.map((item) => ({
+      envelope: item.collectedPage.page.raw,
+      retention: item.collectedPage.rawEventRetention,
+    })),
+    accounts,
+    contents,
+    snapshots: [
+      {
+        snapshotAt: args.windowStart,
+        source: "reddit",
+        targetId: args.targetId,
+        granularity: "15m",
+        metricName: "new_posts_15m",
+        metricValue: newAcceptedUpserts.filter((item) => item.totalEligible).length,
+        collectionJobId: args.collectionJobId,
+      },
+    ],
+    engagementRows,
+    providerHealthDelta: {
+      provider: effectiveProvider,
+      targetId: args.targetId,
+      mode: args.mode,
+      windowStart: args.providerHealthWindowStart,
+      requestCountDelta: pages.length,
+      successCountDelta: pages.filter((page) => page.raw.httpStatus >= 200 && page.raw.httpStatus < 300)
+        .length,
+      emptyResponseCountDelta: args.normalizedBatch.emptyResponseCount,
+      fallbackCountDelta: pages.filter((page) => hasFallback(page.raw.responseHeaders)).length,
+      candidateCountDelta: args.normalizedBatch.upserts.length,
+      acceptedCountDelta: corpusAccepted.upserts.length,
+      filteredOutCountDelta: filtered.filteredOutCount,
+      duplicatePostCountDelta: duplicatePostCount,
+      ingestLagSecondsSumDelta: ingestLagStats.sumSeconds,
+      ingestLagSampleCountDelta: ingestLagStats.sampleCount,
+      providerDiffCountDelta: providerDiffStats.diffCount,
+      providerDiffSampleCountDelta: providerDiffStats.sampleCount,
+      errorCountDelta: 0,
+      rateLimitCountDelta: 0,
+      timeoutCountDelta: 0,
+      circuitOpenCountDelta: 0,
+      scraplingHttpProfileCountDelta: scraplingObservability.httpProfileCount,
+      scraplingDynamicProfileCountDelta: scraplingObservability.dynamicProfileCount,
+      scraplingStealthProfileCountDelta: scraplingObservability.stealthProfileCount,
+      scraplingSessionKeyCountDelta: scraplingObservability.sessionKeyCount,
+      scraplingSessionKeyReuseCountDelta: scraplingObservability.sessionKeyReuseCount,
+      lastStatusCode: lastPage.raw.httpStatus,
+      lastScraplingProfile: scraplingObservability.lastProfile,
+      lastScraplingFetcher: scraplingObservability.lastFetcher,
+      lastScraplingSessionKey: scraplingObservability.lastSessionKey,
+      updatedAt: args.nowIso,
+    },
+  };
+
+  if (args.mode === "backfill") {
+    plan.collectionJobCursor = args.observedPages.finalCursor ?? BACKFILL_EOF_CURSOR;
+  }
+
+  if (args.crawlCursorRepository) {
+    const liveCoverage = summarizeLiveCoverage({
+      mode: args.mode,
+      nowIso: args.nowIso,
+      oldestObservedAt: args.observedPages.oldestObservedAt,
+      newestObservedAt: args.observedPages.newestObservedAt,
+      listingHorizonHit: args.observedPages.listingHorizonHit,
+    });
+    const cursorToPersist = resolveObservedCursorSnapshot({
+      mode: args.mode,
+      finalCursor: args.observedPages.finalCursor,
+      lastPage: args.observedPages.lastCursorPage ?? lastPage,
+    });
+    if (cursorToPersist) {
+      const existing =
+        args.mode === "backfill"
+          ? await resolveBackfillCursorState(args.crawlCursorRepository, {
+              providerHint: args.providerHint,
+              targetId: args.targetId,
+              mode: args.mode,
+              nowIso: args.nowIso,
+            })
+          : null;
+      const rewindCursor = existing?.cursor.cursor ?? args.priorCursor;
+      plan.crawlCursorUpsert = {
+        provider: resolveCursorProviderKey(args.providerHint, effectiveProvider),
+        targetId: args.targetId,
+        mode: args.mode,
+        cursor: cursorToPersist,
+        rewindCursor:
+          args.mode === "backfill" &&
+          args.observedPages.finalCursor &&
+          rewindCursor &&
+          rewindCursor !== args.observedPages.finalCursor
+            ? rewindCursor
+            : undefined,
+        liveRequestedFromIso: liveCoverage?.requestedFromIso,
+        liveCoverageStatus: liveCoverage?.status,
+        liveListingHorizonHit: liveCoverage?.listingHorizonHit,
+        oldestObservedAt:
+          args.mode === "backfill"
+            ? mergeOldestObservedAt(existing?.cursor.oldestObservedAt, args.observedPages.oldestObservedAt)
+            : undefined,
+        newestObservedAt:
+          args.mode === "backfill"
+            ? mergeNewestObservedAt(existing?.cursor.newestObservedAt, args.observedPages.newestObservedAt)
+            : undefined,
+        backfillTargetFromIso: existing?.cursor.backfillTargetFromIso,
+        backfillCoverageStatus: existing?.cursor.backfillCoverageStatus,
+        backfillStopReason: existing?.cursor.backfillStopReason,
+        lastFetchedAt: args.nowIso,
+        updatedAt: args.nowIso,
+      };
+    }
+  }
+
+  return {
+    plan,
+    outcome: {
+      provider: effectiveProvider,
+      mode: args.mode,
+      requestCount: pages.length,
+      candidateCount: args.normalizedBatch.upserts.length,
+      acceptedCount: corpusAccepted.upserts.length,
+      filteredOutCount: filtered.filteredOutCount,
+      duplicatePostCount,
+      emptyResponseCount: args.normalizedBatch.emptyResponseCount,
+      ingestLagStats,
+      providerDiffStats,
+      recordedAt: args.nowIso,
+    },
+  };
+}
+
+async function applyPersistencePlan(
+  deps: Pick<
+    CollectSubredditNewPostsDependencies,
+    | "rawEventRepository"
+    | "accountRepository"
+    | "contentRepository"
+    | "metricsSnapshotRepository"
+    | "postEngagementRepository"
+    | "providerHealthWindowRepository"
+    | "collectionJobRepository"
+    | "crawlCursorRepository"
+  >,
+  args: {
+    targetId: string;
+    collectionJobId: string;
+    plan: PersistencePlan;
+  },
+): Promise<void> {
+  for (const rawEvent of args.plan.rawEvents) {
+    await deps.rawEventRepository.append({
+      collectionJobId: args.collectionJobId,
+      targetId: args.targetId,
+      envelope: rawEvent.envelope,
+      retention: rawEvent.retention,
+    });
+  }
+
+  if (args.plan.accounts.length > 0) {
+    await deps.accountRepository.upsertMany(args.plan.accounts);
+  }
+  if (args.plan.contents.length > 0) {
+    await deps.contentRepository.upsertMany(args.plan.contents);
+  }
+
+  await deps.metricsSnapshotRepository.appendMany(args.plan.snapshots);
+  if (deps.postEngagementRepository) {
+    await Promise.all([
+      deps.postEngagementRepository.upsertLatestMany(args.plan.engagementRows.latest),
+      deps.postEngagementRepository.upsertWindowedMany(args.plan.engagementRows.windowed),
+    ]);
+  }
+
+  if (args.plan.collectionJobCursor) {
+    await deps.collectionJobRepository.saveCursor(args.collectionJobId, args.plan.collectionJobCursor);
+  }
+  if (deps.crawlCursorRepository && args.plan.crawlCursorUpsert) {
+    await deps.crawlCursorRepository.upsert(args.plan.crawlCursorUpsert);
+  }
+  await deps.providerHealthWindowRepository?.record(args.plan.providerHealthDelta);
+}
+
+function buildAccounts(
+  upserts: ProvenancePostUpsert[],
+  nowIso: string,
+): Account[] {
+  const accountsMap = new Map<string, Account>();
+  for (const item of upserts) {
+    const accountId = stableUuidFromString(`reddit:account:${item.accountExternalId}`);
+    if (accountsMap.has(item.accountExternalId)) {
+      continue;
+    }
+    accountsMap.set(item.accountExternalId, {
+      id: accountId,
+      source: "reddit",
+      externalId: item.accountExternalId,
+      username: item.accountExternalId,
+      isDeleted: item.accountExternalId === "[deleted]",
+      firstSeenAt: nowIso,
+      lastSeenAt: nowIso,
+    });
+  }
+  return Array.from(accountsMap.values());
+}
+
+function buildContents(args: {
+  upserts: ProvenancePostUpsert[];
+  metricPoints: NormalizedPostMetricPoints;
+  nowIso: string;
+  mode: CrawlMode;
+  collectionJobId: string;
+}): Content[] {
+  const metricPointByExternalId = new Map(
+    args.metricPoints.map((point) => [point.externalId, point] as const),
+  );
+  return args.upserts.map((item) => {
+    const metricPoint = metricPointByExternalId.get(item.externalId);
+    const accountId = stableUuidFromString(`reddit:account:${item.accountExternalId}`);
+    return {
+      id: stableUuidFromString(`reddit:content:${item.externalId}`),
+      source: "reddit",
+      targetId: item.targetId,
+      accountId,
+      externalId: item.externalId,
+      kind: "post",
+      title: item.title,
+      bodyText: retainStoredPostBodyText({
+        bodyText: item.bodyText,
+        score: metricPoint?.score,
+        numComments: metricPoint?.numComments,
+      }),
+      url: item.url,
+      permalink: item.permalink,
+      createdAtSource: item.createdAtSource,
+      firstSeenAt: args.nowIso,
+      lastSeenAt: args.nowIso,
+      discoverySource: item.discoverySource,
+      firstCollectionMode: args.mode,
+      firstListing: item.firstListing,
+      firstTimeRange: item.firstTimeRange,
+      firstCollectionJobId: args.collectionJobId,
+      totalEligible: item.totalEligible,
+    };
+  });
 }
 
 
@@ -829,14 +1048,14 @@ async function collectObservedPages(args: {
   requestId: string;
   nowIso: string;
 }): Promise<{
-  pages: CollectedPostPage[];
+  pages: CollectedPageRecord[];
   finalCursor?: string;
   lastCursorPage?: RedditPostPage;
   oldestObservedAt?: string;
   newestObservedAt?: string;
   listingHorizonHit: boolean;
 }> {
-  const pages: CollectedPostPage[] = [];
+  const pages: CollectedPageRecord[] = [];
   let after = args.after;
   let remainingBudget = args.limit;
   let observedProvider = args.providerHint;
@@ -1001,8 +1220,8 @@ async function collectBackfillSupplementalPages(args: {
   limit: number;
   requestId: string;
   nowIso: string;
-}): Promise<CollectedPostPage[]> {
-  const pages: CollectedPostPage[] = [];
+}): Promise<CollectedPageRecord[]> {
+  const pages: CollectedPageRecord[] = [];
   for (const timeRange of BACKFILL_TOP_TIME_WINDOWS) {
     pages.push({
       page: await requestObservedPage({

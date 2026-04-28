@@ -160,7 +160,7 @@ test("api server validates bounded backfill run controls", async () => {
         mode: "mock",
         crawlMode: "backfill",
         subreddit: "datascience",
-        backfillPostLimit: 1001,
+        backfillPostLimit: 5001,
       },
     );
     assert.equal(result.status, 400);

@@ -82,3 +82,45 @@ test("api server can create and fetch keyword query session", async () => {
     await stopServer(server);
   }
 });
+
+test("api server accepts large keyword query limits and sample limits", async () => {
+  const fixedNow = "2026-04-12T12:00:00.000Z";
+  const repos = createApiTestRepositories();
+
+  await repos.postSearchDocumentRepository.upsertMany([
+    {
+      contentId: stableUuidFromString("reddit:content:t3_keyword_large"),
+      targetId: stableUuidFromString("reddit:target:r/datascience"),
+      canonicalSubreddit: "r/datascience",
+      title: "LLM agent benchmark for production workflows",
+      bodySnippet: "A detailed benchmark for multi-agent orchestration and RAG evaluations.",
+      permalink: "/r/datascience/comments/keyword_large",
+      createdAtSource: "2026-04-11T10:00:00.000Z",
+    },
+  ]);
+
+  const server = createApiServer({
+    repositories: repos,
+    createConnector: () => new RedditMockConnector(),
+    now: () => fixedNow,
+  });
+
+  const baseUrl = await startServer(server);
+  try {
+    const created = await postJson<CreateKeywordQueryResponse>(`${baseUrl}/v1/keyword-queries`, {
+      query: "LLM agent",
+      limit: 50000,
+    });
+    assert.equal(created.status, 200);
+    assert.equal(created.body.ok, true);
+
+    const fetched = await getJson<GetKeywordQueryResponse>(
+      `${baseUrl}/v1/keyword-queries/${created.body.result.queryId}?sampleLimit=50000`,
+    );
+    assert.equal(fetched.status, 200);
+    assert.equal(fetched.body.ok, true);
+    assert.equal(fetched.body.result.queryId, created.body.result.queryId);
+  } finally {
+    await stopServer(server);
+  }
+});

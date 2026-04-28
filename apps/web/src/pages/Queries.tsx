@@ -44,6 +44,7 @@ export function Queries() {
   const [query, setQuery] = useState('');
   const [subreddit, setSubreddit] = useState('');
   const [limit, setLimit] = useState(10);
+  const normalizedLimit = Math.min(50000, Math.max(1, Number.isFinite(limit) ? limit : 10));
 
   const keywordQuery = useMutation({
     mutationFn: (payload: CreateKeywordQueryRequest) =>
@@ -56,8 +57,11 @@ export function Queries() {
   const createdResult = keywordQuery.data?.result;
   const queryId = createdResult?.queryId;
   const resultQuery = useQuery({
-    queryKey: ['keyword-query', queryId],
-    queryFn: () => fetchApi<GetKeywordQueryResponse>(`/v1/keyword-queries/${queryId}`),
+    queryKey: ['keyword-query', queryId, normalizedLimit],
+    queryFn: () =>
+      fetchApi<GetKeywordQueryResponse>(
+        `/v1/keyword-queries/${queryId}?sampleLimit=${normalizedLimit}`,
+      ),
     enabled: !!queryId,
     refetchInterval: (query) => {
       const status = query.state.data?.result.status;
@@ -75,7 +79,6 @@ export function Queries() {
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const normalizedLimit = Math.min(30, Math.max(1, Number.isFinite(limit) ? limit : 10));
 
     keywordQuery.mutate({
       query,
@@ -129,7 +132,7 @@ export function Queries() {
                 id="keyword-limit"
                 type="number"
                 min={1}
-                max={30}
+                max={50000}
                 value={limit}
                 onChange={(event) => setLimit(Number(event.target.value))}
                 required

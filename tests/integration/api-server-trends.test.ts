@@ -1448,6 +1448,90 @@ test("api server returns market workbench leaders, breakouts, and anomalies", as
       trendScore: 0.33,
     },
   ]);
+  await repos.subredditDailyFactRepository.upsertMany([
+    buildDailyFact(targetAi, "2026-04-18", {
+      postVolume: 42,
+      qualifiedPostVolume: 9,
+      heatPrice: 91,
+      heatChangePct: 0.3,
+    }),
+    buildDailyFact(targetMl, "2026-04-18", {
+      postVolume: 21,
+      qualifiedPostVolume: 4,
+      heatPrice: 66,
+      heatChangePct: 0.15,
+    }),
+  ]);
+  await repos.subredditCollectionCoverageRepository.upsertMany([
+    {
+      ...buildCompleteCoverage(targetAi, "2026-04-18"),
+      coverageBasis: "live_continuous",
+    },
+    {
+      ...buildCompleteCoverage(targetMl, "2026-04-18"),
+      coverageStatus: "partial",
+      coverageBasis: "observed_without_proof",
+    },
+  ]);
+  await repos.crawlCursorRepository.upsert({
+    provider: "http",
+    targetId: targetAi,
+    mode: "live",
+    cursor: "t3_ai_live",
+    liveRequestedFromIso: "2026-04-18T10:00:00.000Z",
+    liveCoverageStatus: "complete",
+    oldestObservedAt: "2026-04-18T10:05:00.000Z",
+    newestObservedAt: "2026-04-18T11:59:00.000Z",
+    lastFetchedAt: "2026-04-18T11:58:00.000Z",
+    updatedAt: "2026-04-18T11:58:00.000Z",
+  });
+  await repos.crawlCursorRepository.upsert({
+    provider: "http",
+    targetId: targetAi,
+    mode: "backfill",
+    cursor: "t3_ai_backfill",
+    backfillCoverageStatus: "covered",
+    backfillStopReason: "coverage_reached",
+    backfillTargetFromIso: "2026-04-03T12:00:00.000Z",
+    oldestObservedAt: "2026-04-01T00:00:00.000Z",
+    newestObservedAt: "2026-04-18T11:59:00.000Z",
+    lastFetchedAt: "2026-04-18T09:00:00.000Z",
+    updatedAt: "2026-04-18T09:00:00.000Z",
+  });
+  await repos.crawlCursorRepository.upsert({
+    provider: "http",
+    targetId: targetMl,
+    mode: "live",
+    cursor: "t3_ml_live",
+    liveCoverageStatus: "partial",
+    oldestObservedAt: "2026-04-16T00:00:00.000Z",
+    newestObservedAt: "2026-04-16T00:30:00.000Z",
+    lastFetchedAt: "2026-04-16T00:30:00.000Z",
+    updatedAt: "2026-04-16T00:30:00.000Z",
+  });
+  await repos.providerHealthWindowRepository.record({
+    provider: "http",
+    targetId: targetAi,
+    mode: "live",
+    windowStart: "2026-04-18T11:45:00.000Z",
+    requestCountDelta: 3,
+    successCountDelta: 3,
+    emptyResponseCountDelta: 0,
+    fallbackCountDelta: 0,
+    candidateCountDelta: 12,
+    acceptedCountDelta: 12,
+    filteredOutCountDelta: 0,
+    duplicatePostCountDelta: 2,
+    ingestLagSecondsSumDelta: 360,
+    ingestLagSampleCountDelta: 3,
+    providerDiffCountDelta: 0,
+    providerDiffSampleCountDelta: 0,
+    errorCountDelta: 0,
+    rateLimitCountDelta: 0,
+    timeoutCountDelta: 0,
+    circuitOpenCountDelta: 0,
+    updatedAt: "2026-04-18T11:58:00.000Z",
+  });
 
   await repos.contentRepository.upsertMany([
     {
@@ -1565,6 +1649,19 @@ test("api server returns market workbench leaders, breakouts, and anomalies", as
     assert.equal(result.body.summary.anomalyCount, 2);
     assert.equal(result.body.leaders.byHeat[0]?.canonicalName, "r/artificial");
     assert.equal(result.body.leaders.byDispersion[0]?.canonicalName, "r/machinelearning");
+    assert.equal(result.body.targets.length, 2);
+    assert.equal(result.body.targets[0]?.canonicalName, "r/artificial");
+    assert.equal(result.body.targets[0]?.latestObservedPosts, 42);
+    assert.equal(result.body.targets[0]?.latestCoverageStatus, "complete");
+    assert.equal(result.body.targets[0]?.live.status, "complete");
+    assert.equal(result.body.targets[0]?.backfill.status, "covered");
+    assert.equal(result.body.targets[0]?.reliability.provider, "http");
+    assert.equal(result.body.targets[0]?.reliability.duplicatePostRate, 0.166667);
+    assert.equal(result.body.targets[0]?.stale, false);
+    assert.equal(result.body.targets[1]?.canonicalName, "r/machinelearning");
+    assert.equal(result.body.targets[1]?.latestCoverageStatus, "partial");
+    assert.equal(result.body.targets[1]?.live.status, "partial");
+    assert.equal(result.body.targets[1]?.stale, true);
     assert.equal(result.body.breakouts[0]?.canonicalName, "r/artificial");
     assert.deepEqual(result.body.breakouts[0]?.labels, ["breakout", "fresh"]);
     assert.equal(result.body.breakouts[0]?.title, "AI breakout post");

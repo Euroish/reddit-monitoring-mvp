@@ -83,14 +83,14 @@ export function Ops() {
         crawlMode !== 'backfill' &&
         Number.isInteger(normalizedLivePostLimit) &&
         normalizedLivePostLimit >= 1 &&
-        normalizedLivePostLimit <= 200
+        normalizedLivePostLimit <= 3000
           ? normalizedLivePostLimit
           : undefined,
       backfillPostLimit:
         crawlMode === 'backfill' &&
         Number.isInteger(normalizedBackfillPostLimit) &&
         normalizedBackfillPostLimit >= 1 &&
-        normalizedBackfillPostLimit <= 1000
+        normalizedBackfillPostLimit <= 5000
           ? normalizedBackfillPostLimit
           : undefined,
       backfillMaxIterationsPerTarget:
@@ -310,7 +310,7 @@ export function Ops() {
                     id="ops-backfill-post-limit"
                     type="number"
                     min={1}
-                    max={1000}
+                    max={5000}
                     value={backfillPostLimit}
                     onChange={(event) => setBackfillPostLimit(event.target.value)}
                   />
@@ -327,7 +327,7 @@ export function Ops() {
                     id="ops-live-post-limit"
                     type="number"
                     min={1}
-                    max={200}
+                    max={3000}
                     value={livePostLimit}
                     onChange={(event) => setLivePostLimit(event.target.value)}
                   />

@@ -41,6 +41,10 @@ import type {
   TriggerPhase1RunResponse,
 } from "../../../packages/contracts/src/http";
 import type { AppUser } from "../../../src/domain/entities/app-user";
+import type { CrawlCursor as CrawlCursorEntity } from "../../../src/domain/entities/crawl-cursor";
+import type { ProviderHealthWindow } from "../../../src/domain/entities/provider-health-window";
+import type { SubredditCollectionCoverage } from "../../../src/domain/entities/subreddit-collection-coverage";
+import type { SubredditDailyFact } from "../../../src/domain/entities/subreddit-daily-fact";
 import { dispatchRedditPhase1Run } from "../../../src/application/use-cases/dispatch-reddit-phase1-run.use-case";
 import { prepareTriggeredRedditPhase1Run } from "../../../src/application/use-cases/trigger-reddit-phase1-run.use-case";
 import { activateAppUser } from "../../../src/application/use-cases/activate-app-user.use-case";
@@ -1603,12 +1607,12 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           crawlMode === "backfill" ? false : resolveAsyncRunPreference(body?.async, true);
         let postLimit: number | undefined;
         if (body?.postLimit != null) {
-          if (!Number.isInteger(body.postLimit) || body.postLimit < 1 || body.postLimit > 200) {
+          if (!Number.isInteger(body.postLimit) || body.postLimit < 1 || body.postLimit > 3000) {
             respond({
               statusCode: 400,
               body: toApiError({
                 requestId,
-                message: "postLimit must be an integer between 1 and 200",
+                message: "postLimit must be an integer between 1 and 3000",
                 code: "invalid_post_limit",
               }),
               errorCode: "invalid_post_limit",
@@ -1622,13 +1626,13 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           if (
             !Number.isInteger(body.backfillPostLimit) ||
             body.backfillPostLimit < 1 ||
-            body.backfillPostLimit > 1000
+            body.backfillPostLimit > 5000
           ) {
             respond({
               statusCode: 400,
               body: toApiError({
                 requestId,
-                message: "backfillPostLimit must be an integer between 1 and 1000",
+                message: "backfillPostLimit must be an integer between 1 and 5000",
                 code: "invalid_backfill_post_limit",
               }),
               errorCode: "invalid_backfill_post_limit",
@@ -1800,7 +1804,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
                 value: String(body.limit),
                 name: "limit",
                 min: 1,
-                max: 30,
+                max: 50000,
               }) ?? 10;
         const nowIso = now();
         const runResult = await runKeywordPulseQuery({
@@ -1866,7 +1870,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             value: url.searchParams.get("sampleLimit"),
             name: "sampleLimit",
             min: 1,
-            max: 50,
+            max: 50000,
           }) ?? 20;
 
         const record = await repos.keywordQuerySessionRepository.findById(queryId, sampleLimit);
@@ -2185,13 +2189,30 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         const breakoutContentFromIso = new Date(
           new Date(fromIso).getTime() - 24 * 60 * 60 * 1000,
         ).toISOString();
+        const fromDay = fromIso.slice(0, 10);
+        const toDay = toIso.slice(0, 10);
 
-        const [latestTrendPoints, breakoutFactsGroups, breakoutContentsGroups, anomalyGroups] =
+        const [
+          latestTrendPoints,
+          latestDailyFacts,
+          breakoutFactsGroups,
+          breakoutContentsGroups,
+          anomalyGroups,
+          liveHealthGroups,
+          coverageGroups,
+          liveCursorGroups,
+          backfillCursorGroups,
+        ] =
           await Promise.all([
             repos.subredditTrendPointRepository.listLatestByTargetsInRange({
               targetIds,
               from: fromIso,
               to: toIso,
+            }),
+            repos.subredditDailyFactRepository.listLatestByTargetsInRange({
+              targetIds,
+              fromDay,
+              toDay,
             }),
             Promise.all(
               targets.map((target) =>
@@ -2223,13 +2244,59 @@ export function createApiServer(options: CreateApiServerOptions): Server {
                 }),
               ),
             ),
+            Promise.all(
+              targets.map((target) =>
+                repos.providerHealthWindowRepository?.listByTargetInRange({
+                  targetId: target.id,
+                  from: fromIso,
+                  to: toIso,
+                  mode: "live",
+                }) ?? Promise.resolve([]),
+              ),
+            ),
+            Promise.all(
+              targets.map((target) =>
+                repos.subredditCollectionCoverageRepository?.listByTargetInRange({
+                  targetId: target.id,
+                  fromDay,
+                  toDay,
+                }) ?? Promise.resolve([]),
+              ),
+            ),
+            Promise.all(
+              targets.map((target) =>
+                repos.crawlCursorRepository?.list({
+                  targetId: target.id,
+                  mode: "live",
+                }) ?? Promise.resolve([]),
+              ),
+            ),
+            Promise.all(
+              targets.map((target) =>
+                repos.crawlCursorRepository?.list({
+                  targetId: target.id,
+                  mode: "backfill",
+                }) ?? Promise.resolve([]),
+              ),
+            ),
           ]);
 
+        const latestDailyFactsByTargetId = new Map<string, SubredditDailyFact>(
+          latestDailyFacts.map((fact) => [fact.targetId, fact] as const),
+        );
+        const latestCoverageByTargetId = new Map<string, SubredditCollectionCoverage | undefined>();
+        const liveCursorByTargetId = new Map<string, CrawlCursorEntity | null>();
+        const backfillCursorByTargetId = new Map<string, CrawlCursorEntity | null>();
+        const latestLiveHealthByTargetId = new Map<string, ProviderHealthWindow | undefined>();
         const breakoutFactsByTargetId = new Map<string, Awaited<ReturnType<PostGrowthFactRepository["listTopByTargetInRange"]>>>();
         const breakoutContentsByTargetId = new Map<string, Awaited<ReturnType<ContentRepository["findByTargetCreatedAtRange"]>>>();
         const anomalyEventsByTargetId = new Map<string, Awaited<ReturnType<AnomalyEventRepository["listByTargetInRange"]>>>();
 
         for (const [index, target] of targets.entries()) {
+          latestCoverageByTargetId.set(target.id, coverageGroups[index]?.at(-1));
+          liveCursorByTargetId.set(target.id, liveCursorGroups[index]?.[0] ?? null);
+          backfillCursorByTargetId.set(target.id, backfillCursorGroups[index]?.[0] ?? null);
+          latestLiveHealthByTargetId.set(target.id, liveHealthGroups[index]?.at(-1));
           breakoutFactsByTargetId.set(target.id, breakoutFactsGroups[index] ?? []);
           breakoutContentsByTargetId.set(target.id, breakoutContentsGroups[index] ?? []);
           anomalyEventsByTargetId.set(target.id, anomalyGroups[index] ?? []);
@@ -2242,6 +2309,11 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           toIso,
           targets,
           latestTrendPoints,
+          latestDailyFactsByTargetId,
+          latestCoverageByTargetId,
+          liveCursorByTargetId,
+          backfillCursorByTargetId,
+          latestLiveHealthByTargetId,
           breakoutFactsByTargetId,
           breakoutContentsByTargetId,
           anomalyEventsByTargetId,
