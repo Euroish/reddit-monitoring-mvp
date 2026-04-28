@@ -100,6 +100,7 @@ import type { ProviderHealthWindowRepository } from "../../../src/domain/reposit
 import type { SavedWorkbenchViewRepository } from "../../../src/domain/repositories/saved-workbench-view-repository";
 import type { RawEventRepository } from "../../../src/domain/repositories/raw-event-repository";
 import type { SubredditDailyFactRepository } from "../../../src/domain/repositories/subreddit-daily-fact-repository";
+import type { SubredditCollectionCoverageRepository } from "../../../src/domain/repositories/subreddit-collection-coverage-repository";
 import type { SubredditTrendPointRepository } from "../../../src/domain/repositories/subreddit-trend-point-repository";
 import type { StorageObservabilityRepository } from "../../../src/domain/repositories/storage-observability-repository";
 import {
@@ -199,6 +200,7 @@ export interface ApiRepositoryBundle {
   postGrowthFactRepository: PostGrowthFactRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
   subredditDailyFactRepository: SubredditDailyFactRepository;
+  subredditCollectionCoverageRepository?: SubredditCollectionCoverageRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
   providerHealthWindowRepository?: ProviderHealthWindowRepository;
   savedWorkbenchViewRepository?: SavedWorkbenchViewRepository;
@@ -2310,6 +2312,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           contents,
           anomalyEvents,
           providerHealthWindows,
+          collectionCoverage,
           liveCursor,
           backfillCursor,
           queryMatchesByContentId,
@@ -2357,6 +2360,11 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             to: toIso,
             mode: "live",
           }) ?? Promise.resolve([]),
+          repos.subredditCollectionCoverageRepository?.listByTargetInRange({
+            targetId: target.id,
+            fromDay,
+            toDay,
+          }) ?? Promise.resolve([]),
           repos.crawlCursorRepository
             ?.list({
               targetId: target.id,
@@ -2394,6 +2402,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           contents,
           anomalyEvents,
           providerHealthWindows,
+          collectionCoverage,
           liveCursor,
           backfillCursor,
           keywords: explicitQueryTexts,

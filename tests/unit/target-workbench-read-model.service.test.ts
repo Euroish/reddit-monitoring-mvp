@@ -48,6 +48,7 @@ test("target workbench data quality stays partial when materialized days have no
   assert.equal(response.dataQuality.coverage.observedPostDayCount, 1);
   assert.equal(response.dataQuality.coverage.zeroPostFactDayCount, 2);
   assert.deepEqual(response.dataQuality.coverage.degradedReasons, [
+    "coverage_fact_days_missing",
     "observed_post_days_missing",
   ]);
   assert.equal(

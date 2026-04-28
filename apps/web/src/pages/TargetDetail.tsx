@@ -101,10 +101,15 @@ export function TargetDetail() {
     const latestIndex = Math.max(0, data.series[0]?.points.length ?? 0) - 1;
     const valueFor = (seriesId: string) =>
       data.series.find((series) => series.id === seriesId)?.points[latestIndex]?.value ?? null;
+    const latestTotalCoverage =
+      data.series.find((series) => series.id === 'total_new_posts')?.points[latestIndex]?.coverageStatus ?? 'unknown';
+    const completeTotal = latestTotalCoverage === 'complete';
     return {
       heatPrice: valueFor('heat_price'),
-      posts: valueFor('total_new_posts'),
-      qualifiedPosts: valueFor('qualified_post_count'),
+      posts: completeTotal ? valueFor('total_new_posts') : valueFor('observed_new_posts'),
+      qualifiedPosts: completeTotal ? valueFor('qualified_post_count') : valueFor('observed_qualified_posts'),
+      postsLabel: completeTotal ? 'Total New Posts' : 'Observed New Posts',
+      qualifiedPostsLabel: completeTotal ? 'Qualified Posts' : 'Observed Qualified Posts',
     };
   }, [data]);
 
@@ -258,6 +263,8 @@ export function TargetDetail() {
             'activity_index',
             'qualified_activity_index',
             'activity_confidence',
+            'observed_new_posts',
+            'observed_qualified_posts',
             'total_new_posts',
             'qualified_post_count',
           ].includes(seriesId),
@@ -296,11 +303,11 @@ export function TargetDetail() {
               <div className="kpi-value">{formatNumber(latestDailyPoint?.heatPrice)}</div>
             </Card>
             <Card>
-              <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Total New Posts</div>
+              <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>{latestDailyPoint?.postsLabel ?? 'Total New Posts'}</div>
               <div className="kpi-value">{formatNumber(latestDailyPoint?.posts)}</div>
             </Card>
             <Card>
-              <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Qualified Posts</div>
+              <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>{latestDailyPoint?.qualifiedPostsLabel ?? 'Qualified Posts'}</div>
               <div className="kpi-value">{formatNumber(latestDailyPoint?.qualifiedPosts)}</div>
             </Card>
             <Card>
@@ -560,6 +567,9 @@ export function TargetDetail() {
             </div>
             <div style={{ marginTop: '14px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
               Coverage {data.dataQuality.coverage.observedPostDayCount}/{data.dataQuality.coverage.expectedDayCount} observed days
+              {' '}· Complete {data.dataQuality.coverage.completeCoverageDayCount ?? 0}
+              {' '}· Partial {data.dataQuality.coverage.partialCoverageDayCount ?? 0}
+              {' '}· Source-limited {data.dataQuality.coverage.sourceLimitedDayCount ?? 0}
               {' '}· Median {formatNumber(data.dataQuality.coverage.observedPostMedian)} observed posts/day
               {' '}· Low-density {data.dataQuality.coverage.lowObservedPostDayCount} days
               {data.dataQuality.coverage.degradedReasons.length > 0

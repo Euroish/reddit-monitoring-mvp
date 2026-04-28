@@ -668,6 +668,8 @@ export interface TargetWorkbenchResponse {
       | "activity_index"
       | "qualified_activity_index"
       | "activity_confidence"
+      | "observed_new_posts"
+      | "observed_qualified_posts"
       | "total_new_posts"
       | "qualified_post_count";
     label: string;
@@ -687,6 +689,8 @@ export interface TargetWorkbenchResponse {
       | "activity_index"
       | "qualified_activity_index"
       | "activity_confidence"
+      | "observed_new_posts"
+      | "observed_qualified_posts"
       | "total_new_posts"
       | "qualified_post_count";
     label: string;
@@ -696,6 +700,18 @@ export interface TargetWorkbenchResponse {
       at: string;
       value: number | null;
       quality: "observed" | "observed_zero" | "missing";
+      coverageStatus: "complete" | "partial" | "source_limited" | "unknown";
+      coverageBasis?:
+        | "live_continuous"
+        | "backfill_reached_day_start"
+        | "terminal_eof_reached"
+        | "iteration_budget_exhausted"
+        | "cursor_saturated"
+        | "missed_live_window"
+        | "rate_limited"
+        | "observed_without_proof"
+        | "no_collection_evidence";
+      valueSemantics: "complete_total" | "observed_total" | "missing";
     }>;
   }>;
   overlays: Array<{
@@ -787,7 +803,7 @@ export interface TargetWorkbenchResponse {
       updatedAt?: string;
     };
     coverage: {
-      scope: "materialized_observed_days";
+      scope: "materialized_observed_days" | "collection_coverage_days";
       status: "complete" | "partial" | "empty";
       expectedDayCount: number;
       materializedDayCount: number;
@@ -800,6 +816,10 @@ export interface TargetWorkbenchResponse {
       firstThirdObservedPostShare: number;
       zeroPostFactDayCount: number;
       zeroSampleFactDayCount: number;
+      completeCoverageDayCount?: number;
+      partialCoverageDayCount?: number;
+      sourceLimitedDayCount?: number;
+      unknownCoverageDayCount?: number;
       degradedReasons: string[];
     };
     stale: boolean;
@@ -816,6 +836,8 @@ export type WorkbenchComparableSeriesId =
   | "activity_index"
   | "qualified_activity_index"
   | "activity_confidence"
+  | "observed_new_posts"
+  | "observed_qualified_posts"
   | "total_new_posts"
   | "qualified_post_count";
 

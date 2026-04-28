@@ -12,11 +12,21 @@ export const SERIES_COLORS: Record<string, string> = {
   activity_index: '#14b8a6',
   qualified_activity_index: '#f97316',
   activity_confidence: '#64748b',
+  observed_new_posts: '#14b8a6',
+  observed_qualified_posts: '#eab308',
   total_new_posts: '#10b981',
   qualified_post_count: '#f59f00',
 };
 
 export function createInitialSeriesSelection(data: TargetWorkbenchResponse | undefined) {
+  const coverage = data?.dataQuality.coverage;
+  const useCompleteTotals =
+    coverage &&
+    coverage.expectedDayCount > 0 &&
+    (coverage.completeCoverageDayCount ?? 0) >= coverage.expectedDayCount;
+  if (data && !useCompleteTotals) {
+    return new Set(['heat_price', 'ema_7', 'ema_30', 'observed_new_posts', 'observed_qualified_posts']);
+  }
   const defaults = data?.indicators
     .filter((indicator) => indicator.defaultVisible)
     .map((indicator) => indicator.id);

@@ -14,6 +14,7 @@ import type { PostSearchDocument } from "../../../domain/entities/post-search-do
 import type { PostGrowthFact } from "../../../domain/entities/post-growth-fact";
 import type { ProviderHealthWindow } from "../../../domain/entities/provider-health-window";
 import type { SubredditDailyFact } from "../../../domain/entities/subreddit-daily-fact";
+import type { SubredditCollectionCoverage } from "../../../domain/entities/subreddit-collection-coverage";
 import type { SubredditTrendPoint } from "../../../domain/entities/subreddit-trend-point";
 import type { KeywordTrendDaily } from "../../../domain/entities/keyword-trend-daily";
 
@@ -204,6 +205,35 @@ export interface SubredditDailyFactRow {
   algorithm_version: string;
   explain_payload: Record<string, unknown>;
   updated_at: string | Date;
+}
+
+export interface SubredditCollectionCoverageRow {
+  target_id: string;
+  day: string | Date;
+  coverage_status: "complete" | "partial" | "source_limited" | "unknown";
+  coverage_basis:
+    | "live_continuous"
+    | "backfill_reached_day_start"
+    | "terminal_eof_reached"
+    | "iteration_budget_exhausted"
+    | "cursor_saturated"
+    | "missed_live_window"
+    | "rate_limited"
+    | "observed_without_proof"
+    | "no_collection_evidence";
+  observed_post_count: number;
+  total_eligible_post_count: number;
+  first_seen_post_at: string | Date | null;
+  last_seen_post_at: string | Date | null;
+  oldest_new_listing_seen_at: string | Date | null;
+  newest_new_listing_seen_at: string | Date | null;
+  live_window_count: number;
+  missed_live_window_count: number;
+  backfill_cursor: string | null;
+  backfill_stop_reason: string | null;
+  listing_horizon_hit: boolean;
+  source_limited: boolean;
+  generated_at: string | Date;
 }
 
 export interface PostGrowthFactRow {
@@ -531,6 +561,30 @@ export function mapSubredditDailyFact(row: SubredditDailyFactRow): SubredditDail
     algorithmVersion: row.algorithm_version,
     explainPayload: row.explain_payload ?? {},
     updatedAt: toIso(row.updated_at),
+  };
+}
+
+export function mapSubredditCollectionCoverage(
+  row: SubredditCollectionCoverageRow,
+): SubredditCollectionCoverage {
+  return {
+    targetId: row.target_id,
+    day: toIso(row.day)!.slice(0, 10),
+    coverageStatus: row.coverage_status,
+    coverageBasis: row.coverage_basis,
+    observedPostCount: row.observed_post_count,
+    totalEligiblePostCount: row.total_eligible_post_count,
+    firstSeenPostAt: toIso(row.first_seen_post_at),
+    lastSeenPostAt: toIso(row.last_seen_post_at),
+    oldestNewListingSeenAt: toIso(row.oldest_new_listing_seen_at),
+    newestNewListingSeenAt: toIso(row.newest_new_listing_seen_at),
+    liveWindowCount: row.live_window_count,
+    missedLiveWindowCount: row.missed_live_window_count,
+    backfillCursor: row.backfill_cursor ?? undefined,
+    backfillStopReason: row.backfill_stop_reason ?? undefined,
+    listingHorizonHit: row.listing_horizon_hit,
+    sourceLimited: row.source_limited,
+    generatedAt: toIso(row.generated_at)!,
   };
 }
 

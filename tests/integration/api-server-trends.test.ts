@@ -432,6 +432,8 @@ test("api server returns target workbench contract from materialized read models
         "activity_index",
         "qualified_activity_index",
         "activity_confidence",
+        "observed_new_posts",
+        "observed_qualified_posts",
         "total_new_posts",
         "qualified_post_count",
       ],
@@ -496,6 +498,7 @@ test("api server returns target workbench contract from materialized read models
     assert.equal(result.body.dataQuality.coverage.observedPostDayCount, 1);
     assert.deepEqual(result.body.dataQuality.coverage.degradedReasons, [
       "materialized_fact_days_missing",
+      "coverage_fact_days_missing",
     ]);
     assert.deepEqual(
       result.body.panels.map((panel) => panel.id),

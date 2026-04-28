@@ -6,6 +6,7 @@ import type { KeywordTrendDaily } from "../../domain/entities/keyword-trend-dail
 import type { MonitorTarget } from "../../domain/entities/monitor-target";
 import type { PostGrowthFact } from "../../domain/entities/post-growth-fact";
 import type { ProviderHealthWindow } from "../../domain/entities/provider-health-window";
+import type { SubredditCollectionCoverage } from "../../domain/entities/subreddit-collection-coverage";
 import type { SubredditDailyFact } from "../../domain/entities/subreddit-daily-fact";
 import type { SubredditTrendPoint } from "../../domain/entities/subreddit-trend-point";
 import { buildSubredditAnomalyFeedReadModel } from "./subreddit-anomaly-feed-read-model.service";
@@ -88,6 +89,26 @@ const SERIES_DEFS: Array<{
       "0-100 confidence score derived from observed sample density and engagement sample coverage.",
   },
   {
+    id: "observed_new_posts",
+    label: "Observed New Posts",
+    family: "activity",
+    unit: "count",
+    defaultVisible: false,
+    chartType: "bar",
+    axis: "secondary",
+    description: "Observed total-eligible new-listing posts when coverage is incomplete.",
+  },
+  {
+    id: "observed_qualified_posts",
+    label: "Observed Qualified Posts",
+    family: "activity",
+    unit: "count",
+    defaultVisible: false,
+    chartType: "bar",
+    axis: "secondary",
+    description: "Observed quality-qualified posts when coverage is incomplete.",
+  },
+  {
     id: "total_new_posts",
     label: "Total New Posts",
     family: "activity",
@@ -124,6 +145,7 @@ export function buildTargetWorkbenchReadModel(args: {
   contents: Content[];
   anomalyEvents: AnomalyEvent[];
   providerHealthWindows: ProviderHealthWindow[];
+  collectionCoverage?: SubredditCollectionCoverage[];
   liveCursor?: CrawlCursor | null;
   backfillCursor?: CrawlCursor | null;
   keywords?: string[];
@@ -185,7 +207,9 @@ export function buildTargetWorkbenchReadModel(args: {
   const coverage = summarizeObservedCoverage({
     facts: args.dailyFacts,
     expectedPointCount: dailyInsights.dayCount,
+    collectionCoverage: args.collectionCoverage ?? [],
   });
+  const coverageByDay = new Map((args.collectionCoverage ?? []).map((row) => [row.day, row]));
   const overlays = dailyInsights.keywordHeat.map((keyword) => ({
     id: `keyword_heat:${keyword.queryScope}:${keyword.keyword}`,
     label: keyword.keyword,
@@ -256,10 +280,14 @@ export function buildTargetWorkbenchReadModel(args: {
           liveCursor: args.liveCursor,
           backfillCursor: args.backfillCursor,
         });
+        const pointCoverage = coverageByDay.get(point.day);
         return {
           at: point.day,
-          value: valueForSeries(definition.id, point, quality),
+          value: valueForSeries(definition.id, point, quality, pointCoverage),
           quality,
+          coverageStatus: pointCoverage?.coverageStatus ?? inferPointCoverageStatus(quality),
+          coverageBasis: pointCoverage?.coverageBasis,
+          valueSemantics: resolvePointValueSemantics(definition.id, pointCoverage, quality),
         };
       }),
     })),
@@ -474,6 +502,7 @@ function buildDataQualityNotes(args: {
 function summarizeObservedCoverage(args: {
   facts: SubredditDailyFact[];
   expectedPointCount: number;
+  collectionCoverage: SubredditCollectionCoverage[];
 }): TargetWorkbenchResponse["dataQuality"]["coverage"] {
   const materializedDayCount = args.facts.length;
   const observedPostDayCount = args.facts.filter((fact) => fact.postVolume > 0).length;
@@ -488,10 +517,34 @@ function summarizeObservedCoverage(args: {
   const firstThirdObservedPostShare = computeFirstThirdShare(observedPostCounts);
   const zeroPostFactDayCount = Math.max(0, materializedDayCount - observedPostDayCount);
   const zeroSampleFactDayCount = Math.max(0, materializedDayCount - sampledPostDayCount);
+  const completeCoverageDayCount = args.collectionCoverage.filter(
+    (row) => row.coverageStatus === "complete",
+  ).length;
+  const partialCoverageDayCount = args.collectionCoverage.filter(
+    (row) => row.coverageStatus === "partial",
+  ).length;
+  const sourceLimitedDayCount = args.collectionCoverage.filter(
+    (row) => row.coverageStatus === "source_limited",
+  ).length;
+  const unknownCoverageDayCount = args.collectionCoverage.filter(
+    (row) => row.coverageStatus === "unknown",
+  ).length;
   const degradedReasons: string[] = [];
 
   if (materializedDayCount < args.expectedPointCount) {
     degradedReasons.push("materialized_fact_days_missing");
+  }
+  if (args.collectionCoverage.length < args.expectedPointCount) {
+    degradedReasons.push("coverage_fact_days_missing");
+  }
+  if (partialCoverageDayCount > 0) {
+    degradedReasons.push("partial_coverage_days");
+  }
+  if (sourceLimitedDayCount > 0) {
+    degradedReasons.push("source_limited_days");
+  }
+  if (unknownCoverageDayCount > 0) {
+    degradedReasons.push("unknown_coverage_days");
   }
   if (materializedDayCount > 0 && observedPostDayCount < materializedDayCount) {
     degradedReasons.push("observed_post_days_missing");
@@ -518,7 +571,7 @@ function summarizeObservedCoverage(args: {
         : "complete";
 
   return {
-    scope: "materialized_observed_days",
+    scope: args.collectionCoverage.length > 0 ? "collection_coverage_days" : "materialized_observed_days",
     status,
     expectedDayCount: args.expectedPointCount,
     materializedDayCount,
@@ -531,6 +584,10 @@ function summarizeObservedCoverage(args: {
     firstThirdObservedPostShare,
     zeroPostFactDayCount,
     zeroSampleFactDayCount,
+    completeCoverageDayCount,
+    partialCoverageDayCount,
+    sourceLimitedDayCount,
+    unknownCoverageDayCount,
     degradedReasons,
   };
 }
@@ -587,8 +644,18 @@ function valueForSeries(
   id: WorkbenchSeriesId,
   point: ReturnType<typeof buildSubredditDailyInsights>["daily"][number],
   quality: TargetWorkbenchResponse["series"][number]["points"][number]["quality"],
+  coverage?: SubredditCollectionCoverage,
 ): number | null {
   if (quality === "missing") {
+    return null;
+  }
+  if (id === "observed_new_posts") {
+    return point.totalNewPosts;
+  }
+  if (id === "observed_qualified_posts") {
+    return point.qualifiedPostVolume;
+  }
+  if ((id === "total_new_posts" || id === "qualified_post_count") && coverage?.coverageStatus !== "complete") {
     return null;
   }
   if (id === "heat_price") {
@@ -613,6 +680,26 @@ function valueForSeries(
     return point.totalNewPosts;
   }
   return point.qualifiedPostVolume;
+}
+
+function inferPointCoverageStatus(
+  quality: TargetWorkbenchResponse["series"][number]["points"][number]["quality"],
+): "complete" | "partial" | "source_limited" | "unknown" {
+  return quality === "missing" ? "unknown" : "partial";
+}
+
+function resolvePointValueSemantics(
+  id: WorkbenchSeriesId,
+  coverage: SubredditCollectionCoverage | undefined,
+  quality: TargetWorkbenchResponse["series"][number]["points"][number]["quality"],
+): "complete_total" | "observed_total" | "missing" {
+  if (quality === "missing") {
+    return "missing";
+  }
+  if ((id === "total_new_posts" || id === "qualified_post_count") && coverage?.coverageStatus === "complete") {
+    return "complete_total";
+  }
+  return "observed_total";
 }
 
 function summarizeReliability(

@@ -3,6 +3,7 @@ import type { KeywordTrendDaily } from "../../../domain/entities/keyword-trend-d
 import type { MonitorTarget } from "../../../domain/entities/monitor-target";
 import type { PostGrowthFact } from "../../../domain/entities/post-growth-fact";
 import type { SubredditDailyFact } from "../../../domain/entities/subreddit-daily-fact";
+import type { SubredditCollectionCoverage } from "../../../domain/entities/subreddit-collection-coverage";
 import type { SubredditTrendPoint } from "../../../domain/entities/subreddit-trend-point";
 import type { AnomalyEventRepository } from "../../../domain/repositories/anomaly-event-repository";
 import type { KeywordTrendDailyRepository } from "../../../domain/repositories/keyword-trend-daily-repository";
@@ -10,6 +11,7 @@ import type { MonitorTargetRepository } from "../../../domain/repositories/monit
 import type { PostGrowthFactRepository } from "../../../domain/repositories/post-growth-fact-repository";
 import type { RawEventRepository } from "../../../domain/repositories/raw-event-repository";
 import type { SubredditDailyFactRepository } from "../../../domain/repositories/subreddit-daily-fact-repository";
+import type { SubredditCollectionCoverageRepository } from "../../../domain/repositories/subreddit-collection-coverage-repository";
 import type { SubredditTrendPointRepository } from "../../../domain/repositories/subreddit-trend-point-repository";
 import type { RawEnvelope } from "../../../connectors/shared/connector.interface";
 
@@ -203,6 +205,54 @@ export class InMemorySubredditDailyFactRepository implements SubredditDailyFactR
 
   public all(): SubredditDailyFact[] {
     return Array.from(this.facts.values());
+  }
+}
+
+export class InMemorySubredditCollectionCoverageRepository
+  implements SubredditCollectionCoverageRepository
+{
+  private readonly rows = new Map<string, SubredditCollectionCoverage>();
+
+  public async upsertMany(rows: SubredditCollectionCoverage[]): Promise<void> {
+    for (const row of rows) {
+      this.rows.set(`${row.targetId}|${row.day}`, row);
+    }
+  }
+
+  public async replaceRange(args: {
+    targetId: string;
+    fromDay: string;
+    toDay: string;
+    rows: SubredditCollectionCoverage[];
+  }): Promise<void> {
+    for (const [key, row] of this.rows.entries()) {
+      if (
+        row.targetId === args.targetId &&
+        row.day >= args.fromDay &&
+        row.day <= args.toDay
+      ) {
+        this.rows.delete(key);
+      }
+    }
+    await this.upsertMany(args.rows);
+  }
+
+  public async listByTargetInRange(args: {
+    targetId: string;
+    fromDay: string;
+    toDay: string;
+  }): Promise<SubredditCollectionCoverage[]> {
+    return Array.from(this.rows.values())
+      .filter((row) => (
+        row.targetId === args.targetId &&
+        row.day >= args.fromDay &&
+        row.day <= args.toDay
+      ))
+      .sort((a, b) => a.day.localeCompare(b.day));
+  }
+
+  public all(): SubredditCollectionCoverage[] {
+    return Array.from(this.rows.values());
   }
 }
 

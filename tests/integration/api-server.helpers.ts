@@ -19,6 +19,7 @@ import {
   InMemoryRawEventRepository,
   InMemorySavedWorkbenchViewRepository,
   InMemorySubredditDailyFactRepository,
+  InMemorySubredditCollectionCoverageRepository,
   InMemorySubredditTrendPointRepository,
   InMemoryStorageObservabilityRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
@@ -51,6 +52,7 @@ export function createApiTestRepositories() {
     postGrowthFactRepository: new InMemoryPostGrowthFactRepository(),
     metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
     subredditDailyFactRepository: new InMemorySubredditDailyFactRepository(),
+    subredditCollectionCoverageRepository: new InMemorySubredditCollectionCoverageRepository(),
     subredditTrendPointRepository: new InMemorySubredditTrendPointRepository(),
     providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
     savedWorkbenchViewRepository: new InMemorySavedWorkbenchViewRepository(),

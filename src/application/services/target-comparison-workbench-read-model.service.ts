@@ -16,6 +16,8 @@ const SERIES_DEFS: Array<{
   { id: "activity_index", label: "Activity Index", unit: "score" },
   { id: "qualified_activity_index", label: "Qualified Activity Index", unit: "score" },
   { id: "activity_confidence", label: "Activity Confidence", unit: "score" },
+  { id: "observed_new_posts", label: "Observed New Posts", unit: "count" },
+  { id: "observed_qualified_posts", label: "Observed Qualified Posts", unit: "count" },
   { id: "total_new_posts", label: "Total New Posts", unit: "count" },
   { id: "qualified_post_count", label: "Qualified Posts", unit: "count" },
 ];
@@ -123,5 +125,7 @@ function valueForSeries(seriesId: WorkbenchComparableSeriesId, fact: SubredditDa
     return fact.postVolume > 0 ? Number(((fact.sampledPostVolume / fact.postVolume) * 100).toFixed(6)) : 0;
   }
   if (seriesId === "total_new_posts") return fact.postVolume;
+  if (seriesId === "observed_new_posts") return fact.postVolume;
+  if (seriesId === "observed_qualified_posts") return fact.qualifiedPostVolume;
   return fact.qualifiedPostVolume;
 }

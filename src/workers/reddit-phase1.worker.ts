@@ -18,12 +18,14 @@ import type { PostGrowthFactRepository } from "../domain/repositories/post-growt
 import type { ProviderHealthWindowRepository } from "../domain/repositories/provider-health-window-repository";
 import type { RawEventRepository } from "../domain/repositories/raw-event-repository";
 import type { SubredditDailyFactRepository } from "../domain/repositories/subreddit-daily-fact-repository";
+import type { SubredditCollectionCoverageRepository } from "../domain/repositories/subreddit-collection-coverage-repository";
 import type { SubredditTrendPointRepository } from "../domain/repositories/subreddit-trend-point-repository";
 import type { AnomalyEventRepository } from "../domain/repositories/anomaly-event-repository";
 import type { SubredditTrendPoint } from "../domain/entities/subreddit-trend-point";
 import { buildPostGrowthFactsJob } from "../jobs/build-post-growth-facts.job";
 import { buildAnomalyEventsJob } from "../jobs/build-anomaly-events.job";
 import { buildSubredditDailyFactsJob } from "../jobs/build-subreddit-daily-facts.job";
+import { buildSubredditCollectionCoverageJob } from "../jobs/build-subreddit-collection-coverage.job";
 import { buildSubredditTrendPointsJob } from "../jobs/build-subreddit-trend-points.job";
 import { buildSubredditKeywordTrendDailyJob } from "../jobs/build-subreddit-keyword-trend-daily.job";
 import { collectSubredditAboutJob } from "../jobs/collect-subreddit-about.job";
@@ -61,6 +63,7 @@ export interface RedditPhase1WorkerDependencies {
   anomalyEventRepository?: AnomalyEventRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
   subredditDailyFactRepository: SubredditDailyFactRepository;
+  subredditCollectionCoverageRepository?: SubredditCollectionCoverageRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
   redditConnector: RedditConnector;
   redditConnectorResolver?: (args: {
@@ -396,6 +399,22 @@ export async function runRedditPhase1Cycle(
           toIso: nowIso,
         },
       );
+      if (deps.subredditCollectionCoverageRepository) {
+        await buildSubredditCollectionCoverageJob(
+          {
+            contentRepository: deps.contentRepository,
+            subredditDailyFactRepository: deps.subredditDailyFactRepository,
+            subredditCollectionCoverageRepository: deps.subredditCollectionCoverageRepository,
+            crawlCursorRepository: deps.crawlCursorRepository,
+          },
+          {
+            targetId: target.id,
+            fromIso: dailyFactFromIso,
+            toIso: nowIso,
+            generatedAtIso: nowIso,
+          },
+        );
+      }
       await buildSubredditTrendPointsJob(
         {
           metricsSnapshotRepository: deps.metricsSnapshotRepository,

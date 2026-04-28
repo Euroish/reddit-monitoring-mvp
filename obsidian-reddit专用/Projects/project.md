@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: coverage-provenance-p0-landed
-updated_at: "2026-04-28 05:00:00"
+stage: coverage-facts-readmodel-p2-landed
+updated_at: "2026-04-28 05:16:31"
 repo_path: "/root/reddit-monitoring-mvp"
-next_action: "Implement coverage facts and read-model/API semantics: add day or range coverage status/basis, wire live continuity/backfill evidence into it, then expose nullable complete totals plus observed counts."
+next_action: "Add deeper operational fixtures for missed live windows, source-limited continuation, and legacy export/report alignment after the core coverage/read-model semantics are stable."
 tags:
 - codex
 - workspace
@@ -30,9 +30,9 @@ tags:
 - `content` provenance and `total_eligible` now exist as the first landed P0 slice.
 - The collection path now tags `new` listing posts as `new_listing` / `total_eligible=true` and `top` supplement posts as `top_supplement` / `total_eligible=false`.
 - Candidate filters no longer shrink the content/total denominator; they still narrow analytics metric candidates.
-- Daily facts now read only total-eligible content for observed post volume, but complete total fields and coverage facts are still pending.
-- Current coverage evidence exists mainly around `crawl_cursor` live/backfill status, not as a day-level or range-level fact that can control API/UI semantics.
-- Current default UI labels have been restored to `Total New Posts` / `Qualified Posts`, but the data model still needs the backing proof system so those labels are only valid when coverage is complete.
+- Daily facts now read only total-eligible content for observed post volume.
+- Day-level coverage facts now materialize from total-eligible content, daily facts, and live/backfill cursor evidence.
+- API/read-model/chart semantics now expose complete totals only when coverage is complete and observed counts otherwise.
 
 ## Core Decision
 
@@ -93,11 +93,11 @@ tags:
 - `P0.2` Done: Split `collect-subreddit-new-posts.job.ts` page collection/write semantics so `new_listing` and `top_supplement` are no longer indistinguishable after ingestion.
 - `P0.3` Done: Stop candidate filtering from shrinking the total-corpus denominator; keep filtering for analytics candidates and qualified/driver surfaces.
 - `P0.4` Done: Update daily fact materialization to count only total-eligible `new` listing posts for observed volume.
-- `P1.1` Next: Add coverage fact storage/read path with day or range granularity and concrete coverage basis.
-- `P1.2` Wire live continuity and backfill progress into coverage facts, including missed-window degradation.
-- `P1.3` Add small/medium/high-volume regression fixtures for complete, partial/progressing, and activation-only total behavior.
-- `P2.1` Update API contracts/read models/UI display rules for total-vs-observed semantics and coverage badges.
-- `P2.2` Align legacy trend/comparison/export/report surfaces after the core truth model passes tests.
+- `P1.1` Done: Add coverage fact storage/read path with day granularity and concrete coverage status/basis.
+- `P1.2` Done: Wire backfill progress and live/source-limited cursor evidence into coverage facts.
+- `P1.3` Partial: Added regression coverage for backfill-proven complete days vs observed-without-proof partial days; missed-window/source-limited fixture expansion remains.
+- `P2.1` Done: Update API contracts/read models/UI display rules for total-vs-observed semantics and coverage-aware chart/KPI behavior.
+- `P2.2` Partial: Comparison read-model semantics are aligned; legacy export/report surfaces still need a focused pass.
 
 ## Guardrails
 
@@ -114,6 +114,13 @@ tags:
 - Documentation-only state updates do not require tests, but must leave `Projects` root containing only `project.md`.
 
 ## Activity Log
+
+### 2026-04-28 05:16:31
+
+- Scope: Landed coverage facts and total-vs-observed read-model semantics. Added `subreddit_collection_coverage` storage, Postgres/in-memory repositories, a coverage materialization job, worker wiring, API repository wiring, contract fields for coverage status/basis/value semantics, observed count series, and UI defaults/KPIs that fall back to observed labels unless complete coverage is proven.
+- Why now: P0 separated total-eligible `new` listing content from discovery supplements, but product totals still needed day-level proof before API/UI could honestly call counts complete totals.
+- Verify: `npm run typecheck` passed. Focused coverage/read-model/API tests passed. `npm run algo:fast`, `npm run algo:phase1`, `npm run algo:phase1:full`, `npm run algo:full`, and `npm run verify:repo` passed; full test suite passed 304 tests. Web build completed with the existing Vite chunk-size warning.
+- Next: Add deeper operational fixtures for missed live windows/source-limited continuation and align remaining export/report paths with coverage semantics.
 
 ### 2026-04-28 05:00:00
 

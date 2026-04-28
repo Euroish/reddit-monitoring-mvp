@@ -15,6 +15,7 @@ import type { PostGrowthFactRepository } from "../../../domain/repositories/post
 import type { ProviderHealthWindowRepository } from "../../../domain/repositories/provider-health-window-repository";
 import type { SavedWorkbenchViewRepository } from "../../../domain/repositories/saved-workbench-view-repository";
 import type { SubredditDailyFactRepository } from "../../../domain/repositories/subreddit-daily-fact-repository";
+import type { SubredditCollectionCoverageRepository } from "../../../domain/repositories/subreddit-collection-coverage-repository";
 import type { RawEventRepository } from "../../../domain/repositories/raw-event-repository";
 import type { SubredditTrendPointRepository } from "../../../domain/repositories/subreddit-trend-point-repository";
 import type { StorageObservabilityRepository } from "../../../domain/repositories/storage-observability-repository";
@@ -37,6 +38,7 @@ import { PostgresProviderHealthWindowRepository } from "./postgres-provider-heal
 import { PostgresRawEventRepository } from "./postgres-raw-event.repository";
 import { PostgresSavedWorkbenchViewRepository } from "./postgres-saved-workbench-view.repository";
 import { PostgresSubredditDailyFactRepository } from "./postgres-subreddit-daily-fact.repository";
+import { PostgresSubredditCollectionCoverageRepository } from "./postgres-subreddit-collection-coverage.repository";
 import { PostgresSubredditTrendPointRepository } from "./postgres-subreddit-trend-point.repository";
 import { PostgresStorageObservabilityRepository } from "./postgres-storage-observability.repository";
 
@@ -57,6 +59,7 @@ export interface RepositoryBundle {
   postGrowthFactRepository: PostGrowthFactRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
   subredditDailyFactRepository: SubredditDailyFactRepository;
+  subredditCollectionCoverageRepository: SubredditCollectionCoverageRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
   providerHealthWindowRepository: ProviderHealthWindowRepository;
   savedWorkbenchViewRepository: SavedWorkbenchViewRepository;
@@ -81,6 +84,7 @@ export function createPostgresRepositoryBundle(db: PostgresClient): RepositoryBu
     postGrowthFactRepository: new PostgresPostGrowthFactRepository(db),
     metricsSnapshotRepository: new PostgresMetricsSnapshotRepository(db),
     subredditDailyFactRepository: new PostgresSubredditDailyFactRepository(db),
+    subredditCollectionCoverageRepository: new PostgresSubredditCollectionCoverageRepository(db),
     subredditTrendPointRepository: new PostgresSubredditTrendPointRepository(db),
     providerHealthWindowRepository: new PostgresProviderHealthWindowRepository(db),
     savedWorkbenchViewRepository: new PostgresSavedWorkbenchViewRepository(db),
