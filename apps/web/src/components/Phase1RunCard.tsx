@@ -53,7 +53,7 @@ export function Phase1RunCard({
         crawlMode !== 'backfill' &&
         Number.isInteger(normalizedLivePostLimit) &&
         normalizedLivePostLimit >= 1 &&
-        normalizedLivePostLimit <= 3000
+        normalizedLivePostLimit <= 5000
           ? normalizedLivePostLimit
           : undefined,
       backfillPostLimit:
@@ -175,7 +175,7 @@ export function Phase1RunCard({
               id="phase1-live-post-limit"
               type="number"
               min={1}
-              max={3000}
+              max={5000}
               value={livePostLimit}
               onChange={(event) => setLivePostLimit(event.target.value)}
             />

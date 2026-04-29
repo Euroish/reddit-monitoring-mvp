@@ -384,7 +384,7 @@ test("collect subreddit new posts live mode re-polls head page every 5 minutes",
     newPostSnapshots.map((item) => ({ snapshotAt: item.snapshotAt, metricValue: item.metricValue })),
     [
       { snapshotAt: "2026-04-10T12:00:00.000Z", metricValue: 1 },
-      { snapshotAt: "2026-04-10T12:05:00.000Z", metricValue: 1 },
+      { snapshotAt: "2026-04-10T12:05:00.000Z", metricValue: 2 },
     ],
   );
 });
@@ -462,7 +462,7 @@ test("collect subreddit new posts live mode ignores posts outside the configured
   );
 
   const snapshots = metricsSnapshotRepository.all();
-  assert.equal(snapshots.find((item) => item.metricName === "new_posts_15m")?.metricValue, 1);
+  assert.equal(snapshots.find((item) => item.metricName === "new_posts_15m")?.metricValue, 2);
   const crawlCursorRepository = new InMemoryCrawlCursorRepository();
   await collectSubredditNewPostsJob(
     {
@@ -667,8 +667,85 @@ test("collect subreddit new posts suppresses stale metric rewrites outside the a
   assert.equal(scoreSnapshots.length, 0);
   assert.equal(
     metricsSnapshotRepository.all().find((item) => item.metricName === "new_posts_15m")?.metricValue,
-    1,
+    2,
   );
+});
+
+test("collect subreddit new posts backfill rewrites engagement for existing stale posts", async (t) => {
+  const previousTrackingHours = process.env.REDDIT_ACTIVE_POST_TRACKING_HOURS;
+  process.env.REDDIT_ACTIVE_POST_TRACKING_HOURS = "48";
+  t.after(() => {
+    if (previousTrackingHours == null) {
+      delete process.env.REDDIT_ACTIVE_POST_TRACKING_HOURS;
+    } else {
+      process.env.REDDIT_ACTIVE_POST_TRACKING_HOURS = previousTrackingHours;
+    }
+  });
+
+  const targetId = stableUuidFromString("reddit:target:r/backfill-metric-window");
+  const connector = new ScriptedPostsConnector([
+    {
+      provider: "http",
+      posts: [
+        {
+          name: "t3_old-existing",
+          id: "old-existing",
+          subreddit: "backfill-metric-window",
+          author: "bob",
+          title: "old existing should refresh in backfill",
+          permalink: "/r/backfill-metric-window/comments/old-existing/post",
+          created_utc: Math.floor(new Date("2026-04-08T10:00:00.000Z").getTime() / 1000),
+          score: 200,
+          num_comments: 21,
+        },
+      ],
+    },
+  ]);
+
+  const contentRepository = new InMemoryContentRepository();
+  await contentRepository.upsertMany([
+    {
+      id: stableUuidFromString("reddit:content:t3_old-existing"),
+      source: "reddit",
+      targetId,
+      accountId: stableUuidFromString("reddit:account:bob"),
+      externalId: "t3_old-existing",
+      kind: "post",
+      title: "already stored",
+      bodyText: "",
+      permalink: "/r/backfill-metric-window/comments/old-existing/post",
+      createdAtSource: "2026-04-08T10:00:00.000Z",
+      firstSeenAt: "2026-04-08T10:05:00.000Z",
+      lastSeenAt: "2026-04-08T10:05:00.000Z",
+    },
+  ]);
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
+
+  await collectSubredditNewPostsJob(
+    {
+      redditConnector: connector,
+      redditMapper: new DefaultRedditMapper(),
+      collectionJobRepository: new InMemoryCollectionJobRepository(),
+      crawlCursorRepository: new InMemoryCrawlCursorRepository(),
+      rawEventRepository: new InMemoryRawEventRepository(),
+      accountRepository: new InMemoryAccountRepository(),
+      contentRepository,
+      metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(),
+      postEngagementRepository,
+      providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
+    },
+    {
+      targetId,
+      subreddit: "backfill-metric-window",
+      nowIso: "2026-04-10T12:00:00.000Z",
+      mode: "backfill",
+      providerHint: "http",
+    },
+  );
+
+  assert.equal(postEngagementRepository.allLatest().length, 1);
+  assert.equal(postEngagementRepository.allLatest()[0]?.score, 200);
+  assert.equal(postEngagementRepository.allLatest()[0]?.numComments, 21);
 });
 
 test("collect subreddit new posts keeps live and backfill jobs separate within the same window", async () => {

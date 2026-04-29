@@ -98,7 +98,7 @@ export function OpsTargets() {
       <div className="page-header">
         <div>
           <h1>Targets</h1>
-          <p className="page-subtitle">Manage monitored subreddits, pause/resume them, and edit favorite live cadence.</p>
+          <p className="page-subtitle">Manage monitored subreddits, decide which ones participate in automatic live collection, and edit per-target cadence overrides.</p>
         </div>
       </div>
 
@@ -136,7 +136,7 @@ export function OpsTargets() {
                   </label>
                   <div className="list-row-end">
                     <Badge variant={target.status === 'active' ? 'success' : 'neutral'}>{target.status}</Badge>
-                    {target.favorite && <Badge variant="neutral">favorite</Badge>}
+                    {target.favorite && <Badge variant="neutral">auto collect</Badge>}
                   </div>
                 </div>
 
@@ -181,7 +181,7 @@ export function OpsTargets() {
                       checked={draft.favorite}
                       onChange={(event) => setDrafts((current) => ({ ...current, [target.canonicalName]: { ...draft, favorite: event.target.checked } }))}
                     />
-                    <span>Favorite</span>
+                    <span>Auto collect</span>
                   </label>
 
                   <div>

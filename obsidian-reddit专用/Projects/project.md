@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: product-frontend-control-plane-slice
-updated_at: "2026-04-29 00:57:18"
+updated_at: "2026-04-29 03:06:08"
 repo_path: "/root/reddit-monitoring-mvp"
-next_action: "Execute the product/frontend slice through `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`: build the market, target/compare, and admin control-plane surfaces on top of the landed refresh contracts, and avoid reopening backend orchestration or route-local fan-in."
+next_action: "Finish the remaining pre-UIUX stability slice: reconcile the qualified-post drop against prior `like>20 && comment>20` expectations, continue reproducing and tightening the heavier `/markets` return-navigation stall path, and decide whether admin cleanup needs scoped target/date deletion beyond the now-landed retention-backed maintenance controls."
 tags:
 - codex
 - workspace
@@ -61,6 +61,17 @@ tags:
 - Current repo search did not find a standalone export/report generator path. Future export/report work must reuse coverage-aware API/read-model fields.
 - Current repo evidence shows the market workbench contract now includes `targets[]` with per-target crawl freshness, live/backfill coverage status, latest observed headline metrics, and a compact live reliability summary.
 - Current repo evidence also supports the frontend constraints captured in the active implementation contract: market UI is currently front-end-limited to 8 items, compare is back-end-limited to 6 targets, target-level scheduling config exists in the data model, and comment-level analytics are not yet supported.
+- Auth surface status is now explicit: backend supports invite-based registration through `POST /auth/register`, and admin invite creation exists in `/ops/invites`, but the frontend currently exposes only `/login` and does not yet ship a registration page or public registration route.
+- Current repo evidence also explains the qualified-post drift: `src/jobs/build-subreddit-daily-facts.job.ts` now computes daily qualified counts through `resolveDailyQualityThreshold()` plus `isQualifiedDailyPost()`, using subreddit-tier floors and per-day percentile-derived thresholds instead of a fixed legacy `like > 20 && comment > 20` rule.
+- Current repo evidence also explains why `/markets` now feels materially heavier than the earlier route: `apps/web/src/pages/Dashboard.tsx` mounts both `/v1/trends/market` and `/v1/workbench/market`, while `src/application/services/workbench-refresh-contract.service.ts` fans the market workbench read across every active target for breakout facts, recent content, anomaly rows, provider-health windows, coverage rows, and both live/backfill cursors before the page can show its full state.
+- Automatic-collection control is now materially improved in product code: `apps/web/src/pages/OpsTargets.tsx` now presents `favorite` as the operator-facing `Auto collect` toggle, and `apps/web/src/pages/OpsCollection.tsx` now consolidates automatic target scope, effective cadence, live/backfill budget, and scheduler selection fallback into one admin page instead of forcing operators to infer behavior from separate pages.
+- SQL cleanup control is also improved in product code: `apps/web/src/pages/OpsMaintenance.tsx` now exposes per-action scope copy, retention override, batch size, dry-run, and loop-until-done behavior on top of the existing retention-backed prune endpoints in `apps/api/src/create-api-server.ts`. The remaining gap is no longer basic cleanup access; it is whether the product also needs a deeper scoped deletion contract by target/date/data-family.
+- New live-product regressions/user-reported gaps now need explicit resolution before additional surface expansion:
+  - qualified-post counts appear materially lower than the prior user expectation of `like > 20 && comment > 20`, so the current qualified-post algorithm/threshold path needs reconciliation against historical behavior and honest recovery options
+  - returning to `/markets` after visiting another page can still black-screen or stall, so route-transition stability around the market page remains unresolved
+  - the general-user Phase 1 run 5000-cap gap is now closed in both UI and API validation, but this should still be regression-tested in live usage
+  - admin automatic collection is now understandable in one flow, but the backend scheduling rule still uses the existing `favorite targets if any, else all active targets` fallback and has not been redesigned beyond that verified behavior
+  - admin retention-backed cleanup is now operable in the UI, but deeper scoped deletion plus rebuild/invalidation semantics are still undecided
 
 ## Core Decision
 
@@ -102,6 +113,45 @@ tags:
   - no new backend orchestration branch unless a concrete API contract gap appears during implementation
 - Keep the next slice product-facing and contract-respecting. Do not reopen backend architecture expansion, provider expansion, or speculative infra additions in the same step.
 - Stop condition: stop before introducing new persistence layers, generic projection engines, route-local fan-in that duplicates the refresh-contract services, or admin actions that bypass the documented API boundary.
+
+## Pre-UIUX Gate: Stability And Admin Completion
+
+- Principle: do not start animation-heavy UI/art polish while route-loading semantics, qualified-post wording, and admin control boundaries are still unstable. First freeze the product contract and interaction model, then layer motion and visual depth on top.
+
+### Verified Problem Analysis
+
+- `/markets` route stability/perceived lag:
+  - Frontend evidence: `apps/web/src/pages/Dashboard.tsx` mounts two separate queries and renders a much denser surface than the older market page.
+  - Backend evidence: `buildMarketWorkbenchFromRefreshContract()` fans out target-by-target across multiple repositories, so route return now depends on a heavier multi-read path instead of a single rankings request.
+  - Product impact: even if the route does not hard-crash, it is structurally more likely to stall, repaint late, or feel black-screen-like on return navigation.
+- Qualified-post count drift:
+  - Code evidence: the current daily fact pipeline is adaptive and threshold-derived, not a fixed historical `20/20` filter.
+  - Product impact: the UI cannot imply old semantics unless the product explicitly restores them or exposes a switch/explanation.
+- Automatic collection control incompleteness:
+  - Existing capability: target enable/disable plus favorite cadence exist, global live/backfill budget defaults exist, scheduler entry and manual run-now entry exist.
+  - Missing product contract: there is no single admin page that clearly answers `which targets auto-run`, `every how many hours`, and `how many new posts each automatic pass should fetch`.
+- SQL cleanup incompleteness:
+  - Existing capability: retention-backed preview/prune already works for three storage buckets.
+  - Missing product contract: there is no scoped cleanup by target/date/data family, and no rebuild/invalidation safety contract for deleting deeper analytics data.
+
+### Execution Order Before Deep UIUX Work
+
+- Step 1: stabilize `/markets` navigation first.
+  - Reproduce the return-navigation stall/black-screen path.
+  - Measure `/v1/trends/market` versus `/v1/workbench/market` latency separately.
+  - Decide the minimum fix path before polish: cache/prefetch/keep-previous-data on the frontend, or split the market workbench payload so the page no longer blocks on the heaviest per-target fan-out.
+- Step 2: freeze the qualified-post product contract.
+  - Decide whether the product keeps the adaptive threshold model, restores a legacy fixed threshold option, or exposes both with explicit labels.
+  - Until that decision lands, keep wording honest and avoid presenting current counts as if they still mean legacy `20/20`.
+- Step 3: consolidate automatic collection into one admin flow.
+  - Keep `/ops/targets` responsible for the monitored target pool and per-target inclusion/cadence semantics.
+  - Keep `/ops/collection` responsible for global automatic-collection defaults such as default cadence, live post budget, backfill budget, backfill depth, and provider preference.
+  - Add one clear effective-summary view that tells the operator which targets will auto-run now and why, instead of forcing them to infer scheduler behavior from `favorite` plus `status`.
+- Step 4: extend cleanup from retention-only to operator-safe data management.
+  - First improve the existing retention-backed cleanup UX with clearer preview, scope copy, and result reporting.
+  - Only after that, design a scoped cleanup contract for additional data families. Do not expose deletion of `content`, `crawl_cursor`, coverage/fact/trend/anomaly tables, or other derived state until the same flow also defines invalidation/rebuild behavior.
+- Step 5: begin the deep animation/UIUX art pass only after Steps 1-4 are stable.
+  - At that point motion design can target stable route boundaries and stable admin actions instead of papering over unresolved data/control problems.
 
 ### P3.2 Execution Order
 
@@ -160,6 +210,34 @@ tags:
 - Documentation-only state updates do not require tests, but must leave `Projects` root containing only `project.md` plus the single active implementation contract `后端能力盘点与前端后台规划-2026-04-28.md`.
 
 ## Activity Log
+
+### 2026-04-29 03:06:08
+
+- Scope: Landed the first code slice from the newly documented pre-UIUX gate: raised the general-user Phase 1 live run cap to 5000, consolidated automatic collection understanding in the admin UI, improved retention-backed SQL cleanup controls, and reduced the initial weight of the market route by deferring the heavier workbench fetch until the rankings query is present.
+- Why now: The user moved from planning to implementation. The smallest high-value slice was to finish the admin control surfaces that already had backend support, close the explicit 5000-cap bug, and lower the chance that `/markets` return-navigation feels blocked on the heaviest data fan-out before any deeper UI animation pass.
+- Verify: `npm run typecheck` passed; `npm --prefix apps/web run build` passed.
+- Next: Reproduce the remaining `/markets` return-navigation stall path in browser-level usage, decide the final qualified-post product contract, and only then judge whether cleanup scope must expand beyond the now-landed retention-backed maintenance actions.
+
+### 2026-04-29 02:59:23
+
+- Scope: Re-read the latest reported testing issues plus current frontend/admin code, then wrote back the verified root-cause analysis and pre-UIUX execution order for market-route lag, qualified-post drift, automatic collection control, and SQL cleanup control.
+- Why now: The next work should not jump straight into deep animation or visual redesign. Current code still has unstable market-route behavior and split admin control semantics, so the project state needed to spell out which stability/admin steps must land first and which existing backend capabilities can already be reused.
+- Verify: Documentation/state reconciliation only. Checked `apps/web/src/pages/Dashboard.tsx`, `apps/web/src/pages/OpsTargets.tsx`, `apps/web/src/pages/OpsCollection.tsx`, `apps/web/src/pages/OpsMaintenance.tsx`, `apps/web/src/components/Phase1RunCard.tsx`, `apps/api/src/create-api-server.ts`, `src/application/services/workbench-refresh-contract.service.ts`, `src/jobs/build-subreddit-daily-facts.job.ts`, `src/workers/reddit-target-scheduling.ts`, and `src/runtime/reddit-phase1-runtime.ts`. No tests were run because no product code changed.
+- Next: Use this order as the active pre-UIUX gate: stabilize `/markets`, freeze the qualified-post contract, consolidate automatic collection controls, then harden admin cleanup flows before starting heavy animation/UI work.
+
+### 2026-04-29 02:50:41
+
+- Scope: Wrote back the currently reported live-product issues after the latest frontend/backend alignment pass so the active state file reflects what still blocks acceptable user operation.
+- Why now: The deployed product now exposes registration and a general-user Phase 1 run surface, but the next highest-value work is no longer new page coverage. It is regression control: qualified-post count drift versus prior `like > 20 && comment > 20` expectations, persistent `/markets` return-navigation black-screen behavior, and the remaining user-facing run-budget cap that still blocks the requested 5000 setting.
+- Verify: User report plus current deployed/frontend repo state reconciliation only. No new tests were run for this documentation update.
+- Next: Inspect the qualified-post algorithm/read-model path, reproduce the `/markets` black-screen on route return, and raise the remaining Phase 1 run UI cap to 5000 without widening unrelated admin scope.
+
+### 2026-04-29 01:10:27
+
+- Scope: Wrote back the verified auth/onboarding state after checking current frontend routes and auth pages against the shipped backend auth endpoints.
+- Why now: Current code can be misread as having full registration support because backend invite registration exists and admin invite creation is already exposed in the UI. In reality, the frontend still has login only, so project state needed to record that gap explicitly.
+- Verify: Documentation/state reconciliation only. Checked `apps/web/src/pages/Login.tsx`, `apps/web/src/App.tsx`, `apps/web/src/pages/OpsInvites.tsx`, and `apps/api/src/create-api-server.ts`. No tests were run because no product code changed.
+- Next: If onboarding is required in the current slice, add the smallest invite-based registration page and route on top of the already-landed `POST /auth/register` backend contract.
 
 ### 2026-04-29 00:57:18
 

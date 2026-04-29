@@ -1,7 +1,12 @@
 import type { Content } from "../../domain/entities/content";
 import type { KeywordTrendDaily } from "../../domain/entities/keyword-trend-daily";
+import type { PostEngagementLatest } from "../../domain/entities/post-engagement";
 import type { SubredditDailyFact } from "../../domain/entities/subreddit-daily-fact";
 import type { SubredditTrendPoint } from "../../domain/entities/subreddit-trend-point";
+import {
+  isQualifiedDailyPost,
+  resolveDailyQualityThreshold,
+} from "../../domain/services/quality-threshold.service";
 
 const AUTO_KEYWORD_STOP_WORDS = new Set([
   "the",
@@ -119,6 +124,8 @@ export function buildSubredditDailyInsights(args: {
   dailyFacts?: SubredditDailyFact[];
   points?: SubredditTrendPoint[];
   posts?: Content[];
+  capturedContents?: Content[];
+  capturedLatestEngagements?: PostEngagementLatest[];
   keywordDailyRows?: KeywordTrendDaily[];
   fromIso: string;
   toIso: string;
@@ -129,6 +136,8 @@ export function buildSubredditDailyInsights(args: {
   const daily = buildDailyMetrics({
     dailyFacts: args.dailyFacts ?? [],
     points: args.points ?? [],
+    capturedContents: args.capturedContents ?? [],
+    capturedLatestEngagements: args.capturedLatestEngagements ?? [],
     days,
   });
   const keywordHeat =
@@ -254,6 +263,8 @@ function buildKeywordHeatFromDailyRows(args: {
 function buildDailyMetrics(args: {
   dailyFacts: SubredditDailyFact[];
   points: SubredditTrendPoint[];
+  capturedContents: Content[];
+  capturedLatestEngagements: PostEngagementLatest[];
   days: string[];
 }): DailyTrendPoint[] {
   const factByDay = new Map(args.dailyFacts.map((fact) => [fact.day, fact]));
@@ -282,10 +293,19 @@ function buildDailyMetrics(args: {
   const result: DailyTrendPoint[] = [];
   let previous: { totalNewPosts: number; totalDiscussion: number } | null = null;
   const factSeries = args.days.map((day) => factByDay.get(day));
+  const capturedByDay = buildCapturedMetricsByDay({
+    capturedContents: args.capturedContents,
+    capturedLatestEngagements: args.capturedLatestEngagements,
+    days: args.days,
+    factByDay,
+  });
   const observedPostBaseline = medianPositive(
     factSeries.map((fact, index) => {
       const day = args.days[index]!;
-      return fact?.postVolume ?? byDay.get(day)!.totalNewPosts;
+      return capturedByDay.get(day)?.postVolume ?? resolveDisplayedPostVolume({
+        factPostVolume: fact?.postVolume,
+        fallbackTotalNewPosts: byDay.get(day)!.totalNewPosts,
+      });
     }),
   );
   const qualifiedPostBaseline = medianPositive(
@@ -295,11 +315,19 @@ function buildDailyMetrics(args: {
   for (const day of args.days) {
     const fallback = byDay.get(day)!;
     const fact = factByDay.get(day);
-    const totalNewPosts = fact?.postVolume ?? fallback.totalNewPosts;
+    const captured = capturedByDay.get(day);
+    const totalNewPosts = captured?.postVolume ?? resolveDisplayedPostVolume({
+      factPostVolume: fact?.postVolume,
+      fallbackTotalNewPosts: fallback.totalNewPosts,
+    });
     const totalDiscussion = fact?.commentSum ?? fallback.totalDiscussion;
     const minObservedPostsPerDay = fact ? minObservedPostsForTier(fact.subredditTier) : 2;
     const sampleReliability =
-      fact && totalNewPosts > 0 ? clamp(fact.sampledPostVolume / totalNewPosts, 0, 1) : 0;
+      captured && totalNewPosts > 0
+        ? 1
+        : fact && totalNewPosts > 0
+          ? clamp(fact.sampledPostVolume / totalNewPosts, 0, 1)
+          : 0;
     const activityConfidence =
       totalNewPosts > 0
         ? toFixedNumber(
@@ -338,8 +366,8 @@ function buildDailyMetrics(args: {
       discussionChangePct: toFixedNumber(discussionChangePct),
       postSpikeScore,
       isPostSpike,
-      postVolume: fact?.postVolume ?? fallback.totalNewPosts,
-      qualifiedPostVolume: fact?.qualifiedPostVolume ?? 0,
+      postVolume: totalNewPosts,
+      qualifiedPostVolume: captured?.qualifiedPostVolume ?? fact?.qualifiedPostVolume ?? 0,
       heatPrice: fact?.heatPrice ?? 0,
       heatChangePct: fact?.heatChangePct ?? 0,
       ema7: fact?.ema7 ?? 0,
@@ -352,6 +380,12 @@ function buildDailyMetrics(args: {
       algorithmVersion: fact?.algorithmVersion,
       explainPayload: {
         ...(fact?.explainPayload ?? {}),
+        ...(captured
+          ? {
+              capturedPostVolume: captured.postVolume,
+              capturedQualifiedPostVolume: captured.qualifiedPostVolume,
+            }
+          : {}),
         observedPostBaseline,
         qualifiedPostBaseline,
         activityConfidence,
@@ -367,6 +401,57 @@ function buildDailyMetrics(args: {
   }
 
   return result;
+}
+
+function buildCapturedMetricsByDay(args: {
+  capturedContents: Content[];
+  capturedLatestEngagements: PostEngagementLatest[];
+  days: string[];
+  factByDay: ReadonlyMap<string, SubredditDailyFact>;
+}): Map<string, { postVolume: number; qualifiedPostVolume: number }> {
+  const daySet = new Set(args.days);
+  const latestTier = args.factByDay.values().next().value?.subredditTier ?? "small";
+  const engagementByContentId = new Map(
+    args.capturedLatestEngagements.map((row) => [row.contentId, row] as const),
+  );
+  const result = new Map<string, { postVolume: number; qualifiedPostVolume: number }>();
+
+  for (const content of args.capturedContents) {
+    const day = toUtcDay(content.firstSeenAt);
+    if (!daySet.has(day) || !(content.totalEligible ?? true)) {
+      continue;
+    }
+    const current = result.get(day) ?? { postVolume: 0, qualifiedPostVolume: 0 };
+    current.postVolume += 1;
+    const fact = args.factByDay.get(day);
+    const threshold = fact
+      ? { score: fact.qualityThresholdScore, comments: fact.qualityThresholdComments }
+      : resolveDailyQualityThreshold({ tier: latestTier, posts: [] });
+    const engagement = engagementByContentId.get(content.id);
+    if (
+      engagement &&
+      isQualifiedDailyPost({
+        score: engagement.score ?? 0,
+        comments: engagement.numComments ?? 0,
+        threshold,
+      })
+    ) {
+      current.qualifiedPostVolume += 1;
+    }
+    result.set(day, current);
+  }
+
+  return result;
+}
+
+function resolveDisplayedPostVolume(args: {
+  factPostVolume: number | undefined;
+  fallbackTotalNewPosts: number;
+}): number {
+  if (args.fallbackTotalNewPosts > 0) {
+    return Math.max(0, args.fallbackTotalNewPosts);
+  }
+  return Math.max(0, args.factPostVolume ?? 0);
 }
 
 function confidenceWeightedIndex(args: {

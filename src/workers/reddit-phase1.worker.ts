@@ -348,7 +348,7 @@ export async function runRedditPhase1Cycle(
         baseInput,
       );
 
-      await runBoundedTargetBackfill(
+      const collectionCompletedAtIso = await runBoundedTargetBackfill(
         {
           contentRepository: deps.contentRepository,
           crawlCursorRepository: deps.crawlCursorRepository,
@@ -423,8 +423,8 @@ export async function runRedditPhase1Cycle(
           targetId: target.id,
           canonicalSubreddit: target.canonicalName,
           crawlMode,
-          nowIso,
-          generatedAtIso: nowIso,
+          nowIso: collectionCompletedAtIso,
+          generatedAtIso: collectionCompletedAtIso,
           ranges: {
             dailyFactFromIso,
             coverageFromIso: dailyFactFromIso,
@@ -492,9 +492,10 @@ async function runBoundedTargetBackfill(
     targetBackfillFromIso: string;
     maxIterationsPerTarget: number;
   },
-): Promise<void> {
+): Promise<string> {
   const iterations = args.crawlMode === "backfill" ? args.maxIterationsPerTarget : 1;
   const backfillProvider = resolveBackfillStateProvider(args.providerHint);
+  let latestIterationNowIso = args.nowIso;
 
   for (let iteration = 0; iteration < iterations; iteration += 1) {
     const priorBackfillProgress =
@@ -509,6 +510,7 @@ async function runBoundedTargetBackfill(
       new Date(args.nowIso).getTime() +
         iteration * BACKFILL_COLLECTION_WINDOW_MINUTES * 60 * 1000,
     ).toISOString();
+    latestIterationNowIso = iterationNowIso;
 
     await collectSubredditNewPostsJob(
       {
@@ -536,7 +538,7 @@ async function runBoundedTargetBackfill(
     );
 
     if (args.crawlMode !== "backfill") {
-      return;
+      return latestIterationNowIso;
     }
 
     const latestCursor = await resolveLatestBackfillCursor({
@@ -557,7 +559,7 @@ async function runBoundedTargetBackfill(
         stopReason: "coverage_reached",
         updatedAt: iterationNowIso,
       });
-      return;
+      return latestIterationNowIso;
     }
 
     const reachedTerminalCursor = hasBackfillReachedTerminalCursor(latestCursor);
@@ -570,7 +572,7 @@ async function runBoundedTargetBackfill(
         stopReason: "terminal_eof",
         updatedAt: iterationNowIso,
       });
-      return;
+      return latestIterationNowIso;
     }
 
     const nextBackfillProgress = await resolveLatestBackfillCursorProgress({
@@ -596,7 +598,7 @@ async function runBoundedTargetBackfill(
         stopReason: "cursor_saturated",
         updatedAt: iterationNowIso,
       });
-      return;
+      return latestIterationNowIso;
     }
 
     await persistBackfillCoverageState({
@@ -621,6 +623,7 @@ async function runBoundedTargetBackfill(
     stopReason: "iteration_budget_exhausted",
     updatedAt: args.nowIso,
   });
+  return latestIterationNowIso;
 }
 
 function resolveBackfillStateProvider(providerHint: string | undefined): string | undefined {

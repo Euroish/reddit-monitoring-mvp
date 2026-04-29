@@ -282,6 +282,105 @@ test("buildSubredditDailyInsights prefers daily fact fields when available", () 
   assert.equal(model.daily[2]?.algorithmVersion, "daily_fact_v1");
 });
 
+test("buildSubredditDailyInsights preserves larger observed totals from trend windows", () => {
+  const model = buildSubredditDailyInsights({
+    fromIso: "2026-04-10T00:00:00.000Z",
+    toIso: "2026-04-12T23:59:59.000Z",
+    points: [
+      point({
+        windowStart: "2026-04-10T10:00:00.000Z",
+        windowEnd: "2026-04-10T16:00:00.000Z",
+        newPosts: 80,
+        commentSum: 20,
+      }),
+      point({
+        windowStart: "2026-04-11T10:00:00.000Z",
+        windowEnd: "2026-04-11T16:00:00.000Z",
+        newPosts: 160,
+        commentSum: 24,
+      }),
+      point({
+        windowStart: "2026-04-12T10:00:00.000Z",
+        windowEnd: "2026-04-12T16:00:00.000Z",
+        newPosts: 640,
+        commentSum: 44,
+      }),
+    ],
+    dailyFacts: [
+      dailyFact({
+        day: "2026-04-10",
+        postVolume: 10,
+        qualifiedPostVolume: 2,
+        commentSum: 20,
+        heatPrice: 30,
+        heatChangePct: 0,
+        ema7: 30,
+        ema30: 30,
+      }),
+      dailyFact({
+        day: "2026-04-11",
+        postVolume: 12,
+        qualifiedPostVolume: 3,
+        commentSum: 24,
+        heatPrice: 40,
+        heatChangePct: 0.333333,
+        ema7: 32.5,
+        ema30: 30.645161,
+      }),
+      dailyFact({
+        day: "2026-04-12",
+        postVolume: 20,
+        qualifiedPostVolume: 5,
+        commentSum: 44,
+        heatPrice: 55,
+        heatChangePct: 0.375,
+        ema7: 38.125,
+        ema30: 32.217482,
+      }),
+    ],
+    posts: [],
+  });
+
+  assert.equal(model.daily[0]?.totalNewPosts, 80);
+  assert.equal(model.daily[1]?.totalNewPosts, 160);
+  assert.equal(model.daily[2]?.totalNewPosts, 640);
+  assert.equal(model.daily[2]?.postVolume, 640);
+  assert.equal(model.daily[2]?.qualifiedPostVolume, 5);
+  assert.equal(model.daily[2]?.isPostSpike, true);
+});
+
+test("buildSubredditDailyInsights prefers captured listing totals over daily fact volume", () => {
+  const model = buildSubredditDailyInsights({
+    fromIso: "2026-04-10T00:00:00.000Z",
+    toIso: "2026-04-10T23:59:59.000Z",
+    points: [
+      point({
+        windowStart: "2026-04-10T10:00:00.000Z",
+        windowEnd: "2026-04-10T16:00:00.000Z",
+        newPosts: 2000,
+        commentSum: 20,
+      }),
+    ],
+    dailyFacts: [
+      dailyFact({
+        day: "2026-04-10",
+        postVolume: 240,
+        qualifiedPostVolume: 25,
+        commentSum: 20,
+        heatPrice: 30,
+        heatChangePct: 0,
+        ema7: 30,
+        ema30: 30,
+      }),
+    ],
+    posts: [],
+  });
+
+  assert.equal(model.daily[0]?.totalNewPosts, 2000);
+  assert.equal(model.daily[0]?.postVolume, 2000);
+  assert.equal(model.daily[0]?.qualifiedPostVolume, 25);
+});
+
 test("buildSubredditDailyInsights builds confidence-weighted relative activity indexes", () => {
   const model = buildSubredditDailyInsights({
     fromIso: "2026-04-10T00:00:00.000Z",

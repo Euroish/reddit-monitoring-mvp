@@ -40,9 +40,15 @@ export function Saved() {
                 <div className="list-row"><span>Updated</span><span>{new Date(view.updatedAt).toLocaleString()}</span></div>
               </div>
 
-              <Link to={view.routePath} style={{ color: 'var(--text-primary)', fontWeight: 560 }}>
-                Open saved view
-              </Link>
+              {view.routePath.startsWith('/v1/') ? (
+                <div style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                  This saved view points to an old API-path route and can no longer be opened directly from the UI.
+                </div>
+              ) : (
+                <Link to={view.routePath} style={{ color: 'var(--text-primary)', fontWeight: 560 }}>
+                  Open saved view
+                </Link>
+              )}
             </Card>
           ))}
 

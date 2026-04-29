@@ -107,6 +107,26 @@ export class InMemoryContentRepository implements ContentRepository {
       .slice(0, args.limit ?? 5000);
   }
 
+  public async findByTargetFirstSeenAtRange(args: {
+    targetId: string;
+    from: string;
+    to: string;
+    limit?: number;
+    totalEligibleOnly?: boolean;
+  }): Promise<Content[]> {
+    return Array.from(this.byExternalId.values())
+      .filter((content) => {
+        return (
+          content.targetId === args.targetId &&
+          content.firstSeenAt >= args.from &&
+          content.firstSeenAt <= args.to &&
+          (!args.totalEligibleOnly || (content.totalEligible ?? true))
+        );
+      })
+      .sort((a, b) => a.firstSeenAt.localeCompare(b.firstSeenAt))
+      .slice(0, args.limit ?? 20_000);
+  }
+
   public all(): Content[] {
     return Array.from(this.byExternalId.values());
   }

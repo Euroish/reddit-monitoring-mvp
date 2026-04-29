@@ -144,6 +144,32 @@ export class PostgresContentRepository implements ContentRepository {
     return result.rows.map(mapContent);
   }
 
+  public async findByTargetFirstSeenAtRange(args: {
+    targetId: string;
+    from: string;
+    to: string;
+    limit?: number;
+    totalEligibleOnly?: boolean;
+  }): Promise<Content[]> {
+    const result = await this.db.query<ContentRow>(
+      `
+      SELECT id, target_id, account_id, external_id, kind, title, body_text, url, permalink,
+             created_at_source, first_seen_at, last_seen_at, discovery_source, first_collection_mode,
+             first_listing, first_time_range, first_collection_job_id, total_eligible
+      FROM content
+      WHERE target_id = $1
+        AND first_seen_at >= $2
+        AND first_seen_at <= $3
+        AND ($5::boolean = FALSE OR total_eligible = TRUE)
+      ORDER BY first_seen_at ASC
+      LIMIT $4
+      `,
+      [args.targetId, args.from, args.to, args.limit ?? 20_000, args.totalEligibleOnly ?? false],
+    );
+
+    return result.rows.map(mapContent);
+  }
+
   private dedupeContents(contents: Content[]): Content[] {
     const byExternalId = new Map<string, Content>();
 

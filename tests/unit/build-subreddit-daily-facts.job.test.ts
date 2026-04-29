@@ -150,8 +150,8 @@ test("buildSubredditDailyFactsJob skips uncovered days instead of materializing 
   assert.equal(dayOne.subredditTier, "small");
   assert.equal(dayOne.postVolume, 2);
   assert.equal(dayOne.qualifiedPostVolume, 1);
-  assert.equal(dayOne.qualityThresholdScore, 20);
-  assert.equal(dayOne.qualityThresholdComments, 8);
+  assert.equal(dayOne.qualityThresholdScore, 15);
+  assert.equal(dayOne.qualityThresholdComments, 5);
   assert.equal(dayOne.heatPrice > 0, true);
   assert.equal(dayOne.algorithmVersion, "daily_fact_v1");
 

@@ -93,10 +93,16 @@ export function Dashboard() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['market-trend'],
     queryFn: () => fetchApi<MarketTrendResponse>('/v1/trends/market?limit=20'),
+    staleTime: 2 * 60 * 1000,
   });
   const { data: workbenchData } = useQuery({
     queryKey: ['market-workbench'],
-    queryFn: () => fetchApi<MarketWorkbenchResponse>('/v1/workbench/market'),
+    queryFn: () =>
+      fetchApi<MarketWorkbenchResponse>(
+        '/v1/workbench/market?rankingLimit=8&breakoutLimit=6&anomalyLimit=6',
+      ),
+    enabled: !!data,
+    staleTime: 2 * 60 * 1000,
   });
 
   const hottest = data?.rankings.byHeat[0];

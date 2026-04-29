@@ -108,15 +108,12 @@ export function TargetDetail() {
     const latestIndex = Math.max(0, data.series[0]?.points.length ?? 0) - 1;
     const valueFor = (seriesId: string) =>
       data.series.find((series) => series.id === seriesId)?.points[latestIndex]?.value ?? null;
-    const latestTotalCoverage =
-      data.series.find((series) => series.id === 'total_new_posts')?.points[latestIndex]?.coverageStatus ?? 'unknown';
-    const completeTotal = latestTotalCoverage === 'complete';
     return {
       heatPrice: valueFor('heat_price'),
-      posts: completeTotal ? valueFor('total_new_posts') : valueFor('observed_new_posts'),
-      qualifiedPosts: completeTotal ? valueFor('qualified_post_count') : valueFor('observed_qualified_posts'),
-      postsLabel: completeTotal ? 'Total New Posts' : 'Observed New Posts',
-      qualifiedPostsLabel: completeTotal ? 'Qualified Posts' : 'Observed Qualified Posts',
+      posts: valueFor('total_new_posts'),
+      qualifiedPosts: valueFor('qualified_post_count'),
+      postsLabel: 'Captured New Posts',
+      qualifiedPostsLabel: 'Captured Qualified Posts',
     };
   }, [data]);
 

@@ -2448,12 +2448,12 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           crawlMode === "backfill" ? false : resolveAsyncRunPreference(body?.async, true);
         let postLimit: number | undefined;
         if (body?.postLimit != null) {
-          if (!Number.isInteger(body.postLimit) || body.postLimit < 1 || body.postLimit > 3000) {
+          if (!Number.isInteger(body.postLimit) || body.postLimit < 1 || body.postLimit > 5000) {
             respond({
               statusCode: 400,
               body: toApiError({
                 requestId,
-                message: "postLimit must be an integer between 1 and 3000",
+                message: "postLimit must be an integer between 1 and 5000",
                 code: "invalid_post_limit",
               }),
               errorCode: "invalid_post_limit",

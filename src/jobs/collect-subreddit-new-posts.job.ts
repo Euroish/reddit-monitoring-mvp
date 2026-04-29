@@ -579,6 +579,7 @@ async function buildPersistencePlan(args: {
     upserts: filtered.upserts,
     metricPoints: filtered.metricPoints,
     newAcceptedExternalIds: new Set(newAcceptedUpserts.map((item) => item.externalId)),
+    mode: args.mode,
     nowIso: args.nowIso,
   });
   const pages = args.normalizedBatch.pages.map((item) => item.collectedPage.page);
@@ -619,7 +620,7 @@ async function buildPersistencePlan(args: {
         targetId: args.targetId,
         granularity: "15m",
         metricName: "new_posts_15m",
-        metricValue: newAcceptedUpserts.filter((item) => item.totalEligible).length,
+        metricValue: countUniqueTotalEligibleListingPosts(args.normalizedBatch.upserts),
         collectionJobId: args.collectionJobId,
       },
     ],
@@ -786,6 +787,19 @@ async function applyPersistencePlan(
     await deps.crawlCursorRepository.upsert(args.plan.crawlCursorUpsert);
   }
   await deps.providerHealthWindowRepository?.record(args.plan.providerHealthDelta);
+}
+
+function countUniqueTotalEligibleListingPosts(
+  upserts: ProvenancePostUpsert[],
+): number {
+  const externalIds = new Set<string>();
+  for (const item of upserts) {
+    if (!item.totalEligible) {
+      continue;
+    }
+    externalIds.add(item.externalId);
+  }
+  return externalIds.size;
 }
 
 function buildAccounts(
@@ -1545,8 +1559,14 @@ function selectMetricPointsForWrite(args: {
   upserts: NormalizedPostUpserts;
   metricPoints: NormalizedPostMetricPoints;
   newAcceptedExternalIds: ReadonlySet<string>;
+  mode: CrawlMode;
   nowIso: string;
 }): NormalizedPostMetricPoints {
+  if (args.mode === "backfill") {
+    const acceptedExternalIds = new Set(args.upserts.map((item) => item.externalId));
+    return args.metricPoints.filter((metric) => acceptedExternalIds.has(metric.externalId));
+  }
+
   const activeWindowStartIso = resolveActivePostTrackingStartIso(args.nowIso);
   const upsertsByExternalId = new Map(args.upserts.map((item) => [item.externalId, item]));
   return args.metricPoints.filter((metric) => {

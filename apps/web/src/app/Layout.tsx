@@ -2,6 +2,7 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { Button } from '../components/ui';
+import { RouteErrorBoundary } from './RouteErrorBoundary';
 
 export function Layout() {
   const { user, logout } = useAuth();
@@ -85,7 +86,9 @@ export function Layout() {
         )}
 
         <main className="app-main">
-          <Outlet />
+          <RouteErrorBoundary>
+            <Outlet />
+          </RouteErrorBoundary>
         </main>
       </div>
     </div>

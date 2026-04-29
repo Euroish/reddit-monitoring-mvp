@@ -12,4 +12,11 @@ export interface ContentRepository {
     limit?: number;
     totalEligibleOnly?: boolean;
   }): Promise<Content[]>;
+  findByTargetFirstSeenAtRange(args: {
+    targetId: string;
+    from: string;
+    to: string;
+    limit?: number;
+    totalEligibleOnly?: boolean;
+  }): Promise<Content[]>;
 }

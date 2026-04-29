@@ -480,6 +480,12 @@ test("phase1 cycle backfill mode continues across multiple cursor windows until 
     contentRepository.all().some((row) => row.createdAtSource <= "2026-04-09T12:00:00.000Z"),
     true,
   );
+  const sampledFactsByDay = new Map(
+    subredditDailyFactRepository.all().map((fact) => [fact.day, fact.sampledPostVolume] as const),
+  );
+  assert.equal(sampledFactsByDay.get("2026-04-24"), 3);
+  assert.equal(sampledFactsByDay.get("2026-04-18"), 3);
+  assert.equal(sampledFactsByDay.get("2026-04-08"), 3);
 });
 
 test("phase1 cycle backfill default budget reaches 15-day coverage for higher-volume targets", async () => {

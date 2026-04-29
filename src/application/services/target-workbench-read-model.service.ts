@@ -4,6 +4,7 @@ import type { Content } from "../../domain/entities/content";
 import type { CrawlCursor } from "../../domain/entities/crawl-cursor";
 import type { KeywordTrendDaily } from "../../domain/entities/keyword-trend-daily";
 import type { MonitorTarget } from "../../domain/entities/monitor-target";
+import type { PostEngagementLatest } from "../../domain/entities/post-engagement";
 import type { PostGrowthFact } from "../../domain/entities/post-growth-fact";
 import type { ProviderHealthWindow } from "../../domain/entities/provider-health-window";
 import type { SubredditCollectionCoverage } from "../../domain/entities/subreddit-collection-coverage";
@@ -90,7 +91,7 @@ const SERIES_DEFS: Array<{
   },
   {
     id: "observed_new_posts",
-    label: "Observed New Posts",
+    label: "Captured New Posts",
     family: "activity",
     unit: "count",
     defaultVisible: false,
@@ -100,7 +101,7 @@ const SERIES_DEFS: Array<{
   },
   {
     id: "observed_qualified_posts",
-    label: "Observed Qualified Posts",
+    label: "Captured Qualified Posts",
     family: "activity",
     unit: "count",
     defaultVisible: false,
@@ -110,7 +111,7 @@ const SERIES_DEFS: Array<{
   },
   {
     id: "total_new_posts",
-    label: "Total New Posts",
+    label: "Captured New Posts",
     family: "activity",
     unit: "count",
     defaultVisible: true,
@@ -120,7 +121,7 @@ const SERIES_DEFS: Array<{
   },
   {
     id: "qualified_post_count",
-    label: "Qualified Posts",
+    label: "Captured Qualified Posts",
     family: "activity",
     unit: "count",
     defaultVisible: true,
@@ -143,6 +144,8 @@ export function buildTargetWorkbenchReadModel(args: {
   keywordDailyRows: KeywordTrendDaily[];
   postGrowthFacts: PostGrowthFact[];
   contents: Content[];
+  capturedContents?: Content[];
+  capturedLatestEngagements?: PostEngagementLatest[];
   anomalyEvents: AnomalyEvent[];
   providerHealthWindows: ProviderHealthWindow[];
   collectionCoverage?: SubredditCollectionCoverage[];
@@ -164,6 +167,8 @@ export function buildTargetWorkbenchReadModel(args: {
     dailyFacts: args.dailyFacts,
     points: args.trendPoints,
     posts: [],
+    capturedContents: args.capturedContents,
+    capturedLatestEngagements: args.capturedLatestEngagements,
     keywordDailyRows: args.keywordDailyRows,
     fromIso: args.fromIso,
     toIso: args.toIso,
@@ -654,9 +659,6 @@ function valueForSeries(
   }
   if (id === "observed_qualified_posts") {
     return point.qualifiedPostVolume;
-  }
-  if ((id === "total_new_posts" || id === "qualified_post_count") && coverage?.coverageStatus !== "complete") {
-    return null;
   }
   if (id === "heat_price") {
     return point.heatPrice;

@@ -12,6 +12,7 @@ import type { MonitorTargetRepository } from "../../domain/repositories/monitor-
 import type { SubredditDailyFactRepository } from "../../domain/repositories/subreddit-daily-fact-repository";
 import type { SubredditTrendPointRepository } from "../../domain/repositories/subreddit-trend-point-repository";
 import type { PostGrowthFactRepository } from "../../domain/repositories/post-growth-fact-repository";
+import type { PostEngagementRepository } from "../../domain/repositories/post-engagement-repository";
 import type { ContentRepository } from "../../domain/repositories/content-repository";
 import type { AnomalyEventRepository } from "../../domain/repositories/anomaly-event-repository";
 import type { ProviderHealthWindowRepository } from "../../domain/repositories/provider-health-window-repository";
@@ -32,6 +33,7 @@ export interface WorkbenchRefreshRepositories {
   subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
   postGrowthFactRepository: PostGrowthFactRepository;
+  postEngagementRepository: PostEngagementRepository;
   contentRepository: ContentRepository;
   anomalyEventRepository: AnomalyEventRepository;
   providerHealthWindowRepository?: ProviderHealthWindowRepository;
@@ -320,6 +322,7 @@ export async function buildTargetWorkbenchFromRefreshContract(
     keywordDailyRows,
     postGrowthFacts,
     contents,
+    capturedContents,
     anomalyEvents,
     providerHealthWindows,
     collectionCoverage,
@@ -357,6 +360,13 @@ export async function buildTargetWorkbenchFromRefreshContract(
       from: contract.fromIso,
       to: contract.toIso,
       limit: Math.max(contract.driverLimit * 5, 100),
+    }),
+    repos.contentRepository.findByTargetFirstSeenAtRange({
+      targetId: target.id,
+      from: contract.fromIso,
+      to: contract.toIso,
+      limit: 20_000,
+      totalEligibleOnly: true,
     }),
     repos.anomalyEventRepository.listByTargetInRange({
       targetId: target.id,
@@ -396,6 +406,14 @@ export async function buildTargetWorkbenchFromRefreshContract(
       limit: Math.max(contract.driverLimit * 10, 200),
     }),
   ]);
+  const capturedLatestEngagements =
+    capturedContents.length > 0
+      ? await repos.postEngagementRepository.listLatestByContentIdsInRange({
+          contentIds: capturedContents.map((content) => content.id),
+          from: "1970-01-01T00:00:00.000Z",
+          to: contract.toIso,
+        })
+      : [];
 
   return buildTargetWorkbenchReadModel({
     requestId: contract.requestId,
@@ -410,6 +428,8 @@ export async function buildTargetWorkbenchFromRefreshContract(
     keywordDailyRows,
     postGrowthFacts,
     contents,
+    capturedContents,
+    capturedLatestEngagements,
     anomalyEvents,
     providerHealthWindows,
     collectionCoverage,

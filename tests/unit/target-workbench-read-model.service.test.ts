@@ -118,7 +118,7 @@ test("target workbench data quality marks sparse front-loaded backfill as partia
   );
   assert.equal(
     response.indicators.find((indicator) => indicator.id === "total_new_posts")?.label,
-    "Total New Posts",
+    "Captured New Posts",
   );
   assert.equal(
     response.indicators.find((indicator) => indicator.id === "total_new_posts")?.defaultVisible,
@@ -126,7 +126,7 @@ test("target workbench data quality marks sparse front-loaded backfill as partia
   );
   assert.equal(
     response.indicators.find((indicator) => indicator.id === "qualified_post_count")?.label,
-    "Qualified Posts",
+    "Captured Qualified Posts",
   );
   assert.equal(response.series[0]?.points[0]?.quality, "observed");
 });
