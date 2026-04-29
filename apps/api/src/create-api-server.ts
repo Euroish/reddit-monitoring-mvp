@@ -758,7 +758,6 @@ function isPrivilegedWritePath(pathname: string): boolean {
     pathname === "/v1/ops/maintenance/prune/raw-events" ||
     pathname === "/v1/ops/maintenance/prune/metrics-snapshots" ||
     pathname === "/v1/ops/maintenance/prune/post-engagement-windows" ||
-    pathname === "/v1/runs/reddit-phase1" ||
     pathname === "/auth/invites" ||
     /^\/auth\/users\/[^/]+\/activate$/.test(pathname) ||
     /^\/auth\/users\/[^/]+\/status$/.test(pathname)
@@ -1513,93 +1512,6 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         }
       }
 
-      if (req.method === "POST" && pathname === "/auth/invites") {
-        if (!repos.appInviteRepository) {
-          respond({
-            statusCode: 503,
-            body: toApiError({
-              requestId,
-              message: "auth repositories are unavailable",
-              code: "auth_unavailable",
-            }),
-            errorCode: "auth_unavailable",
-          });
-          return;
-        }
-
-        const body = await readJsonBody<CreateInviteRequest>(req);
-        const roleOnAccept = body?.roleOnAccept ?? "viewer";
-        const maxUses = body?.maxUses ?? 1;
-        const expiresAt = typeof body?.expiresAt === "string" ? body.expiresAt : undefined;
-        const code = typeof body?.code === "string" ? body.code : undefined;
-        if (
-          !isSupportedAppUserRole(roleOnAccept) ||
-          !Number.isInteger(maxUses) ||
-          maxUses < 1 ||
-          maxUses > 100 ||
-          (expiresAt && Number.isNaN(new Date(expiresAt).getTime()))
-        ) {
-          respond({
-            statusCode: 400,
-            body: toApiError({
-              requestId,
-              message: "invalid invite request",
-              code: "invalid_invite_request",
-            }),
-            errorCode: "invalid_invite_request",
-          });
-          return;
-        }
-
-        try {
-          const result = await createAppInvite(
-            {
-              appInviteRepository: repos.appInviteRepository,
-              sessionTokenService,
-              now,
-            },
-            {
-              roleOnAccept,
-              maxUses,
-              expiresAt,
-              code,
-            },
-          );
-          const payload: CreateInviteResponse = {
-            ok: true,
-            requestId,
-            invite: {
-              id: result.invite.id,
-              roleOnAccept: result.invite.roleOnAccept,
-              maxUses: result.invite.maxUses,
-              usedCount: result.invite.usedCount,
-              expiresAt: result.invite.expiresAt,
-              createdAt: result.invite.createdAt,
-            },
-            code: result.code,
-          };
-          respond({
-            statusCode: 201,
-            body: payload,
-          });
-          return;
-        } catch (error) {
-          if (error instanceof CreateAppInviteError) {
-            respond({
-              statusCode: error.code === "invite_code_conflict" ? 409 : 400,
-              body: toApiError({
-                requestId,
-                message: error.message,
-                code: error.code,
-              }),
-              errorCode: error.code,
-            });
-            return;
-          }
-          throw error;
-  }
-}
-
       if (req.method === "GET" && pathname === "/auth/users") {
         if (!repos.appUserRepository) {
           respond({
@@ -1743,7 +1655,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
         const payload: UpdateAppUserStatusResponse = {
           ok: true,
-          requestId,
+            requestId,
           user: toAuthUserView(user),
         };
         respond({
@@ -1751,6 +1663,93 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           body: payload,
         });
         return;
+      }
+
+      if (req.method === "POST" && pathname === "/auth/invites") {
+        if (!repos.appInviteRepository) {
+          respond({
+            statusCode: 503,
+            body: toApiError({
+              requestId,
+              message: "auth repositories are unavailable",
+              code: "auth_unavailable",
+            }),
+            errorCode: "auth_unavailable",
+          });
+          return;
+        }
+
+        const body = await readJsonBody<CreateInviteRequest>(req);
+        const roleOnAccept = body?.roleOnAccept ?? "viewer";
+        const maxUses = body?.maxUses ?? 1;
+        const expiresAt = typeof body?.expiresAt === "string" ? body.expiresAt : undefined;
+        const code = typeof body?.code === "string" ? body.code : undefined;
+        if (
+          !isSupportedAppUserRole(roleOnAccept) ||
+          !Number.isInteger(maxUses) ||
+          maxUses < 1 ||
+          maxUses > 100 ||
+          (expiresAt && Number.isNaN(new Date(expiresAt).getTime()))
+        ) {
+          respond({
+            statusCode: 400,
+            body: toApiError({
+              requestId,
+              message: "invalid invite request",
+              code: "invalid_invite_request",
+            }),
+            errorCode: "invalid_invite_request",
+          });
+          return;
+        }
+
+        try {
+          const result = await createAppInvite(
+            {
+              appInviteRepository: repos.appInviteRepository,
+              sessionTokenService,
+              now,
+            },
+            {
+              roleOnAccept,
+              maxUses,
+              expiresAt,
+              code,
+            },
+          );
+          const payload: CreateInviteResponse = {
+            ok: true,
+            requestId,
+            invite: {
+              id: result.invite.id,
+              roleOnAccept: result.invite.roleOnAccept,
+              maxUses: result.invite.maxUses,
+              usedCount: result.invite.usedCount,
+              expiresAt: result.invite.expiresAt,
+              createdAt: result.invite.createdAt,
+            },
+            code: result.code,
+          };
+          respond({
+            statusCode: 201,
+            body: payload,
+          });
+          return;
+        } catch (error) {
+          if (error instanceof CreateAppInviteError) {
+            respond({
+              statusCode: error.code === "invite_code_conflict" ? 409 : 400,
+              body: toApiError({
+                requestId,
+                message: error.message,
+                code: error.code,
+              }),
+              errorCode: error.code,
+            });
+            return;
+          }
+          throw error;
+        }
       }
 
       if (req.method === "GET" && pathname === "/auth/me") {

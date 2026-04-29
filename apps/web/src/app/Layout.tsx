@@ -14,6 +14,7 @@ export function Layout() {
     { to: '/compare', label: 'Compare' },
     { to: '/queries', label: 'Queries' },
     { to: '/saved', label: 'Saved' },
+    { to: '/run', label: 'Run Phase 1' },
   ];
   const opsLinks = [
     { to: '/ops', label: 'Overview' },
