@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: product-feedback-recovery-landed
-updated_at: "2026-04-29 06:48:43"
+stage: target-workbench-scale-polish-landed
+updated_at: "2026-04-29 07:02:58"
 repo_path: "/root/reddit-monitoring-mvp"
-next_action: "Run database migration/deploy for the recovered target-workbench slice, then browser-check /target/:targetId desktop and narrow widths with fresh collection data so the new listing provenance, composition donut, widened qualified rule, and driver fallback can be validated against live data."
+next_action: "Deploy the target-workbench scale polish, then browser-check /target/:targetId at desktop width to confirm metric panels no longer compress typography and the chart-top Captured Qualified Posts band has enough visual height."
 tags:
 - codex
 - workspace
@@ -23,7 +23,7 @@ tags:
 - Archive: keep `Archive/` empty by default. External analysis notes are temporary inputs only; read, reconcile against code, update this file or the active implementation contract, then remove.
 - Product truth: this is a bounded monitored Reddit analytics workbench. The target workbench now exposes captured-day chart semantics plus a broader fetched-data composition pool across `new` / `hot` / `best` / `rising` / `top` provenance. `new` remains the time-contiguous total-volume evidence; the additional listing lanes support fetched-pool display, driver fallback, and composition analysis.
 - Runtime path: `http` primary plus `scrapling` fallback capability. Legacy Apify is not an active main path.
-- Current frontend truth: `WorkbenchChart` uses `lightweight-charts`, and `/target/:targetId` has a second-pass recovered command surface: large fetched/qualified/driver/heat readouts, a TradingView-like chart workspace, and an interactive real-data composition donut with listing/classification/engagement modes.
+- Current frontend truth: `WorkbenchChart` uses `lightweight-charts`, and `/target/:targetId` has a third-pass scale polish: wider two-column hero, roomier metric panels, full-width composition area, and a high-visibility `Captured Qualified Posts` band directly above the chart.
 
 ## Attention Hygiene
 
@@ -96,6 +96,11 @@ tags:
   - total fetched posts, qualified posts, and driver count are promoted to large primary readouts
   - driver posts fall back to captured hot/best/rising/top listing posts when post-growth driver facts are empty
   - live collection fetches `new`, `hot`, `best`, `rising`, and `top` lanes with provenance
+- Current visual scale feedback is also landed in working tree:
+  - used local `awesome-design-md-main` references for Stripe's generous chrome around dense data, Linear's dark precision hierarchy, and Coinbase's large-radius spacious containers
+  - widened the target hero from cramped three-column cards to a wider two-column hero plus full-width composition module
+  - increased metric panel padding, row height, and display-number scale so labels and large numerals are no longer compressed
+  - added a chart-top `Captured Qualified Posts` visualization band with large count, fetched-pool percentage, and a tall progress bar
 - Remaining live-product regressions/user-reported gaps now need explicit resolution before broad surface expansion:
   - qualified-post counts appear materially lower than the prior user expectation of `like > 20 && comment > 20`, so the current qualified-post algorithm/threshold path needs reconciliation against historical behavior and honest recovery options
   - returning to `/markets` after visiting another page can still black-screen or stall, so route-transition stability around the market page remains unresolved
@@ -250,6 +255,13 @@ tags:
 - Documentation-only state updates do not require tests, but they must keep `project.md` aligned with the currently promoted implementation contract and mark older planning notes as historical when they drift from code.
 
 ## Activity Log
+
+### 2026-04-29 07:02:58
+
+- Scope: Applied the latest visual scale feedback to `/target/:targetId`. The target workbench hero is now wider and less compressed, composition spans full width, metric typography is larger, and a new high-visibility `Captured Qualified Posts` band sits above the chart with count, fetched-pool share, and progress visualization.
+- Design references: Consulted local `awesome-design-md-main` entries for Stripe (`dense data, generous chrome`), Linear (dark-mode native hierarchy and large compressed numerals), and Coinbase (spacious large-radius financial containers). No external assets were copied.
+- Verify: `npm --prefix apps/web run build` passed, `npm --prefix apps/web run lint` passed, and `git diff --check` passed.
+- Next: Deploy this scale-polish slice and browser-check desktop target detail for typography compression, chart-top qualified-post emphasis, and narrow-width responsive fallback.
 
 ### 2026-04-29 06:48:43
 

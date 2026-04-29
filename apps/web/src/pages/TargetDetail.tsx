@@ -240,6 +240,16 @@ export function TargetDetail() {
       qualifiedPostsLabel: 'Qualified Posts',
     };
   }, [data]);
+  const qualifiedHighlight = useMemo(() => {
+    const fetched = data?.composition.fetchedPostCount || latestDailyPoint?.posts || 0;
+    const qualified = data?.composition.qualifiedPostCount || latestDailyPoint?.qualifiedPosts || 0;
+    const share = fetched > 0 && qualified > 0 ? Math.min(100, Math.max(0, (qualified / fetched) * 100)) : 0;
+    return {
+      fetched,
+      qualified,
+      share,
+    };
+  }, [data, latestDailyPoint]);
 
   const selectedCompareTargets = parseCompareTargets(compare);
   const suggestedCompareTargets = (() => {
@@ -476,6 +486,21 @@ export function TargetDetail() {
             </div>
 
             <div className="target-chart-stage">
+              <div className="target-qualified-band">
+                <div>
+                  <div className="target-eyebrow">Captured Qualified Posts</div>
+                  <div className="target-qualified-band-value">{formatNumber(qualifiedHighlight.qualified)}</div>
+                </div>
+                <div className="target-qualified-band-visual">
+                  <div className="target-qualified-band-meta">
+                    <span>{formatNumber(qualifiedHighlight.share, 1)}% of fetched pool</span>
+                    <strong>{formatNumber(qualifiedHighlight.fetched)} fetched posts</strong>
+                  </div>
+                  <div className="target-qualified-bar">
+                    <span style={{ width: `${qualifiedHighlight.share}%` }} />
+                  </div>
+                </div>
+              </div>
               <div className="target-chart-toolbar">
                 <div className="target-chart-title">
                   <h3>Workbench Chart</h3>

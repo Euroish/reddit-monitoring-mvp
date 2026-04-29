@@ -1,7 +1,7 @@
 # Frontend Upgrade Workflow
 
 日期：2026-04-29
-状态：active，target-detail recovery landed in working tree
+状态：active，target-detail scale polish landed in working tree
 适用范围：当前 `apps/web` 前端升级、UI/UX 优化、图表交互升级、设计资源编排
 
 ## 1. 真相源
@@ -57,6 +57,11 @@
   - 视觉方向采用 TradingView 信息密度 + Spaceship 式柔和几何深度，不再以卡片堆叠作为首屏主结构。
   - 互动扇形/环形组成图由真实 `TargetWorkbenchResponse.composition` 数据驱动。
   - `Qualified Posts` 和总抓取帖子量已提升为主指标。
+- 最新视觉 scale feedback：
+  - 用户反馈卡片仍太窄，字体设计被压缩。
+  - 已参考本地 `awesome-design-md-main` 中 Stripe、Linear、Coinbase 的设计资料，采用更宽、更大气的 financial/workbench 容器节奏。
+  - 已把首屏改为宽两列 + full-width composition，并提升 metric panel padding、最小高度、数字字号。
+  - 已在 chart 上方新增高可视化 `Captured Qualified Posts` band。
 
 ### 2.4 当前产品语言
 
@@ -76,7 +81,7 @@
 
 优先页面顺序：
 
-1. `/target/:targetId`：第二轮 recovery 已落地，下一步是迁移/部署/浏览器验收
+1. `/target/:targetId`：第三轮 scale polish 已落地，下一步是部署/浏览器验收
 2. `/compare`：等 target-detail recovery 浏览器验收后再复用视觉语言
 3. `/markets`：先处理返回路由稳定性/重载感，再做视觉重构
 4. `/markets/board`
@@ -203,7 +208,7 @@ TradingView-like 交互图表优先采用 `lightweight-charts`。
 
 ### 阶段 B：抽视觉系统
 
-- `index.css` 已加入第二轮 target recovered visual system：hero band、large metrics、composition donut、grid depth、responsive collapse
+- `index.css` 已加入第三轮 target scale polish：wide hero band、roomier metric panels、full-width composition donut、chart-top qualified band、responsive collapse
 - 当前视觉方向：TradingView 信息密度 + Spaceship 风格 polish，避免卡片堆叠和普通后台感
 - 再整理 `ui/index.tsx` primitive 的尺寸、状态、边框和阴影
 - 目标是统一壳层、卡片、表格、表单、badge、按钮的基本语言
@@ -220,7 +225,7 @@ TradingView-like 交互图表优先采用 `lightweight-charts`。
 
 顺序固定：
 
-1. target detail：第二轮 recovery 已实现，待迁移/部署/浏览器验收
+1. target detail：第三轮 scale polish 已实现，待部署/浏览器验收
 2. compare：target recovery 验收后再推进
 3. markets：在 route-return 稳定性确认后执行
 4. markets/board
@@ -276,14 +281,14 @@ TradingView-like 交互图表优先采用 `lightweight-charts`。
 3. `awesome-design-md-main` 已被纳入固定使用顺序：已满足
 4. 图表升级路径明确为 `lightweight-charts` + 本地 adapter 边界：已满足，且 target detail 第一轮实现已部署
 5. 后续页面升级不再依赖过时盘点文档：已满足
-6. 新增完成门槛：target detail recovery 已完成代码实现；仍需迁移、部署、fresh collection、浏览器级桌面/窄屏验收后，才视为产品验收完成
+6. 新增完成门槛：target detail scale polish 已完成代码实现；仍需部署、fresh collection、浏览器级桌面/窄屏验收后，才视为产品验收完成
 
 ## 9. 当前执行状态
 
 - 已完成：`lightweight-charts` dependency 已安装并被 `WorkbenchChart` 使用。
-- 已完成：`/target/:targetId` 第二轮 recovered workbench 已落地，包含 large metric hero、interactive composition donut、driver fallback visibility。
+- 已完成：`/target/:targetId` 第三轮 scale-polished workbench 已落地，包含更宽 metric hero、full-width composition donut、chart-top `Captured Qualified Posts` band。
 - 已完成：`npm --prefix apps/web run build` 通过。
 - 已完成：`npm --prefix apps/web run lint` 通过。
 - 已完成：`npm run build` 通过，包含 API 合同/类型检查。
-- 未完成：数据库迁移应用、API/web 部署、fresh collection 后的浏览器级验收。
-- 下一步：先迁移/部署/验收 target-detail recovery，不再直接推进 `/compare`。
+- 未完成：scale-polish 部署、fresh collection 后的浏览器级验收。
+- 下一步：先部署/验收 target-detail scale polish，不再直接推进 `/compare`。
