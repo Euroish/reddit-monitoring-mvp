@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext';
 import { RequireAuth, RoleGuard } from './auth/RequireAuth';
 import { Layout } from './app/Layout';
+import { LanguageProvider, useLanguage } from './i18n/LanguageContext';
 
 const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })));
 const Register = lazy(() => import('./pages/Register').then((module) => ({ default: module.Register })));
@@ -22,71 +23,74 @@ const OpsCollection = lazy(() => import('./pages/OpsCollection').then((module) =
 const OpsMaintenance = lazy(() => import('./pages/OpsMaintenance').then((module) => ({ default: module.OpsMaintenance })));
 
 function RouteLoadingFallback() {
+  const { t } = useLanguage();
   return (
     <div style={{ padding: '2rem', color: 'var(--text-tertiary)' }}>
-      Loading page...
+      {t('Loading page...')}
     </div>
   );
 }
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Suspense fallback={<RouteLoadingFallback />}>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            
-            <Route element={<RequireAuth><Layout /></RequireAuth>}>
-              <Route path="/markets" element={<Dashboard />} />
-              <Route path="/markets/board" element={<MarketBoard />} />
-              <Route path="/dashboard" element={<Navigate to="/markets" replace />} />
-              <Route path="/compare" element={<Compare />} />
-              <Route path="/queries" element={<Queries />} />
-              <Route path="/saved" element={<Saved />} />
-              <Route path="/run" element={<RunPhase1 />} />
-              <Route path="/target/:targetId" element={<TargetDetail />} />
-              <Route path="/ops" element={
-                <RoleGuard allowedRoles={['admin', 'owner']}>
-                  <Ops />
-                </RoleGuard>
-              } />
-              <Route path="/ops/storage" element={
-                <RoleGuard allowedRoles={['admin', 'owner']}>
-                  <OpsStorage />
-                </RoleGuard>
-              } />
-              <Route path="/ops/users" element={
-                <RoleGuard allowedRoles={['admin', 'owner']}>
-                  <OpsUsers />
-                </RoleGuard>
-              } />
-              <Route path="/ops/invites" element={
-                <RoleGuard allowedRoles={['admin', 'owner']}>
-                  <OpsInvites />
-                </RoleGuard>
-              } />
-              <Route path="/ops/targets" element={
-                <RoleGuard allowedRoles={['admin', 'owner']}>
-                  <OpsTargets />
-                </RoleGuard>
-              } />
-              <Route path="/ops/collection" element={
-                <RoleGuard allowedRoles={['admin', 'owner']}>
-                  <OpsCollection />
-                </RoleGuard>
-              } />
-              <Route path="/ops/maintenance" element={
-                <RoleGuard allowedRoles={['admin', 'owner']}>
-                  <OpsMaintenance />
-                </RoleGuard>
-              } />
-              <Route path="/" element={<Navigate to="/markets" replace />} />
-            </Route>
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
-    </AuthProvider>
+    <LanguageProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+
+              <Route element={<RequireAuth><Layout /></RequireAuth>}>
+                <Route path="/markets" element={<Dashboard />} />
+                <Route path="/markets/board" element={<MarketBoard />} />
+                <Route path="/dashboard" element={<Navigate to="/markets" replace />} />
+                <Route path="/compare" element={<Compare />} />
+                <Route path="/queries" element={<Queries />} />
+                <Route path="/saved" element={<Saved />} />
+                <Route path="/run" element={<RunPhase1 />} />
+                <Route path="/target/:targetId" element={<TargetDetail />} />
+                <Route path="/ops" element={
+                  <RoleGuard allowedRoles={['admin', 'owner']}>
+                    <Ops />
+                  </RoleGuard>
+                } />
+                <Route path="/ops/storage" element={
+                  <RoleGuard allowedRoles={['admin', 'owner']}>
+                    <OpsStorage />
+                  </RoleGuard>
+                } />
+                <Route path="/ops/users" element={
+                  <RoleGuard allowedRoles={['admin', 'owner']}>
+                    <OpsUsers />
+                  </RoleGuard>
+                } />
+                <Route path="/ops/invites" element={
+                  <RoleGuard allowedRoles={['admin', 'owner']}>
+                    <OpsInvites />
+                  </RoleGuard>
+                } />
+                <Route path="/ops/targets" element={
+                  <RoleGuard allowedRoles={['admin', 'owner']}>
+                    <OpsTargets />
+                  </RoleGuard>
+                } />
+                <Route path="/ops/collection" element={
+                  <RoleGuard allowedRoles={['admin', 'owner']}>
+                    <OpsCollection />
+                  </RoleGuard>
+                } />
+                <Route path="/ops/maintenance" element={
+                  <RoleGuard allowedRoles={['admin', 'owner']}>
+                    <OpsMaintenance />
+                  </RoleGuard>
+                } />
+                <Route path="/" element={<Navigate to="/markets" replace />} />
+              </Route>
+            </Routes>
+          </Suspense>
+        </BrowserRouter>
+      </AuthProvider>
+    </LanguageProvider>
   );
 }

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
 import { Badge, Button, Card, Input, Select } from '../components/ui';
+import { useLanguage } from '../i18n/LanguageContext';
 import type {
   CollectionRunNowResponse,
   GetCollectionSettingsResponse,
@@ -53,6 +54,7 @@ function targetCadenceHours(target: SubredditTargetAdminView, fallbackHours: num
 }
 
 export function OpsCollection() {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['ops.collection.settings'],
@@ -137,48 +139,48 @@ export function OpsCollection() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Collection</h1>
-          <p className="page-subtitle">Control automatic collection scope, cadence, and fetch budget from one place, then trigger live or backfill runs with the same backend settings.</p>
+          <h1>{t('Collection')}</h1>
+          <p className="page-subtitle">{t('Control automatic collection scope, cadence, and fetch budget from one place, then trigger live or backfill runs with the same backend settings.')}</p>
         </div>
       </div>
 
-      {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>Loading collection settings...</div>}
-      {error && <div style={{ color: '#ff4d4f' }}>Error loading collection settings.</div>}
+      {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>{t('Loading collection settings...')}</div>}
+      {error && <div style={{ color: '#ff4d4f' }}>{t('Error loading collection settings.')}</div>}
 
       {data && draft && (
         <div className="responsive-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
           <Card>
-            <h3 style={{ marginBottom: '16px' }}>Automatic Collection Summary</h3>
+            <h3 style={{ marginBottom: '16px' }}>{t('Automatic Collection Summary')}</h3>
             <div className="list-stack">
               <div className="metric-grid">
                 <div>
-                  <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-tertiary)' }}>Selection mode</div>
+                  <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-tertiary)' }}>{t('Selection mode')}</div>
                   <div style={{ fontWeight: 560 }}>
-                    {effectiveMode === 'favorites_only' ? 'Auto collect only marked targets' : 'Fallback to all active targets'}
+                    {effectiveMode === 'favorites_only' ? t('Auto collect only marked targets') : t('Fallback to all active targets')}
                   </div>
                 </div>
                 <div>
-                  <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-tertiary)' }}>Auto targets now</div>
+                  <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-tertiary)' }}>{t('Auto targets now')}</div>
                   <div style={{ fontWeight: 560 }}>{effectiveTargets.length}</div>
                 </div>
                 <div>
-                  <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-tertiary)' }}>Live fetch budget</div>
+                  <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-tertiary)' }}>{t('Live fetch budget')}</div>
                   <div style={{ fontWeight: 560 }}>
                     {draft.adaptiveLimitEnabled
-                      ? `${draft.postLimitBase} base, up to ${draft.postLimitBoost}`
-                      : `${draft.postLimitBase} fixed new posts`}
+                      ? `${draft.postLimitBase} ${t('base, up to')} ${draft.postLimitBoost}`
+                      : `${draft.postLimitBase} ${t('fixed new posts')}`}
                   </div>
                 </div>
                 <div>
-                  <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-tertiary)' }}>Backfill budget</div>
+                  <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-tertiary)' }}>{t('Backfill budget')}</div>
                   <div style={{ fontWeight: 560 }}>
-                    {draft.backfillPostLimit} per iteration for {draft.backfillTargetDays} days
+                    {draft.backfillPostLimit} {t('per iteration for')} {draft.backfillTargetDays} {t('days')}
                   </div>
                 </div>
               </div>
 
               <div style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>
-                Rule: if any target is marked <span style={{ color: 'var(--text-primary)' }}>Auto collect</span> in <code>/ops/targets</code>, the scheduler runs only those active targets. If none are marked, it falls back to all active targets.
+                {t('Rule: if any target is marked Auto collect in')} <code>/ops/targets</code>{t(', the scheduler runs only those active targets. If none are marked, it falls back to all active targets.')}
               </div>
 
               <div className="list-stack">
@@ -187,18 +189,18 @@ export function OpsCollection() {
                     <div>
                       <div style={{ color: 'var(--text-primary)', fontWeight: 560 }}>{target.canonicalName}</div>
                       <div style={{ color: 'var(--text-tertiary)', fontSize: '12px', marginTop: '4px' }}>
-                        {target.favorite ? 'explicit auto-collect target' : 'included by all-active fallback'}
+                        {target.favorite ? t('explicit auto-collect target') : t('included by all-active fallback')}
                       </div>
                     </div>
-                    <Badge variant="neutral">{targetCadenceHours(target, data.settings.defaultCadenceHours)}h cadence</Badge>
+                    <Badge variant="neutral">{targetCadenceHours(target, data.settings.defaultCadenceHours)}h {t('cadence')}</Badge>
                   </div>
                 ))}
                 {effectiveTargets.length === 0 && (
-                  <div style={{ color: 'var(--text-tertiary)' }}>No active targets are currently eligible for automatic collection.</div>
+                  <div style={{ color: 'var(--text-tertiary)' }}>{t('No active targets are currently eligible for automatic collection.')}</div>
                 )}
                 {effectiveTargets.length > 12 && (
                   <div style={{ color: 'var(--text-tertiary)', fontSize: '12px' }}>
-                    Showing 12 of {effectiveTargets.length} automatic targets. Use <code>/ops/targets</code> to edit the full pool.
+                    {t('Showing 12 of')} {effectiveTargets.length} {t('automatic targets. Use')} <code>/ops/targets</code> {t('to edit the full pool.')}
                   </div>
                 )}
               </div>
@@ -206,52 +208,52 @@ export function OpsCollection() {
           </Card>
 
           <Card>
-            <h3 style={{ marginBottom: '16px' }}>Settings</h3>
+            <h3 style={{ marginBottom: '16px' }}>{t('Settings')}</h3>
             <div className="list-stack">
               <label>
-                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Default auto-collect cadence hours</div>
+                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>{t('Default auto-collect cadence hours')}</div>
                 <Input
                   value={draft.defaultCadenceHours}
                   onChange={(event) => updateDraft({ defaultCadenceHours: event.target.value })}
                 />
               </label>
               <label>
-                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Live new-post budget</div>
+                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>{t('Live new-post budget')}</div>
                 <Input
                   value={draft.postLimitBase}
                   onChange={(event) => updateDraft({ postLimitBase: event.target.value })}
                 />
               </label>
               <label>
-                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Adaptive live boost ceiling</div>
+                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>{t('Adaptive live boost ceiling')}</div>
                 <Input
                   value={draft.postLimitBoost}
                   onChange={(event) => updateDraft({ postLimitBoost: event.target.value })}
                 />
               </label>
               <label>
-                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Backfill post limit</div>
+                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>{t('Backfill post limit')}</div>
                 <Input
                   value={draft.backfillPostLimit}
                   onChange={(event) => updateDraft({ backfillPostLimit: event.target.value })}
                 />
               </label>
               <label>
-                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Backfill target days</div>
+                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>{t('Backfill target days')}</div>
                 <Input
                   value={draft.backfillTargetDays}
                   onChange={(event) => updateDraft({ backfillTargetDays: event.target.value })}
                 />
               </label>
               <label>
-                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Backfill max iterations per target</div>
+                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>{t('Backfill max iterations per target')}</div>
                 <Input
                   value={draft.backfillMaxIterationsPerTarget}
                   onChange={(event) => updateDraft({ backfillMaxIterationsPerTarget: event.target.value })}
                 />
               </label>
               <label>
-                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Provider preference</div>
+                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>{t('Provider preference')}</div>
                 <Select
                   value={draft.providerPreference}
                   onChange={(event) => updateDraft({ providerPreference: event.target.value as 'default' | 'http' | 'scrapling' })}
@@ -267,34 +269,34 @@ export function OpsCollection() {
                   checked={draft.adaptiveLimitEnabled}
                   onChange={(event) => updateDraft({ adaptiveLimitEnabled: event.target.checked })}
                 />
-                <span>Adaptive live budget enabled</span>
+                <span>{t('Adaptive live budget enabled')}</span>
               </label>
               <div style={{ color: 'var(--text-tertiary)', fontSize: '12px' }}>
-                When adaptive budget is off, the scheduler uses the live new-post budget as a fixed per-run fetch count. When it is on, the scheduler starts from that base and can raise it up to the boost ceiling for hotter targets.
+                {t('When adaptive budget is off, the scheduler uses the live new-post budget as a fixed per-run fetch count. When it is on, the scheduler starts from that base and can raise it up to the boost ceiling for hotter targets.')}
               </div>
               <div className="filter-bar">
                 <Button type="button" variant="primary" onClick={saveAllSettings} disabled={saveSettings.isPending}>
-                  {saveSettings.isPending ? 'Saving...' : 'Save collection settings'}
+                  {saveSettings.isPending ? t('Saving...') : t('Save collection settings')}
                 </Button>
                 <Button type="button" variant="ghost" onClick={() => setDraftState({ source: dataSource, value: buildDraft(data) })} disabled={saveSettings.isPending}>
-                  Reset
+                  {t('Reset')}
                 </Button>
               </div>
               <div style={{ color: 'var(--text-tertiary)', fontSize: '12px' }}>
-                Last updated {new Date(data.settings.updatedAt).toLocaleString()}
+                {t('Last updated')} {new Date(data.settings.updatedAt).toLocaleString()}
               </div>
             </div>
           </Card>
 
           <Card>
-            <h3 style={{ marginBottom: '16px' }}>Run Now</h3>
+            <h3 style={{ marginBottom: '16px' }}>{t('Run Now')}</h3>
             <div className="list-stack">
               <label>
-                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Subreddit</div>
-                <Input value={subreddit} onChange={(event) => setSubreddit(event.target.value)} placeholder="Optional, e.g. datascience" />
+                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>{t('Subreddit')}</div>
+                <Input value={subreddit} onChange={(event) => setSubreddit(event.target.value)} placeholder={t('Optional, e.g. datascience')} />
               </label>
               <label>
-                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Crawl mode</div>
+                <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>{t('Crawl mode')}</div>
                 <Select value={crawlMode} onChange={(event) => setCrawlMode(event.target.value as 'live' | 'backfill')}>
                   <option value="live">live</option>
                   <option value="backfill">backfill</option>
@@ -302,19 +304,19 @@ export function OpsCollection() {
               </label>
               <label className="list-row-start">
                 <input type="checkbox" checked={runAsync} onChange={(event) => setRunAsync(event.target.checked)} />
-                <span>Queue async run</span>
+                <span>{t('Queue async run')}</span>
               </label>
               <Button type="button" variant="primary" onClick={() => runNow.mutate()} disabled={runNow.isPending}>
-                {runNow.isPending ? 'Running...' : 'Run now'}
+                {runNow.isPending ? t('Running...') : t('Run now')}
               </Button>
               {runNow.data && (
                 <div className="list-stack">
                   <Badge variant="success">{runNow.data.crawlMode}</Badge>
                   <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-                    Requested: {runNow.data.requestedCanonicalNames.join(', ') || 'all active targets'}
+                    {t('Requested:')} {runNow.data.requestedCanonicalNames.join(', ') || t('all active targets')}
                   </div>
                   <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-                    Processed: {runNow.data.processedCanonicalNames.join(', ') || 'queued'}
+                    {t('Processed:')} {runNow.data.processedCanonicalNames.join(', ') || t('queued')}
                   </div>
                 </div>
               )}

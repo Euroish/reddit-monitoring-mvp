@@ -17,6 +17,7 @@ import {
   parseCsvList,
   WORKBENCH_RANGE_PRESETS,
 } from '../features/workbench/model/urlState';
+import { useLanguage } from '../i18n/LanguageContext';
 import type {
   MarketTrendResponse,
   CreateSavedWorkbenchViewRequest,
@@ -85,6 +86,7 @@ function CompositionDonut({
   onModeChange: (mode: CompositionMode) => void;
   onActiveChange: (id: string | null) => void;
 }) {
+  const { t } = useLanguage();
   const segments = toCompositionSegments(data, mode);
   const total = segments.reduce((sum, item) => sum + item.count, 0);
   const activeSegment = segments.find((item) => item.id === activeId) ?? segments[0] ?? null;
@@ -92,8 +94,8 @@ function CompositionDonut({
     <div className="target-composition">
       <div className="target-composition-header">
         <div>
-          <div className="target-eyebrow">Fetched mix</div>
-          <h3>Composition</h3>
+          <div className="target-eyebrow">{t('Fetched mix')}</div>
+          <h3>{t('Composition')}</h3>
         </div>
         <div className="target-segment-switch">
           {(['listing', 'classification', 'engagement'] as const).map((item) => (
@@ -121,7 +123,7 @@ function CompositionDonut({
         >
           <span>
             <strong>{formatNumber(activeSegment?.count ?? total)}</strong>
-            <em>{activeSegment ? activeSegment.label : 'Fetched'}</em>
+            <em>{activeSegment ? activeSegment.label : t('Fetched')}</em>
           </span>
         </button>
         <div className="target-donut-legend">
@@ -151,6 +153,7 @@ function CompositionDonut({
 }
 
 export function TargetDetail() {
+  const { t } = useLanguage();
   const { targetId } = useParams<{ targetId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -422,12 +425,12 @@ export function TargetDetail() {
   };
 
   return (
-    <div>
+    <div className="target-detail-page">
       <div className="page-header">
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px', flexWrap: 'wrap' }}>
             <Link to="/markets" style={{ color: 'var(--text-tertiary)', textDecoration: 'none' }}>
-              &larr; Back
+              &larr; {t('Back')}
             </Link>
             <h1 style={{ margin: 0 }} className="break-text">{data?.target.canonicalName ?? `r/${targetId}`}</h1>
             {data && <Badge variant="neutral">{data.range.rangePreset ?? `${data.range.dayCount}d`}</Badge>}
@@ -435,43 +438,43 @@ export function TargetDetail() {
             {data?.reliability.mode && <Badge variant="neutral">{data.reliability.mode}</Badge>}
           </div>
           <p className="page-subtitle">
-            Target analytics workbench{keywords ? ` with keyword overlay: ${keywords}` : ''}
+            {t('Target analytics workbench')}{keywords ? ` ${t('with keyword overlay:')} ${keywords}` : ''}
           </p>
         </div>
       </div>
 
-      {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>Loading workbench...</div>}
-      {error && <div style={{ color: '#ff4d4f' }}>Error loading workbench data.</div>}
+      {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>{t('Loading workbench...')}</div>}
+      {error && <div style={{ color: '#ff4d4f' }}>{t('Error loading workbench data.')}</div>}
 
       {data && (
         <div className="target-workbench">
           <section className="target-command target-command-recovered">
             <div className="target-hero-band">
               <div className="target-hero-copy">
-                <div className="target-eyebrow">Trading desk</div>
-                <h2>{data.target.canonicalName} capture surface</h2>
+                <div className="target-eyebrow">{t('Trading desk')}</div>
+                <h2>{data.target.canonicalName} {t('capture surface')}</h2>
                 <p>
-                  Total fetched pool, qualified signal, and driver fallback are promoted to the primary readout.
+                  {t('Total fetched pool, qualified signal, and driver fallback are promoted to the primary readout.')}
                 </p>
               </div>
               <div className="target-hero-stats">
                 <div className="target-metric target-metric-major">
-                  <div className="target-metric-label">{latestDailyPoint?.postsLabel ?? 'Fetched Posts'}</div>
+                  <div className="target-metric-label">{t(latestDailyPoint?.postsLabel ?? 'Fetched Posts')}</div>
                   <div className="target-metric-value">{formatNumber(data.composition.fetchedPostCount || latestDailyPoint?.posts)}</div>
-                  <div className="target-metric-caption">All captured listing lanes in range</div>
+                  <div className="target-metric-caption">{t('All captured listing lanes in range')}</div>
                 </div>
                 <div className="target-metric target-metric-major qualified">
-                  <div className="target-metric-label">{latestDailyPoint?.qualifiedPostsLabel ?? 'Qualified Posts'}</div>
+                  <div className="target-metric-label">{t(latestDailyPoint?.qualifiedPostsLabel ?? 'Qualified Posts')}</div>
                   <div className="target-metric-value">{formatNumber(data.composition.qualifiedPostCount || latestDailyPoint?.qualifiedPosts)}</div>
-                  <div className="target-metric-caption">Widened qualification rule</div>
+                  <div className="target-metric-caption">{t('Widened qualification rule')}</div>
                 </div>
                 <div className="target-metric">
-                  <div className="target-metric-label">Drivers</div>
+                  <div className="target-metric-label">{t('Drivers')}</div>
                   <div className="target-metric-value">{formatNumber(data.drivers.length)}</div>
-                  <div className="target-metric-caption">Growth facts or hot-listing fallback</div>
+                  <div className="target-metric-caption">{t('Growth facts or hot-listing fallback')}</div>
                 </div>
                 <div className="target-metric">
-                  <div className="target-metric-label">Heat</div>
+                  <div className="target-metric-label">{t('Heat')}</div>
                   <div className="target-metric-value">{formatNumber(latestDailyPoint?.heatPrice)}</div>
                   <div className="target-metric-caption">{data.reliability.provider ?? 'provider n/a'}</div>
                 </div>
@@ -486,25 +489,25 @@ export function TargetDetail() {
             </div>
 
             <div className="target-chart-stage">
-              <div className="target-qualified-band">
-                <div>
-                  <div className="target-eyebrow">Captured Qualified Posts</div>
-                  <div className="target-qualified-band-value">{formatNumber(qualifiedHighlight.qualified)}</div>
-                </div>
-                <div className="target-qualified-band-visual">
-                  <div className="target-qualified-band-meta">
-                    <span>{formatNumber(qualifiedHighlight.share, 1)}% of fetched pool</span>
-                    <strong>{formatNumber(qualifiedHighlight.fetched)} fetched posts</strong>
-                  </div>
-                  <div className="target-qualified-bar">
-                    <span style={{ width: `${qualifiedHighlight.share}%` }} />
-                  </div>
-                </div>
-              </div>
               <div className="target-chart-toolbar">
                 <div className="target-chart-title">
-                  <h3>Workbench Chart</h3>
-                  <p>Captured-day volume and heat movement, with draggable time scale and crosshair readout.</p>
+                  <h3>{t('Workbench Chart')}</h3>
+                  <p>{t('Captured-day volume and heat movement, with draggable time scale and crosshair readout.')}</p>
+                </div>
+                <div className="target-chart-summary">
+                  <div>
+                    <div className="target-eyebrow">{t('Captured Qualified Posts')}</div>
+                    <div className="target-chart-summary-value">{formatNumber(qualifiedHighlight.qualified)}</div>
+                  </div>
+                  <div className="target-qualified-band-visual">
+                    <div className="target-qualified-band-meta">
+                      <span>{formatNumber(qualifiedHighlight.share, 1)}% {t('qualified')}</span>
+                      <strong>{formatNumber(qualifiedHighlight.fetched)} {t('fetched')}</strong>
+                    </div>
+                    <div className="target-qualified-bar">
+                      <span style={{ width: `${qualifiedHighlight.share}%` }} />
+                    </div>
+                  </div>
                 </div>
                 <div className="target-control-cloud">
                 {WORKBENCH_RANGE_PRESETS.map((preset) => (
@@ -547,37 +550,37 @@ export function TargetDetail() {
             <div className="target-inline-forms">
               <form onSubmit={applyKeywordOverlay} className="target-inline-form">
                 <label htmlFor="target-keyword-overlay" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
-                  Keyword overlays
+                  {t('Keyword overlays')}
                 </label>
                 <Input
                   id="target-keyword-overlay"
                   value={overlayInput}
                   onChange={(event) => setOverlayDraft({ source: keywordSource, value: event.target.value })}
-                  placeholder="Add keyword overlays, comma separated"
+                  placeholder={t('Add keyword overlays, comma separated')}
                   style={{ minWidth: 0 }}
                 />
-                <Button variant="primary" type="submit">Apply</Button>
-                <Button type="button" onClick={clearKeywordOverlay}>Clear</Button>
+                <Button variant="primary" type="submit">{t('Apply')}</Button>
+                <Button type="button" onClick={clearKeywordOverlay}>{t('Clear')}</Button>
               </form>
               <form onSubmit={applyComparison} className="target-inline-form">
                 <label htmlFor="target-comparison" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
-                  Compare targets
+                  {t('Compare targets')}
                 </label>
                 <Input
                   id="target-comparison"
                   value={compareInput}
                   onChange={(event) => setCompareDraft({ source: compare ?? '', value: event.target.value })}
-                  placeholder="Compare with subreddits, comma separated"
+                  placeholder={t('Compare with subreddits, comma separated')}
                   style={{ minWidth: 0 }}
                 />
-                <Button variant="primary" type="submit">Compare</Button>
-                <Button type="button" onClick={clearComparison}>Clear</Button>
+                <Button variant="primary" type="submit">{t('Compare')}</Button>
+                <Button type="button" onClick={clearComparison}>{t('Clear')}</Button>
               </form>
             </div>
             <div style={{ display: 'grid', gap: '10px', marginBottom: '16px' }}>
               {selectedCompareTargets.length > 0 && (
                 <div className="target-context-strip">
-                  <span style={{ color: 'var(--text-tertiary)', fontSize: '12px', fontWeight: 510 }}>Selected</span>
+                  <span style={{ color: 'var(--text-tertiary)', fontSize: '12px', fontWeight: 510 }}>{t('Selected')}</span>
                   {selectedCompareTargets.map((target) => (
                     <button
                       key={target}
@@ -585,14 +588,14 @@ export function TargetDetail() {
                       onClick={() => removeComparisonTarget(target)}
                       className="target-chip active"
                     >
-                      Remove r/{target}
+                      {t('Remove')} r/{target}
                     </button>
                   ))}
                 </div>
               )}
               {suggestedCompareTargets.length > 0 && (
                 <div className="target-context-strip">
-                  <span style={{ color: 'var(--text-tertiary)', fontSize: '12px', fontWeight: 510 }}>Suggested comparisons</span>
+                  <span style={{ color: 'var(--text-tertiary)', fontSize: '12px', fontWeight: 510 }}>{t('Suggested comparisons')}</span>
                   {suggestedCompareTargets.map((canonicalName) => (
                     <button
                       key={canonicalName}
@@ -600,7 +603,7 @@ export function TargetDetail() {
                       onClick={() => addComparisonTarget(canonicalName)}
                       className="target-chip"
                     >
-                      Compare {canonicalName}
+                      {t('Compare')} {canonicalName}
                     </button>
                   ))}
                 </div>
@@ -609,9 +612,9 @@ export function TargetDetail() {
             <div style={{ display: 'grid', gap: '10px', marginBottom: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                 <div>
-                  <div style={{ color: 'var(--text-primary)', fontSize: '13px', fontWeight: 590 }}>Saved contexts</div>
+                  <div style={{ color: 'var(--text-primary)', fontSize: '13px', fontWeight: 590 }}>{t('Saved contexts')}</div>
                   <div style={{ color: 'var(--text-tertiary)', fontSize: '12px', marginTop: '2px' }}>
-                    Preserve this chart state for later analysis.
+                    {t('Preserve this chart state for later analysis.')}
                   </div>
                 </div>
                 <Button
@@ -620,14 +623,14 @@ export function TargetDetail() {
                   onClick={saveCurrentView}
                   disabled={saveViewMutation.isPending}
                 >
-                  {saveViewMutation.isPending ? 'Saving...' : 'Save view'}
+                  {saveViewMutation.isPending ? t('Saving...') : t('Save view')}
                 </Button>
               </div>
               {saveViewMutation.isSuccess && (
-                <div style={{ color: 'var(--status-emerald)', fontSize: '12px' }}>Saved.</div>
+                <div style={{ color: 'var(--status-emerald)', fontSize: '12px' }}>{t('Saved.')}</div>
               )}
               {saveViewMutation.isError && (
-                <div style={{ color: '#ff4d4f', fontSize: '12px' }}>Could not save this view.</div>
+                <div style={{ color: '#ff4d4f', fontSize: '12px' }}>{t('Could not save this view.')}</div>
               )}
               {savedViews && savedViews.views.length > 0 && (
                 <div className="target-context-strip">
@@ -664,7 +667,7 @@ export function TargetDetail() {
                     onClick={() => toggleOverlay(overlay.id)}
                     className={`target-chip${hiddenOverlayIds.has(overlay.id) ? '' : ' active'}`}
                   >
-                    Keyword overlays: {overlay.label}
+                    {t('Keyword overlays:')} {overlay.label}
                   </button>
                 ))}
               </div>
@@ -695,9 +698,9 @@ export function TargetDetail() {
             <section className="target-panel">
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', marginBottom: '20px' }}>
                 <div>
-                  <h3>Comparison</h3>
+                  <h3>{t('Comparison')}</h3>
                   <div style={{ color: 'var(--text-tertiary)', fontSize: '13px', marginTop: '6px' }}>
-                    Normalized index, first non-zero point = 100
+                    {t('Normalized index, first non-zero point = 100')}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -715,7 +718,7 @@ export function TargetDetail() {
           <div className="target-panel-grid">
             <div className="target-panel-column">
               <section className="target-panel">
-              <h3 style={{ marginBottom: '16px' }}>Driver Posts</h3>
+              <h3 style={{ marginBottom: '16px' }}>{t('Driver Posts')}</h3>
               <div className="list-stack">
                 {data.drivers.slice(0, 5).map((driver) => (
                   <a key={driver.id} href={`https://www.reddit.com${driver.permalink}`} target="_blank" rel="noreferrer" className="list-row" style={{ alignItems: 'flex-start' }}>
@@ -728,12 +731,12 @@ export function TargetDetail() {
                     </div>
                   </a>
                 ))}
-                {data.drivers.length === 0 && <div className="card-empty" style={{ padding: '20px' }}>No driver posts.</div>}
+                {data.drivers.length === 0 && <div className="card-empty" style={{ padding: '20px' }}>{t('No driver posts.')}</div>}
               </div>
               </section>
 
               <section className="target-panel">
-              <h3 style={{ marginBottom: '16px' }}>Keyword Heat</h3>
+              <h3 style={{ marginBottom: '16px' }}>{t('Keyword Heat')}</h3>
               <div className="list-stack">
                 {data.keywordHeat.slice(0, 6).map((keyword) => (
                   <div key={`${keyword.queryScope}:${keyword.keyword}`} className="list-row">
@@ -744,26 +747,26 @@ export function TargetDetail() {
                     <div style={{ color: 'var(--text-secondary)' }}>{formatNumber(keyword.totalMentions)}</div>
                   </div>
                 ))}
-                {data.keywordHeat.length === 0 && <div className="card-empty" style={{ padding: '20px' }}>No keyword heat.</div>}
+                {data.keywordHeat.length === 0 && <div className="card-empty" style={{ padding: '20px' }}>{t('No keyword heat.')}</div>}
               </div>
               </section>
             </div>
 
             <div className="target-panel-column">
               <section className="target-panel">
-              <h3 style={{ marginBottom: '16px' }}>Reliability</h3>
+              <h3 style={{ marginBottom: '16px' }}>{t('Reliability')}</h3>
               <div className="list-stack">
-                <div className="list-row"><span>Provider</span><span>{data.reliability.provider ?? 'n/a'}</span></div>
-                <div className="list-row"><span>Requests</span><span>{formatNumber(data.reliability.requestCount)}</span></div>
-                <div className="list-row"><span>Successes</span><span>{formatNumber(data.reliability.successCount)}</span></div>
-                <div className="list-row"><span>Errors</span><span>{formatNumber(data.reliability.errorCount)}</span></div>
-                <div className="list-row"><span>Duplicate rate</span><span>{data.reliability.duplicatePostRate == null ? 'n/a' : `${formatNumber(data.reliability.duplicatePostRate * 100, 1)}%`}</span></div>
-                <div className="list-row"><span>Avg lag</span><span>{data.reliability.ingestLagSecondsAvg == null ? 'n/a' : `${formatNumber(data.reliability.ingestLagSecondsAvg)}s`}</span></div>
+                <div className="list-row"><span>{t('Provider')}</span><span>{data.reliability.provider ?? 'n/a'}</span></div>
+                <div className="list-row"><span>{t('Requests')}</span><span>{formatNumber(data.reliability.requestCount)}</span></div>
+                <div className="list-row"><span>{t('Successes')}</span><span>{formatNumber(data.reliability.successCount)}</span></div>
+                <div className="list-row"><span>{t('Errors')}</span><span>{formatNumber(data.reliability.errorCount)}</span></div>
+                <div className="list-row"><span>{t('Duplicate rate')}</span><span>{data.reliability.duplicatePostRate == null ? 'n/a' : `${formatNumber(data.reliability.duplicatePostRate * 100, 1)}%`}</span></div>
+                <div className="list-row"><span>{t('Avg lag')}</span><span>{data.reliability.ingestLagSecondsAvg == null ? 'n/a' : `${formatNumber(data.reliability.ingestLagSecondsAvg)}s`}</span></div>
               </div>
               </section>
 
               <section className="target-panel">
-              <h3 style={{ marginBottom: '16px' }}>Anomalies</h3>
+              <h3 style={{ marginBottom: '16px' }}>{t('Anomalies')}</h3>
               <div className="list-stack">
                 {data.anomalies.slice(0, 5).map((anomaly) => (
                   <div key={anomaly.eventId} className="list-row" style={{ alignItems: 'flex-start' }}>
@@ -777,22 +780,22 @@ export function TargetDetail() {
                     </div>
                   </div>
                 ))}
-                {data.anomalies.length === 0 && <div className="card-empty" style={{ padding: '20px' }}>No anomalies.</div>}
+                {data.anomalies.length === 0 && <div className="card-empty" style={{ padding: '20px' }}>{t('No anomalies.')}</div>}
               </div>
               </section>
 
               <section className="target-panel">
-              <h3 style={{ marginBottom: '16px' }}>Incidents</h3>
+              <h3 style={{ marginBottom: '16px' }}>{t('Incidents')}</h3>
               <div className="list-stack">
                 {(incidentData?.incidents ?? []).slice(0, 5).map((incident) => (
                   <div key={incident.incidentId} className="list-row" style={{ alignItems: 'flex-start' }}>
                     <div>
                       <div style={{ color: 'var(--text-primary)' }}>{incident.dominantSignalType}</div>
                       <div style={{ color: 'var(--text-tertiary)', fontSize: '12px', marginTop: '4px' }}>
-                        {new Date(incident.windowStart).toLocaleString()} to {new Date(incident.windowEnd).toLocaleString()}
+                        {new Date(incident.windowStart).toLocaleString()} {t('to')} {new Date(incident.windowEnd).toLocaleString()}
                       </div>
                       <div style={{ color: 'var(--text-tertiary)', fontSize: '12px', marginTop: '4px' }}>
-                        {incident.signalCount} signals · merged {incident.mergedScore.toFixed(2)}
+                        {incident.signalCount} {t('signals')} · {t('merged')} {incident.mergedScore.toFixed(2)}
                       </div>
                     </div>
                     <div className="list-row-end">
@@ -800,7 +803,7 @@ export function TargetDetail() {
                     </div>
                   </div>
                 ))}
-                {(incidentData?.incidents.length ?? 0) === 0 && <div className="card-empty" style={{ padding: '20px' }}>No incidents.</div>}
+                {(incidentData?.incidents.length ?? 0) === 0 && <div className="card-empty" style={{ padding: '20px' }}>{t('No incidents.')}</div>}
               </div>
               </section>
             </div>

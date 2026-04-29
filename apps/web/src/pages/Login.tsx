@@ -3,9 +3,12 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Card, Input, Button } from '../components/ui';
+import { LanguageToggle } from '../i18n/LanguageToggle';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export function Login() {
   const { login } = useAuth();
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -23,22 +26,23 @@ export function Login() {
       await login({ email, password });
       navigate(from, { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(err instanceof Error ? err.message : t('Login failed'));
     }
   };
 
   return (
     <div className="auth-page">
+      <LanguageToggle className="auth-language-toggle" />
       <Card className="auth-card">
         <div className="auth-header">
-          <div className="auth-eyebrow">Control Plane Access</div>
-          <h2 className="auth-title">Sign in to Analytics</h2>
-          <p className="auth-subtitle">Use the account issued by your admin to access monitored markets, target workbenches, and ops tools.</p>
+          <div className="auth-eyebrow">{t('Control Plane Access')}</div>
+          <h2 className="auth-title">{t('Sign in to Analytics')}</h2>
+          <p className="auth-subtitle">{t('Use the account issued by your admin to access monitored markets, target workbenches, and ops tools.')}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="auth-form">
           <div>
-            <label htmlFor="login-email" className="auth-field-label">Email</label>
+            <label htmlFor="login-email" className="auth-field-label">{t('Email')}</label>
             <Input
               id="login-email"
               type="email"
@@ -50,7 +54,7 @@ export function Login() {
             />
           </div>
           <div>
-            <label htmlFor="login-password" className="auth-field-label">Password</label>
+            <label htmlFor="login-password" className="auth-field-label">{t('Password')}</label>
             <Input
               id="login-password"
               type="password"
@@ -62,14 +66,14 @@ export function Login() {
             />
           </div>
           {registrationSucceeded ? (
-            <div className="auth-message success">Registration submitted. An admin must activate this account before the first sign-in.</div>
+            <div className="auth-message success">{t('Registration submitted. An admin must activate this account before the first sign-in.')}</div>
           ) : null}
           {error ? <div className="auth-message error">{error}</div> : null}
-          <Button variant="primary" type="submit" style={{ marginTop: '8px' }}>Sign in</Button>
+          <Button variant="primary" type="submit" style={{ marginTop: '8px' }}>{t('Sign in')}</Button>
         </form>
 
         <div className="auth-footer">
-          Need an account? <Link to="/register">Register with an invite</Link>
+          {t('Need an account?')} <Link to="/register">{t('Register with an invite')}</Link>
         </div>
       </Card>
     </div>

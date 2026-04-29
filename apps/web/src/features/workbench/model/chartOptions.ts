@@ -13,6 +13,7 @@ export type WorkbenchChartSeries = {
   name: string;
   type: 'line' | 'bar';
   values: Array<number | null>;
+  barOffsetHours?: number;
   axis: 'primary' | 'secondary';
   color: string;
   strokeWidth: number;
@@ -26,10 +27,17 @@ export const SERIES_COLORS: Record<string, string> = {
   activity_index: '#14b8a6',
   qualified_activity_index: '#f97316',
   activity_confidence: '#64748b',
-  observed_new_posts: '#14b8a6',
+  observed_new_posts: 'rgba(20, 184, 166, 0.58)',
   observed_qualified_posts: '#eab308',
-  total_new_posts: '#10b981',
+  total_new_posts: 'rgba(16, 185, 129, 0.58)',
   qualified_post_count: '#f59f00',
+};
+
+const VOLUME_BAR_OFFSETS: Record<string, number> = {
+  observed_new_posts: -6,
+  total_new_posts: -6,
+  observed_qualified_posts: 6,
+  qualified_post_count: 6,
 };
 
 export function createInitialSeriesSelection(data: TargetWorkbenchResponse | undefined) {
@@ -67,9 +75,10 @@ export function buildTargetWorkbenchChartOptions(args: {
       name: series.label,
       type: indicator?.chartType ?? 'line',
       values: series.points.map((point) => point.value),
+      barOffsetHours: VOLUME_BAR_OFFSETS[series.id],
       axis: indicator?.axis ?? 'primary',
       color: SERIES_COLORS[series.id] ?? '#8a8f98',
-      strokeWidth: series.id === 'heat_price' ? 3 : 2,
+      strokeWidth: series.id === 'heat_price' ? 3 : series.id.includes('qualified') ? 3 : 2,
       strokeStyle: series.id.startsWith('ema_') ? 'dashed' as const : 'solid' as const,
     };
   });

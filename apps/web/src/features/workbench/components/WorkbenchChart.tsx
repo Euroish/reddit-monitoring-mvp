@@ -67,12 +67,19 @@ function toLineWidth(width: number): LineWidth {
   return 1;
 }
 
+function toChartTime(value: string, offsetHours = 0): Time {
+  if (offsetHours === 0) return value as Time;
+  const timestamp = Date.parse(`${value}T00:00:00Z`);
+  if (!Number.isFinite(timestamp)) return value as Time;
+  return Math.floor((timestamp + offsetHours * 60 * 60 * 1000) / 1000) as Time;
+}
+
 function pointData(series: WorkbenchChartSeries, dates: string[]): ChartPoint[] {
   return series.values
     .map((value, index) => {
       if (value == null || !Number.isFinite(value)) return null;
       return {
-        time: dates[index] as Time,
+        time: toChartTime(dates[index]!, series.barOffsetHours),
         value,
       };
     })
@@ -228,6 +235,8 @@ export function WorkbenchChart({ option }: { option: WorkbenchChartModel }) {
             ...commonOptions,
             color: series.color,
             base: 0,
+            priceLineVisible: false,
+            lastValueVisible: true,
           })
         : chart.addSeries(LineSeries, {
             ...commonOptions,

@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { fetchApi, ApiError } from '../api/client';
 import { Button, Card, Input } from '../components/ui';
+import { LanguageToggle } from '../i18n/LanguageToggle';
+import { useLanguage } from '../i18n/LanguageContext';
 import type { RegisterAppUserRequest, RegisterAppUserResponse } from '../../../../packages/contracts/src/http';
 
 function getRegisterErrorMessage(error: unknown): string {
@@ -18,6 +20,7 @@ function getRegisterErrorMessage(error: unknown): string {
 }
 
 export function Register() {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const inviteCodeFromQuery = useMemo(
@@ -37,7 +40,7 @@ export function Register() {
     setError('');
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match.');
+      setError(t('Passwords do not match.'));
       return;
     }
 
@@ -56,7 +59,7 @@ export function Register() {
       });
       navigate(`/login?registered=1&email=${encodeURIComponent(email.trim())}`, { replace: true });
     } catch (submitError) {
-      setError(getRegisterErrorMessage(submitError));
+      setError(t(getRegisterErrorMessage(submitError)));
     } finally {
       setIsSubmitting(false);
     }
@@ -64,16 +67,17 @@ export function Register() {
 
   return (
     <div className="auth-page">
+      <LanguageToggle className="auth-language-toggle" />
       <Card className="auth-card">
         <div className="auth-header">
-          <div className="auth-eyebrow">Invite Registration</div>
-          <h2 className="auth-title">Create your Analytics account</h2>
-          <p className="auth-subtitle">Use a valid invite code to create an account. New accounts remain pending until an admin activates them.</p>
+          <div className="auth-eyebrow">{t('Invite Registration')}</div>
+          <h2 className="auth-title">{t('Create your Analytics account')}</h2>
+          <p className="auth-subtitle">{t('Use a valid invite code to create an account. New accounts remain pending until an admin activates them.')}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="auth-form">
           <div>
-            <label htmlFor="register-email" className="auth-field-label">Email</label>
+            <label htmlFor="register-email" className="auth-field-label">{t('Email')}</label>
             <Input
               id="register-email"
               type="email"
@@ -86,49 +90,49 @@ export function Register() {
           </div>
 
           <div>
-            <label htmlFor="register-display-name" className="auth-field-label">Display name</label>
+            <label htmlFor="register-display-name" className="auth-field-label">{t('Display name')}</label>
             <Input
               id="register-display-name"
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
-              placeholder="Optional"
+              placeholder={t('Optional')}
               autoComplete="name"
             />
           </div>
 
           <div>
-            <label htmlFor="register-invite-code" className="auth-field-label">Invite code</label>
+            <label htmlFor="register-invite-code" className="auth-field-label">{t('Invite code')}</label>
             <Input
               id="register-invite-code"
               value={inviteCode}
               onChange={(event) => setInviteCode(event.target.value)}
-              placeholder="Provided by an admin"
+              placeholder={t('Provided by an admin')}
               autoComplete="one-time-code"
               required
             />
           </div>
 
           <div>
-            <label htmlFor="register-password" className="auth-field-label">Password</label>
+            <label htmlFor="register-password" className="auth-field-label">{t('Password')}</label>
             <Input
               id="register-password"
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="Create a password"
+              placeholder={t('Create a password')}
               autoComplete="new-password"
               required
             />
           </div>
 
           <div>
-            <label htmlFor="register-confirm-password" className="auth-field-label">Confirm password</label>
+            <label htmlFor="register-confirm-password" className="auth-field-label">{t('Confirm password')}</label>
             <Input
               id="register-confirm-password"
               type="password"
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
-              placeholder="Repeat your password"
+              placeholder={t('Repeat your password')}
               autoComplete="new-password"
               required
             />
@@ -137,12 +141,12 @@ export function Register() {
           {error ? <div className="auth-message error">{error}</div> : null}
 
           <Button variant="primary" type="submit" disabled={isSubmitting} style={{ marginTop: '8px' }}>
-            {isSubmitting ? 'Creating account...' : 'Create account'}
+            {isSubmitting ? t('Creating account...') : t('Create account')}
           </Button>
         </form>
 
         <div className="auth-footer">
-          Already have an account? <Link to="/login">Sign in</Link>
+          {t('Already have an account?')} <Link to="/login">{t('Sign in')}</Link>
         </div>
       </Card>
     </div>

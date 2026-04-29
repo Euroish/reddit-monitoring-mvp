@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
 import { Card, Badge, Button } from '../components/ui';
+import { useLanguage } from '../i18n/LanguageContext';
 import type { MarketTrendResponse, MarketWorkbenchResponse } from '../../../../packages/contracts/src/http';
 
 function formatSignedPct(value: number): string {
@@ -29,16 +30,17 @@ function RankingSection({
   metricLabel: string;
   metricValue: (item: MarketTrendResponse['rankings']['byHeat'][number]) => string;
 }) {
+  const { t } = useLanguage();
   const visibleItems = items.slice(0, 8);
 
   return (
     <Card style={{ padding: '0', overflow: 'hidden' }}>
       <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--border-standard)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '6px' }}>
-          <h3 style={{ fontSize: '18px' }}>{title}</h3>
-          <Badge style={{ borderColor: accent, color: accent }}>{visibleItems.length} tracked</Badge>
+          <h3 style={{ fontSize: '18px' }}>{t(title)}</h3>
+          <Badge style={{ borderColor: accent, color: accent }}>{visibleItems.length} {t('tracked')}</Badge>
         </div>
-        <div style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{subtitle}</div>
+        <div style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{t(subtitle)}</div>
       </div>
 
       <div>
@@ -66,18 +68,18 @@ function RankingSection({
                 {item.canonicalName}
               </Link>
               <div style={{ color: 'var(--text-tertiary)', fontSize: '12px' }}>
-                {item.sampledPostCount} sampled posts in window
+                {item.sampledPostCount} {t('sampled posts in window')}
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ color: 'var(--text-quaternary)', fontSize: '11px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                {metricLabel}
+                {t(metricLabel)}
               </div>
               <div style={{ fontWeight: 560 }}>{metricValue(item)}</div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ color: 'var(--text-quaternary)', fontSize: '11px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                Window posts
+                {t('Window posts')}
               </div>
               <div style={{ color: 'var(--text-secondary)' }}>{item.newPosts}</div>
             </div>
@@ -89,6 +91,7 @@ function RankingSection({
 }
 
 export function Dashboard() {
+  const { t } = useLanguage();
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
   const { data, isLoading, error } = useQuery({
     queryKey: ['market-trend'],
@@ -128,17 +131,17 @@ export function Dashboard() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Markets</h1>
-          <p className="page-subtitle">Monitored Reddit market board with TradingView-like sectioned discovery</p>
+	          <h1>{t('Markets')}</h1>
+	          <p className="page-subtitle">{t('Monitored Reddit market board with TradingView-like sectioned discovery')}</p>
         </div>
         <div className="filter-bar">
-          <Link to="/markets/board" className="markets-secondary-link">Open full board</Link>
-          <Link to="/compare" className="markets-primary-link">Open compare</Link>
+	          <Link to="/markets/board" className="markets-secondary-link">{t('Open full board')}</Link>
+	          <Link to="/compare" className="markets-primary-link">{t('Open compare')}</Link>
         </div>
       </div>
 
-      {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>Loading market trends...</div>}
-      {error && <div style={{ color: '#ff4d4f' }}>Error loading data</div>}
+	      {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>{t('Loading market trends...')}</div>}
+	      {error && <div style={{ color: '#ff4d4f' }}>{t('Error loading data')}</div>}
 
       {data && (
         <div className="markets-shell">
@@ -167,43 +170,43 @@ export function Dashboard() {
                   {data.coverage.label}
                 </div>
                 <h2 style={{ fontSize: '36px', lineHeight: 1.05, letterSpacing: '-0.04em', marginBottom: '12px' }}>
-                  Markets, everywhere. Monitored truth only.
+	                  {t('Markets, everywhere. Monitored truth only.')}
                 </h2>
                 <p style={{ color: 'var(--text-secondary)', maxWidth: '720px', marginBottom: '20px' }}>
-                  Inspired by TradingView markets structure, but scoped honestly to monitored subreddits with trend points in range.
+	                  {t('Inspired by TradingView markets structure, but scoped honestly to monitored subreddits with trend points in range.')}
                 </p>
                 <div className="markets-link-row">
                   {hottest && (
                     <Link to={targetPath(hottest.canonicalName)} className="markets-primary-link">
-                      Open hottest target
+	                      {t('Open hottest target')}
                     </Link>
                   )}
                   <Link to="/queries" className="markets-secondary-link">
-                    Run keyword query
+	                    {t('Run keyword query')}
                   </Link>
                 </div>
               </div>
 
               <div className="markets-summary-grid">
                 <div className="markets-summary-card">
-                  <div className="markets-summary-label">Monitored targets</div>
+	                  <div className="markets-summary-label">{t('Monitored targets')}</div>
                   <div className="markets-summary-value">{data.coverage.monitoredTargetCount}</div>
-                  <div className="markets-summary-note">With trend coverage inside the selected range</div>
+	                  <div className="markets-summary-note">{t('With trend coverage inside the selected range')}</div>
                 </div>
                 <div className="markets-summary-card">
-                  <div className="markets-summary-label">Hottest board leader</div>
+	                  <div className="markets-summary-label">{t('Hottest board leader')}</div>
                   <div className="markets-summary-value" style={{ fontSize: '24px' }}>{hottest?.canonicalName ?? 'n/a'}</div>
                   <div className="markets-summary-note">
                     {hottest ? `${Math.round(hottest.heatIndex)} heat · ${formatSignedPct(hottest.heatChangePct)}` : 'No ranked target yet'}
                   </div>
                 </div>
                 <div className="markets-summary-card">
-                  <div className="markets-summary-label">Strongest surge</div>
+	                  <div className="markets-summary-label">{t('Strongest surge')}</div>
                   <div className="markets-summary-value">{strongestSurge ? strongestSurge.surgeScore.toFixed(2) : 'n/a'}</div>
                   <div className="markets-summary-note">{strongestSurge?.canonicalName ?? 'No ranked target yet'}</div>
                 </div>
                 <div className="markets-summary-card">
-                  <div className="markets-summary-label">Widest dispersion</div>
+	                  <div className="markets-summary-label">{t('Widest dispersion')}</div>
                   <div className="markets-summary-value">{widestDispersion ? widestDispersion.dispersionScore.toFixed(2) : 'n/a'}</div>
                   <div className="markets-summary-note">{widestDispersion?.canonicalName ?? 'No ranked target yet'}</div>
                 </div>
@@ -214,24 +217,24 @@ export function Dashboard() {
           <div className="markets-stats-grid">
             <Card>
               <div style={{ marginBottom: '14px' }}>
-                <h3 style={{ marginBottom: '6px' }}>Market Snapshot</h3>
+	                <h3 style={{ marginBottom: '6px' }}>{t('Market Snapshot')}</h3>
                 <div style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{data.coverage.description}</div>
               </div>
               <div className="metric-grid">
                 <div>
-                  <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Generated</div>
+	                  <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>{t('Generated')}</div>
                   <div style={{ fontWeight: 560 }}>{new Date(data.generatedAtIso).toLocaleString()}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>From</div>
+	                  <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>{t('From')}</div>
                   <div style={{ fontWeight: 560 }}>{new Date(data.fromIso).toLocaleDateString()}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>To</div>
+	                  <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>{t('To')}</div>
                   <div style={{ fontWeight: 560 }}>{new Date(data.toIso).toLocaleDateString()}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Ranked targets</div>
+	                  <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>{t('Ranked targets')}</div>
                   <div className="kpi-value">{data.targetCount}</div>
                 </div>
               </div>
@@ -239,15 +242,15 @@ export function Dashboard() {
 
             <Card>
               <div style={{ marginBottom: '14px' }}>
-                <h3 style={{ marginBottom: '6px' }}>Heat Strip</h3>
+	                <h3 style={{ marginBottom: '6px' }}>{t('Heat Strip')}</h3>
                 <div style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>
-                  Quick scan of the current leaders in the monitored board.
+	                  {t('Quick scan of the current leaders in the monitored board.')}
                 </div>
               </div>
               <div className="markets-strip-grid">
                 {data.rankings.byHeat.slice(0, 8).map((item) => (
                   <Link key={item.targetId} to={targetPath(item.canonicalName)} className="markets-strip-tile">
-                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Heat leader</div>
+	                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>{t('Heat leader')}</div>
                     <div style={{ fontWeight: 560, color: 'var(--text-primary)', marginBottom: '8px' }}>{item.canonicalName}</div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
                       <span style={{ fontSize: '22px', fontWeight: 600, color: 'var(--text-primary)' }}>{Math.round(item.heatIndex)}</span>
@@ -266,13 +269,13 @@ export function Dashboard() {
               <Card>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '16px' }}>
                   <div>
-                    <h3 style={{ marginBottom: '6px' }}>Monitored Targets</h3>
+                    <h3 style={{ marginBottom: '6px' }}>{t('Monitored Targets')}</h3>
                     <div style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>
-                      Select 2 to 6 targets and jump straight into compare.
+                      {t('Select 2 to 6 targets and jump straight into compare.')}
                     </div>
                   </div>
                   <Link to={comparePath}>
-                    <Button variant="primary" disabled={selectedTargets.length < 2}>Compare</Button>
+                    <Button variant="primary" disabled={selectedTargets.length < 2}>{t('Compare')}</Button>
                   </Link>
                 </div>
                 <div className="list-stack">
@@ -293,14 +296,14 @@ export function Dashboard() {
                               {target.canonicalName}
                             </Link>
                             <div style={{ color: 'var(--text-tertiary)', fontSize: '12px', marginTop: '4px' }}>
-                              {target.status} · live {target.live.status} · backfill {target.backfill.status}
+                              {target.status} · {t('live')} {target.live.status} · {t('backfill')} {target.backfill.status}
                             </div>
                           </div>
                         </div>
                         <div className="list-row-end">
-                          <Badge variant={target.stale ? 'neutral' : 'success'}>{target.stale ? 'stale' : 'fresh'}</Badge>
+                          <Badge variant={target.stale ? 'neutral' : 'success'}>{target.stale ? t('stale') : t('fresh')}</Badge>
                           <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-                            {target.latestHeatIndex == null ? 'n/a' : `${Math.round(target.latestHeatIndex)} heat`}
+                            {target.latestHeatIndex == null ? 'n/a' : `${Math.round(target.latestHeatIndex)} ${t('heat')}`}
                           </span>
                         </div>
                       </label>
@@ -310,7 +313,7 @@ export function Dashboard() {
               </Card>
 
               <Card>
-                <h3 style={{ marginBottom: '16px' }}>Breakouts</h3>
+                <h3 style={{ marginBottom: '16px' }}>{t('Breakouts')}</h3>
                 <div className="list-stack">
                   {workbenchData.breakouts.slice(0, 6).map((item) => (
                     <a
@@ -322,16 +325,16 @@ export function Dashboard() {
                     >
                       <div style={{ color: 'var(--text-primary)', marginBottom: '4px' }}>{item.title}</div>
                       <div style={{ color: 'var(--text-tertiary)', fontSize: '12px' }}>
-                        {item.canonicalName} · {item.ageBucket} · driver {item.driverScore.toFixed(2)} · velocity z {item.velocityZScore.toFixed(2)}
+                        {item.canonicalName} · {item.ageBucket} · {t('driver')} {item.driverScore.toFixed(2)} · {t('velocity z')} {item.velocityZScore.toFixed(2)}
                       </div>
                     </a>
                   ))}
-                  {workbenchData.breakouts.length === 0 && <div style={{ color: 'var(--text-tertiary)' }}>No breakout posts right now.</div>}
+                  {workbenchData.breakouts.length === 0 && <div style={{ color: 'var(--text-tertiary)' }}>{t('No breakout posts right now.')}</div>}
                 </div>
               </Card>
 
               <Card>
-                <h3 style={{ marginBottom: '16px' }}>Recent Anomalies</h3>
+                <h3 style={{ marginBottom: '16px' }}>{t('Recent Anomalies')}</h3>
                 <div className="list-stack">
                   {workbenchData.anomalies.slice(0, 6).map((item) => (
                     <div key={item.eventId} className="list-row" style={{ alignItems: 'flex-start' }}>
@@ -343,10 +346,10 @@ export function Dashboard() {
                           {item.signalType} · {item.signalKey} · {new Date(item.observedAt).toLocaleString()}
                         </div>
                       </div>
-                      <Badge variant={item.severity === 'high' ? 'success' : 'neutral'}>{item.severity}</Badge>
+                      <Badge variant={item.severity === 'high' ? 'success' : 'neutral'}>{t(item.severity)}</Badge>
                     </div>
                   ))}
-                  {workbenchData.anomalies.length === 0 && <div style={{ color: 'var(--text-tertiary)' }}>No anomaly events in range.</div>}
+                  {workbenchData.anomalies.length === 0 && <div style={{ color: 'var(--text-tertiary)' }}>{t('No anomaly events in range.')}</div>}
                 </div>
               </Card>
             </div>

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
 import { Badge, Card, Input, Select } from '../components/ui';
+import { useLanguage } from '../i18n/LanguageContext';
 import type { MarketTrendRankItem, MarketTrendResponse } from '../../../../packages/contracts/src/http';
 
 type SortKey = 'heat' | 'surge' | 'trend' | 'posts';
@@ -17,6 +18,7 @@ function formatSignedPct(value: number): string {
 }
 
 export function MarketBoard() {
+  const { t } = useLanguage();
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortKey>('heat');
   const { data, isLoading, error } = useQuery({
@@ -49,8 +51,8 @@ export function MarketBoard() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Market Board</h1>
-          <p className="page-subtitle">Full ranked board for the monitored subreddit pool, no 8-row frontend cap.</p>
+          <h1>{t('Market Board')}</h1>
+          <p className="page-subtitle">{t('Full ranked board for the monitored subreddit pool, no 8-row frontend cap.')}</p>
         </div>
       </div>
 
@@ -59,21 +61,21 @@ export function MarketBoard() {
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search subreddit"
+            placeholder={t('Search subreddit')}
             style={{ maxWidth: '320px' }}
           />
           <Select value={sort} onChange={(event) => setSort(event.target.value as SortKey)} style={{ maxWidth: '220px' }}>
-            <option value="heat">Sort by Heat</option>
-            <option value="surge">Sort by Surge</option>
-            <option value="trend">Sort by Trend</option>
-            <option value="posts">Sort by New Posts</option>
+            <option value="heat">{t('Sort by Heat')}</option>
+            <option value="surge">{t('Sort by Surge')}</option>
+            <option value="trend">{t('Sort by Trend')}</option>
+            <option value="posts">{t('Sort by New Posts')}</option>
           </Select>
-          {data && <Badge variant="neutral">{data.coverage.monitoredTargetCount} tracked</Badge>}
+          {data && <Badge variant="neutral">{data.coverage.monitoredTargetCount} {t('tracked')}</Badge>}
         </div>
       </Card>
 
-      {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>Loading market board...</div>}
-      {error && <div style={{ color: '#ff4d4f' }}>Error loading market board.</div>}
+      {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>{t('Loading market board...')}</div>}
+      {error && <div style={{ color: '#ff4d4f' }}>{t('Error loading market board.')}</div>}
 
       {data && (
         <Card style={{ padding: '0', overflow: 'hidden' }}>
@@ -81,15 +83,15 @@ export function MarketBoard() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Subreddit</th>
-                  <th>New posts</th>
-                  <th>Sampled</th>
-                  <th>Heat</th>
-                  <th>Heat change</th>
-                  <th>Surge</th>
-                  <th>Dispersion</th>
-                  <th>Trend</th>
-                  <th>Window end</th>
+                  <th>{t('Subreddit')}</th>
+                  <th>{t('New posts')}</th>
+                  <th>{t('Sampled')}</th>
+                  <th>{t('Heat')}</th>
+                  <th>{t('Heat change')}</th>
+                  <th>{t('Surge')}</th>
+                  <th>{t('Dispersion')}</th>
+                  <th>{t('Trend')}</th>
+                  <th>{t('Window end')}</th>
                 </tr>
               </thead>
               <tbody>

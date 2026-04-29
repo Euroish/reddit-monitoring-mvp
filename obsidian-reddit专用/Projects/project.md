@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: target-workbench-scale-polish-landed
-updated_at: "2026-04-29 07:02:58"
+stage: language-switch-deployed
+updated_at: "2026-04-29 08:17:51"
 repo_path: "/root/reddit-monitoring-mvp"
-next_action: "Deploy the target-workbench scale polish, then browser-check /target/:targetId at desktop width to confirm metric panels no longer compress typography and the chart-top Captured Qualified Posts band has enough visual height."
+next_action: "Browser-check the deployed Simplified Chinese language switch across logged-in desktop/mobile views, then fill any untranslated secondary admin pages only if they block actual use."
 tags:
 - codex
 - workspace
@@ -23,7 +23,7 @@ tags:
 - Archive: keep `Archive/` empty by default. External analysis notes are temporary inputs only; read, reconcile against code, update this file or the active implementation contract, then remove.
 - Product truth: this is a bounded monitored Reddit analytics workbench. The target workbench now exposes captured-day chart semantics plus a broader fetched-data composition pool across `new` / `hot` / `best` / `rising` / `top` provenance. `new` remains the time-contiguous total-volume evidence; the additional listing lanes support fetched-pool display, driver fallback, and composition analysis.
 - Runtime path: `http` primary plus `scrapling` fallback capability. Legacy Apify is not an active main path.
-- Current frontend truth: `WorkbenchChart` uses `lightweight-charts`, and `/target/:targetId` has a third-pass scale polish: wider two-column hero, roomier metric panels, full-width composition area, and a high-visibility `Captured Qualified Posts` band directly above the chart.
+- Current frontend truth: `WorkbenchChart` uses `lightweight-charts`, `/target/:targetId` has the third-pass scale polish, and the deployed web app now has an English/Simplified Chinese language switch in the top-right account area plus auth-page access.
 
 ## Attention Hygiene
 
@@ -101,6 +101,11 @@ tags:
   - widened the target hero from cramped three-column cards to a wider two-column hero plus full-width composition module
   - increased metric panel padding, row height, and display-number scale so labels and large numerals are no longer compressed
   - added a chart-top `Captured Qualified Posts` visualization band with large count, fetched-pool percentage, and a tall progress bar
+- Latest deployed frontend slice is now multilingual:
+  - `apps/web/src/i18n/LanguageContext.tsx` and `apps/web/src/i18n/LanguageToggle.tsx` provide persisted English / Simplified Chinese switching through `localStorage`
+  - the logged-in topbar places the language switch immediately to the left of the account email/login controls
+  - login/register, route loading/access-denied states, main navigation, markets/dashboard, market board, compare, target detail, collection, and target-admin flows now use the shared translation helper for fixed UI copy
+  - backend-returned data labels, subreddit names, signal keys, and chart series labels remain untranslated unless explicitly mapped, to avoid changing data meaning
 - Remaining live-product regressions/user-reported gaps now need explicit resolution before broad surface expansion:
   - qualified-post counts appear materially lower than the prior user expectation of `like > 20 && comment > 20`, so the current qualified-post algorithm/threshold path needs reconciliation against historical behavior and honest recovery options
   - returning to `/markets` after visiting another page can still black-screen or stall, so route-transition stability around the market page remains unresolved
@@ -255,6 +260,13 @@ tags:
 - Documentation-only state updates do not require tests, but they must keep `project.md` aligned with the currently promoted implementation contract and mark older planning notes as historical when they drift from code.
 
 ## Activity Log
+
+### 2026-04-29 08:17:51
+
+- Scope: Added and deployed the frontend language-switch slice. The app now has a persisted English / Simplified Chinese switch, with the logged-in toggle placed in the top-right account area immediately left of the user email, and an auth-page toggle for login/register.
+- Why now: The user requested a Simplified Chinese version as the final frontend feature for this iteration, with a specific placement requirement in the top-right account area.
+- Verify: `npm --prefix apps/web run build` passed; `npm --prefix apps/web run lint` passed; deployed `apps/web/dist` to `/opt/reddit-monitoring/current/apps/web/dist`; reloaded `nginx`; verified `http://127.0.0.1/` serves the new bundle and `nginx`, `reddit-api`, `reddit-phase1-scheduler`, and `reddit-keyword-refresh` are active.
+- Next: Browser-check the deployed Chinese switch across logged-in desktop/mobile views and fill any remaining untranslated secondary admin surfaces only if they block actual operation.
 
 ### 2026-04-29 07:02:58
 
