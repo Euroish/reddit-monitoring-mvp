@@ -3,7 +3,21 @@ import type {
   TargetWorkbenchResponse,
 } from '../../../../../../packages/contracts/src/http.js';
 
-export type WorkbenchEChartsOption = Record<string, unknown>;
+export type WorkbenchChartModel = {
+  dates: string[];
+  series: WorkbenchChartSeries[];
+};
+
+export type WorkbenchChartSeries = {
+  id: string;
+  name: string;
+  type: 'line' | 'bar';
+  values: Array<number | null>;
+  axis: 'primary' | 'secondary';
+  color: string;
+  strokeWidth: number;
+  strokeStyle: 'solid' | 'dashed' | 'dotted';
+};
 
 export const SERIES_COLORS: Record<string, string> = {
   heat_price: '#5e6ad2',
@@ -41,64 +55,48 @@ export function buildTargetWorkbenchChartOptions(args: {
   data: TargetWorkbenchResponse | undefined;
   activeSeries: Set<string>;
   hiddenOverlayIds: Set<string>;
-}): WorkbenchEChartsOption {
-  if (!args.data || args.data.series.length === 0) return {};
+}): WorkbenchChartModel {
+  if (!args.data || args.data.series.length === 0) return { dates: [], series: [] };
 
   const dates = args.data.series[0]?.points.map((point) => point.at) ?? [];
   const indicatorsById = new Map(args.data.indicators.map((indicator) => [indicator.id, indicator]));
-  const visibleSeries = args.data.series.filter((series) => args.activeSeries.has(series.id));
-  const chartSeries = visibleSeries.map((series) => {
+  const visibleSeries = args.data.series.filter((series) => args.activeSeries.has(series.id)).map((series) => {
     const indicator = indicatorsById.get(series.id);
     return {
+      id: series.id,
       name: series.label,
       type: indicator?.chartType ?? 'line',
-      data: series.points.map((point) => point.value),
-      smooth: indicator?.chartType !== 'bar',
-      showSymbol: false,
-      yAxisIndex: indicator?.axis === 'secondary' ? 1 : 0,
-      itemStyle: { color: SERIES_COLORS[series.id] ?? '#8a8f98' },
-      lineStyle: {
-        width: series.id === 'heat_price' ? 3 : 2,
-        type: series.id.startsWith('ema_') ? 'dashed' as const : 'solid' as const,
-      },
+      values: series.points.map((point) => point.value),
+      axis: indicator?.axis ?? 'primary',
+      color: SERIES_COLORS[series.id] ?? '#8a8f98',
+      strokeWidth: series.id === 'heat_price' ? 3 : 2,
+      strokeStyle: series.id.startsWith('ema_') ? 'dashed' as const : 'solid' as const,
     };
   });
   const overlaySeries = args.data.overlays
     .filter((overlay) => !args.hiddenOverlayIds.has(overlay.id))
     .slice(0, 3)
     .map((overlay) => ({
+      id: overlay.id,
       name: overlay.label,
       type: 'line' as const,
-      data: overlay.points.map((point) => point.value),
-      smooth: true,
-      showSymbol: false,
-      yAxisIndex: 1,
-      itemStyle: { color: '#e879f9' },
-      lineStyle: { width: 1.5, type: 'dotted' as const },
+      values: overlay.points.map((point) => point.value),
+      axis: 'secondary' as const,
+      color: '#e879f9',
+      strokeWidth: 1.5,
+      strokeStyle: 'dotted' as const,
     }));
 
-  return buildBaseLineOption({
+  return {
     dates,
-    series: [...chartSeries, ...overlaySeries],
-    yAxis: [
-      {
-        type: 'value',
-        splitLine: { lineStyle: { color: '#1a1b1e' } },
-        axisLabel: { color: '#888888' },
-      },
-      {
-        type: 'value',
-        splitLine: { show: false },
-        axisLabel: { color: '#8a8f98' },
-      },
-    ],
-  });
+    series: [...visibleSeries, ...overlaySeries],
+  };
 }
 
 export function buildComparisonChartOptions(
   comparisonData: TargetComparisonWorkbenchResponse | undefined,
-): WorkbenchEChartsOption {
-  if (!comparisonData || comparisonData.comparisons.length === 0) return {};
+): WorkbenchChartModel {
+  if (!comparisonData || comparisonData.comparisons.length === 0) return { dates: [], series: [] };
   const dates = comparisonData.comparisons[0]?.points.map((point) => point.at) ?? [];
   const palette = ['#5e6ad2', '#10b981', '#f59f00', '#e879f9', '#38bdf8', '#f43f5e'];
   const chartSeries = comparisonData.comparisons.map((comparison, index) => {
@@ -106,65 +104,18 @@ export function buildComparisonChartOptions(
       comparisonData.series.find((series) => series.id === comparison.seriesId)?.label ??
       comparison.seriesId;
     return {
+      id: `${comparison.targetId}:${comparison.seriesId}`,
       name: `${comparison.canonicalName} ${seriesLabel}`,
       type: 'line' as const,
-      data: comparison.points.map((point) => point.normalizedValue),
-      smooth: true,
-      showSymbol: false,
-      itemStyle: { color: palette[index % palette.length] },
-      lineStyle: {
-        width: comparison.seriesId === 'heat_price' ? 2.5 : 1.5,
-        type: comparison.seriesId === 'heat_price' ? 'solid' as const : 'dashed' as const,
-      },
+      values: comparison.points.map((point) => point.normalizedValue),
+      axis: 'primary' as const,
+      color: palette[index % palette.length],
+      strokeWidth: comparison.seriesId === 'heat_price' ? 2.5 : 1.5,
+      strokeStyle: comparison.seriesId === 'heat_price' ? 'solid' as const : 'dashed' as const,
     };
   });
-  return buildBaseLineOption({
+  return {
     dates,
     series: chartSeries,
-    yAxis: {
-      type: 'value',
-      splitLine: { lineStyle: { color: '#1a1b1e' } },
-      axisLabel: { color: '#888888', formatter: '{value}' },
-    },
-    bottom: '15%',
-  });
-}
-
-function buildBaseLineOption(args: {
-  dates: string[];
-  series: Array<Record<string, unknown>>;
-  yAxis: Record<string, unknown> | Array<Record<string, unknown>>;
-  bottom?: string;
-}): WorkbenchEChartsOption {
-  return {
-    tooltip: {
-      trigger: 'axis',
-      backgroundColor: 'rgba(23, 24, 25, 0.94)',
-      borderColor: '#2b2d31',
-      textStyle: { color: '#eeeeee' },
-    },
-    legend: {
-      data: Array.isArray(args.series)
-        ? args.series.map((series) => ('name' in series ? series.name : undefined)).filter(Boolean)
-        : [],
-      textStyle: { color: '#888888' },
-      bottom: 0,
-    },
-    grid: {
-      left: '3%',
-      right: '5%',
-      bottom: args.bottom ?? '12%',
-      top: '4%',
-      containLabel: true,
-    },
-    xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: args.dates,
-      axisLine: { lineStyle: { color: '#2b2d31' } },
-      axisLabel: { color: '#888888' },
-    },
-    yAxis: args.yAxis,
-    series: args.series,
   };
 }

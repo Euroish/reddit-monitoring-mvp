@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
 import { Badge, Button, Card, Input } from '../components/ui';
+import { WorkbenchChart } from '../features/workbench/components/WorkbenchChart';
 import type {
   CreateKeywordQueryRequest,
   CreateKeywordQueryResponse,
+  GlobalKeywordDailyTrendResponse,
   GetKeywordQueryResponse,
   KeywordQueryView,
 } from '../../../../packages/contracts/src/http';
@@ -38,6 +40,35 @@ function statusLabel(status: KeywordQueryView['status']) {
 
 function toRedditUrl(permalink: string) {
   return permalink.startsWith('http') ? permalink : `https://www.reddit.com${permalink}`;
+}
+
+function buildKeywordTrendChart(data: GlobalKeywordDailyTrendResponse | undefined) {
+  if (!data) return { dates: [], series: [] };
+  return {
+    dates: data.days.map((day) => day.day),
+    series: [
+      {
+        id: 'keyword_heat',
+        name: 'Keyword Heat',
+        type: 'line' as const,
+        values: data.days.map((day) => day.keywordHeat),
+        axis: 'primary' as const,
+        color: '#5e6ad2',
+        strokeWidth: 2.5,
+        strokeStyle: 'solid' as const,
+      },
+      {
+        id: 'matched_posts',
+        name: 'Matched Posts',
+        type: 'bar' as const,
+        values: data.days.map((day) => day.matchedPosts),
+        axis: 'secondary' as const,
+        color: '#10b981',
+        strokeWidth: 1,
+        strokeStyle: 'solid' as const,
+      },
+    ],
+  };
 }
 
 export function Queries() {
@@ -76,6 +107,15 @@ export function Queries() {
     !!result &&
     result.status !== 'completed' &&
     result.status !== 'degraded';
+  const globalTrendQuery = useQuery({
+    queryKey: ['queries.daily-trend', result?.queryText],
+    queryFn: () =>
+      fetchApi<GlobalKeywordDailyTrendResponse>(
+        `/v1/trends/keywords/${encodeURIComponent(result?.queryText ?? '')}/daily`,
+      ),
+    enabled: !!result?.queryText && !result.canonicalSubreddit,
+  });
+  const trendChart = buildKeywordTrendChart(globalTrendQuery.data);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -262,6 +302,31 @@ export function Queries() {
                     </div>
                   ))}
                 </div>
+              </Card>
+
+              <Card>
+                <h3 style={{ marginBottom: '16px' }}>Daily Trend</h3>
+                {result.canonicalSubreddit && (
+                  <div style={{ color: 'var(--text-tertiary)' }}>
+                    Daily keyword trend endpoint is currently global-only. This run is scoped to {result.canonicalSubreddit}.
+                  </div>
+                )}
+                {!result.canonicalSubreddit && globalTrendQuery.isLoading && (
+                  <div style={{ color: 'var(--text-tertiary)' }}>Loading keyword daily trend...</div>
+                )}
+                {!result.canonicalSubreddit && globalTrendQuery.error && (
+                  <div style={{ color: '#ff4d4f' }}>Error loading keyword daily trend.</div>
+                )}
+                {!result.canonicalSubreddit && globalTrendQuery.data && (
+                  <>
+                    <div className="chart-shell" style={{ height: '320px' }}>
+                      <WorkbenchChart option={trendChart} />
+                    </div>
+                    <div style={{ marginTop: '12px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                      {globalTrendQuery.data.dayCount} days · global explicit-query materialized trend
+                    </div>
+                  </>
+                )}
               </Card>
 
               <Card>

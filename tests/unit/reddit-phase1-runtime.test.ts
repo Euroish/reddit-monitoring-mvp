@@ -4,14 +4,19 @@ import { RedditCircuitBreakerConnector } from "../../src/connectors/reddit/reddi
 import { RedditHttpConnector } from "../../src/connectors/reddit/reddit-http.connector";
 import { RedditScraplingConnector } from "../../src/connectors/reddit/reddit-scrapling.connector";
 import {
+  COLLECTION_SETTINGS_RUNTIME_KEY,
   createRedditConnectorFromEnv,
+  resolveCollectionSettingsRuntimeEnv,
   resolvePhase1CrawlMode,
   resolvePhase1RunMode,
   resolveRedditPhase1CycleOptionsFromEnv,
   upsertActiveSubredditTarget,
 } from "../../src/runtime/reddit-phase1-runtime";
 import { stableUuidFromString } from "../../src/shared/ids/stable-id";
-import { InMemoryMonitorTargetRepository } from "../../src/storage/repositories/in-memory/in-memory.repositories";
+import {
+  InMemoryMonitorTargetRepository,
+} from "../../src/storage/repositories/in-memory/in-memory.repositories";
+import { InMemoryRuntimeSettingRepository } from "../../src/storage/repositories/in-memory/runtime-setting.repository";
 
 test("resolveRedditPhase1CycleOptionsFromEnv keeps http-first live defaults aligned", () => {
   const options = resolveRedditPhase1CycleOptionsFromEnv({
@@ -40,6 +45,7 @@ test("resolveRedditPhase1CycleOptionsFromEnv keeps http-first live defaults alig
   assert.equal(options.postCandidateFilterMode, "and");
   assert.equal(options.disableAdaptiveSampling, false);
   assert.equal(options.continueOnError, true);
+  assert.equal(options.defaultFavoriteTargetCadenceHours, 8);
 });
 
 test("resolveRedditPhase1CycleOptionsFromEnv defaults backfill to http while keeping mock distinct", () => {
@@ -124,6 +130,44 @@ test("resolveRedditPhase1CycleOptionsFromEnv parses target-level scrapling promo
     "r/machinelearning",
     "r/datascience",
   ]);
+});
+
+test("resolveCollectionSettingsRuntimeEnv overlays stored collection settings onto env", async () => {
+  const runtimeSettingRepository = new InMemoryRuntimeSettingRepository();
+  await runtimeSettingRepository.setJson(COLLECTION_SETTINGS_RUNTIME_KEY, {
+    defaultCadenceHours: 6,
+    postLimitBase: 22,
+    postLimitBoost: 55,
+    adaptiveLimitEnabled: false,
+    backfillPostLimit: 140,
+    backfillTargetDays: 21,
+    backfillMaxIterationsPerTarget: 30,
+    providerPreference: "scrapling",
+    updatedAt: "2026-04-29T00:00:00.000Z",
+  });
+
+  const effectiveEnv = await resolveCollectionSettingsRuntimeEnv({
+    env: {
+      REDDIT_DEFAULT_FAVORITE_TARGET_CADENCE_HOURS: "8",
+      REDDIT_POST_LIMIT_BASE: "16",
+      REDDIT_POST_LIMIT_BOOST: "40",
+      REDDIT_POST_LIMIT_ADAPTIVE: "true",
+      REDDIT_BACKFILL_POST_LIMIT: "100",
+      REDDIT_BACKFILL_TARGET_DAYS: "15",
+      REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET: "24",
+      REDDIT_LIVE_PROVIDER: "http",
+    },
+    runtimeSettingRepository,
+  });
+
+  assert.equal(effectiveEnv.REDDIT_DEFAULT_FAVORITE_TARGET_CADENCE_HOURS, "6");
+  assert.equal(effectiveEnv.REDDIT_POST_LIMIT_BASE, "22");
+  assert.equal(effectiveEnv.REDDIT_POST_LIMIT_BOOST, "55");
+  assert.equal(effectiveEnv.REDDIT_POST_LIMIT_ADAPTIVE, "false");
+  assert.equal(effectiveEnv.REDDIT_BACKFILL_POST_LIMIT, "140");
+  assert.equal(effectiveEnv.REDDIT_BACKFILL_TARGET_DAYS, "21");
+  assert.equal(effectiveEnv.REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET, "30");
+  assert.equal(effectiveEnv.REDDIT_LIVE_PROVIDER, "scrapling");
 });
 
 test("phase1 mode and crawl mode resolvers default to mock for safe local iteration", () => {

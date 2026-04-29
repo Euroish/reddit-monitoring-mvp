@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: backend-framework-simplification-slice
-updated_at: "2026-04-28 09:06:42"
+stage: product-frontend-control-plane-slice
+updated_at: "2026-04-29 00:57:18"
 repo_path: "/root/reddit-monitoring-mvp"
-next_action: "Implement the smallest backend framework simplification slice: add explicit `TouchedScope`-style invalidation and materialization scope tracking so future fact/projection features stop creating ad hoc rebuild paths."
+next_action: "Execute the product/frontend slice through `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`: build the market, target/compare, and admin control-plane surfaces on top of the landed refresh contracts, and avoid reopening backend orchestration or route-local fan-in."
 tags:
 - codex
 - workspace
@@ -18,27 +18,27 @@ tags:
 
 ## Summary
 
-- Authority: this file is the only active execution state source.
-- Startup pair: `00_START_HERE.md` plus this file.
-- Archive: keep empty by default. External analysis notes are temporary inputs only; read, reconcile against code, update this file, then remove.
+- Authority: this file is the active state source. The detailed implementation contract for the current product slice is `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`.
+- Startup set for the current slice: `00_START_HERE.md`, this file, and `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`.
+- Archive: keep `Archive/` empty by default. External analysis notes are temporary inputs only; read, reconcile against code, update this file or the active implementation contract, then remove.
 - Product truth: this is a bounded monitored Reddit analytics workbench. It may display `Total New Posts` / `Qualified Posts` only for target/day/range data with coverage proof. Otherwise the product must label the same raw counts as observed and expose coverage status.
 - Runtime path: `http` primary plus `scrapling` fallback capability. Legacy Apify is not an active main path.
 
 ## Attention Hygiene
 
-- Live state files: only `00_START_HERE.md` and this file. `AGENTS.md`, skill docs, and architecture notes are static constraints, not task queues.
-- `obsidian-reddit专用/Projects/` root must contain only `project.md`. Any uploaded analysis note belongs in `Archive/` or should be removed after reconciliation.
+- Live state files for this slice: `00_START_HERE.md`, this file, and `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`. `AGENTS.md`, skill docs, and architecture notes are static constraints, not task queues.
+- `obsidian-reddit专用/Projects/` root may contain only `project.md` plus the active implementation contract `后端能力盘点与前端后台规划-2026-04-28.md`. Any other uploaded analysis note belongs in `Archive/` or should be removed after reconciliation.
 - Advisory filenames previously read in this repo are historical inputs only. Do not carry their headings or proposed todo lists forward unless the same issue is still visible in current code.
 - Ignore local tool state such as untracked `.codex/` during project planning unless the user explicitly asks to inspect tool internals. It is workspace noise, not product state.
-- Do not create parallel planning surfaces in repo root, `context/`, or ad hoc markdown files for the same execution slice.
+- Do not create additional planning surfaces in repo root, `context/`, or ad hoc markdown files for the same execution slice beyond the active implementation contract named above.
 
 ## Harness Rules
 
-- One slice at a time: active execution is the smallest complete storage-pressure slice that preserves collection truth and reduces either row growth or collector complexity.
+- One slice at a time: active execution is the smallest complete product-facing slice that lands frontend/admin value on top of the existing refresh contracts without reopening backend architecture.
 - Evidence before design: current filesystem and current code win over remembered analysis notes, prior chat summaries, or archived markdown.
-- Structure follows storage: collector refactors are valid only when they remove work made unnecessary by a landed data-model or repository change.
+- Structure follows contracts: frontend and admin work must consume landed refresh contracts and verified API/data boundaries before asking for new backend branches.
 - Compatibility is explicit: when replacing storage or read paths, keep fallback reads or migration compatibility until focused tests prove parity.
-- Stop when the next step would require widening product scope, rewriting unrelated layers, or changing retention defaults without migrations and tests in the same slice.
+- Stop when the next step would require widening product scope beyond the active implementation contract, rewriting unrelated backend layers, or changing retention/runtime defaults without the corresponding API/data-contract work in the same slice.
 
 ## Current State
 
@@ -47,12 +47,20 @@ tags:
 - The storage-pressure slice is closed through `P3.4`, and `P4.1` market target-status visibility is now landed on the backend.
 - `post_engagement_latest` plus bounded `post_engagement_window` storage now back new writes and materialization reads. Legacy post-level `metrics_snapshot` fallback reads were removed, target-only cleanup is migration-backed, and retention prunes engagement windows separately.
 - `P3.4` is now landed: `collect-subreddit-new-posts.job.ts` has explicit collection-page, normalized-batch, persistence-plan, and outcome seams instead of one monolithic mutable flow.
-- Current backend shape already has the right macro layers: evidence, canonical entities, derived facts/materialization, and read-model services. The active gap is not missing layers; it is that invalidation scope and serving-projection boundaries are still too implicit.
-- Data-structure/framework direction is now confirmed: do not freeze product behavior and do not do a broad rename. Simplify long-term evolution by standardizing `collection output -> touched scope -> fact pipeline -> serving projection`.
-- `post_engagement_daily`, explicit materialization manifests, and market-serving projections are design-approved next-step candidates, but none of them are landed yet in current code.
-- The uploaded `后端功能分析.md` is a temporary advisory input only. `project.md` remains the sole active execution state source.
+- Current backend shape already has the right macro layers: evidence, canonical entities, derived facts/materialization, and read-model services. The active gap is no longer backend layering; it is product/frontend delivery on top of the landed contracts.
+- Data-structure/framework direction is now confirmed and temporarily closed for this slice: do not reopen broad backend renames, new orchestration paths, or speculative serving layers while product-facing work remains unfinished.
+- Scheduler/materialization scope hardening is now landed across both replay and direct cycle paths: `workers/reddit-phase1-scheduler.ts` emits `TouchedTarget.scope`, scheduler replay uses it to narrow rebuild windows, coverage rebuilds also consume it, and direct cycle plus replay now share one target materialization chain in `src/workers/reddit-phase1-materialization.ts`.
+- Serving refresh contract hardening is now also landed for workbench reads: compare, market, and target routes no longer assemble broad repository fan-in inline inside `create-api-server.ts`; they now go through explicit refresh-contract loaders in `src/application/services/workbench-refresh-contract.service.ts`.
+- `P4.2` backend data-structure optimization is now closed in current code. The active execution contract is the frontend/admin implementation plan in `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`.
+- The active product slice is:
+  - market surfaces: `/markets` and `/markets/board`
+  - analysis surfaces: `/target/:targetId`, `/compare`, `/queries`, `/saved`
+  - admin surfaces: `/ops`, `/ops/storage`, then `/ops/targets`, `/ops/collection`, `/ops/maintenance`
+- `post_engagement_daily`, explicit materialization manifests, and market-serving projections remain design-approved next-step candidates, but they are not the active slice while the current product/frontend contract is unfinished.
+- Historical analysis notes such as `后端功能分析.md` are reconciled and inactive. The only detailed execution contract for the current slice is `后端能力盘点与前端后台规划-2026-04-28.md`.
 - Current repo search did not find a standalone export/report generator path. Future export/report work must reuse coverage-aware API/read-model fields.
 - Current repo evidence shows the market workbench contract now includes `targets[]` with per-target crawl freshness, live/backfill coverage status, latest observed headline metrics, and a compact live reliability summary.
+- Current repo evidence also supports the frontend constraints captured in the active implementation contract: market UI is currently front-end-limited to 8 items, compare is back-end-limited to 6 targets, target-level scheduling config exists in the data model, and comment-level analytics are not yet supported.
 
 ## Core Decision
 
@@ -80,17 +88,20 @@ tags:
 - `P3.4` Done: Simplify `collect-subreddit-new-posts.job.ts` around concrete `CollectedPageRecord`, `NormalizedBatch`, `PersistencePlan`, and `CollectionOutcome` structures so collection truth, persistence writes, and observability counters are separated without changing behavior.
 - `P4.1` Done: Extend the market workbench contract/read model/API so it returns a coverage-aware `targets[]` status surface for every monitored subreddit, including live/backfill cursor state, latest observed headline metrics, latest coverage row, and compact live reliability/freshness fields.
 - `P4.2a` Done: Reconcile `后端功能分析.md` against current code and lock the backend simplification direction into project state. Verified conclusion: the repo already has raw/entity/fact/read-model layering; the next structural work is explicit invalidation/materialization scope, not broad renaming or early architecture freeze.
+- `P4.2b` Done: Land explicit scheduler materialization scope. `executeRunnableCollectionJobs` now returns `TouchedTarget` rows with `scope.{affectedDays, affectedWindows, reasons}`, and `materializeTouchedTargets` now narrows daily/trend/keyword/growth rebuild windows from that scope instead of always replaying full fixed lookbacks.
+- `P4.2c` Done: Unify target materialization flow. Coverage rebuilds now consume the same narrowed scope in scheduler replay, and both `runRedditPhase1Cycle` and scheduler replay now call the shared target fact pipeline in `src/workers/reddit-phase1-materialization.ts` instead of maintaining separate derived-data orchestration paths.
+- `P4.2d` Done: Land explicit workbench refresh contracts for compare/market/target read paths. `create-api-server.ts` no longer hand-assembles those workbench fan-in bundles inline; contract-driven loaders in `src/application/services/workbench-refresh-contract.service.ts` now own those serving refresh boundaries and reuse the shared driver-keyword match helper.
 
-## Next Slice Harness: Backend Framework Simplification
+## Next Slice Harness: Product Frontend And Admin Control Plane
 
-- Objective: simplify the backend growth path so future analytics features reuse one data-structure protocol instead of adding new cross-layer rebuild logic.
-- Verified current state: collection truth, coverage semantics, target-status backend, and structured engagement storage are landed; what remains weak is explicit rebuild scope and projection boundaries.
-- Recommended next slice: implement the smallest end-to-end structural addition that pays off long-term:
-  - a per-target `TouchedScope` / affected-day-window invalidation structure
-  - downstream materialization input that consumes explicit scope rather than only "touched target"
-  - no product expansion and no large rename
-- Keep the slice framework-focused. Do not reopen frontend, provider expansion, or speculative analytics families in the same step.
-- Stop condition: stop before introducing generic orchestration engines, extra infrastructure, or broad persistence rewrites.
+- Objective: ship the highest-value frontend and admin surfaces on top of the landed refresh contracts without reopening backend architecture.
+- Verified current state: collection truth, coverage semantics, target-status backend, structured engagement storage, scheduler entrypoint scope, shared target materialization, and explicit workbench refresh contracts are landed.
+- Recommended next slice: execute the route/page contract in `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`:
+  - first wave: `/markets`, `/markets/board`, `/target/:targetId`, `/compare`, `/queries`, `/saved`, `/ops`, `/ops/storage`
+  - second wave after contract gaps are confirmed: `/ops/targets`, `/ops/collection`, `/ops/maintenance`
+  - no new backend orchestration branch unless a concrete API contract gap appears during implementation
+- Keep the next slice product-facing and contract-respecting. Do not reopen backend architecture expansion, provider expansion, or speculative infra additions in the same step.
+- Stop condition: stop before introducing new persistence layers, generic projection engines, route-local fan-in that duplicates the refresh-contract services, or admin actions that bypass the documented API boundary.
 
 ### P3.2 Execution Order
 
@@ -134,9 +145,10 @@ tags:
 - Before execution, check only:
   - frontmatter `stage`, `updated_at`, and `next_action`
   - `Current State`
+  - the active implementation contract `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`
   - latest 1-3 relevant `Activity Log` entries
 - If the next action and current code disagree, fix this file first, then execute.
-- If a file outside the startup pair appears to define "current plan", treat that as drift and either archive it or explicitly mark it non-active here.
+- If a file outside the startup set appears to define "current plan", treat that as drift and either archive it or explicitly mark it non-active here.
 - If the worktree contains unrelated local artifacts, ignore them unless they affect build/test/runtime behavior.
 
 ## Verification Policy
@@ -145,9 +157,37 @@ tags:
 - Run `npm run algo:phase1` when truth-layer behavior changes.
 - Run `npm run algo:phase1:full` when collection/storage/API integration boundaries are touched.
 - Run focused tests around any changed repository, job, read-model, or contract path before close-out.
-- Documentation-only state updates do not require tests, but must leave `Projects` root containing only `project.md`.
+- Documentation-only state updates do not require tests, but must leave `Projects` root containing only `project.md` plus the single active implementation contract `后端能力盘点与前端后台规划-2026-04-28.md`.
 
 ## Activity Log
+
+### 2026-04-29 00:57:18
+
+- Scope: Reconciled `project.md` with the active frontend/admin implementation contract in `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`, moved the project stage from backend-framework simplification to product/frontend control-plane delivery, and removed the attention drift that still treated `Projects/` root as if `project.md` were the only allowed active planning file.
+- Why now: Current repo state already closed `P4.2`, but `project.md` frontmatter and hygiene rules still described the old backend slice and treated the current frontend execution contract as drift. That contradiction would keep sending agents back into closed architecture work or into false cleanup of the active product plan.
+- Verify: Documentation/state reconciliation only. Checked current `project.md`, the active frontend/admin implementation contract, and `Projects/` root contents. No tests were run because no product code changed.
+- Next: Execute the product-facing slice through the active implementation contract: market surfaces first, then target/compare analysis UX, then admin control-plane pages and any strictly necessary supporting APIs.
+
+### 2026-04-28 11:25:55
+
+- Scope: Closed the remaining `P4.2` backend simplification work by adding explicit workbench refresh-contract loaders for compare, market, and target routes, moving broad repository fan-in out of `create-api-server.ts`, and reusing a shared driver-keyword match helper for workbench-serving reads.
+- Why now: After unifying the fact/materialization pipeline, the main remaining drift was the serving boundary. The API still hand-assembled large read bundles inline, which would have recreated the same architectural sprawl on the read side. This change closes that gap without adding new persistence or speculative infrastructure.
+- Verify: `npm run typecheck`; `node --import tsx --test tests/integration/api-server-trends.test.ts tests/integration/reddit-phase1-cycle.test.ts tests/integration/reddit-phase1-cycle-isolation.test.ts tests/integration/reddit-phase1-scheduler-materialization.test.ts tests/integration/reddit-phase1-scheduler-runnable-jobs.test.ts` passed.
+- Next: Treat `P4.2` as complete and resume product/frontend work on top of the explicit workbench refresh contracts and existing persisted-fact/read-model pipeline.
+
+### 2026-04-28 11:12:29
+
+- Scope: Landed the next backend simplification step after scheduler scope propagation. Coverage rebuilds are now included in the same narrowed replay path, and direct cycle plus scheduler replay now share one target materialization chain via `src/workers/reddit-phase1-materialization.ts`.
+- Why now: The remaining structural drag was duplicated orchestration. Even with explicit `TouchedScope`, the code still had two materialization pipelines: one in `runRedditPhase1Cycle` and one in scheduler replay. Unifying them is a higher-value simplification than adding more scope fields while duplicate execution paths remain.
+- Verify: `npm run typecheck`; `node --import tsx --test tests/integration/reddit-phase1-cycle.test.ts tests/integration/reddit-phase1-cycle-isolation.test.ts tests/integration/reddit-phase1-scheduler-materialization.test.ts tests/integration/reddit-phase1-scheduler-runnable-jobs.test.ts` passed.
+- Next: Move the same explicit refresh discipline up to serving/projection boundaries so market/target-facing read paths stop depending on broad read-time fan-in.
+
+### 2026-04-28 10:31:09
+
+- Scope: Wrote back the current data-structure optimization state after the latest landed backend work, removed `Projects/后端功能分析.md` as an active root-level advisory file, and reset the next execution frame around post-scheduler scope propagation.
+- Why now: The repo had already moved past planning-only status. `TouchedScope`-style scheduler invalidation is now landed in code, so the active state file needed to stop describing it as pending and clear the remaining drift source from `Projects/`.
+- Verify: State reconciliation only. Checked current `project.md`, `workers/reddit-phase1-scheduler.ts`, scheduler integration tests, and `Projects/` root contents. No new tests were run for this write-back step because product code was not changed here.
+- Next: Implement the next backend simplification phase by propagating explicit materialization scope into coverage/projection rebuild paths before reopening frontend work.
 
 ### 2026-04-28 09:06:42
 

@@ -43,6 +43,24 @@ test("resolveFavoriteTargetScheduleConfig reads nested config with default 8h ca
   });
 });
 
+test("resolveFavoriteTargetScheduleConfig honors provided runtime cadence fallback", () => {
+  const target = createTarget({
+    canonicalName: "r/datascience",
+    config: {
+      collection: {
+        live: {
+          favorite: true,
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(resolveFavoriteTargetScheduleConfig(target, 6), {
+    favorite: true,
+    cadenceHours: 6,
+  });
+});
+
 test("selectTargetsForLiveCollection falls back to all active targets when no favorite config exists", () => {
   const targets = [
     createTarget({ canonicalName: "r/a" }),

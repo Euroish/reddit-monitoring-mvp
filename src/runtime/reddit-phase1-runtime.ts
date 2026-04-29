@@ -17,6 +17,7 @@ import {
   type RepositoryBundle,
 } from "../storage/repositories/postgres/postgres-repository-bundle";
 import type { MonitorTargetRepository } from "../domain/repositories/monitor-target-repository";
+import type { RuntimeSettingRepository } from "../domain/repositories/runtime-setting-repository";
 import {
   DEFAULT_REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET,
   DEFAULT_REDDIT_BACKFILL_POST_LIMIT,
@@ -37,6 +38,7 @@ import {
 
 export type Phase1RunMode = RedditRunMode;
 export type Phase1CrawlMode = "live" | "backfill";
+export const COLLECTION_SETTINGS_RUNTIME_KEY = "ops.collection.settings";
 
 export interface PostgresPhase1Runtime {
   db: PostgresClient;
@@ -61,6 +63,17 @@ export interface ResolveRedditPhase1CycleOptionsArgs {
   backfillMaxIterationsPerTarget?: number;
   backfillTargetDays?: number;
   continueOnError?: boolean;
+}
+
+interface StoredCollectionSettingsRecord extends Record<string, unknown> {
+  defaultCadenceHours?: unknown;
+  postLimitBase?: unknown;
+  postLimitBoost?: unknown;
+  adaptiveLimitEnabled?: unknown;
+  backfillPostLimit?: unknown;
+  backfillTargetDays?: unknown;
+  backfillMaxIterationsPerTarget?: unknown;
+  providerPreference?: unknown;
 }
 
 export function resolvePhase1RunMode(value: string | undefined): Phase1RunMode {
@@ -255,6 +268,10 @@ export function resolveRedditPhase1CycleOptionsFromEnv(
         args.env.REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET,
         DEFAULT_REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET,
       ),
+    defaultFavoriteTargetCadenceHours: parsePositiveInt(
+      args.env.REDDIT_DEFAULT_FAVORITE_TARGET_CADENCE_HOURS,
+      8,
+    ),
     disableAdaptiveSampling: !parseBooleanFlag(args.env.REDDIT_POST_LIMIT_ADAPTIVE, true),
     crawlMode,
     providerHint: resolveProviderHint({
@@ -267,6 +284,20 @@ export function resolveRedditPhase1CycleOptionsFromEnv(
     postCandidateFilterMode: parseFilterMode(args.env.REDDIT_CANDIDATE_FILTER_MODE),
     continueOnError: args.continueOnError,
   };
+}
+
+export async function resolveCollectionSettingsRuntimeEnv(args: {
+  env?: NodeJS.ProcessEnv;
+  runtimeSettingRepository?: RuntimeSettingRepository;
+}): Promise<NodeJS.ProcessEnv> {
+  const env = args.env ?? process.env;
+  if (!args.runtimeSettingRepository) {
+    return env;
+  }
+  const stored = await args.runtimeSettingRepository.getJson<StoredCollectionSettingsRecord>(
+    COLLECTION_SETTINGS_RUNTIME_KEY,
+  );
+  return toCollectionSettingsEnvOverlay(env, stored);
 }
 
 export async function upsertActiveSubredditTarget(args: {
@@ -342,4 +373,64 @@ function resolveProviderHint(args: {
 function resolveConfiguredBackfillProvider(env: NodeJS.ProcessEnv): string | undefined {
   const configured = env.REDDIT_BACKFILL_PROVIDER?.trim();
   return configured && configured.length > 0 ? configured : undefined;
+}
+
+function toCollectionSettingsEnvOverlay(
+  env: NodeJS.ProcessEnv,
+  stored: StoredCollectionSettingsRecord | null,
+): NodeJS.ProcessEnv {
+  const settings = stored ?? {};
+  const providerPreference =
+    settings.providerPreference === "http" || settings.providerPreference === "scrapling"
+      ? settings.providerPreference
+      : "default";
+  return {
+    ...env,
+    REDDIT_DEFAULT_FAVORITE_TARGET_CADENCE_HOURS: String(
+      readPositiveIntSetting(settings.defaultCadenceHours) ??
+        parsePositiveInt(env.REDDIT_DEFAULT_FAVORITE_TARGET_CADENCE_HOURS, 8),
+    ),
+    REDDIT_POST_LIMIT_BASE: String(
+      readPositiveIntSetting(settings.postLimitBase) ??
+        parsePositiveInt(env.REDDIT_POST_LIMIT_BASE, DEFAULT_REDDIT_POST_LIMIT_BASE),
+    ),
+    REDDIT_POST_LIMIT_BOOST: String(
+      readPositiveIntSetting(settings.postLimitBoost) ??
+        parsePositiveInt(env.REDDIT_POST_LIMIT_BOOST, DEFAULT_REDDIT_POST_LIMIT_BOOST),
+    ),
+    REDDIT_POST_LIMIT_ADAPTIVE: (
+      readBooleanSetting(settings.adaptiveLimitEnabled) ??
+      parseBooleanFlag(env.REDDIT_POST_LIMIT_ADAPTIVE, true)
+    )
+      ? "true"
+      : "false",
+    REDDIT_BACKFILL_POST_LIMIT: String(
+      readPositiveIntSetting(settings.backfillPostLimit) ??
+        parsePositiveInt(env.REDDIT_BACKFILL_POST_LIMIT, DEFAULT_REDDIT_BACKFILL_POST_LIMIT),
+    ),
+    REDDIT_BACKFILL_TARGET_DAYS: String(
+      readPositiveIntSetting(settings.backfillTargetDays) ??
+        parsePositiveInt(env.REDDIT_BACKFILL_TARGET_DAYS, 15),
+    ),
+    REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET: String(
+      readPositiveIntSetting(settings.backfillMaxIterationsPerTarget) ??
+        parsePositiveInt(
+          env.REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET,
+          DEFAULT_REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET,
+        ),
+    ),
+    REDDIT_LIVE_PROVIDER:
+      providerPreference === "default" ? env.REDDIT_LIVE_PROVIDER : providerPreference,
+  };
+}
+
+function readBooleanSetting(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function readPositiveIntSetting(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return Math.trunc(value);
 }

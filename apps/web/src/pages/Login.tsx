@@ -11,7 +11,7 @@ export function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const from = location.state?.from?.pathname || '/dashboard';
+  const from = location.state?.from?.pathname || '/markets';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -54,10 +54,14 @@ export class InMemoryRawEventRepository implements RawEventRepository {
 export class InMemoryMonitorTargetRepository implements MonitorTargetRepository {
   private readonly byCanonicalName = new Map<string, MonitorTarget>();
 
+  public async listSubreddits(): Promise<MonitorTarget[]> {
+    return Array.from(this.byCanonicalName.values())
+      .filter((target) => target.targetType === "subreddit")
+      .sort((a, b) => a.canonicalName.localeCompare(b.canonicalName));
+  }
+
   public async findActiveSubreddits(): Promise<MonitorTarget[]> {
-    return Array.from(this.byCanonicalName.values()).filter(
-      (target) => target.targetType === "subreddit" && target.status === "active",
-    );
+    return (await this.listSubreddits()).filter((target) => target.status === "active");
   }
 
   public async findByCanonicalName(canonicalName: string): Promise<MonitorTarget | null> {

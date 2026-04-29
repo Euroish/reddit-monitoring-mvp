@@ -1,6 +1,8 @@
 import {
+  createRedditConnectorFactoryFromEnv,
   createPostgresPhase1Runtime,
   resolvePhase1CrawlMode,
+  resolveCollectionSettingsRuntimeEnv,
   resolvePhase1RunMode,
   resolveRedditPhase1CycleOptionsFromEnv,
   type Phase1CrawlMode,
@@ -43,6 +45,10 @@ export async function runPhase1OnceWithPostgres(
   });
 
   try {
+    const effectiveEnv = await resolveCollectionSettingsRuntimeEnv({
+      env: process.env,
+      runtimeSettingRepository: runtime.repositories.runtimeSettingRepository,
+    });
     await upsertActiveSubredditTarget({
       monitorTargetRepository: runtime.repositories.monitorTargetRepository,
       subreddit,
@@ -50,12 +56,13 @@ export async function runPhase1OnceWithPostgres(
     });
 
     const cycleOptions = resolveRedditPhase1CycleOptionsFromEnv({
-      env: process.env,
+      env: effectiveEnv,
       mode: runMode,
       crawlMode,
       targetCanonicalNames: [`r/${subreddit}`],
-      postLimit: parseOptionalPositiveInt(process.env.REDDIT_POST_LIMIT),
+      postLimit: parseOptionalPositiveInt(effectiveEnv.REDDIT_POST_LIMIT),
     });
+    const createConnector = createRedditConnectorFactoryFromEnv(effectiveEnv);
     const connectorCache = new Map<string, RedditConnector>();
     const resolveConnectorForProviderHint = (providerHint: string | undefined): RedditConnector => {
       const providerOverride = resolveProviderOverride(providerHint);
@@ -64,16 +71,16 @@ export async function runPhase1OnceWithPostgres(
       if (cached) {
         return cached;
       }
-      const connector = runtime.createConnector(runMode, crawlMode, providerOverride);
+      const connector = createConnector(runMode, crawlMode, providerOverride);
       connectorCache.set(cacheKey, connector);
       return connector;
     };
     const fetchExecutionEngine = createRedditFetchExecutionEngine({
       mode: runMode,
-      createConnector: runtime.createConnector,
+      createConnector,
       providerHealthWindowRepository: runtime.repositories.providerHealthWindowRepository,
       crawlCursorRepository: runtime.repositories.crawlCursorRepository,
-      policyContext: resolveRedditProviderRoutingPolicyContextFromEnv(process.env),
+      policyContext: resolveRedditProviderRoutingPolicyContextFromEnv(effectiveEnv),
     });
 
     await runRedditPhase1Cycle(

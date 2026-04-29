@@ -22,6 +22,7 @@ import type {
   CreateSavedWorkbenchViewRequest,
   CreateSavedWorkbenchViewResponse,
   ListSavedWorkbenchViewsResponse,
+  SubredditAnomalyIncidentFeedResponse,
   TargetComparisonWorkbenchResponse,
   TargetWorkbenchResponse,
 } from '../../../../packages/contracts/src/http';
@@ -63,6 +64,12 @@ export function TargetDetail() {
   const { data: marketData } = useQuery({
     queryKey: ['market-trend'],
     queryFn: () => fetchApi<MarketTrendResponse>('/v1/trends/market'),
+  });
+  const { data: incidentData } = useQuery({
+    queryKey: ['target-anomaly-incidents', targetId],
+    queryFn: () =>
+      fetchApi<SubredditAnomalyIncidentFeedResponse>(`/v1/trends/subreddit/${targetId}/anomalies/incidents?limit=6`),
+    enabled: !!targetId,
   });
 
   const { data: savedViews } = useQuery({
@@ -278,7 +285,7 @@ export function TargetDetail() {
       <div className="page-header">
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px', flexWrap: 'wrap' }}>
-            <Link to="/dashboard" style={{ color: 'var(--text-tertiary)', textDecoration: 'none' }}>
+            <Link to="/markets" style={{ color: 'var(--text-tertiary)', textDecoration: 'none' }}>
               &larr; Back
             </Link>
             <h1 style={{ margin: 0 }} className="break-text">{data?.target.canonicalName ?? `r/${targetId}`}</h1>
@@ -667,6 +674,29 @@ export function TargetDetail() {
                   </div>
                 ))}
                 {data.anomalies.length === 0 && <div className="card-empty" style={{ padding: '20px' }}>No anomalies.</div>}
+              </div>
+            </Card>
+
+            <Card>
+              <h3 style={{ marginBottom: '16px' }}>Incidents</h3>
+              <div className="list-stack">
+                {(incidentData?.incidents ?? []).slice(0, 5).map((incident) => (
+                  <div key={incident.incidentId} className="list-row" style={{ alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ color: 'var(--text-primary)' }}>{incident.dominantSignalType}</div>
+                      <div style={{ color: 'var(--text-tertiary)', fontSize: '12px', marginTop: '4px' }}>
+                        {new Date(incident.windowStart).toLocaleString()} to {new Date(incident.windowEnd).toLocaleString()}
+                      </div>
+                      <div style={{ color: 'var(--text-tertiary)', fontSize: '12px', marginTop: '4px' }}>
+                        {incident.signalCount} signals · merged {incident.mergedScore.toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="list-row-end">
+                      <Badge variant={incident.severity === 'high' ? 'success' : 'neutral'}>{incident.severity}</Badge>
+                    </div>
+                  </div>
+                ))}
+                {(incidentData?.incidents.length ?? 0) === 0 && <div className="card-empty" style={{ padding: '20px' }}>No incidents.</div>}
               </div>
             </Card>
           </div>

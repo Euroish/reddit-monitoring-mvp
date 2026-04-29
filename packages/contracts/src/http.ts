@@ -228,6 +228,125 @@ export interface TriggerPhase1RunResponse {
   processedCanonicalNames: string[];
 }
 
+export interface SubredditTargetAdminView {
+  id: string;
+  canonicalName: string;
+  status: "active" | "paused";
+  favorite: boolean;
+  cadenceHours: number | null;
+  lastCollectedAt?: string;
+  lastTrendAt?: string;
+  recentPostVolume?: number;
+  notes?: string;
+  category?: string;
+}
+
+export interface ListSubredditTargetsResponse {
+  ok: true;
+  requestId: string;
+  targets: SubredditTargetAdminView[];
+}
+
+export interface UpdateSubredditTargetRequest {
+  status?: "active" | "paused";
+  favorite?: boolean;
+  cadenceHours?: number | null;
+  notes?: string | null;
+  category?: string | null;
+}
+
+export interface UpdateSubredditTargetResponse {
+  ok: true;
+  requestId: string;
+  target: SubredditTargetAdminView;
+}
+
+export interface BulkUpdateSubredditTargetsRequest {
+  canonicalNames: string[];
+  patch: UpdateSubredditTargetRequest;
+}
+
+export interface BulkUpdateSubredditTargetsResponse {
+  ok: true;
+  requestId: string;
+  targets: SubredditTargetAdminView[];
+}
+
+export interface CollectionSettingsView {
+  defaultCadenceHours: number;
+  postLimitBase: number;
+  postLimitBoost: number;
+  adaptiveLimitEnabled: boolean;
+  backfillPostLimit: number;
+  backfillTargetDays: number;
+  backfillMaxIterationsPerTarget: number;
+  providerPreference: "default" | "http" | "scrapling";
+  updatedAt: string;
+}
+
+export interface GetCollectionSettingsResponse {
+  ok: true;
+  requestId: string;
+  settings: CollectionSettingsView;
+}
+
+export interface UpdateCollectionSettingsRequest {
+  defaultCadenceHours?: number;
+  postLimitBase?: number;
+  postLimitBoost?: number;
+  adaptiveLimitEnabled?: boolean;
+  backfillPostLimit?: number;
+  backfillTargetDays?: number;
+  backfillMaxIterationsPerTarget?: number;
+  providerPreference?: "default" | "http" | "scrapling";
+}
+
+export interface UpdateCollectionSettingsResponse {
+  ok: true;
+  requestId: string;
+  settings: CollectionSettingsView;
+}
+
+export interface CollectionRunNowRequest {
+  subreddit?: string;
+  crawlMode?: CrawlMode;
+  async?: boolean;
+}
+
+export interface CollectionRunNowResponse extends TriggerPhase1RunResponse {}
+
+export interface MaintenancePreviewItem {
+  action: "raw-events" | "metrics-snapshots" | "post-engagement-windows";
+  retentionDays: number;
+  estimatedRows: number;
+}
+
+export interface MaintenancePreviewResponse {
+  ok: true;
+  requestId: string;
+  generatedAtIso: string;
+  items: MaintenancePreviewItem[];
+}
+
+export interface MaintenancePruneRequest {
+  retentionDays: number;
+  batchSize?: number;
+  dryRun?: boolean;
+  loopUntilDone?: boolean;
+}
+
+export interface MaintenancePruneResponse {
+  ok: true;
+  requestId: string;
+  action: "raw-events" | "metrics-snapshots" | "post-engagement-windows";
+  retentionDays: number;
+  batchSize: number;
+  dryRun: boolean;
+  loopUntilDone: boolean;
+  estimatedRows?: number;
+  deletedRows?: number;
+}
+
 export type KeywordQueryStatus =
   | "queued"
   | "initial_ready"

@@ -7,20 +7,23 @@ import { mapMonitorTarget, type MonitorTargetRow } from "./postgres-row-mappers"
 export class PostgresMonitorTargetRepository implements MonitorTargetRepository {
   constructor(private readonly db: SqlQueryable) {}
 
-  public async findActiveSubreddits(): Promise<MonitorTarget[]> {
+  public async listSubreddits(): Promise<MonitorTarget[]> {
     const result = await this.db.query<MonitorTargetRow>(
       `
       SELECT id, target_type, external_id, canonical_name, status, config_json, created_at, updated_at
       FROM monitor_target
       WHERE source_id = $1
         AND target_type = 'subreddit'
-        AND status = 'active'
       ORDER BY canonical_name ASC
       `,
       [SOURCE_IDS.reddit],
     );
 
     return result.rows.map(mapMonitorTarget);
+  }
+
+  public async findActiveSubreddits(): Promise<MonitorTarget[]> {
+    return (await this.listSubreddits()).filter((target) => target.status === "active");
   }
 
   public async findById(targetId: string): Promise<MonitorTarget | null> {

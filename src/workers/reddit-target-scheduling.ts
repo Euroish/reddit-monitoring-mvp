@@ -36,6 +36,7 @@ function stableStringHash(value: string): number {
 
 export function resolveFavoriteTargetScheduleConfig(
   target: MonitorTarget,
+  defaultCadenceHours = DEFAULT_FAVORITE_TARGET_CADENCE_HOURS,
 ): FavoriteTargetScheduleConfig | null {
   const config = readObject(target.config) ?? {};
   const collection = readObject(config.collection);
@@ -55,7 +56,7 @@ export function resolveFavoriteTargetScheduleConfig(
     readPositiveInt(live?.cadenceHours) ??
     readPositiveInt(schedule?.liveCadenceHours) ??
     readPositiveInt(config.cadenceHours) ??
-    DEFAULT_FAVORITE_TARGET_CADENCE_HOURS;
+    defaultCadenceHours;
 
   return {
     favorite: true,
@@ -66,8 +67,12 @@ export function resolveFavoriteTargetScheduleConfig(
 export function isFavoriteTargetDueForLiveCollection(args: {
   target: MonitorTarget;
   nowIso: string;
+  defaultCadenceHours?: number;
 }): boolean {
-  const schedule = resolveFavoriteTargetScheduleConfig(args.target);
+  const schedule = resolveFavoriteTargetScheduleConfig(
+    args.target,
+    args.defaultCadenceHours,
+  );
   if (!schedule) {
     return false;
   }
@@ -89,8 +94,11 @@ export function isFavoriteTargetDueForLiveCollection(args: {
 export function selectTargetsForLiveCollection(args: {
   targets: MonitorTarget[];
   nowIso: string;
+  defaultCadenceHours?: number;
 }): MonitorTarget[] {
-  const favoriteTargets = args.targets.filter((target) => resolveFavoriteTargetScheduleConfig(target));
+  const favoriteTargets = args.targets.filter((target) =>
+    resolveFavoriteTargetScheduleConfig(target, args.defaultCadenceHours),
+  );
   if (favoriteTargets.length === 0) {
     return args.targets;
   }
@@ -99,6 +107,7 @@ export function selectTargetsForLiveCollection(args: {
     isFavoriteTargetDueForLiveCollection({
       target,
       nowIso: args.nowIso,
+      defaultCadenceHours: args.defaultCadenceHours,
     }),
   );
 }

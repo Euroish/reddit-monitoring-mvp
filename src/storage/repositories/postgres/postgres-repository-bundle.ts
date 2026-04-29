@@ -20,6 +20,7 @@ import type { SubredditCollectionCoverageRepository } from "../../../domain/repo
 import type { RawEventRepository } from "../../../domain/repositories/raw-event-repository";
 import type { SubredditTrendPointRepository } from "../../../domain/repositories/subreddit-trend-point-repository";
 import type { StorageObservabilityRepository } from "../../../domain/repositories/storage-observability-repository";
+import type { RuntimeSettingRepository } from "../../../domain/repositories/runtime-setting-repository";
 import { PostgresClient } from "../../postgres/postgres-client";
 import { PostgresAccountRepository } from "./postgres-account.repository";
 import { PostgresAppInviteRepository } from "./postgres-app-invite.repository";
@@ -38,6 +39,7 @@ import { PostgresPostGrowthFactRepository } from "./postgres-post-growth-fact.re
 import { PostgresPostEngagementRepository } from "./postgres-post-engagement.repository";
 import { PostgresProviderHealthWindowRepository } from "./postgres-provider-health-window.repository";
 import { PostgresRawEventRepository } from "./postgres-raw-event.repository";
+import { PostgresRuntimeSettingRepository } from "./postgres-runtime-setting.repository";
 import { PostgresSavedWorkbenchViewRepository } from "./postgres-saved-workbench-view.repository";
 import { PostgresSubredditDailyFactRepository } from "./postgres-subreddit-daily-fact.repository";
 import { PostgresSubredditCollectionCoverageRepository } from "./postgres-subreddit-collection-coverage.repository";
@@ -67,6 +69,7 @@ export interface RepositoryBundle {
   providerHealthWindowRepository: ProviderHealthWindowRepository;
   savedWorkbenchViewRepository: SavedWorkbenchViewRepository;
   storageObservabilityRepository: StorageObservabilityRepository;
+  runtimeSettingRepository: RuntimeSettingRepository;
 }
 
 export function createPostgresRepositoryBundle(db: PostgresClient): RepositoryBundle {
@@ -91,6 +94,7 @@ export function createPostgresRepositoryBundle(db: PostgresClient): RepositoryBu
     subredditCollectionCoverageRepository: new PostgresSubredditCollectionCoverageRepository(db),
     subredditTrendPointRepository: new PostgresSubredditTrendPointRepository(db),
     providerHealthWindowRepository: new PostgresProviderHealthWindowRepository(db),
+    runtimeSettingRepository: new PostgresRuntimeSettingRepository(db),
     savedWorkbenchViewRepository: new PostgresSavedWorkbenchViewRepository(db),
     storageObservabilityRepository: new PostgresStorageObservabilityRepository(db),
   };

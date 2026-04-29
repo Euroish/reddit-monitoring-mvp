@@ -1,16 +1,13 @@
-import { buildSubredditKeywordTrendDailyJob } from "../src/jobs/build-subreddit-keyword-trend-daily.job";
-import { buildSubredditDailyFactsJob } from "../src/jobs/build-subreddit-daily-facts.job";
-import { buildSubredditTrendPointsJob } from "../src/jobs/build-subreddit-trend-points.job";
-import { buildPostGrowthFactsJob } from "../src/jobs/build-post-growth-facts.job";
-import { buildAnomalyEventsJob } from "../src/jobs/build-anomaly-events.job";
 import { runExistingSubredditAboutJob } from "../src/jobs/collect-subreddit-about.job";
 import { runExistingSubredditNewPostsJob } from "../src/jobs/collect-subreddit-new-posts.job";
 import type { RedditConnector } from "../src/connectors/reddit/reddit-connector.interface";
 import type { RedditMapper } from "../src/connectors/reddit/reddit-mapper.interface";
 import {
   createRedditCapabilityProbeConnectorFromEnv,
+  createRedditConnectorFactoryFromEnv,
   createPostgresPhase1Runtime,
   resolvePhase1RunMode,
+  resolveCollectionSettingsRuntimeEnv,
   resolveRedditPhase1CycleOptionsFromEnv,
   upsertActiveSubredditTargets,
 } from "../src/runtime/reddit-phase1-runtime";
@@ -35,6 +32,10 @@ import { runRedditPhase1Cycle } from "../src/workers/reddit-phase1.worker";
 import {
   DEFAULT_PHASE1_SCHEDULER_INTERVAL_MS,
 } from "../src/workers/reddit-phase1-defaults";
+import {
+  materializeTargetAnalytics,
+  type Phase1MaterializationRepositories,
+} from "../src/workers/reddit-phase1-materialization";
 import type { CollectionJobRepository } from "../src/domain/repositories/collection-job-repository";
 import type { MonitorTargetRepository } from "../src/domain/repositories/monitor-target-repository";
 import type { RawEventRepository } from "../src/domain/repositories/raw-event-repository";
@@ -49,6 +50,7 @@ import type { PostGrowthFactRepository } from "../src/domain/repositories/post-g
 import type { SubredditDailyFactRepository } from "../src/domain/repositories/subreddit-daily-fact-repository";
 import type { SubredditTrendPointRepository } from "../src/domain/repositories/subreddit-trend-point-repository";
 import type { AnomalyEventRepository } from "../src/domain/repositories/anomaly-event-repository";
+import type { SubredditCollectionCoverageRepository } from "../src/domain/repositories/subreddit-collection-coverage-repository";
 import type { RedditLiveProvider } from "../src/connectors/reddit/create-reddit-connector";
 
 export type SchedulerRunMode = "mock" | "live";
@@ -112,6 +114,7 @@ interface RunnableJobRepositories {
   metricsSnapshotRepository: MetricsSnapshotRepository;
   postEngagementRepository?: PostEngagementRepository;
   subredditDailyFactRepository: SubredditDailyFactRepository;
+  subredditCollectionCoverageRepository?: SubredditCollectionCoverageRepository;
   postGrowthFactRepository?: PostGrowthFactRepository;
   keywordTrendDailyRepository?: KeywordTrendDailyRepository;
   anomalyEventRepository?: AnomalyEventRepository;
@@ -376,17 +379,7 @@ export async function resolveSchedulerLiveProviderExecutionPlan(args: {
 }
 
 export async function materializeTouchedTargets(args: {
-  repos: Pick<
-    RunnableJobRepositories,
-    | "contentRepository"
-    | "metricsSnapshotRepository"
-    | "postEngagementRepository"
-    | "subredditDailyFactRepository"
-    | "postGrowthFactRepository"
-    | "keywordTrendDailyRepository"
-    | "anomalyEventRepository"
-    | "subredditTrendPointRepository"
-  >;
+  repos: Phase1MaterializationRepositories;
   targets: TouchedTarget[];
   nowIso: string;
   env: NodeJS.ProcessEnv;
@@ -423,83 +416,20 @@ export async function materializeTouchedTargets(args: {
       fallbackKeywordFromIso,
       fallbackPostGrowthFromIso,
     });
-    await buildSubredditDailyFactsJob(
-      {
-        contentRepository: args.repos.contentRepository,
-        metricsSnapshotRepository: args.repos.metricsSnapshotRepository,
+    await materializeTargetAnalytics({
+      repos: {
+        ...args.repos,
         postEngagementRepository,
-        subredditDailyFactRepository: args.repos.subredditDailyFactRepository,
       },
-      {
-        targetId: target.targetId,
-        fromIso: scopeRanges.dailyFactFromIso,
-        toIso: args.nowIso,
-      },
-    );
-    await buildSubredditTrendPointsJob(
-      {
-        metricsSnapshotRepository: args.repos.metricsSnapshotRepository,
-        postEngagementRepository,
-        subredditTrendPointRepository: args.repos.subredditTrendPointRepository,
-        subredditDailyFactRepository: args.repos.subredditDailyFactRepository,
-      },
-      {
-        targetId: target.targetId,
-        fromIso: scopeRanges.trendFromIso,
-        toIso: args.nowIso,
-      },
-    );
-    if (args.repos.postGrowthFactRepository) {
-      await buildPostGrowthFactsJob(
-        {
-          contentRepository: args.repos.contentRepository,
-          metricsSnapshotRepository: args.repos.metricsSnapshotRepository,
-          postEngagementRepository,
-          postGrowthFactRepository: args.repos.postGrowthFactRepository,
-        },
-        {
-          targetId: target.targetId,
-          fromIso: scopeRanges.postGrowthFromIso,
-          toIso: args.nowIso,
-        },
-      );
-    }
-    if (args.repos.keywordTrendDailyRepository) {
-      await buildSubredditKeywordTrendDailyJob(
-        {
-          contentRepository: args.repos.contentRepository,
-          metricsSnapshotRepository: args.repos.metricsSnapshotRepository,
-          postEngagementRepository,
-          keywordTrendDailyRepository: args.repos.keywordTrendDailyRepository,
-          subredditDailyFactRepository: args.repos.subredditDailyFactRepository,
-        },
-        {
-          targetId: target.targetId,
-          fromIso: scopeRanges.keywordFromIso,
-          toIso: args.nowIso,
-          qualityMinScore: options.keywordDailyQualityMinScore,
-          qualityMinComments: options.keywordDailyQualityMinComments,
-          maxKeywordsPerDay: options.keywordDailyMaxKeywordsPerDay,
-          sourceType: target.crawlMode,
-        },
-      );
-    }
-    if (args.repos.anomalyEventRepository) {
-      await buildAnomalyEventsJob(
-        {
-          anomalyEventRepository: args.repos.anomalyEventRepository,
-          subredditTrendPointRepository: args.repos.subredditTrendPointRepository,
-          subredditDailyFactRepository: args.repos.subredditDailyFactRepository,
-          keywordTrendDailyRepository: args.repos.keywordTrendDailyRepository,
-          postGrowthFactRepository: args.repos.postGrowthFactRepository,
-        },
-        {
-          targetId: target.targetId,
-          fromIso: scopeRanges.trendFromIso,
-          toIso: args.nowIso,
-        },
-      );
-    }
+      targetId: target.targetId,
+      crawlMode: target.crawlMode,
+      nowIso: args.nowIso,
+      generatedAtIso: args.nowIso,
+      ranges: scopeRanges,
+      keywordDailyQualityMinScore: options.keywordDailyQualityMinScore,
+      keywordDailyQualityMinComments: options.keywordDailyQualityMinComments,
+      keywordDailyMaxKeywordsPerDay: options.keywordDailyMaxKeywordsPerDay,
+    });
     materialized += 1;
   }
   return materialized;
@@ -561,6 +491,7 @@ function resolveMaterializationScopeRanges(args: {
 }): {
   trendFromIso: string;
   dailyFactFromIso: string;
+  coverageFromIso: string;
   keywordFromIso: string;
   postGrowthFromIso: string;
 } {
@@ -570,6 +501,7 @@ function resolveMaterializationScopeRanges(args: {
   return {
     trendFromIso: earliestWindowStart ?? args.fallbackTrendFromIso,
     dailyFactFromIso: earliestDayIso ?? args.fallbackDailyFromIso,
+    coverageFromIso: earliestDayIso ?? args.fallbackDailyFromIso,
     keywordFromIso: earliestDayIso ?? args.fallbackKeywordFromIso,
     postGrowthFromIso: earliestWindowStart ?? args.fallbackPostGrowthFromIso,
   };
@@ -671,37 +603,14 @@ async function main(): Promise<void> {
   const subreddits = parseSubredditListFromEnv(process.env);
   const runtime = createPostgresPhase1Runtime();
   const repos = runtime.repositories;
-  const providerCapability = resolveRedditProviderCapabilityProbeConfigFromEnv(process.env);
-  const connectorCache = new Map<string, RedditConnector>();
-  const resolveConnectorForProviderHint = (
-    providerHint: string | undefined,
-    defaultLiveProviderOverride?: RedditLiveProvider,
-  ): RedditConnector => {
-    const providerOverride =
-      resolveProviderOverride(providerHint) ?? defaultLiveProviderOverride;
-    const cacheKey = providerOverride ?? "__default__";
-    const cached = connectorCache.get(cacheKey);
-    if (cached) {
-      return cached;
-    }
-    const connector = runtime.createConnector(runMode, "live", providerOverride);
-    connectorCache.set(cacheKey, connector);
-    return connector;
-  };
-  const resolveCapabilityProbeConnectorForProviderHint = (
-    providerHint: string | undefined,
-    defaultLiveProviderOverride?: RedditLiveProvider,
-  ): RedditConnector => {
-    const providerOverride =
-      resolveProviderOverride(providerHint) ?? defaultLiveProviderOverride;
-    return createRedditCapabilityProbeConnectorFromEnv({
-      env: process.env,
-      mode: runMode,
-      crawlMode: "live",
-      providerOverride,
-    });
-  };
   const redditMapper = runtime.redditMapper;
+  const startupEnv = await resolveCollectionSettingsRuntimeEnv({
+    env: process.env,
+    runtimeSettingRepository: repos.runtimeSettingRepository,
+  });
+  const startupProviderCapability = resolveRedditProviderCapabilityProbeConfigFromEnv(
+    startupEnv,
+  );
 
   let inFlight = false;
   let stopped = false;
@@ -715,6 +624,25 @@ async function main(): Promise<void> {
     inFlight = true;
     const nowIso = new Date().toISOString();
     try {
+      const configuredCycleEnv = await resolveCollectionSettingsRuntimeEnv({
+        env: process.env,
+        runtimeSettingRepository: repos.runtimeSettingRepository,
+      });
+      const providerCapability =
+        resolveRedditProviderCapabilityProbeConfigFromEnv(configuredCycleEnv);
+      const resolveCapabilityProbeConnectorForProviderHint = (
+        providerHint: string | undefined,
+        defaultLiveProviderOverride?: RedditLiveProvider,
+      ): RedditConnector => {
+        const providerOverride =
+          resolveProviderOverride(providerHint) ?? defaultLiveProviderOverride;
+        return createRedditCapabilityProbeConnectorFromEnv({
+          env: configuredCycleEnv,
+          mode: runMode,
+          crawlMode: "live",
+          providerOverride,
+        });
+      };
       const providerPlan = await resolveSchedulerLiveProviderExecutionPlan({
         runMode,
         providerCapability,
@@ -761,14 +689,31 @@ async function main(): Promise<void> {
         runMode === "live" &&
         providerPlan.effectiveProvider !== providerPlan.configuredProvider
           ? {
-              ...process.env,
+              ...configuredCycleEnv,
               REDDIT_LIVE_PROVIDER: providerPlan.effectiveProvider,
               REDDIT_SUPPRESS_HTTP_FALLBACK: "true",
             }
-          : process.env;
+          : configuredCycleEnv;
+      const createConnector = createRedditConnectorFactoryFromEnv(cycleEnv);
+      const connectorCache = new Map<string, RedditConnector>();
+      const resolveConnectorForProviderHint = (
+        providerHint: string | undefined,
+        defaultLiveProviderOverride?: RedditLiveProvider,
+      ): RedditConnector => {
+        const providerOverride =
+          resolveProviderOverride(providerHint) ?? defaultLiveProviderOverride;
+        const cacheKey = providerOverride ?? "__default__";
+        const cached = connectorCache.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
+        const connector = createConnector(runMode, "live", providerOverride);
+        connectorCache.set(cacheKey, connector);
+        return connector;
+      };
       const fetchExecutionEngine = createRedditFetchExecutionEngine({
         mode: runMode,
-        createConnector: runtime.createConnector,
+        createConnector,
         providerHealthWindowRepository: repos.providerHealthWindowRepository,
         crawlCursorRepository: repos.crawlCursorRepository,
         policyContext: resolveRedditProviderRoutingPolicyContextFromEnv(cycleEnv),
@@ -813,7 +758,7 @@ async function main(): Promise<void> {
           env: cycleEnv,
           mode: runMode,
           crawlMode: "live",
-          postLimit: parseOptionalPositiveInt(process.env.REDDIT_POST_LIMIT),
+          postLimit: parseOptionalPositiveInt(cycleEnv.REDDIT_POST_LIMIT),
           continueOnError: true,
         }),
       );
@@ -842,7 +787,11 @@ async function main(): Promise<void> {
         repos: {
           contentRepository: repos.contentRepository,
           metricsSnapshotRepository: repos.metricsSnapshotRepository,
+          postEngagementRepository: repos.postEngagementRepository,
           subredditDailyFactRepository: repos.subredditDailyFactRepository,
+          subredditCollectionCoverageRepository: repos.subredditCollectionCoverageRepository,
+          crawlCursorRepository: repos.crawlCursorRepository,
+          providerHealthWindowRepository: repos.providerHealthWindowRepository,
           postGrowthFactRepository: repos.postGrowthFactRepository,
           keywordTrendDailyRepository: repos.keywordTrendDailyRepository,
           anomalyEventRepository: repos.anomalyEventRepository,
@@ -924,10 +873,10 @@ async function main(): Promise<void> {
       mode: runMode,
       intervalMs,
       runOnBoot,
-      providerCapabilityRequired: runMode === "live" && providerCapability.required,
+      providerCapabilityRequired: runMode === "live" && startupProviderCapability.required,
       providerCapabilitySubreddit:
-        runMode === "live" && providerCapability.required
-          ? `r/${providerCapability.subreddit}`
+        runMode === "live" && startupProviderCapability.required
+          ? `r/${startupProviderCapability.subreddit}`
           : undefined,
       seedSubreddits: subreddits.map((item) => `r/${item}`),
     }),

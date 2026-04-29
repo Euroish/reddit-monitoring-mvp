@@ -17,6 +17,7 @@ Optional env:
 - `REDDIT_ACCESS_TOKEN` (OAuth mode)
 - `REDDIT_USER_AGENT` (custom user-agent)
 - `REDDIT_RUN_SUBREDDIT` (default: `machinelearning`)
+- `REDDIT_RUN_SUBREDDITS` (comma-separated multi-target basket for scheduler-driven live collection)
 - `REDDIT_HTTP_TRANSPORT` (`auto` default; on Windows use `powershell` if Node HTTP traffic is being reset while PowerShell requests still work)
 - `REDDIT_HTTP_PROXY` (optional dedicated collector egress, e.g. `http://127.0.0.1:1080` or `socks5h://127.0.0.1:1080` for a local sing-box mixed/SOCKS inbound)
 - `REDDIT_HTTP_PROXY_FAILOVER_COMMAND` (optional absolute path to a root-owned host-local command that switches the collector proxy node and restarts only the collector service; the connector triggers it at most once per proxied Reddit request)
@@ -27,6 +28,8 @@ Optional env:
 - `REDDIT_SCRAPLING_BRIDGE_SCRIPT` (override bridge script path; default `scripts/scrapling_reddit_bridge.py`)
 - `REDDIT_SCRAPLING_TIMEOUT_MS` (default follows `REDDIT_HTTP_TIMEOUT_MS`; `http` profile will auto-fallback to PowerShell transport on fetch failure and expose `x-scrapling-fallback`)
 - `REDDIT_SCRAPLING_MAX_RETRIES` (default `2`)
+- `PHASE1_SCHEDULER_INTERVAL_MS` (scheduler cadence in ms; `14400000` = 4 hours)
+- `REDDIT_POST_LIMIT_BASE` / `REDDIT_POST_LIMIT_BOOST` / `REDDIT_POST_LIMIT_ADAPTIVE` (preferred over a fixed `REDDIT_POST_LIMIT` when you want better coverage on hotter professional subreddits)
 
 If you use Scrapling provider, install Python dependency first:
 

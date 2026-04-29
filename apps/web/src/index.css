@@ -36,13 +36,16 @@
   --shadow-elevated: rgba(0, 0, 0, 0.4) 0px 2px 4px;
   --shadow-dialog: rgba(0, 0, 0, 0) 0px 8px 2px, rgba(0, 0, 0, 0.01) 0px 5px 2px, rgba(0, 0, 0, 0.04) 0px 3px 2px, rgba(0, 0, 0, 0.07) 0px 1px 1px, rgba(0, 0, 0, 0.08) 0px 0px 1px;
   --shadow-focus: rgba(0, 0, 0, 0.1) 0px 4px 12px;
+  --font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", ui-monospace, monospace;
+  --font-display: "Source Serif 4", Georgia, serif;
 }
 
 body {
   margin: 0;
   background-color: var(--bg-marketing);
   color: var(--text-primary);
-  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-feature-settings: "cv01", "ss03";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -61,6 +64,7 @@ h1 {
   font-size: 32px;
   line-height: 1.13;
   letter-spacing: -0.704px;
+  font-family: var(--font-display);
 }
 
 h2 {
@@ -130,19 +134,13 @@ select {
 }
 
 .topbar-left,
-.topbar-right,
-.topbar-nav {
+.topbar-right {
   display: flex;
   align-items: center;
 }
 
 .topbar-left {
   gap: 24px;
-  flex-wrap: wrap;
-}
-
-.topbar-nav {
-  gap: 16px;
   flex-wrap: wrap;
 }
 
@@ -160,12 +158,58 @@ select {
   white-space: nowrap;
 }
 
-.app-main {
-  flex: 1;
+.app-shell {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
   width: 100%;
-  max-width: 1200px;
+  max-width: 1440px;
   margin: 0 auto;
-  padding: 40px 24px;
+}
+
+.app-sidebar {
+  position: sticky;
+  top: 73px;
+  align-self: start;
+  min-height: calc(100vh - 73px);
+  padding: 28px 16px 40px 24px;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sidebar-section + .sidebar-section {
+  margin-top: 24px;
+}
+
+.sidebar-section-label {
+  color: var(--text-quaternary);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.sidebar-link {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+}
+
+.sidebar-link.active {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-standard);
+}
+
+.app-main {
+  min-width: 0;
+  padding: 40px 24px 64px;
 }
 
 .responsive-grid {
@@ -216,6 +260,13 @@ select {
   overflow-wrap: anywhere;
 }
 
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .card-empty {
   color: var(--text-tertiary);
   text-align: center;
@@ -256,6 +307,41 @@ select {
   border: 1px solid var(--border-standard);
   border-radius: 12px;
   padding: 16px;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
+}
+
+.data-table th,
+.data-table td {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.data-table th {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 510;
+  font-family: var(--font-mono);
+}
+
+.data-table td {
+  color: var(--text-secondary);
+}
+
+.data-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .markets-summary-label {
@@ -354,8 +440,7 @@ select {
   }
 
   .topbar-left,
-  .topbar-right,
-  .topbar-nav {
+  .topbar-right {
     width: 100%;
   }
 
@@ -369,6 +454,31 @@ select {
 
   .app-main {
     padding: 28px 16px 40px;
+  }
+
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .app-sidebar {
+    position: static;
+    min-height: auto;
+    padding: 16px;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .sidebar-section {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .sidebar-section + .sidebar-section {
+    margin-top: 16px;
+  }
+
+  .sidebar-section-label {
+    width: 100%;
   }
 
   .page-header {

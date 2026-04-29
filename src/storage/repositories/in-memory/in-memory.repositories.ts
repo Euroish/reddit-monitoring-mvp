@@ -4,5 +4,6 @@ export * from "./keyword-query-session.repository";
 export * from "./metrics-and-queue.repositories";
 export * from "./cursor-and-provider.repositories";
 export * from "./raw-target-trend.repositories";
+export * from "./runtime-setting.repository";
 export * from "./saved-workbench-view.repository";
 export * from "./storage-observability.repository";

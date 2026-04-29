@@ -18,6 +18,7 @@ import {
   InMemoryPostSearchDocumentRepository,
   InMemoryProviderHealthWindowRepository,
   InMemoryRawEventRepository,
+  InMemoryRuntimeSettingRepository,
   InMemorySavedWorkbenchViewRepository,
   InMemorySubredditDailyFactRepository,
   InMemorySubredditCollectionCoverageRepository,
@@ -57,6 +58,7 @@ export function createApiTestRepositories() {
     subredditCollectionCoverageRepository: new InMemorySubredditCollectionCoverageRepository(),
     subredditTrendPointRepository: new InMemorySubredditTrendPointRepository(),
     providerHealthWindowRepository: new InMemoryProviderHealthWindowRepository(),
+    runtimeSettingRepository: new InMemoryRuntimeSettingRepository(),
     savedWorkbenchViewRepository: new InMemorySavedWorkbenchViewRepository(),
     storageObservabilityRepository: new InMemoryStorageObservabilityRepository(),
   };

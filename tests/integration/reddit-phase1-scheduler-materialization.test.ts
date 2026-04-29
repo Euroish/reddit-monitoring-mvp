@@ -8,6 +8,7 @@ import {
   InMemoryMetricsSnapshotRepository,
   InMemoryPostEngagementRepository,
   InMemoryPostGrowthFactRepository,
+  InMemorySubredditCollectionCoverageRepository,
   InMemorySubredditDailyFactRepository,
   InMemorySubredditTrendPointRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
@@ -33,6 +34,19 @@ class TrackingSubredditTrendPointRepository extends InMemorySubredditTrendPointR
   public override async upsertMany(points: Awaited<ReturnType<InMemorySubredditTrendPointRepository["all"]>>): Promise<void> {
     this.order.push("trend");
     await super.upsertMany(points);
+  }
+}
+
+class TrackingSubredditCollectionCoverageRepository extends InMemorySubredditCollectionCoverageRepository {
+  constructor(private readonly order: string[]) {
+    super();
+  }
+
+  public override async upsertMany(
+    rows: Awaited<ReturnType<InMemorySubredditCollectionCoverageRepository["all"]>>,
+  ): Promise<void> {
+    this.order.push("coverage");
+    await super.upsertMany(rows);
   }
 }
 
@@ -79,6 +93,8 @@ test("materializeTouchedTargets runs replay materialization in deterministic ano
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
   const postEngagementRepository = new InMemoryPostEngagementRepository();
   const subredditDailyFactRepository = new TrackingSubredditDailyFactRepository(order);
+  const subredditCollectionCoverageRepository =
+    new TrackingSubredditCollectionCoverageRepository(order);
   const subredditTrendPointRepository = new TrackingSubredditTrendPointRepository(order);
   const postGrowthFactRepository = new TrackingPostGrowthFactRepository(order);
   const keywordTrendDailyRepository = new TrackingKeywordTrendDailyRepository(order);
@@ -183,6 +199,7 @@ test("materializeTouchedTargets runs replay materialization in deterministic ano
       metricsSnapshotRepository,
       postEngagementRepository,
       subredditDailyFactRepository,
+      subredditCollectionCoverageRepository,
       postGrowthFactRepository,
       keywordTrendDailyRepository,
       anomalyEventRepository,
@@ -212,7 +229,7 @@ test("materializeTouchedTargets runs replay materialization in deterministic ano
   });
 
   assert.equal(materializedCount, 1);
-  assert.deepEqual(order, ["daily", "trend", "driver", "keyword", "anomaly"]);
+  assert.deepEqual(order, ["daily", "coverage", "trend", "driver", "keyword", "anomaly"]);
   assert.equal(anomalyEventRepository.all().length > 0, true);
 });
 
@@ -224,6 +241,8 @@ test("materializeTouchedTargets narrows rebuild windows from explicit scope", as
   const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
   const postEngagementRepository = new InMemoryPostEngagementRepository();
   const subredditDailyFactRepository = new InMemorySubredditDailyFactRepository();
+  const subredditCollectionCoverageRepository =
+    new InMemorySubredditCollectionCoverageRepository();
   const subredditTrendPointRepository = new InMemorySubredditTrendPointRepository();
   const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
   const keywordTrendDailyRepository = new InMemoryKeywordTrendDailyRepository();
@@ -313,6 +332,7 @@ test("materializeTouchedTargets narrows rebuild windows from explicit scope", as
       metricsSnapshotRepository,
       postEngagementRepository,
       subredditDailyFactRepository,
+      subredditCollectionCoverageRepository,
       postGrowthFactRepository,
       keywordTrendDailyRepository,
       anomalyEventRepository,
@@ -341,6 +361,14 @@ test("materializeTouchedTargets narrows rebuild windows from explicit scope", as
   assert.deepEqual(
     subredditTrendPointRepository.all().map((point) => point.windowStart),
     ["2026-04-27T18:00:00.000Z"],
+  );
+  assert.equal(
+    subredditCollectionCoverageRepository.all().some((row) => row.day === "2026-04-27"),
+    true,
+  );
+  assert.equal(
+    subredditCollectionCoverageRepository.all().some((row) => row.day === "2026-04-25"),
+    false,
   );
   assert.deepEqual(
     postGrowthFactRepository.all().map((fact) => fact.contentId),

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useMutation } from '@tanstack/react-query';
 import { ApiError, fetchApi } from '../api/client';
@@ -117,15 +118,20 @@ export function Ops() {
           <h1>Operations</h1>
           <p className="page-subtitle">System readiness and guarded run controls</p>
         </div>
-        <Button
-          onClick={() => {
-            void refetch();
-            void refetchStorage();
-          }}
-          disabled={isLoading || isStorageLoading}
-        >
-          Refresh Status
-        </Button>
+        <div className="filter-bar">
+          <Link to="/ops/storage" className="markets-secondary-link">Storage</Link>
+          <Link to="/ops/users" className="markets-secondary-link">Users</Link>
+          <Link to="/ops/invites" className="markets-secondary-link">Invites</Link>
+          <Button
+            onClick={() => {
+              void refetch();
+              void refetchStorage();
+            }}
+            disabled={isLoading || isStorageLoading}
+          >
+            Refresh Status
+          </Button>
+        </div>
       </div>
 
       {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>Loading system status...</div>}

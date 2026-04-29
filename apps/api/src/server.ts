@@ -40,6 +40,7 @@ const runtime = createPostgresPhase1Runtime();
 
 const server = createApiServer({
   repositories: runtime.repositories,
+  sqlDb: runtime.db,
   createConnector: runtime.createConnector,
   redditMapper: runtime.redditMapper,
   auth: {

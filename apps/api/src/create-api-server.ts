@@ -8,7 +8,6 @@ import type {
   SubredditAnomalyIncidentFeedResponse,
   ApiReadinessResponse,
   ApiStorageObservabilityResponse,
-  MarketWorkbenchResponse,
   AuthLoginRequest,
   AuthLoginResponse,
   AuthLogoutResponse,
@@ -18,36 +17,45 @@ import type {
   CreateSavedWorkbenchViewResponse,
   CreateInviteRequest,
   CreateInviteResponse,
+  GetCollectionSettingsResponse,
   CrawlMode,
+  CollectionRunNowRequest,
+  CollectionRunNowResponse,
+  CollectionSettingsView,
   CreateKeywordQueryRequest,
   CreateKeywordQueryResponse,
   CreateSubredditTargetRequest,
   CreateSubredditTargetResponse,
   GetKeywordQueryResponse,
+  ListSubredditTargetsResponse,
   ListSavedWorkbenchViewsResponse,
+  MaintenancePreviewResponse,
+  MaintenancePruneRequest,
+  MaintenancePruneResponse,
   MarketTrendResponse,
   ListAppUsersResponse,
   RegisterAppUserRequest,
   RegisterAppUserResponse,
   RunMode,
+  SubredditTargetAdminView,
   UpdateAppUserStatusRequest,
   UpdateAppUserStatusResponse,
+  UpdateCollectionSettingsRequest,
+  UpdateCollectionSettingsResponse,
+  UpdateSubredditTargetRequest,
+  UpdateSubredditTargetResponse,
+  BulkUpdateSubredditTargetsRequest,
+  BulkUpdateSubredditTargetsResponse,
   GlobalKeywordDailyTrendResponse,
   SubredditDriverPostsResponse,
   SubredditDailyTrendResponse,
   SubredditTrendResponse,
-  TargetComparisonWorkbenchResponse,
-  TargetWorkbenchResponse,
   WorkbenchComparableSeriesId,
   SavedWorkbenchViewResponseItem,
   TriggerPhase1RunRequest,
   TriggerPhase1RunResponse,
 } from "../../../packages/contracts/src/http";
 import type { AppUser } from "../../../src/domain/entities/app-user";
-import type { CrawlCursor as CrawlCursorEntity } from "../../../src/domain/entities/crawl-cursor";
-import type { ProviderHealthWindow } from "../../../src/domain/entities/provider-health-window";
-import type { SubredditCollectionCoverage } from "../../../src/domain/entities/subreddit-collection-coverage";
-import type { SubredditDailyFact } from "../../../src/domain/entities/subreddit-daily-fact";
 import { dispatchRedditPhase1Run } from "../../../src/application/use-cases/dispatch-reddit-phase1-run.use-case";
 import { prepareTriggeredRedditPhase1Run } from "../../../src/application/use-cases/trigger-reddit-phase1-run.use-case";
 import { activateAppUser } from "../../../src/application/use-cases/activate-app-user.use-case";
@@ -68,7 +76,15 @@ import {
   toDominantSourceType,
 } from "../../../src/application/services/keyword-query-metrics";
 import {
-  matchesNormalizedQueryV2,
+  buildComparisonWorkbenchFromRefreshContract,
+  buildMarketWorkbenchFromRefreshContract,
+  buildTargetWorkbenchFromRefreshContract,
+} from "../../../src/application/services/workbench-refresh-contract.service";
+import {
+  resolveDriverKeywordMatches,
+  type NormalizedTargetKeywordQuery,
+} from "../../../src/application/services/workbench-refresh-driver-match.service";
+import {
   normalizeQueryV2,
 } from "../../../src/application/services/query-normalization-v2.service";
 import { buildSubredditAnomalyIncidentReadModel } from "../../../src/application/services/subreddit-anomaly-incident-read-model.service";
@@ -77,12 +93,7 @@ import { buildSubredditDailyInsights } from "../../../src/application/services/s
 import { buildSubredditDriverPostReadModel } from "../../../src/application/services/subreddit-driver-post-read-model.service";
 import { buildGlobalKeywordDailyTrendReadModel } from "../../../src/application/services/global-keyword-daily-trend-read-model.service";
 import { buildSubredditTrendReadModel } from "../../../src/application/services/subreddit-trend-read-model";
-import {
-  buildTargetComparisonWorkbenchReadModel,
-  COMPARABLE_WORKBENCH_SERIES_IDS,
-} from "../../../src/application/services/target-comparison-workbench-read-model.service";
-import { buildMarketWorkbenchReadModel } from "../../../src/application/services/market-workbench-read-model.service";
-import { buildTargetWorkbenchReadModel } from "../../../src/application/services/target-workbench-read-model.service";
+import { COMPARABLE_WORKBENCH_SERIES_IDS } from "../../../src/application/services/target-comparison-workbench-read-model.service";
 import type { RedditConnector } from "../../../src/connectors/reddit/reddit-connector.interface";
 import { DefaultRedditMapper } from "../../../src/connectors/reddit/reddit.mapper";
 import type { RedditMapper } from "../../../src/connectors/reddit/reddit-mapper.interface";
@@ -111,6 +122,14 @@ import type { SubredditDailyFactRepository } from "../../../src/domain/repositor
 import type { SubredditCollectionCoverageRepository } from "../../../src/domain/repositories/subreddit-collection-coverage-repository";
 import type { SubredditTrendPointRepository } from "../../../src/domain/repositories/subreddit-trend-point-repository";
 import type { StorageObservabilityRepository } from "../../../src/domain/repositories/storage-observability-repository";
+import type { RuntimeSettingRepository } from "../../../src/domain/repositories/runtime-setting-repository";
+import type { SqlQueryable } from "../../../src/storage/postgres/postgres-client";
+import {
+  pruneMetricsSnapshots,
+  prunePostEngagementWindows,
+  pruneRawEvents,
+  resolveRetentionPruneConfig,
+} from "../../../src/ops/retention-prune";
 import {
   BadRequestError,
   resolveCrawlMode,
@@ -125,7 +144,8 @@ import {
 } from "./api-validation";
 import { buildReadinessState } from "./readyz-observability";
 import { resolveRedditProviderRoutingPolicyContextFromEnv } from "../../../src/runtime/reddit-provider-routing-policy";
-import { parseBooleanFlag } from "../../../src/runtime/runtime-parsing";
+import { parseBooleanFlag, parsePositiveInt } from "../../../src/runtime/runtime-parsing";
+import { COLLECTION_SETTINGS_RUNTIME_KEY } from "../../../src/runtime/reddit-phase1-runtime";
 import {
   buildClearSessionCookie,
   buildSessionCookie,
@@ -212,6 +232,7 @@ export interface ApiRepositoryBundle {
   subredditCollectionCoverageRepository?: SubredditCollectionCoverageRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
   providerHealthWindowRepository?: ProviderHealthWindowRepository;
+  runtimeSettingRepository?: RuntimeSettingRepository;
   savedWorkbenchViewRepository?: SavedWorkbenchViewRepository;
   storageObservabilityRepository?: StorageObservabilityRepository;
 }
@@ -249,6 +270,7 @@ function parseAnomalySignalTypeList(value: string | null): AnomalySignalType[] |
 
 export interface CreateApiServerOptions {
   repositories: ApiRepositoryBundle;
+  sqlDb?: SqlQueryable;
   createConnector: (
     mode: RunMode,
     crawlMode?: CrawlMode,
@@ -278,6 +300,10 @@ export interface CreateApiServerOptions {
     durationSeconds?: number;
   };
 }
+
+type CollectionSettingsRecord = Omit<CollectionSettingsView, "updatedAt"> & {
+  updatedAt: string;
+};
 
 function defaultApiLogger(event: ApiRequestLog): void {
   // eslint-disable-next-line no-console
@@ -452,50 +478,6 @@ function parseAgeBucketList(value: string | null): PostGrowthAgeBucket[] | undef
     ageBuckets.push(item as PostGrowthAgeBucket);
   }
   return ageBuckets;
-}
-
-async function resolveDriverKeywordMatches(args: {
-  postSearchDocumentRepository?: PostSearchDocumentRepository;
-  normalizedQueries: Array<ReturnType<typeof normalizeQueryV2>>;
-  canonicalName: string;
-  fromIso: string;
-  toIso: string;
-  limit: number;
-}): Promise<Map<string, string[]>> {
-  const matchesByContentId = new Map<string, Set<string>>();
-  if (args.normalizedQueries.length === 0) {
-    return new Map();
-  }
-  if (!args.postSearchDocumentRepository) {
-    throw new Error("post search document repository is required for keyword-scoped drivers");
-  }
-
-  const searchLimit = Math.max(args.limit, 200);
-  for (const query of args.normalizedQueries) {
-    const documents = await args.postSearchDocumentRepository.search({
-      tokens: query.searchTokens,
-      canonicalSubreddit: args.canonicalName,
-      limit: searchLimit,
-      createdAtFrom: args.fromIso,
-      createdAtTo: args.toIso,
-    });
-    for (const document of documents) {
-      const haystack = `${document.title} ${document.bodySnippet ?? ""}`;
-      if (!matchesNormalizedQueryV2(haystack, query)) {
-        continue;
-      }
-      const current = matchesByContentId.get(document.contentId) ?? new Set<string>();
-      current.add(query.normalizedQueryText);
-      matchesByContentId.set(document.contentId, current);
-    }
-  }
-
-  return new Map(
-    Array.from(matchesByContentId.entries()).map(([contentId, queryTexts]) => [
-      contentId,
-      Array.from(queryTexts).sort((a, b) => a.localeCompare(b)),
-    ]),
-  );
 }
 
 function toUtcDay(iso: string): string {
@@ -769,6 +751,13 @@ function toAuthUserView(user: AppUser): AuthUserView {
 function isPrivilegedWritePath(pathname: string): boolean {
   return (
     pathname === "/v1/targets/subreddit" ||
+    pathname === "/v1/targets/subreddit/bulk-update" ||
+    pathname.startsWith("/v1/targets/subreddit/") ||
+    pathname === "/v1/ops/collection/settings" ||
+    pathname === "/v1/ops/collection/run-now" ||
+    pathname === "/v1/ops/maintenance/prune/raw-events" ||
+    pathname === "/v1/ops/maintenance/prune/metrics-snapshots" ||
+    pathname === "/v1/ops/maintenance/prune/post-engagement-windows" ||
     pathname === "/v1/runs/reddit-phase1" ||
     pathname === "/auth/invites" ||
     /^\/auth\/users\/[^/]+\/activate$/.test(pathname) ||
@@ -815,8 +804,251 @@ function isSupportedAppUserStatus(value: unknown): value is AppUser["status"] {
   return value === "pending" || value === "active" || value === "disabled";
 }
 
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function readString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readPositiveInt(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    return undefined;
+  }
+  return value;
+}
+
+function readNullableString(value: unknown): string | undefined {
+  if (value == null) {
+    return undefined;
+  }
+  return readString(value);
+}
+
+function readTargetConfig(target: { config: Record<string, unknown> }) {
+  const collection = typeof target.config.collection === "object" && target.config.collection
+    ? target.config.collection as Record<string, unknown>
+    : {};
+  const live = typeof collection.live === "object" && collection.live
+    ? collection.live as Record<string, unknown>
+    : {};
+  return {
+    favorite: readBoolean(live.favorite) ?? false,
+    cadenceHours: readPositiveInt(live.cadenceHours) ?? null,
+    notes: readNullableString(target.config.notes),
+    category: readNullableString(target.config.category),
+  };
+}
+
+function withUpdatedTargetConfig(args: {
+  target: { config: Record<string, unknown> };
+  patch: UpdateSubredditTargetRequest;
+}): Record<string, unknown> {
+  const currentConfig = args.target.config ?? {};
+  const currentCollection = typeof currentConfig.collection === "object" && currentConfig.collection
+    ? currentConfig.collection as Record<string, unknown>
+    : {};
+  const currentLive = typeof currentCollection.live === "object" && currentCollection.live
+    ? currentCollection.live as Record<string, unknown>
+    : {};
+  const nextLive: Record<string, unknown> = { ...currentLive };
+
+  if (args.patch.favorite != null) {
+    nextLive.favorite = args.patch.favorite;
+  }
+  if (args.patch.cadenceHours !== undefined) {
+    if (args.patch.cadenceHours == null) {
+      delete nextLive.cadenceHours;
+    } else {
+      nextLive.cadenceHours = args.patch.cadenceHours;
+    }
+  }
+
+  const nextConfig: Record<string, unknown> = {
+    ...currentConfig,
+    collection: {
+      ...currentCollection,
+      live: nextLive,
+    },
+  };
+
+  if (args.patch.notes !== undefined) {
+    if (args.patch.notes == null || args.patch.notes.trim() === "") {
+      delete nextConfig.notes;
+    } else {
+      nextConfig.notes = args.patch.notes.trim();
+    }
+  }
+  if (args.patch.category !== undefined) {
+    if (args.patch.category == null || args.patch.category.trim() === "") {
+      delete nextConfig.category;
+    } else {
+      nextConfig.category = args.patch.category.trim();
+    }
+  }
+
+  return nextConfig;
+}
+
+function buildCollectionSettingsView(args: {
+  env: NodeJS.ProcessEnv;
+  stored: Record<string, unknown> | null;
+  nowIso: string;
+}): CollectionSettingsView {
+  const stored = args.stored ?? {};
+  return {
+    defaultCadenceHours:
+      readPositiveInt(stored.defaultCadenceHours) ??
+      parsePositiveInt(args.env.REDDIT_DEFAULT_FAVORITE_TARGET_CADENCE_HOURS, 8),
+    postLimitBase:
+      readPositiveInt(stored.postLimitBase) ??
+      parsePositiveInt(args.env.REDDIT_POST_LIMIT_BASE, 16),
+    postLimitBoost:
+      readPositiveInt(stored.postLimitBoost) ??
+      parsePositiveInt(args.env.REDDIT_POST_LIMIT_BOOST, 40),
+    adaptiveLimitEnabled:
+      readBoolean(stored.adaptiveLimitEnabled) ??
+      parseBooleanFlag(args.env.REDDIT_POST_LIMIT_ADAPTIVE, true),
+    backfillPostLimit:
+      readPositiveInt(stored.backfillPostLimit) ??
+      parsePositiveInt(args.env.REDDIT_BACKFILL_POST_LIMIT, 100),
+    backfillTargetDays:
+      readPositiveInt(stored.backfillTargetDays) ??
+      parsePositiveInt(args.env.REDDIT_BACKFILL_TARGET_DAYS, 15),
+    backfillMaxIterationsPerTarget:
+      readPositiveInt(stored.backfillMaxIterationsPerTarget) ??
+      parsePositiveInt(args.env.REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET, 24),
+    providerPreference:
+      stored.providerPreference === "http" || stored.providerPreference === "scrapling"
+        ? stored.providerPreference
+        : "default",
+    updatedAt: readString(stored.updatedAt) ?? args.nowIso,
+  };
+}
+
+function applyCollectionSettingsPatch(args: {
+  current: CollectionSettingsView;
+  patch: UpdateCollectionSettingsRequest;
+  nowIso: string;
+}): CollectionSettingsRecord {
+  return {
+    defaultCadenceHours: args.patch.defaultCadenceHours ?? args.current.defaultCadenceHours,
+    postLimitBase: args.patch.postLimitBase ?? args.current.postLimitBase,
+    postLimitBoost: args.patch.postLimitBoost ?? args.current.postLimitBoost,
+    adaptiveLimitEnabled: args.patch.adaptiveLimitEnabled ?? args.current.adaptiveLimitEnabled,
+    backfillPostLimit: args.patch.backfillPostLimit ?? args.current.backfillPostLimit,
+    backfillTargetDays: args.patch.backfillTargetDays ?? args.current.backfillTargetDays,
+    backfillMaxIterationsPerTarget:
+      args.patch.backfillMaxIterationsPerTarget ?? args.current.backfillMaxIterationsPerTarget,
+    providerPreference: args.patch.providerPreference ?? args.current.providerPreference,
+    updatedAt: args.nowIso,
+  };
+}
+
+function toCollectionSettingsEnvOverlay(settings: CollectionSettingsView): NodeJS.ProcessEnv {
+  const providerHint =
+    settings.providerPreference === "default" ? undefined : settings.providerPreference;
+  return {
+    ...process.env,
+    REDDIT_DEFAULT_FAVORITE_TARGET_CADENCE_HOURS: String(settings.defaultCadenceHours),
+    REDDIT_POST_LIMIT_BASE: String(settings.postLimitBase),
+    REDDIT_POST_LIMIT_BOOST: String(settings.postLimitBoost),
+    REDDIT_POST_LIMIT_ADAPTIVE: settings.adaptiveLimitEnabled ? "true" : "false",
+    REDDIT_BACKFILL_POST_LIMIT: String(settings.backfillPostLimit),
+    REDDIT_BACKFILL_TARGET_DAYS: String(settings.backfillTargetDays),
+    REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET: String(settings.backfillMaxIterationsPerTarget),
+    REDDIT_LIVE_PROVIDER: providerHint ?? process.env.REDDIT_LIVE_PROVIDER,
+  };
+}
+
+function isValidTargetPatch(body: UpdateSubredditTargetRequest | null): body is UpdateSubredditTargetRequest {
+  if (!body) {
+    return false;
+  }
+  if (body.status != null && body.status !== "active" && body.status !== "paused") {
+    return false;
+  }
+  if (body.favorite != null && typeof body.favorite !== "boolean") {
+    return false;
+  }
+  if (
+    body.cadenceHours !== undefined &&
+    body.cadenceHours !== null &&
+    (!Number.isInteger(body.cadenceHours) || body.cadenceHours < 1 || body.cadenceHours > 168)
+  ) {
+    return false;
+  }
+  if (body.notes !== undefined && body.notes !== null && typeof body.notes !== "string") {
+    return false;
+  }
+  if (body.category !== undefined && body.category !== null && typeof body.category !== "string") {
+    return false;
+  }
+  return true;
+}
+
+function buildSubredditTargetAdminView(args: {
+  target: import("../../../src/domain/entities/monitor-target").MonitorTarget;
+  latestFactByTargetId: Map<string, import("../../../src/domain/entities/subreddit-daily-fact").SubredditDailyFact>;
+  latestTrendByTargetId: Map<string, import("../../../src/domain/entities/subreddit-trend-point").SubredditTrendPoint>;
+  liveCursorByTargetId: Map<string, import("../../../src/domain/entities/crawl-cursor").CrawlCursor>;
+  backfillCursorByTargetId: Map<string, import("../../../src/domain/entities/crawl-cursor").CrawlCursor>;
+}): SubredditTargetAdminView {
+  const config = readTargetConfig(args.target);
+  const latestFact = args.latestFactByTargetId.get(args.target.id);
+  const latestTrend = args.latestTrendByTargetId.get(args.target.id);
+  const latestCollectedAt =
+    args.liveCursorByTargetId.get(args.target.id)?.lastFetchedAt ??
+    args.backfillCursorByTargetId.get(args.target.id)?.lastFetchedAt;
+  return {
+    id: args.target.id,
+    canonicalName: args.target.canonicalName,
+    status: args.target.status,
+    favorite: config.favorite,
+    cadenceHours: config.cadenceHours,
+    lastCollectedAt: latestCollectedAt,
+    lastTrendAt: latestTrend?.windowEnd,
+    recentPostVolume: latestFact?.postVolume,
+    notes: config.notes,
+    category: config.category,
+  };
+}
+
+async function estimatePruneCandidates(args: {
+  db: SqlQueryable;
+  action: MaintenancePruneResponse["action"];
+  retentionDays: number;
+}): Promise<number> {
+  const sqlByAction: Record<MaintenancePruneResponse["action"], string> = {
+    "raw-events": `
+      SELECT COUNT(*)::int AS count
+      FROM raw_reddit_event
+      WHERE fetched_at < NOW() - ($1::int * INTERVAL '1 day')
+    `,
+    "metrics-snapshots": `
+      SELECT COUNT(*)::int AS count
+      FROM metrics_snapshot
+      WHERE content_id IS NULL
+        AND snapshot_at < NOW() - ($1::int * INTERVAL '1 day')
+    `,
+    "post-engagement-windows": `
+      SELECT COUNT(*)::int AS count
+      FROM post_engagement_window
+      WHERE window_start < NOW() - ($1::int * INTERVAL '1 day')
+    `,
+  };
+  const result = await args.db.query<{ count: number }>(sqlByAction[args.action], [args.retentionDays]);
+  return Number(result.rows[0]?.count ?? 0);
+}
+
 export function createApiServer(options: CreateApiServerOptions): Server {
   const repos = options.repositories;
+  const sqlDb = options.sqlDb;
   const now = options.now ?? (() => new Date().toISOString());
   const redditMapper = options.redditMapper ?? new DefaultRedditMapper();
   const logger = options.logger ?? defaultApiLogger;
@@ -1716,8 +1948,469 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         return;
       }
 
+      if (req.method === "GET" && pathname === "/v1/targets/subreddit") {
+        if (!canUseOpsRead(actor)) {
+          respond({
+            statusCode: 403,
+            body: toApiError({
+              requestId,
+              message: "forbidden: requires ops capability",
+              code: "forbidden",
+            }),
+            errorCode: "forbidden",
+          });
+          return;
+        }
+
+        const targets = await repos.monitorTargetRepository.listSubreddits();
+        const targetIds = targets.map((target) => target.id);
+        const nowIso = now();
+        const toDay = nowIso.slice(0, 10);
+        const fromDay = new Date(new Date(nowIso).getTime() - 30 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10);
+        const fromIso = new Date(new Date(nowIso).getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const latestFacts = targetIds.length > 0
+          ? await repos.subredditDailyFactRepository.listLatestByTargetsInRange({
+              targetIds,
+              fromDay,
+              toDay,
+            })
+          : [];
+        const latestTrends = targetIds.length > 0
+          ? await repos.subredditTrendPointRepository.listLatestByTargetsInRange({
+              targetIds,
+              from: fromIso,
+              to: nowIso,
+            })
+          : [];
+        const cursors = repos.crawlCursorRepository ? await repos.crawlCursorRepository.list({}) : [];
+        const payload: ListSubredditTargetsResponse = {
+          ok: true,
+          requestId,
+          targets: targets.map((target) =>
+            buildSubredditTargetAdminView({
+              target,
+              latestFactByTargetId: new Map(latestFacts.map((item) => [item.targetId, item])),
+              latestTrendByTargetId: new Map(latestTrends.map((item) => [item.targetId, item])),
+              liveCursorByTargetId: new Map(
+                cursors.filter((cursor) => cursor.mode === "live").map((cursor) => [cursor.targetId, cursor]),
+              ),
+              backfillCursorByTargetId: new Map(
+                cursors.filter((cursor) => cursor.mode === "backfill").map((cursor) => [cursor.targetId, cursor]),
+              ),
+            }),
+          ),
+        };
+        respond({ statusCode: 200, body: payload });
+        return;
+      }
+
+      if (req.method === "PATCH" && pathname.startsWith("/v1/targets/subreddit/")) {
+        const body = await readJsonBody<UpdateSubredditTargetRequest>(req);
+        if (!isValidTargetPatch(body)) {
+          respond({
+            statusCode: 400,
+            body: toApiError({
+              requestId,
+              message: "invalid target patch",
+              code: "invalid_target_patch",
+            }),
+            errorCode: "invalid_target_patch",
+          });
+          return;
+        }
+        const subreddit = normalizeSubredditName(
+          decodeURIComponent(pathname.replace("/v1/targets/subreddit/", "")),
+        );
+        const canonicalName = `r/${subreddit}`;
+        const existing = await repos.monitorTargetRepository.findByCanonicalName(canonicalName);
+        if (!existing) {
+          respond({
+            statusCode: 404,
+            body: toApiError({
+              requestId,
+              message: `target not found: ${canonicalName}`,
+              code: "target_not_found",
+            }),
+            errorCode: "target_not_found",
+          });
+          return;
+        }
+        const updated = await repos.monitorTargetRepository.upsert({
+          ...existing,
+          status: body.status ?? existing.status,
+          config: withUpdatedTargetConfig({ target: existing, patch: body }),
+          updatedAt: now(),
+        });
+        const payload: UpdateSubredditTargetResponse = {
+          ok: true,
+          requestId,
+          target: buildSubredditTargetAdminView({
+            target: updated,
+            latestFactByTargetId: new Map(),
+            latestTrendByTargetId: new Map(),
+            liveCursorByTargetId: new Map(),
+            backfillCursorByTargetId: new Map(),
+          }),
+        };
+        respond({ statusCode: 200, body: payload, canonicalName });
+        return;
+      }
+
+      if (req.method === "POST" && pathname === "/v1/targets/subreddit/bulk-update") {
+        const body = await readJsonBody<BulkUpdateSubredditTargetsRequest>(req);
+        if (
+          !body ||
+          !Array.isArray(body.canonicalNames) ||
+          body.canonicalNames.length === 0 ||
+          !isValidTargetPatch(body.patch)
+        ) {
+          respond({
+            statusCode: 400,
+            body: toApiError({
+              requestId,
+              message: "invalid bulk target update",
+              code: "invalid_target_patch",
+            }),
+            errorCode: "invalid_target_patch",
+          });
+          return;
+        }
+        const updates: SubredditTargetAdminView[] = [];
+        for (const item of body.canonicalNames) {
+          const canonicalName = `r/${normalizeSubredditName(String(item))}`;
+          const existing = await repos.monitorTargetRepository.findByCanonicalName(canonicalName);
+          if (!existing) {
+            continue;
+          }
+          const updated = await repos.monitorTargetRepository.upsert({
+            ...existing,
+            status: body.patch.status ?? existing.status,
+            config: withUpdatedTargetConfig({ target: existing, patch: body.patch }),
+            updatedAt: now(),
+          });
+          updates.push(
+            buildSubredditTargetAdminView({
+              target: updated,
+              latestFactByTargetId: new Map(),
+              latestTrendByTargetId: new Map(),
+              liveCursorByTargetId: new Map(),
+              backfillCursorByTargetId: new Map(),
+            }),
+          );
+        }
+        const payload: BulkUpdateSubredditTargetsResponse = {
+          ok: true,
+          requestId,
+          targets: updates,
+        };
+        respond({ statusCode: 200, body: payload });
+        return;
+      }
+
+      if (req.method === "GET" && pathname === "/v1/ops/collection/settings") {
+        if (!canUseOpsRead(actor)) {
+          respond({
+            statusCode: 403,
+            body: toApiError({
+              requestId,
+              message: "forbidden: requires ops capability",
+              code: "forbidden",
+            }),
+            errorCode: "forbidden",
+          });
+          return;
+        }
+        const settings = buildCollectionSettingsView({
+          env: process.env,
+          stored: repos.runtimeSettingRepository
+            ? await repos.runtimeSettingRepository.getJson(COLLECTION_SETTINGS_RUNTIME_KEY)
+            : null,
+          nowIso: now(),
+        });
+        const payload: GetCollectionSettingsResponse = {
+          ok: true,
+          requestId,
+          settings,
+        };
+        respond({ statusCode: 200, body: payload });
+        return;
+      }
+
+      if (req.method === "PATCH" && pathname === "/v1/ops/collection/settings") {
+        if (!repos.runtimeSettingRepository) {
+          respond({
+            statusCode: 501,
+            body: toApiError({
+              requestId,
+              message: "runtime settings are not configured",
+              code: "feature_not_ready",
+            }),
+            errorCode: "feature_not_ready",
+          });
+          return;
+        }
+        const body = await readJsonBody<UpdateCollectionSettingsRequest>(req);
+        const current = buildCollectionSettingsView({
+          env: process.env,
+          stored: await repos.runtimeSettingRepository.getJson(COLLECTION_SETTINGS_RUNTIME_KEY),
+          nowIso: now(),
+        });
+        const next = applyCollectionSettingsPatch({
+          current,
+          patch: body ?? {},
+          nowIso: now(),
+        });
+        await repos.runtimeSettingRepository.setJson(
+          COLLECTION_SETTINGS_RUNTIME_KEY,
+          next,
+          next.updatedAt,
+        );
+        const payload: UpdateCollectionSettingsResponse = {
+          ok: true,
+          requestId,
+          settings: next,
+        };
+        respond({ statusCode: 200, body: payload });
+        return;
+      }
+
+      if (req.method === "POST" && pathname === "/v1/ops/collection/run-now") {
+        const body = await readJsonBody<CollectionRunNowRequest>(req);
+        const collectionSettings = buildCollectionSettingsView({
+          env: process.env,
+          stored: repos.runtimeSettingRepository
+            ? await repos.runtimeSettingRepository.getJson(COLLECTION_SETTINGS_RUNTIME_KEY)
+            : null,
+          nowIso: now(),
+        });
+        const effectiveEnv = toCollectionSettingsEnvOverlay(collectionSettings);
+        const mode = "live" as const;
+        const crawlMode = resolveCrawlMode(body?.crawlMode);
+        if (!crawlMode) {
+          respond({
+            statusCode: 400,
+            body: toApiError({
+              requestId,
+              message: "crawlMode must be live or backfill",
+              code: "invalid_crawl_mode",
+            }),
+            errorCode: "invalid_crawl_mode",
+          });
+          return;
+        }
+        const asyncRequested = body?.async === true;
+        if (asyncRequested) {
+          const queued = await dispatchRedditPhase1Run(
+            {
+              repositories: {
+                monitorTargetRepository: repos.monitorTargetRepository,
+                collectionJobRepository: repos.collectionJobRepository,
+                crawlCursorRepository: repos.crawlCursorRepository,
+              },
+              now,
+              env: effectiveEnv,
+            },
+            {
+              mode,
+              crawlMode,
+              subreddit: body?.subreddit,
+            },
+          );
+          const payload: CollectionRunNowResponse = {
+            ok: true,
+            requestId,
+            mode,
+            crawlMode,
+            nowIso: queued.nowIso,
+            subreddit: body?.subreddit,
+            requestedCanonicalNames: queued.requestedCanonicalNames,
+            processedCanonicalNames: queued.requestedCanonicalNames,
+          };
+          respond({ statusCode: 200, body: payload, canonicalName: queued.canonicalName, mode });
+          return;
+        }
+
+        const prepared = await prepareTriggeredRedditPhase1Run(
+          {
+            repositories: repos,
+            createConnector: options.createConnector,
+            redditMapper,
+            now,
+            env: effectiveEnv,
+          },
+          {
+            mode,
+            crawlMode,
+            subreddit: body?.subreddit,
+          },
+        );
+        const executed = await prepared.execute();
+        const payload: CollectionRunNowResponse = {
+          ok: true,
+          requestId,
+          mode,
+          crawlMode,
+          nowIso: prepared.nowIso,
+          subreddit: body?.subreddit,
+          requestedCanonicalNames: prepared.requestedCanonicalNames,
+          processedCanonicalNames: executed.processedCanonicalNames,
+        };
+        respond({ statusCode: 200, body: payload, canonicalName: prepared.canonicalName, mode });
+        return;
+      }
+
+      if (req.method === "GET" && pathname === "/v1/ops/maintenance/preview") {
+        if (!canUseOpsRead(actor)) {
+          respond({
+            statusCode: 403,
+            body: toApiError({
+              requestId,
+              message: "forbidden: requires ops capability",
+              code: "forbidden",
+            }),
+            errorCode: "forbidden",
+          });
+          return;
+        }
+        if (!sqlDb) {
+          respond({
+            statusCode: 501,
+            body: toApiError({
+              requestId,
+              message: "maintenance preview is not configured",
+              code: "feature_not_ready",
+            }),
+            errorCode: "feature_not_ready",
+          });
+          return;
+        }
+        const config = resolveRetentionPruneConfig(process.env);
+        const payload: MaintenancePreviewResponse = {
+          ok: true,
+          requestId,
+          generatedAtIso: now(),
+          items: [
+            {
+              action: "raw-events",
+              retentionDays: config.rawEventRetentionDays,
+              estimatedRows: await estimatePruneCandidates({ db: sqlDb, action: "raw-events", retentionDays: config.rawEventRetentionDays }),
+            },
+            {
+              action: "metrics-snapshots",
+              retentionDays: config.metricsSnapshotRetentionDays,
+              estimatedRows: await estimatePruneCandidates({ db: sqlDb, action: "metrics-snapshots", retentionDays: config.metricsSnapshotRetentionDays }),
+            },
+            {
+              action: "post-engagement-windows",
+              retentionDays: config.postEngagementWindowRetentionDays,
+              estimatedRows: await estimatePruneCandidates({ db: sqlDb, action: "post-engagement-windows", retentionDays: config.postEngagementWindowRetentionDays }),
+            },
+          ],
+        };
+        respond({ statusCode: 200, body: payload });
+        return;
+      }
+
+      if (
+        req.method === "POST" &&
+        (
+          pathname === "/v1/ops/maintenance/prune/raw-events" ||
+          pathname === "/v1/ops/maintenance/prune/metrics-snapshots" ||
+          pathname === "/v1/ops/maintenance/prune/post-engagement-windows"
+        )
+      ) {
+        if (!sqlDb) {
+          respond({
+            statusCode: 501,
+            body: toApiError({
+              requestId,
+              message: "maintenance actions are not configured",
+              code: "feature_not_ready",
+            }),
+            errorCode: "feature_not_ready",
+          });
+          return;
+        }
+        const body = await readJsonBody<MaintenancePruneRequest>(req);
+        const retentionDays = parseOptionalIntegerParam({
+          value: body?.retentionDays != null ? String(body.retentionDays) : null,
+          name: "retentionDays",
+          min: 1,
+          max: 3650,
+        });
+        const batchSize =
+          parseOptionalIntegerParam({
+            value: body?.batchSize != null ? String(body.batchSize) : null,
+            name: "batchSize",
+            min: 1,
+            max: 100000,
+          }) ?? 10000;
+        if (!retentionDays) {
+          respond({
+            statusCode: 400,
+            body: toApiError({
+              requestId,
+              message: "retentionDays is required",
+              code: "invalid_prune_request",
+            }),
+            errorCode: "invalid_prune_request",
+          });
+          return;
+        }
+        const dryRun = body?.dryRun === true;
+        const loopUntilDone = body?.loopUntilDone === true;
+        const action: MaintenancePruneResponse["action"] =
+          pathname.endsWith("/raw-events")
+            ? "raw-events"
+            : pathname.endsWith("/metrics-snapshots")
+              ? "metrics-snapshots"
+              : "post-engagement-windows";
+        if (dryRun) {
+          const payload: MaintenancePruneResponse = {
+            ok: true,
+            requestId,
+            action,
+            retentionDays,
+            batchSize,
+            dryRun,
+            loopUntilDone,
+            estimatedRows: await estimatePruneCandidates({ db: sqlDb, action, retentionDays }),
+          };
+          respond({ statusCode: 200, body: payload });
+          return;
+        }
+        const deletedRows =
+          action === "raw-events"
+            ? await pruneRawEvents(sqlDb, { retentionDays, batchSize, loopUntilDone })
+            : action === "metrics-snapshots"
+              ? await pruneMetricsSnapshots(sqlDb, { retentionDays, batchSize, loopUntilDone })
+              : await prunePostEngagementWindows(sqlDb, { retentionDays, batchSize, loopUntilDone });
+        const payload: MaintenancePruneResponse = {
+          ok: true,
+          requestId,
+          action,
+          retentionDays,
+          batchSize,
+          dryRun,
+          loopUntilDone,
+          deletedRows,
+        };
+        respond({ statusCode: 200, body: payload });
+        return;
+      }
+
       if (req.method === "POST" && pathname === "/v1/runs/reddit-phase1") {
         const body = await readJsonBody<TriggerPhase1RunRequest>(req);
+        const collectionSettings = buildCollectionSettingsView({
+          env: process.env,
+          stored: repos.runtimeSettingRepository
+            ? await repos.runtimeSettingRepository.getJson(COLLECTION_SETTINGS_RUNTIME_KEY)
+            : null,
+          nowIso: now(),
+        });
+        const effectiveEnv = toCollectionSettingsEnvOverlay(collectionSettings);
         const requestedMode = body?.mode ?? process.env.REDDIT_RUN_MODE;
         const mode = resolveRunMode(requestedMode);
         if (!mode) {
@@ -1840,7 +2533,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
                 crawlCursorRepository: repos.crawlCursorRepository,
               },
               now,
-              env: process.env,
+              env: effectiveEnv,
             },
             {
               mode,
@@ -1877,7 +2570,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             createConnector: options.createConnector,
             redditMapper,
             now,
-            env: process.env,
+            env: effectiveEnv,
           },
           {
             mode,
@@ -2236,73 +2929,29 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           url.searchParams,
           now(),
         );
-        const fromDay = toUtcDay(fromIso);
-        const toDay = toUtcDay(toIso);
-
-        const targets = await Promise.all(
-          canonicalNames.map((canonicalName) =>
-            repos.monitorTargetRepository.findByCanonicalName(canonicalName),
-          ),
-        );
-        const missingCanonicalName = canonicalNames.find((_, index) => !targets[index]);
-        if (missingCanonicalName) {
-          respond({
-            statusCode: 404,
-            body: toApiError({
-              requestId,
-              message: `target not found: ${missingCanonicalName}`,
-              code: "target_not_found",
-            }),
-            canonicalName: missingCanonicalName,
-            errorCode: "target_not_found",
-          });
-          return;
-        }
-
-        const resolvedTargets = targets.filter((target): target is NonNullable<typeof target> =>
-          Boolean(target),
-        );
-        const dailyFactsByTargetId = new Map<string, Awaited<ReturnType<SubredditDailyFactRepository["listByTargetInRange"]>>>();
-        const coverageByTargetId = new Map<string, Awaited<ReturnType<SubredditCollectionCoverageRepository["listByTargetInRange"]>>>();
-        const [dailyFactGroups, coverageGroups] = await Promise.all([
-          Promise.all(
-            resolvedTargets.map((target) =>
-              repos.subredditDailyFactRepository.listByTargetInRange({
-                targetId: target.id,
-                fromDay,
-                toDay,
-              }),
-            ),
-          ),
-          Promise.all(
-            resolvedTargets.map((target) =>
-              repos.subredditCollectionCoverageRepository?.listByTargetInRange({
-                targetId: target.id,
-                fromDay,
-                toDay,
-              }) ?? Promise.resolve([]),
-            ),
-          ),
-        ]);
-        for (const [index, facts] of dailyFactGroups.entries()) {
-          dailyFactsByTargetId.set(resolvedTargets[index]!.id, facts);
-        }
-        for (const [index, coverageRows] of coverageGroups.entries()) {
-          coverageByTargetId.set(resolvedTargets[index]!.id, coverageRows);
-        }
-
-        const payload: TargetComparisonWorkbenchResponse = buildTargetComparisonWorkbenchReadModel({
+        const payload = await buildComparisonWorkbenchFromRefreshContract(repos, {
           requestId,
           generatedAtIso: now(),
-          targets: resolvedTargets,
+          canonicalNames,
           fromIso,
           toIso,
           timeframe,
           rangePreset,
-          dailyFactsByTargetId,
-          coverageByTargetId,
           seriesIds,
         });
+        if ("code" in payload) {
+          respond({
+            statusCode: 404,
+            body: toApiError({
+              requestId,
+              message: `target not found: ${payload.canonicalName}`,
+              code: "target_not_found",
+            }),
+            canonicalName: payload.canonicalName,
+            errorCode: "target_not_found",
+          });
+          return;
+        }
         respond({
           statusCode: 200,
           body: payload,
@@ -2333,139 +2982,11 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             min: 1,
             max: 50,
           }) ?? 8;
-        const targets = await repos.monitorTargetRepository.findActiveSubreddits();
-        const targetIds = targets.map((target) => target.id);
-        const breakoutContentFromIso = new Date(
-          new Date(fromIso).getTime() - 24 * 60 * 60 * 1000,
-        ).toISOString();
-        const fromDay = fromIso.slice(0, 10);
-        const toDay = toIso.slice(0, 10);
-
-        const [
-          latestTrendPoints,
-          latestDailyFacts,
-          breakoutFactsGroups,
-          breakoutContentsGroups,
-          anomalyGroups,
-          liveHealthGroups,
-          coverageGroups,
-          liveCursorGroups,
-          backfillCursorGroups,
-        ] =
-          await Promise.all([
-            repos.subredditTrendPointRepository.listLatestByTargetsInRange({
-              targetIds,
-              from: fromIso,
-              to: toIso,
-            }),
-            repos.subredditDailyFactRepository.listLatestByTargetsInRange({
-              targetIds,
-              fromDay,
-              toDay,
-            }),
-            Promise.all(
-              targets.map((target) =>
-                repos.postGrowthFactRepository.listTopByTargetInRange({
-                  targetId: target.id,
-                  fromIso,
-                  toIso,
-                  limit: 1,
-                }),
-              ),
-            ),
-            Promise.all(
-              targets.map((target) =>
-                repos.contentRepository.findByTargetCreatedAtRange({
-                  targetId: target.id,
-                  from: breakoutContentFromIso,
-                  to: toIso,
-                  limit: 250,
-                }),
-              ),
-            ),
-            Promise.all(
-              targets.map((target) =>
-                repos.anomalyEventRepository.listByTargetInRange({
-                  targetId: target.id,
-                  fromIso,
-                  toIso,
-                  limit: anomalyLimit,
-                }),
-              ),
-            ),
-            Promise.all(
-              targets.map((target) =>
-                repos.providerHealthWindowRepository?.listByTargetInRange({
-                  targetId: target.id,
-                  from: fromIso,
-                  to: toIso,
-                  mode: "live",
-                }) ?? Promise.resolve([]),
-              ),
-            ),
-            Promise.all(
-              targets.map((target) =>
-                repos.subredditCollectionCoverageRepository?.listByTargetInRange({
-                  targetId: target.id,
-                  fromDay,
-                  toDay,
-                }) ?? Promise.resolve([]),
-              ),
-            ),
-            Promise.all(
-              targets.map((target) =>
-                repos.crawlCursorRepository?.list({
-                  targetId: target.id,
-                  mode: "live",
-                }) ?? Promise.resolve([]),
-              ),
-            ),
-            Promise.all(
-              targets.map((target) =>
-                repos.crawlCursorRepository?.list({
-                  targetId: target.id,
-                  mode: "backfill",
-                }) ?? Promise.resolve([]),
-              ),
-            ),
-          ]);
-
-        const latestDailyFactsByTargetId = new Map<string, SubredditDailyFact>(
-          latestDailyFacts.map((fact) => [fact.targetId, fact] as const),
-        );
-        const latestCoverageByTargetId = new Map<string, SubredditCollectionCoverage | undefined>();
-        const liveCursorByTargetId = new Map<string, CrawlCursorEntity | null>();
-        const backfillCursorByTargetId = new Map<string, CrawlCursorEntity | null>();
-        const latestLiveHealthByTargetId = new Map<string, ProviderHealthWindow | undefined>();
-        const breakoutFactsByTargetId = new Map<string, Awaited<ReturnType<PostGrowthFactRepository["listTopByTargetInRange"]>>>();
-        const breakoutContentsByTargetId = new Map<string, Awaited<ReturnType<ContentRepository["findByTargetCreatedAtRange"]>>>();
-        const anomalyEventsByTargetId = new Map<string, Awaited<ReturnType<AnomalyEventRepository["listByTargetInRange"]>>>();
-
-        for (const [index, target] of targets.entries()) {
-          latestCoverageByTargetId.set(target.id, coverageGroups[index]?.at(-1));
-          liveCursorByTargetId.set(target.id, liveCursorGroups[index]?.[0] ?? null);
-          backfillCursorByTargetId.set(target.id, backfillCursorGroups[index]?.[0] ?? null);
-          latestLiveHealthByTargetId.set(target.id, liveHealthGroups[index]?.at(-1));
-          breakoutFactsByTargetId.set(target.id, breakoutFactsGroups[index] ?? []);
-          breakoutContentsByTargetId.set(target.id, breakoutContentsGroups[index] ?? []);
-          anomalyEventsByTargetId.set(target.id, anomalyGroups[index] ?? []);
-        }
-
-        const payload: MarketWorkbenchResponse = buildMarketWorkbenchReadModel({
+        const payload = await buildMarketWorkbenchFromRefreshContract(repos, {
           requestId,
           generatedAtIso: now(),
           fromIso,
           toIso,
-          targets,
-          latestTrendPoints,
-          latestDailyFactsByTargetId,
-          latestCoverageByTargetId,
-          liveCursorByTargetId,
-          backfillCursorByTargetId,
-          latestLiveHealthByTargetId,
-          breakoutFactsByTargetId,
-          breakoutContentsByTargetId,
-          anomalyEventsByTargetId,
           rankingLimit,
           breakoutLimit,
           anomalyLimit,
@@ -2481,20 +3002,6 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         const subredditRaw = pathname.replace("/v1/workbench/target/", "");
         const subreddit = normalizeSubredditName(decodeSubredditPathSegment(subredditRaw));
         const canonicalName = `r/${subreddit}`;
-        const target = await repos.monitorTargetRepository.findByCanonicalName(canonicalName);
-        if (!target) {
-          respond({
-            statusCode: 404,
-            body: toApiError({
-              requestId,
-              message: `target not found: ${canonicalName}`,
-              code: "target_not_found",
-            }),
-            canonicalName,
-            errorCode: "target_not_found",
-          });
-          return;
-        }
 
         const { fromIso, toIso, timeframe, rangePreset } = resolveWorkbenchDailyRange(
           url.searchParams,
@@ -2522,7 +3029,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             max: 50,
           }) ?? 10;
         const rawKeywords = parseKeywordList(url.searchParams.get("keywords"));
-        const normalizedQueries = rawKeywords.map((keyword) => {
+        const normalizedQueries: NormalizedTargetKeywordQuery[] = rawKeywords.map((keyword) => {
           try {
             const query = normalizeQueryV2(keyword, canonicalName);
             return { ...query, raw: keyword };
@@ -2533,132 +3040,36 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             );
           }
         });
-        const explicitQueryTexts = normalizedQueries.map((query) => query.normalizedQueryText);
-        const queryScopes =
-          normalizedQueries.length > 0
-            ? Array.from(new Set(normalizedQueries.map((query) => query.queryScope)))
-            : undefined;
-        const tracks =
-          normalizedQueries.length > 0 ? (["explicit_query"] as const) : undefined;
-        const fromDay = toUtcDay(fromIso);
-        const toDay = toUtcDay(toIso);
-        const [
-          dailyFacts,
-          trendPoints,
-          keywordDailyRows,
-          postGrowthFacts,
-          contents,
-          anomalyEvents,
-          providerHealthWindows,
-          collectionCoverage,
-          liveCursor,
-          backfillCursor,
-          queryMatchesByContentId,
-        ] = await Promise.all([
-          repos.subredditDailyFactRepository.listByTargetInRange({
-            targetId: target.id,
-            fromDay,
-            toDay,
-          }),
-          repos.subredditTrendPointRepository.listByTargetInRange({
-            targetId: target.id,
-            from: fromIso,
-            to: toIso,
-          }),
-          repos.keywordTrendDailyRepository?.listByTargetInRange({
-            targetId: target.id,
-            fromDay,
-            toDay,
-            keywords: explicitQueryTexts,
-            tracks: tracks ? [...tracks] : undefined,
-            queryScopes,
-            limit: keywordLimit,
-          }) ?? Promise.resolve([]),
-          repos.postGrowthFactRepository.listTopByTargetInRange({
-            targetId: target.id,
-            fromIso,
-            toIso,
-            limit: driverLimit,
-          }),
-          repos.contentRepository.findByTargetCreatedAtRange({
-            targetId: target.id,
-            from: fromIso,
-            to: toIso,
-            limit: Math.max(driverLimit * 5, 100),
-          }),
-          repos.anomalyEventRepository.listByTargetInRange({
-            targetId: target.id,
-            fromIso,
-            toIso,
-            limit: anomalyLimit,
-          }),
-          repos.providerHealthWindowRepository?.listByTargetInRange({
-            targetId: target.id,
-            from: fromIso,
-            to: toIso,
-            mode: "live",
-          }) ?? Promise.resolve([]),
-          repos.subredditCollectionCoverageRepository?.listByTargetInRange({
-            targetId: target.id,
-            fromDay,
-            toDay,
-          }) ?? Promise.resolve([]),
-          repos.crawlCursorRepository
-            ?.list({
-              targetId: target.id,
-              mode: "live",
-            })
-            .then((rows) => rows[0] ?? null) ?? Promise.resolve(null),
-          repos.crawlCursorRepository
-            ?.list({
-              targetId: target.id,
-              mode: "backfill",
-            })
-            .then((rows) => rows[0] ?? null) ?? Promise.resolve(null),
-          resolveDriverKeywordMatches({
-            postSearchDocumentRepository: repos.postSearchDocumentRepository,
-            normalizedQueries,
-            canonicalName,
-            fromIso: new Date(new Date(fromIso).getTime() - 24 * 60 * 60 * 1000).toISOString(),
-            toIso,
-            limit: Math.max(driverLimit * 10, 200),
-          }),
-        ]);
-
-        const payload: TargetWorkbenchResponse = buildTargetWorkbenchReadModel({
+        const payload = await buildTargetWorkbenchFromRefreshContract(repos, {
           requestId,
           generatedAtIso: now(),
-          target,
+          canonicalName,
           fromIso,
           toIso,
           timeframe,
           rangePreset,
-          dailyFacts,
-          trendPoints,
-          keywordDailyRows,
-          postGrowthFacts,
-          contents,
-          anomalyEvents,
-          providerHealthWindows,
-          collectionCoverage,
-          liveCursor,
-          backfillCursor,
-          keywords: explicitQueryTexts,
-          normalizedQueries: normalizedQueries.map((query) => ({
-            raw: query.raw,
-            normalizedQueryText: query.normalizedQueryText,
-            queryScope: query.queryScope,
-            scopeCanonicalSubreddit: query.scopeCanonicalSubreddit,
-          })),
-          matchedQueriesByContentId: queryMatchesByContentId,
+          normalizedQueries,
           keywordLimit,
           driverLimit,
           anomalyLimit,
         });
+        if ("code" in payload) {
+          respond({
+            statusCode: 404,
+            body: toApiError({
+              requestId,
+              message: `target not found: ${payload.canonicalName}`,
+              code: "target_not_found",
+            }),
+            canonicalName: payload.canonicalName,
+            errorCode: "target_not_found",
+          });
+          return;
+        }
         respond({
           statusCode: 200,
           body: payload,
-          targetId: target.id,
+          targetId: payload.target.targetId,
           canonicalName,
         });
         return;
@@ -2858,7 +3269,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           }) ?? 20;
         const ageBuckets = parseAgeBucketList(url.searchParams.get("ageBucket"));
         const rawKeywords = parseKeywordList(url.searchParams.get("keywords"));
-        const normalizedQueries = rawKeywords.map((keyword) => {
+        const normalizedQueries: NormalizedTargetKeywordQuery[] = rawKeywords.map((keyword) => {
           try {
             const query = normalizeQueryV2(keyword, canonicalName);
             if (query.queryScope !== "subreddit" || query.scopeCanonicalSubreddit !== canonicalName) {
@@ -2867,7 +3278,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
                 "invalid_query_param",
               );
             }
-            return query;
+            return { ...query, raw: keyword };
           } catch (error) {
             if (error instanceof BadRequestError) {
               throw error;

@@ -1,8 +1,9 @@
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
-import { Card, Badge } from '../components/ui';
-import type { MarketTrendResponse } from '../../../../packages/contracts/src/http';
+import { Card, Badge, Button } from '../components/ui';
+import type { MarketTrendResponse, MarketWorkbenchResponse } from '../../../../packages/contracts/src/http';
 
 function formatSignedPct(value: number): string {
   const sign = value > 0 ? '+' : '';
@@ -88,14 +89,34 @@ function RankingSection({
 }
 
 export function Dashboard() {
+  const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
   const { data, isLoading, error } = useQuery({
     queryKey: ['market-trend'],
-    queryFn: () => fetchApi<MarketTrendResponse>('/v1/trends/market'),
+    queryFn: () => fetchApi<MarketTrendResponse>('/v1/trends/market?limit=20'),
+  });
+  const { data: workbenchData } = useQuery({
+    queryKey: ['market-workbench'],
+    queryFn: () => fetchApi<MarketWorkbenchResponse>('/v1/workbench/market'),
   });
 
   const hottest = data?.rankings.byHeat[0];
   const strongestSurge = data?.rankings.bySurge[0];
   const widestDispersion = data?.rankings.byDispersion[0];
+  const comparePath = selectedTargets.length >= 2 ? `/compare?targets=${selectedTargets.join(',')}` : '/compare';
+  const visibleTargets = useMemo(() => workbenchData?.targets.slice(0, 10) ?? [], [workbenchData?.targets]);
+
+  const toggleTargetSelection = (canonicalName: string) => {
+    const normalized = canonicalName.replace(/^r\//i, '');
+    setSelectedTargets((current) => {
+      if (current.includes(normalized)) {
+        return current.filter((item) => item !== normalized);
+      }
+      if (current.length >= 6) {
+        return current;
+      }
+      return [...current, normalized];
+    });
+  };
 
   return (
     <div>
@@ -103,6 +124,10 @@ export function Dashboard() {
         <div>
           <h1>Markets</h1>
           <p className="page-subtitle">Monitored Reddit market board with TradingView-like sectioned discovery</p>
+        </div>
+        <div className="filter-bar">
+          <Link to="/markets/board" className="markets-secondary-link">Open full board</Link>
+          <Link to="/compare" className="markets-primary-link">Open compare</Link>
         </div>
       </div>
 
@@ -229,6 +254,97 @@ export function Dashboard() {
               </div>
             </Card>
           </div>
+
+          {workbenchData && (
+            <div className="responsive-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+              <Card>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '16px' }}>
+                  <div>
+                    <h3 style={{ marginBottom: '6px' }}>Monitored Targets</h3>
+                    <div style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                      Select 2 to 6 targets and jump straight into compare.
+                    </div>
+                  </div>
+                  <Link to={comparePath}>
+                    <Button variant="primary" disabled={selectedTargets.length < 2}>Compare</Button>
+                  </Link>
+                </div>
+                <div className="list-stack">
+                  {visibleTargets.map((target) => {
+                    const normalized = target.canonicalName.replace(/^r\//i, '');
+                    const selected = selectedTargets.includes(normalized);
+                    return (
+                      <label key={target.targetId} className="list-row" style={{ alignItems: 'flex-start', cursor: 'pointer' }}>
+                        <div className="list-row-start">
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            disabled={!selected && selectedTargets.length >= 6}
+                            onChange={() => toggleTargetSelection(target.canonicalName)}
+                          />
+                          <div>
+                            <Link to={targetPath(target.canonicalName)} style={{ color: 'var(--text-primary)', fontWeight: 560 }}>
+                              {target.canonicalName}
+                            </Link>
+                            <div style={{ color: 'var(--text-tertiary)', fontSize: '12px', marginTop: '4px' }}>
+                              {target.status} · live {target.live.status} · backfill {target.backfill.status}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="list-row-end">
+                          <Badge variant={target.stale ? 'neutral' : 'success'}>{target.stale ? 'stale' : 'fresh'}</Badge>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+                            {target.latestHeatIndex == null ? 'n/a' : `${Math.round(target.latestHeatIndex)} heat`}
+                          </span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </Card>
+
+              <Card>
+                <h3 style={{ marginBottom: '16px' }}>Breakouts</h3>
+                <div className="list-stack">
+                  {workbenchData.breakouts.slice(0, 6).map((item) => (
+                    <a
+                      key={`${item.targetId}:${item.permalink}`}
+                      href={`https://www.reddit.com${item.permalink}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ display: 'block' }}
+                    >
+                      <div style={{ color: 'var(--text-primary)', marginBottom: '4px' }}>{item.title}</div>
+                      <div style={{ color: 'var(--text-tertiary)', fontSize: '12px' }}>
+                        {item.canonicalName} · {item.ageBucket} · driver {item.driverScore.toFixed(2)} · velocity z {item.velocityZScore.toFixed(2)}
+                      </div>
+                    </a>
+                  ))}
+                  {workbenchData.breakouts.length === 0 && <div style={{ color: 'var(--text-tertiary)' }}>No breakout posts right now.</div>}
+                </div>
+              </Card>
+
+              <Card>
+                <h3 style={{ marginBottom: '16px' }}>Recent Anomalies</h3>
+                <div className="list-stack">
+                  {workbenchData.anomalies.slice(0, 6).map((item) => (
+                    <div key={item.eventId} className="list-row" style={{ alignItems: 'flex-start' }}>
+                      <div>
+                        <Link to={targetPath(item.canonicalName)} style={{ color: 'var(--text-primary)', fontWeight: 560 }}>
+                          {item.canonicalName}
+                        </Link>
+                        <div style={{ color: 'var(--text-tertiary)', fontSize: '12px', marginTop: '4px' }}>
+                          {item.signalType} · {item.signalKey} · {new Date(item.observedAt).toLocaleString()}
+                        </div>
+                      </div>
+                      <Badge variant={item.severity === 'high' ? 'success' : 'neutral'}>{item.severity}</Badge>
+                    </div>
+                  ))}
+                  {workbenchData.anomalies.length === 0 && <div style={{ color: 'var(--text-tertiary)' }}>No anomaly events in range.</div>}
+                </div>
+              </Card>
+            </div>
+          )}
 
           <div className="markets-board-grid">
             <RankingSection
