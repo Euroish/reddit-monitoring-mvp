@@ -5,6 +5,7 @@ import { AuthProvider } from './auth/AuthContext';
 import { RequireAuth, RoleGuard } from './auth/RequireAuth';
 import { Layout } from './app/Layout';
 import { Login } from './pages/Login';
+import { Register } from './pages/Register';
 
 const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
 const MarketBoard = lazy(() => import('./pages/MarketBoard').then((module) => ({ default: module.MarketBoard })));
@@ -31,6 +32,7 @@ export default function App() {
         <Suspense fallback={<RouteLoading />}>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
             
             <Route element={<RequireAuth><Layout /></RequireAuth>}>
               <Route path="/markets" element={<Dashboard />} />
