@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: product-frontend-control-plane-slice
-updated_at: "2026-04-29 03:06:08"
+stage: product-frontend-upgrade-ready
+updated_at: "2026-04-29 03:42:00"
 repo_path: "/root/reddit-monitoring-mvp"
-next_action: "Finish the remaining pre-UIUX stability slice: reconcile the qualified-post drop against prior `like>20 && comment>20` expectations, continue reproducing and tightening the heavier `/markets` return-navigation stall path, and decide whether admin cleanup needs scoped target/date deletion beyond the now-landed retention-backed maintenance controls."
+next_action: "Begin the frontend upgrade pass on top of the now-landed captured-listing and captured-qualified workbench semantics, while preserving the current route-stability/admin-control fixes as the baseline."
 tags:
 - codex
 - workspace
@@ -21,7 +21,7 @@ tags:
 - Authority: this file is the active state source. The detailed implementation contract for the current product slice is `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`.
 - Startup set for the current slice: `00_START_HERE.md`, this file, and `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`.
 - Archive: keep `Archive/` empty by default. External analysis notes are temporary inputs only; read, reconcile against code, update this file or the active implementation contract, then remove.
-- Product truth: this is a bounded monitored Reddit analytics workbench. It may display `Total New Posts` / `Qualified Posts` only for target/day/range data with coverage proof. Otherwise the product must label the same raw counts as observed and expose coverage status.
+- Product truth: this is a bounded monitored Reddit analytics workbench. The target workbench now exposes captured-day chart semantics for listing-driven post counts, so frontend upgrades should treat `Captured New Posts` / `Captured Qualified Posts` as the primary target-detail chart language for "what was actually fetched that day".
 - Runtime path: `http` primary plus `scrapling` fallback capability. Legacy Apify is not an active main path.
 
 ## Attention Hygiene
@@ -66,6 +66,18 @@ tags:
 - Current repo evidence also explains why `/markets` now feels materially heavier than the earlier route: `apps/web/src/pages/Dashboard.tsx` mounts both `/v1/trends/market` and `/v1/workbench/market`, while `src/application/services/workbench-refresh-contract.service.ts` fans the market workbench read across every active target for breakout facts, recent content, anomaly rows, provider-health windows, coverage rows, and both live/backfill cursors before the page can show its full state.
 - Automatic-collection control is now materially improved in product code: `apps/web/src/pages/OpsTargets.tsx` now presents `favorite` as the operator-facing `Auto collect` toggle, and `apps/web/src/pages/OpsCollection.tsx` now consolidates automatic target scope, effective cadence, live/backfill budget, and scheduler selection fallback into one admin page instead of forcing operators to infer behavior from separate pages.
 - SQL cleanup control is also improved in product code: `apps/web/src/pages/OpsMaintenance.tsx` now exposes per-action scope copy, retention override, batch size, dry-run, and loop-until-done behavior on top of the existing retention-backed prune endpoints in `apps/api/src/create-api-server.ts`. The remaining gap is no longer basic cleanup access; it is whether the product also needs a deeper scoped deletion contract by target/date/data-family.
+- Target workbench count semantics are now materially different from the earlier observed-only model:
+  - chart-facing captured-day counts now prefer `content.first_seen_at` plus fetched listing totals instead of treating `created_at_source` day facts as the only user-facing count source
+  - the target detail page summary now presents `Captured New Posts` / `Captured Qualified Posts` instead of falling back to `Observed ...` wording
+  - the collection write path now records `new_posts_15m` as the unique total-eligible listing count captured in that polling window, not only newly inserted corpus rows
+- Qualified-post semantics are now reconciled toward Reddit-style "quantity plus quality" instead of the temporary fixed `20/20` fallback:
+  - daily thresholds are tier-aware again
+  - qualified classification now allows balanced quality posts plus score-led or discussion-led breakout posts
+  - target-workbench captured qualified counts are now derived from the captured-day corpus with latest engagement, so "all qualifypost fetched that day" is closer to the product truth than the older observed/materialized-only path
+- Current repo state is now ready for the frontend upgrade phase because the key backend/product semantics the user was blocking on have been stabilized in code:
+  - route-level error boundary and lazy loading are already in place for basic page-stability hardening
+  - admin automatic collection and retention-backed cleanup flows are exposed in product UI
+  - target chart counts now reflect fetched listing capture semantics instead of only reduced observed/materialized semantics
 - New live-product regressions/user-reported gaps now need explicit resolution before additional surface expansion:
   - qualified-post counts appear materially lower than the prior user expectation of `like > 20 && comment > 20`, so the current qualified-post algorithm/threshold path needs reconciliation against historical behavior and honest recovery options
   - returning to `/markets` after visiting another page can still black-screen or stall, so route-transition stability around the market page remains unresolved
@@ -217,6 +229,13 @@ tags:
 - Why now: The user moved from planning to implementation. The smallest high-value slice was to finish the admin control surfaces that already had backend support, close the explicit 5000-cap bug, and lower the chance that `/markets` return-navigation feels blocked on the heaviest data fan-out before any deeper UI animation pass.
 - Verify: `npm run typecheck` passed; `npm --prefix apps/web run build` passed.
 - Next: Reproduce the remaining `/markets` return-navigation stall path in browser-level usage, decide the final qualified-post product contract, and only then judge whether cleanup scope must expand beyond the now-landed retention-backed maintenance actions.
+
+### 2026-04-29 03:42:00
+
+- Scope: Wrote back the now-landed post-semantics recovery after shipping the captured-listing chart path, captured qualified-post path, backfill/live materialization fixes, and the qualified-post rule update that reintroduces tier-aware thresholds plus breakout handling.
+- Why now: The user has moved from backend/data-contract reconciliation into a frontend upgrade intent. The project state needed to stop describing qualified-post and observed-count semantics as unresolved blockers once code and tests now support "that day fetched all posts / all qualifypost" behavior on the target workbench.
+- Verify: Code state and latest commit reconciliation only for this documentation update. Relevant landed code includes `src/jobs/collect-subreddit-new-posts.job.ts`, `src/application/services/subreddit-daily-insights.service.ts`, `src/application/services/target-workbench-read-model.service.ts`, `src/application/services/workbench-refresh-contract.service.ts`, `src/domain/services/quality-threshold.service.ts`, and `apps/web/src/pages/TargetDetail.tsx`. Latest pushed commit is `d84d719` on `main`.
+- Next: Start the frontend upgrade pass on top of the stabilized semantics, treating captured-day target charts, current admin control surfaces, and the existing route-stability fixes as the baseline rather than reopening count semantics again.
 
 ### 2026-04-29 02:59:23
 
