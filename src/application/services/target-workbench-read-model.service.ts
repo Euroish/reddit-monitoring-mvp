@@ -10,11 +10,16 @@ import type { ProviderHealthWindow } from "../../domain/entities/provider-health
 import type { SubredditCollectionCoverage } from "../../domain/entities/subreddit-collection-coverage";
 import type { SubredditDailyFact } from "../../domain/entities/subreddit-daily-fact";
 import type { SubredditTrendPoint } from "../../domain/entities/subreddit-trend-point";
+import {
+  isQualifiedDailyPost,
+  resolveDailyQualityThreshold,
+} from "../../domain/services/quality-threshold.service";
 import { buildSubredditAnomalyFeedReadModel } from "./subreddit-anomaly-feed-read-model.service";
 import { buildSubredditDailyInsights } from "./subreddit-daily-insights.service";
 import { buildSubredditDriverPostReadModel } from "./subreddit-driver-post-read-model.service";
 
 type WorkbenchSeriesId = TargetWorkbenchResponse["series"][number]["id"];
+type TargetDriverPost = TargetWorkbenchResponse["drivers"][number];
 
 const SERIES_DEFS: Array<{
   id: WorkbenchSeriesId;
@@ -175,7 +180,7 @@ export function buildTargetWorkbenchReadModel(args: {
     keywords: args.keywords ?? [],
     keywordLimit: args.keywordLimit ?? 10,
   });
-  const drivers = buildSubredditDriverPostReadModel({
+  const growthDrivers = buildSubredditDriverPostReadModel({
     facts: args.postGrowthFacts,
     contents: args.contents,
     matchedQueriesByContentId: args.matchedQueriesByContentId,
@@ -203,6 +208,14 @@ export function buildTargetWorkbenchReadModel(args: {
       algorithmVersion: driver.algorithmVersion,
       explainPayload: driver.explainPayload,
     }));
+  const drivers =
+    growthDrivers.length > 0
+      ? growthDrivers
+      : buildListingFallbackDrivers({
+          capturedContents: args.capturedContents ?? [],
+          capturedLatestEngagements: args.capturedLatestEngagements ?? [],
+          limit: args.driverLimit ?? 10,
+        });
   const anomalies = buildSubredditAnomalyFeedReadModel({
     events: args.anomalyEvents,
     limit: args.anomalyLimit ?? 10,
@@ -325,6 +338,12 @@ export function buildTargetWorkbenchReadModel(args: {
       score: anomaly.anomalyScore,
       sourceId: anomaly.eventId,
     })),
+    composition: buildCompositionSummary({
+      capturedContents: args.capturedContents ?? [],
+      capturedLatestEngagements: args.capturedLatestEngagements ?? [],
+      dailyFacts: args.dailyFacts,
+      drivers,
+    }),
     drivers,
     anomalies,
     keywordHeat: dailyInsights.keywordHeat,
@@ -350,6 +369,163 @@ export function buildTargetWorkbenchReadModel(args: {
       }),
     },
   };
+}
+
+function buildListingFallbackDrivers(args: {
+  capturedContents: Content[];
+  capturedLatestEngagements: PostEngagementLatest[];
+  limit: number;
+}): TargetDriverPost[] {
+  const engagementByContentId = new Map(
+    args.capturedLatestEngagements.map((row) => [row.contentId, row] as const),
+  );
+  return args.capturedContents
+    .filter((content) =>
+      content.firstListing === "hot" ||
+      content.firstListing === "best" ||
+      content.firstListing === "rising" ||
+      content.firstListing === "top",
+    )
+    .map((content) => {
+      const engagement = engagementByContentId.get(content.id);
+      const score = Math.max(0, engagement?.score ?? 0);
+      const comments = Math.max(0, engagement?.numComments ?? 0);
+      const ageMinutes = Math.max(
+        0,
+        Math.round((Date.parse(engagement?.observedAt ?? content.lastSeenAt) - Date.parse(content.createdAtSource)) / 60000),
+      );
+      const driverScore = Math.min(100, Math.round(Math.log1p(score) * 12 + Math.log1p(comments) * 18));
+      return {
+        id: content.id,
+        externalId: content.externalId,
+        title: content.title,
+        permalink: content.permalink,
+        createdAtSource: content.createdAtSource,
+        url: content.url,
+        bodySnippet: content.bodyText?.slice(0, 240),
+        observedAt: engagement?.observedAt ?? content.lastSeenAt,
+        ageBucket: resolveAgeBucket(ageMinutes),
+        ageMinutes,
+        score,
+        comments,
+        scoreVelocityPerHour: 0,
+        commentVelocityPerHour: 0,
+        velocityZScore: 0,
+        driverScore,
+        labels: [`${content.firstListing ?? "listing"} listing`],
+        matchedQueries: [],
+        algorithmVersion: "listing-fallback-v1",
+        explainPayload: {
+          source: "captured_listing_fallback",
+          listing: content.firstListing ?? "unknown",
+          reason: "post_growth_fact drivers were unavailable for this target/range",
+        },
+      };
+    })
+    .sort((a, b) => b.driverScore - a.driverScore || b.score - a.score || b.comments - a.comments)
+    .slice(0, args.limit);
+}
+
+function buildCompositionSummary(args: {
+  capturedContents: Content[];
+  capturedLatestEngagements: PostEngagementLatest[];
+  dailyFacts: SubredditDailyFact[];
+  drivers: TargetDriverPost[];
+}): TargetWorkbenchResponse["composition"] {
+  const engagementByContentId = new Map(
+    args.capturedLatestEngagements.map((row) => [row.contentId, row] as const),
+  );
+  const factByDay = new Map(args.dailyFacts.map((fact) => [fact.day, fact] as const));
+  const latestTier = args.dailyFacts.at(-1)?.subredditTier ?? "small";
+  const listingCounts: Record<Content["firstListing"] & string, number> = {
+    new: 0,
+    hot: 0,
+    best: 0,
+    rising: 0,
+    top: 0,
+    unknown: 0,
+  };
+  const engagementCounts = {
+    score_led: 0,
+    comment_led: 0,
+    balanced: 0,
+    quiet: 0,
+  };
+  const qualifiedContentIds = new Set<string>();
+
+  for (const content of args.capturedContents) {
+    const listing = content.firstListing ?? "unknown";
+    listingCounts[listing] = (listingCounts[listing] ?? 0) + 1;
+    const engagement = engagementByContentId.get(content.id);
+    const score = Math.max(0, engagement?.score ?? 0);
+    const comments = Math.max(0, engagement?.numComments ?? 0);
+    if (score <= 0 && comments <= 0) {
+      engagementCounts.quiet += 1;
+    } else if (score >= comments * 3) {
+      engagementCounts.score_led += 1;
+    } else if (comments * 3 > score) {
+      engagementCounts.comment_led += 1;
+    } else {
+      engagementCounts.balanced += 1;
+    }
+    const day = toUtcDay(content.firstSeenAt);
+    const fact = factByDay.get(day);
+    const threshold = fact
+      ? { score: fact.qualityThresholdScore, comments: fact.qualityThresholdComments }
+      : resolveDailyQualityThreshold({ tier: latestTier, posts: [] });
+    if (
+      isQualifiedDailyPost({
+        score,
+        comments,
+        threshold,
+      })
+    ) {
+      qualifiedContentIds.add(content.id);
+    }
+  }
+
+  const driverContentIds = new Set(args.drivers.map((driver) => driver.id));
+  const driverCount = Array.from(driverContentIds).filter((id) =>
+    args.capturedContents.some((content) => content.id === id),
+  ).length;
+  const qualifiedNonDriverCount = Array.from(qualifiedContentIds).filter((id) => !driverContentIds.has(id)).length;
+  const ordinaryCount = Math.max(0, args.capturedContents.length - driverCount - qualifiedNonDriverCount);
+
+  return {
+    fetchedPostCount: args.capturedContents.length,
+    qualifiedPostCount: qualifiedContentIds.size,
+    driverPostCount: driverCount,
+    listingMix: ([
+      { id: "new", label: "New", count: listingCounts.new },
+      { id: "hot", label: "Hot", count: listingCounts.hot },
+      { id: "best", label: "Best", count: listingCounts.best },
+      { id: "rising", label: "Rising", count: listingCounts.rising },
+      { id: "top", label: "Top", count: listingCounts.top },
+      { id: "unknown", label: "Unknown", count: listingCounts.unknown },
+    ] satisfies TargetWorkbenchResponse["composition"]["listingMix"]).filter((item) => item.count > 0),
+    classificationMix: ([
+      { id: "qualified", label: "Qualified", count: qualifiedNonDriverCount },
+      { id: "driver", label: "Driver", count: driverCount },
+      { id: "ordinary", label: "Ordinary", count: ordinaryCount },
+    ] satisfies TargetWorkbenchResponse["composition"]["classificationMix"]).filter((item) => item.count > 0),
+    engagementMix: ([
+      { id: "score_led", label: "Score-led", count: engagementCounts.score_led },
+      { id: "comment_led", label: "Comment-led", count: engagementCounts.comment_led },
+      { id: "balanced", label: "Balanced", count: engagementCounts.balanced },
+      { id: "quiet", label: "Quiet", count: engagementCounts.quiet },
+    ] satisfies TargetWorkbenchResponse["composition"]["engagementMix"]).filter((item) => item.count > 0),
+    ruleLabel: "Qualified = widened tier threshold, balanced signal, score-led, or discussion-led.",
+  };
+}
+
+function resolveAgeBucket(ageMinutes: number): TargetDriverPost["ageBucket"] {
+  if (ageMinutes <= 60) {
+    return "1h";
+  }
+  if (ageMinutes <= 360) {
+    return "6h";
+  }
+  return "24h";
 }
 
 function summarizeLiveCoverage(
@@ -391,6 +567,10 @@ function summarizeLiveCoverage(
       : {}),
     updatedAt: liveCursor.updatedAt,
   };
+}
+
+function toUtcDay(iso: string): string {
+  return iso.slice(0, 10);
 }
 
 function summarizeBackfillCoverage(

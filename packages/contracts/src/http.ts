@@ -970,6 +970,27 @@ export interface TargetWorkbenchResponse {
     score: number;
     sourceId: string;
   }>;
+  composition: {
+    fetchedPostCount: number;
+    qualifiedPostCount: number;
+    driverPostCount: number;
+    listingMix: Array<{
+      id: "new" | "hot" | "best" | "rising" | "top" | "unknown";
+      label: string;
+      count: number;
+    }>;
+    classificationMix: Array<{
+      id: "qualified" | "driver" | "ordinary";
+      label: string;
+      count: number;
+    }>;
+    engagementMix: Array<{
+      id: "score_led" | "comment_led" | "balanced" | "quiet";
+      label: string;
+      count: number;
+    }>;
+    ruleLabel: string;
+  };
   drivers: SubredditDriverPostsResponse["drivers"];
   anomalies: SubredditAnomalyFeedResponse["events"];
   keywordHeat: SubredditDailyTrendResponse["keywordHeat"];

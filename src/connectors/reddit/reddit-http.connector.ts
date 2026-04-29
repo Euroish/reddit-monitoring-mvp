@@ -607,7 +607,10 @@ try {
 }
 
 function resolvePostListing(listing: RedditPostListing | undefined): RedditPostListing {
-  return listing === "top" ? "top" : "new";
+  if (listing === "hot" || listing === "best" || listing === "rising" || listing === "top") {
+    return listing;
+  }
+  return "new";
 }
 [Console]::Out.WriteLine((@{ status = $status; headers = $headerMap; body = $content } | ConvertTo-Json -Compress -Depth 8))
 `;
@@ -800,5 +803,8 @@ function parseCommand(value: string): string[] {
 }
 
 function resolvePostListing(listing: RedditPostListing | undefined): RedditPostListing {
-  return listing === "top" ? "top" : "new";
+  if (listing === "hot" || listing === "best" || listing === "rising" || listing === "top") {
+    return listing;
+  }
+  return "new";
 }

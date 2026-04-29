@@ -4,7 +4,7 @@ export interface RedditCollectSubredditAboutArgs {
   subreddit: string;
 }
 
-export type RedditPostListing = "new" | "top";
+export type RedditPostListing = "new" | "hot" | "best" | "rising" | "top";
 
 export type RedditTopTimeRange = "day" | "week" | "month" | "year" | "all";
 

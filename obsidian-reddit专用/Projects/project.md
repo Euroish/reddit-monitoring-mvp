@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: product-frontend-target-workbench-landed
-updated_at: "2026-04-29 06:09:15"
+stage: product-feedback-recovery-landed
+updated_at: "2026-04-29 06:48:43"
 repo_path: "/root/reddit-monitoring-mvp"
-next_action: "Commit the landed target-detail chart-kernel and visual-system slice after review, then run browser-level desktop/narrow target-detail verification before reusing the WorkbenchChart adapter in compare and markets follow-up work."
+next_action: "Run database migration/deploy for the recovered target-workbench slice, then browser-check /target/:targetId desktop and narrow widths with fresh collection data so the new listing provenance, composition donut, widened qualified rule, and driver fallback can be validated against live data."
 tags:
 - codex
 - workspace
@@ -21,9 +21,9 @@ tags:
 - Authority: this file is the active state source. The active frontend implementation contract for the current slice is `docs/frontend-upgrade-workflow-2026-04-29.md`.
 - Startup set for the current slice: `00_START_HERE.md`, this file, and `docs/frontend-upgrade-workflow-2026-04-29.md`.
 - Archive: keep `Archive/` empty by default. External analysis notes are temporary inputs only; read, reconcile against code, update this file or the active implementation contract, then remove.
-- Product truth: this is a bounded monitored Reddit analytics workbench. The target workbench now exposes captured-day chart semantics for listing-driven post counts, so frontend upgrades should treat `Captured New Posts` / `Captured Qualified Posts` as the primary target-detail chart language for "what was actually fetched that day".
+- Product truth: this is a bounded monitored Reddit analytics workbench. The target workbench now exposes captured-day chart semantics plus a broader fetched-data composition pool across `new` / `hot` / `best` / `rising` / `top` provenance. `new` remains the time-contiguous total-volume evidence; the additional listing lanes support fetched-pool display, driver fallback, and composition analysis.
 - Runtime path: `http` primary plus `scrapling` fallback capability. Legacy Apify is not an active main path.
-- Current frontend truth: `WorkbenchChart` has been replaced with a `lightweight-charts` adapter inside `apps/web/src/features/workbench`, and `/target/:targetId` now uses a chart-first target command surface instead of stacked KPI/card layout.
+- Current frontend truth: `WorkbenchChart` uses `lightweight-charts`, and `/target/:targetId` has a second-pass recovered command surface: large fetched/qualified/driver/heat readouts, a TradingView-like chart workspace, and an interactive real-data composition donut with listing/classification/engagement modes.
 
 ## Attention Hygiene
 
@@ -67,14 +67,20 @@ tags:
 - Current repo evidence also explains why `/markets` now feels materially heavier than the earlier route: `apps/web/src/pages/Dashboard.tsx` mounts both `/v1/trends/market` and `/v1/workbench/market`, while `src/application/services/workbench-refresh-contract.service.ts` fans the market workbench read across every active target for breakout facts, recent content, anomaly rows, provider-health windows, coverage rows, and both live/backfill cursors before the page can show its full state.
 - Automatic-collection control is now materially improved in product code: `apps/web/src/pages/OpsTargets.tsx` now presents `favorite` as the operator-facing `Auto collect` toggle, and `apps/web/src/pages/OpsCollection.tsx` now consolidates automatic target scope, effective cadence, live/backfill budget, and scheduler selection fallback into one admin page instead of forcing operators to infer behavior from separate pages.
 - SQL cleanup control is also improved in product code: `apps/web/src/pages/OpsMaintenance.tsx` now exposes per-action scope copy, retention override, batch size, dry-run, and loop-until-done behavior on top of the existing retention-backed prune endpoints in `apps/api/src/create-api-server.ts`. The remaining gap is no longer basic cleanup access; it is whether the product also needs a deeper scoped deletion contract by target/date/data-family.
-- Target workbench count semantics are now materially different from the earlier observed-only model:
+- Target workbench count semantics are now materially different from the earlier observed-only model, but the latest user feedback changes the desired end state again:
   - chart-facing captured-day counts now prefer `content.first_seen_at` plus fetched listing totals instead of treating `created_at_source` day facts as the only user-facing count source
   - the target detail page summary now presents `Captured New Posts` / `Captured Qualified Posts` instead of falling back to `Observed ...` wording
   - the collection write path now records `new_posts_15m` as the unique total-eligible listing count captured in that polling window, not only newly inserted corpus rows
+- New requested content-scope direction from browser testing is now implemented in code:
+  - product-facing target detail no longer promotes `observed` wording in the primary workbench UI
+  - live collection keeps the `new` lane and also requests `hot`, `best`, `rising`, and daily `top` supplement lanes in parallel
+  - content provenance now accepts `hot_listing`, `best_listing`, `rising_listing`, and `top_supplement`
+  - target workbench composition exposes fetched listing/classification/engagement mixes from real read-model data
 - Qualified-post semantics are now reconciled toward Reddit-style "quantity plus quality" instead of the temporary fixed `20/20` fallback:
   - daily thresholds are tier-aware again
   - qualified classification now allows balanced quality posts plus score-led or discussion-led breakout posts
   - target-workbench captured qualified counts are now derived from the captured-day corpus with latest engagement, so "all qualifypost fetched that day" is closer to the product truth than the older observed/materialized-only path
+- New qualified-post acceptance feedback is implemented in code: tier thresholds were lowered and the classifier now accepts balanced, score-led, and discussion-led posts. The UI exposes the widened rule in the composition summary.
 - Current repo state has entered the frontend upgrade phase because the key backend/product semantics the user was blocking on have been stabilized in code:
   - route-level error boundary and lazy loading are already in place for basic page-stability hardening
   - admin automatic collection and retention-backed cleanup flows are exposed in product UI
@@ -84,6 +90,12 @@ tags:
   - `apps/web/src/pages/TargetDetail.tsx` now uses a chart-first command surface: metric rail, primary chart stage, compact controls, saved/query/compare context strips, and lower analysis panels instead of broad card stacking.
   - `apps/web/src/index.css` now carries the active visual-system direction: dark analytical surface, subtle grid/radial depth, amber/cyan accents, compact pill controls, target workbench layout tokens, and responsive collapse.
   - `apps/web/src/components/Phase1RunCard.tsx`, `apps/web/src/pages/OpsCollection.tsx`, and `apps/web/src/pages/OpsTargets.tsx` have small React 19 lint-compatible state/dependency cleanups only; product behavior was not intentionally changed.
+- Current user acceptance feedback recovery is landed in working tree:
+  - target detail now uses a less card-like hero/workbench layout inspired by TradingView density and Spaceship-style polished depth
+  - interactive composition donut is backed by `TargetWorkbenchResponse.composition`
+  - total fetched posts, qualified posts, and driver count are promoted to large primary readouts
+  - driver posts fall back to captured hot/best/rising/top listing posts when post-growth driver facts are empty
+  - live collection fetches `new`, `hot`, `best`, `rising`, and `top` lanes with provenance
 - Remaining live-product regressions/user-reported gaps now need explicit resolution before broad surface expansion:
   - qualified-post counts appear materially lower than the prior user expectation of `like > 20 && comment > 20`, so the current qualified-post algorithm/threshold path needs reconciliation against historical behavior and honest recovery options
   - returning to `/markets` after visiting another page can still black-screen or stall, so route-transition stability around the market page remains unresolved
@@ -93,8 +105,9 @@ tags:
 
 ## Core Decision
 
-- `new` listing evidence is the only total-volume candidate source because it is the time-ordered stream.
-- `top` / `hot` / search / manual supplement evidence is discovery-only unless a future source can prove time-contiguous completeness.
+- Previous decision: `new` listing evidence was the only total-volume candidate source because it is the time-ordered stream.
+- Revised user-requested direction: the product should show all fetched data across `new`, `hot`, `best`, `rising`, and `top` as the visible captured-data pool. This requires a new provenance/read-model contract that separates time-contiguous total-volume claims from broader fetched/discovered content.
+- `top` / `hot` / `best` / `rising` / search / manual supplement evidence can support discovery, drivers, composition charts, and "all fetched data" displays. They must not be silently treated as time-complete total-volume evidence unless a future source can prove time-contiguous completeness.
 - `content` remains an observed corpus. It must not be treated as a complete Reddit post table unless each counted row is total-eligible and the requested day/range has coverage proof.
 - Candidate filters may support driver posts, keyword discovery, growth, anomaly, and qualified-signal work. They must not determine the denominator for total post volume.
 - `iteration_budget_exhausted` means this run used its budget and should continue later; it is not final proof of source limitation.
@@ -126,14 +139,14 @@ tags:
 - Objective: continue shipping the highest-value frontend and admin surfaces on top of the landed refresh contracts without reopening backend architecture.
 - Verified current state: collection truth, coverage semantics, target-status backend, structured engagement storage, scheduler entrypoint scope, shared target materialization, and explicit workbench refresh contracts are landed.
 - Verified frontend slice status:
-  - `/target/:targetId`: chart kernel replacement and first visual-system pass are implemented in the working tree; still needs browser-level desktop/narrow interaction review before treating it as fully accepted.
+  - `/target/:targetId`: chart kernel replacement and first visual-system pass are implemented and deployed, but user browser testing rejects the result as still too card-stacked and not visually polished enough.
   - shared chart adapter: `WorkbenchChart` keeps the existing product-level `chartOptions.ts` boundary and now powers both target and compare surfaces where imported.
   - React 19 lint compatibility: full `apps/web` lint is now green after small state/dependency fixes in touched admin/run surfaces.
-- Recommended next slice: continue the route/page contract in `docs/frontend-upgrade-workflow-2026-04-29.md` from the current code truth:
-  - immediate: review/commit the target workbench slice, then browser-check `/target/:targetId` on desktop and narrow widths.
-  - next: apply the same chart/readout/visual-system direction to `/compare` without introducing frontend-only formulas or exceeding the backend 6-target cap.
-  - then: revisit `/markets` and `/markets/board`, with route-return stability and heavy market workbench payload behavior treated as product reliability work, not visual polish.
-  - later: `/queries`, `/saved`, and `/ops*` follow as visual convergence only unless a verified API/contract gap appears.
+- Recommended next slice: validate and deploy the recovered target route:
+  - immediate: apply migration `028_listing_provenance_expansion.sql`, deploy API/web, run a fresh live collection, and browser-check `/target/:targetId`.
+  - verify that hot/best/rising/top provenance appears in composition and that driver fallback is populated when growth facts are empty.
+  - then: apply the improved chart/readout/visual-system direction to `/compare` without introducing frontend-only formulas or exceeding the backend 6-target cap.
+  - later: revisit `/markets` and `/markets/board`, with route-return stability and heavy market workbench payload behavior treated as product reliability work, not visual polish.
   - no new backend orchestration branch unless a concrete API contract gap appears during implementation
 - Keep the next slice product-facing and contract-respecting. Do not reopen backend architecture expansion, provider expansion, or speculative infra additions in the same step.
 - Stop condition: stop before introducing new persistence layers, generic projection engines, route-local fan-in that duplicates the refresh-contract services, or admin actions that bypass the documented API boundary.
@@ -166,9 +179,9 @@ tags:
   - Reproduce the return-navigation stall/black-screen path.
   - Measure `/v1/trends/market` versus `/v1/workbench/market` latency separately.
   - Decide the minimum fix path before polish: cache/prefetch/keep-previous-data on the frontend, or split the market workbench payload so the page no longer blocks on the heaviest per-target fan-out.
-- Step 2: freeze the qualified-post product contract.
-  - Decide whether the product keeps the adaptive threshold model, restores a legacy fixed threshold option, or exposes both with explicit labels.
-  - Until that decision lands, keep wording honest and avoid presenting current counts as if they still mean legacy `20/20`.
+- Step 2: widened qualified-post product contract is landed in code.
+  - The rule now uses lower tier thresholds plus balanced, score-led, and discussion-led acceptance.
+  - Product copy must keep exposing the rule honestly because it is no longer legacy fixed `20/20`.
 - Step 3: automatic collection UI consolidation is landed; keep future work limited to verified gaps.
   - Keep `/ops/targets` responsible for the monitored target pool and per-target inclusion/cadence semantics.
   - Keep `/ops/collection` responsible for global automatic-collection defaults such as default cadence, live post budget, backfill budget, backfill depth, and provider preference.
@@ -177,7 +190,8 @@ tags:
   - Existing retention-backed cleanup UX now has clearer preview, scope copy, and result reporting.
   - Only after that, design a scoped cleanup contract for additional data families. Do not expose deletion of `content`, `crawl_cursor`, coverage/fact/trend/anomaly tables, or other derived state until the same flow also defines invalidation/rebuild behavior.
 - Step 5: visual-system work has started on target detail only.
-  - Continue avoiding animation-heavy polish until `/markets` route-return stability and browser-level target-detail verification are done.
+  - User feedback says the first pass is not sufficient and still feels card-stacked.
+  - Next target-detail UI pass should explicitly study TradingView and Spaceship-style polish, create a less card-like workspace, and add interactive real-data visualizations before broadening the same language elsewhere.
 
 ### P3.2 Execution Order
 
@@ -236,6 +250,20 @@ tags:
 - Documentation-only state updates do not require tests, but they must keep `project.md` aligned with the currently promoted implementation contract and mark older planning notes as historical when they drift from code.
 
 ## Activity Log
+
+### 2026-04-29 06:48:43
+
+- Scope: Landed the browser-feedback recovery slice. Added multi-listing live capture for `new`, `hot`, `best`, `rising`, and daily `top`; expanded content provenance constraints; widened the qualified-post classifier; added target-workbench composition data; added driver fallback from captured listing posts; and redesigned `/target/:targetId` around large fetched/qualified/driver readouts plus an interactive composition donut.
+- Why now: The deployed first target-detail pass still felt card-stacked, under-emphasized total/qualified volume, showed no driver posts for empty growth facts, and only represented the new-listing path. This slice turns those into real backend/read-model/frontend changes instead of copy-only relabeling.
+- Verify: `npm run build` passed, `npm --prefix apps/web run lint` passed, and `git diff --check` passed.
+- Next: Apply migration `028_listing_provenance_expansion.sql`, deploy API/web, run fresh collection, and validate in browser that composition segments and driver fallback reflect live fetched data.
+
+### 2026-04-29 06:37:39
+
+- Scope: Reconciled live browser acceptance feedback into the active project state and frontend workflow. The user reports that the deployed target page still feels like card stacking, qualified-post counts are too narrow, driver posts are missing, important volume metrics lack visibility, and collection should fetch/display `new`, `hot`, `best`, `rising`, and `top` instead of product-facing `observed` wording.
+- Why now: The latest deployed frontend slice passed build/lint and was deployed, but browser validation changed the active task from "reuse chart adapter on compare" to "fix product acceptance gaps in target detail plus backing data semantics." Capturing this prevents agents from continuing along the stale compare/markets sequence while the target surface and data contract remain unacceptable.
+- Verify: Documentation reconciliation only at that timestamp. No code or tests were run in that write-back; the requested widened qualification, multi-listing capture, hot-post driver fallback, and interactive composition visualization were implemented later in the 2026-04-29 06:48:43 recovery slice.
+- Next: Implement a contract-aware target-detail recovery slice: stronger TradingView/Spaceship-inspired layout, interactive real-data composition/donut view, prominent total/qualified volume treatment, wider qualified-post classifier, driver fallback from hot posts, and multi-listing capture/read-model support for `new` / `hot` / `best` / `rising` / `top`.
 
 ### 2026-04-29 06:09:15
 

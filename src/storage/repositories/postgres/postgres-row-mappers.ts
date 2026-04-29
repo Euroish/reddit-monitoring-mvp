@@ -56,9 +56,15 @@ export interface ContentRow {
   created_at_source: string | Date;
   first_seen_at: string | Date;
   last_seen_at: string | Date;
-  discovery_source?: "new_listing" | "top_supplement" | "unknown";
+  discovery_source?:
+    | "new_listing"
+    | "hot_listing"
+    | "best_listing"
+    | "rising_listing"
+    | "top_supplement"
+    | "unknown";
   first_collection_mode?: "live" | "backfill" | null;
-  first_listing?: "new" | "top" | "unknown" | null;
+  first_listing?: "new" | "hot" | "best" | "rising" | "top" | "unknown" | null;
   first_time_range?: string | null;
   first_collection_job_id?: string | null;
   total_eligible?: boolean;

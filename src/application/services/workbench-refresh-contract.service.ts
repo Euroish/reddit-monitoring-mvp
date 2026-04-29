@@ -33,7 +33,7 @@ export interface WorkbenchRefreshRepositories {
   subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
   postGrowthFactRepository: PostGrowthFactRepository;
-  postEngagementRepository: PostEngagementRepository;
+  postEngagementRepository?: PostEngagementRepository;
   contentRepository: ContentRepository;
   anomalyEventRepository: AnomalyEventRepository;
   providerHealthWindowRepository?: ProviderHealthWindowRepository;
@@ -366,7 +366,7 @@ export async function buildTargetWorkbenchFromRefreshContract(
       from: contract.fromIso,
       to: contract.toIso,
       limit: 20_000,
-      totalEligibleOnly: true,
+      totalEligibleOnly: false,
     }),
     repos.anomalyEventRepository.listByTargetInRange({
       targetId: target.id,
@@ -407,7 +407,7 @@ export async function buildTargetWorkbenchFromRefreshContract(
     }),
   ]);
   const capturedLatestEngagements =
-    capturedContents.length > 0
+    repos.postEngagementRepository && capturedContents.length > 0
       ? await repos.postEngagementRepository.listLatestByContentIdsInRange({
           contentIds: capturedContents.map((content) => content.id),
           from: "1970-01-01T00:00:00.000Z",

@@ -511,5 +511,8 @@ export class RedditScraplingConnector implements RedditConnector {
 }
 
 function resolvePostListing(listing: RedditPostListing | undefined): RedditPostListing {
-  return listing === "top" ? "top" : "new";
+  if (listing === "hot" || listing === "best" || listing === "rising" || listing === "top") {
+    return listing;
+  }
+  return "new";
 }

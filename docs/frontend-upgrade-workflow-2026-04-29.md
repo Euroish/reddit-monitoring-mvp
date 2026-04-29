@@ -1,7 +1,7 @@
 # Frontend Upgrade Workflow
 
 日期：2026-04-29
-状态：active，target-detail chart-kernel slice landed in working tree
+状态：active，target-detail recovery landed in working tree
 适用范围：当前 `apps/web` 前端升级、UI/UX 优化、图表交互升级、设计资源编排
 
 ## 1. 真相源
@@ -52,6 +52,11 @@
   - 可同步 tooltip/time scale
   - 更强的 marker/annotation 交互
   - 浏览器级桌面/窄屏验收
+- 最新浏览器反馈 recovery：
+  - 目标页已进入第二轮 recovered workbench：更强的首屏层级、大号 fetched/qualified/driver readout、互动 composition donut。
+  - 视觉方向采用 TradingView 信息密度 + Spaceship 式柔和几何深度，不再以卡片堆叠作为首屏主结构。
+  - 互动扇形/环形组成图由真实 `TargetWorkbenchResponse.composition` 数据驱动。
+  - `Qualified Posts` 和总抓取帖子量已提升为主指标。
 
 ### 2.4 当前产品语言
 
@@ -71,8 +76,8 @@
 
 优先页面顺序：
 
-1. `/target/:targetId`：chart-kernel 和第一轮视觉系统已落地，下一步是浏览器验收与必要修正
-2. `/compare`：复用同一 `WorkbenchChart` adapter 和 readout 语言
+1. `/target/:targetId`：第二轮 recovery 已落地，下一步是迁移/部署/浏览器验收
+2. `/compare`：等 target-detail recovery 浏览器验收后再复用视觉语言
 3. `/markets`：先处理返回路由稳定性/重载感，再做视觉重构
 4. `/markets/board`
 5. `/queries`
@@ -113,6 +118,16 @@ TradingView-like 交互图表优先采用 `lightweight-charts`。
 - 不要在前端重新发明指标算法
 - 不要为了图表交互改动现有 read-model 语义
 - 图表升级以 target/compare/queries 复用为第一目标
+
+### 4.4 新增互动组成图要求
+
+- 已增加可交互扇形图/环形图，用于展示真实数据组成，而不是静态装饰。
+- 候选数据维度：
+  - listing source mix：`new` / `hot` / `best` / `rising` / `top`
+  - post classification mix：qualified / driver / ordinary
+  - engagement mix：score-led / comment-led / balanced
+- 前端不得伪造组成比例；当前字段来自 `TargetWorkbenchResponse.composition`。
+- 扇形图交互包括 hover readout、segment focus 和 mode switch。
 
 ## 5. 前端技能与设计资源编排
 
@@ -180,14 +195,16 @@ TradingView-like 交互图表优先采用 `lightweight-charts`。
 
 ### 阶段 A：冻结当前产品语义
 
-- 已确认 target detail 文案和数据含义
-- 不重开 count semantics
+- target detail 文案和数据含义已按最新用户反馈重新冻结
+- product-facing 主 UI 不再用 `observed` 作为核心语言，改为 fetched/captured pool
+- backend/read-model 已区分 `new` time-contiguous totals 与 broader fetched composition pool
 - 不重开 compare 超过 6 个 target 之类的边界
 - 不根据视觉需要发明新字段
 
 ### 阶段 B：抽视觉系统
 
-- `index.css` 已加入第一轮暗色分析台视觉 token、target workbench 布局、chart/readout 样式
+- `index.css` 已加入第二轮 target recovered visual system：hero band、large metrics、composition donut、grid depth、responsive collapse
+- 当前视觉方向：TradingView 信息密度 + Spaceship 风格 polish，避免卡片堆叠和普通后台感
 - 再整理 `ui/index.tsx` primitive 的尺寸、状态、边框和阴影
 - 目标是统一壳层、卡片、表格、表单、badge、按钮的基本语言
 
@@ -196,14 +213,15 @@ TradingView-like 交互图表优先采用 `lightweight-charts`。
 - 已保留 `chartOptions.ts`
 - 已在 workbench feature 内用 `lightweight-charts` 替换 `WorkbenchChart` 内核
 - 已替换 target detail 使用路径
-- 下一步复用到 compare、queries 时，只做 adapter/视觉复用，不引入 frontend-only 指标公式
+- 下一步先完成 target-detail 浏览器验收，再复用到 compare、queries
+- 不引入 frontend-only 指标公式
 
 ### 阶段 D：页面级重构
 
 顺序固定：
 
-1. target detail：已实现，待浏览器验收
-2. compare：下一步
+1. target detail：第二轮 recovery 已实现，待迁移/部署/浏览器验收
+2. compare：target recovery 验收后再推进
 3. markets：在 route-return 稳定性确认后执行
 4. markets/board
 5. queries
@@ -233,6 +251,22 @@ TradingView-like 交互图表优先采用 `lightweight-charts`。
 - 不把所有页面一次性重写成一个新设计系统
 - 不先做大量动画再回头修结构
 
+## 7.1 新增产品反馈合同
+
+来自 2026-04-29 浏览器测试：
+
+1. 视觉不接受：当前仍像卡片堆叠，需要更多前端美化，参考 TradingView 和 `https://www.spaceship.com/`。
+2. `Qualified Posts` 过少：后端筛选条件已放宽，并在 UI composition rule 中说明新规则。
+3. Driver posts 未显示：已增加 driver fallback；如果 growth-fact read-model 为空，使用 captured listing posts。
+4. 抓取范围扩大：live collection 已多开 listing lane/window，一个抓 `new`，其余抓 `hot`、`best`、`rising`、daily `top`，并纳入 fetched composition pool。
+5. 文案与图表重点：target 主 UI 已把 `Qualified Posts`、总抓取帖子量、driver count 提升为大号主 readout。
+
+实现约束：
+
+- 第 2、3、4、5 条已涉及后端采集、存储 provenance、read-model 和 API contract，不是只在前端改文案。
+- `new` 仍是时间连续总量证据；`hot` / `best` / `rising` / `top` 是 broader fetched/discovery pool。UI 可以统一展示抓取池，但不能谎称它是时间完整总量，除非后端提供覆盖证明。
+- 扇形/环形图必须使用真实 API 字段；字段不存在时先补合同。
+
 ## 8. 本轮完成标准
 
 当以下条件满足，才算前端升级工作流落地：
@@ -240,15 +274,16 @@ TradingView-like 交互图表优先采用 `lightweight-charts`。
 1. 前端任务统一从 `frontend-dev-suite` 进入：已满足
 2. 外部设计技能已可用：已满足
 3. `awesome-design-md-main` 已被纳入固定使用顺序：已满足
-4. 图表升级路径明确为 `lightweight-charts` + 本地 adapter 边界：已满足，且 target detail 工作树实现已落地
+4. 图表升级路径明确为 `lightweight-charts` + 本地 adapter 边界：已满足，且 target detail 第一轮实现已部署
 5. 后续页面升级不再依赖过时盘点文档：已满足
-6. 新增完成门槛：target detail 需要完成浏览器级桌面/窄屏验收后，才视为产品验收完成
+6. 新增完成门槛：target detail recovery 已完成代码实现；仍需迁移、部署、fresh collection、浏览器级桌面/窄屏验收后，才视为产品验收完成
 
 ## 9. 当前执行状态
 
 - 已完成：`lightweight-charts` dependency 已安装并被 `WorkbenchChart` 使用。
-- 已完成：`/target/:targetId` 已改为 chart-first command surface，不再采用广泛卡片堆叠。
+- 已完成：`/target/:targetId` 第二轮 recovered workbench 已落地，包含 large metric hero、interactive composition donut、driver fallback visibility。
 - 已完成：`npm --prefix apps/web run build` 通过。
 - 已完成：`npm --prefix apps/web run lint` 通过。
-- 未完成：浏览器级 desktop/narrow 检查、chart resize/crosshair/drag 交互检查、loading/error/empty 状态检查。
-- 下一步：提交当前切片后，先验收 `/target/:targetId`，再推进 `/compare`。
+- 已完成：`npm run build` 通过，包含 API 合同/类型检查。
+- 未完成：数据库迁移应用、API/web 部署、fresh collection 后的浏览器级验收。
+- 下一步：先迁移/部署/验收 target-detail recovery，不再直接推进 `/compare`。

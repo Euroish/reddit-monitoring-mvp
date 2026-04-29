@@ -33,6 +33,122 @@ function formatNumber(value: number | null | undefined, digits = 0) {
 }
 
 const EMPTY_STRING_SET = new Set<string>();
+type CompositionMode = 'listing' | 'classification' | 'engagement';
+type CompositionSegment = {
+  id: string;
+  label: string;
+  count: number;
+  color: string;
+};
+
+const COMPOSITION_COLORS = ['#e9b64b', '#29d3c5', '#f46d43', '#80b7ff', '#74d87f', '#8f8a80'];
+
+function toCompositionSegments(data: TargetWorkbenchResponse, mode: CompositionMode): CompositionSegment[] {
+  const source = mode === 'listing'
+    ? data.composition.listingMix
+    : mode === 'classification'
+      ? data.composition.classificationMix
+      : data.composition.engagementMix;
+  return source.map((item, index) => ({
+    id: item.id,
+    label: item.label,
+    count: item.count,
+    color: COMPOSITION_COLORS[index % COMPOSITION_COLORS.length]!,
+  }));
+}
+
+function buildConicGradient(segments: CompositionSegment[], activeId: string | null) {
+  const total = segments.reduce((sum, item) => sum + item.count, 0);
+  if (total <= 0) {
+    return 'conic-gradient(rgba(255,255,255,0.12) 0deg 360deg)';
+  }
+  let cursor = 0;
+  return `conic-gradient(${segments.map((segment) => {
+    const start = cursor;
+    const end = cursor + (segment.count / total) * 360;
+    cursor = end;
+    const color = activeId && activeId !== segment.id ? 'rgba(255,255,255,0.08)' : segment.color;
+    return `${color} ${start.toFixed(2)}deg ${end.toFixed(2)}deg`;
+  }).join(', ')})`;
+}
+
+function CompositionDonut({
+  data,
+  mode,
+  activeId,
+  onModeChange,
+  onActiveChange,
+}: {
+  data: TargetWorkbenchResponse;
+  mode: CompositionMode;
+  activeId: string | null;
+  onModeChange: (mode: CompositionMode) => void;
+  onActiveChange: (id: string | null) => void;
+}) {
+  const segments = toCompositionSegments(data, mode);
+  const total = segments.reduce((sum, item) => sum + item.count, 0);
+  const activeSegment = segments.find((item) => item.id === activeId) ?? segments[0] ?? null;
+  return (
+    <div className="target-composition">
+      <div className="target-composition-header">
+        <div>
+          <div className="target-eyebrow">Fetched mix</div>
+          <h3>Composition</h3>
+        </div>
+        <div className="target-segment-switch">
+          {(['listing', 'classification', 'engagement'] as const).map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => {
+                onModeChange(item);
+                onActiveChange(null);
+              }}
+              className={`target-control${mode === item ? ' active' : ''}`}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="target-donut-row">
+        <button
+          type="button"
+          className="target-donut"
+          style={{ background: buildConicGradient(segments, activeId) }}
+          onMouseLeave={() => onActiveChange(null)}
+          onClick={() => onActiveChange(activeSegment?.id ?? null)}
+        >
+          <span>
+            <strong>{formatNumber(activeSegment?.count ?? total)}</strong>
+            <em>{activeSegment ? activeSegment.label : 'Fetched'}</em>
+          </span>
+        </button>
+        <div className="target-donut-legend">
+          {segments.map((segment) => {
+            const pct = total > 0 ? (segment.count / total) * 100 : 0;
+            return (
+              <button
+                key={segment.id}
+                type="button"
+                className={`target-donut-legend-row${activeId === segment.id ? ' active' : ''}`}
+                onMouseEnter={() => onActiveChange(segment.id)}
+                onFocus={() => onActiveChange(segment.id)}
+                onClick={() => onActiveChange(activeId === segment.id ? null : segment.id)}
+              >
+                <span className="target-donut-dot" style={{ background: segment.color }} />
+                <span>{segment.label}</span>
+                <strong>{formatNumber(segment.count)}</strong>
+                <em>{formatNumber(pct, 1)}%</em>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <p>{data.composition.ruleLabel}</p>
+    </div>
+  );
+}
 
 export function TargetDetail() {
   const { targetId } = useParams<{ targetId: string }>();
@@ -53,6 +169,8 @@ export function TargetDetail() {
     source: keywordSource,
     values: new Set(),
   });
+  const [compositionMode, setCompositionMode] = useState<CompositionMode>('listing');
+  const [activeCompositionId, setActiveCompositionId] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['target-workbench', targetId, keywords, range, timeframe],
@@ -118,8 +236,8 @@ export function TargetDetail() {
       heatPrice: valueFor('heat_price'),
       posts: valueFor('total_new_posts'),
       qualifiedPosts: valueFor('qualified_post_count'),
-      postsLabel: 'Captured New Posts',
-      qualifiedPostsLabel: 'Captured Qualified Posts',
+      postsLabel: 'Fetched Posts',
+      qualifiedPostsLabel: 'Qualified Posts',
     };
   }, [data]);
 
@@ -317,24 +435,44 @@ export function TargetDetail() {
 
       {data && (
         <div className="target-workbench">
-          <section className="target-command">
-            <div className="target-metric-rail">
-              <div className="target-metric">
-                <div className="target-metric-label">Latest Heat</div>
-                <div className="target-metric-value">{formatNumber(latestDailyPoint?.heatPrice)}</div>
+          <section className="target-command target-command-recovered">
+            <div className="target-hero-band">
+              <div className="target-hero-copy">
+                <div className="target-eyebrow">Trading desk</div>
+                <h2>{data.target.canonicalName} capture surface</h2>
+                <p>
+                  Total fetched pool, qualified signal, and driver fallback are promoted to the primary readout.
+                </p>
               </div>
-              <div className="target-metric">
-                <div className="target-metric-label">{latestDailyPoint?.postsLabel ?? 'Total New Posts'}</div>
-                <div className="target-metric-value">{formatNumber(latestDailyPoint?.posts)}</div>
+              <div className="target-hero-stats">
+                <div className="target-metric target-metric-major">
+                  <div className="target-metric-label">{latestDailyPoint?.postsLabel ?? 'Fetched Posts'}</div>
+                  <div className="target-metric-value">{formatNumber(data.composition.fetchedPostCount || latestDailyPoint?.posts)}</div>
+                  <div className="target-metric-caption">All captured listing lanes in range</div>
+                </div>
+                <div className="target-metric target-metric-major qualified">
+                  <div className="target-metric-label">{latestDailyPoint?.qualifiedPostsLabel ?? 'Qualified Posts'}</div>
+                  <div className="target-metric-value">{formatNumber(data.composition.qualifiedPostCount || latestDailyPoint?.qualifiedPosts)}</div>
+                  <div className="target-metric-caption">Widened qualification rule</div>
+                </div>
+                <div className="target-metric">
+                  <div className="target-metric-label">Drivers</div>
+                  <div className="target-metric-value">{formatNumber(data.drivers.length)}</div>
+                  <div className="target-metric-caption">Growth facts or hot-listing fallback</div>
+                </div>
+                <div className="target-metric">
+                  <div className="target-metric-label">Heat</div>
+                  <div className="target-metric-value">{formatNumber(latestDailyPoint?.heatPrice)}</div>
+                  <div className="target-metric-caption">{data.reliability.provider ?? 'provider n/a'}</div>
+                </div>
               </div>
-              <div className="target-metric">
-                <div className="target-metric-label">{latestDailyPoint?.qualifiedPostsLabel ?? 'Qualified Posts'}</div>
-                <div className="target-metric-value">{formatNumber(latestDailyPoint?.qualifiedPosts)}</div>
-              </div>
-              <div className="target-metric">
-                <div className="target-metric-label">Provider</div>
-                <div className="target-metric-value">{data.reliability.provider ?? 'n/a'}</div>
-              </div>
+              <CompositionDonut
+                data={data}
+                mode={compositionMode}
+                activeId={activeCompositionId}
+                onModeChange={setCompositionMode}
+                onActiveChange={setActiveCompositionId}
+              />
             </div>
 
             <div className="target-chart-stage">
@@ -510,11 +648,11 @@ export function TargetDetail() {
               <WorkbenchChart option={chartOptions} />
             </div>
             <div className="target-note-line">
-              Coverage {data.dataQuality.coverage.observedPostDayCount}/{data.dataQuality.coverage.expectedDayCount} observed days
+              Coverage {data.dataQuality.coverage.observedPostDayCount}/{data.dataQuality.coverage.expectedDayCount} captured days
               {' '}· Complete {data.dataQuality.coverage.completeCoverageDayCount ?? 0}
               {' '}· Partial {data.dataQuality.coverage.partialCoverageDayCount ?? 0}
               {' '}· Source-limited {data.dataQuality.coverage.sourceLimitedDayCount ?? 0}
-              {' '}· Median {formatNumber(data.dataQuality.coverage.observedPostMedian)} observed posts/day
+              {' '}· Median {formatNumber(data.dataQuality.coverage.observedPostMedian)} captured posts/day
               {' '}· Low-density {data.dataQuality.coverage.lowObservedPostDayCount} days
               {data.dataQuality.coverage.degradedReasons.length > 0
                 ? ` · ${data.dataQuality.coverage.degradedReasons.join(', ')}`

@@ -148,6 +148,9 @@ const REDDIT_PAGE_CAPPED_PROVIDERS = new Set(["reddit", "http", "scrapling"]);
 const BACKFILL_SUPPLEMENT_TRIGGER_AGE_SECONDS = 7 * 24 * 60 * 60;
 const BACKFILL_SUPPLEMENT_LIMIT = 100;
 const BACKFILL_TOP_TIME_WINDOWS: RedditTopTimeRange[] = ["week", "month", "year", "all"];
+const LIVE_LISTING_SUPPLEMENT_LISTINGS: RedditPostListing[] = ["hot", "best", "rising", "top"];
+const LIVE_LISTING_SUPPLEMENT_LIMIT = 50;
+const LIVE_TOP_TIME_RANGE: RedditTopTimeRange = "day";
 const BACKFILL_TIERED_CANDIDATE_FILTERS: Record<
   ReturnType<typeof resolveSubredditTier>,
   { minScore: number; minComments: number; mode: "and" | "or" }
@@ -1171,6 +1174,17 @@ async function collectObservedPages(args: {
       })),
     );
   }
+  if (args.mode === "live") {
+    pages.push(
+      ...(await collectLiveListingSupplementalPages({
+        redditConnector: args.redditConnector,
+        subreddit: args.subreddit,
+        limit: Math.min(args.limit, LIVE_LISTING_SUPPLEMENT_LIMIT),
+        requestId: args.requestId,
+        nowIso: args.nowIso,
+      })),
+    );
+  }
 
   return {
     pages,
@@ -1180,6 +1194,33 @@ async function collectObservedPages(args: {
     newestObservedAt,
     listingHorizonHit,
   };
+}
+
+async function collectLiveListingSupplementalPages(args: {
+  redditConnector: RedditConnector;
+  subreddit: string;
+  limit: number;
+  requestId: string;
+  nowIso: string;
+}): Promise<CollectedPageRecord[]> {
+  const pages = await Promise.all(
+    LIVE_LISTING_SUPPLEMENT_LISTINGS.map(async (listing) => ({
+      page: await requestObservedPage({
+        redditConnector: args.redditConnector,
+        subreddit: args.subreddit,
+        limit: args.limit,
+        listing,
+        timeRange: listing === "top" ? LIVE_TOP_TIME_RANGE : undefined,
+        requestId: `${args.requestId}:listing:${listing}`,
+        nowIso: args.nowIso,
+      }),
+      discoverySource: discoverySourceForListing(listing),
+      listing,
+      timeRange: listing === "top" ? LIVE_TOP_TIME_RANGE : undefined,
+      totalEligible: false,
+    })),
+  );
+  return pages;
 }
 
 async function requestObservedPage(args: {
@@ -1254,6 +1295,22 @@ async function collectBackfillSupplementalPages(args: {
     });
   }
   return pages;
+}
+
+function discoverySourceForListing(listing: RedditPostListing): NonNullable<Content["discoverySource"]> {
+  if (listing === "hot") {
+    return "hot_listing";
+  }
+  if (listing === "best") {
+    return "best_listing";
+  }
+  if (listing === "rising") {
+    return "rising_listing";
+  }
+  if (listing === "top") {
+    return "top_supplement";
+  }
+  return "new_listing";
 }
 
 function resolvePageRequestLimit(args: {
