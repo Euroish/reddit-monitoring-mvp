@@ -107,6 +107,12 @@ Add when needed:
 5. `frontend-ui-ux`
 6. `frontend-browser-review`
 
+Execution notes:
+
+- Treat `frontend-dev-suite` as the single orchestration entrypoint.
+- For the current frontend-upgrade slice, reconcile against `obsidian-reddit专用/Projects/project.md`, `docs/frontend-upgrade-workflow-2026-04-29.md`, and current `apps/web` code before using older planning markdown.
+- `frontend-dev-suite` now composes the installed `web-design-engineer` and `gpt-image-2` skills with local `awesome-design-md-main` `DESIGN.md` plus `preview.html` / `preview-dark.html` resources.
+
 ## Keep Stable
 
 - Do not move existing skill directories unless startup docs are updated first.

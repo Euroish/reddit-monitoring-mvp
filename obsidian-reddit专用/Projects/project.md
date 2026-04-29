@@ -3,9 +3,9 @@ title: "project"
 type: codex-project-workspace
 status: active
 stage: product-frontend-upgrade-ready
-updated_at: "2026-04-29 03:42:00"
+updated_at: "2026-04-29 05:47:38"
 repo_path: "/root/reddit-monitoring-mvp"
-next_action: "Begin the frontend upgrade pass on top of the now-landed captured-listing and captured-qualified workbench semantics, while preserving the current route-stability/admin-control fixes as the baseline."
+next_action: "Use docs/frontend-upgrade-workflow-2026-04-29.md as the active frontend contract, then start with target-detail chart-kernel and visual-system upgrades on top of the stabilized captured-listing and captured-qualified semantics."
 tags:
 - codex
 - workspace
@@ -18,16 +18,16 @@ tags:
 
 ## Summary
 
-- Authority: this file is the active state source. The detailed implementation contract for the current product slice is `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`.
-- Startup set for the current slice: `00_START_HERE.md`, this file, and `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`.
+- Authority: this file is the active state source. The active frontend implementation contract for the current slice is `docs/frontend-upgrade-workflow-2026-04-29.md`.
+- Startup set for the current slice: `00_START_HERE.md`, this file, and `docs/frontend-upgrade-workflow-2026-04-29.md`.
 - Archive: keep `Archive/` empty by default. External analysis notes are temporary inputs only; read, reconcile against code, update this file or the active implementation contract, then remove.
 - Product truth: this is a bounded monitored Reddit analytics workbench. The target workbench now exposes captured-day chart semantics for listing-driven post counts, so frontend upgrades should treat `Captured New Posts` / `Captured Qualified Posts` as the primary target-detail chart language for "what was actually fetched that day".
 - Runtime path: `http` primary plus `scrapling` fallback capability. Legacy Apify is not an active main path.
 
 ## Attention Hygiene
 
-- Live state files for this slice: `00_START_HERE.md`, this file, and `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`. `AGENTS.md`, skill docs, and architecture notes are static constraints, not task queues.
-- `obsidian-reddit专用/Projects/` root may contain only `project.md` plus the active implementation contract `后端能力盘点与前端后台规划-2026-04-28.md`. Any other uploaded analysis note belongs in `Archive/` or should be removed after reconciliation.
+- Live state files for this slice: `00_START_HERE.md`, this file, and `docs/frontend-upgrade-workflow-2026-04-29.md`. `AGENTS.md`, skill docs, and architecture notes are static constraints, not task queues.
+- `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md` is now a historical advisory note. Do not treat it as the live frontend implementation contract unless this file explicitly promotes it again.
 - Advisory filenames previously read in this repo are historical inputs only. Do not carry their headings or proposed todo lists forward unless the same issue is still visible in current code.
 - Ignore local tool state such as untracked `.codex/` during project planning unless the user explicitly asks to inspect tool internals. It is workspace noise, not product state.
 - Do not create additional planning surfaces in repo root, `context/`, or ad hoc markdown files for the same execution slice beyond the active implementation contract named above.
@@ -51,13 +51,13 @@ tags:
 - Data-structure/framework direction is now confirmed and temporarily closed for this slice: do not reopen broad backend renames, new orchestration paths, or speculative serving layers while product-facing work remains unfinished.
 - Scheduler/materialization scope hardening is now landed across both replay and direct cycle paths: `workers/reddit-phase1-scheduler.ts` emits `TouchedTarget.scope`, scheduler replay uses it to narrow rebuild windows, coverage rebuilds also consume it, and direct cycle plus replay now share one target materialization chain in `src/workers/reddit-phase1-materialization.ts`.
 - Serving refresh contract hardening is now also landed for workbench reads: compare, market, and target routes no longer assemble broad repository fan-in inline inside `create-api-server.ts`; they now go through explicit refresh-contract loaders in `src/application/services/workbench-refresh-contract.service.ts`.
-- `P4.2` backend data-structure optimization is now closed in current code. The active execution contract is the frontend/admin implementation plan in `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`.
+- `P4.2` backend data-structure optimization is now closed in current code. The active execution contract is `docs/frontend-upgrade-workflow-2026-04-29.md`, which is intentionally tied to current code truth instead of the older capability-inventory note.
 - The active product slice is:
   - market surfaces: `/markets` and `/markets/board`
   - analysis surfaces: `/target/:targetId`, `/compare`, `/queries`, `/saved`
   - admin surfaces: `/ops`, `/ops/storage`, then `/ops/targets`, `/ops/collection`, `/ops/maintenance`
 - `post_engagement_daily`, explicit materialization manifests, and market-serving projections remain design-approved next-step candidates, but they are not the active slice while the current product/frontend contract is unfinished.
-- Historical analysis notes such as `后端功能分析.md` are reconciled and inactive. The only detailed execution contract for the current slice is `后端能力盘点与前端后台规划-2026-04-28.md`.
+- Historical analysis notes such as `后端功能分析.md` are reconciled and inactive. The current detailed execution contract for the frontend slice is `docs/frontend-upgrade-workflow-2026-04-29.md`.
 - Current repo search did not find a standalone export/report generator path. Future export/report work must reuse coverage-aware API/read-model fields.
 - Current repo evidence shows the market workbench contract now includes `targets[]` with per-target crawl freshness, live/backfill coverage status, latest observed headline metrics, and a compact live reliability summary.
 - Current repo evidence also supports the frontend constraints captured in the active implementation contract: market UI is currently front-end-limited to 8 items, compare is back-end-limited to 6 targets, target-level scheduling config exists in the data model, and comment-level analytics are not yet supported.
@@ -119,7 +119,7 @@ tags:
 
 - Objective: ship the highest-value frontend and admin surfaces on top of the landed refresh contracts without reopening backend architecture.
 - Verified current state: collection truth, coverage semantics, target-status backend, structured engagement storage, scheduler entrypoint scope, shared target materialization, and explicit workbench refresh contracts are landed.
-- Recommended next slice: execute the route/page contract in `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`:
+- Recommended next slice: execute the route/page contract in `docs/frontend-upgrade-workflow-2026-04-29.md`:
   - first wave: `/markets`, `/markets/board`, `/target/:targetId`, `/compare`, `/queries`, `/saved`, `/ops`, `/ops/storage`
   - second wave after contract gaps are confirmed: `/ops/targets`, `/ops/collection`, `/ops/maintenance`
   - no new backend orchestration branch unless a concrete API contract gap appears during implementation
@@ -207,7 +207,7 @@ tags:
 - Before execution, check only:
   - frontmatter `stage`, `updated_at`, and `next_action`
   - `Current State`
-  - the active implementation contract `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`
+  - the active implementation contract `docs/frontend-upgrade-workflow-2026-04-29.md`
   - latest 1-3 relevant `Activity Log` entries
 - If the next action and current code disagree, fix this file first, then execute.
 - If a file outside the startup set appears to define "current plan", treat that as drift and either archive it or explicitly mark it non-active here.
@@ -219,9 +219,16 @@ tags:
 - Run `npm run algo:phase1` when truth-layer behavior changes.
 - Run `npm run algo:phase1:full` when collection/storage/API integration boundaries are touched.
 - Run focused tests around any changed repository, job, read-model, or contract path before close-out.
-- Documentation-only state updates do not require tests, but must leave `Projects` root containing only `project.md` plus the single active implementation contract `后端能力盘点与前端后台规划-2026-04-28.md`.
+- Documentation-only state updates do not require tests, but they must keep `project.md` aligned with the currently promoted implementation contract and mark older planning notes as historical when they drift from code.
 
 ## Activity Log
+
+### 2026-04-29 05:47:38
+
+- Scope: Installed the external frontend design skills requested by the user, promoted a new current-state frontend upgrade workflow doc, updated local frontend skill routing to compose those installed skills plus `awesome-design-md-main`, and explicitly demoted the older backend-capability inventory note from active frontend-contract status because the user flagged it as stale.
+- Why now: The repo is entering a UI/UX and chart-upgrade pass, and continuing to treat the stale capability-inventory markdown as the active contract would create planning drift. The smallest correct move was to lock a new frontend contract to current code truth before any visual or chart implementation begins.
+- Verify: Installed skills now present under `~/.codex/skills` as `web-design-engineer`, `gpt-image-2`, and `rag-skill`; repo changes are documentation/skill-routing only, so no code tests were run.
+- Next: Use `docs/frontend-upgrade-workflow-2026-04-29.md` as the active guide and start the actual product-facing upgrade with target-detail chart kernel replacement and visual-system cleanup.
 
 ### 2026-04-29 03:06:08
 
