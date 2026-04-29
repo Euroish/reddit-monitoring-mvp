@@ -1,7 +1,7 @@
 # Frontend Upgrade Workflow
 
 日期：2026-04-29
-状态：active
+状态：active，target-detail chart-kernel slice landed in working tree
 适用范围：当前 `apps/web` 前端升级、UI/UX 优化、图表交互升级、设计资源编排
 
 ## 1. 真相源
@@ -10,12 +10,12 @@
 
 1. `obsidian-reddit专用/Projects/project.md`
 2. 当前 `apps/web` 代码
-3. `docs/analytics-workbench-framework-2026-04-24.md`
-4. 本文件
+3. 本文件
 
 以下内容只能作为历史参考，不能直接当执行合同：
 
 - `obsidian-reddit专用/Projects/后端能力盘点与前端后台规划-2026-04-28.md`
+- `docs/analytics-workbench-framework-2026-04-24.md`（只保留产品方向和 guardrails；其中旧的 ECharts/thin-chart 现状已过时）
 
 ## 2. 当前已验证前端现状
 
@@ -37,15 +37,21 @@
 
 ### 2.3 当前图表现状
 
-- `apps/web/src/features/workbench/components/WorkbenchChart.tsx` 仍是手写 SVG 图表
+- `apps/web/src/features/workbench/components/WorkbenchChart.tsx` 已替换为本地 `lightweight-charts` adapter
 - `apps/web/src/features/workbench/model/chartOptions.ts` 已经提供了稳定的产品级图表模型
-- 当前图表可以显示 line/bar、多 series、双轴语义
-- 当前图表不具备 TradingView 风格的核心交互：
+- 当前 adapter 保留 `WorkbenchChartModel` 输入边界，后端 DTO 不暴露图表库结构
+- 当前图表已具备：
   - crosshair
-  - 平滑缩放/拖拽
-  - 可同步 tooltip/time scale
+  - 鼠标/触控拖拽与缩放
+  - line/histogram 混合 series
+  - primary/secondary 双轴映射
+  - 本地 legend/readout
+  - TradingView attribution
+- 当前图表仍未完成：
   - pane 化的主图/副图拆分
+  - 可同步 tooltip/time scale
   - 更强的 marker/annotation 交互
+  - 浏览器级桌面/窄屏验收
 
 ### 2.4 当前产品语言
 
@@ -65,9 +71,9 @@
 
 优先页面顺序：
 
-1. `/target/:targetId`
-2. `/compare`
-3. `/markets`
+1. `/target/:targetId`：chart-kernel 和第一轮视觉系统已落地，下一步是浏览器验收与必要修正
+2. `/compare`：复用同一 `WorkbenchChart` adapter 和 readout 语言
+3. `/markets`：先处理返回路由稳定性/重载感，再做视觉重构
 4. `/markets/board`
 5. `/queries`
 6. `/saved`
@@ -92,7 +98,7 @@ TradingView-like 交互图表优先采用 `lightweight-charts`。
 1. 后端 DTO 不暴露任何图表库私有结构
 2. `chartOptions.ts` 继续保持产品级数据模型
 3. 新图表库只存在于 `apps/web/src/features/workbench` 内部适配层
-4. 先替换 `WorkbenchChart` 内核，再扩交互，不先大面积改页面
+4. `WorkbenchChart` 内核已替换；下一步扩交互和页面复用时仍不得大面积改后端 DTO
 
 ### 4.2 当前产品建议的 pane 切分
 
@@ -174,31 +180,31 @@ TradingView-like 交互图表优先采用 `lightweight-charts`。
 
 ### 阶段 A：冻结当前产品语义
 
-- 先确认页面文案和数据含义
+- 已确认 target detail 文案和数据含义
 - 不重开 count semantics
 - 不重开 compare 超过 6 个 target 之类的边界
 - 不根据视觉需要发明新字段
 
 ### 阶段 B：抽视觉系统
 
-- 先整理 `index.css` token
+- `index.css` 已加入第一轮暗色分析台视觉 token、target workbench 布局、chart/readout 样式
 - 再整理 `ui/index.tsx` primitive 的尺寸、状态、边框和阴影
 - 目标是统一壳层、卡片、表格、表单、badge、按钮的基本语言
 
 ### 阶段 C：图表内核升级
 
-- 保留 `chartOptions.ts`
-- 在 workbench feature 内增加新的 chart adapter
-- 先替换 target detail
-- 再复用到 compare 和 queries
+- 已保留 `chartOptions.ts`
+- 已在 workbench feature 内用 `lightweight-charts` 替换 `WorkbenchChart` 内核
+- 已替换 target detail 使用路径
+- 下一步复用到 compare、queries 时，只做 adapter/视觉复用，不引入 frontend-only 指标公式
 
 ### 阶段 D：页面级重构
 
 顺序固定：
 
-1. target detail
-2. compare
-3. markets
+1. target detail：已实现，待浏览器验收
+2. compare：下一步
+3. markets：在 route-return 稳定性确认后执行
 4. markets/board
 5. queries
 6. saved
@@ -231,8 +237,18 @@ TradingView-like 交互图表优先采用 `lightweight-charts`。
 
 当以下条件满足，才算前端升级工作流落地：
 
-1. 前端任务统一从 `frontend-dev-suite` 进入
-2. 外部设计技能已可用
-3. `awesome-design-md-main` 已被纳入固定使用顺序
-4. 图表升级路径明确为 `lightweight-charts` + 本地 adapter 边界
-5. 后续页面升级不再依赖过时盘点文档
+1. 前端任务统一从 `frontend-dev-suite` 进入：已满足
+2. 外部设计技能已可用：已满足
+3. `awesome-design-md-main` 已被纳入固定使用顺序：已满足
+4. 图表升级路径明确为 `lightweight-charts` + 本地 adapter 边界：已满足，且 target detail 工作树实现已落地
+5. 后续页面升级不再依赖过时盘点文档：已满足
+6. 新增完成门槛：target detail 需要完成浏览器级桌面/窄屏验收后，才视为产品验收完成
+
+## 9. 当前执行状态
+
+- 已完成：`lightweight-charts` dependency 已安装并被 `WorkbenchChart` 使用。
+- 已完成：`/target/:targetId` 已改为 chart-first command surface，不再采用广泛卡片堆叠。
+- 已完成：`npm --prefix apps/web run build` 通过。
+- 已完成：`npm --prefix apps/web run lint` 通过。
+- 未完成：浏览器级 desktop/narrow 检查、chart resize/crosshair/drag 交互检查、loading/error/empty 状态检查。
+- 下一步：提交当前切片后，先验收 `/target/:targetId`，再推进 `/compare`。

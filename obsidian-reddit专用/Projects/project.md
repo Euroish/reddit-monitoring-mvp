@@ -2,10 +2,10 @@
 title: "project"
 type: codex-project-workspace
 status: active
-stage: product-frontend-upgrade-ready
-updated_at: "2026-04-29 05:47:38"
+stage: product-frontend-target-workbench-landed
+updated_at: "2026-04-29 06:09:15"
 repo_path: "/root/reddit-monitoring-mvp"
-next_action: "Use docs/frontend-upgrade-workflow-2026-04-29.md as the active frontend contract, then start with target-detail chart-kernel and visual-system upgrades on top of the stabilized captured-listing and captured-qualified semantics."
+next_action: "Commit the landed target-detail chart-kernel and visual-system slice after review, then run browser-level desktop/narrow target-detail verification before reusing the WorkbenchChart adapter in compare and markets follow-up work."
 tags:
 - codex
 - workspace
@@ -23,6 +23,7 @@ tags:
 - Archive: keep `Archive/` empty by default. External analysis notes are temporary inputs only; read, reconcile against code, update this file or the active implementation contract, then remove.
 - Product truth: this is a bounded monitored Reddit analytics workbench. The target workbench now exposes captured-day chart semantics for listing-driven post counts, so frontend upgrades should treat `Captured New Posts` / `Captured Qualified Posts` as the primary target-detail chart language for "what was actually fetched that day".
 - Runtime path: `http` primary plus `scrapling` fallback capability. Legacy Apify is not an active main path.
+- Current frontend truth: `WorkbenchChart` has been replaced with a `lightweight-charts` adapter inside `apps/web/src/features/workbench`, and `/target/:targetId` now uses a chart-first target command surface instead of stacked KPI/card layout.
 
 ## Attention Hygiene
 
@@ -61,7 +62,7 @@ tags:
 - Current repo search did not find a standalone export/report generator path. Future export/report work must reuse coverage-aware API/read-model fields.
 - Current repo evidence shows the market workbench contract now includes `targets[]` with per-target crawl freshness, live/backfill coverage status, latest observed headline metrics, and a compact live reliability summary.
 - Current repo evidence also supports the frontend constraints captured in the active implementation contract: market UI is currently front-end-limited to 8 items, compare is back-end-limited to 6 targets, target-level scheduling config exists in the data model, and comment-level analytics are not yet supported.
-- Auth surface status is now explicit: backend supports invite-based registration through `POST /auth/register`, and admin invite creation exists in `/ops/invites`, but the frontend currently exposes only `/login` and does not yet ship a registration page or public registration route.
+- Auth surface status is now explicit: backend supports invite-based registration through `POST /auth/register`, admin invite creation exists in `/ops/invites`, and the frontend now has both `/login` and `/register` routes. Any remaining onboarding work should be based on browser/product validation, not the older assumption that registration UI is missing.
 - Current repo evidence also explains the qualified-post drift: `src/jobs/build-subreddit-daily-facts.job.ts` now computes daily qualified counts through `resolveDailyQualityThreshold()` plus `isQualifiedDailyPost()`, using subreddit-tier floors and per-day percentile-derived thresholds instead of a fixed legacy `like > 20 && comment > 20` rule.
 - Current repo evidence also explains why `/markets` now feels materially heavier than the earlier route: `apps/web/src/pages/Dashboard.tsx` mounts both `/v1/trends/market` and `/v1/workbench/market`, while `src/application/services/workbench-refresh-contract.service.ts` fans the market workbench read across every active target for breakout facts, recent content, anomaly rows, provider-health windows, coverage rows, and both live/backfill cursors before the page can show its full state.
 - Automatic-collection control is now materially improved in product code: `apps/web/src/pages/OpsTargets.tsx` now presents `favorite` as the operator-facing `Auto collect` toggle, and `apps/web/src/pages/OpsCollection.tsx` now consolidates automatic target scope, effective cadence, live/backfill budget, and scheduler selection fallback into one admin page instead of forcing operators to infer behavior from separate pages.
@@ -74,16 +75,21 @@ tags:
   - daily thresholds are tier-aware again
   - qualified classification now allows balanced quality posts plus score-led or discussion-led breakout posts
   - target-workbench captured qualified counts are now derived from the captured-day corpus with latest engagement, so "all qualifypost fetched that day" is closer to the product truth than the older observed/materialized-only path
-- Current repo state is now ready for the frontend upgrade phase because the key backend/product semantics the user was blocking on have been stabilized in code:
+- Current repo state has entered the frontend upgrade phase because the key backend/product semantics the user was blocking on have been stabilized in code:
   - route-level error boundary and lazy loading are already in place for basic page-stability hardening
   - admin automatic collection and retention-backed cleanup flows are exposed in product UI
   - target chart counts now reflect fetched listing capture semantics instead of only reduced observed/materialized semantics
-- New live-product regressions/user-reported gaps now need explicit resolution before additional surface expansion:
+- First frontend upgrade code slice is now landed in the working tree and ready for commit after review:
+  - `apps/web/src/features/workbench/components/WorkbenchChart.tsx` now wraps `lightweight-charts` with local legend/readout, crosshair, drag/zoom, line/histogram support, dual price scales, and TradingView attribution.
+  - `apps/web/src/pages/TargetDetail.tsx` now uses a chart-first command surface: metric rail, primary chart stage, compact controls, saved/query/compare context strips, and lower analysis panels instead of broad card stacking.
+  - `apps/web/src/index.css` now carries the active visual-system direction: dark analytical surface, subtle grid/radial depth, amber/cyan accents, compact pill controls, target workbench layout tokens, and responsive collapse.
+  - `apps/web/src/components/Phase1RunCard.tsx`, `apps/web/src/pages/OpsCollection.tsx`, and `apps/web/src/pages/OpsTargets.tsx` have small React 19 lint-compatible state/dependency cleanups only; product behavior was not intentionally changed.
+- Remaining live-product regressions/user-reported gaps now need explicit resolution before broad surface expansion:
   - qualified-post counts appear materially lower than the prior user expectation of `like > 20 && comment > 20`, so the current qualified-post algorithm/threshold path needs reconciliation against historical behavior and honest recovery options
   - returning to `/markets` after visiting another page can still black-screen or stall, so route-transition stability around the market page remains unresolved
   - the general-user Phase 1 run 5000-cap gap is now closed in both UI and API validation, but this should still be regression-tested in live usage
-  - admin automatic collection is now understandable in one flow, but the backend scheduling rule still uses the existing `favorite targets if any, else all active targets` fallback and has not been redesigned beyond that verified behavior
-  - admin retention-backed cleanup is now operable in the UI, but deeper scoped deletion plus rebuild/invalidation semantics are still undecided
+  - admin automatic collection is understandable in one flow, but the backend scheduling rule still uses the existing `favorite targets if any, else all active targets` fallback and has not been redesigned beyond that verified behavior
+  - admin retention-backed cleanup is operable in the UI, but deeper scoped deletion plus rebuild/invalidation semantics are still undecided
 
 ## Core Decision
 
@@ -117,11 +123,17 @@ tags:
 
 ## Next Slice Harness: Product Frontend And Admin Control Plane
 
-- Objective: ship the highest-value frontend and admin surfaces on top of the landed refresh contracts without reopening backend architecture.
+- Objective: continue shipping the highest-value frontend and admin surfaces on top of the landed refresh contracts without reopening backend architecture.
 - Verified current state: collection truth, coverage semantics, target-status backend, structured engagement storage, scheduler entrypoint scope, shared target materialization, and explicit workbench refresh contracts are landed.
-- Recommended next slice: execute the route/page contract in `docs/frontend-upgrade-workflow-2026-04-29.md`:
-  - first wave: `/markets`, `/markets/board`, `/target/:targetId`, `/compare`, `/queries`, `/saved`, `/ops`, `/ops/storage`
-  - second wave after contract gaps are confirmed: `/ops/targets`, `/ops/collection`, `/ops/maintenance`
+- Verified frontend slice status:
+  - `/target/:targetId`: chart kernel replacement and first visual-system pass are implemented in the working tree; still needs browser-level desktop/narrow interaction review before treating it as fully accepted.
+  - shared chart adapter: `WorkbenchChart` keeps the existing product-level `chartOptions.ts` boundary and now powers both target and compare surfaces where imported.
+  - React 19 lint compatibility: full `apps/web` lint is now green after small state/dependency fixes in touched admin/run surfaces.
+- Recommended next slice: continue the route/page contract in `docs/frontend-upgrade-workflow-2026-04-29.md` from the current code truth:
+  - immediate: review/commit the target workbench slice, then browser-check `/target/:targetId` on desktop and narrow widths.
+  - next: apply the same chart/readout/visual-system direction to `/compare` without introducing frontend-only formulas or exceeding the backend 6-target cap.
+  - then: revisit `/markets` and `/markets/board`, with route-return stability and heavy market workbench payload behavior treated as product reliability work, not visual polish.
+  - later: `/queries`, `/saved`, and `/ops*` follow as visual convergence only unless a verified API/contract gap appears.
   - no new backend orchestration branch unless a concrete API contract gap appears during implementation
 - Keep the next slice product-facing and contract-respecting. Do not reopen backend architecture expansion, provider expansion, or speculative infra additions in the same step.
 - Stop condition: stop before introducing new persistence layers, generic projection engines, route-local fan-in that duplicates the refresh-contract services, or admin actions that bypass the documented API boundary.
@@ -139,31 +151,33 @@ tags:
 - Qualified-post count drift:
   - Code evidence: the current daily fact pipeline is adaptive and threshold-derived, not a fixed historical `20/20` filter.
   - Product impact: the UI cannot imply old semantics unless the product explicitly restores them or exposes a switch/explanation.
-- Automatic collection control incompleteness:
+- Automatic collection control status:
   - Existing capability: target enable/disable plus favorite cadence exist, global live/backfill budget defaults exist, scheduler entry and manual run-now entry exist.
-  - Missing product contract: there is no single admin page that clearly answers `which targets auto-run`, `every how many hours`, and `how many new posts each automatic pass should fetch`.
-- SQL cleanup incompleteness:
+  - Current UI now has a single operator-facing flow across `/ops/targets` and `/ops/collection` that answers `which targets auto-run`, `every how many hours`, and `how many new posts each automatic pass should fetch`.
+  - Remaining boundary: backend scheduling semantics still intentionally use `favorite targets if any, else all active targets`; do not redesign that rule without a verified operator gap.
+- SQL cleanup status:
   - Existing capability: retention-backed preview/prune already works for three storage buckets.
-  - Missing product contract: there is no scoped cleanup by target/date/data family, and no rebuild/invalidation safety contract for deleting deeper analytics data.
+  - Current UI exposes retention-backed preview/prune controls with clearer scope, dry-run, batch, and loop-until-done behavior.
+  - Remaining boundary: there is no scoped cleanup by target/date/data family, and no rebuild/invalidation safety contract for deleting deeper analytics data.
 
 ### Execution Order Before Deep UIUX Work
 
-- Step 1: stabilize `/markets` navigation first.
+- Step 1: stabilize `/markets` navigation before redesigning the market surface.
   - Reproduce the return-navigation stall/black-screen path.
   - Measure `/v1/trends/market` versus `/v1/workbench/market` latency separately.
   - Decide the minimum fix path before polish: cache/prefetch/keep-previous-data on the frontend, or split the market workbench payload so the page no longer blocks on the heaviest per-target fan-out.
 - Step 2: freeze the qualified-post product contract.
   - Decide whether the product keeps the adaptive threshold model, restores a legacy fixed threshold option, or exposes both with explicit labels.
   - Until that decision lands, keep wording honest and avoid presenting current counts as if they still mean legacy `20/20`.
-- Step 3: consolidate automatic collection into one admin flow.
+- Step 3: automatic collection UI consolidation is landed; keep future work limited to verified gaps.
   - Keep `/ops/targets` responsible for the monitored target pool and per-target inclusion/cadence semantics.
   - Keep `/ops/collection` responsible for global automatic-collection defaults such as default cadence, live post budget, backfill budget, backfill depth, and provider preference.
-  - Add one clear effective-summary view that tells the operator which targets will auto-run now and why, instead of forcing them to infer scheduler behavior from `favorite` plus `status`.
-- Step 4: extend cleanup from retention-only to operator-safe data management.
-  - First improve the existing retention-backed cleanup UX with clearer preview, scope copy, and result reporting.
+  - The current UI already includes one effective-summary view that tells the operator which targets will auto-run now and why; do not redesign backend scheduling semantics unless a concrete operator gap is observed.
+- Step 4: retention-backed cleanup UX is landed; deeper deletion remains a separate contract decision.
+  - Existing retention-backed cleanup UX now has clearer preview, scope copy, and result reporting.
   - Only after that, design a scoped cleanup contract for additional data families. Do not expose deletion of `content`, `crawl_cursor`, coverage/fact/trend/anomaly tables, or other derived state until the same flow also defines invalidation/rebuild behavior.
-- Step 5: begin the deep animation/UIUX art pass only after Steps 1-4 are stable.
-  - At that point motion design can target stable route boundaries and stable admin actions instead of papering over unresolved data/control problems.
+- Step 5: visual-system work has started on target detail only.
+  - Continue avoiding animation-heavy polish until `/markets` route-return stability and browser-level target-detail verification are done.
 
 ### P3.2 Execution Order
 
@@ -223,12 +237,19 @@ tags:
 
 ## Activity Log
 
+### 2026-04-29 06:09:15
+
+- Scope: Reconciled project/frontend docs after landing the first target-detail frontend upgrade slice. Current working tree now has `lightweight-charts` inside `WorkbenchChart`, a chart-first `/target/:targetId` command surface, dark analytical visual tokens, and small React 19 lint cleanups for run/admin pages touched by verification.
+- Why now: `project.md` and `docs/frontend-upgrade-workflow-2026-04-29.md` still described the next action as starting target-detail chart-kernel replacement, while current code has already implemented that slice. The smallest correct write-back is to mark that work as landed-in-working-tree, keep browser acceptance explicit, and move the next task to review/commit plus compare/markets follow-up.
+- Verify: `npm --prefix apps/web run build` passed; `npm --prefix apps/web run lint` passed; `git diff --check` passed. Browser-level desktop/narrow interaction review has not yet been run in this session.
+- Next: Commit the current frontend slice after review, then browser-check `/target/:targetId` for desktop/narrow layout, chart resize, crosshair/drag behavior, loading/error/empty states, and keyboard/clickability before applying the chart/visual direction to `/compare`.
+
 ### 2026-04-29 05:47:38
 
 - Scope: Installed the external frontend design skills requested by the user, promoted a new current-state frontend upgrade workflow doc, updated local frontend skill routing to compose those installed skills plus `awesome-design-md-main`, and explicitly demoted the older backend-capability inventory note from active frontend-contract status because the user flagged it as stale.
 - Why now: The repo is entering a UI/UX and chart-upgrade pass, and continuing to treat the stale capability-inventory markdown as the active contract would create planning drift. The smallest correct move was to lock a new frontend contract to current code truth before any visual or chart implementation begins.
 - Verify: Installed skills now present under `~/.codex/skills` as `web-design-engineer`, `gpt-image-2`, and `rag-skill`; repo changes are documentation/skill-routing only, so no code tests were run.
-- Next: Use `docs/frontend-upgrade-workflow-2026-04-29.md` as the active guide and start the actual product-facing upgrade with target-detail chart kernel replacement and visual-system cleanup.
+- Next: Superseded by the 2026-04-29 06:09:15 entry; target-detail chart kernel and first visual-system pass are now landed in the working tree, and the next active step is review/commit plus browser verification.
 
 ### 2026-04-29 03:06:08
 

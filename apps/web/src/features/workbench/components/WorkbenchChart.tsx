@@ -1,224 +1,285 @@
-import type { CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import {
+  ColorType,
+  CrosshairMode,
+  HistogramSeries,
+  LineSeries,
+  LineStyle,
+  createChart,
+  type IChartApi,
+  type ISeriesApi,
+  type LineWidth,
+  type MouseEventParams,
+  type SeriesType,
+  type Time,
+} from 'lightweight-charts';
 import type { WorkbenchChartModel, WorkbenchChartSeries } from '../model/chartOptions';
 
-const CHART_WIDTH = 960;
-const CHART_HEIGHT = 360;
-const PADDING = {
-  top: 20,
-  right: 56,
-  bottom: 54,
-  left: 56,
+type ChartPoint = {
+  time: Time;
+  value: number;
 };
 
-type AxisDomain = {
-  min: number;
-  max: number;
+type HoverRow = {
+  id: string;
+  name: string;
+  color: string;
+  value: number | null;
 };
 
-function formatCompactValue(value: number) {
+function formatCompactValue(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return 'n/a';
   return new Intl.NumberFormat('en-US', {
     notation: 'compact',
-    maximumFractionDigits: value >= 100 ? 0 : 1,
+    maximumFractionDigits: Math.abs(value) >= 100 ? 0 : 1,
   }).format(value);
 }
 
-function formatDateLabel(value: string) {
-  return new Date(value).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-function getNumericValues(series: WorkbenchChartSeries[]) {
-  return series.flatMap((item) => item.values).filter((value): value is number => value != null && Number.isFinite(value));
-}
-
-function buildAxisDomain(series: WorkbenchChartSeries[]) {
-  const values = getNumericValues(series);
-  if (values.length === 0) {
-    return { min: 0, max: 1 };
+function formatDateLabel(value: Time | string | undefined) {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    return new Date(value).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
   }
-
-  const hasBar = series.some((item) => item.type === 'bar');
-  const rawMin = Math.min(...values);
-  const rawMax = Math.max(...values);
-
-  if (hasBar) {
-    const max = rawMax <= 0 ? 1 : rawMax * 1.1;
-    return { min: Math.min(0, rawMin), max };
+  if (typeof value === 'number') {
+    return new Date(value * 1000).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
   }
-
-  if (rawMin === rawMax) {
-    const pad = rawMax === 0 ? 1 : Math.abs(rawMax) * 0.1;
-    return { min: rawMin - pad, max: rawMax + pad };
-  }
-
-  const range = rawMax - rawMin;
-  const pad = range * 0.12;
-  return { min: rawMin - pad, max: rawMax + pad };
+  return `${value.year}-${String(value.month).padStart(2, '0')}-${String(value.day).padStart(2, '0')}`;
 }
 
-function scaleY(value: number, domain: AxisDomain) {
-  const plotHeight = CHART_HEIGHT - PADDING.top - PADDING.bottom;
-  const ratio = (value - domain.min) / (domain.max - domain.min || 1);
-  return CHART_HEIGHT - PADDING.bottom - ratio * plotHeight;
+function toLineStyle(style: WorkbenchChartSeries['strokeStyle']) {
+  if (style === 'dashed') return LineStyle.Dashed;
+  if (style === 'dotted') return LineStyle.Dotted;
+  return LineStyle.Solid;
 }
 
-function scaleX(index: number, count: number) {
-  const plotWidth = CHART_WIDTH - PADDING.left - PADDING.right;
-  if (count <= 1) {
-    return PADDING.left + plotWidth / 2;
-  }
-  return PADDING.left + (plotWidth * index) / (count - 1);
+function toLineWidth(width: number): LineWidth {
+  if (width >= 4) return 4;
+  if (width >= 3) return 3;
+  if (width >= 2) return 2;
+  return 1;
 }
 
-function buildLinePath(values: Array<number | null>, domain: AxisDomain, count: number) {
-  let path = '';
-  for (let index = 0; index < values.length; index += 1) {
-    const value = values[index];
-    if (value == null || !Number.isFinite(value)) {
-      continue;
-    }
-    const x = scaleX(index, count);
-    const y = scaleY(value, domain);
-    const previousValue = index > 0 ? values[index - 1] : null;
-    path += previousValue == null ? `M ${x} ${y}` : ` L ${x} ${y}`;
-  }
-  return path;
+function pointData(series: WorkbenchChartSeries, dates: string[]): ChartPoint[] {
+  return series.values
+    .map((value, index) => {
+      if (value == null || !Number.isFinite(value)) return null;
+      return {
+        time: dates[index] as Time,
+        value,
+      };
+    })
+    .filter((point): point is ChartPoint => point != null);
 }
 
-function strokeDasharray(style: WorkbenchChartSeries['strokeStyle']) {
-  if (style === 'dashed') return '8 6';
-  if (style === 'dotted') return '2 5';
-  return undefined;
-}
-
-function legendSwatchStyle(series: WorkbenchChartSeries): CSSProperties {
+function legendSwatchStyle(series: WorkbenchChartSeries) {
   return {
-    width: '18px',
-    height: series.type === 'bar' ? '10px' : '2px',
-    borderRadius: '999px',
-    backgroundColor: series.type === 'bar' ? series.color : 'transparent',
-    borderTop: series.type === 'line' ? `${series.strokeWidth}px ${series.strokeStyle === 'solid' ? 'solid' : 'dashed'} ${series.color}` : 'none',
-  };
-}
-
-function buildTicks(domain: AxisDomain, count = 4) {
-  const ticks: number[] = [];
-  for (let index = 0; index <= count; index += 1) {
-    ticks.push(domain.min + ((domain.max - domain.min) * index) / count);
-  }
-  return ticks;
+    '--series-color': series.color,
+  } as CSSProperties;
 }
 
 export function WorkbenchChart({ option }: { option: WorkbenchChartModel }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<Map<string, ISeriesApi<SeriesType>>>(new Map());
+  const optionSeriesRef = useRef<WorkbenchChartSeries[]>(option.series);
+  const [hoverTime, setHoverTime] = useState<Time | undefined>();
+  const [hoverRows, setHoverRows] = useState<HoverRow[]>([]);
+
+  const latestRows = useMemo<HoverRow[]>(() => {
+    return option.series.map((series) => {
+      const lastValue = [...series.values].reverse().find((value) => value != null && Number.isFinite(value));
+      return {
+        id: series.id,
+        name: series.name,
+        color: series.color,
+        value: lastValue ?? null,
+      };
+    });
+  }, [option.series]);
+
+  useEffect(() => {
+    optionSeriesRef.current = option.series;
+  }, [option.series]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || chartRef.current) return;
+
+    const chart = createChart(container, {
+      autoSize: true,
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: '#8a8f98',
+        fontFamily: 'var(--font-mono)',
+        attributionLogo: true,
+      },
+      grid: {
+        vertLines: { color: 'rgba(255, 255, 255, 0.045)' },
+        horzLines: { color: 'rgba(255, 255, 255, 0.06)' },
+      },
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        vertLine: {
+          color: 'rgba(226, 232, 240, 0.42)',
+          style: LineStyle.Dotted,
+          width: 1,
+          labelBackgroundColor: '#111315',
+        },
+        horzLine: {
+          color: 'rgba(226, 232, 240, 0.22)',
+          style: LineStyle.Dotted,
+          width: 1,
+          labelBackgroundColor: '#111315',
+        },
+      },
+      rightPriceScale: {
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+        scaleMargins: { top: 0.12, bottom: 0.16 },
+      },
+      leftPriceScale: {
+        visible: true,
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+        scaleMargins: { top: 0.62, bottom: 0.04 },
+      },
+      timeScale: {
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+        timeVisible: true,
+        secondsVisible: false,
+        rightOffset: 2,
+        barSpacing: 16,
+      },
+      handleScale: {
+        mouseWheel: true,
+        pinch: true,
+        axisPressedMouseMove: true,
+      },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: false,
+      },
+      localization: {
+        priceFormatter: formatCompactValue,
+        timeFormatter: formatDateLabel,
+      },
+    });
+
+    chart.subscribeCrosshairMove((param: MouseEventParams<Time>) => {
+      if (!param.time) {
+        setHoverTime(undefined);
+        setHoverRows([]);
+        return;
+      }
+
+      const rows = optionSeriesRef.current.map((series) => {
+        const api = seriesRef.current.get(series.id);
+        const datum = api ? param.seriesData.get(api) : undefined;
+        const value = datum && 'value' in datum && typeof datum.value === 'number' ? datum.value : null;
+        return {
+          id: series.id,
+          name: series.name,
+          color: series.color,
+          value,
+        };
+      });
+
+      setHoverTime(param.time);
+      setHoverRows(rows);
+    });
+
+    chartRef.current = chart;
+    const mountedSeries = seriesRef.current;
+    return () => {
+      chart.remove();
+      chartRef.current = null;
+      mountedSeries.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    for (const api of seriesRef.current.values()) {
+      chart.removeSeries(api);
+    }
+    seriesRef.current.clear();
+
+    option.series.forEach((series) => {
+      const priceScaleId = series.axis === 'secondary' ? 'left' : 'right';
+      const commonOptions = {
+        priceScaleId,
+        priceLineVisible: false,
+        lastValueVisible: true,
+        title: series.name,
+      };
+
+      const api = series.type === 'bar'
+        ? chart.addSeries(HistogramSeries, {
+            ...commonOptions,
+            color: series.color,
+            base: 0,
+          })
+        : chart.addSeries(LineSeries, {
+            ...commonOptions,
+            color: series.color,
+            lineWidth: toLineWidth(series.strokeWidth),
+            lineStyle: toLineStyle(series.strokeStyle),
+            crosshairMarkerVisible: true,
+            crosshairMarkerRadius: 4,
+          });
+
+      api.setData(pointData(series, option.dates));
+      seriesRef.current.set(series.id, api as ISeriesApi<SeriesType>);
+    });
+
+    chart.timeScale().fitContent();
+  }, [option]);
+
   if (!option.dates.length || !option.series.length) {
     return (
-      <div style={{ height: '100%', width: '100%', display: 'grid', placeItems: 'center', color: 'var(--text-tertiary)' }}>
+      <div className="workbench-chart-empty">
         No chart data.
       </div>
     );
   }
 
-  const primarySeries = option.series.filter((item) => item.axis === 'primary');
-  const secondarySeries = option.series.filter((item) => item.axis === 'secondary');
-  const primaryDomain = buildAxisDomain(primarySeries);
-  const secondaryDomain = buildAxisDomain(secondarySeries);
-  const gridTicks = buildTicks(primaryDomain);
-  const rightTicks = buildTicks(secondaryDomain);
-  const xStep = option.dates.length > 1
-    ? (CHART_WIDTH - PADDING.left - PADDING.right) / (option.dates.length - 1)
-    : CHART_WIDTH - PADDING.left - PADDING.right;
-  const barSeries = option.series.filter((item) => item.type === 'bar');
-  const barWidth = barSeries.length > 0 ? Math.max(8, Math.min(28, (xStep * 0.72) / barSeries.length)) : 0;
-  const barOffsetBase = ((barSeries.length - 1) * barWidth) / 2;
-  const xTickStep = Math.max(1, Math.ceil(option.dates.length / 6));
+  const visibleRows = hoverRows.length > 0 ? hoverRows : latestRows;
 
   return (
-    <div style={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-        {option.series.map((series) => (
-          <div key={series.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
-            <span style={legendSwatchStyle(series)} />
-            <span>{series.name}</span>
+    <div className="workbench-chart">
+      <div className="workbench-chart-meta">
+        <div>
+          <div className="workbench-chart-kicker">Interactive trend surface</div>
+          <div className="workbench-chart-date">{hoverTime ? formatDateLabel(hoverTime) : 'Latest captured point'}</div>
+        </div>
+        <div className="workbench-chart-legend">
+          {option.series.map((series) => (
+            <span key={series.id} className={`workbench-chart-legend-item ${series.type}`} style={legendSwatchStyle(series)}>
+              {series.name}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="workbench-chart-canvas" ref={containerRef} />
+      <div className="workbench-chart-readout">
+        {visibleRows.map((row) => (
+          <div key={row.id} className="workbench-chart-readout-row">
+            <span className="workbench-chart-readout-dot" style={{ backgroundColor: row.color }} />
+            <span>{row.name}</span>
+            <strong>{formatCompactValue(row.value)}</strong>
           </div>
         ))}
       </div>
-
-      <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} style={{ width: '100%', height: '100%', overflow: 'visible' }} role="img" aria-label="Workbench chart">
-        {gridTicks.map((tick) => {
-          const y = scaleY(tick, primaryDomain);
-          return (
-            <g key={`grid-${tick}`}>
-              <line x1={PADDING.left} x2={CHART_WIDTH - PADDING.right} y1={y} y2={y} stroke="#1a1b1e" strokeWidth="1" />
-              <text x={PADDING.left - 10} y={y + 4} fill="#8a8f98" fontSize="11" textAnchor="end">
-                {formatCompactValue(tick)}
-              </text>
-            </g>
-          );
-        })}
-
-        {secondarySeries.length > 0 && rightTicks.map((tick) => {
-          const y = scaleY(tick, secondaryDomain);
-          return (
-            <text key={`right-${tick}`} x={CHART_WIDTH - PADDING.right + 10} y={y + 4} fill="#8a8f98" fontSize="11">
-              {formatCompactValue(tick)}
-            </text>
-          );
-        })}
-
-        {option.series.map((series) => {
-          const domain = series.axis === 'secondary' ? secondaryDomain : primaryDomain;
-          if (series.type === 'bar') {
-            const barIndex = barSeries.findIndex((item) => item.id === series.id);
-            const zeroY = scaleY(Math.max(0, domain.min), domain);
-            return (
-              <g key={series.id}>
-                {series.values.map((value, index) => {
-                  if (value == null || !Number.isFinite(value)) return null;
-                  const x = scaleX(index, option.dates.length) - barOffsetBase + barIndex * barWidth;
-                  const y = scaleY(value, domain);
-                  const height = Math.max(1, zeroY - y);
-                  return (
-                    <rect key={`${series.id}-${option.dates[index]}`} x={x - barWidth / 2} y={y} width={barWidth - 2} height={height} rx="2" fill={series.color}>
-                      <title>{`${series.name}\n${formatDateLabel(option.dates[index])}: ${value.toLocaleString()}`}</title>
-                    </rect>
-                  );
-                })}
-              </g>
-            );
-          }
-
-          const path = buildLinePath(series.values, domain, option.dates.length);
-          return (
-            <path
-              key={series.id}
-              d={path}
-              fill="none"
-              stroke={series.color}
-              strokeWidth={series.strokeWidth}
-              strokeDasharray={strokeDasharray(series.strokeStyle)}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          );
-        })}
-
-        <line x1={PADDING.left} x2={CHART_WIDTH - PADDING.right} y1={CHART_HEIGHT - PADDING.bottom} y2={CHART_HEIGHT - PADDING.bottom} stroke="#2b2d31" strokeWidth="1" />
-
-        {option.dates.map((date, index) => {
-          if (index % xTickStep !== 0 && index !== option.dates.length - 1) return null;
-          const x = scaleX(index, option.dates.length);
-          return (
-            <g key={date}>
-              <line x1={x} x2={x} y1={CHART_HEIGHT - PADDING.bottom} y2={CHART_HEIGHT - PADDING.bottom + 6} stroke="#2b2d31" strokeWidth="1" />
-              <text x={x} y={CHART_HEIGHT - 16} fill="#8a8f98" fontSize="11" textAnchor="middle">
-                {formatDateLabel(date)}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
     </div>
   );
 }

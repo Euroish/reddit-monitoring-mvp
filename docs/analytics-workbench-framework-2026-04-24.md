@@ -1,7 +1,13 @@
 # Analytics Workbench Framework
 
 Date: 2026-04-24
-Status: active planning source after Linux collection recovery
+Status: historical product-direction source; current execution truth is `obsidian-reddit专用/Projects/project.md` plus `docs/frontend-upgrade-workflow-2026-04-29.md`
+
+Current reconciliation note, 2026-04-29:
+
+- The target workbench contract and target detail UI described below have materially advanced since this note was written.
+- `apps/web/src/features/workbench/components/WorkbenchChart.tsx` is no longer a thin ECharts/SVG chart path; it now wraps `lightweight-charts` behind the product-level `chartOptions.ts` model.
+- Use this document for product direction and guardrails only. Use the current frontend upgrade workflow for active sequencing and implementation status.
 
 ## 1. Current State
 
@@ -20,7 +26,7 @@ The product shell already exists:
 - `/target/:targetId`
 - `/ops`
 
-The current target detail page is still a thin chart surface: one ECharts line chart over `heatPrice`, `ema7`, and `ema30`.
+The target detail page has moved beyond the original thin chart surface. As of 2026-04-29, it uses the workbench endpoint and a `lightweight-charts` adapter for multi-series charting. Browser-level acceptance for the new target workbench remains pending.
 
 ## 2. Product Direction
 
@@ -169,6 +175,8 @@ Acceptance:
 
 ### W2: Target Detail Workbench UI
 
+Status: partially complete as of 2026-04-29.
+
 Scope:
 
 - Replace the thin target detail chart data path with the workbench endpoint.
@@ -177,8 +185,9 @@ Scope:
 
 Acceptance:
 
-- `npm --prefix apps/web run build`
-- browser smoke covering chart render, panel render, and mobile overflow
+- `npm --prefix apps/web run build`: passed on 2026-04-29.
+- `npm --prefix apps/web run lint`: passed on 2026-04-29.
+- browser smoke covering chart render, panel render, and mobile overflow: pending.
 
 ### W3: Query Overlay
 

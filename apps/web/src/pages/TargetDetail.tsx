@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
-import { Card, Badge, Button, Input } from '../components/ui';
+import { Badge, Button, Input } from '../components/ui';
 import { WorkbenchChart } from '../features/workbench/components/WorkbenchChart';
 import {
   buildComparisonChartOptions,
@@ -32,18 +32,27 @@ function formatNumber(value: number | null | undefined, digits = 0) {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: digits }).format(value);
 }
 
+const EMPTY_STRING_SET = new Set<string>();
+
 export function TargetDetail() {
   const { targetId } = useParams<{ targetId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const keywords = searchParams.get('keywords');
+  const keywordSource = searchParams.get('keywords') ?? '';
+  const keywords = keywordSource || null;
   const range = normalizeWorkbenchRange(searchParams.get('range'));
   const timeframe = '1d' as const;
-  const [overlayInput, setOverlayInput] = useState(keywords ?? '');
   const compare = searchParams.get('compare');
-  const [compareInput, setCompareInput] = useState(compare ?? '');
-  const [activeSeries, setActiveSeries] = useState<Set<string>>(new Set());
-  const [hiddenOverlayIds, setHiddenOverlayIds] = useState<Set<string>>(new Set());
+  const [overlayDraft, setOverlayDraft] = useState({ source: keywordSource, value: keywordSource });
+  const [compareDraft, setCompareDraft] = useState({ source: compare ?? '', value: compare ?? '' });
+  const [seriesSelection, setSeriesSelection] = useState<{ targetId: string | undefined; values: Set<string> }>({
+    targetId: undefined,
+    values: new Set(),
+  });
+  const [hiddenOverlayState, setHiddenOverlayState] = useState<{ source: string; values: Set<string> }>({
+    source: keywordSource,
+    values: new Set(),
+  });
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['target-workbench', targetId, keywords, range, timeframe],
@@ -88,20 +97,17 @@ export function TargetDetail() {
     },
   });
 
-  useEffect(() => {
-    setOverlayInput(keywords ?? '');
-    setHiddenOverlayIds(new Set());
-  }, [keywords]);
-
-  useEffect(() => {
-    setCompareInput(compare ?? '');
-  }, [compare]);
-
-  useEffect(() => {
-    if (data) {
-      setActiveSeries(createInitialSeriesSelection(data));
-    }
-  }, [data?.target.targetId]);
+  const overlayInput = overlayDraft.source === keywordSource ? overlayDraft.value : keywordSource;
+  const compareInput = compareDraft.source === (compare ?? '') ? compareDraft.value : compare ?? '';
+  const activeSeries = useMemo(
+    () => data && seriesSelection.targetId === data.target.targetId
+      ? seriesSelection.values
+      : createInitialSeriesSelection(data),
+    [data, seriesSelection],
+  );
+  const hiddenOverlayIds = hiddenOverlayState.source === keywordSource
+    ? hiddenOverlayState.values
+    : EMPTY_STRING_SET;
 
   const latestDailyPoint = useMemo(() => {
     if (!data?.series.length) return null;
@@ -117,8 +123,8 @@ export function TargetDetail() {
     };
   }, [data]);
 
-  const selectedCompareTargets = useMemo(() => parseCompareTargets(compare), [compare]);
-  const suggestedCompareTargets = useMemo(() => {
+  const selectedCompareTargets = parseCompareTargets(compare);
+  const suggestedCompareTargets = (() => {
     const current = `r/${targetId ?? ''}`.toLowerCase();
     const selected = new Set(selectedCompareTargets.map((item) => `r/${item}`.toLowerCase()));
     const candidates = [
@@ -135,7 +141,7 @@ export function TargetDetail() {
         return true;
       })
       .slice(0, 4);
-  }, [marketData, selectedCompareTargets, targetId]);
+  })();
 
   const chartOptions = useMemo(
     () => buildTargetWorkbenchChartOptions({ data, activeSeries, hiddenOverlayIds }),
@@ -148,26 +154,34 @@ export function TargetDetail() {
   );
 
   const toggleSeries = (seriesId: string) => {
-    setActiveSeries((current) => {
-      const next = new Set(current);
+    setSeriesSelection((current) => {
+      const currentValues = data && current.targetId === data.target.targetId
+        ? current.values
+        : createInitialSeriesSelection(data);
+      const next = new Set(currentValues);
       if (next.has(seriesId)) {
         next.delete(seriesId);
       } else {
         next.add(seriesId);
       }
-      return next.size > 0 ? next : current;
+      return {
+        targetId: data?.target.targetId,
+        values: next.size > 0 ? next : currentValues,
+      };
     });
   };
 
   const toggleOverlay = (overlayId: string) => {
-    setHiddenOverlayIds((current) => {
-      const next = new Set(current);
+    setHiddenOverlayState((current) => {
+      const source = keywordSource;
+      const currentValues = current.source === source ? current.values : new Set<string>();
+      const next = new Set(currentValues);
       if (next.has(overlayId)) {
         next.delete(overlayId);
       } else {
         next.add(overlayId);
       }
-      return next;
+      return { source, values: next };
     });
   };
 
@@ -184,11 +198,12 @@ export function TargetDetail() {
     } else {
       next.delete('keywords');
     }
+    setOverlayDraft({ source: normalized, value: normalized });
     setSearchParams(next);
   };
 
   const clearKeywordOverlay = () => {
-    setOverlayInput('');
+    setOverlayDraft({ source: '', value: '' });
     const next = new URLSearchParams(searchParams);
     next.delete('keywords');
     setSearchParams(next);
@@ -214,11 +229,12 @@ export function TargetDetail() {
     } else {
       next.delete('compare');
     }
+    setCompareDraft({ source: normalized, value: normalized });
     setSearchParams(next);
   };
 
   const clearComparison = () => {
-    setCompareInput('');
+    setCompareDraft({ source: '', value: '' });
     const next = new URLSearchParams(searchParams);
     next.delete('compare');
     setSearchParams(next);
@@ -229,7 +245,7 @@ export function TargetDetail() {
     const targets = Array.from(new Set([...selectedCompareTargets, normalized]));
     const next = new URLSearchParams(searchParams);
     next.set('compare', targets.join(','));
-    setCompareInput(targets.join(','));
+    setCompareDraft({ source: targets.join(','), value: targets.join(',') });
     setSearchParams(next);
   };
 
@@ -241,7 +257,7 @@ export function TargetDetail() {
     } else {
       next.delete('compare');
     }
-    setCompareInput(targets.join(','));
+    setCompareDraft({ source: targets.join(','), value: targets.join(',') });
     setSearchParams(next);
   };
 
@@ -300,45 +316,40 @@ export function TargetDetail() {
       {error && <div style={{ color: '#ff4d4f' }}>Error loading workbench data.</div>}
 
       {data && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          <div className="metric-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-            <Card>
-              <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Latest Heat</div>
-              <div className="kpi-value">{formatNumber(latestDailyPoint?.heatPrice)}</div>
-            </Card>
-            <Card>
-              <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>{latestDailyPoint?.postsLabel ?? 'Total New Posts'}</div>
-              <div className="kpi-value">{formatNumber(latestDailyPoint?.posts)}</div>
-            </Card>
-            <Card>
-              <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>{latestDailyPoint?.qualifiedPostsLabel ?? 'Qualified Posts'}</div>
-              <div className="kpi-value">{formatNumber(latestDailyPoint?.qualifiedPosts)}</div>
-            </Card>
-            <Card>
-              <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '8px' }}>Provider</div>
-              <div className="kpi-value">{data.reliability.provider ?? 'n/a'}</div>
-            </Card>
-          </div>
+        <div className="target-workbench">
+          <section className="target-command">
+            <div className="target-metric-rail">
+              <div className="target-metric">
+                <div className="target-metric-label">Latest Heat</div>
+                <div className="target-metric-value">{formatNumber(latestDailyPoint?.heatPrice)}</div>
+              </div>
+              <div className="target-metric">
+                <div className="target-metric-label">{latestDailyPoint?.postsLabel ?? 'Total New Posts'}</div>
+                <div className="target-metric-value">{formatNumber(latestDailyPoint?.posts)}</div>
+              </div>
+              <div className="target-metric">
+                <div className="target-metric-label">{latestDailyPoint?.qualifiedPostsLabel ?? 'Qualified Posts'}</div>
+                <div className="target-metric-value">{formatNumber(latestDailyPoint?.qualifiedPosts)}</div>
+              </div>
+              <div className="target-metric">
+                <div className="target-metric-label">Provider</div>
+                <div className="target-metric-value">{data.reliability.provider ?? 'n/a'}</div>
+              </div>
+            </div>
 
-          <Card style={{ padding: '24px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', marginBottom: '20px' }}>
-              <h3>Workbench Chart</h3>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div className="target-chart-stage">
+              <div className="target-chart-toolbar">
+                <div className="target-chart-title">
+                  <h3>Workbench Chart</h3>
+                  <p>Captured-day volume and heat movement, with draggable time scale and crosshair readout.</p>
+                </div>
+                <div className="target-control-cloud">
                 {WORKBENCH_RANGE_PRESETS.map((preset) => (
                   <button
                     key={preset}
                     type="button"
                     onClick={() => applyRange(preset)}
-                    style={{
-                      backgroundColor: range === preset ? 'rgba(94, 106, 210, 0.16)' : 'rgba(255,255,255,0.03)',
-                      border: '1px solid var(--border-standard)',
-                      borderRadius: '6px',
-                      color: range === preset ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                      cursor: 'pointer',
-                      fontSize: '13px',
-                      minHeight: '32px',
-                      padding: '6px 10px',
-                    }}
+                    className={`target-control${range === preset ? ' active' : ''}`}
                   >
                     {preset.toUpperCase()}
                   </button>
@@ -350,17 +361,7 @@ export function TargetDetail() {
                     onClick={() => item.enabled && applyRange(range)}
                     disabled={!item.enabled}
                     title={item.reason}
-                    style={{
-                      backgroundColor: item.id === data.range.timeframe ? 'rgba(16, 185, 129, 0.14)' : 'rgba(255,255,255,0.03)',
-                      border: '1px solid var(--border-standard)',
-                      borderRadius: '6px',
-                      color: item.enabled ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                      cursor: item.enabled ? 'pointer' : 'not-allowed',
-                      fontSize: '13px',
-                      minHeight: '32px',
-                      opacity: item.enabled ? 1 : 0.54,
-                      padding: '6px 10px',
-                    }}
+                    className={`target-control${item.id === data.range.timeframe ? ' active' : ''}`}
                   >
                     {item.label}
                   </button>
@@ -368,19 +369,7 @@ export function TargetDetail() {
                 {data.series.map((series) => (
                   <label
                     key={series.id}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      color: activeSeries.has(series.id) ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                      backgroundColor: activeSeries.has(series.id) ? 'rgba(94, 106, 210, 0.16)' : 'rgba(255,255,255,0.03)',
-                      border: '1px solid var(--border-standard)',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      fontSize: '13px',
-                      minHeight: '32px',
-                      padding: '6px 10px',
-                    }}
+                    className={`target-control${activeSeries.has(series.id) ? ' active' : ''}`}
                   >
                     <input
                       type="checkbox"
@@ -392,69 +381,46 @@ export function TargetDetail() {
                 ))}
               </div>
             </div>
-            <form
-              onSubmit={applyKeywordOverlay}
-              style={{
-                display: 'grid',
-                gap: '10px',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-                marginBottom: '16px',
-              }}
-            >
-              <label htmlFor="target-keyword-overlay" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
-                Keyword overlays
-              </label>
-              <Input
-                id="target-keyword-overlay"
-                value={overlayInput}
-                onChange={(event) => setOverlayInput(event.target.value)}
-                placeholder="Add keyword overlays, comma separated"
-                style={{ minWidth: 0 }}
-              />
-              <Button variant="primary" type="submit">Apply</Button>
-              <Button type="button" onClick={clearKeywordOverlay}>Clear</Button>
-            </form>
-            <form
-              onSubmit={applyComparison}
-              style={{
-                display: 'grid',
-                gap: '10px',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-                marginBottom: '16px',
-              }}
-            >
-              <label htmlFor="target-comparison" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
-                Compare targets
-              </label>
-              <Input
-                id="target-comparison"
-                value={compareInput}
-                onChange={(event) => setCompareInput(event.target.value)}
-                placeholder="Compare with subreddits, comma separated"
-                style={{ minWidth: 0 }}
-              />
-              <Button variant="primary" type="submit">Compare</Button>
-              <Button type="button" onClick={clearComparison}>Clear</Button>
-            </form>
+            <div className="target-inline-forms">
+              <form onSubmit={applyKeywordOverlay} className="target-inline-form">
+                <label htmlFor="target-keyword-overlay" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
+                  Keyword overlays
+                </label>
+                <Input
+                  id="target-keyword-overlay"
+                  value={overlayInput}
+                  onChange={(event) => setOverlayDraft({ source: keywordSource, value: event.target.value })}
+                  placeholder="Add keyword overlays, comma separated"
+                  style={{ minWidth: 0 }}
+                />
+                <Button variant="primary" type="submit">Apply</Button>
+                <Button type="button" onClick={clearKeywordOverlay}>Clear</Button>
+              </form>
+              <form onSubmit={applyComparison} className="target-inline-form">
+                <label htmlFor="target-comparison" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
+                  Compare targets
+                </label>
+                <Input
+                  id="target-comparison"
+                  value={compareInput}
+                  onChange={(event) => setCompareDraft({ source: compare ?? '', value: event.target.value })}
+                  placeholder="Compare with subreddits, comma separated"
+                  style={{ minWidth: 0 }}
+                />
+                <Button variant="primary" type="submit">Compare</Button>
+                <Button type="button" onClick={clearComparison}>Clear</Button>
+              </form>
+            </div>
             <div style={{ display: 'grid', gap: '10px', marginBottom: '16px' }}>
               {selectedCompareTargets.length > 0 && (
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div className="target-context-strip">
                   <span style={{ color: 'var(--text-tertiary)', fontSize: '12px', fontWeight: 510 }}>Selected</span>
                   {selectedCompareTargets.map((target) => (
                     <button
                       key={target}
                       type="button"
                       onClick={() => removeComparisonTarget(target)}
-                      style={{
-                        backgroundColor: 'rgba(94, 106, 210, 0.16)',
-                        border: '1px solid rgba(94, 106, 210, 0.45)',
-                        borderRadius: '9999px',
-                        color: 'var(--text-primary)',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        minHeight: '28px',
-                        padding: '4px 10px',
-                      }}
+                      className="target-chip active"
                     >
                       Remove r/{target}
                     </button>
@@ -462,23 +428,14 @@ export function TargetDetail() {
                 </div>
               )}
               {suggestedCompareTargets.length > 0 && (
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div className="target-context-strip">
                   <span style={{ color: 'var(--text-tertiary)', fontSize: '12px', fontWeight: 510 }}>Suggested comparisons</span>
                   {suggestedCompareTargets.map((canonicalName) => (
                     <button
                       key={canonicalName}
                       type="button"
                       onClick={() => addComparisonTarget(canonicalName)}
-                      style={{
-                        backgroundColor: 'rgba(255,255,255,0.03)',
-                        border: '1px solid var(--border-standard)',
-                        borderRadius: '9999px',
-                        color: 'var(--text-secondary)',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        minHeight: '28px',
-                        padding: '4px 10px',
-                      }}
+                      className="target-chip"
                     >
                       Compare {canonicalName}
                     </button>
@@ -510,20 +467,12 @@ export function TargetDetail() {
                 <div style={{ color: '#ff4d4f', fontSize: '12px' }}>Could not save this view.</div>
               )}
               {savedViews && savedViews.views.length > 0 && (
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <div className="target-context-strip">
                   {savedViews.views.slice(0, 4).map((view) => (
                     <Link
                       key={view.id}
                       to={view.routePath}
-                      style={{
-                        backgroundColor: 'rgba(255,255,255,0.03)',
-                        border: '1px solid var(--border-standard)',
-                        borderRadius: '9999px',
-                        color: 'var(--text-secondary)',
-                        fontSize: '12px',
-                        minHeight: '28px',
-                        padding: '5px 10px',
-                      }}
+                      className="target-chip"
                     >
                       {view.name}
                     </Link>
@@ -544,22 +493,13 @@ export function TargetDetail() {
               </div>
             )}
             {data.overlays.length > 0 && (
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+              <div className="target-context-strip">
                 {data.overlays.map((overlay) => (
                   <button
                     key={overlay.id}
                     type="button"
                     onClick={() => toggleOverlay(overlay.id)}
-                    style={{
-                      backgroundColor: hiddenOverlayIds.has(overlay.id) ? 'rgba(255,255,255,0.03)' : 'rgba(16, 185, 129, 0.14)',
-                      border: '1px solid var(--border-standard)',
-                      borderRadius: '6px',
-                      color: hiddenOverlayIds.has(overlay.id) ? 'var(--text-tertiary)' : 'var(--text-primary)',
-                      cursor: 'pointer',
-                      fontSize: '13px',
-                      minHeight: '32px',
-                      padding: '6px 10px',
-                    }}
+                    className={`target-chip${hiddenOverlayIds.has(overlay.id) ? '' : ' active'}`}
                   >
                     Keyword overlays: {overlay.label}
                   </button>
@@ -569,7 +509,7 @@ export function TargetDetail() {
             <div className="chart-shell">
               <WorkbenchChart option={chartOptions} />
             </div>
-            <div style={{ marginTop: '14px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+            <div className="target-note-line">
               Coverage {data.dataQuality.coverage.observedPostDayCount}/{data.dataQuality.coverage.expectedDayCount} observed days
               {' '}· Complete {data.dataQuality.coverage.completeCoverageDayCount ?? 0}
               {' '}· Partial {data.dataQuality.coverage.partialCoverageDayCount ?? 0}
@@ -581,14 +521,15 @@ export function TargetDetail() {
                 : ''}
             </div>
             {data.dataQuality.notes.length > 0 && (
-              <div style={{ marginTop: '8px', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+              <div className="target-note-line">
                 {data.dataQuality.notes.join(' ')}
               </div>
             )}
-          </Card>
+            </div>
+          </section>
 
           {comparisonData && (
-            <Card style={{ padding: '24px' }}>
+            <section className="target-panel">
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', marginBottom: '20px' }}>
                 <div>
                   <h3>Comparison</h3>
@@ -605,11 +546,12 @@ export function TargetDetail() {
               <div className="chart-shell">
                 <WorkbenchChart option={comparisonChartOptions} />
               </div>
-            </Card>
+            </section>
           )}
 
-          <div className="responsive-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
-            <Card>
+          <div className="target-panel-grid">
+            <div className="target-panel-column">
+              <section className="target-panel">
               <h3 style={{ marginBottom: '16px' }}>Driver Posts</h3>
               <div className="list-stack">
                 {data.drivers.slice(0, 5).map((driver) => (
@@ -625,9 +567,9 @@ export function TargetDetail() {
                 ))}
                 {data.drivers.length === 0 && <div className="card-empty" style={{ padding: '20px' }}>No driver posts.</div>}
               </div>
-            </Card>
+              </section>
 
-            <Card>
+              <section className="target-panel">
               <h3 style={{ marginBottom: '16px' }}>Keyword Heat</h3>
               <div className="list-stack">
                 {data.keywordHeat.slice(0, 6).map((keyword) => (
@@ -641,9 +583,11 @@ export function TargetDetail() {
                 ))}
                 {data.keywordHeat.length === 0 && <div className="card-empty" style={{ padding: '20px' }}>No keyword heat.</div>}
               </div>
-            </Card>
+              </section>
+            </div>
 
-            <Card>
+            <div className="target-panel-column">
+              <section className="target-panel">
               <h3 style={{ marginBottom: '16px' }}>Reliability</h3>
               <div className="list-stack">
                 <div className="list-row"><span>Provider</span><span>{data.reliability.provider ?? 'n/a'}</span></div>
@@ -653,9 +597,9 @@ export function TargetDetail() {
                 <div className="list-row"><span>Duplicate rate</span><span>{data.reliability.duplicatePostRate == null ? 'n/a' : `${formatNumber(data.reliability.duplicatePostRate * 100, 1)}%`}</span></div>
                 <div className="list-row"><span>Avg lag</span><span>{data.reliability.ingestLagSecondsAvg == null ? 'n/a' : `${formatNumber(data.reliability.ingestLagSecondsAvg)}s`}</span></div>
               </div>
-            </Card>
+              </section>
 
-            <Card>
+              <section className="target-panel">
               <h3 style={{ marginBottom: '16px' }}>Anomalies</h3>
               <div className="list-stack">
                 {data.anomalies.slice(0, 5).map((anomaly) => (
@@ -672,9 +616,9 @@ export function TargetDetail() {
                 ))}
                 {data.anomalies.length === 0 && <div className="card-empty" style={{ padding: '20px' }}>No anomalies.</div>}
               </div>
-            </Card>
+              </section>
 
-            <Card>
+              <section className="target-panel">
               <h3 style={{ marginBottom: '16px' }}>Incidents</h3>
               <div className="list-stack">
                 {(incidentData?.incidents ?? []).slice(0, 5).map((incident) => (
@@ -695,7 +639,8 @@ export function TargetDetail() {
                 ))}
                 {(incidentData?.incidents.length ?? 0) === 0 && <div className="card-empty" style={{ padding: '20px' }}>No incidents.</div>}
               </div>
-            </Card>
+              </section>
+            </div>
           </div>
         </div>
       )}

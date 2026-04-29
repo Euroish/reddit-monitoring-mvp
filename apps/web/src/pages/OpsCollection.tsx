@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
 import { Badge, Button, Card, Input, Select } from '../components/ui';
@@ -21,6 +21,11 @@ interface CollectionSettingsDraft {
   backfillMaxIterationsPerTarget: string;
   providerPreference: 'default' | 'http' | 'scrapling';
 }
+
+type DraftState = {
+  source: string;
+  value: CollectionSettingsDraft;
+};
 
 function buildDraft(response: GetCollectionSettingsResponse): CollectionSettingsDraft {
   return {
@@ -60,7 +65,18 @@ export function OpsCollection() {
   const [subreddit, setSubreddit] = useState('');
   const [crawlMode, setCrawlMode] = useState<'live' | 'backfill'>('live');
   const [runAsync, setRunAsync] = useState(true);
-  const [draft, setDraft] = useState<CollectionSettingsDraft | null>(null);
+  const dataSource = data?.requestId ?? '';
+  const [draftState, setDraftState] = useState<DraftState | null>(null);
+  const draft = draftState?.source === dataSource
+    ? draftState.value
+    : data
+      ? buildDraft(data)
+      : null;
+
+  const updateDraft = (patch: Partial<CollectionSettingsDraft>) => {
+    if (!draft) return;
+    setDraftState({ source: dataSource, value: { ...draft, ...patch } });
+  };
 
   const saveSettings = useMutation({
     mutationFn: (payload: UpdateCollectionSettingsRequest) =>
@@ -69,7 +85,10 @@ export function OpsCollection() {
         body: JSON.stringify(payload),
       }),
     onSuccess: (response) => {
-      setDraft(buildDraft({ ok: true, requestId: response.requestId, settings: response.settings }));
+      setDraftState({
+        source: dataSource,
+        value: buildDraft({ ok: true, requestId: response.requestId, settings: response.settings }),
+      });
       void queryClient.invalidateQueries({ queryKey: ['ops.collection.settings'] });
       void queryClient.invalidateQueries({ queryKey: ['ops.targets'] });
       void refetch();
@@ -88,13 +107,7 @@ export function OpsCollection() {
       }),
   });
 
-  useEffect(() => {
-    if (data) {
-      setDraft(buildDraft(data));
-    }
-  }, [data]);
-
-  const targets = targetsData?.targets ?? [];
+  const targets = useMemo(() => targetsData?.targets ?? [], [targetsData?.targets]);
   const activeTargets = useMemo(
     () => targets.filter((target) => target.status === 'active'),
     [targets],
@@ -199,49 +212,49 @@ export function OpsCollection() {
                 <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Default auto-collect cadence hours</div>
                 <Input
                   value={draft.defaultCadenceHours}
-                  onChange={(event) => setDraft((current) => current ? { ...current, defaultCadenceHours: event.target.value } : current)}
+                  onChange={(event) => updateDraft({ defaultCadenceHours: event.target.value })}
                 />
               </label>
               <label>
                 <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Live new-post budget</div>
                 <Input
                   value={draft.postLimitBase}
-                  onChange={(event) => setDraft((current) => current ? { ...current, postLimitBase: event.target.value } : current)}
+                  onChange={(event) => updateDraft({ postLimitBase: event.target.value })}
                 />
               </label>
               <label>
                 <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Adaptive live boost ceiling</div>
                 <Input
                   value={draft.postLimitBoost}
-                  onChange={(event) => setDraft((current) => current ? { ...current, postLimitBoost: event.target.value } : current)}
+                  onChange={(event) => updateDraft({ postLimitBoost: event.target.value })}
                 />
               </label>
               <label>
                 <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Backfill post limit</div>
                 <Input
                   value={draft.backfillPostLimit}
-                  onChange={(event) => setDraft((current) => current ? { ...current, backfillPostLimit: event.target.value } : current)}
+                  onChange={(event) => updateDraft({ backfillPostLimit: event.target.value })}
                 />
               </label>
               <label>
                 <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Backfill target days</div>
                 <Input
                   value={draft.backfillTargetDays}
-                  onChange={(event) => setDraft((current) => current ? { ...current, backfillTargetDays: event.target.value } : current)}
+                  onChange={(event) => updateDraft({ backfillTargetDays: event.target.value })}
                 />
               </label>
               <label>
                 <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Backfill max iterations per target</div>
                 <Input
                   value={draft.backfillMaxIterationsPerTarget}
-                  onChange={(event) => setDraft((current) => current ? { ...current, backfillMaxIterationsPerTarget: event.target.value } : current)}
+                  onChange={(event) => updateDraft({ backfillMaxIterationsPerTarget: event.target.value })}
                 />
               </label>
               <label>
                 <div style={{ marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>Provider preference</div>
                 <Select
                   value={draft.providerPreference}
-                  onChange={(event) => setDraft((current) => current ? { ...current, providerPreference: event.target.value as 'default' | 'http' | 'scrapling' } : current)}
+                  onChange={(event) => updateDraft({ providerPreference: event.target.value as 'default' | 'http' | 'scrapling' })}
                 >
                   <option value="default">default</option>
                   <option value="http">http</option>
@@ -252,7 +265,7 @@ export function OpsCollection() {
                 <input
                   type="checkbox"
                   checked={draft.adaptiveLimitEnabled}
-                  onChange={(event) => setDraft((current) => current ? { ...current, adaptiveLimitEnabled: event.target.checked } : current)}
+                  onChange={(event) => updateDraft({ adaptiveLimitEnabled: event.target.checked })}
                 />
                 <span>Adaptive live budget enabled</span>
               </label>
@@ -263,7 +276,7 @@ export function OpsCollection() {
                 <Button type="button" variant="primary" onClick={saveAllSettings} disabled={saveSettings.isPending}>
                   {saveSettings.isPending ? 'Saving...' : 'Save collection settings'}
                 </Button>
-                <Button type="button" variant="ghost" onClick={() => setDraft(buildDraft(data))} disabled={saveSettings.isPending}>
+                <Button type="button" variant="ghost" onClick={() => setDraftState({ source: dataSource, value: buildDraft(data) })} disabled={saveSettings.isPending}>
                   Reset
                 </Button>
               </div>

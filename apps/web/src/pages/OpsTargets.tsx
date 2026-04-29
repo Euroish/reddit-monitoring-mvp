@@ -33,7 +33,7 @@ export function OpsTargets() {
   });
   const [drafts, setDrafts] = useState<DraftState>({});
 
-  const targets = data?.targets ?? [];
+  const targets = useMemo(() => data?.targets ?? [], [data?.targets]);
   const effectiveDrafts = useMemo(() => {
     const next: DraftState = {};
     for (const target of targets) {

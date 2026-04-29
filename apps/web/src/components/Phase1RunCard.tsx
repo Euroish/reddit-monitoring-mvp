@@ -1,8 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
 import { Button, Card, Input, Select } from './ui';
 import type { TriggerPhase1RunRequest, TriggerPhase1RunResponse } from '../../../../packages/contracts/src/http';
+
+function defaultExecutionMode(mode: 'mock' | 'live', crawlMode: 'live' | 'backfill'): 'sync' | 'async' {
+  return mode === 'live' && crawlMode !== 'backfill' ? 'async' : 'sync';
+}
 
 export function Phase1RunCard({
   title = 'Queue Phase 1 Run',
@@ -20,11 +24,14 @@ export function Phase1RunCard({
   const [backfillPostLimit, setBackfillPostLimit] = useState('500');
   const [backfillMaxIterations, setBackfillMaxIterations] = useState('24');
   const [backfillTargetDays, setBackfillTargetDays] = useState('15');
-  const [executionMode, setExecutionMode] = useState<'sync' | 'async'>('sync');
-
-  useEffect(() => {
-    setExecutionMode(mode === 'live' && crawlMode !== 'backfill' ? 'async' : 'sync');
-  }, [mode, crawlMode]);
+  const executionSource = `${mode}:${crawlMode}`;
+  const [executionDraft, setExecutionDraft] = useState<{ source: string; value: 'sync' | 'async' }>({
+    source: executionSource,
+    value: defaultExecutionMode(mode, crawlMode),
+  });
+  const executionMode = executionDraft.source === executionSource
+    ? executionDraft.value
+    : defaultExecutionMode(mode, crawlMode);
 
   const triggerRun = useMutation({
     mutationFn: (payload: TriggerPhase1RunRequest) =>
@@ -136,7 +143,7 @@ export function Phase1RunCard({
             <Select
               id="phase1-execution-mode"
               value={executionMode}
-              onChange={(event) => setExecutionMode(event.target.value as 'sync' | 'async')}
+              onChange={(event) => setExecutionDraft({ source: executionSource, value: event.target.value as 'sync' | 'async' })}
             >
               <option value="sync">sync</option>
               <option value="async" disabled={crawlMode === 'backfill'}>async</option>
