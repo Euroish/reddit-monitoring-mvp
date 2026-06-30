@@ -16,6 +16,13 @@ export interface RedditCollectSubredditPostsArgs {
   timeRange?: RedditTopTimeRange;
 }
 
+export interface RedditCollectPostCommentsArgs {
+  subreddit: string;
+  postId: string;
+  limit: number;
+  depth?: number;
+}
+
 export interface RedditAboutPayload {
   data: {
     display_name: string;
@@ -51,6 +58,25 @@ export interface RedditPostData {
   num_comments?: number;
   upvote_ratio?: number;
 }
+
+export interface RedditCommentData {
+  name: string;
+  id: string;
+  subreddit?: string;
+  author?: string;
+  body?: string;
+  parent_id?: string;
+  link_id?: string;
+  permalink?: string;
+  created_utc?: number;
+  score?: number;
+  replies?: "" | RedditListingPayload<RedditCommentData>;
+}
+
+export type RedditPostCommentsPayload = [
+  RedditListingPayload<RedditPostData>,
+  RedditListingPayload<RedditCommentData>,
+];
 
 export interface NormalizedSubredditSnapshot {
   targetCanonicalName: string;

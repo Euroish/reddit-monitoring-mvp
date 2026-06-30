@@ -5,8 +5,10 @@ import type {
 import type { RedditConnector } from "./reddit-connector.interface";
 import type {
   RedditAboutPayload,
+  RedditCollectPostCommentsArgs,
   RedditCollectSubredditAboutArgs,
   RedditCollectSubredditPostsArgs,
+  RedditPostCommentsPayload,
   RedditListingPayload,
   RedditPostData,
 } from "./reddit.types";
@@ -113,6 +115,75 @@ export class RedditMockConnector implements RedditConnector {
       rateLimit: {
         limit: 1000,
         remaining: 998,
+      },
+    };
+  }
+
+  public async collectPostComments(
+    args: RedditCollectPostCommentsArgs,
+    ctx: ConnectorRequestContext,
+  ): Promise<ConnectorPage<RedditPostCommentsPayload>> {
+    const nowSec = Math.floor(new Date(ctx.now).getTime() / 1000);
+    return {
+      raw: {
+        endpoint: `/r/${args.subreddit}/comments/${args.postId}.json`,
+        requestParams: {
+          limit: args.limit,
+          depth: args.depth,
+          sort: "top",
+        },
+        httpStatus: 200,
+        responseHeaders: {},
+        payload: [
+          {
+            data: {
+              after: undefined,
+              children: [],
+            },
+          },
+          {
+            data: {
+              after: undefined,
+              children: [
+                {
+                  kind: "t1",
+                  data: {
+                    name: `t1_${args.postId}_comment_1`,
+                    id: `${args.postId}_comment_1`,
+                    subreddit: args.subreddit,
+                    author: "mock_commenter_1",
+                    body: "I bought this because the price was low, but shipping was slower than expected.",
+                    parent_id: `t3_${args.postId}`,
+                    link_id: `t3_${args.postId}`,
+                    permalink: `/r/${args.subreddit}/comments/${args.postId}/mock_comment_1`,
+                    created_utc: nowSec - 120,
+                    score: 8,
+                  },
+                },
+                {
+                  kind: "t1",
+                  data: {
+                    name: `t1_${args.postId}_comment_2`,
+                    id: `${args.postId}_comment_2`,
+                    subreddit: args.subreddit,
+                    author: "mock_commenter_2",
+                    body: "The return policy matters more to me than the discount.",
+                    parent_id: `t3_${args.postId}`,
+                    link_id: `t3_${args.postId}`,
+                    permalink: `/r/${args.subreddit}/comments/${args.postId}/mock_comment_2`,
+                    created_utc: nowSec - 90,
+                    score: 5,
+                  },
+                },
+              ],
+            },
+          },
+        ],
+        fetchedAt: ctx.now,
+      },
+      rateLimit: {
+        limit: 1000,
+        remaining: 997,
       },
     };
   }

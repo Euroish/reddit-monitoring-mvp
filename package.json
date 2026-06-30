@@ -49,6 +49,8 @@
     "ops:prewarm:keyword-query": "tsx scripts/prewarm-keyword-query-cache.ts",
     "verify:phase1:postgres": "tsx scripts/verify-phase1-postgres.ts",
     "trend:board:summary": "tsx scripts/trend-board-summary.ts",
+    "research:export:reddit": "tsx scripts/export-reddit-research-dataset.ts",
+    "research:export:reddit-search": "tsx scripts/export-reddit-search-research-dataset.ts",
     "ops:prune:raw-events": "tsx scripts/prune-raw-events.ts",
     "ops:prune:metrics-snapshots": "tsx scripts/prune-metrics-snapshots.ts"
   },

@@ -8,8 +8,10 @@ import type {
 import type { RedditConnector } from "./reddit-connector.interface";
 import type {
   RedditAboutPayload,
+  RedditCollectPostCommentsArgs,
   RedditCollectSubredditAboutArgs,
   RedditCollectSubredditPostsArgs,
+  RedditPostCommentsPayload,
   RedditListingPayload,
   RedditPostListing,
   RedditPostData,
@@ -142,6 +144,20 @@ export class RedditScraplingConnector implements RedditConnector {
       ...page,
       nextCursor: page.raw.payload.data.after,
     };
+  }
+
+  public async collectPostComments(
+    args: RedditCollectPostCommentsArgs,
+    ctx: ConnectorRequestContext,
+  ): Promise<ConnectorPage<RedditPostCommentsPayload>> {
+    const pathValue = `/r/${encodeURIComponent(args.subreddit)}/comments/${encodeURIComponent(args.postId)}.json`;
+    const params: Record<string, string | number | boolean | undefined> = {
+      limit: args.limit,
+      depth: args.depth,
+      sort: "top",
+    };
+
+    return this.requestJson<RedditPostCommentsPayload>(pathValue, params, ctx);
   }
 
   public async healthCheck(ctx: ConnectorRequestContext): Promise<boolean> {

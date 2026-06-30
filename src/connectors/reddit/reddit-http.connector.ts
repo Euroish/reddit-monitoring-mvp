@@ -7,8 +7,10 @@ import type {
 import type { RedditConnector } from "./reddit-connector.interface";
 import type {
   RedditAboutPayload,
+  RedditCollectPostCommentsArgs,
   RedditCollectSubredditAboutArgs,
   RedditCollectSubredditPostsArgs,
+  RedditPostCommentsPayload,
   RedditListingPayload,
   RedditPostListing,
   RedditPostData,
@@ -153,6 +155,20 @@ export class RedditHttpConnector implements RedditConnector {
       ...page,
       nextCursor: page.raw.payload.data.after,
     };
+  }
+
+  public async collectPostComments(
+    args: RedditCollectPostCommentsArgs,
+    ctx: ConnectorRequestContext,
+  ): Promise<ConnectorPage<RedditPostCommentsPayload>> {
+    const path = `/r/${encodeURIComponent(args.subreddit)}/comments/${encodeURIComponent(args.postId)}.json`;
+    const params: Record<string, string | number | boolean | undefined> = {
+      limit: args.limit,
+      depth: args.depth,
+      sort: "top",
+    };
+
+    return this.requestJson<RedditPostCommentsPayload>(path, params, ctx);
   }
 
   public async healthCheck(ctx: ConnectorRequestContext): Promise<boolean> {
@@ -604,13 +620,6 @@ try {
   } finally {
     if ($stream) { $stream.Dispose() }
   }
-}
-
-function resolvePostListing(listing: RedditPostListing | undefined): RedditPostListing {
-  if (listing === "hot" || listing === "best" || listing === "rising" || listing === "top") {
-    return listing;
-  }
-  return "new";
 }
 [Console]::Out.WriteLine((@{ status = $status; headers = $headerMap; body = $content } | ConvertTo-Json -Compress -Depth 8))
 `;

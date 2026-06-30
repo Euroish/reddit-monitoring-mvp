@@ -3,9 +3,11 @@ import type { ConnectorPage, ConnectorRequestContext } from "../shared/connector
 import type { RedditConnector } from "./reddit-connector.interface";
 import type {
   RedditAboutPayload,
+  RedditCollectPostCommentsArgs,
   RedditCollectSubredditAboutArgs,
   RedditCollectSubredditPostsArgs,
   RedditListingPayload,
+  RedditPostCommentsPayload,
   RedditPostData,
 } from "./reddit.types";
 
@@ -21,6 +23,11 @@ type BreakerOperation =
       ctx: ConnectorRequestContext;
     }
   | {
+      type: "collect_post_comments";
+      args: RedditCollectPostCommentsArgs;
+      ctx: ConnectorRequestContext;
+    }
+  | {
       type: "health_check";
       ctx: ConnectorRequestContext;
     };
@@ -28,6 +35,7 @@ type BreakerOperation =
 type BreakerOperationResult =
   | ConnectorPage<RedditAboutPayload>
   | ConnectorPage<RedditListingPayload<RedditPostData>>
+  | ConnectorPage<RedditPostCommentsPayload>
   | boolean;
 
 export type ProviderCircuitState = "open" | "half_open" | "closed";
@@ -68,6 +76,17 @@ export class RedditCircuitBreakerConnector implements RedditConnector {
             return this.primaryConnector.collectSubredditAbout(operation.args, operation.ctx);
           case "collect_subreddit_posts":
             return this.primaryConnector.collectSubredditPosts(operation.args, operation.ctx);
+          case "collect_post_comments": {
+            const collectPostComments = this.primaryConnector.collectPostComments;
+            if (!collectPostComments) {
+              throw new Error("Primary Reddit connector does not support comment collection");
+            }
+            return collectPostComments.call(
+              this.primaryConnector,
+              operation.args,
+              operation.ctx,
+            );
+          }
           case "health_check":
             return this.primaryConnector.healthCheck(operation.ctx);
           default:
@@ -133,6 +152,23 @@ export class RedditCircuitBreakerConnector implements RedditConnector {
       () =>
         this.fallbackConnector
           ? this.fallbackConnector.collectSubredditPosts(args, ctx)
+          : Promise.resolve(undefined),
+    );
+  }
+
+  public async collectPostComments(
+    args: RedditCollectPostCommentsArgs,
+    ctx: ConnectorRequestContext,
+  ): Promise<ConnectorPage<RedditPostCommentsPayload>> {
+    return this.executeWithBreaker(
+      {
+        type: "collect_post_comments",
+        args,
+        ctx,
+      },
+      () =>
+        this.fallbackConnector?.collectPostComments
+          ? this.fallbackConnector.collectPostComments(args, ctx)
           : Promise.resolve(undefined),
     );
   }
