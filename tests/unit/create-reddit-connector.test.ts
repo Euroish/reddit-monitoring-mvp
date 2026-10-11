@@ -11,11 +11,13 @@ import { RedditHttpConnector } from "../../src/connectors/reddit/reddit-http.con
 import { RedditMockConnector } from "../../src/connectors/reddit/reddit-mock.connector";
 import { RedditScraplingConnector } from "../../src/connectors/reddit/reddit-scrapling.connector";
 
-test("resolveRedditLiveProvider defaults to http", () => {
+test("resolveRedditLiveProvider defaults only when unset and rejects unimplemented providers", () => {
   assert.equal(resolveRedditLiveProvider(undefined), "http");
   assert.equal(resolveRedditLiveProvider("scrapling"), "scrapling");
   assert.equal(resolveRedditLiveProvider("http"), "http");
-  assert.equal(resolveRedditLiveProvider("unexpected"), "http");
+  assert.equal(resolveRedditLiveProvider("  "), "http");
+  assert.throws(() => resolveRedditLiveProvider("unexpected"), /Unsupported Reddit provider/);
+  assert.throws(() => resolveRedditLiveProvider("arctic_shift"), /Unsupported Reddit provider/);
 });
 
 test("resolveRedditHttpTransport defaults to auto", () => {

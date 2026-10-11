@@ -18,26 +18,110 @@
 | `scripts/`、`tests/` | 运维、导出、验证与自动测试 |
 | `deploy/` | 环境、Nginx、systemd 模板，部署前需核对 |
 
-现有写路径为采集任务 → connector → 原始记录/映射 → 内容、指标及覆盖信息 → 派生读模型。读路径为仓储 → application → API → 前端。
+## 目标设计及实施状态
 
-代码仍有 Reddit 专属类型：`src/shared/types/common.ts` 的 `SourceCode`、共享 connector 的 `sourceCode` 仅允许 `reddit`，目标、provider、数据库约束和 HTTP 契约也需逐项检查。不能宣称已经支持多平台。
+以下是本轮审计形成的设计基线，涉及的新契约与表结构尚待分步实施。当前可运行能力见 [状态](status.md)。保持一个代码仓库、一个 PostgreSQL、一个 API 进程和一个有界采集/分析 worker；调度也由 worker 管理。现有两个 scheduler 暂保留，迁移时统一任务入口，不再按每个平台增加常驻服务。
 
-## Arctic Shift 迁移边界
+端到端流程：目标/来源配置 → 入队 → provider 有界取一页 → 适配成公共内容和观测 → 小事务落库并提交 checkpoint → 增量分析 → API 读取 → UI 展示。API 不等待远端抓取完成；图表不在浏览器重新定义后端评分。每个阶段只向下一阶段传需要的字段。
 
-Arctic Shift 属于 Reddit 的 **provider**，不是另一个社交平台。平台标识与内容去重保持 Reddit 身份，归档来源单独记录；现有存量数据不可因换源重复入库或误合并。
+## 平台、获取渠道和订阅目标
 
-官方资料：[项目 API 文档](https://github.com/ArthurHeitmann/arctic_shift/blob/master/api/README.md)。截至 2026-10-11 的文档核对确认它提供帖子与评论搜索、ID 查询等接口；服务没有可用性保证，搜索能力也需实测。实施时重新核对接口并限定请求范围，不能假设全站任意关键词搜索或完整实时覆盖。
+| 概念 | 含义与示例 | 必须保持的边界 |
+| --- | --- | --- |
+| 平台 `platform` | 内容原属系统，如 Reddit、X、某个新闻站 | 内容身份和指标语义的命名空间 |
+| 获取渠道 `provider` | Arctic Shift、官方 API、RSS、RSSHub、聚合 API | 请求、授权、限流、分页与来源证据 |
+| 来源实例 `collection source` | 一个 provider 配置及可追踪的 feed/账号/频道 | 配置与凭证引用、启停、刷新频率和状态 |
+| 目标 `target` | 社区、账号、feed、受支持的查询范围 | 用户监测对象；同一内容可匹配多个目标 |
 
-接入前必须解决：
+Arctic Shift 是 Reddit 的 provider；RSS 是传输方式，不能自动当作文章原属平台。聚合项目本身也可能是内容发布者，需根据实际响应保留原始发布者与中间获取渠道，不从域名猜出不存在的原平台 ID。第二来源到来时，`SourceCode`、`SOURCE_IDS`、SQL source_id、row mapper、契约与前端筛选必须一起扩展，禁止只改枚举就宣称支持。
 
-- 旧 connector/worker 依赖 Reddit listing、`about`、热门排序与实时指标；新 provider 要明确支持能力及不支持时的行为。
-- 分页边界、相同时间戳内容、重试、429、超时、去重和恢复须有验证；大批量数据走受控离线导入，限制单次窗口、数量与内存。
-- 保存内容发布时间、归档观测时间（若提供）、本平台采集时间和来源证据。归档的 score/comment count 不等于实时观测值。
-- 缺失的 active users、upvote ratio 等指标不得填零或伪造。数据缺口与真实零值区分；先审计现有 mapper、评分、read model 和 UI 的非空假设。
-- `http` / `scrapling` 保留为待评估旧实现，不再作为后续默认采集策略。迁移完成且调用已清除后，才能删除相应代码。
+Provider 契约以简单函数/接口实现：声明可获取的内容类型、时间范围与是否支持增量/指标刷新；`collectPage(request, checkpoint, signal)` 返回有界内容/观测批次、provider 自己解释的 next checkpoint，以及本批覆盖和耗尽状态。请求不能把 Reddit 的 `about`、hot listing、fullname cursor 强加给其他来源。具体认证与查询参数留在各 adapter，公共层不透传任意用户 URL 或秘密。
 
-## 后续多平台边界
+能力不足返回明确的 unsupported 或 partial；网络失败与有效空结果区分。默认不切到另一个语义不同的来源补零。重试由明确的一层负责，短暂传输问题有限重试，429 延后任务，401/403 配置或授权错误直接记录并停止该来源，避免 connector、任务、API 三层重复重试。
 
-第二来源确定时，再扩展来源枚举、目标类型、归一化内容、来源能力、数据库约束和 API 契约。保留来源、外部 ID、原链接、观测时间与覆盖证据；跨平台指标未经语义定义不能直接相加。原始响应、平台适配与产品评分分层维护。
+## 统一存储：共享身份，独立证据
 
-数据库真实结构以 `src/storage/schema/*.sql` 及仓储代码为准；已有迁移以文件名和校验和管理，新增迁移不能修改已应用文件或重复完整文件名。`raw_reddit_event`、内容、采集任务、覆盖、指标、关键词与认证等表保留，不在文档复制易过时的完整字段清单。
+现有 `source` 继续承载平台注册。新结构按需求增加，不一次创建全部表或复制旧表；以下为逻辑模型，不是已执行的 SQL。
+
+| 逻辑对象 | 最小信息与去重 | 存储原则 |
+| --- | --- | --- |
+| 来源实例 | platform、provider、scope/config、凭证引用、cadence、启停 | 凭证在进程环境或服务器私有文件中，不进业务 JSON |
+| content | platform、kind、原始 ID、原链接、标题/文本、作者/父内容、发布时间 | `(platform, kind, external_id)` 唯一；无 ID 的 feed 用明确规则的 canonical URL 或带来源命名空间的稳定身份；发布时间/作者可缺失 |
+| discovery/target 关联 | content、来源实例、target、首次/最近发现时间 | 内容正文只存一次，保留多来源和多目标关联；不能因 upsert 换 target 而失去此前匹配 |
+| observation | content/target、provider/来源实例、指标、源观测时间、采集时间、证据 ID | 来源间分别保存；latest 按同来源的真实源观测时间更新；归档旧快照不能覆盖较新的观测 |
+| fetch/job/checkpoint | 来源实例、目标、stream、状态、checkpoint、数量/覆盖与摘要 | 每个 stream 的 checkpoint 独立；成功页与对应 checkpoint 在同一小事务提交 |
+| analysis bucket | 分析范围、时间桶、算法版本/参数标识、输出与覆盖 | 可重建的读模型，按相同分析身份幂等 upsert，输入变更才重算 |
+
+时间至少区分 `published_at`（内容发生）、`source_observed_at`（指标观测/归档）、`fetched_at`（本平台取回），不能相互替代。观测时间未知则明确 unknown；重复获取同一归档快照不增加新的互动证据。可查询、排序和去重的核心字段用列与约束，来源扩展属性和少量指标用受控 JSONB；不用一张任意 JSON 大表，也不将每个可选指标拆成大量 EAV 行。
+
+每个平台维护小的指标定义（名称、单位、是否累计、适用对象/观测语义），只实现已接入的指标；Reddit score、X likes 和榜单 rank 不直接合并；signed score、累计计数、rank 的方向和真实零值也要分别定义。内容级 latest 与必要的小时/日窗口保留，避免每次抓取再写全量细粒度快照。现有 `post_engagement_*`、`metrics_snapshot` 和 `subreddit_*` 是旧模型，经过读写迁移验证再替换，避免永久双写两套完整模型。
+
+写入按页批量完成。网络请求在事务外；身份 upsert、发现关联、当前页证据与 checkpoint 在事务内。重放可重复发生，业务依赖唯一约束幂等，目标是至少一次获取下的无重复内容，不承诺跨服务 exactly-once。不能在整个历史回填期间持有一个事务。源码中的既有 SQL 文件按完整文件名和校验和管理，增量变化只加新迁移。
+
+## API 与前端契约
+
+沿用 `packages/contracts/src/http.ts` 作为共同契约入口，逐个端点迁移，不同时维护另一份前端模型。拟议的公共端点类别为来源/能力、目标、内容列表、序列/分析结果、任务提交与状态；实际 URL 在实现时和现有 `/v1/` 路由一起定，不在文档假装已经可用。
+
+- 读取端点只查询已落库的数据和派生结果，统一 platform/source/target、时间窗、page limit 与 cursor 过滤。时间顺序用 `(timestamp, id)` 保持分页稳定；跨 provider 的采集 cursor 不作为产品分页 cursor。
+- 抓取/回填/重算通过管理员写端点提交有限任务，返回 202 与 job ID，读取任务状态查看进度。网页刷新不会自动启动全平台抓取。
+- 内容和图表返回来源证据、数据更新时间、覆盖状态（完整/部分/未知）和实际可用指标；缺失值用 null，不用 0 填断线。series 响应明确单位、算法版本、时间粒度与样本范围。
+- UI 根据来源能力提供筛选和图表，保留来源筛选和原链接。不能因为服务健康检查成功就展示“实时数据正常”。权限继续在 API 边界验证，业务函数不重复实现另一套登录与角色判断。
+- `create-api-server.ts` 已约 3,768 行，新增公共功能时按 auth、collection、content/analysis、ops 分离路由处理函数，保留一个 composition root。每次只迁移要改的模块，不整库换框架。路由的 method/path/权限与 handler 就近声明，共用一次授权入口，避免新增端点忘记加入独立权限路径清单。
+
+## 算法与跨来源聚合
+
+先建立可靠的内容量、来源分布和覆盖时间序列，再决定复杂评分。统计分子和分母必须来自相同时间窗、来源和过滤范围，受搜索上限截断的样本不能当全量命中；现有 high/medium/low 质量标签只是启发式，不代表统计置信区间。公共算法只接收归一化观测与质量信息，不读取 provider 原始字段。平台内按同类型、同观测口径的 cohort 分析；跨平台展示保留平台原指标，若需要总排序再定义可解释的归一化分数与权重。
+
+旧增长事实中的 `score / age` 是累计量除年龄，不是两个真实时间观测的差分。归档单快照不能用于声称实时速度或加速度；缺少可比观测时只展示归档统计并标明限制。缺失的 subscribers/active users 不能转成零值送进旧 Reddit tier/quality 算法。历史回填不改变内容发生时间，也不让近期热榜因为“刚抓回来”而变热。
+
+精确内容去重和“同一事件”的分组分开：先稳定 ID/链接去重，正文身份不因标题相似而合并删除；以后按需要建立事件与成员关系，聚合按独立原始发布者计数，中间 provider 重复转载不增加独立信源。来源信息未知时不能假装可辨独立发布者。标题近似匹配可作为候选，LLM/embedding 仅在需求与预算明确后增加，并缓存按内容指纹和模型版本生成的结果。
+
+派生分析按受影响的目标和时间桶更新。带前序窗口的 EMA/基线按实际依赖范围补算，不能只重算一个桶而断开历史。保留算法版本、关键参数与覆盖证据即可，不默认给每条结果写庞大的逐步骤解释副本。
+
+## 资源与数据生命周期
+
+约 4 GiB 内存的单服务器首先限定工作量。采集 worker 初始并发 1，回填低于近期采集和产品查询优先级；分页处理后释放原始响应，SQL upsert 保持小批次，不积累完整历史。评论按目标、时间和数量有界获取，不常驻保存所有媒体文件或全站历史。
+
+连接池当前默认每进程 5，可用 `PG_POOL_MAX` 调整。API、现有两个 scheduler、人工开发与迁移进程各有池，总数必须留出 PostgreSQL 管理连接；增加进程时不能只考虑单池。RSSHub 等外部聚合优先视为 provider 使用已有授权/可用服务；若自建，先计入资源预算，默认不在本机启浏览器集群。
+
+容量估算用实测“日新增唯一内容数 × 单条内容/索引字节 + 日观测数 × 保留天数 × 单条观测/索引字节”，另留 WAL、VACUUM、备份和发布空间。现有 storage observability 能查看部分表大小；新增表同步加入统计范围。删行不保证立刻释放文件空间，常规维护采用 autovacuum，不用频繁 VACUUM FULL 或清 Linux page cache 作性能手段。
+
+| 数据类别 | 初始策略与当前边界 |
+| --- | --- |
+| 原始大 payload | 默认只保留错误/必要样本；旧代码 raw 保留 7 天，迁移后需敏感字段过滤 |
+| 内容及当前观测 | 保留选定目标与产品窗口；保留天数由历史查询需求确定，不能未经确认删正文 |
+| 窗口观测/指标 | 旧 engagement window 7 天、target metrics 30 天；迁移前核对算法所需窗口，超期聚合后再删 |
+| 请求摘要、任务、查询会话、健康证据 | 当前未形成完整统一保留策略；需按引用与诊断窗口清理，不能因原始 payload 清理就认为整个库有上限 |
+| 派生日统计 | 小体积可保留更久，按版本只保留产品实际用到的结果 |
+
+维护每张表每轮最多 10 批，未完留到下一轮；有界批次数不等于全库已具备自动容量管理。开始上线前用一组代表目标测每页延迟、每任务 RSS、数据库/索引增长和读接口延迟。常驻 API/worker/数据库先以合计约 1–1.5 GiB 为测量预算，保留至少约 0.8 GiB 系统余量；这些是预算，尚未负载证明。三名开发者各 1 GiB 的上限不能同时耗尽，还要为 root agent 和构建留内存。
+
+继续使用 PostgreSQL 的现有全文索引和队列表。当前关键词 normalizer 主要支持 ASCII lexeme；引入中文或其他语言时先明确可搜索文本、分词/匹配和范围，用真实关键词验收，不把现有英文测试当多语言支持证据。只有执行计划、实际吞吐或功能要求显示瓶颈后才评估新组件、分区或拆服务；不预设 Redis、消息中间件、搜索集群或向量库。最少监控关注内存/磁盘、数据库和 API 延迟、任务积压/失败及源延迟/覆盖，先复用现有日志和 ops 页面。
+
+## 失败场景与必要保证
+
+| 情况 | 最小处理方式 |
+| --- | --- |
+| 上游限流/暂时不可达 | 有限重试或延后该来源；已保存结果仍能读取，显示 stale/partial |
+| 返回空页或缺字段 | 区分完整空结果、部分/未知覆盖和解析失败；在 adapter 校验外部数据一次 |
+| 进程中断 | 已提交页可重放，未提交 checkpoint 不推进；running job 需要简单超时回收，重试由幂等落库承接 |
+| 多任务重复获取 | 按来源/stream 的任务键去重，必要时单次租约；不能把进程内 inFlight 当作跨进程互斥 |
+| 老归档与实时源冲突 | 保留独立观测和来源，按时间及明确选择策略读，禁止最后取回者无条件覆盖 |
+| 磁盘/内存压力 | 降低或暂停回填/采集，保持已落库数据读取；清理受保留策略与 FK 引用约束 |
+| schema/接口演进 | 小迁移 + 同步契约/read model/UI，保留过渡兼容，验收后删旧入口 |
+
+保证集中在外部输入、权限、数据唯一性/事务与工作量边界，不给每一层重复加校验/重试。当前队列没有通用租约回收或 per-stream checkpoint 事务，属于下一步工作，不能把本节当作已实现承诺。
+
+## 外部项目核对及取舍（2026-10-11）
+
+这些是设计参考，不是已安装依赖，也不代表已选定用户所说 AIHot 的具体数据接口。
+
+| 一手资料 | 核对到的做法 | 本仓库的取舍 |
+| --- | --- | --- |
+| [Arctic Shift API](https://github.com/ArthurHeitmann/arctic_shift/blob/master/api/README.md) | 归档检索有查询能力与可用性限制 | 将归档 provider 与实时指标分开，按窗口验收 |
+| [AIHOT 源契约](https://github.com/KKKKhazix/AIHOT/blob/main/packages/backend/src/sources/types.ts)、[数据库](https://github.com/KKKKhazix/AIHOT/blob/main/database/migrations/0001_core.sql) | 不同获取类型进入内容身份、发现和处理记录 | 采用身份/发现/观测分离的边界，暂不移植全套精选和模型链 |
+| [NewsNow 来源适配](https://github.com/newsnext/newsnow/blob/main/server/utils/source.ts)、[RSSHub 类型](https://github.com/DIYgod/RSSHub/blob/master/lib/types.ts) | 独立来源 handler 输出统一列表/Feed，能力和刷新策略独立 | 轻量 adapter 接入；列表热点不能当完整历史或互动序列 |
+| [Miniflux worker](https://github.com/miniflux/v2/blob/main/internal/worker/pool.go) | 有界 worker 处理后台工作，生命周期简单 | 初始一个采集 worker，按预算扩并发 |
+| [Airbyte 协议](https://github.com/airbytehq/airbyte/blob/master/docs/platform/understanding-airbyte/airbyte-protocol.md) | 数据记录与增量状态分离，state 用于恢复 | 保留逐页提交/stream checkpoint 语义，不部署完整 ETL 平台 |
+
+上述资料提供模式，本文件的模型、进程预算和迁移顺序是基于本仓库的设计判断，需以实际来源、容量和查询验收校准。

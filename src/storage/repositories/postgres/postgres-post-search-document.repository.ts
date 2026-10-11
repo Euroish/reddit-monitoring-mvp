@@ -62,7 +62,9 @@ export class PostgresPostSearchDocumentRepository
         permalink = EXCLUDED.permalink,
         created_at_source = EXCLUDED.created_at_source,
         updated_at = NOW(),
-        search_text = LOWER(CONCAT_WS(' ', EXCLUDED.title, COALESCE(EXCLUDED.body_snippet, '')))
+        search_text = EXCLUDED.search_text
+      WHERE (post_search_document.target_id, post_search_document.canonical_subreddit, post_search_document.title, post_search_document.body_snippet, post_search_document.permalink, post_search_document.created_at_source, post_search_document.search_text)
+        IS DISTINCT FROM (EXCLUDED.target_id, EXCLUDED.canonical_subreddit, EXCLUDED.title, EXCLUDED.body_snippet, EXCLUDED.permalink, EXCLUDED.created_at_source, EXCLUDED.search_text)
       `,
       values,
     );
@@ -99,6 +101,8 @@ export class PostgresPostSearchDocumentRepository
         created_at_source = EXCLUDED.created_at_source,
         search_text = EXCLUDED.search_text,
         updated_at = NOW()
+      WHERE (post_search_document.target_id, post_search_document.canonical_subreddit, post_search_document.title, post_search_document.body_snippet, post_search_document.permalink, post_search_document.created_at_source, post_search_document.search_text)
+        IS DISTINCT FROM (EXCLUDED.target_id, EXCLUDED.canonical_subreddit, EXCLUDED.title, EXCLUDED.body_snippet, EXCLUDED.permalink, EXCLUDED.created_at_source, EXCLUDED.search_text)
       `,
       [limit],
     );

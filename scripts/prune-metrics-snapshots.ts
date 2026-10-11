@@ -15,6 +15,7 @@ async function main(): Promise<void> {
   try {
     const totalDeleted = await pruneMetricsSnapshots(db, {
       retentionDays: config.metricsSnapshotRetentionDays,
+      maxBatches: config.maxBatches,
       batchSize: config.metricsSnapshotBatchSize,
       loopUntilDone: config.metricsSnapshotLoopUntilDone,
     });

@@ -15,6 +15,7 @@ async function main(): Promise<void> {
   try {
     const totalDeleted = await pruneRawEvents(db, {
       retentionDays: config.rawEventRetentionDays,
+      maxBatches: config.maxBatches,
       batchSize: config.rawEventBatchSize,
       loopUntilDone: config.rawEventLoopUntilDone,
     });

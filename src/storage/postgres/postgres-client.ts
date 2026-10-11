@@ -42,7 +42,7 @@ export class PostgresClient {
 
     this.pool = new Pool({
       connectionString,
-      max: options.max ?? 10,
+      max: options.max ?? parsePositiveInt(process.env.PG_POOL_MAX, 5),
       connectionTimeoutMillis: connectionTimeoutMs,
       idleTimeoutMillis: idleTimeoutMs,
       query_timeout: queryTimeoutMs,

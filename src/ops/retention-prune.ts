@@ -1,5 +1,7 @@
 import type { SqlQueryable } from "../storage/postgres/postgres-client";
 
+const DEFAULT_PRUNE_MAX_BATCHES = 10;
+
 interface DeleteIdRow {
   id: number;
 }
@@ -14,6 +16,7 @@ interface DeleteMetricRow {
 export interface RetentionPruneConfig {
   enabled: boolean;
   intervalMinutes: number;
+  maxBatches: number;
   rawEventRetentionDays: number;
   rawEventBatchSize: number;
   rawEventLoopUntilDone: boolean;
@@ -58,6 +61,7 @@ export function resolveRetentionPruneConfig(
 ): RetentionPruneConfig {
   return {
     enabled: parseBoolean(env.REDDIT_RETENTION_PRUNE_ENABLED, true),
+    maxBatches: parsePositiveInt(env.REDDIT_RETENTION_PRUNE_MAX_BATCHES, DEFAULT_PRUNE_MAX_BATCHES),
     intervalMinutes: parsePositiveInt(env.REDDIT_RETENTION_PRUNE_INTERVAL_MINUTES, 360),
     rawEventRetentionDays: parsePositiveInt(env.RAW_EVENT_RETENTION_DAYS, 7),
     rawEventBatchSize: parsePositiveInt(env.RAW_EVENT_PRUNE_BATCH_SIZE, 5000),
@@ -107,16 +111,19 @@ export async function runRetentionPrune(args: {
     retentionDays: args.config.rawEventRetentionDays,
     batchSize: args.config.rawEventBatchSize,
     loopUntilDone: args.config.rawEventLoopUntilDone,
+    maxBatches: args.config.maxBatches,
   });
   const metricsSnapshotsDeleted = await pruneMetricsSnapshots(args.db, {
     retentionDays: args.config.metricsSnapshotRetentionDays,
     batchSize: args.config.metricsSnapshotBatchSize,
     loopUntilDone: args.config.metricsSnapshotLoopUntilDone,
+    maxBatches: args.config.maxBatches,
   });
   const postEngagementWindowsDeleted = await prunePostEngagementWindows(args.db, {
     retentionDays: args.config.postEngagementWindowRetentionDays,
     batchSize: args.config.postEngagementWindowBatchSize,
     loopUntilDone: args.config.postEngagementWindowLoopUntilDone,
+    maxBatches: args.config.maxBatches,
   });
   return {
     rawEventsDeleted,
@@ -131,10 +138,11 @@ export async function pruneRawEvents(
     retentionDays: number;
     batchSize: number;
     loopUntilDone: boolean;
+    maxBatches?: number;
   },
 ): Promise<number> {
   let totalDeleted = 0;
-  while (true) {
+  for (let batch = 0; batch < (args.maxBatches ?? DEFAULT_PRUNE_MAX_BATCHES); batch += 1) {
     const deleted = await db.query<DeleteIdRow>(
       `
       WITH candidates AS (
@@ -157,6 +165,7 @@ export async function pruneRawEvents(
       return totalDeleted;
     }
   }
+  return totalDeleted;
 }
 
 export async function pruneMetricsSnapshots(
@@ -165,10 +174,11 @@ export async function pruneMetricsSnapshots(
     retentionDays: number;
     batchSize: number;
     loopUntilDone: boolean;
+    maxBatches?: number;
   },
 ): Promise<number> {
   let totalDeleted = 0;
-  while (true) {
+  for (let batch = 0; batch < (args.maxBatches ?? DEFAULT_PRUNE_MAX_BATCHES); batch += 1) {
     const deleted = await db.query<DeleteMetricRow>(
       `
       WITH candidates AS (
@@ -195,6 +205,7 @@ export async function pruneMetricsSnapshots(
       return totalDeleted;
     }
   }
+  return totalDeleted;
 }
 
 export async function prunePostEngagementWindows(
@@ -203,10 +214,11 @@ export async function prunePostEngagementWindows(
     retentionDays: number;
     batchSize: number;
     loopUntilDone: boolean;
+    maxBatches?: number;
   },
 ): Promise<number> {
   let totalDeleted = 0;
-  while (true) {
+  for (let batch = 0; batch < (args.maxBatches ?? DEFAULT_PRUNE_MAX_BATCHES); batch += 1) {
     const deleted = await db.query<DeleteIdRow>(
       `
       WITH candidates AS (
@@ -231,4 +243,5 @@ export async function prunePostEngagementWindows(
       return totalDeleted;
     }
   }
+  return totalDeleted;
 }

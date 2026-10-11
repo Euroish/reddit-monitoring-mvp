@@ -49,10 +49,10 @@ export interface CreateRedditConnectorOptions {
 }
 
 export function resolveRedditLiveProvider(value: string | undefined): RedditLiveProvider {
-  if (value === "scrapling") {
-    return "scrapling";
-  }
-  return "http";
+  const provider = value?.trim();
+  if (!provider) return "http";
+  if (provider === "http" || provider === "scrapling") return provider;
+  throw new Error(`Unsupported Reddit provider: ${provider}. Supported providers: http, scrapling.`);
 }
 
 export function createRedditConnector(options: CreateRedditConnectorOptions): RedditConnector {

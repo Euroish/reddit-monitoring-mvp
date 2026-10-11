@@ -750,6 +750,7 @@ function toAuthUserView(user: AppUser): AuthUserView {
 
 function isPrivilegedWritePath(pathname: string): boolean {
   return (
+    pathname === "/v1/runs/reddit-phase1" ||
     pathname === "/v1/targets/subreddit" ||
     pathname === "/v1/targets/subreddit/bulk-update" ||
     pathname.startsWith("/v1/targets/subreddit/") ||
