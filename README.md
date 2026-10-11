@@ -1,75 +1,12 @@
-# Reddit Monitoring MVP
+# 多平台信息聚合与可视化
 
-Reddit monitoring and research toolkit built with TypeScript, Node.js, PostgreSQL, and React. It collects subreddit posts and comments, materializes trend and anomaly data, exposes an API, and provides a web workbench for analysis.
+从现有 Reddit 监测工作台逐步扩展到多平台信息获取、聚合与可视化。Reddit 的下一步数据源是 Arctic Shift；X、Instagram（可替换）及外部聚合项目属于后续规划。
 
-## Repository layout
+**当前代码仍是 Reddit 实现，Arctic Shift 尚未接入。** 产品方向与实现状态分别见以下文档。
 
-- `apps/api` — HTTP API server
-- `apps/web` — React and Vite web application
-- `src/connectors/reddit` — Reddit data providers and connector contracts
-- `src/domain`, `src/application` — domain logic and use cases
-- `src/storage` — PostgreSQL repositories and migrations
-- `src/workers`, `workers` — collection and scheduling workers
-- `scripts` — verification, operations, and research export tools
-- `tests` — unit and integration tests
-- `deploy` — example environment, Nginx, and systemd configuration
-- `docs` — architecture and deployment documentation
+- [文档入口与产品计划](docs/README.md)
+- [架构与数据边界](docs/architecture.md)
+- [开发、Git 协作与验证](docs/development.md)
+- [当前状态与下一步](docs/status.md)
 
-## Prerequisites
-
-- Node.js 22 or newer
-- npm
-- PostgreSQL for database-backed workflows
-
-## Setup
-
-```bash
-npm install
-npm --prefix apps/web install
-```
-
-Copy the relevant examples from `deploy/env/` and provide the required environment variables for the API or workers you intend to run. Do not commit secrets or local `.env` files.
-
-## Development
-
-```bash
-# API
-npm run app:api
-
-# Web application
-npm --prefix apps/web run dev
-
-# Run one collection cycle
-npm run worker:phase1:once
-
-# Run the scheduler
-npm run worker:phase1:scheduler
-```
-
-## Research exports
-
-The repository includes tools for exporting Reddit posts and bounded comment trees to CSV and JSON:
-
-```bash
-npm run research:export:reddit
-npm run research:export:reddit-search
-```
-
-Generated datasets and documents belong under `output/`, which is intentionally excluded from Git.
-
-## Verification
-
-```bash
-npm run typecheck
-npm test
-npm run build
-```
-
-Use `npm run verify:repo` to run the repository-level typecheck, build, and compiled smoke test together.
-
-## Documentation
-
-- [Architecture](docs/architecture.md)
-- [Deployment runbook](docs/deployment-runbook.md)
-- [Data model](docs/data-model.md)
-- [Collection strategy](docs/collection-strategy.md)
+Agent 从 [AGENTS.md](AGENTS.md) 开始。运行环境为 Node.js 22、npm、PostgreSQL；前端使用 React / Vite。安装与启动命令见开发说明。

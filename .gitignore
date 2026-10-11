@@ -10,4 +10,6 @@ output/
 *.log
 *.db
 *.sqlite
-docs/tmp-sing-box-*.json
+
+# Per-user agent configuration and local reference material
+.codex/

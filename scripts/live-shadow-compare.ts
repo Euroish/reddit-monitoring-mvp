@@ -394,7 +394,8 @@ async function main(): Promise<void> {
   const now = new Date();
   const outputPath = path.resolve(
     process.cwd(),
-    "docs",
+    "output",
+    "provider-reports",
     `live-shadow-compare-${resolveNowTag(now)}.json`,
   );
   await mkdir(path.dirname(outputPath), { recursive: true });

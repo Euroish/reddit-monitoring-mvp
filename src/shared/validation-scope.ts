@@ -18,7 +18,6 @@ export interface ClassifyValidationScopeArgs {
 
 const DEPLOY_PATTERNS = [
   /^deploy\//i,
-  /^docs\/deployment-runbook\.md$/i,
 ];
 
 const MIGRATION_PATTERNS = [

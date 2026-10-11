@@ -12,7 +12,7 @@ test("production scripts use compiled node entrypoints", async () => {
   assert.equal(packageJson.scripts["build:web"], "npm --prefix apps/web run build");
   assert.equal(
     packageJson.scripts["verify:repo"],
-    "npm run typecheck && npm run build && npm run smoke:compiled",
+    "npm run docs:check && npm run typecheck && npm run build && npm run smoke:compiled",
   );
   assert.equal(
     packageJson.scripts["verify:launch:local"],

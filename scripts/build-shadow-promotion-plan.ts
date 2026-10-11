@@ -1,4 +1,4 @@
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   buildShadowPromotionPlan,
@@ -27,10 +27,10 @@ function resolveNowTag(now: Date): string {
 }
 
 async function loadSnapshots(args: {
-  docsDir: string;
+  reportDir: string;
   maxSnapshots: number;
 }): Promise<Array<{ fileName: string; snapshot: ShadowCompareSnapshot }>> {
-  const entries = await readdir(args.docsDir, { withFileTypes: true });
+  const entries = await readdir(args.reportDir, { withFileTypes: true });
   const files = entries
     .filter((entry) => entry.isFile())
     .map((entry) => entry.name)
@@ -43,7 +43,7 @@ async function loadSnapshots(args: {
   const selected = files.slice(-args.maxSnapshots);
   const output: Array<{ fileName: string; snapshot: ShadowCompareSnapshot }> = [];
   for (const fileName of selected) {
-    const fullPath = path.resolve(args.docsDir, fileName);
+    const fullPath = path.resolve(args.reportDir, fileName);
     const raw = await readFile(fullPath, "utf8");
     const parsed = JSON.parse(raw) as ShadowCompareSnapshot;
     output.push({
@@ -142,17 +142,18 @@ function formatNullable(value: number | null): string {
 }
 
 async function main(): Promise<void> {
-  const docsDir = path.resolve(process.cwd(), "docs");
+  const reportDir = path.resolve(process.cwd(), "output", "provider-reports");
   const maxSnapshots = parsePositiveInt(
     process.env.REDDIT_SHADOW_PLAN_MAX_SNAPSHOTS,
     20,
   );
+  await mkdir(reportDir, { recursive: true });
   const loaded = await loadSnapshots({
-    docsDir,
+    reportDir,
     maxSnapshots,
   });
   if (loaded.length === 0) {
-    throw new Error("No live-shadow-compare snapshots found in docs/");
+    throw new Error("No live-shadow-compare snapshots found in output/provider-reports/");
   }
 
   const plan = buildShadowPromotionPlan({
@@ -162,8 +163,8 @@ async function main(): Promise<void> {
 
   const now = new Date();
   const nowTag = resolveNowTag(now);
-  const jsonPath = path.resolve(docsDir, `shadow-promotion-plan-${nowTag}.json`);
-  const mdPath = path.resolve(docsDir, `shadow-promotion-plan-${nowTag}.md`);
+  const jsonPath = path.resolve(reportDir, `shadow-promotion-plan-${nowTag}.json`);
+  const mdPath = path.resolve(reportDir, `shadow-promotion-plan-${nowTag}.md`);
   const payload = {
     generatedAt: now.toISOString(),
     includedSnapshots: loaded.map((item) => item.fileName),

@@ -1,1 +1,14 @@
-Focus only on the current task. Inspect first, then act. Execute the exact requirement with maximum autonomy inside scope. Prioritize correctness, robustness, maintainability, and minimal necessary change. Do not hallucinate facts, files, APIs, results, or completion status. Preserve verified work as no-op unless direct evidence proves it wrong. Avoid side work, unnecessary refactors, premature abstraction, extra features, and scope drift. Report only verified findings, changes, blockers, and uncertainties. Apply `karpathy-guidelines` skills by default for coding, review, debugging, and refactor tasks unless explicitly overridden.
+# Agent 开发入口
+
+开始任务先读 [文档入口](docs/README.md)、[当前状态](docs/status.md)；涉及代码再读 [架构](docs/architecture.md) 和 [开发说明](docs/development.md)。正式项目文档只放在 `docs/`，根目录 README 仅作入口。
+
+- 用户当前明确指令优先。`docs/README.md` 记录产品决策，`docs/status.md` 记录实现状态；源码、数据库迁移、实际检查结果证明当前行为。
+- 文档与代码不一致时，指出差异并在本次任务范围内修正。计划不能当成已实现功能；历史 Git 内容不能当成当前要求。
+- 当前方向是多平台信息获取、聚合与可视化；Reddit 优先迁移 Arctic Shift。不要恢复旧的 Reddit-only 范围锁定或默认爬取绕过方案。
+- 本仓库不要求默认 skill，也不引用历史 prompt；工具与 skill 按用户当前任务和运行环境的明确要求使用。
+- 修改前检查 `git status`、相关代码和测试，保留其他人的工作。只实现本次需求，不因路线图存在而自动实现全部平台。
+- 三人共用一个工作树、分支和暂存区。协调相同文件，逐个指定路径提交；不要全量暂存、强制推送或用 reset/clean/stash 覆盖他人工作。服务器的 `team-git` 只能串行 Git 命令，不能隔离代码编辑。
+- 变更应有相称的验证。区分离线检查、真实数据源检查和部署检查；失败、未执行和阻塞如实记录，不降低断言掩盖问题。
+- 数据库变更新增迁移，不改已应用 SQL。密钥、token、原始数据和运行报告不进 Git，生成物放 `output/`。
+- 功能、接口、命令或产品决策变化时，更新对应文档原有段落。替换过时信息，不追加重复交接稿、日报或第二套规则。
+- 当前维护六个 Markdown 文件（根目录两个、docs 四个）。扩充文档结构先有用户明确需求，并同步文档检查脚本。提交前运行 `npm run docs:check`。

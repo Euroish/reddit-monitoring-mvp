@@ -920,7 +920,8 @@ async function main(): Promise<void> {
 
   const outputPath = path.resolve(
     process.cwd(),
-    "docs",
+    "output",
+    "provider-reports",
     `live-controlled-promotion-${resolveNowTag(now)}.json`,
   );
   await mkdir(path.dirname(outputPath), { recursive: true });
