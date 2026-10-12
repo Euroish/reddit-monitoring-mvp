@@ -44,21 +44,41 @@ export interface SourceCapability {
   contentKinds: PublicContentKind[]; targetTypes: SourceTarget["type"][];
   keywordSearch: "scoped" | "global" | "none"; metrics: MetricDefinition[];
   observationModel: "archive" | "snapshot"; limitations: string[];
+  refreshByIds?: boolean;
+  /** Provider may return/bill a fixed page even when a smaller page is requested. */
+  requestResourceUpperBound?: number;
 }
+export interface SourceSchedule { enabled: boolean; cadenceSeconds: number; overlapSeconds: number; initialLookbackHours: number; maxCatchupHours: number; pageSize: number; maxPages: number }
+export interface SourceRefresh { enabled: boolean; afterHours: number; minIntervalHours: number; maxAttempts: number; batchSize: number }
 export interface CollectionSource {
   id: string; platform: ContentPlatform; provider: string; label: string; target: SourceTarget;
   contentKind: PublicContentKind; createdAt: string; lastSuccessAt: string | null;
   latestPublishedAt: string | null; coverage: "unknown" | "partial";
+  state: "active" | "paused" | "archived"; group: string | null; updatedAt: string;
+  schedule: SourceSchedule; refresh: SourceRefresh; nextDueAt: string | null; incrementalTo: string | null;
 }
 export interface CreateCollectionSourceRequest {
   platform: ContentPlatform; provider: string; label?: string; target: SourceTarget; contentKind: PublicContentKind;
 }
 export interface StartSourceCollectionRequest { from?: string; to?: string; pageSize?: number; maxPages?: number }
+export interface UpdateCollectionSourceRequest { label?: string; group?: string | null; schedule?: Partial<SourceSchedule>; refresh?: Partial<SourceRefresh> }
+export interface SourceProviderBudget { provider: string; enabled: boolean; dailyRequests: number; monthlyRequests: number; dailyResources: number; monthlyResources: number }
+export interface SourceProviderUsage { provider: string; day: string; month: string; dailyRequests: number; monthlyRequests: number; dailyResources: number; monthlyResources: number; budget: SourceProviderBudget }
 export interface SourceCollectionJob {
-  id: string; sourceId: string; status: "queued" | "running" | "retrying" | "succeeded" | "failed";
+  id: string; sourceId: string; status: "queued" | "running" | "retrying" | "succeeded" | "failed" | "cancelled";
   from: string; to: string; pageSize: number; maxPages: number; pagesCommitted: number; recordsProcessed: number;
   checkpoint: JsonValue | null; coverage: "unknown" | "partial"; exhausted: boolean;
   attempts: number; error: string | null; nextRunAt: string; createdAt: string; finishedAt: string | null;
+  purpose: "manual" | "scheduled" | "refresh"; parentJobId: string | null; refreshIds: string[];
+  recordsInserted: number; recordsUpdated: number;
+}
+export interface SourceJobQuery { sourceId?: string; status?: SourceCollectionJob["status"]; limit?: number }
+export interface SourceWorkerHeartbeat { id: string; startedAt: string; lastHeartbeatAt: string; state: "active" | "draining" | "stopped"; lastJobId: string | null }
+export interface SourceOps {
+  checkedAt: string; workers: (SourceWorkerHeartbeat & { stale: boolean })[];
+  queue: { status: SourceCollectionJob["status"]; count: number }[]; oldestQueuedAt: string | null;
+  sources: { sourceId: string; state: CollectionSource["state"]; lastSuccessAgeHours: number | null; latestPublishedAgeHours: number | null; coverage: CollectionSource["coverage"]; nextDueAt: string | null; activeJobs: number }[];
+  providers: SourceProviderUsage[];
 }
 export interface ContentQuery {
   platform?: ContentPlatform; provider?: string; sourceId?: string; kind?: PublicContentKind;
@@ -74,6 +94,21 @@ export interface ContentStatsResponse {
   /** Unknown publish dates count toward total but do not appear in published-day buckets. */
   unknownPublishedAtCount: number;
 }
-export interface SourceListResponse { ok: true; requestId: string; sources: CollectionSource[]; capabilities: SourceCapability[] }
+export interface SourceListResponse { ok: true; requestId: string; sources: CollectionSource[]; capabilities: SourceCapability[]; providers?: SourceProviderUsage[] }
 export interface CollectionSourceResponse { ok: true; requestId: string; source: CollectionSource }
 export interface SourceJobResponse { ok: true; requestId: string; job: SourceCollectionJob }
+export interface SourceJobsResponse { ok: true; requestId: string; jobs: SourceCollectionJob[] }
+export interface SourceOpsResponse { ok: true; requestId: string; ops: SourceOps }
+export interface ContentWorkbenchResponse {
+  ok: true; requestId: string; generatedAt: string;
+  stats: Omit<ContentStatsResponse, "ok" | "requestId">;
+  byPlatform: { platform: ContentPlatform; count: number }[];
+  byProvider: { provider: string; count: number }[];
+  sources: CollectionSource[]; capabilities: SourceCapability[];
+  scope: "collected_content"; providerCountsMayOverlap: true; metricComparison: "platform_units_only";
+}
+export interface ContentExportResponse {
+  ok: true; requestId: string; exportedAt: string; scope: "collected_content"; coverage: "stored_sample";
+  filters: ContentQuery; totalMatching: number; exportedCount: number; maxItems: number;
+  truncated: boolean; nextCursor: string | null; items: PublicContent[];
+}

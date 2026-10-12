@@ -20,9 +20,11 @@
 
 ## 目标设计及实施状态
 
-当前已实现 Arctic Shift 的公共契约、来源配置、任务、逐页事务、查询统计与 UI。X、Instagram 与 web 有字段设计及合成存储验证，真实 provider 尚未接入。当前可运行能力见 [状态](status.md)。保持模块化单体、一个 PostgreSQL 和一个 API；新增 `workers/source-content-worker.ts` 统一消费公共来源任务，现有旧 scheduler 暂保留。自动周期提交新窗口及复杂派生分析仍待实施，不按每个平台增加服务。
+当前已实现 Arctic Shift 的公共契约、来源配置/生命周期、任务、逐页事务、周期调度、成熟归档 ID 刷新、查询统计与 UI。X、Instagram 与 web 有字段设计及合成存储验证；X adapter 当前在阶段 3 集成，真实验收按用户要求保留。保持模块化单体、一个 PostgreSQL 和一个 API；`workers/source-content-worker.ts` 统一消费公共来源任务，现有旧 scheduler 暂保留，不按每个平台增加服务。
 
-当前流程：目标/来源配置 → 入队 → provider 有界取一页 → 公共内容和观测 → 小事务落库/checkpoint → 同范围内容/UTC 日统计 → API → UI。API 不等待远端抓取完成；旧热度/增长算法尚未迁移至 Arctic Shift，不将归档快照写成实时热度。每个阶段只向下一阶段传需要的字段。
+当前流程：目标/来源设置 → 手动或持久化周期窗口入队 → provider 预算预留 → 有界取一页 → 公共内容和独立观测 → 小事务落库/checkpoint → 同范围唯一内容/UTC 日统计/按平台渠道汇总 → API → UI/JSON/CSV 导出。单来源活动任务互斥；暂停/归档取消旧租约；重启回收租约并从已提交页继续。周期高水位只在耗尽窗口后推进，失败或页预算不足保留同窗口子任务；每页间让出 worker，不持有整段历史回填。免费/付费每日月度预算分开，重试/未知结果保守保留 requests/resources 预留；provider 计数因多发现可重叠。
+
+自动成熟刷新只支持 archive provider 的 initial 观测，snapshot 不套用 36 小时成熟规则。统一工作台的跨平台通用量是内容数，不把 Reddit score 与 X likes 相加；各指标使用 capability 的单位/符号与观测时间。内容读/导出不会联网，分页与统计不是冻结快照。API 不等待远端抓取完成；旧热度模型尚未迁移至 Arctic Shift，旧增长 v2 使用实际相邻观测，不将单个归档快照写成实时热度。
 
 ## 平台、获取渠道和订阅目标
 

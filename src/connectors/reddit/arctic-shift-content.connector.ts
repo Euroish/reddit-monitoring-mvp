@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import type { ContentMedia, ContentReference, JsonValue, PublicContentKind, SourceCapability, SourceTarget } from "../../../packages/contracts/src/source-content";
+import type { CollectionSource, ContentMedia, ContentReference, JsonValue, PublicContentKind, SourceCapability, SourceTarget } from "../../../packages/contracts/src/source-content";
 import { stableUuidFromString } from "../../shared/ids/stable-id";
 import { ContentProviderError, type CollectedContent, type CollectedPage, type CollectContentPageRequest, type ContentProvider } from "../shared/content-provider.interface";
 
 export const ARCTIC_SHIFT_CAPABILITY: SourceCapability = {
   platform: "reddit", provider: "arctic_shift", enabled: true, contentKinds: ["post", "comment"],
   targetTypes: ["community", "account", "post"], keywordSearch: "scoped", observationModel: "archive",
+  refreshByIds:true,
   metrics: [
     { key: "reddit.score", label: "Score", unit: "count", cumulative: false, signed: true, contentKinds: ["post", "comment"], direction: "higher" },
     { key: "reddit.num_comments", label: "Comments", unit: "count", cumulative: true, signed: false, contentKinds: ["post"], direction: "higher" },
@@ -68,15 +69,38 @@ export class ArcticShiftContentConnector implements ContentProvider {
     else if (target.type === "post" && source.contentKind === "comment") url.searchParams.set("link_id", target.postId);
     else throw new ContentProviderError("Unsupported Arctic Shift target", false);
     if ("query" in target && target.query) url.searchParams.set(source.contentKind === "comment" ? "body" : "query", target.query);
-    const signal = request.signal ? AbortSignal.any([request.signal, AbortSignal.timeout(this.timeoutMs)]) : AbortSignal.timeout(this.timeoutMs);
+    const data=await this.requestData(url,request.limit,request.signal);
+    const fetchedAt = this.now();
+    const all = data.map(value => this.normalize(value, request, fetchedAt));
+    const seen = new Set(saved?.seen ?? []);
+    const items = all.filter(item => !seen.has(item.externalId) && Date.parse(item.publishedAt!) / 1000 >= from && Date.parse(item.publishedAt!) / 1000 < to);
+    if (all.length < request.limit) return { items, nextCheckpoint: null, exhausted: true, coverage: "unknown", warning: null };
+    const boundary = Math.floor(Math.min(...all.map(item => Date.parse(item.publishedAt!) / 1000)));
+    const boundaryIds = all.filter(item => Math.floor(Date.parse(item.publishedAt!) / 1000) === boundary).map(item => item.externalId);
+    if (saved && boundary >= saved.boundary && items.length === 0) return { items, nextCheckpoint: null, exhausted: false, coverage: "partial", warning: "Timestamp boundary saturated; collection stopped to avoid silently skipping records." };
+    const next: ArcticCheckpoint = { before: boundary + 1, boundary, seen: boundaryIds };
+    return { items, nextCheckpoint: next as unknown as JsonValue, exhausted: false, coverage: "partial", warning: null };
+  }
+
+  async refreshIds(request:{source:CollectionSource;externalIds:string[];signal?:AbortSignal}):Promise<CollectedPage> {
+    const kind=request.source.contentKind,prefix=kind==="comment"?"t1_":"t3_";
+    if(!["post","comment"].includes(kind)||request.externalIds.length<1||request.externalIds.length>100||request.externalIds.some(id=>!id.startsWith(prefix)||!/^[a-z0-9]{2,12}$/i.test(id.slice(3))))throw new ContentProviderError("Invalid bounded Arctic Shift ID refresh",false);
+    const url=new URL(`https://arctic-shift.photon-reddit.com/api/${kind==="post"?"posts":"comments"}/ids`);url.searchParams.set("ids",request.externalIds.map(id=>id.slice(3)).join(","));
+    const fetchedAt=this.now(),rows=await this.requestData(url,request.externalIds.length,request.signal),normalization:CollectContentPageRequest={source:request.source,from:"1970-01-01T00:00:00.000Z",to:fetchedAt,limit:request.externalIds.length,checkpoint:null,signal:request.signal};
+    const items=rows.map(row=>this.normalize(row,normalization,fetchedAt));if(items.some(item=>!request.externalIds.includes(item.externalId)))throw new ContentProviderError("ID refresh returned an unrelated identity",false);
+    return {items,nextCheckpoint:null,exhausted:true,coverage:items.length===request.externalIds.length?"unknown":"partial",warning:items.length===request.externalIds.length?null:"Some requested IDs were unavailable in the archive."};
+  }
+
+  private async requestData(url:URL,limit:number,parentSignal?:AbortSignal):Promise<unknown[]> {
+    const signal = parentSignal ? AbortSignal.any([parentSignal, AbortSignal.timeout(this.timeoutMs)]) : AbortSignal.timeout(this.timeoutMs);
     let response: Response;
     try { response = await this.fetcher(url, { signal, redirect: "error", headers: { Accept: "application/json", "User-Agent": "reddit-monitoring-mvp/arctic-shift" } }); }
-    catch (error) { if (request.signal?.aborted) throw error; throw new ContentProviderError("Arctic Shift network request failed", true); }
+    catch (error) { if (parentSignal?.aborted) throw error; throw new ContentProviderError("Arctic Shift network request failed", true); }
     const chunks: Uint8Array[] = []; let bytes = 0;
     if (response.body) {
       const reader = response.body.getReader();
       try { for (;;) { const { done, value } = await reader.read(); if (done) break; bytes += value.byteLength; if (bytes > 8 * 1024 * 1024) { await reader.cancel(); throw new ContentProviderError("Arctic Shift response exceeds 8 MiB; reduce page size", false); } chunks.push(value); } }
-      catch (error) { if (error instanceof ContentProviderError || request.signal?.aborted) throw error; throw new ContentProviderError("Arctic Shift response stream interrupted",true); }
+      catch (error) { if (error instanceof ContentProviderError || parentSignal?.aborted) throw error; throw new ContentProviderError("Arctic Shift response stream interrupted",true); }
       finally { reader.releaseLock(); }
     }
     let body: unknown;
@@ -87,20 +111,8 @@ export class ArcticShiftContentConnector implements ContentProvider {
       const retryable = response.status === 429 || response.status >= 500 || (response.status === 422 && /timeout|slow down/i.test(String(data?.error)));
       throw new ContentProviderError(`Arctic Shift HTTP ${response.status}${typeof data?.error === "string" ? `: ${data.error.slice(0, 160)}` : ""}`, retryable, Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(3600, Math.ceil(retryAfter)) : 30, response.status);
     }
-    if (!Array.isArray(data?.data) || data.data.length > request.limit) throw new ContentProviderError("Invalid Arctic Shift data array", false);
-    const fetchedAt = this.now();
-    const all = data.data.map(value => this.normalize(value, request, fetchedAt));
-    const seen = new Set(saved?.seen ?? []);
-    const items = all.filter(item => !seen.has(item.externalId) && Date.parse(item.publishedAt!) / 1000 >= from && Date.parse(item.publishedAt!) / 1000 < to);
-    if (all.length < request.limit) return { items, nextCheckpoint: null, exhausted: true, coverage: "unknown", warning: null };
-    const boundary = Math.floor(Math.min(...all.map(item => Date.parse(item.publishedAt!) / 1000)));
-    const boundaryIds = all.filter(item => Math.floor(Date.parse(item.publishedAt!) / 1000) === boundary).map(item => item.externalId);
-    if (saved && boundary >= saved.boundary && items.length === 0) {
-      return { items, nextCheckpoint: null, exhausted: false, coverage: "partial", warning: "Timestamp boundary saturated; collection stopped to avoid silently skipping records." };
-    }
-    // Re-read the boundary second once, deduplicating IDs. Never blindly subtract a second.
-    const next: ArcticCheckpoint = { before: boundary + 1, boundary, seen: boundaryIds };
-    return { items, nextCheckpoint: next as unknown as JsonValue, exhausted: false, coverage: "partial", warning: null };
+    if (!Array.isArray(data?.data) || data.data.length > limit) throw new ContentProviderError("Invalid Arctic Shift data array", false);
+    return data.data;
   }
 
   private normalize(value: unknown, request: CollectContentPageRequest, fetchedAt: string): CollectedContent {

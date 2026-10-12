@@ -41,7 +41,7 @@ npm --prefix apps/web run dev
 
 Arctic Shift 使用独立的来源配置/任务路径：API 注册 `arctic_shift`，worker 从数据库读取来源，不需要 API key。旧 `REDDIT_RUN_MODE` 与 `REDDIT_LIVE_PROVIDER=http|scrapling` 只控制旧 Reddit 功能；不要给旧环境变量填 `arctic_shift`，也不要同时开启旧抓取调度来代替新来源 worker。
 
-`research:export:reddit` 与 `research:export:reddit-search` 等现有导出工具仍依赖旧路径，真实采集可用性待恢复。所有生成结果归入 `output/`；旧 provider 对比和 promotion 工具的报告放 `output/provider-reports/`，没有新报告时无法生成 promotion 计划。
+公共内容导出使用 `/content` 的 JSON/CSV 下载（每文件最多 2000，支持 nextCursor 续导出），记录过滤范围、总分母、条数和截断；CSV 首行 export_metadata，随后字段表头/记录，数字内容 ID 作为文本、来源文本防公式执行。并发采集时统计与续页可变化，当前不是冻结 SQL 快照。旧 `research:export:reddit` 与 `research:export:reddit-search` 仍依赖旧模型。所有生成结果归入 `output/`。
 
 ## Windows 本地独立 Git 工作区
 
@@ -71,15 +71,22 @@ git diff -- path/to/file
 | --- | --- |
 | `GET /v1/sources` | 已保存来源与实际 provider 能力 |
 | `POST /v1/sources` | 创建/更新同一目标的来源标签 |
+| `PATCH /v1/sources/:id`、`POST .../pause/resume/archive` | 标签、分组、周期/成熟刷新设置和来源生命周期；目标身份固定 |
 | `POST /v1/sources/:id/collect` | 提交有界采集，返回 202 与任务 |
 | `GET /v1/source-jobs/:id` | 状态、计数、checkpoint、覆盖及错误 |
+| `GET /v1/source-jobs`、`POST /v1/source-jobs/:id/cancel` | 按来源/状态查看任务、取消并使旧租约 token 失效 |
 | `POST /v1/source-jobs/:id/retry`、`/continue` | 重试失败任务或从有界完成任务的 checkpoint 继续 |
 | `GET /v1/content` | 按 platform/provider/sourceId/kind/query/from/to/limit/cursor 查询已落库内容 |
 | `GET /v1/content/stats` | 相同过滤范围的总数、类型分布与 UTC 日计数 |
+| `GET /v1/content/workbench` | 同范围唯一总数/类型/日桶/平台/provider；provider 计数允许重叠，不相加 |
+| `GET /v1/content/export?format=json\|csv&maxItems=2000` | 有界导出、完整元数据与续页；viewer 可以读取和导出 |
+| `GET /v1/source-ops`、`PUT /v1/source-provider-budgets/:provider` | 队列/worker 心跳/独立时间年龄，以及每日/月度预算 |
 
 所有这些端点要求登录 session 或有效 bearer；写入要求 admin/owner，bearer 沿用 machine 权限。查询不会触发外部网络。`from` 含、`to` 不含，使用 ISO 时间；列表 cursor 绑定过滤条件，修改过滤后不能复用。查询量以已采集内容为分母，未知发布时间不进入日桶。详细请求/响应类型由 [共享契约](../packages/contracts/src/source-content.ts) 定义。
 
-限流、暂时传输错误与部分 422 超时每页最多自动尝试三次；403 等授权错误直接失败。逐页提交后保留 checkpoint，进程异常退出后两分钟租约可回收。当前 worker 只消费手动提交的任务，尚未实现按小时自动创建新窗口或成熟指标自动刷新；不能据此承诺 12 小时新鲜度。
+限流、暂时传输错误与部分 422 超时每页最多自动尝试三次；403 等授权错误直接失败。逐页提交保留 checkpoint，异常退出两分钟租约可回收。来源设置默认关闭自动任务；启用后按持久化 nextDueAt 创建增量窗口，重叠去重、最长窗口有界，未耗尽窗口通过 checkpoint 子任务继续；暂停/归档取消活动任务。自动成熟刷新只对支持 ID 刷新的 archive provider（Arctic Shift/Demo Reddit）启用，默认发布 36 小时后、最少 12 小时间隔、最多 3 次，缺失 ID 不当成已删除。snapshot 的 X ID 刷新只保留 adapter 能力，本轮不提供自动指标刷新。
+
+预算每日/月度以 UTC 计；requests 包含每次重试尝试，resources 为 pageSize/固定上游页界限或刷新 ID 数的保守预留，不是账单。未知请求结果保留预留。付费 provider 默认禁用且四个上限为 0；授权角色提高预算后会唤醒预算阻塞的任务。网络能力关闭时不会持续生成新的周期失败任务，已有手动任务保留明确错误。worker 心跳、最近成功年龄、最新已存发布时间年龄分开展示，不能承诺上游实际 12 小时新鲜度。
 
 ## 验证
 

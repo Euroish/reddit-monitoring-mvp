@@ -10,9 +10,13 @@ export class ApiError extends Error {
 
 export const UNAUTHORIZED_EVENT = 'api:unauthorized';
 
+export function resolveApiPath(path: string): string {
+  return path.startsWith('/api/') ? path : `/api${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   // Use /api/ prefix as configured in vite proxy, or directly if hosted on the same origin later
-  const url = path.startsWith('/api/') ? path : `/api${path.startsWith('/') ? path : `/${path}`}`;
+  const url = resolveApiPath(path);
   
   const response = await fetch(url, {
     ...options,

@@ -14,6 +14,8 @@ export interface ContentProvider {
   readonly capability: SourceCapability;
   normalizeTarget(target: SourceTarget, kind: PublicContentKind): SourceTarget;
   collectPage(request: CollectContentPageRequest): Promise<CollectedPage>;
+  /** A bounded lookup of existing IDs, independent of time/search pagination. */
+  refreshIds?(request: { source: CollectionSource; externalIds: string[]; signal?: AbortSignal }): Promise<CollectedPage>;
 }
 export class ContentProviderError extends Error {
   constructor(message: string, public readonly retryable: boolean, public readonly retryAfterSeconds = 30, public readonly httpStatus?: number) { super(message); }
