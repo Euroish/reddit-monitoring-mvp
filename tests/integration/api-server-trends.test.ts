@@ -347,7 +347,7 @@ test("api server returns target workbench contract from materialized read models
       cohortMedianCommentVelocity: 5,
       velocityZScore: 2.2,
       driverScore: 88,
-      algorithmVersion: "post_growth_v1",
+      algorithmVersion: "post_growth_v2_observation_delta",
       explainPayload: {},
     },
   ]);
@@ -1582,7 +1582,7 @@ test("api server returns market workbench leaders, breakouts, and anomalies", as
       cohortMedianCommentVelocity: 4,
       velocityZScore: 3.2,
       driverScore: 97,
-      algorithmVersion: "post_growth_v1",
+      algorithmVersion: "post_growth_v2_observation_delta",
       explainPayload: {},
     },
     {
@@ -1600,7 +1600,7 @@ test("api server returns market workbench leaders, breakouts, and anomalies", as
       cohortMedianCommentVelocity: 3,
       velocityZScore: 1.8,
       driverScore: 78,
-      algorithmVersion: "post_growth_v1",
+      algorithmVersion: "post_growth_v2_observation_delta",
       explainPayload: {},
     },
   ]);
@@ -1789,7 +1789,7 @@ test("api server returns subreddit driver posts from persisted growth facts", as
       cohortMedianCommentVelocity: 10.4,
       velocityZScore: 1.4,
       driverScore: 71,
-      algorithmVersion: "post_growth_v1",
+      algorithmVersion: "post_growth_v2_observation_delta",
       explainPayload: {
         cohort: {
           ageBucket: "6h",
@@ -1811,7 +1811,7 @@ test("api server returns subreddit driver posts from persisted growth facts", as
       cohortMedianCommentVelocity: 18,
       velocityZScore: 2.2,
       driverScore: 83,
-      algorithmVersion: "post_growth_v1",
+      algorithmVersion: "post_growth_v2_observation_delta",
       explainPayload: {
         normalized: {
           velocityZScore: 2.2,
@@ -1833,7 +1833,7 @@ test("api server returns subreddit driver posts from persisted growth facts", as
       cohortMedianCommentVelocity: 18,
       velocityZScore: 2.8,
       driverScore: 92,
-      algorithmVersion: "post_growth_v1",
+      algorithmVersion: "post_growth_v2_observation_delta",
       explainPayload: {
         normalized: {
           velocityZScore: 2.8,

@@ -85,7 +85,7 @@ test("buildAnomalyEventsJob materializes volume/quality/keyword/driver events fr
       cohortMedianCommentVelocity: 40,
       velocityZScore: 3.4,
       driverScore: 91.2,
-      algorithmVersion: "post_growth_v1",
+      algorithmVersion: "post_growth_v2_observation_delta",
       explainPayload: {},
     },
   ]);

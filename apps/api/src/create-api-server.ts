@@ -154,6 +154,7 @@ import {
 } from "./auth-cookie";
 import { canUseOpsWrite, resolveSessionActor, type ApiActor } from "./auth-guard";
 import { handleSourceContentRoute, matchSourceContentRoute } from "./source-content-routes";
+import { isAllowedSavedViewRoute } from "./saved-view-route";
 import type { SourceContentService } from "../../../src/application/services/source-content.service";
 
 const MAX_JSON_BODY_BYTES = 1_048_576;
@@ -1093,14 +1094,20 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
     const respond = (args: {
       statusCode: number;
-      body: unknown;
+      body?: unknown;
+      headers?: Record<string, string>;
+      rawBody?: string;
       level?: ApiLogLevel;
       targetId?: string;
       canonicalName?: string;
       mode?: RunMode;
       errorCode?: string;
     }): void => {
-      sendJson(res, args.statusCode, args.body);
+      for (const [key, value] of Object.entries(args.headers ?? {})) res.setHeader(key, value);
+      if (args.rawBody !== undefined) {
+        res.statusCode = args.statusCode;
+        res.end(args.rawBody);
+      } else sendJson(res, args.statusCode, args.body);
       logger({
         level: args.level ?? (args.statusCode >= 500 ? "error" : "info"),
         event: "api.request.completed",
@@ -1307,7 +1314,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
       }
 
       if (sourceContentRoute) {
-        const body = req.method === "POST" ? await readJsonBody<unknown>(req) : undefined;
+        const body = ["POST", "PATCH", "PUT"].includes(req.method ?? "") ? await readJsonBody<unknown>(req) : undefined;
         const result = await handleSourceContentRoute({ method: req.method ?? "GET", url, body, requestId, service: options.sourceContent });
         respond(result);
         return;
@@ -2903,7 +2910,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             Array.isArray(body.seriesIds) ? body.seriesIds.join(",") : null,
           );
           const routePath = typeof body.routePath === "string" ? body.routePath.trim() : "";
-          if (!routePath.startsWith("/target/") || routePath.length > 400) {
+          if (!isAllowedSavedViewRoute(routePath, body.viewKind)) {
             throw new BadRequestError("invalid routePath", "invalid_request_body");
           }
           const nowIso = now();

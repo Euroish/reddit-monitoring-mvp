@@ -20,4 +20,6 @@ export interface RedditNewPostsJobPayload {
   samplingTier?: RedditSamplingTier;
   providerHint?: string;
   candidateFilter?: RedditPostCandidateFilterConfig;
+  /** Discovery listings are optional and never counted as total-eligible new posts. */
+  includeDiscoveryListings?: boolean;
 }

@@ -67,6 +67,12 @@ test("live refresh advances keyword query to live_refreshing and writes 5m summa
   assert.equal(record.session.supportCount >= 2, true);
   assert.equal(record.samples.some((sample) => sample.sourceType === "live"), true);
   assert.equal(record.pulsePoints5m.some((point) => point.sourceType === "live"), true);
+  assert.equal(record.session.supportCount, 2);
+  assert.equal(record.session.mentionRate, 1);
+  assert.equal(record.pulsePoints5m.find((point) => point.sourceType === "live")?.mentionRate, 1);
+  await runKeywordQueryLiveRefreshCycle({ nowIso: "2026-04-12T12:04:45.000Z", keywordQuerySessionRepository, postSearchDocumentRepository });
+  const replayed = await keywordQuerySessionRepository.findById(created.session.id, 10);
+  assert.equal(replayed?.session.supportCount, 2, "replaying a bucket must not count the same content twice");
 });
 
 test("live refresh completes query after configured live window", async () => {

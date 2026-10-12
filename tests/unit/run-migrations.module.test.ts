@@ -23,7 +23,7 @@ test("run-migrations module import is side-effect free", async () => {
   }
 });
 
-test("runMigrations executes migration SQL directly before recording schema_migration", async () => {
+test("runMigrations locks a pinned transaction and records DDL atomically", async () => {
   const schemaDir = await mkdtemp(join(tmpdir(), "run-migrations-"));
   const sql = ["BEGIN;", "CREATE TABLE demo (id INTEGER);", "COMMIT;"].join("\n");
 
@@ -41,6 +41,7 @@ test("runMigrations executes migration SQL directly before recording schema_migr
     }
 
     public async close(): Promise<void> {}
+    public async withTransaction<T>(fn: (client: FakeDb) => Promise<T>): Promise<T> { return fn(this); }
   }
 
   const db = new FakeDb();
@@ -54,12 +55,14 @@ test("runMigrations executes migration SQL directly before recording schema_migr
     });
 
     assert.deepEqual(applied, ["001_demo.sql"]);
-    assert.equal(db.calls.length, 4);
-    assert.match(db.calls[0].text, /CREATE TABLE IF NOT EXISTS schema_migration/);
-    assert.match(db.calls[1].text, /SELECT filename, checksum FROM schema_migration/);
-    assert.equal(db.calls[2].text, `${sql}\n`);
-    assert.match(db.calls[3].text, /INSERT INTO schema_migration/);
-    assert.deepEqual(db.calls[3].params?.[0], "001_demo.sql");
+    assert.equal(db.calls.length, 5);
+    assert.match(db.calls[0].text, /pg_advisory_xact_lock/);
+    assert.match(db.calls[1].text, /CREATE TABLE IF NOT EXISTS schema_migration/);
+    assert.match(db.calls[2].text, /SELECT filename, checksum FROM schema_migration/);
+    assert.match(db.calls[3].text, /CREATE TABLE demo/);
+    assert.doesNotMatch(db.calls[3].text, /BEGIN;|COMMIT;/);
+    assert.match(db.calls[4].text, /INSERT INTO schema_migration/);
+    assert.deepEqual(db.calls[4].params?.[0], "001_demo.sql");
   } finally {
     await rm(schemaDir, { recursive: true, force: true });
   }

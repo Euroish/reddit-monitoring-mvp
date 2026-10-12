@@ -1,3 +1,4 @@
+import "../../../src/runtime/load-local-env";
 import {
   createPostgresPhase1Runtime,
 } from "../../../src/runtime/reddit-phase1-runtime";
@@ -60,9 +61,10 @@ const server = createApiServer({
   },
 });
 
-server.listen(port, () => {
+const host = process.env.API_HOST ?? "0.0.0.0";
+server.listen(port, host, () => {
   // eslint-disable-next-line no-console
-  console.log(`API listening on http://localhost:${port}`);
+  console.log(`API listening on http://${host}:${port}`);
 });
 
 async function closeGracefully(): Promise<void> {

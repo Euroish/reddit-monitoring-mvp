@@ -15,10 +15,10 @@ export interface DailyQualityThresholdResult {
 const FIXED_QUALIFIED_SCORE_THRESHOLD = 20;
 const FIXED_QUALIFIED_COMMENT_THRESHOLD = 20;
 const TIER_BASE_THRESHOLDS: Record<SubredditTier, { score: number; comments: number }> = {
-  micro: { score: 4, comments: 2 },
-  small: { score: 8, comments: 3 },
-  mid: { score: 14, comments: 5 },
-  large: { score: 18, comments: 7 },
+  micro: { score: 8, comments: 3 },
+  small: { score: 15, comments: 5 },
+  mid: { score: 25, comments: 8 },
+  large: { score: 30, comments: 10 },
 };
 
 export function resolveDailyQualityThreshold(args: {

@@ -17,7 +17,7 @@ import type { WorkbenchChartModel, WorkbenchChartSeries } from '../model/chartOp
 
 type ChartPoint = {
   time: Time;
-  value: number;
+  value?: number;
 };
 
 type HoverRow = {
@@ -75,15 +75,11 @@ function toChartTime(value: string, offsetHours = 0): Time {
 }
 
 function pointData(series: WorkbenchChartSeries, dates: string[]): ChartPoint[] {
-  return series.values
-    .map((value, index) => {
-      if (value == null || !Number.isFinite(value)) return null;
-      return {
-        time: toChartTime(dates[index]!, series.barOffsetHours),
-        value,
-      };
-    })
-    .filter((point): point is ChartPoint => point != null);
+  return dates.map((date, index) => {
+    const time = toChartTime(date, series.barOffsetHours);
+    const value = series.values[index];
+    return value != null && Number.isFinite(value) ? { time, value } : { time };
+  });
 }
 
 function legendSwatchStyle(series: WorkbenchChartSeries) {
@@ -96,9 +92,11 @@ export function WorkbenchChart({ option }: { option: WorkbenchChartModel }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<Map<string, ISeriesApi<SeriesType>>>(new Map());
-  const optionSeriesRef = useRef<WorkbenchChartSeries[]>(option.series);
-  const [hoverTime, setHoverTime] = useState<Time | undefined>();
-  const [hoverRows, setHoverRows] = useState<HoverRow[]>([]);
+  const optionRef = useRef(option);
+  const [hover, setHover] = useState<{ model: WorkbenchChartModel; time: Time; rows: HoverRow[] } | null>(null);
+  const hasData = option.dates.length > 0 && option.series.some((series) =>
+    series.values.some((value) => value != null && Number.isFinite(value)),
+  );
 
   const latestRows = useMemo<HoverRow[]>(() => {
     return option.series.map((series) => {
@@ -113,12 +111,12 @@ export function WorkbenchChart({ option }: { option: WorkbenchChartModel }) {
   }, [option.series]);
 
   useEffect(() => {
-    optionSeriesRef.current = option.series;
-  }, [option.series]);
+    optionRef.current = option;
+  }, [option]);
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || chartRef.current) return;
+    if (!hasData || !container || chartRef.current) return;
 
     const chart = createChart(container, {
       autoSize: true,
@@ -182,12 +180,11 @@ export function WorkbenchChart({ option }: { option: WorkbenchChartModel }) {
 
     chart.subscribeCrosshairMove((param: MouseEventParams<Time>) => {
       if (!param.time) {
-        setHoverTime(undefined);
-        setHoverRows([]);
+        setHover(null);
         return;
       }
 
-      const rows = optionSeriesRef.current.map((series) => {
+      const rows = optionRef.current.series.map((series) => {
         const api = seriesRef.current.get(series.id);
         const datum = api ? param.seriesData.get(api) : undefined;
         const value = datum && 'value' in datum && typeof datum.value === 'number' ? datum.value : null;
@@ -199,8 +196,7 @@ export function WorkbenchChart({ option }: { option: WorkbenchChartModel }) {
         };
       });
 
-      setHoverTime(param.time);
-      setHoverRows(rows);
+      setHover({ model: optionRef.current, time: param.time, rows });
     });
 
     chartRef.current = chart;
@@ -210,7 +206,7 @@ export function WorkbenchChart({ option }: { option: WorkbenchChartModel }) {
       chartRef.current = null;
       mountedSeries.clear();
     };
-  }, []);
+  }, [hasData]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -252,9 +248,9 @@ export function WorkbenchChart({ option }: { option: WorkbenchChartModel }) {
     });
 
     chart.timeScale().fitContent();
-  }, [option]);
+  }, [hasData, option]);
 
-  if (!option.dates.length || !option.series.length) {
+  if (!hasData) {
     return (
       <div className="workbench-chart-empty">
         No chart data.
@@ -262,14 +258,15 @@ export function WorkbenchChart({ option }: { option: WorkbenchChartModel }) {
     );
   }
 
-  const visibleRows = hoverRows.length > 0 ? hoverRows : latestRows;
+  const currentHover = hover?.model === option ? hover : null;
+  const visibleRows = currentHover?.rows ?? latestRows;
 
   return (
     <div className="workbench-chart">
       <div className="workbench-chart-meta">
         <div>
           <div className="workbench-chart-kicker">Interactive trend surface</div>
-          <div className="workbench-chart-date">{hoverTime ? formatDateLabel(hoverTime) : 'Latest captured point'}</div>
+          <div className="workbench-chart-date">{currentHover ? formatDateLabel(currentHover.time) : 'Latest captured point'}</div>
         </div>
         <div className="workbench-chart-legend">
           {option.series.map((series) => (

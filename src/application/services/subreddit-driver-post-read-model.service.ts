@@ -36,6 +36,9 @@ export function buildSubredditDriverPostReadModel(args: {
   const contentById = new Map(args.contents.map((content) => [content.id, content] as const));
   const rows: DriverPostReadModelItem[] = [];
   for (const fact of args.facts) {
+    // Retain historical facts in storage, but never present the old score/age proxy
+    // as a measured rate of change.
+    if (fact.algorithmVersion !== "post_growth_v2_observation_delta") continue;
     const content = contentById.get(fact.contentId);
     if (!content) {
       continue;

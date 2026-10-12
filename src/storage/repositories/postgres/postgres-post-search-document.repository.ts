@@ -1,5 +1,6 @@
 import type { PostSearchDocument } from "../../../domain/entities/post-search-document";
-import type { PostSearchDocumentRepository } from "../../../domain/repositories/post-search-document-repository";
+import type { PostSearchDocumentRepository, PostSearchSummary, SummarizePostSearchInput } from "../../../domain/repositories/post-search-document-repository";
+import { normalizeSearchTerm, postgresSearchTermPattern } from "../../../shared/text/search-terms";
 import type { SqlQueryable } from "../../postgres/postgres-client";
 import {
   buildSearchText,
@@ -89,6 +90,15 @@ export class PostgresPostSearchDocumentRepository
       FROM content c
       INNER JOIN monitor_target t
         ON t.id = c.target_id
+      INNER JOIN source s ON s.id = c.source_id
+      LEFT JOIN post_search_document indexed ON indexed.content_id = c.id
+      WHERE s.code = 'reddit' AND c.kind = 'post'
+        AND c.title IS NOT NULL AND c.permalink IS NOT NULL AND c.created_at_source IS NOT NULL
+        AND (indexed.content_id IS NULL OR
+          (indexed.target_id, indexed.canonical_subreddit, indexed.title, indexed.body_snippet, indexed.permalink, indexed.created_at_source, indexed.search_text)
+          IS DISTINCT FROM
+          (c.target_id, t.canonical_name, c.title, LEFT(c.body_text, ${SEARCH_BODY_SNIPPET_MAX_CHARS}), c.permalink, c.created_at_source,
+           LOWER(CONCAT_WS(' ', c.title, LEFT(COALESCE(c.body_text, ''), ${SEARCH_BODY_SNIPPET_MAX_CHARS})))))
       ORDER BY c.created_at_source DESC
       LIMIT $1
       ON CONFLICT (content_id)
@@ -128,6 +138,59 @@ export class PostgresPostSearchDocumentRepository
     );
 
     return Number(result.rows[0]?.count ?? 0);
+  }
+
+  public async summarizeSearch(args: SummarizePostSearchInput): Promise<PostSearchSummary> {
+    const values: unknown[] = [
+      args.tokens.map(postgresSearchTermPattern),
+      (args.negativeTokens ?? []).map(postgresSearchTermPattern),
+      args.tokens.map(normalizeSearchTerm),
+      args.canonicalSubreddit ?? null,
+      args.createdAtFrom ?? null,
+      args.createdAtTo ?? null,
+      args.sampleLimit,
+    ];
+    const result = await this.db.query<{
+      total_scope_docs: number | string; candidate_count: number | string;
+      support_count: number | string; qualified_count: number | string;
+      documents: PostSearchDocumentRow[];
+    }>(`
+      WITH scope AS MATERIALIZED (
+        SELECT d.*, LOWER(normalize(CONCAT_WS(' ', d.title, d.body_snippet), NFKC)) AS haystack
+        FROM post_search_document d
+        WHERE ($4::text IS NULL OR d.canonical_subreddit = $4)
+          AND ($5::timestamptz IS NULL OR d.created_at_source >= $5)
+          AND ($6::timestamptz IS NULL OR d.created_at_source < $6)
+      ), scored AS MATERIALIZED (
+        SELECT scope.*,
+          (SELECT COUNT(*) FROM unnest($1::text[]) AS token(pattern) WHERE haystack ~ token.pattern) AS match_score,
+          EXISTS(SELECT 1 FROM unnest($3::text[]) AS token(term) WHERE STRPOS(haystack, token.term) > 0) AS candidate
+        FROM scope
+      ), matched AS MATERIALIZED (
+        SELECT * FROM scored
+        WHERE match_score > 0
+          AND NOT EXISTS(SELECT 1 FROM unnest($2::text[]) AS token(pattern) WHERE haystack ~ token.pattern)
+      ), samples AS (
+        SELECT content_id, target_id, canonical_subreddit, title, body_snippet, permalink,
+               created_at_source, match_score
+        FROM matched
+        ORDER BY match_score DESC, created_at_source DESC, content_id ASC LIMIT $7
+      )
+      SELECT
+        (SELECT COUNT(*) FROM scope) AS total_scope_docs,
+        GREATEST((SELECT COUNT(*) FROM scored WHERE candidate), (SELECT COUNT(*) FROM matched)) AS candidate_count,
+        (SELECT COUNT(*) FROM matched) AS support_count,
+        (SELECT COUNT(*) FROM matched WHERE CHAR_LENGTH(TRIM(title)) >= 20 AND CHAR_LENGTH(TRIM(COALESCE(body_snippet, ''))) >= 40) AS qualified_count,
+        COALESCE((SELECT json_agg(samples) FROM samples), '[]'::json) AS documents
+      `, values);
+    const row = result.rows[0];
+    return {
+      totalScopeDocs: Number(row?.total_scope_docs ?? 0),
+      candidateCount: Number(row?.candidate_count ?? 0),
+      supportCount: Number(row?.support_count ?? 0),
+      qualifiedCount: Number(row?.qualified_count ?? 0),
+      documents: (row?.documents ?? []).map(mapPostSearchDocument),
+    };
   }
 
   public async search(args: {

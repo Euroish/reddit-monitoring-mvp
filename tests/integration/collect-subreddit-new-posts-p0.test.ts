@@ -22,6 +22,7 @@ import {
   InMemoryCrawlCursorRepository,
   InMemoryMetricsSnapshotRepository,
   InMemoryPostEngagementRepository,
+  InMemoryPostSearchDocumentRepository,
   InMemoryProviderHealthWindowRepository,
   InMemoryRawEventRepository,
 } from "../../src/storage/repositories/in-memory/in-memory.repositories";
@@ -36,6 +37,7 @@ process.env.REDDIT_LIVE_WINDOW_OVERLAP_MINUTES ??= "0";
 class ScriptedPostsConnector implements RedditConnector {
   public readonly sourceCode = "reddit" as const;
   public readonly seenAfter: Array<string | undefined> = [];
+  public readonly seenListings: Array<string | undefined> = [];
   private callIndex = 0;
 
   constructor(
@@ -66,6 +68,7 @@ class ScriptedPostsConnector implements RedditConnector {
     ctx: ConnectorRequestContext,
   ): Promise<ConnectorPage<RedditListingPayload<RedditPostData>>> {
     this.seenAfter.push(args.after);
+    this.seenListings.push(args.listing);
     const current = this.script[Math.min(this.callIndex, this.script.length - 1)];
     this.callIndex += 1;
     return {
@@ -96,6 +99,24 @@ class ScriptedPostsConnector implements RedditConnector {
     return true;
   }
 }
+
+test("legacy discovery listings require explicit opt-in, preserve volume provenance and incrementally index successful content", async () => {
+  const nowIso = "2026-04-10T12:00:00.000Z";
+  const targetId = stableUuidFromString("reddit:target:r/opt_in");
+  const connector = new ScriptedPostsConnector(["head", "hot", "best", "rising", "top"].map((prefix) => ({
+    provider: "http", posts: buildPostsBatch({ subreddit: "opt_in", prefix, count: 1, baseCreatedUtc: Date.parse(nowIso) / 1000 - 60 }),
+  })));
+  const contentRepository = new InMemoryContentRepository();
+  const postSearchDocumentRepository = new InMemoryPostSearchDocumentRepository();
+  await collectSubredditNewPostsJob({ redditConnector: connector, redditMapper: new DefaultRedditMapper(), collectionJobRepository: new InMemoryCollectionJobRepository(), rawEventRepository: new InMemoryRawEventRepository(), accountRepository: new InMemoryAccountRepository(), contentRepository, metricsSnapshotRepository: new InMemoryMetricsSnapshotRepository(), postSearchDocumentRepository }, {
+    targetId, subreddit: "opt_in", nowIso, mode: "live", limit: 5, includeDiscoveryListings: true,
+  });
+  assert.deepEqual(connector.seenListings, ["new", "hot", "best", "rising", "top"]);
+  assert.equal(contentRepository.all().length, 5);
+  assert.equal(contentRepository.all().filter((row) => row.totalEligible).length, 1);
+  assert.equal(contentRepository.all().filter((row) => row.discoverySource === "hot_listing").length, 1);
+  assert.equal((await postSearchDocumentRepository.summarizeSearch({ tokens: ["head", "hot", "best", "rising", "top"], sampleLimit: 2 })).supportCount, 5);
+});
 
 function buildPostsBatch(args: {
   subreddit: string;

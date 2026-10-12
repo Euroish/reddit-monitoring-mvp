@@ -23,6 +23,7 @@ import type {
 } from "../domain/repositories/crawl-cursor-repository";
 import type { MetricsSnapshotRepository } from "../domain/repositories/metrics-snapshot-repository";
 import type { PostEngagementRepository } from "../domain/repositories/post-engagement-repository";
+import type { PostSearchDocumentRepository } from "../domain/repositories/post-search-document-repository";
 import type {
   ProviderHealthWindowRepository,
   RecordProviderHealthWindowInput,
@@ -134,6 +135,7 @@ export interface CollectSubredditNewPostsInput extends RedditCollectionJobInput 
   mode?: CrawlMode;
   providerHint?: string;
   candidateFilter?: RedditPostCandidateFilterConfig;
+  includeDiscoveryListings?: boolean;
 }
 
 const BACKFILL_EOF_CURSOR = "__backfill_eof__";
@@ -171,6 +173,7 @@ export interface CollectSubredditNewPostsDependencies {
   contentRepository: ContentRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
   postEngagementRepository?: PostEngagementRepository;
+  postSearchDocumentRepository?: PostSearchDocumentRepository;
   providerHealthWindowRepository?: ProviderHealthWindowRepository;
 }
 
@@ -183,6 +186,7 @@ export interface RunExistingSubredditNewPostsJobInput {
   mode?: CrawlMode;
   providerHint?: string;
   candidateFilter?: RedditPostCandidateFilterConfig;
+  includeDiscoveryListings?: boolean;
 }
 
 export async function enqueueSubredditNewPostsJob(
@@ -236,6 +240,7 @@ export async function enqueueSubredditNewPostsJob(
       samplingTier: input.samplingTier,
       providerHint,
       candidateFilter: input.candidateFilter,
+      includeDiscoveryListings: input.includeDiscoveryListings,
     }),
   };
 
@@ -261,6 +266,7 @@ export async function collectSubredditNewPostsJob(
       mode,
       providerHint,
       candidateFilter: input.candidateFilter,
+      includeDiscoveryListings: input.includeDiscoveryListings,
     });
 }
 
@@ -307,6 +313,7 @@ export async function runExistingSubredditNewPostsJob(
       subreddit: input.subreddit,
       limit: requestedLimit,
       samplingTier,
+      includeDiscoveryListings: input.includeDiscoveryListings ?? payload.includeDiscoveryListings ?? false,
       after: input.job.cursor,
       mode,
       providerHint,
@@ -340,6 +347,7 @@ export async function runExistingSubredditNewPostsJob(
     await applyPersistencePlan(deps, {
       targetId: input.job.targetId,
       collectionJobId: input.job.id,
+      canonicalSubreddit: `r/${input.subreddit.replace(/^r\//i, "").toLowerCase()}`,
       plan,
     });
     logProviderObservability({
@@ -749,6 +757,7 @@ async function applyPersistencePlan(
     | "contentRepository"
     | "metricsSnapshotRepository"
     | "postEngagementRepository"
+    | "postSearchDocumentRepository"
     | "providerHealthWindowRepository"
     | "collectionJobRepository"
     | "crawlCursorRepository"
@@ -757,6 +766,7 @@ async function applyPersistencePlan(
     targetId: string;
     collectionJobId: string;
     plan: PersistencePlan;
+    canonicalSubreddit: string;
   },
 ): Promise<void> {
   for (const rawEvent of args.plan.rawEvents) {
@@ -773,6 +783,15 @@ async function applyPersistencePlan(
   }
   if (args.plan.contents.length > 0) {
     await deps.contentRepository.upsertMany(args.plan.contents);
+    await deps.postSearchDocumentRepository?.upsertMany(args.plan.contents.map((row) => ({
+      contentId: row.id,
+      targetId: args.targetId,
+      canonicalSubreddit: args.canonicalSubreddit,
+      title: row.title,
+      bodySnippet: row.bodyText,
+      permalink: row.permalink,
+      createdAtSource: row.createdAtSource,
+    })));
   }
 
   await deps.metricsSnapshotRepository.appendMany(args.plan.snapshots);
@@ -891,6 +910,7 @@ function resolveNewPostsJobPayload(
     samplingTier: toSamplingTier(payload.samplingTier),
     providerHint: typeof payload.providerHint === "string" ? payload.providerHint : undefined,
     candidateFilter,
+    includeDiscoveryListings: payload.includeDiscoveryListings === true,
   };
 }
 
@@ -911,6 +931,9 @@ function toNewPostsJobPayload(input: RedditNewPostsJobPayload): Record<string, u
       minComments: input.candidateFilter.minComments,
       mode: input.candidateFilter.mode === "and" ? "and" : "or",
     };
+  }
+  if (input.includeDiscoveryListings === true) {
+    payload.includeDiscoveryListings = true;
   }
   return Object.keys(payload).length > 0 ? payload : undefined;
 }
@@ -1059,6 +1082,7 @@ async function collectObservedPages(args: {
   subreddit: string;
   limit: number;
   samplingTier?: RedditSamplingTier;
+  includeDiscoveryListings: boolean;
   after?: string;
   mode: CrawlMode;
   providerHint: string;
@@ -1174,7 +1198,7 @@ async function collectObservedPages(args: {
       })),
     );
   }
-  if (args.mode === "live") {
+  if (args.mode === "live" && args.includeDiscoveryListings) {
     pages.push(
       ...(await collectLiveListingSupplementalPages({
         redditConnector: args.redditConnector,

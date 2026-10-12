@@ -1,17 +1,18 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
 import { Badge, Button, Card, Input, Select } from '../components/ui';
 import { WorkbenchChart } from '../features/workbench/components/WorkbenchChart';
 import { buildComparisonChartOptions } from '../features/workbench/model/chartOptions';
-import { normalizeWorkbenchRange, WORKBENCH_RANGE_PRESETS } from '../features/workbench/model/urlState';
+import { normalizeWorkbenchRange, parseWorkbenchSeries, WORKBENCH_RANGE_PRESETS, WORKBENCH_SERIES_IDS } from '../features/workbench/model/urlState';
 import { useLanguage } from '../i18n/LanguageContext';
 import type {
   CreateSavedWorkbenchViewRequest,
   CreateSavedWorkbenchViewResponse,
   MarketTrendResponse,
   TargetComparisonWorkbenchResponse,
+  WorkbenchComparableSeriesId,
 } from '../../../../packages/contracts/src/http';
 
 function parseTargets(value: string) {
@@ -25,10 +26,10 @@ function parseTargets(value: string) {
   );
 }
 
-function buildComparePath(targets: string[], range: string) {
+function buildComparePath(targets: string[], range: string, series: WorkbenchComparableSeriesId[]) {
   const params = new URLSearchParams({
     targets: targets.join(','),
-    series: 'heat_price,total_new_posts',
+    series: series.join(','),
     range,
     timeframe: '1d',
   });
@@ -37,13 +38,24 @@ function buildComparePath(targets: string[], range: string) {
 
 export function Compare() {
   const { t } = useLanguage();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const range = normalizeWorkbenchRange(searchParams.get('range'));
-  const [input, setInput] = useState(searchParams.get('targets') ?? '');
+  const targetSource = searchParams.get('targets') ?? '';
+  const [targetDraft, setTargetDraft] = useState({ source: targetSource, value: targetSource });
+  const input = targetDraft.source === targetSource ? targetDraft.value : targetSource;
   const [viewName, setViewName] = useState('');
   const targets = useMemo(() => parseTargets(searchParams.get('targets') ?? ''), [searchParams]);
   const targetCount = targets.length;
   const canQuery = targetCount >= 2 && targetCount <= 6;
+  const seriesSource = searchParams.get('series');
+  const selectedSeries = useMemo(() => {
+    const parsed = parseWorkbenchSeries(seriesSource);
+    return parsed.length > 0 ? parsed : ['heat_price', 'total_new_posts'] as WorkbenchComparableSeriesId[];
+  }, [seriesSource]);
+  const viewParams = new URLSearchParams({ targets: targets.join(','), range,
+    series: selectedSeries.join(','), timeframe: '1d' });
+  const currentRoute = `/compare?${viewParams.toString()}`;
 
   const { data: marketData } = useQuery({
     queryKey: ['market.overview.compare-picks'],
@@ -51,8 +63,8 @@ export function Compare() {
   });
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['compare.view', range, targets.join(',')],
-    queryFn: () => fetchApi<TargetComparisonWorkbenchResponse>(buildComparePath(targets, range)),
+    queryKey: ['compare.view', range, targets.join(','), selectedSeries.join(',')],
+    queryFn: () => fetchApi<TargetComparisonWorkbenchResponse>(buildComparePath(targets, range, selectedSeries)),
     enabled: canQuery,
   });
 
@@ -62,6 +74,10 @@ export function Compare() {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['saved.views'] });
+      void queryClient.invalidateQueries({ queryKey: ['saved-workbench-views'] });
+    },
   });
 
   const chartOptions = useMemo(() => buildComparisonChartOptions(data), [data]);
@@ -82,7 +98,7 @@ export function Compare() {
     const nextTargets = Array.from(new Set([...targets, canonicalName.replace(/^r\//i, '')])).slice(0, 6);
     const next = new URLSearchParams(searchParams);
     next.set('targets', nextTargets.join(','));
-    setInput(nextTargets.join(','));
+    setTargetDraft({ source: nextTargets.join(','), value: nextTargets.join(',') });
     setSearchParams(next);
   };
 
@@ -100,8 +116,8 @@ export function Compare() {
       primaryTarget: `r/${targets[0]}`,
       compareTargets: targets.slice(1).map((target) => `r/${target}`),
       keywords: [],
-      seriesIds: ['heat_price', 'total_new_posts'],
-      routePath: `${window.location.pathname}${window.location.search}`,
+      seriesIds: selectedSeries,
+      routePath: currentRoute,
     });
   };
 
@@ -118,11 +134,12 @@ export function Compare() {
         <form onSubmit={applyTargets} className="filter-bar">
           <Input
             value={input}
-            onChange={(event) => setInput(event.target.value)}
+            onChange={(event) => setTargetDraft({ source: targetSource, value: event.target.value })}
+            aria-label={t('Compare targets')}
             placeholder="datascience, machinelearning, startups"
-            style={{ minWidth: '320px', flex: 1 }}
+            style={{ minWidth: 'min(320px, 100%)', flex: 1 }}
           />
-          <Select value={range} onChange={(event) => updateRange(event.target.value)} style={{ maxWidth: '160px' }}>
+          <Select aria-label={t('Range')} value={range} onChange={(event) => updateRange(event.target.value)} style={{ maxWidth: '160px' }}>
             {WORKBENCH_RANGE_PRESETS.map((preset) => (
               <option key={preset} value={preset}>{preset}</option>
             ))}
@@ -140,6 +157,25 @@ export function Compare() {
           )}
         </div>
 
+        <fieldset style={{ border: 0, padding: 0, margin: '16px 0 0', minWidth: 0 }}>
+          <legend style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '8px' }}>{t('Series')}</legend>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            {WORKBENCH_SERIES_IDS.map((id) => (
+              <label key={id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                <input type="checkbox" checked={selectedSeries.includes(id)} onChange={() => {
+                  const updated = selectedSeries.includes(id)
+                    ? selectedSeries.filter((item) => item !== id) : [...selectedSeries, id];
+                  if (!updated.length) return;
+                  const next = new URLSearchParams(searchParams);
+                  next.set('series', updated.join(','));
+                  setSearchParams(next);
+                }} />
+                {data?.series.find((series) => series.id === id)?.label ?? t(id.replaceAll('_', ' '))}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
         <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {(marketData?.rankings.byHeat ?? []).slice(0, 6).map((item) => (
             <Button key={item.targetId} type="button" variant="ghost" onClick={() => addTarget(item.canonicalName)}>
@@ -150,7 +186,7 @@ export function Compare() {
       </Card>
 
       {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>{t('Loading comparison...')}</div>}
-      {error && <div style={{ color: '#ff4d4f' }}>{t('Error loading comparison.')}</div>}
+      {error && <div role="alert" style={{ color: '#ff4d4f' }}>{t('Error loading comparison.')} {error.message}</div>}
 
       {data && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -168,7 +204,7 @@ export function Compare() {
                 ))}
               </div>
             </div>
-            <div className="chart-shell">
+            <div className="chart-shell" style={{ height: 'auto' }}>
               <WorkbenchChart option={chartOptions} />
             </div>
           </Card>
@@ -177,15 +213,21 @@ export function Compare() {
             <div className="filter-bar" style={{ marginBottom: '16px' }}>
               <Input
                 value={viewName}
-                onChange={(event) => setViewName(event.target.value)}
+                onChange={(event) => { setViewName(event.target.value); saveView.reset(); }}
+                aria-label={t('Save current comparison')}
                 placeholder={t('Save current comparison')}
                 style={{ maxWidth: '320px' }}
               />
               <Button type="button" variant="primary" onClick={saveCurrentView} disabled={saveView.isPending}>
                 {saveView.isPending ? t('Saving...') : t('Save view')}
               </Button>
-              {saveView.isSuccess && <Badge variant="success">{t('Saved')}</Badge>}
+              {saveView.isSuccess && saveView.variables.routePath === currentRoute && <Badge variant="success">{t('Saved')}</Badge>}
             </div>
+            {saveView.isError && (
+              <div role="alert" style={{ color: '#ff4d4f', fontSize: '13px', marginBottom: '16px' }}>
+                {t('Could not save this view.')} {saveView.error.message}
+              </div>
+            )}
 
             <div className="table-scroll">
               <table className="data-table">

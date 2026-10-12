@@ -46,6 +46,7 @@ import type { KeywordTrendDailyRepository } from "../src/domain/repositories/key
 import type { ProviderHealthWindowRepository } from "../src/domain/repositories/provider-health-window-repository";
 import type { MetricsSnapshotRepository } from "../src/domain/repositories/metrics-snapshot-repository";
 import type { PostEngagementRepository } from "../src/domain/repositories/post-engagement-repository";
+import type { PostSearchDocumentRepository } from "../src/domain/repositories/post-search-document-repository";
 import type { PostGrowthFactRepository } from "../src/domain/repositories/post-growth-fact-repository";
 import type { SubredditDailyFactRepository } from "../src/domain/repositories/subreddit-daily-fact-repository";
 import type { SubredditTrendPointRepository } from "../src/domain/repositories/subreddit-trend-point-repository";
@@ -113,6 +114,7 @@ interface RunnableJobRepositories {
   providerHealthWindowRepository: ProviderHealthWindowRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
   postEngagementRepository?: PostEngagementRepository;
+  postSearchDocumentRepository?: PostSearchDocumentRepository;
   subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditCollectionCoverageRepository?: SubredditCollectionCoverageRepository;
   postGrowthFactRepository?: PostGrowthFactRepository;
@@ -208,6 +210,8 @@ export async function executeRunnableCollectionJobs(args: {
             contentRepository: args.repos.contentRepository,
             providerHealthWindowRepository: args.repos.providerHealthWindowRepository,
             metricsSnapshotRepository: args.repos.metricsSnapshotRepository,
+            postEngagementRepository: args.repos.postEngagementRepository,
+            postSearchDocumentRepository: args.repos.postSearchDocumentRepository,
           },
           {
             job,

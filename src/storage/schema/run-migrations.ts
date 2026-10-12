@@ -27,7 +27,10 @@ export async function runMigrations(options: RunMigrationsOptions = {}): Promise
   const db = options.db ?? new PostgresClient();
   const shouldClose = !options.db;
   try {
-    await db.query(`
+    return await db.withTransaction(async client => {
+    // A pinned connection and transaction lock serialize bootstrap/worker setup.
+    await client.query("SELECT pg_advisory_xact_lock(728419, 1)");
+    await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migration (
         filename TEXT PRIMARY KEY,
         checksum TEXT NOT NULL,
@@ -40,7 +43,7 @@ export async function runMigrations(options: RunMigrationsOptions = {}): Promise
       const sql = await readFile(sqlPath, "utf8");
       const checksum = createHash("sha256").update(sql).digest("hex");
 
-      const existing = await db.query<MigrationRow>(
+      const existing = await client.query<MigrationRow>(
         `SELECT filename, checksum FROM schema_migration WHERE filename = $1`,
         [filename],
       );
@@ -54,20 +57,24 @@ export async function runMigrations(options: RunMigrationsOptions = {}): Promise
         continue;
       }
 
-      await db.query(sql);
-      await db.query(`INSERT INTO schema_migration (filename, checksum) VALUES ($1, $2)`, [
+      // Historical SQL has outer transaction delimiters. Preserve original checksums;
+      // the runner owns the transaction so DDL and the ledger commit together.
+      const transactionalSql = sql.replace(/^BEGIN;\s*$/gmi, "").replace(/^COMMIT;\s*$/gmi, "");
+      await client.query(transactionalSql);
+      await client.query(`INSERT INTO schema_migration (filename, checksum) VALUES ($1, $2)`, [
         filename,
         checksum,
       ]);
       appliedFiles.push(filename);
     }
+    return appliedFiles;
+    });
   } finally {
     if (shouldClose) {
       await db.close();
     }
   }
 
-  return appliedFiles;
 }
 
 async function main(): Promise<void> {

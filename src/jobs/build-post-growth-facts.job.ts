@@ -1,5 +1,5 @@
 import type { Content } from "../domain/entities/content";
-import type { MetricsSnapshot } from "../domain/entities/metrics-snapshot";
+import type { PostEngagementLatest, PostEngagementWindow } from "../domain/entities/post-engagement";
 import type { PostGrowthAgeBucket, PostGrowthFact } from "../domain/entities/post-growth-fact";
 import type { ContentRepository } from "../domain/repositories/content-repository";
 import type { MetricsSnapshotRepository } from "../domain/repositories/metrics-snapshot-repository";
@@ -38,6 +38,10 @@ interface CandidateGrowthRow {
   commentVelocityPerHour: number;
   combinedVelocity: number;
   createdAtSource: string;
+  previousObservedAt: string;
+  previousScore: number;
+  previousComments: number;
+  observationIntervalMinutes: number;
 }
 
 export async function buildPostGrowthFactsJob(
@@ -62,27 +66,26 @@ export async function buildPostGrowthFactsJob(
     limit: 100_000,
   });
   const contentIds = contents.map((content) => content.id);
-  const latestMetricsByContentId = new Map<
-    string,
-    { observedAt: string; score?: number; comments?: number }
-  >();
+  const latestMetricsByContentId = new Map<string, PostEngagementLatest>();
+  let windows: PostEngagementWindow[] = [];
   if (deps.postEngagementRepository && contentIds.length > 0) {
-    const rows = await deps.postEngagementRepository.listLatestByContentIdsInRange({
+    const [rows, observedWindows] = await Promise.all([deps.postEngagementRepository.listLatestByContentIdsInRange({
       contentIds,
       from: input.fromIso,
       to: input.toIso,
-    });
+    }), deps.postEngagementRepository.listWindowedByTargetInRange({
+      targetId: input.targetId,
+      from: new Date(fromDate.getTime() - MAX_AGE_MINUTES * 60 * 1000).toISOString(),
+      to: input.toIso,
+    })]);
+    windows = observedWindows;
     for (const row of rows) {
-      latestMetricsByContentId.set(row.contentId, {
-        observedAt: row.observedAt,
-        score: row.score,
-        comments: row.numComments,
-      });
+      latestMetricsByContentId.set(row.contentId, row);
     }
   }
 
   const contentById = new Map(contents.map((content) => [content.id, content] as const));
-  const candidates = buildCandidates(input.targetId, contentById, latestMetricsByContentId);
+  const candidates = buildCandidates(input.targetId, contentById, latestMetricsByContentId, windows);
   if (candidates.length === 0) {
     return [];
   }
@@ -126,7 +129,7 @@ export async function buildPostGrowthFactsJob(
         cohortMedianCommentVelocity: Number(medianCommentVelocity.toFixed(6)),
         velocityZScore: Number(velocityZScore.toFixed(6)),
         driverScore: Number(driverScore.toFixed(6)),
-        algorithmVersion: "post_growth_v1",
+        algorithmVersion: "post_growth_v2_observation_delta",
         explainPayload: {
           sourceMetrics: {
             createdAtSource: row.createdAtSource,
@@ -134,6 +137,18 @@ export async function buildPostGrowthFactsJob(
             ageMinutes: row.ageMinutes,
             score: row.score,
             comments: row.comments,
+          },
+          measurement: {
+            method: "adjacent_recorded_observation_delta",
+            scope: "stored_reddit_engagement_observations",
+            from: row.previousObservedAt,
+            to: row.observedAt,
+            intervalMinutes: row.observationIntervalMinutes,
+            previousScore: row.previousScore,
+            previousComments: row.previousComments,
+            scoreDelta: row.score - row.previousScore,
+            commentDelta: row.comments - row.previousComments,
+            signedScore: true,
           },
           cohort: {
             ageBucket: bucket,
@@ -168,39 +183,19 @@ export async function buildPostGrowthFactsJob(
   return output;
 }
 
-function resolveLatestMetricsByContentId(
-  snapshots: MetricsSnapshot[],
-): Map<string, { observedAt: string; score?: number; comments?: number }> {
-  const latestByContent = new Map<string, { observedAt: string; score?: number; comments?: number }>();
-
-  for (const snapshot of snapshots) {
-    if (!snapshot.contentId) {
-      continue;
-    }
-    const current = latestByContent.get(snapshot.contentId);
-    if (!current || snapshot.snapshotAt >= current.observedAt) {
-      const next = current
-        ? { ...current, observedAt: snapshot.snapshotAt }
-        : { observedAt: snapshot.snapshotAt };
-      if (snapshot.metricName === "score") {
-        next.score = Number(snapshot.metricValue);
-      }
-      if (snapshot.metricName === "num_comments") {
-        next.comments = Number(snapshot.metricValue);
-      }
-      latestByContent.set(snapshot.contentId, next);
-    }
-  }
-
-  return latestByContent;
-}
-
 function buildCandidates(
   targetId: string,
   contentById: Map<string, Content>,
-  latestMetricsByContentId: Map<string, { observedAt: string; score?: number; comments?: number }>,
+  latestMetricsByContentId: Map<string, PostEngagementLatest>,
+  windows: PostEngagementWindow[],
 ): CandidateGrowthRow[] {
   const rows: CandidateGrowthRow[] = [];
+  const windowsByContent = new Map<string, PostEngagementWindow[]>();
+  for (const window of windows) {
+    const current = windowsByContent.get(window.contentId) ?? [];
+    current.push(window);
+    windowsByContent.set(window.contentId, current);
+  }
   for (const [contentId, metrics] of latestMetricsByContentId.entries()) {
     const content = contentById.get(contentId);
     if (!content) {
@@ -211,11 +206,17 @@ function buildCandidates(
       continue;
     }
     const ageBucket = resolveAgeBucket(ageMinutes);
-    const score = Math.max(0, Math.round(metrics.score ?? 0));
-    const comments = Math.max(0, Math.round(metrics.comments ?? 0));
-    const ageHours = Math.max(ageMinutes / 60, 1 / 60);
-    const scoreVelocityPerHour = score / ageHours;
-    const commentVelocityPerHour = comments / ageHours;
+    const previous = (windowsByContent.get(contentId) ?? [])
+      .filter((row) => row.observedAt < metrics.observedAt && row.observedAt >= content.createdAtSource)
+      .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0];
+    // A single cumulative snapshot or missing metric cannot establish a measured velocity.
+    if (!previous || ![metrics.score, metrics.numComments, previous.score, previous.numComments].every((value) => typeof value === "number" && Number.isFinite(value))) continue;
+    const observationIntervalMinutes = (Date.parse(metrics.observedAt) - Date.parse(previous.observedAt)) / 60_000;
+    if (observationIntervalMinutes <= 0 || observationIntervalMinutes > MAX_AGE_MINUTES) continue;
+    const score = metrics.score!;
+    const comments = metrics.numComments!;
+    const scoreVelocityPerHour = (score - previous.score!) * 60 / observationIntervalMinutes;
+    const commentVelocityPerHour = (comments - previous.numComments!) * 60 / observationIntervalMinutes;
     rows.push({
       targetId,
       contentId,
@@ -229,6 +230,10 @@ function buildCandidates(
       combinedVelocity:
         scoreVelocityPerHour + COMMENT_VELOCITY_WEIGHT * commentVelocityPerHour,
       createdAtSource: content.createdAtSource,
+      previousObservedAt: previous.observedAt,
+      previousScore: previous.score!,
+      previousComments: previous.numComments!,
+      observationIntervalMinutes,
     });
   }
   return rows;

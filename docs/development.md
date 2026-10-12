@@ -11,7 +11,21 @@ npm run docs:check
 npm run typecheck
 ```
 
-数据库流程需要 PostgreSQL 和本地 `DATABASE_URL`。连接池默认每进程 5，`PG_POOL_MAX` 调整池大小；构造参数 `max` 优先于环境变量。环境参考 `deploy/env/`，不把示例密码用于真实环境。现有 API 入口还要求 `API_BEARER_TOKEN`；配置以 `apps/api/src/server.ts` 和 runtime 为准。运行命令不会自动加载 `.env`，需由当前 shell 或进程管理器提供环境变量。
+数据库流程需要 PostgreSQL 和本地 `DATABASE_URL`。连接池默认每进程 5，`PG_POOL_MAX` 调整池大小；构造参数 `max` 优先于环境变量。环境参考 `deploy/env/`，不把示例密码用于真实环境。API 与新来源 worker 在开发模式加载根目录 `.env.local`，已有 shell 变量优先；`LOCAL_ENV_FILE=none` 可关闭加载，生产只加载明确指定的私有文件。迁移/首次 owner CLI 的手动运行需由 shell 提供变量，本地管理工具会传入完整配置。
+
+### Windows 一键本地演示
+
+此入口只启动合成 provider，不请求真实 Reddit、Arctic Shift 或 X。需要完整 PostgreSQL 安装目录中的 `bin`（含 initdb/pg_ctl/postgres，父目录含 share），不自动下载安装。首次 setup 复制运行库到忽略的 `output/local-dev/pgsql`，创建全新 loopback 集群和 `info_workbench_dev`，不会连接旧展示库。已有 `.env.local` 会保留并拒绝自动覆盖。
+
+```powershell
+npm run local:setup -- --pg-bin 'C:\your-postgresql\bin'
+npm run local:start
+npm run local:status
+npm run local:account     # 本机查看合成演示 owner 凭证
+npm run local:stop
+```
+
+setup 自动迁移、创建首位 owner 和有界合成样本；重跑保留数据与账号，并应用新增迁移。start 启动 API、来源 worker、Vite；输出实际 URL。默认端口被占用或保留时选择可绑定端口，配置持久化，不停止其他应用占用的端口。stop 只结束已记录且命令行匹配本仓库的进程，保留数据库和配置。日志、账号和进程记录在 `output/local-dev/`；`.env.local` 已忽略，不提交凭证。正式接入时手动按下面的 provider 配置运行，不把演示指标当真实数据。
 
 ```powershell
 npm run db:migrate
@@ -77,6 +91,8 @@ npm run verify:repo       # 文档、类型、API/Web 构建、compiled smoke
 # 全量测试串行运行
 npm test
 ```
+
+阶段 1 UI 冒烟使用浏览器合成 API 且拦截外网：先启动 Vite，再设置 `SMOKE_WEB_BASE_URL` 后运行 `npm run smoke:workbench`。如本机 Playwright 浏览器未在默认位置，设置 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指向已安装 Chromium；报告在 `output/playwright/`。旧内容搜索索引可显式运行 `npm run ops:backfill:post-search -- --config-only` 核对参数，移除 config-only 后才写库；默认每批 500、最多 10 批，只回填缺失/变化行，正常查询不触发回填。
 
 先跑受影响测试；只有跨层里程碑或实际变更范围需要时才跑全量构建/回归。代码检查通过后，纯文档更新只跑 `docs:check` 与 diff 检查。外部数据解析、幂等/恢复、缺失指标与公共权限边界值得做回归测试；不为内部 getter、纯文字或每种假想状态增加测试矩阵。
 

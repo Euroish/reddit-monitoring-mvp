@@ -1,6 +1,6 @@
 {
   "name": "reddit-monitoring-mvp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Multi-platform information aggregation and visualization, evolving from a Reddit workbench",
   "scripts": {
@@ -56,7 +56,14 @@
     "research:export:reddit-search": "tsx scripts/export-reddit-search-research-dataset.ts",
     "ops:prune:raw-events": "tsx scripts/prune-raw-events.ts",
     "ops:prune:metrics-snapshots": "tsx scripts/prune-metrics-snapshots.ts",
-    "docs:check": "tsx scripts/check-docs.ts"
+    "docs:check": "tsx scripts/check-docs.ts",
+    "smoke:workbench": "tsx scripts/smoke-workbench-functional.ts",
+    "local:start": "node scripts/local-dev.mjs start",
+    "local:stop": "node scripts/local-dev.mjs stop",
+    "local:setup": "node scripts/local-dev.mjs setup",
+    "ops:backfill:post-search": "tsx scripts/backfill-post-search-index.ts",
+    "local:account": "node scripts/local-dev.mjs account",
+    "local:status": "node scripts/local-dev.mjs status"
   },
   "dependencies": {
     "opossum": "^9.0.0",

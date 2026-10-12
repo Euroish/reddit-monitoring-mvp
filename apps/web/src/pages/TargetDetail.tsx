@@ -11,10 +11,12 @@ import {
 } from '../features/workbench/model/chartOptions';
 import {
   buildComparisonPath,
+  buildSavedWorkbenchRoute,
   buildWorkbenchPath,
   normalizeWorkbenchRange,
   parseCompareTargets,
   parseCsvList,
+  parseWorkbenchSeries,
   WORKBENCH_RANGE_PRESETS,
 } from '../features/workbench/model/urlState';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -33,7 +35,6 @@ function formatNumber(value: number | null | undefined, digits = 0) {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: digits }).format(value);
 }
 
-const EMPTY_STRING_SET = new Set<string>();
 type CompositionMode = 'listing' | 'classification' | 'engagement';
 type CompositionSegment = {
   id: string;
@@ -164,14 +165,8 @@ export function TargetDetail() {
   const compare = searchParams.get('compare');
   const [overlayDraft, setOverlayDraft] = useState({ source: keywordSource, value: keywordSource });
   const [compareDraft, setCompareDraft] = useState({ source: compare ?? '', value: compare ?? '' });
-  const [seriesSelection, setSeriesSelection] = useState<{ targetId: string | undefined; values: Set<string> }>({
-    targetId: undefined,
-    values: new Set(),
-  });
-  const [hiddenOverlayState, setHiddenOverlayState] = useState<{ source: string; values: Set<string> }>({
-    source: keywordSource,
-    values: new Set(),
-  });
+  const seriesSource = searchParams.get('series');
+  const hiddenOverlaySource = searchParams.get('hiddenOverlays');
   const [compositionMode, setCompositionMode] = useState<CompositionMode>('listing');
   const [activeCompositionId, setActiveCompositionId] = useState<string | null>(null);
 
@@ -215,26 +210,25 @@ export function TargetDetail() {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['saved-workbench-views'] });
+      void queryClient.invalidateQueries({ queryKey: ['saved.views'] });
     },
   });
 
   const overlayInput = overlayDraft.source === keywordSource ? overlayDraft.value : keywordSource;
   const compareInput = compareDraft.source === (compare ?? '') ? compareDraft.value : compare ?? '';
   const activeSeries = useMemo(
-    () => data && seriesSelection.targetId === data.target.targetId
-      ? seriesSelection.values
+    () => seriesSource !== null
+      ? new Set(parseWorkbenchSeries(seriesSource))
       : createInitialSeriesSelection(data),
-    [data, seriesSelection],
+    [data, seriesSource],
   );
-  const hiddenOverlayIds = hiddenOverlayState.source === keywordSource
-    ? hiddenOverlayState.values
-    : EMPTY_STRING_SET;
+  const hiddenOverlayIds = useMemo(() => new Set(parseCsvList(hiddenOverlaySource)), [hiddenOverlaySource]);
 
   const latestDailyPoint = useMemo(() => {
     if (!data?.series.length) return null;
-    const latestIndex = Math.max(0, data.series[0]?.points.length ?? 0) - 1;
+    const latestDate = data.series.flatMap((series) => series.points.map((point) => point.at)).sort().at(-1);
     const valueFor = (seriesId: string) =>
-      data.series.find((series) => series.id === seriesId)?.points[latestIndex]?.value ?? null;
+      data.series.find((series) => series.id === seriesId)?.points.find((point) => point.at === latestDate)?.value ?? null;
     return {
       heatPrice: valueFor('heat_price'),
       posts: valueFor('total_new_posts'),
@@ -285,35 +279,23 @@ export function TargetDetail() {
   );
 
   const toggleSeries = (seriesId: string) => {
-    setSeriesSelection((current) => {
-      const currentValues = data && current.targetId === data.target.targetId
-        ? current.values
-        : createInitialSeriesSelection(data);
-      const next = new Set(currentValues);
-      if (next.has(seriesId)) {
-        next.delete(seriesId);
-      } else {
-        next.add(seriesId);
-      }
-      return {
-        targetId: data?.target.targetId,
-        values: next.size > 0 ? next : currentValues,
-      };
-    });
+    const selected = new Set(activeSeries);
+    if (selected.has(seriesId)) selected.delete(seriesId);
+    else selected.add(seriesId);
+    if (selected.size === 0) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('series', Array.from(selected).join(','));
+    setSearchParams(next);
   };
 
   const toggleOverlay = (overlayId: string) => {
-    setHiddenOverlayState((current) => {
-      const source = keywordSource;
-      const currentValues = current.source === source ? current.values : new Set<string>();
-      const next = new Set(currentValues);
-      if (next.has(overlayId)) {
-        next.delete(overlayId);
-      } else {
-        next.add(overlayId);
-      }
-      return { source, values: next };
-    });
+    const hidden = new Set(hiddenOverlayIds);
+    if (hidden.has(overlayId)) hidden.delete(overlayId);
+    else hidden.add(overlayId);
+    const next = new URLSearchParams(searchParams);
+    if (hidden.size > 0) next.set('hiddenOverlays', Array.from(hidden).join(','));
+    else next.delete('hiddenOverlays');
+    setSearchParams(next);
   };
 
   const applyKeywordOverlay = (event: React.FormEvent<HTMLFormElement>) => {
@@ -330,6 +312,7 @@ export function TargetDetail() {
       next.delete('keywords');
     }
     setOverlayDraft({ source: normalized, value: normalized });
+    next.delete('hiddenOverlays');
     setSearchParams(next);
   };
 
@@ -337,6 +320,7 @@ export function TargetDetail() {
     setOverlayDraft({ source: '', value: '' });
     const next = new URLSearchParams(searchParams);
     next.delete('keywords');
+    next.delete('hiddenOverlays');
     setSearchParams(next);
   };
 
@@ -396,7 +380,11 @@ export function TargetDetail() {
     if (!data) return;
     const compareTargets = selectedCompareTargets.map((target) => `r/${target}`);
     const keywordList = parseCsvList(keywords);
-    const routePath = `${window.location.pathname}${window.location.search}`;
+    const savedParams = new URLSearchParams(searchParams);
+    savedParams.set('range', range);
+    savedParams.set('timeframe', timeframe);
+    savedParams.set('series', Array.from(activeSeries).join(','));
+    const routePath = `/target/${targetId}?${savedParams.toString()}`;
     saveViewMutation.mutate({
       name: compareTargets.length > 0
         ? `${data.target.canonicalName} comparison`
@@ -407,19 +395,7 @@ export function TargetDetail() {
       keywords: keywordList,
       seriesIds: Array.from(activeSeries)
         .filter((seriesId): seriesId is NonNullable<CreateSavedWorkbenchViewRequest['seriesIds']>[number] =>
-          [
-            'heat_price',
-            'ema_7',
-            'ema_30',
-            'activity_index',
-            'qualified_activity_index',
-            'activity_confidence',
-            'observed_new_posts',
-            'observed_qualified_posts',
-            'total_new_posts',
-            'qualified_post_count',
-          ].includes(seriesId),
-        ),
+          parseWorkbenchSeries(seriesId).length > 0),
       routePath,
     });
   };
@@ -637,7 +613,7 @@ export function TargetDetail() {
                   {savedViews.views.slice(0, 4).map((view) => (
                     <Link
                       key={view.id}
-                      to={view.routePath}
+                      to={buildSavedWorkbenchRoute(view) ?? '/saved'}
                       className="target-chip"
                     >
                       {view.name}

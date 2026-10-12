@@ -3,7 +3,8 @@ import type { Content } from "../../../domain/entities/content";
 import type { PostSearchDocument } from "../../../domain/entities/post-search-document";
 import type { AccountRepository } from "../../../domain/repositories/account-repository";
 import type { ContentRepository } from "../../../domain/repositories/content-repository";
-import type { PostSearchDocumentRepository } from "../../../domain/repositories/post-search-document-repository";
+import type { PostSearchDocumentRepository, PostSearchSummary, SummarizePostSearchInput } from "../../../domain/repositories/post-search-document-repository";
+import { hasAnySearchTermMatch } from "../../../shared/text/search-terms";
 import {
   buildSearchText,
   retainSearchBodySnippet,
@@ -146,6 +147,30 @@ export class InMemoryPostSearchDocumentRepository implements PostSearchDocumentR
 
   public async seedFromContent(_limit: number): Promise<number> {
     return 0;
+  }
+
+  public async summarizeSearch(args: SummarizePostSearchInput): Promise<PostSearchSummary> {
+    const scope = Array.from(this.byContentId.values()).filter((row) =>
+      (!args.canonicalSubreddit || row.canonicalSubreddit === args.canonicalSubreddit) &&
+      (!args.createdAtFrom || row.createdAtSource >= args.createdAtFrom) &&
+      (!args.createdAtTo || row.createdAtSource < args.createdAtTo),
+    );
+    const candidates = scope.filter((row) => args.tokens.some((token) =>
+      `${row.title} ${row.bodySnippet ?? ""}`.toLowerCase().includes(token.toLowerCase()),
+    ));
+    const matches = scope.filter((row) => {
+      const haystack = `${row.title} ${row.bodySnippet ?? ""}`;
+      return hasAnySearchTermMatch(haystack, args.tokens) &&
+        !hasAnySearchTermMatch(haystack, args.negativeTokens ?? []);
+    }).map((row) => ({ ...row, matchScore: args.tokens.filter((token) => hasAnySearchTermMatch(`${row.title} ${row.bodySnippet ?? ""}`, [token])).length }));
+    matches.sort((a, b) => (b.matchScore - a.matchScore) || b.createdAtSource.localeCompare(a.createdAtSource) || a.contentId.localeCompare(b.contentId));
+    return {
+      totalScopeDocs: scope.length,
+      candidateCount: Math.max(candidates.length, matches.length),
+      supportCount: matches.length,
+      qualifiedCount: matches.filter((row) => row.title.trim().length >= 20 && (row.bodySnippet?.trim().length ?? 0) >= 40).length,
+      documents: matches.slice(0, args.sampleLimit),
+    };
   }
 
   public async countByScope(args: { canonicalSubreddit?: string }): Promise<number> {
