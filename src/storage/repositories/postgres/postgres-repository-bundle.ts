@@ -2,6 +2,8 @@ import type { AccountRepository } from "../../../domain/repositories/account-rep
 import type { AppInviteRepository } from "../../../domain/repositories/app-invite-repository";
 import type { AppSessionRepository } from "../../../domain/repositories/app-session-repository";
 import type { AppUserRepository } from "../../../domain/repositories/app-user-repository";
+import type { AppAuditRepository } from "../../../domain/repositories/app-audit-repository";
+import { PostgresAppAuditRepository } from "./postgres-app-audit.repository";
 import type { AnomalyEventRepository } from "../../../domain/repositories/anomaly-event-repository";
 import type { CollectionJobRepository } from "../../../domain/repositories/collection-job-repository";
 import type { ContentRepository } from "../../../domain/repositories/content-repository";
@@ -55,6 +57,7 @@ export interface RepositoryBundle {
   appUserRepository: AppUserRepository;
   appInviteRepository: AppInviteRepository;
   appSessionRepository: AppSessionRepository;
+  appAuditRepository: AppAuditRepository;
   anomalyEventRepository: AnomalyEventRepository;
   contentRepository: ContentRepository;
   keywordTrendDailyRepository: KeywordTrendDailyRepository;
@@ -82,6 +85,7 @@ export function createPostgresRepositoryBundle(db: PostgresClient): RepositoryBu
     appUserRepository: new PostgresAppUserRepository(db),
     appInviteRepository: new PostgresAppInviteRepository(db),
     appSessionRepository: new PostgresAppSessionRepository(db),
+    appAuditRepository: new PostgresAppAuditRepository(db),
     anomalyEventRepository: new PostgresAnomalyEventRepository(db),
     contentRepository: new PostgresContentRepository(db),
     keywordTrendDailyRepository: new PostgresKeywordTrendDailyRepository(db),

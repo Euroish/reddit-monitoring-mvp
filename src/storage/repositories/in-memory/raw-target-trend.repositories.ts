@@ -55,9 +55,9 @@ export class InMemoryMonitorTargetRepository implements MonitorTargetRepository 
   private readonly byCanonicalName = new Map<string, MonitorTarget>();
 
   public async listSubreddits(): Promise<MonitorTarget[]> {
-    return Array.from(this.byCanonicalName.values())
+    return structuredClone(Array.from(this.byCanonicalName.values())
       .filter((target) => target.targetType === "subreddit")
-      .sort((a, b) => a.canonicalName.localeCompare(b.canonicalName));
+      .sort((a, b) => a.canonicalName.localeCompare(b.canonicalName)));
   }
 
   public async findActiveSubreddits(): Promise<MonitorTarget[]> {
@@ -65,25 +65,32 @@ export class InMemoryMonitorTargetRepository implements MonitorTargetRepository 
   }
 
   public async findByCanonicalName(canonicalName: string): Promise<MonitorTarget | null> {
-    return this.byCanonicalName.get(canonicalName) ?? null;
+    return structuredClone(this.byCanonicalName.get(canonicalName) ?? null);
   }
 
   public async findById(targetId: string): Promise<MonitorTarget | null> {
     for (const target of this.byCanonicalName.values()) {
       if (target.id === targetId) {
-        return target;
+        return structuredClone(target);
       }
     }
     return null;
   }
 
   public async upsert(target: MonitorTarget): Promise<MonitorTarget> {
-    this.byCanonicalName.set(target.canonicalName, target);
-    return target;
+    const previous=this.byCanonicalName.get(target.canonicalName),updated={...target,id:previous?.id??target.id,createdAt:previous?.createdAt??target.createdAt,revision:previous?(previous.revision??1)+1:1};
+    this.byCanonicalName.set(target.canonicalName,structuredClone(updated));
+    return structuredClone(updated);
+  }
+
+  public async updateIfRevision(target:MonitorTarget,expectedRevision:number):Promise<MonitorTarget|null> {
+    const previous=this.byCanonicalName.get(target.canonicalName);
+    if(!previous||previous.id!==target.id||previous.source!==target.source||previous.targetType!==target.targetType||(previous.revision??1)!==expectedRevision)return null;
+    const updated={...target,createdAt:previous.createdAt,revision:expectedRevision+1};this.byCanonicalName.set(target.canonicalName,structuredClone(updated));return structuredClone(updated);
   }
 
   public all(): MonitorTarget[] {
-    return Array.from(this.byCanonicalName.values());
+    return structuredClone(Array.from(this.byCanonicalName.values()));
   }
 }
 

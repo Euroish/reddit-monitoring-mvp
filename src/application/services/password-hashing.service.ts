@@ -15,6 +15,9 @@ export class PasswordHashingService {
   }
 
   public async verifyPassword(password: string, passwordHash: string): Promise<boolean> {
+    // Buffer.from(..., "hex") silently truncates malformed input; an empty derived
+    // key can otherwise compare equal for every password. Accept our stored format only.
+    if (passwordHash.length !== 168 || !/^scrypt:[0-9a-f]{32}:[0-9a-f]{128}$/.test(passwordHash)) return false;
     const [algo, saltHex, hashHex] = passwordHash.split(":");
     if (algo !== PASSWORD_ALGO || !saltHex || !hashHex) {
       return false;

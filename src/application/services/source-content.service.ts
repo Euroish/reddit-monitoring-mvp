@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { CollectionSource, ContentPlatform, ContentQuery, CreateCollectionSourceRequest, PublicContentKind, SourceCollectionJob, StartSourceCollectionRequest, UpdateCollectionSourceRequest, SourceJobQuery, SourceProviderBudget, SourceWorkerHeartbeat } from "../../../packages/contracts/src/source-content";
+import type { CollectionSource, ContentPlatform, ContentQuery, CreateCollectionSourceRequest, PublicContentKind, SourceCollectionJob, StartSourceCollectionRequest, UpdateCollectionSourceRequest, SourceJobQuery, SourceProviderBudgetRequest, SourceWorkerHeartbeat } from "../../../packages/contracts/src/source-content";
 import { ContentProviderError, type ContentProvider } from "../../connectors/shared/content-provider.interface";
-import type { SourceContentRepository } from "../../domain/repositories/source-content-repository";
+import { SourceConfigurationConflictError,type SourceContentRepository } from "../../domain/repositories/source-content-repository";
 
 export class SourceContentError extends Error {
   constructor(message: string, public readonly status: 400 | 404 | 409 = 400) { super(message); }
@@ -18,6 +18,7 @@ function integer(value: unknown, fallback: number, max: number): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > max) throw new SourceContentError(`Expected integer from 1 to ${max}`);
   return value;
 }
+function revision(value:unknown,allowZero=false):number|undefined {if(value===undefined)return undefined;if(typeof value!=="number"||!Number.isSafeInteger(value)||value<(allowZero?0:1)||value>2147483646)throw new SourceContentError("Invalid expectedRevision");return value;}
 const kinds: PublicContentKind[] = ["post", "comment", "article", "image", "video"];
 const platforms: ContentPlatform[] = ["reddit", "x", "instagram", "web"];
 
@@ -48,7 +49,8 @@ export class SourceContentService {
   async updateSource(id:string,input:UpdateCollectionSourceRequest) {
     const current=await this.repository.getSource(requireSourceId(id));if(!current)throw new SourceContentError("Source not found",404);
     if(!input||typeof input!=="object"||Array.isArray(input))throw new SourceContentError("Invalid source update");
-    if(Object.keys(input).some(key=>!["label","group","schedule","refresh"].includes(key)))throw new SourceContentError("Only label, group, schedule and refresh can be edited; create a new source for a different identity");
+    if(Object.keys(input).some(key=>!["label","group","schedule","refresh","expectedRevision"].includes(key)))throw new SourceContentError("Only label, group, schedule and refresh can be edited; create a new source for a different identity");
+    revision(input.expectedRevision);
     if(input.label!==undefined&&(typeof input.label!=="string"||!input.label.trim()||input.label.trim().length>100))throw new SourceContentError("Label must contain 1–100 characters");
     if(input.group!==undefined&&input.group!==null&&(typeof input.group!=="string"||input.group.trim().length>100))throw new SourceContentError("Group must be at most 100 characters");
     const checks=[{key:"schedule" as const,settings:input.schedule,limits:{cadenceSeconds:[60,86400],overlapSeconds:[0,86400],initialLookbackHours:[1,8760],maxCatchupHours:[1,168],pageSize:[1,100],maxPages:[1,20],recheckLookbackHours:[0,168],recheckCadenceSeconds:[60,86400]}},{key:"refresh" as const,settings:input.refresh,limits:{afterHours:[1,8760],minIntervalHours:[1,720],maxAttempts:[1,20],batchSize:[1,100]}}];
@@ -59,9 +61,9 @@ export class SourceContentService {
     if(input.refresh?.enabled){const provider=this.providerFor(current.platform,current.provider);if(!provider?.refreshIds)throw new SourceContentError("Provider does not support refresh by IDs");if(provider.capability.observationModel!=="archive")throw new SourceContentError("Automatic maturity refresh supports archive observations only; snapshot ID refresh is an adapter capability, not an automatic schedule");}
     if(input.schedule?.enabled&&!this.providerFor(current.platform,current.provider))throw new SourceContentError("Provider is not enabled for scheduling");
     const changes:UpdateCollectionSourceRequest={...input};if(input.label!==undefined)changes.label=input.label.trim();if(input.group!==undefined)changes.group=input.group===null?null:input.group.trim()||null;
-    return (await this.repository.updateSource(id,changes,this.now()))!;
+    const result=await this.repository.updateSource(id,changes,this.now());if(!result)throw new SourceContentError("Source configuration changed; reload it before retrying",409);return result;
   }
-  async setSourceState(id:string,state:CollectionSource["state"]) {const result=await this.repository.setSourceState(requireSourceId(id),state,this.now());if(!result)throw new SourceContentError("Source not found",404);return result;}
+  async setSourceState(id:string,state:CollectionSource["state"],expectedRevision?:number) {revision(expectedRevision);const result=await this.repository.setSourceState(requireSourceId(id),state,this.now(),expectedRevision);if(!result){if(expectedRevision!==undefined&&await this.repository.getSource(id))throw new SourceContentError("Source configuration changed; reload it before retrying",409);throw new SourceContentError("Source not found",404);}return result;}
 
   async enqueue(sourceId: string, input: StartSourceCollectionRequest = {}): Promise<SourceCollectionJob> {
     requireSourceId(sourceId);
@@ -93,12 +95,13 @@ export class SourceContentService {
   private async requireActiveSource(id:string) {const source=await this.repository.getSource(id);if(!source||source.state!=="active")throw new SourceContentError("Source must be active",409);if(!this.providerFor(source.platform,source.provider))throw new SourceContentError("Provider is not enabled",409);}
   async listJobs(query:SourceJobQuery) {if(query.sourceId)requireSourceId(query.sourceId);if(query.status&&!["queued","running","retrying","succeeded","failed","cancelled"].includes(query.status))throw new SourceContentError("Invalid job status");return this.repository.listJobs({...query,limit:integer(query.limit,50,100)});}
   async cancelJob(id:string) {const result=await this.repository.cancelJob(requireSourceId(id),this.now());if(!result)throw new SourceContentError("Only active jobs can be cancelled",409);return result;}
-  async setProviderBudget(provider:string,input:Omit<SourceProviderBudget,"provider">) {
+  async setProviderBudget(provider:string,input:SourceProviderBudgetRequest) {
     if(!/^[a-z0-9_]{1,60}$/.test(provider)||!this.providers.some(item=>item.capability.provider===provider))throw new SourceContentError("Unknown provider");
-    if(!input||typeof input!=="object"||typeof input.enabled!=="boolean"||Object.keys(input).some(key=>!["enabled","dailyRequests","monthlyRequests","dailyResources","monthlyResources","minimumIntervalMs"].includes(key)))throw new SourceContentError("Invalid provider budget");
+    if(!input||typeof input!=="object"||typeof input.enabled!=="boolean"||Object.keys(input).some(key=>!["enabled","dailyRequests","monthlyRequests","dailyResources","monthlyResources","minimumIntervalMs","expectedRevision"].includes(key)))throw new SourceContentError("Invalid provider budget");
+    revision(input.expectedRevision,true);
     for(const key of ["dailyRequests","monthlyRequests","dailyResources","monthlyResources"] as const)if(typeof input[key]!=="number"||!Number.isInteger(input[key])||input[key]<0||input[key]>100000000)throw new SourceContentError(`Invalid ${key} budget`);
     if(input.minimumIntervalMs!==undefined&&(!Number.isInteger(input.minimumIntervalMs)||input.minimumIntervalMs<0||input.minimumIntervalMs>3600000))throw new SourceContentError("minimumIntervalMs must be 0–3600000");
-    return this.repository.setProviderBudget({...input,provider},this.now());
+    const {expectedRevision,...budget}=input;try{return await this.repository.setProviderBudget({...budget,provider},this.now(),expectedRevision);}catch(error){if(error instanceof SourceConfigurationConflictError)throw new SourceContentError(error.message,409);throw error;}
   }
   async ops() {return this.repository.sourceOps(this.now());}
   async heartbeat(value:Omit<SourceWorkerHeartbeat,"lastHeartbeatAt">) {return this.repository.heartbeat({...value,lastHeartbeatAt:this.now()});}

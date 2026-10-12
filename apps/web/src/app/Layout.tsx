@@ -1,4 +1,5 @@
 
+import { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { Button } from '../components/ui';
@@ -8,7 +9,10 @@ import { RouteErrorBoundary } from './RouteErrorBoundary';
 
 export function Layout() {
   const { user, logout } = useAuth();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const copy = (en: string, zh: string) => language === 'zh-CN' ? zh : en;
+  const [logoutError, setLogoutError] = useState('');
+  const [loggingOut, setLoggingOut] = useState(false);
   const navigate = useNavigate();
   const canAccessOps = user?.role === 'admin' || user?.role === 'owner';
 
@@ -19,12 +23,14 @@ export function Layout() {
     { to: '/queries', label: t('Queries') },
     { to: '/content', label: t('Collected content') },
     { to: '/saved', label: t('Saved') },
+    { to: '/account', label: copy('Account', '账户') },
     { to: '/run', label: t('Run Phase 1') },
   ];
   const opsLinks = [
     { to: '/ops', label: t('Overview') },
     { to: '/ops/storage', label: t('Storage') },
     { to: '/ops/users', label: t('Users') },
+    { to: '/ops/audit', label: copy('Audit', '审计') },
     { to: '/ops/invites', label: t('Invites') },
     { to: '/ops/targets', label: t('Targets') },
     { to: '/ops/collection', label: t('Collection') },
@@ -32,8 +38,10 @@ export function Layout() {
   ];
 
   const handleLogout = async () => {
-    await logout();
-    navigate('/login');
+    setLogoutError(''); setLoggingOut(true);
+    try { await logout(); navigate('/login'); }
+    catch (error) { setLogoutError(error instanceof Error ? error.message : copy('Sign out failed. Retry.', '退出失败，请重试。')); }
+    finally { setLoggingOut(false); }
   };
 
   return (
@@ -52,10 +60,11 @@ export function Layout() {
           <div className="topbar-right">
             <LanguageToggle />
             <span className="topbar-email">{user.email}</span>
-            <Button variant="ghost" onClick={handleLogout}>{t('Logout')}</Button>
+            <Button variant="ghost" onClick={handleLogout} disabled={loggingOut}>{t('Logout')}</Button>
           </div>
         )}
       </header>
+      {logoutError && <p role="alert" style={{ color: '#ff4d4f', padding: '0 24px' }}>{logoutError}</p>}
 
       <div className="app-shell">
         {user && (

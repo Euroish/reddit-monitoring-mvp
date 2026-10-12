@@ -1,17 +1,20 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
 import { Badge, Card } from '../components/ui';
 import { buildSavedWorkbenchRoute } from '../features/workbench/model/urlState';
 import { useLanguage } from '../i18n/LanguageContext';
 import type { ListSavedWorkbenchViewsResponse } from '../../../../packages/contracts/src/http';
 
 export function Saved() {
+  const { user } = useAuth();
   const { language } = useLanguage();
   const copy = (en: string, zh: string) => language === 'zh-CN' ? zh : en;
   const { data, isLoading, error } = useQuery({
-    queryKey: ['saved.views'],
-    queryFn: () => fetchApi<ListSavedWorkbenchViewsResponse>('/v1/workbench/saved-views?limit=50'),
+    queryKey: ['saved.views', user?.id],
+    queryFn: ({ signal }) => fetchApi<ListSavedWorkbenchViewsResponse>('/v1/workbench/saved-views?limit=50', { signal }),
+    enabled: Boolean(user),
   });
 
   return (

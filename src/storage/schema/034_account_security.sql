@@ -1,0 +1,11 @@
+BEGIN;
+ALTER TABLE app_user ADD COLUMN credential_version INTEGER NOT NULL DEFAULT 0 CHECK (credential_version >= 0);
+ALTER TABLE app_session ADD COLUMN credential_version INTEGER NOT NULL DEFAULT 0 CHECK (credential_version >= 0);
+ALTER TABLE app_audit_log ADD COLUMN outcome TEXT NOT NULL DEFAULT 'succeeded' CHECK (outcome IN ('attempted','succeeded','failed'));
+ALTER TABLE app_audit_log ADD COLUMN actor_type TEXT NOT NULL DEFAULT 'session' CHECK (actor_type IN ('session','machine'));
+ALTER TABLE app_audit_log ADD COLUMN request_id TEXT;
+ALTER TABLE app_audit_log ADD COLUMN completed_at TIMESTAMPTZ;
+CREATE INDEX app_audit_log_page_idx ON app_audit_log(created_at DESC,id DESC);
+CREATE INDEX app_audit_log_actor_page_idx ON app_audit_log(actor_user_id,created_at DESC,id DESC);
+CREATE INDEX app_audit_log_outcome_page_idx ON app_audit_log(outcome,created_at DESC,id DESC);
+COMMIT;

@@ -13,5 +13,6 @@ export interface MonitorTarget {
   config: Record<string, unknown>;
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
+  revision?:number;
 }
 

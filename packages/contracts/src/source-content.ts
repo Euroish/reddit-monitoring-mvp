@@ -57,13 +57,16 @@ export interface CollectionSource {
   state: "active" | "paused" | "archived"; group: string | null; updatedAt: string;
   schedule: SourceSchedule; refresh: SourceRefresh; nextDueAt: string | null; incrementalTo: string | null;
   nextRecheckAt?:string|null;
+  /** Configuration revision; worker progress and observations do not change it. */
+  revision?:number;
 }
 export interface CreateCollectionSourceRequest {
   platform: ContentPlatform; provider: string; label?: string; target: SourceTarget; contentKind: PublicContentKind;
 }
 export interface StartSourceCollectionRequest { from?: string; to?: string; pageSize?: number; maxPages?: number }
-export interface UpdateCollectionSourceRequest { label?: string; group?: string | null; schedule?: Partial<SourceSchedule>; refresh?: Partial<SourceRefresh> }
-export interface SourceProviderBudget { provider: string; enabled: boolean; dailyRequests: number; monthlyRequests: number; dailyResources: number; monthlyResources: number; minimumIntervalMs?:number }
+export interface UpdateCollectionSourceRequest { label?: string; group?: string | null; schedule?: Partial<SourceSchedule>; refresh?: Partial<SourceRefresh>; expectedRevision?:number }
+export interface SourceProviderBudget { provider: string; enabled: boolean; dailyRequests: number; monthlyRequests: number; dailyResources: number; monthlyResources: number; minimumIntervalMs?:number; revision?:number }
+export type SourceProviderBudgetRequest=Omit<SourceProviderBudget,"provider"|"revision">&{expectedRevision?:number};
 export interface SourceProviderUsage { provider: string; day: string; month: string; dailyRequests: number; monthlyRequests: number; dailyResources: number; monthlyResources: number; budget: SourceProviderBudget; lastReservationAt?:string|null }
 export interface SourceCollectionJob {
   id: string; sourceId: string; status: "queued" | "running" | "retrying" | "succeeded" | "failed" | "cancelled";

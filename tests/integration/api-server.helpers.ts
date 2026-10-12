@@ -1,5 +1,6 @@
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { InMemoryAppAuditRepository } from "../../src/storage/repositories/in-memory/app-audit.repository";
 import {
   InMemoryAccountRepository,
   InMemoryAppInviteRepository,
@@ -45,7 +46,8 @@ export function createApiTestRepositories() {
     accountRepository: new InMemoryAccountRepository(),
     appUserRepository,
     appInviteRepository,
-    appSessionRepository: new InMemoryAppSessionRepository(),
+    appSessionRepository: new InMemoryAppSessionRepository(appUserRepository),
+    appAuditRepository: new InMemoryAppAuditRepository(),
     anomalyEventRepository: new InMemoryAnomalyEventRepository(),
     contentRepository: new InMemoryContentRepository(),
     keywordTrendDailyRepository: new InMemoryKeywordTrendDailyRepository(),

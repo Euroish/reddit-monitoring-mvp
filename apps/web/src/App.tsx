@@ -14,10 +14,12 @@ const TargetDetail = lazy(() => import('./pages/TargetDetail').then((module) => 
 const Queries = lazy(() => import('./pages/Queries').then((module) => ({ default: module.Queries })));
 const Content = lazy(() => import('./pages/Content').then((module) => ({ default: module.Content })));
 const Saved = lazy(() => import('./pages/Saved').then((module) => ({ default: module.Saved })));
+const Account = lazy(() => import('./pages/Account').then((module) => ({ default: module.Account })));
 const RunPhase1 = lazy(() => import('./pages/RunPhase1').then((module) => ({ default: module.RunPhase1 })));
 const Ops = lazy(() => import('./pages/Ops').then((module) => ({ default: module.Ops })));
 const OpsStorage = lazy(() => import('./pages/OpsStorage').then((module) => ({ default: module.OpsStorage })));
 const OpsUsers = lazy(() => import('./pages/OpsUsers').then((module) => ({ default: module.OpsUsers })));
+const OpsAudit = lazy(() => import('./pages/OpsAudit').then((module) => ({ default: module.OpsAudit })));
 const OpsInvites = lazy(() => import('./pages/OpsInvites').then((module) => ({ default: module.OpsInvites })));
 const OpsTargets = lazy(() => import('./pages/OpsTargets').then((module) => ({ default: module.OpsTargets })));
 const OpsCollection = lazy(() => import('./pages/OpsCollection').then((module) => ({ default: module.OpsCollection })));
@@ -50,6 +52,7 @@ export default function App() {
                 <Route path="/queries" element={<Queries />} />
                 <Route path="/content" element={<Content />} />
                 <Route path="/saved" element={<Saved />} />
+                <Route path="/account" element={<Account />} />
                 <Route path="/run" element={<RunPhase1 />} />
                 <Route path="/target/:targetId" element={<TargetDetail />} />
                 <Route path="/ops" element={
@@ -66,6 +69,9 @@ export default function App() {
                   <RoleGuard allowedRoles={['admin', 'owner']}>
                     <OpsUsers />
                   </RoleGuard>
+                } />
+                <Route path="/ops/audit" element={
+                  <RoleGuard allowedRoles={['admin', 'owner']}><OpsAudit /></RoleGuard>
                 } />
                 <Route path="/ops/invites" element={
                   <RoleGuard allowedRoles={['admin', 'owner']}>

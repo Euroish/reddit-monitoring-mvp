@@ -90,6 +90,20 @@ export interface UpdateAppUserStatusResponse {
   user: AuthUserView;
 }
 
+export interface AuthPasswordChangeRequest { currentPassword: string; newPassword: string }
+export interface AuthPasswordChangeResponse { ok: true; requestId: string; reauthenticate: true }
+export interface AuthSessionView { id: string; createdAt: string; lastSeenAt: string; expiresAt: string; current: boolean }
+export interface AuthSessionsResponse { ok: true; requestId: string; sessions: AuthSessionView[] }
+export interface UpdateAppUserRoleRequest { role: AppUserRole }
+export interface UpdateAppUserRoleResponse { ok: true; requestId: string; user: AuthUserView }
+export interface AppAuditRecord {
+  id: string; actorUserId: string | null; actorType: "session" | "machine"; action: string;
+  resourceType: string | null; resourceId: string | null; requestId: string | null;
+  outcome: "attempted" | "succeeded" | "failed"; changes: Record<string, unknown>;
+  createdAt: string; completedAt: string | null;
+}
+export interface ListAppAuditResponse { ok: true; requestId: string; entries: AppAuditRecord[]; nextCursor: string | null }
+
 export type CrawlMode = "live" | "backfill";
 
 export interface ApiReadinessQueueBucket {

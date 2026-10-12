@@ -65,8 +65,9 @@ export async function loginAppUser(
     expiresAt: new Date(new Date(nowIso).getTime() + sessionTtlSeconds * 1000).toISOString(),
     lastSeenAt: nowIso,
     createdAt: nowIso,
+    credentialVersion: record.user.credentialVersion ?? 0,
   };
-  await options.appSessionRepository.create(session);
+  if (!await options.appSessionRepository.createIfCurrent(session, record.user.credentialVersion ?? 0)) throw new AuthError("invalid email or password", "invalid_credentials");
   return {
     user: record.user,
     session,

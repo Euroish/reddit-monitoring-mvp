@@ -1,4 +1,4 @@
-import type { ContentPlatform, ContentQuery, CreateCollectionSourceRequest, PublicContentKind, StartSourceCollectionRequest, UpdateCollectionSourceRequest, SourceCollectionJob, SourceProviderBudget } from "../../../packages/contracts/src/http";
+import type { ContentPlatform, ContentQuery, CreateCollectionSourceRequest, PublicContentKind, StartSourceCollectionRequest, UpdateCollectionSourceRequest, SourceCollectionJob, SourceProviderBudgetRequest } from "../../../packages/contracts/src/http";
 import { SourceContentError, type SourceContentService } from "../../../src/application/services/source-content.service";
 import { contentWorkbench, contentExport, contentExportCsv } from "../../../src/application/services/content-workbench.service";
 
@@ -33,14 +33,17 @@ export async function handleSourceContentRoute(args: { method: string; url: URL;
     if (route.action === "sources") return { statusCode: 200, body: { ok: true, requestId, sources: await service.repository.listSources(), capabilities: service.capabilities(),providers:(await service.ops()).providers } };
     if (route.action === "create") return { statusCode: 201, body: { ok: true, requestId, source: await service.createSource(args.body as CreateCollectionSourceRequest) } };
     if(route.action==="update")return {statusCode:200,body:{ok:true,requestId,source:await service.updateSource(id,args.body as UpdateCollectionSourceRequest)}};
-    if(["pause","resume","archive"].includes(route.action))return {statusCode:200,body:{ok:true,requestId,source:await service.setSourceState(id,route.action==="pause"?"paused":route.action==="archive"?"archived":"active")}};
+    if(["pause","resume","archive"].includes(route.action)){
+      const body=args.body??{};if(!body||typeof body!=="object"||Array.isArray(body)||Object.keys(body).some(key=>key!=="expectedRevision"))throw new SourceContentError("State changes accept only expectedRevision");
+      return {statusCode:200,body:{ok:true,requestId,source:await service.setSourceState(id,route.action==="pause"?"paused":route.action==="archive"?"archived":"active",(body as {expectedRevision?:number}).expectedRevision)}};
+    }
     if (route.action === "collect") return { statusCode: 202, body: { ok: true, requestId, job: await service.enqueue(id, (args.body ?? {}) as StartSourceCollectionRequest) } };
     if (route.action === "job") return { statusCode: 200, body: { ok: true, requestId, job: await service.getJob(id) } };
     if (route.action === "retry") return { statusCode: 202, body: { ok: true, requestId, job: await service.retryJob(id) } };
     if (route.action === "continue") return { statusCode: 202, body: { ok: true, requestId, job: await service.continueJob(id) } };
     if(route.action==="cancel")return {statusCode:200,body:{ok:true,requestId,job:await service.cancelJob(id)}};
     if(route.action==="ops")return {statusCode:200,body:{ok:true,requestId,ops:await service.ops()}};
-    if(route.action==="budget")return {statusCode:200,body:{ok:true,requestId,budget:await service.setProviderBudget(id,args.body as Omit<SourceProviderBudget,"provider">)}};
+    if(route.action==="budget")return {statusCode:200,body:{ok:true,requestId,budget:await service.setProviderBudget(id,args.body as SourceProviderBudgetRequest)}};
     const params = args.url.searchParams;
     if(route.action==="jobs")return {statusCode:200,body:{ok:true,requestId,jobs:await service.listJobs({sourceId:params.get("sourceId")??undefined,status:(params.get("status")??undefined) as SourceCollectionJob["status"]|undefined,limit:params.has("limit")?Number(params.get("limit")):undefined})}};
     const query: ContentQuery = service.normalizeQuery({ platform: (params.get("platform") ?? undefined) as ContentPlatform | undefined, provider: params.get("provider") ?? undefined, sourceId: params.get("sourceId") ?? undefined, kind: (params.get("kind") ?? undefined) as PublicContentKind | undefined, query: params.get("query") ?? undefined, from: params.get("from") ?? undefined, to: params.get("to") ?? undefined, limit: params.has("limit") ? Number(params.get("limit")) : undefined, cursor: params.get("cursor") ?? undefined });
