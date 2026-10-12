@@ -44,6 +44,27 @@ team-git push -u origin shared-dev
 
 每人独立配置 Git 姓名、邮箱及凭证。dev-owner/root 的已有凭证不代表 dev-a/dev-b 自动具备推送身份；后两者需分别配置 Git 姓名邮箱和 GitHub 授权。Git author 和实际推送账号不同；token 不应写进仓库或 remote URL。当前共享开发分支为 `shared-dev`，`main` 的合并在一次共同确认的集成窗口完成；PR 描述清楚相对于 main 的整批变更。
 
+## 开发身份与 GitHub 授权
+
+Linux 用户权限、Codex 登录与 GitHub 权限是三个独立环节。每个人登录自己的 Linux 用户操作；不要通过 `sudo git` 提交，否则使用的是管理员身份。
+
+1. 仓库 owner 在 [仓库 Settings / Collaborators](https://github.com/Euroish/reddit-monitoring-mvp/settings/access) 添加另两人的 GitHub 用户名，受邀账号接受邀请。个人仓库的 Collaborator 能直接 push 和管理 PR；若需要细分仓库管理职责，用 Organization 的 Maintain/Admin，见 [GitHub 角色说明](https://docs.github.com/en/organizations/managing-user-access-to-your-organizations-repositories/managing-repository-roles/repository-roles-for-an-organization)。
+2. 每人执行 `cat ~/.ssh/id_ed25519_github.pub`，将自己的公钥加入自己 GitHub 的 Settings → SSH and GPG keys → New SSH key，选择 Authentication Key。私钥不复制给其他人；服务器已有各自独立 key。
+3. 用以下命令配置作者并验证。邮箱使用自己 GitHub 已验证邮箱或该账号设置页提供的准确 noreply 地址；示例占位符不能照填。
+
+```bash
+git config --global user.name "你的提交姓名"
+git config --global user.email "你账号的已验证或 noreply 邮箱"
+ssh -T git@github.com
+team-git push --dry-run origin HEAD:shared-dev
+```
+
+GitHub SSH 的成功问候应显示本人用户名；它不提供交互 shell，成功认证也可能返回退出码 1。push dry-run 验证当前授权，不创建测试提交。代码合入默认分支且作者邮箱匹配账号后，GitHub 可归属贡献；协作者权限、提交贡献显示和组织成员是不同概念。不能通过统一使用 owner token 把三人变成独立 GitHub 成员。
+
+未登录 Codex 的用户执行 `codex login --device-auth` 并在自己的浏览器完成授权，再 `codex login status` 验证。官方说明见 [Codex 登录](https://learn.chatgpt.com/docs/auth)。登录资料、配置和历史留在自己的 `~/.codex`；CLI 能启动不代表账号已登录或模型额度可用。
+
+**平行开发方式待确认。** 当前仍为单工作树。推荐在用户确认后采用同一 Git 对象库的轻量 worktree：每人独立分支、index 和代码目录，提交后向 main 提各自 PR；合并后的 main 更新到统一部署源码/发布目录。它避免重复下载 Git 历史，但源码、依赖安装与构建仍可能重复占空间；不要同时启动三套数据库/API，也不共享可被 npm ci 删除的可写 node_modules。采用之前不能写成已配置完成。继续单工作树则按文件划分负责人并串行集成，无法提供分支隔离。
+
 ## SSH 断线与资源
 
 同一 Linux 用户重新连接后，用以下服务器命令恢复终端：
