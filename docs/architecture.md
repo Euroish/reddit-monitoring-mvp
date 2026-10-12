@@ -32,14 +32,14 @@
 | --- | --- | --- |
 | 平台 `platform` | 内容原属系统，如 Reddit、X、某个新闻站 | 内容身份和指标语义的命名空间 |
 | 获取渠道 `provider` | Arctic Shift、官方 API、RSS、RSSHub、聚合 API | 请求、授权、限流、分页与来源证据 |
-| 来源实例 `collection source` | 一个 provider、目标及内容类型的持久化 stream | 当前保存目标/标签/最近成功与覆盖；凭证、周期启停待相应 provider 实施 |
+| 来源实例 `collection source` | 一个 provider、目标及内容类型的持久化 stream | 已保存目标/标签/分组/周期/成熟刷新与 active/paused/archived；凭证来自私有环境，不写入目标或公开响应 |
 | 目标 `target` | 社区、账号、feed、受支持的查询范围 | 用户监测对象；同一内容可匹配多个目标 |
 
 Arctic Shift 是 Reddit 的 provider；RSS 是传输方式，不能自动当作文章原属平台。聚合项目须保留原始发布者与中间渠道，不从域名猜出不存在的原平台 ID。新路径的 `ContentPlatform` 与实际 `source.code` JOIN 相配合，不使用旧 `SOURCE_IDS.reddit` mapper；旧 `SourceCode`/Reddit 分析仓储仍保留其范围。第二来源须实现 adapter、注册能力、用新迁移注册平台并联通仓储/API/UI，不能只改枚举宣称支持。
 
 首版订阅由系统写入目标与来源配置：Reddit 社区/主题、X 账号/查询表达式；只启用 provider 实际支持的目标类型。API 校验后保存目标并提交有限任务，worker 读取持久化配置，不能让前端直连数据商，也不能把用户输入直接当任意 URL。用现有认证限制配置修改和查询范围，不先搭一套复杂订阅规则 DSL。
 
-用户接受最多 12 小时延迟。当前手动提交有限时间窗口，worker 消费队列，按小时自动创建任务尚未实现。调度间隔、上游入库延迟、排队和恢复共同决定新鲜度。UI 展示最近成功采集、源观测/内容时间、超过 12 小时未成功采集的提示及 partial/unknown；最新帖子年龄不能证明覆盖或来源延迟。后续周期调度需先验收代表目标，不增加复杂自动多商切换。
+用户接受最多 12 小时延迟。当前支持手动有限窗口和持久化周期调度，窗口耗尽后推进高水位，重叠区去重与有界 catch-up 保留恢复状态。调度候选先取前 20 个再筛刷新内容存在静态饥饿风险，近期/历史任务公平及迟到覆盖仍待回归完善。调度间隔、上游入库延迟、排队和恢复共同决定新鲜度；UI 展示最近成功、内容/观测时间年龄与 partial/unknown，最新帖子年龄不能证明覆盖或源延迟。12 小时目标与连续可用性没有真实来源验收，不增加复杂自动多商切换。
 
 Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后更新；这些不能直接用于近期真实热度。保留归档成熟状态与指标来源证据，不把所有真实零值一律丢弃；可对需要分析的内容安排一次有界成熟后刷新，观察时间未知时明确 unknown，旧证据不能覆盖新观测。X 来源按实际取回语义保存独立观测。
 
@@ -51,11 +51,11 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 
 ## 统一存储：共享身份，独立证据
 
-现有 `source` 继续承载平台注册。[029 迁移](../src/storage/schema/029_source_content_collection.sql) 已在隔离 PostgreSQL 验证；它复用 `content`，增加必要关联/观测/任务，没有复制整套内容表。业务数据库与部署环境尚未执行本轮迁移。
+现有 `source` 继续承载平台注册。[029 迁移](../src/storage/schema/029_source_content_collection.sql) 复用 `content`，增加必要关联/观测/任务，没有复制整套内容表。全部 34 个 SQL 已在独立合成开发库及隔离验证库应用，重复执行无新增；原业务数据库和正式部署没有实施本次迁移或升级验收。
 
 | 逻辑对象 | 最小信息与去重 | 存储原则 |
 | --- | --- | --- |
-| `collection_source`（已实现） | platform、provider、target、kind、标签、采集/覆盖状态 | 同一平台/provider/kind/target 唯一；凭证未来通过私有环境提供，不进 target JSON |
+| `collection_source`（已实现） | platform、provider、target、kind、标签、采集/覆盖状态 | 同一平台/provider/kind/target 唯一；凭证通过私有环境提供，不进 target JSON |
 | `content`（已扩展） | platform、kind、字符串 ID、链接、可空标题/正文/作者/发布时间、媒体/引用/平台字段 | SQL `(source_id, kind, external_id)` 唯一，source_id 是平台；旧 target_id 保留；无 ID 的 feed 后续由 adapter 定义稳定身份 |
 | `content_discovery`（已实现） | content、来源实例、首次/最近发现时间 | 正文共享，来源实例持有目标，多来源匹配不丢失 |
 | `content_observation`（已实现） | provider/来源实例、指标、源观测/取回时间、evidence_key | 同内容/来源/证据幂等；同来源 latest 优先真实源观测时间，已知时间优先于 unknown；不跨 provider 覆盖 |
@@ -75,29 +75,29 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 | 平台 | 专属 `platformDetails` 字段 | 保留的差异 |
 | --- | --- | --- |
 | Reddit | community、flair、nsfw | 帖子/评论身份和父关系不同，score 可负，Arctic Shift 指标为归档观测 |
-| X（设计） | conversationId、isReply/isRepost/isQuote、sensitive | 大整数 ID、无标题正文、引用/转发；likes/views 等待真实 provider 定义 |
+| X（可配置 adapter 已实现，真实验收待授权） | conversationId、isReply/isRepost/isQuote、sensitive | 大整数 ID、无标题正文、引用/转发；likes/replies/reposts/quotes/views/bookmarks 可空，缺指标不补零 |
 | Instagram（设计） | mediaProduct、caption、carouselIds | feed/story/reel 与轮播不同；播放/触达可能不可得，不能与点赞等价 |
 | web（设计） | publisher、canonicalUrl、feedUrl | 可能缺作者/发布时间，rank 有方向，RSS 不保证历史互动 |
 
 `platformDetails` 为判别联合，额外字段仅由 adapter 白名单映射到 namespaced `extensions`，不保存任意上游 payload。`availability` 区分 available/removed/deleted/unknown。观测单独携带 provider/sourceId、sourceObservedAt/fetchedAt、timeBasis、maturity、metrics、evidenceKey，源时间未知不以本地抓取时间伪造历史指标时间。
 
-当前 Arctic Shift adapter 仅提取外链媒体、作者、父/根/转帖引用与上述 Reddit 字段；完整图片/视频元数据和其余平台 adapter 留待实际来源实现。X/Instagram/web 类型及 SQL 合成样本只证明字段兼容，不证明真实接入。
+当前 Arctic Shift adapter 提取外链媒体、作者、父/根/转帖引用与上述 Reddit 字段；TwitterAPI.io adapter 已映射 X 媒体/引用/线程与受控指标，离线契约及合成 SQL 验证通过。完整媒体详情 UI、Instagram/web 的真实 adapter 尚未实现；X 没有凭证或真实接入验收，字段及合成样本不能证明真实覆盖或数据质量。
 
 ## API 与前端契约
 
-沿用 `packages/contracts/src/http.ts` 作为共同入口，前后端不维护另一份内容模型。已实现 `/v1/sources`、`/v1/sources/:id/collect`、`/v1/source-jobs/:id` 及 retry/continue、`/v1/content` 和 `/v1/content/stats`，方法见 [开发说明](development.md)。`source-content-routes.ts` 独立处理新路由，method/path/write 权限就近声明；composition root 统一认证，读取要求 session/bearer，写入限 admin/owner/machine。
+沿用 `packages/contracts/src/http.ts` 作为共同入口，前后端不维护另一份内容模型。已实现来源列表/创建/设置/生命周期/有限采集、任务筛选/cancel/retry/continue、provider 预算与 sourceOps；内容列表/stats/workbench/CSV/JSON export，准确方法及路径见 [开发说明](development.md)。`source-content-routes.ts` 独立处理新路由，method/path/write 权限就近声明；composition root 统一认证，读取要求 session/bearer，写入限 admin/owner/machine。
 
 - 读取仅查已落库数据，支持 platform/provider/sourceId/kind、标题/正文关键词、发布时间 `[from,to)`、limit/cursor。关键词为字面匹配，中文和 `%` 不当 SQL 通配符；尚未做全站全文索引。排序为 `(COALESCE(publishedAt,firstFetchedAt),id)`，cursor 绑定过滤条件；采集 checkpoint 与产品分页分开。
 - 抓取/回填/重算通过管理员写端点提交有限任务，返回 202 与 job ID，读取任务状态查看进度。网页刷新不会自动启动全平台抓取。
 - 列表返回观测、时间和实际指标，coverage 为 stored_sample；任务/来源只标 partial 或 unknown，不声称全量。统计与列表用相同过滤，总数覆盖匹配的全部已落库样本；UTC 日桶排除未知发布时间并返回 unknownPublishedAtCount。复杂 series 后续再定义版本/单位与范围。
 - UI 根据来源能力提供筛选和图表，保留来源筛选和原链接。不能因为服务健康检查成功就展示“实时数据正常”。权限继续在 API 边界验证，业务函数不重复实现另一套登录与角色判断。
-- `create-api-server.ts` 已约 3,768 行，新增公共功能时按 auth、collection、content/analysis、ops 分离路由处理函数，保留一个 composition root。每次只迁移要改的模块，不整库换框架。路由的 method/path/权限与 handler 就近声明，共用一次授权入口，避免新增端点忘记加入独立权限路径清单。
+- `create-api-server.ts` 已约 3,800 行，新增公共功能时按 auth、collection、content/analysis、ops 分离路由处理函数，保留一个 composition root。每次只迁移要改的模块，不整库换框架。路由的 method/path/权限与 handler 就近声明，共用一次授权入口，避免新增端点忘记加入独立权限路径清单。
 
 ## 算法与跨来源聚合
 
 先建立可靠的内容量、来源分布和覆盖时间序列，再决定复杂评分。统计分子和分母必须来自相同时间窗、来源和过滤范围，受搜索上限截断的样本不能当全量命中；现有 high/medium/low 质量标签只是启发式，不代表统计置信区间。公共算法只接收归一化观测与质量信息，不读取 provider 原始字段。平台内按同类型、同观测口径的 cohort 分析；跨平台展示保留平台原指标，若需要总排序再定义可解释的归一化分数与权重。
 
-旧增长事实中的 `score / age` 是累计量除年龄，不是两个真实时间观测的差分。归档单快照不能用于声称实时速度或加速度；缺少可比观测时只展示归档统计并标明限制。缺失的 subscribers/active users 不能转成零值送进旧 Reddit tier/quality 算法。历史回填不改变内容发生时间，也不让近期热榜因为“刚抓回来”而变热。
+历史 v1 增长事实中的 `score / age` 是累计量除年龄，不是两个真实观测的差分，现不进入实测 driver/增长异常。当前旧增长 v2 使用相邻真实观测差分；公共归档/快照分析仍未迁移，单快照不能用于声称实时速度或加速度。缺少可比观测时只展示归档统计并标明限制；缺失的 subscribers/active users 不能转成零值送进旧 Reddit tier/quality 算法。历史回填不改变内容发生时间，也不让近期热榜因为“刚抓回来”而变热。
 
 精确内容去重和“同一事件”的分组分开：先稳定 ID/链接去重，正文身份不因标题相似而合并删除；以后按需要建立事件与成员关系，聚合按独立原始发布者计数，中间 provider 重复转载不增加独立信源。来源信息未知时不能假装可辨独立发布者。标题近似匹配可作为候选，LLM/embedding 仅在需求与预算明确后增加，并缓存按内容指纹和模型版本生成的结果。
 
@@ -121,7 +121,7 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 
 旧维护每张表每轮最多 10 批，未完留到下一轮；有界批数不等于全库自动容量管理。上线前用代表目标测每页延迟、每任务 RSS、数据库/索引增长和读接口延迟。API/worker/数据库合计约 1–1.5 GiB、系统余量至少约 0.8 GiB 是旧服务器测量预算，尚未负载证明，不能当作当前 Windows 配置。
 
-继续使用 PostgreSQL 的现有索引和队列表。旧关键词查询现用中文字面匹配、英文词边界/复数与排除词；仓储在同一范围计算完整计数，再提供有界样本，检索范围是已索引的保留标题/正文片段。写入侧维护索引，历史缺失/变化行通过显式有界 CLI 回填，正常查询不重建索引。web 身份按显式 namespace+kind+原 GUID 通过 webContentIdentity 派生，URL 默认保留路径/查询语义；adapter 将原 ID/namespace/version 放白名单 extensions，不改旧合成 ID。旧 PostgreSQL upsert 保留已有公共规范字段；新旧路径不能相互绕过观测守卫。只有执行计划、实际吞吐或功能要求显示瓶颈后才评估新组件、分区或拆服务；不预设 Redis、消息中间件、搜索集群或向量库。最少监控关注内存/磁盘、数据库和 API 延迟、任务积压/失败及源延迟/覆盖，先复用现有日志和 ops 页面。
+继续使用 PostgreSQL 的现有索引和队列表。旧关键词查询使用中文字面匹配、英文词边界/复数与排除词；仓储在同一范围计算完整计数，再提供有界样本，检索范围是旧目标已索引的标题/320 字符正文保留片段。旧 collector 维护投影、历史通过显式有界 CLI 回填，正常查询不重建索引；新 Arctic/X 页提交尚无公共检索投影，后续需先统一 mode/scope 与正文保留口径，再在页事务或可恢复 outbox 中维护更新/删除一致性。web 身份按显式 namespace+kind+原 GUID 通过 webContentIdentity 派生，URL 默认保留路径/查询语义；adapter 将原 ID/namespace/version 放白名单 extensions，不改旧合成 ID。旧 PostgreSQL upsert 保留已有公共规范字段；新旧路径不能相互绕过观测守卫。只有执行计划、实际吞吐或功能要求显示瓶颈后才评估新组件、分区或拆服务；不预设 Redis、消息中间件、搜索集群或向量库。最少监控关注内存/磁盘、数据库和 API 延迟、任务积压/失败及源延迟/覆盖，先复用现有日志和 ops 页面。
 
 ## 失败场景与必要保证
 

@@ -15,7 +15,7 @@ npm run typecheck
 
 ### Windows 一键本地演示
 
-此入口只启动合成 provider，不请求真实 Reddit、Arctic Shift 或 X。需要完整 PostgreSQL 安装目录中的 `bin`（含 initdb/pg_ctl/postgres，父目录含 share），不自动下载安装。首次 setup 复制运行库到忽略的 `output/local-dev/pgsql`，创建全新 loopback 集群和 `info_workbench_dev`，不会连接旧展示库。已有 `.env.local` 会保留并拒绝自动覆盖。
+此入口将新来源 worker 配置为合成 provider，标准 `/content` 演示流程不请求真实 Reddit、Arctic Shift 或 X；既有合成验收记录为外部请求 0。旧 Run 接口的请求 mode 可覆盖环境，且不受新 `SOURCE_NETWORK_ENABLED` 闸门约束，故当前不能把演示配置视为整个 API 的全局网络禁用；统一新旧闸门列为下一阶段首要修正，本轮不触发旧 live 入口。需要完整 PostgreSQL 安装目录中的 `bin`（含 initdb/pg_ctl/postgres，父目录含 share），不自动下载安装。首次 setup 复制运行库到忽略的 `output/local-dev/pgsql`，创建全新 loopback 集群和 `info_workbench_dev`，不会连接旧展示库。已有 `.env.local` 会保留并拒绝自动覆盖。
 
 ```powershell
 npm run local:setup -- --pg-bin 'C:\your-postgresql\bin'
