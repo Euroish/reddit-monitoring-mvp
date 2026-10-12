@@ -24,7 +24,8 @@ function job(id: string, status: SourceCollectionJob['status']): SourceCollectio
   return { id, sourceId, status, from: '2026-10-11T10:00:00Z', to: now, pageSize: 25, maxPages: 5, pagesCommitted: status === 'succeeded' ? 5 : 0,
     recordsProcessed: status === 'succeeded' ? 125 : 0, checkpoint: status === 'succeeded' ? { offset: 125 } : null, coverage: 'partial', exhausted: false,
     attempts: 0, error: status === 'failed' ? 'Synthetic temporary failure' : null, nextRunAt: now, createdAt: now, finishedAt: ['failed', 'succeeded', 'cancelled'].includes(status) ? now : null,
-    purpose: 'manual', parentJobId: null, refreshIds: [], recordsInserted: 0, recordsUpdated: 0 };
+    purpose: 'manual', parentJobId: null, refreshIds: [], recordsInserted: 0, recordsUpdated: 0,
+    ...(['failed', 'succeeded'].includes(status) ? { requestCount: 2, requestDurationMs: 250 } : {}) };
 }
 const jobs: SourceCollectionJob[] = [job('00000000-0000-4000-8000-000000000011', 'queued'), job('00000000-0000-4000-8000-000000000012', 'failed'), job('00000000-0000-4000-8000-000000000013', 'succeeded')];
 const item: PublicContent = { id: '00000000-0000-4000-8000-000000000021', platform: 'reddit', kind: 'post', externalId: 't3_synthetic',
@@ -119,6 +120,7 @@ async function main() {
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`${base.origin}/content`);
     await page.getByRole('heading', { name: 'Collected content', exact: true }).waitFor();
+    await page.getByText(/Saved-content search matches one continuous literal substring/).waitFor();
     await page.getByText('[DEMO] Synthetic content', { exact: true }).waitFor();
     await page.getByText(/View and manage sources/).click();
     const sourceRow = page.locator('.content-source-list li').first();
@@ -152,6 +154,10 @@ async function main() {
     await xSourceRow.getByText(/Automatic mature metric refresh currently applies only to archive providers/).waitFor();
     assert.equal(sources[1]!.refresh.enabled, false);
     await page.getByText('Collection task history', { exact: true }).click();
+    await page.getByText('Registered requests 2 · Cumulative fetch/parse time (ms) 250', { exact: true }).first().waitFor();
+    await page.getByText('Registered requests — · Cumulative fetch/parse time (ms) —', { exact: true }).waitFor();
+    await page.locator('li').filter({ has: page.locator('strong').filter({ hasText: /Finished/ }) }).getByRole('button', { name: 'Inspect task', exact: true }).click();
+    await page.locator('.content-job').getByText('Registered requests 2 · Cumulative fetch/parse time (ms) 250', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Cancel task', exact: true }).first().click();
     await page.locator('li strong').filter({ hasText: /Cancelled/ }).waitFor();
     await page.getByRole('button', { name: 'Retry task', exact: true }).click();
@@ -217,7 +223,7 @@ async function main() {
     await page.evaluate(() => scrollTo(0, 0));
     await page.screenshot({ path: 'output/playwright/source-management-viewer-mobile.png', fullPage: true });
     assert.deepEqual(errors, []); assert.deepEqual(external, []);
-    const result = { ok: true, mode: 'synthetic_api_offline_ui', externalRequests: 0, errors, checked: ['source label/group/schedule/refresh edits', 'snapshot automatic mature refresh disabled', 'pause/resume/archive', 'dynamic X/demo creation', 'disabled real provider', 'task cancel/retry/continue', 'heartbeat and provider budget edit', 'platform/provider query filters', 'unified stored overview', 'bounded JSON/CSV download and cursor continuation', 'Chinese fallback for empty export errors', 'viewer controls', '390px no overflow'], mutations };
+    const result = { ok: true, mode: 'synthetic_api_offline_ui', externalRequests: 0, errors, checked: ['source label/group/schedule/refresh edits', 'snapshot automatic mature refresh disabled', 'pause/resume/archive', 'dynamic X/demo creation', 'disabled real provider', 'task cancel/retry/continue', 'registered request/time counters and unknown values', 'heartbeat and provider budget edit', 'platform/provider query filters', 'unified stored overview', 'bounded JSON/CSV download and cursor continuation', 'Chinese fallback for empty export errors', 'viewer controls', '390px no overflow'], mutations };
     await writeFile('output/playwright/source-management-evidence.json', JSON.stringify(result, null, 2), 'utf8'); console.log(JSON.stringify(result));
   } finally { await browser.close(); }
 }

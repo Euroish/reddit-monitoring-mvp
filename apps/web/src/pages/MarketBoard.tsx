@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
 import { Badge, Card, Input, Select } from '../components/ui';
 import { useLanguage } from '../i18n/LanguageContext';
+import { LegacyAnalysisNotice, SourceEmptyLink } from '../features/content/LegacyAnalysisNotice';
 import type { MarketTrendRankItem, MarketTrendResponse } from '../../../../packages/contracts/src/http';
 
 type SortKey = 'heat' | 'surge' | 'trend' | 'posts';
@@ -18,7 +19,8 @@ function formatSignedPct(value: number): string {
 }
 
 export function MarketBoard() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const copy = (en: string, cn: string) => language === 'zh-CN' ? cn : en;
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortKey>('heat');
   const { data, isLoading, error } = useQuery({
@@ -52,10 +54,12 @@ export function MarketBoard() {
       <div className="page-header">
         <div>
           <h1>{t('Market Board')}</h1>
-          <p className="page-subtitle">{t('Full ranked board for the monitored subreddit pool, no 8-row frontend cap.')}</p>
+          <p className="page-subtitle">{copy('Sort and filter the returned heat-ranked candidate set.', '对返回的热度候选集合进行排序与筛选。')}</p>
         </div>
       </div>
 
+      <LegacyAnalysisNotice />
+      <p role="note" style={{ marginBottom: '20px', color: 'var(--text-secondary)', fontSize: '13px' }}>{copy('Candidates are limited to the first 50 targets ranked by heat. Search and other sorts operate only within that set; they are not rankings across the whole monitored market.', '候选范围仅为热度排序返回的前 50 个目标。搜索及其他排序只在该集合内进行，不代表全部监测目标的排行。')}</p>
       <Card style={{ marginBottom: '24px' }}>
         <div className="filter-bar">
           <Input
@@ -76,6 +80,7 @@ export function MarketBoard() {
 
       {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>{t('Loading market board...')}</div>}
       {error && <div style={{ color: '#ff4d4f' }}>{t('Error loading market board.')}</div>}
+      {data && rows.length === 0 && <SourceEmptyLink />}
 
       {data && (
         <Card style={{ padding: '0', overflow: 'hidden' }}>

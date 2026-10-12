@@ -38,6 +38,7 @@ export function SourceTasks({ sources, canEdit, zh, onJob }: {
       return <li key={job.id} style={{ padding: '16px 0', borderBottom: '1px solid var(--border-primary)', overflowWrap: 'anywhere' }}>
         <strong>{source?.label ?? job.sourceId} · {label(job.status)}</strong>
         <p className="content-muted">{copy('Purpose', '用途')}: {job.purpose} · {copy('Pages', '页数')} {job.pagesCommitted}/{job.maxPages} · {copy('Processed', '处理')} {job.recordsProcessed} · {copy('Inserted', '新增')} {job.recordsInserted} · {copy('Existing identities updated', '已有内容更新')} {job.recordsUpdated}<br />{new Date(job.from).toLocaleString()} → {new Date(job.to).toLocaleString()} · {job.id}</p>
+        <p className="content-muted">{copy('Registered requests', '已登记请求')} {job.requestCount ?? '—'} · {copy('Cumulative fetch/parse time (ms)', '累计取页耗时(ms)')} {job.requestDurationMs ?? '—'}</p>
         {job.error && <p className="content-error">{job.error}</p>}
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <Button type="button" onClick={() => onJob(job.id)}>{copy('Inspect task', '查看任务')}</Button>
@@ -48,5 +49,6 @@ export function SourceTasks({ sources, canEdit, zh, onJob }: {
       </li>;
     })}</ul>
     <p className="content-muted">{copy('Shows the latest 50 matching tasks. Cancel keeps pages already committed; it prevents another page from committing.', '显示最近 50 个匹配任务。取消会保留已经提交的数据页，并阻止后续页提交。')}</p>
+    <p className="content-muted">{copy('Cancelled requests or lost worker leases may not be successfully registered. These counters are not a provider bill; budget reservations are tracked separately.', '取消请求或丢失 worker 租约时，记录可能未成功登记。这些计数不能作为数据商账单；预算预留另行统计。')}</p>
   </details>;
 }

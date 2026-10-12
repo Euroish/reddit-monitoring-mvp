@@ -2,13 +2,21 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { buildTargetWorkbenchReadModel } from '../src/application/services/target-workbench-read-model.service.js';
-import type { CreateSavedWorkbenchViewRequest, SavedWorkbenchViewResponseItem, TargetComparisonWorkbenchResponse, TargetWorkbenchResponse } from '../packages/contracts/src/http.js';
+import type { CreateSavedWorkbenchViewRequest, MarketTrendResponse, MarketWorkbenchResponse, SavedWorkbenchViewResponseItem, TargetComparisonWorkbenchResponse, TargetWorkbenchResponse } from '../packages/contracts/src/http.js';
 
 // UI-only smoke: all API responses are synthetic and every external URL is blocked.
 // Start the project's Vite dev server first. This script never contacts a provider or database.
 const base = new URL(process.env.SMOKE_WEB_BASE_URL ?? 'http://127.0.0.1:5173');
 if (!['127.0.0.1', 'localhost', '[::1]'].includes(base.hostname)) throw new Error('UI smoke requires a loopback Vite URL');
 const now = '2026-10-12T10:00:00.000Z';
+const emptyMarket: MarketTrendResponse = { ok: true, requestId: 'synthetic-ui-smoke', generatedAtIso: now,
+  fromIso: '2026-10-10T00:00:00Z', toIso: now, targetCount: 0,
+  coverage: { scope: 'monitored_targets', label: 'Synthetic empty monitored scope', description: 'Offline UI fixture.', monitoredTargetCount: 0 },
+  rankings: { byHeat: [], bySurge: [], byDispersion: [] } };
+const emptyMarketWorkbench: MarketWorkbenchResponse = { ok: true, requestId: 'synthetic-ui-smoke', generatedAtIso: now,
+  fromIso: emptyMarket.fromIso, toIso: now, coverage: emptyMarket.coverage,
+  summary: { rankedTargetCount: 0, breakoutCount: 0, anomalyCount: 0 }, leaders: emptyMarket.rankings,
+  targets: [], breakouts: [], anomalies: [] };
 
 function targetFixture(): TargetWorkbenchResponse {
   const response = buildTargetWorkbenchReadModel({ requestId: 'synthetic-ui-smoke', generatedAtIso: now,
@@ -59,7 +67,7 @@ async function main() {
   const saved: SavedWorkbenchViewResponseItem[] = [];
   let rejectNextSave = true;
   try {
-    await context.addInitScript(() => localStorage.setItem('reddit-monitoring.language', 'en'));
+    await context.addInitScript(() => { if (!localStorage.getItem('reddit-monitoring.language')) localStorage.setItem('reddit-monitoring.language', 'en'); });
     await context.route('**/*', async (route) => {
       const url = new URL(route.request().url());
       if (url.origin !== base.origin) { blockedExternal.push(url.origin); await route.abort(); return; }
@@ -67,7 +75,8 @@ async function main() {
       const respond = (json: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(json) });
       if (url.pathname === '/api/auth/me') return respond({ ok: true, requestId: 'synthetic-ui-smoke',
         user: { id: 'synthetic-owner', email: 'synthetic@example.test', displayName: 'UI smoke', role: 'owner', status: 'active', createdAt: now, updatedAt: now } });
-      if (url.pathname === '/api/v1/trends/market') return respond({ ok: true, rankings: { byHeat: [], bySurge: [] } });
+      if (url.pathname === '/api/v1/trends/market') return respond(emptyMarket);
+      if (url.pathname === '/api/v1/workbench/market') return respond(emptyMarketWorkbench);
       if (url.pathname === '/api/v1/workbench/compare') return respond(comparisonFixture(url));
       if (url.pathname.startsWith('/api/v1/workbench/target/')) return respond(targetFixture());
       if (url.pathname.includes('/anomalies/incidents')) return respond({ ok: true, incidents: [] });
@@ -143,11 +152,25 @@ async function main() {
       'Wrapped chart legend and readout must not overlap the save controls');
     await page.evaluate(() => scrollTo(0, 0));
     await page.screenshot({ path: 'output/playwright/phase1-compare-mobile.png', fullPage: true });
+    await page.goto(`${base.origin}/markets/board`);
+    await page.getByText(/Candidates are limited to the first 50 targets/).waitFor();
+    assert.equal(await page.getByRole('link', { name: 'Add or manage sources to query collected content', exact: true }).getAttribute('href'), '/content');
+    await page.goto(`${base.origin}/queries`);
+    await page.getByText(/This indexed query matches any positive term/).waitFor();
+    assert.equal(await page.getByRole('link', { name: 'Open collected content and stored counts', exact: true }).getAttribute('href'), '/content');
+    await page.getByTitle('简体中文', { exact: true }).click();
+    await page.getByText(/任一正向词项（OR）/).waitFor();
+    await page.getByRole('link', { name: '查询来源内容与已存统计', exact: true }).waitFor();
+    await page.goto(`${base.origin}/markets`);
+    await page.getByRole('link', { name: '添加或管理来源，查询已采集内容', exact: true }).waitFor();
+    await page.getByText(/尚未纳入来源采集的 Arctic Shift/).waitFor();
     assert.deepEqual(errors, []);
     assert.deepEqual(blockedExternal, []);
     const result = { ok: true, mode: 'synthetic_api_offline_ui', checked: ['empty-data-empty-data chart lifecycle',
       'date-keyed series rendering', 'visible save failure and successful retry', 'comparison saved route restoration',
-      'target series and hidden overlay restoration', '390px no horizontal overflow or overlapping controls'], externalRequests: 0, errors };
+      'target series and hidden overlay restoration', '390px no horizontal overflow or overlapping controls',
+      'board candidate limit and source empty link', 'bilingual indexed-search semantics and source link',
+      'Chinese dashboard legacy-scope notice and source empty link'], externalRequests: 0, errors };
     await writeFile('output/playwright/phase1-functional-evidence.json', JSON.stringify(result, null, 2), 'utf8');
     console.log(JSON.stringify(result));
   } finally {

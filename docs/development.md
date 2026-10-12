@@ -39,7 +39,7 @@ npm --prefix apps/web run dev
 
 开发使用 `NODE_ENV=development`，本地 HTTP 配置 `API_SESSION_COOKIE_SECURE=false`；PowerShell 使用 `$env:变量名 = '值'` 设置当前进程环境，每个终端分别配置。前端默认通过 Vite 代理连接 API，API 使用非默认端口时设置 `VITE_API_PROXY_TARGET=http://127.0.0.1:端口`；不同端口直连时按需设置 `API_CORS_ALLOW_ORIGINS`。检查启动参数后再运行，API 的监听行为以入口代码为准。所有写入、迁移、导出先确认连接的是开发数据库。
 
-Arctic Shift 使用独立的来源配置/任务路径：API 注册 `arctic_shift`，worker 从数据库读取来源，不需要 API key。旧 `REDDIT_RUN_MODE` 与 `REDDIT_LIVE_PROVIDER=http|scrapling` 只控制旧 Reddit 功能；不要给旧环境变量填 `arctic_shift`，也不要同时开启旧抓取调度来代替新来源 worker。
+公共来源运行由 `SOURCE_RUN_MODE=demo|live` 决定。demo 注册 `demo_reddit/demo_x`，真实 provider 显示禁用，即使 shell 有 key/network=true 也不联网。live 默认网络关闭；只有明确配置 `SOURCE_NETWORK_ENABLED=true` 才启用真实 Arctic Shift（不需 key）；X 还要求私有 `TWITTERAPI_IO_API_KEY`，超时 `TWITTERAPI_IO_TIMEOUT_MS` 默认 20000（允许 100–120000）。旧 `REDDIT_RUN_MODE` 与 `REDDIT_LIVE_PROVIDER=http|scrapling` 只控制旧 Reddit 功能，不能用于选择 Arctic Shift 或 X。管理工具固定使用 demo；本轮不得改成 live 试跑。
 
 公共内容导出使用 `/content` 的 JSON/CSV 下载（每文件最多 2000，支持 nextCursor 续导出），记录过滤范围、总分母、条数和截断；CSV 首行 export_metadata，随后字段表头/记录，数字内容 ID 作为文本、来源文本防公式执行。并发采集时统计与续页可变化，当前不是冻结 SQL 快照。旧 `research:export:reddit` 与 `research:export:reddit-search` 仍依赖旧模型。所有生成结果归入 `output/`。
 
@@ -88,6 +88,14 @@ git diff -- path/to/file
 
 预算每日/月度以 UTC 计；requests 包含每次重试尝试，resources 为 pageSize/固定上游页界限或刷新 ID 数的保守预留，不是账单。未知请求结果保留预留。付费 provider 默认禁用且四个上限为 0；授权角色提高预算后会唤醒预算阻塞的任务。网络能力关闭时不会持续生成新的周期失败任务，已有手动任务保留明确错误。worker 心跳、最近成功年龄、最新已存发布时间年龄分开展示，不能承诺上游实际 12 小时新鲜度。
 
+### X 配置与共享字段
+
+迁移 031 注册 X 平台；运行时注册 `twitterapi_io`，账号/搜索只采 post，标题可为空、内容 ID 始终字符串，支持回复/线程/引用/转发、媒体、可空指标与 provider 白名单 metadata。账号/搜索一次上游页最多 20，缩小本地 pageSize 不降低固定页资源预留；账号历史有界过滤、搜索使用同窗口、checkpoint 绑定目标/窗口。真实 key 与 network 开关只开启能力，付费额度仍默认 disabled/0，需要 admin/owner 在预算页另设上限才允许请求。
+
+当前没有 key、费用授权或真实验收；只验证两种官方账号响应 envelope、搜索/ID schema、错误/限流/abort 和离线闭环。不宣称覆盖全历史或实时指标；X 不提供源指标观测时刻时保持 sourceObservedAt=null、fetchedAt 为取回时刻。未来 web adapter 应用 `webContentIdentity` 对 namespace+kind+原 GUID 生成合格身份，保留三项白名单 provenance；不能用未限定站点的 GUID 落库，现有旧合成数据不自动改写。
+
+032 增加已登记 provider 调用数和取页/解析累计耗时；预算拒绝与预先取消不计请求。正常/错误/刷新均登记，但取消/租约丢失会拒绝晚到登记，因此请求数可能低于实际尝试，不能作为账单；原预留不退。旧 PostgreSQL upsert 遇到已有公共规范内容时保留规范标题/正文/URL/发布时间，只维护旧目标关联与取回时间，不能绕过观测顺序保护。
+
 ## 验证
 
 ```powershell
@@ -111,6 +119,8 @@ npm test
 # 先创建隔离测试库，再配置它的 TEST_SOURCE_DATABASE_URL
 node --import tsx --test tests/integration/source-content-postgres.test.ts
 ```
+
+提供独立 `TEST_SOURCE_DATABASE_URL` 后，可运行 `npm run test:sources:postgres` 验证全部七项 SQL 场景（脚本仅接入合成 provider）。每项均检查 loopback 和 `source_validation_*`；未提供时明确跳过，不能当 SQL 验收。`npm run smoke:local` 使用当前管理工具的本机私有账号，走真实前端/API/worker/PostgreSQL，创建有界合成 E2E 来源后归档，并验证 Reddit/X 已存内容与浏览器 JSON/CSV 下载；要求先 local:setup/start，浏览器配置同 smoke:workbench。纯 UI 合成 API 管理冒烟为 `npm run smoke:sources`，需要 `SMOKE_WEB_BASE_URL`。
 
 ## 存储维护
 

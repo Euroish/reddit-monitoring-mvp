@@ -56,11 +56,14 @@ export class PostgresContentRepository implements ContentRepository {
           DO UPDATE SET
             target_id = EXCLUDED.target_id,
             account_id = EXCLUDED.account_id,
-            title = EXCLUDED.title,
-            body_text = EXCLUDED.body_text,
-            url = EXCLUDED.url,
-            permalink = EXCLUDED.permalink,
-            created_at_source = EXCLUDED.created_at_source,
+            -- Shared-provider content owns canonical payload and observation ordering.
+            -- Legacy writes can attach a target and record capture time, but cannot
+            -- replace that payload with unversioned listing metadata.
+            title = CASE WHEN content.platform_details IS NULL THEN EXCLUDED.title ELSE content.title END,
+            body_text = CASE WHEN content.platform_details IS NULL THEN EXCLUDED.body_text ELSE content.body_text END,
+            url = CASE WHEN content.platform_details IS NULL THEN EXCLUDED.url ELSE content.url END,
+            permalink = CASE WHEN content.platform_details IS NULL THEN EXCLUDED.permalink ELSE content.permalink END,
+            created_at_source = CASE WHEN content.platform_details IS NULL THEN EXCLUDED.created_at_source ELSE content.created_at_source END,
             first_seen_at = LEAST(content.first_seen_at, EXCLUDED.first_seen_at),
             last_seen_at = GREATEST(content.last_seen_at, EXCLUDED.last_seen_at),
             total_eligible = content.total_eligible OR EXCLUDED.total_eligible

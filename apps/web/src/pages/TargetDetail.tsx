@@ -20,6 +20,7 @@ import {
   WORKBENCH_RANGE_PRESETS,
 } from '../features/workbench/model/urlState';
 import { useLanguage } from '../i18n/LanguageContext';
+import { LegacyAnalysisNotice, SourceEmptyLink } from '../features/content/LegacyAnalysisNotice';
 import type {
   MarketTrendResponse,
   CreateSavedWorkbenchViewRequest,
@@ -419,6 +420,8 @@ export function TargetDetail() {
         </div>
       </div>
 
+      <LegacyAnalysisNotice />
+      {data?.dataQuality.status === 'empty' && <SourceEmptyLink />}
       {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>{t('Loading workbench...')}</div>}
       {error && <div style={{ color: '#ff4d4f' }}>{t('Error loading workbench data.')}</div>}
 

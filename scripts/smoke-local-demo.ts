@@ -46,6 +46,12 @@ async function main() {
     assert.ok(sources.capabilities.some(row => row.provider === "demo_reddit" && row.enabled));
     assert.ok(sources.capabilities.every(row => row.provider.startsWith("demo_") || !row.enabled));
     evidence.push("Real local UI login/session; explicit synthetic provider capabilities");
+    const demoX = sources.sources.find(row => row.provider === "demo_x");
+    if (sources.capabilities.some(row => row.provider === "demo_x" && row.enabled)) {
+      assert.ok(demoX, "Setup must seed the X demo after the platform migration");
+      const x = await request<ContentListResponse>("/v1/content?platform=x");
+      assert.ok(x.items.length > 0 && x.items.every(row => row.platform === "x" && row.observations.every(obs => obs.provider === "demo_x")));
+    }
     const created = await request<CollectionSourceResponse>("/v1/sources", "POST", { platform: "reddit", provider: "demo_reddit", label: "[SYNTHETIC] E2E", contentKind: "post", target: { type: "community", community: `demo_e2e_${Date.now()}`, query: "本地端到端" } });
     const id = created.source.id, to = new Date().toISOString(), from = new Date(Date.now() - 7200000).toISOString();
     const scope = `sourceId=${id}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
@@ -87,6 +93,23 @@ async function main() {
     await responseReady;
     await page.locator("article").filter({ hasText: "本地端到端" }).first().waitFor();
     assert.equal(await page.getByRole("alert").count(), 0);
+    if (demoX) {
+      await page.locator("#content-source").selectOption("");
+      await page.locator("#content-platform").selectOption("x");
+      const xReady = page.waitForResponse(response => response.url().includes("/v1/content/workbench?") && response.ok());
+      await page.getByRole("button", { name: "Search", exact: true }).click(); await xReady;
+      await page.locator("article").filter({ hasText: "demo_x" }).first().waitFor();
+      await page.getByText("Export matching saved content", { exact: true }).click();
+      await page.getByLabel("Export limit per file (1–2000)").fill("2");
+      const downloadReady = page.waitForEvent("download"); await page.getByRole("button", { name: "Download JSON", exact: true }).click();
+      const download = await downloadReady, file = path.join(folder, "browser-x-export.json"); await download.saveAs(file);
+      const exported = JSON.parse(await readFile(file, "utf8")) as ContentExportResponse;
+      assert.equal(exported.exportedCount, 2); assert.ok(exported.truncated && exported.items.every(row => row.platform === "x"));
+      const csvReady = page.waitForEvent("download"); await page.getByRole("button", { name: "Download CSV", exact: true }).click();
+      const csvFile = path.join(folder, "browser-x-export.csv"); await (await csvReady).saveAs(csvFile);
+      const csv = await readFile(csvFile, "utf8"); assert.ok(csv.includes("export_metadata") && csv.includes("demo_x"));
+      evidence.push("X synthetic PostgreSQL samples -> platform UI filtering -> real authenticated JSON/CSV browser downloads");
+    }
     const screenshots = path.join(root, "output", "playwright"); await mkdir(screenshots, { recursive: true });
     await page.screenshot({ path: path.join(screenshots, "local-demo-real-pipeline-desktop.png"), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });

@@ -29,7 +29,7 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
   async enqueue(input: SourceJobInput) {
     const existing = [...this.jobs.values()].find(item => item.sourceId===input.sourceId && ["queued","running","retrying"].includes(item.status));
     if (existing) return structuredClone(existing);
-    const value: SourceCollectionJob = { id:input.id,sourceId:input.sourceId,from:input.from,to:input.to,pageSize:input.pageSize,maxPages:input.maxPages,status:"queued",pagesCommitted:0,recordsProcessed:0,recordsInserted:0,recordsUpdated:0,purpose:input.purpose??"manual",parentJobId:input.parentJobId??null,refreshIds:input.refreshIds??[],checkpoint:null,coverage:"unknown",exhausted:false,attempts:0,error:null,nextRunAt:input.now,createdAt:input.now,finishedAt:null };
+    const value: SourceCollectionJob = { id:input.id,sourceId:input.sourceId,from:input.from,to:input.to,pageSize:input.pageSize,maxPages:input.maxPages,status:"queued",pagesCommitted:0,recordsProcessed:0,recordsInserted:0,recordsUpdated:0,requestCount:0,requestDurationMs:0,purpose:input.purpose??"manual",parentJobId:input.parentJobId??null,refreshIds:input.refreshIds??[],checkpoint:null,coverage:"unknown",exhausted:false,attempts:0,error:null,nextRunAt:input.now,createdAt:input.now,finishedAt:null };
     this.jobs.set(value.id,value); return structuredClone(value);
   }
   async getJob(id: string) { return structuredClone(this.jobs.get(id) ?? null); }
@@ -50,7 +50,7 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
   async continueJob(id: string, newId: string, now: string) {
     const previous=this.jobs.get(id); if (!previous || previous.status!=="succeeded" || previous.checkpoint===null) return null;
     const active=[...this.jobs.values()].find(item=>item.sourceId===previous.sourceId && activeJob(item)); if (active) return active.parentJobId===previous.id ? structuredClone(active) : null;
-    const next:SourceCollectionJob={...structuredClone(previous),id:newId,parentJobId:previous.id,status:"queued",pagesCommitted:0,recordsProcessed:0,recordsInserted:0,recordsUpdated:0,attempts:0,error:null,nextRunAt:now,createdAt:now,finishedAt:null};
+    const next:SourceCollectionJob={...structuredClone(previous),id:newId,parentJobId:previous.id,status:"queued",pagesCommitted:0,recordsProcessed:0,recordsInserted:0,recordsUpdated:0,requestCount:0,requestDurationMs:0,attempts:0,error:null,nextRunAt:now,createdAt:now,finishedAt:null};
     this.jobs.set(newId,next); return structuredClone(next);
   }
   async commitPage(claim: ClaimedSourceJob, page: CollectedPage, now: string) {
@@ -111,6 +111,7 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
     const current=this.jobs.get(claim.job.id); if (!current || this.leases.get(current.id)?.token!==claim.leaseToken) return;
     Object.assign(current,{status:retryAt ? "retrying" : "failed",error,nextRunAt:retryAt ?? now,finishedAt:retryAt ? null : now,attempts:resetAttempts?0:current.attempts}); this.leases.delete(current.id);
   }
+  async recordRequestAttempt(claim:ClaimedSourceJob,durationMs:number) {const current=this.jobs.get(claim.job.id);if(!current||current.status!=="running"||this.leases.get(current.id)?.token!==claim.leaseToken)return;current.requestCount=(current.requestCount??0)+1;current.requestDurationMs=(current.requestDurationMs??0)+durationMs;}
   private filtered(query: ContentQuery) {
     return [...this.contents.values()].filter(item => (!query.platform || item.platform===query.platform) && (!query.kind || item.kind===query.kind)
       && (!query.query || `${item.title ?? ""} ${item.text ?? ""}`.toLowerCase().includes(query.query.toLowerCase()))

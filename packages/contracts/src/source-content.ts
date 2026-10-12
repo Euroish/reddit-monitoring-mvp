@@ -71,6 +71,8 @@ export interface SourceCollectionJob {
   attempts: number; error: string | null; nextRunAt: string; createdAt: string; finishedAt: string | null;
   purpose: "manual" | "scheduled" | "refresh"; parentJobId: string | null; refreshIds: string[];
   recordsInserted: number; recordsUpdated: number;
+  /** Registered adapter attempts; cancellation/lease loss may prevent a fenced write. Not a provider bill. */
+  requestCount?: number; requestDurationMs?: number;
 }
 export interface SourceJobQuery { sourceId?: string; status?: SourceCollectionJob["status"]; limit?: number }
 export interface SourceWorkerHeartbeat { id: string; startedAt: string; lastHeartbeatAt: string; state: "active" | "draining" | "stopped"; lastJobId: string | null }

@@ -112,7 +112,10 @@ export class SourceContentService {
       const reservedResources=claimed.job.purpose==="refresh"?claimed.job.refreshIds.length:Math.max(claimed.job.pageSize,provider.capability.requestResourceUpperBound??0);
       const budget=await this.repository.reserveUsage(source.provider,reservedResources,this.now());
       if(!budget.allowed){await this.repository.failJob(claimed,"Provider budget disabled or exhausted; no upstream request was sent",budget.retryAt,this.now(),true);return true;}
-      const page = claimed.job.purpose==="refresh" ? await (provider.refreshIds?.({source,externalIds:claimed.job.refreshIds,signal})??Promise.reject(new ContentProviderError("Provider does not support refresh by IDs",false))) : await provider.collectPage({ source, from: claimed.job.from, to: claimed.job.to, limit: claimed.job.pageSize, checkpoint: claimed.job.checkpoint, signal });
+      if(signal?.aborted){await this.repository.failJob(claimed,"Worker stopped before requesting a reserved page",this.now(),this.now(),true);return true;}
+      const started=performance.now();let page;
+      try{page=claimed.job.purpose==="refresh" ? await (provider.refreshIds?.({source,externalIds:claimed.job.refreshIds,signal})??Promise.reject(new ContentProviderError("Provider does not support refresh by IDs",false))) : await provider.collectPage({ source, from: claimed.job.from, to: claimed.job.to, limit: claimed.job.pageSize, checkpoint: claimed.job.checkpoint, signal });}
+      finally{await this.repository.recordRequestAttempt(claimed,Math.max(0,performance.now()-started));}
       await this.repository.commitPage(claimed, page, this.now());
     } catch (error) {
       const retryable = signal?.aborted || error instanceof ContentProviderError && error.retryable && claimed.job.attempts < 3;

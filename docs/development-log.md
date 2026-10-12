@@ -27,7 +27,12 @@
 - 0a05f41 / local-phase2-v0.3.0 独立快照构建通过，但漏入 X 合成页使用的稳定 ID 前缀；386 项回归中 1 项固定页预算用例失败。root 在结果返回时未阻止提交，保留该快照作为已知失败记录，补齐公共身份前缀后重验并用 0.3.1 交付，不移动原标签、不降低断言。
 - 0.3.1 修正快照独立全量 386 项：382 pass、4 个隔离 SQL 默认 skip、0 fail；阶段 2 构建已通过。交付用 local-phase2-v0.3.1，已知失败的 0.3.0 只用于追溯。
 
-## 阶段 3：X 配置、统一查询与导出（待实施）
+## 阶段 3：X 配置、统一查询与导出（0.4.0 软件开发交付）
 
 - X provider 只做可配置实现和离线契约验证；没有密钥和真实请求授权，不能标为真实 X 接入已验收。
-- 工作台基础内容统计与公共导出将复用新内容/发现/观测契约，不将归档快照写成实时热度。阶段结果按实际测试更新本节。
+- TwitterAPI.io adapter 支持账号/搜索与 ID 获取，官方文档账号 flat/nested envelope 差异已处理，分页绑定目标/窗口，固定页上限 20、X snowflake 为字符串，sourceObservedAt 未提供时保持 null，媒体/引用/指标和白名单 metadata 归一化。默认无 key/network，付费预算独立 disabled/0；离线 8 项与本机 API 闭环 1 项通过，无真实 provider API 请求。
+- 031 只注册 X，032 增加已登记请求数/取页解析耗时；正常、重试、刷新与取消 fence 有单测和 native SQL。取消/丢租可能阻止登记但保留预算预留，不能把计数当账单。未来 web adapter 通过共享命名空间 helper 派生身份，4 项测试验证同 GUID 不跨站碰撞、URL 语义与旧 ID 不变。
+- 复核修复旧 PostgreSQL upsert 绕过新规范内容守卫的问题；native regression 验证公共规范字段保持、后续合法归档更新及旧 legacy-only 更新。新隔离库全部 34 项 SQL 单事务应用成功，重复执行无新迁移。
+- 统一工作台/导出基础已在阶段 2 提前交付，本阶段完成 X 注册和双平台实际本机演示。JSON/CSV 2000 条上限、同分母、cursor 续页、CSV 安全/数字 ID与 null/0 保留均验证；并发更新时不是冻结快照，各平台指标不合并热度。
+- 前端补双语旧/新分析范围说明和来源入口，明确前 50 榜单候选、旧词项 OR/排除与公共连续字面/emoji/标点；成熟自动刷新仅 archive，任务数/耗时缺失显示 —。现有结构可容纳新增功能，未发现应启动大规模重设计的功能阻碍。
+- 最终全量离线 407 项：400 pass、7 个 SQL 默认 skip、0 fail；七项 SQL 单独执行 7/7，无 skip。typecheck、API/Web build、Web lint、compiled smoke、八份 docs 检查均通过。两套 UI 合成冒烟和真实 localhost 前端/API/worker/PostgreSQL 的 Reddit/X 合成查询/浏览器导出通过；完整 stop/start 保留数据，外部源请求 0、浏览器错误 0。

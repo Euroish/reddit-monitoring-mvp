@@ -24,6 +24,7 @@ export interface SourceContentRepository {
   claim(now: string): Promise<ClaimedSourceJob | null>;
   commitPage(claim: ClaimedSourceJob, page: CollectedPage, now: string): Promise<void>;
   failJob(claim: ClaimedSourceJob, error: string, retryAt: string | null, now: string, resetAttempts?: boolean): Promise<void>;
+  recordRequestAttempt(claim: ClaimedSourceJob, durationMs: number): Promise<void>;
   listContent(query: ContentQuery): Promise<{ items: PublicContent[]; nextCursor: string | null }>;
   contentStats(query: ContentQuery): Promise<Omit<ContentStatsResponse, "ok" | "requestId">>;
 }

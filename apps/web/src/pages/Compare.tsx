@@ -7,6 +7,7 @@ import { WorkbenchChart } from '../features/workbench/components/WorkbenchChart'
 import { buildComparisonChartOptions } from '../features/workbench/model/chartOptions';
 import { normalizeWorkbenchRange, parseWorkbenchSeries, WORKBENCH_RANGE_PRESETS, WORKBENCH_SERIES_IDS } from '../features/workbench/model/urlState';
 import { useLanguage } from '../i18n/LanguageContext';
+import { LegacyAnalysisNotice, SourceEmptyLink } from '../features/content/LegacyAnalysisNotice';
 import type {
   CreateSavedWorkbenchViewRequest,
   CreateSavedWorkbenchViewResponse,
@@ -130,6 +131,8 @@ export function Compare() {
         </div>
       </div>
 
+      <LegacyAnalysisNotice />
+      {data && data.comparisons.length === 0 && <SourceEmptyLink />}
       <Card style={{ marginBottom: '24px' }}>
         <form onSubmit={applyTargets} className="filter-bar">
           <Input

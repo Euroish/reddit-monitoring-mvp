@@ -4,6 +4,8 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
 import { Badge, Button, Card, Input } from '../components/ui';
 import { WorkbenchChart } from '../features/workbench/components/WorkbenchChart';
+import { LegacyAnalysisNotice, SourceEmptyLink } from '../features/content/LegacyAnalysisNotice';
+import { useLanguage } from '../i18n/LanguageContext';
 import type {
   CreateKeywordQueryRequest,
   CreateKeywordQueryResponse,
@@ -72,6 +74,8 @@ function buildKeywordTrendChart(data: GlobalKeywordDailyTrendResponse | undefine
 }
 
 export function Queries() {
+  const { language } = useLanguage();
+  const copy = (en: string, cn: string) => language === 'zh-CN' ? cn : en;
   const [query, setQuery] = useState('');
   const [subreddit, setSubreddit] = useState('');
   const [limit, setLimit] = useState(10);
@@ -130,10 +134,12 @@ export function Queries() {
   return (
     <div>
       <div className="page-header">
-        <h1>Queries</h1>
-        <p className="page-subtitle">Observed-corpus keyword pulse and supporting posts</p>
+        <h1>{copy('Queries', '查询')}</h1>
+        <p className="page-subtitle">{copy('Observed-corpus keyword pulse and supporting posts', '已观测语料的关键词脉冲与支持帖子')}</p>
       </div>
 
+      <LegacyAnalysisNotice />
+      <p role="note" style={{ margin: '0 0 20px', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.65 }}>{copy('This indexed query matches any positive term (OR) and excludes negative terms prefixed with -. English uses word boundaries and plural matching; Chinese uses literal terms. Quotes do not require an exact phrase. It searches only retained, indexed titles and text. Daily trend normalization is separate from this query and from the continuous literal search on Collected content.', '此索引查询匹配任一正向词项（OR），排除以 - 开头的负向词项。英文按词边界并兼容复数，中文按词项字面匹配；引号不保证严格短语。仅查询已保留并建立索引的标题与正文。每日趋势的归一化与本查询、来源内容页的连续字面查询分别处理。')}</p>
       <div className="responsive-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', alignItems: 'start' }}>
         <Card>
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -202,6 +208,7 @@ export function Queries() {
             <Card>
               <div className="card-empty">
                 Run a keyword query to inspect coverage, quality, and matching posts from the locally observed corpus.
+                <SourceEmptyLink />
               </div>
             </Card>
           )}
@@ -333,7 +340,7 @@ export function Queries() {
                 <h3 style={{ marginBottom: '16px' }}>Matching Posts</h3>
                 <div className="list-stack">
                   {result.samplePosts.length === 0 && (
-                    <div style={{ color: 'var(--text-tertiary)' }}>No matching posts returned.</div>
+                    <div style={{ color: 'var(--text-tertiary)' }}>{copy('No matching posts returned.', '没有返回匹配帖子。')}<SourceEmptyLink /></div>
                   )}
                   {result.samplePosts.map((post) => (
                     <div key={post.contentId} style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '14px' }}>
