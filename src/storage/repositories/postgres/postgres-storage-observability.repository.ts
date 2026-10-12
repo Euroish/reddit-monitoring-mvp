@@ -18,6 +18,10 @@ interface DatabaseSizeRow {
 }
 
 const OBSERVED_TABLES = [
+  "collection_source",
+  "content_discovery",
+  "content_observation",
+  "source_collection_job",
   "reddit_fetch_event",
   "raw_reddit_event",
   "metrics_snapshot",

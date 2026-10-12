@@ -2,9 +2,9 @@
 
 ## 安装与开发
 
-使用 Node.js 22 与 npm。从仓库根目录执行：
+使用 Node.js 22+ 与 npm，本轮 Windows 本地验证使用 Node.js 24.14.0、PowerShell 7。从仓库根目录执行：
 
-```bash
+```powershell
 npm ci
 npm --prefix apps/web ci
 npm run docs:check
@@ -13,88 +13,81 @@ npm run typecheck
 
 数据库流程需要 PostgreSQL 和本地 `DATABASE_URL`。连接池默认每进程 5，`PG_POOL_MAX` 调整池大小；构造参数 `max` 优先于环境变量。环境参考 `deploy/env/`，不把示例密码用于真实环境。现有 API 入口还要求 `API_BEARER_TOKEN`；配置以 `apps/api/src/server.ts` 和 runtime 为准。运行命令不会自动加载 `.env`，需由当前 shell 或进程管理器提供环境变量。
 
-```bash
+```powershell
 npm run db:migrate
 npm run auth:bootstrap-owner   # 仅新空库，需 BOOTSTRAP_OWNER_* 环境变量
 npm run app:api
+# 另一个终端使用相同 DATABASE_URL 启动新来源 worker
+npm run worker:sources
 # 另一个终端启动前端
 npm --prefix apps/web run dev
 ```
 
-开发使用 `NODE_ENV=development`，本地 HTTP 配置 `API_SESSION_COOKIE_SECURE=false`；不同端口直连时按需设置 `API_CORS_ALLOW_ORIGINS`。检查启动参数后再运行，API 的监听行为以入口代码为准。所有写入、迁移、导出先确认连接的是开发数据库。
+开发使用 `NODE_ENV=development`，本地 HTTP 配置 `API_SESSION_COOKIE_SECURE=false`；PowerShell 使用 `$env:变量名 = '值'` 设置当前进程环境，每个终端分别配置。前端默认通过 Vite 代理连接 API，API 使用非默认端口时设置 `VITE_API_PROXY_TARGET=http://127.0.0.1:端口`；不同端口直连时按需设置 `API_CORS_ALLOW_ORIGINS`。检查启动参数后再运行，API 的监听行为以入口代码为准。所有写入、迁移、导出先确认连接的是开发数据库。
 
-目前 `REDDIT_RUN_MODE` 只有 `mock` / `live`，live provider 只有 `http` / `scrapling`。**设置 `arctic_shift` 不会接入新源；未实现的 provider 现在明确报错，避免静默使用旧 HTTP。** 在迁移完成前不要按旧示例开启 live 调度。
+Arctic Shift 使用独立的来源配置/任务路径：API 注册 `arctic_shift`，worker 从数据库读取来源，不需要 API key。旧 `REDDIT_RUN_MODE` 与 `REDDIT_LIVE_PROVIDER=http|scrapling` 只控制旧 Reddit 功能；不要给旧环境变量填 `arctic_shift`，也不要同时开启旧抓取调度来代替新来源 worker。
 
 `research:export:reddit` 与 `research:export:reddit-search` 等现有导出工具仍依赖旧路径，真实采集可用性待恢复。所有生成结果归入 `output/`；旧 provider 对比和 promotion 工具的报告放 `output/provider-reports/`，没有新报告时无法生成 promotion 计划。
 
-## 三人共用工作树
+## Windows 本地独立 Git 工作区
 
-这台服务器的共享目录是 `/srv/team/project`，开发用户通过 `project-devs` 组访问。大家共享同一个分支和 index；文件权限不会隔离各自修改。每次开始先看 `team-git status`，同一文件由一人编辑或明确交接。
+当前目录为 `D:\Projects\reddit-monitoring-mvp`，使用个人功能分支；本轮为 `codex/arctic-shift-content-query`。不直接修改 main，不使用 shared-dev 或服务器 team-git。开始任务先检查分支与修改，保留所有已有工作：
 
-```bash
-cd /srv/team/project
-team-git status
-team-git diff -- path/to/file
-team-git add -- path/to/file
-team-git commit --only -m "说明本次变更" -- path/to/file
-team-git push -u origin shared-dev
+```powershell
+git status --short
+git branch --show-current
+git diff -- path/to/file
 ```
 
-`team-git` 是服务器工具，仓库外环境用 `git`。它对单次 Git 操作加锁，但不锁编辑过程或整个提交周期。`commit --only` 排除其他路径的暂存变更，无法分开同一文件里不同人的修改；提交前逐项检查。不要 `git add .` 或在有人开发时切分支、pull/reset/clean/stash。
-
-每人独立配置 Git 姓名、邮箱及凭证。dev-owner/root 的已有凭证不代表 dev-a/dev-b 自动具备推送身份；后两者需分别配置 Git 姓名邮箱和 GitHub 授权。Git author 和实际推送账号不同；token 不应写进仓库或 remote URL。当前共享开发分支为 `shared-dev`，`main` 的合并在一次共同确认的集成窗口完成；PR 描述清楚相对于 main 的整批变更。
-
-## 开发身份与 GitHub 授权
-
-Linux 用户权限、Codex 登录与 GitHub 权限是三个独立环节。每个人登录自己的 Linux 用户操作；不要通过 `sudo git` 提交，否则使用的是管理员身份。
-
-1. 仓库 owner 在 [仓库 Settings / Collaborators](https://github.com/Euroish/reddit-monitoring-mvp/settings/access) 添加另两人的 GitHub 用户名，受邀账号接受邀请。个人仓库的 Collaborator 能直接 push 和管理 PR；若需要细分仓库管理职责，用 Organization 的 Maintain/Admin，见 [GitHub 角色说明](https://docs.github.com/en/organizations/managing-user-access-to-your-organizations-repositories/managing-repository-roles/repository-roles-for-an-organization)。
-2. 每人执行 `cat ~/.ssh/id_ed25519_github.pub`，将自己的公钥加入自己 GitHub 的 Settings → SSH and GPG keys → New SSH key，选择 Authentication Key。私钥不复制给其他人；服务器已有各自独立 key。
-3. 用以下命令配置作者并验证。邮箱使用自己 GitHub 已验证邮箱或该账号设置页提供的准确 noreply 地址；示例占位符不能照填。
-
-```bash
-git config --global user.name "你的提交姓名"
-git config --global user.email "你账号的已验证或 noreply 邮箱"
-ssh -T git@github.com
-team-git push --dry-run origin HEAD:shared-dev
-```
-
-GitHub SSH 的成功问候应显示本人用户名；它不提供交互 shell，成功认证也可能返回退出码 1。push dry-run 验证当前授权，不创建测试提交。代码合入默认分支且作者邮箱匹配账号后，GitHub 可归属贡献；协作者权限、提交贡献显示和组织成员是不同概念。不能通过统一使用 owner token 把三人变成独立 GitHub 成员。
-
-未登录 Codex 的用户执行 `codex login --device-auth` 并在自己的浏览器完成授权，再 `codex login status` 验证。官方说明见 [Codex 登录](https://learn.chatgpt.com/docs/auth)。登录资料、配置和历史留在自己的 `~/.codex`；CLI 能启动不代表账号已登录或模型额度可用。
-
-**平行开发方式待确认。** 当前仍为单工作树。推荐在用户确认后采用同一 Git 对象库的轻量 worktree：每人独立分支、index 和代码目录，提交后向 main 提各自 PR；合并后的 main 更新到统一部署源码/发布目录。它避免重复下载 Git 历史，但源码、依赖安装与构建仍可能重复占空间；不要同时启动三套数据库/API，也不共享可被 npm ci 删除的可写 node_modules。采用之前不能写成已配置完成。继续单工作树则按文件划分负责人并串行集成，无法提供分支隔离。
-
-## SSH 断线与资源
-
-同一 Linux 用户重新连接后，用以下服务器命令恢复终端：
-
-```bash
-tmux new-session -A -s codex -c /srv/team/project
-```
-
-tmux 内 `Ctrl+B` 后按 `D` 脱离。长时间不用时退出 agent 进程；单纯脱离 tmux 仍消耗内存。服务器内存约 4 GiB，构建、全量测试和采集串行运行，避免三人同时跑重任务。`server-health` 是这台服务器的检查工具；生产服务使用构建产物和独立服务账号。
+按具体路径暂存和提交，提交前运行 `npm run docs:check` 并核对 diff。不要全量暂存，不用 reset/clean/stash 覆盖已有修改。Git author 与远端凭证属于个人配置，token 不写入仓库或 remote URL。未经用户确认，不执行 push、force push、分支删除或 PR 合并。依赖、数据库与测试产物留在本地，不恢复旧共享服务器操作流程。
 
 ## 任务编排
 
-按“接入/worker”“数据模型/仓储”“API/read model/UI”分配三条任务线，同一文件保持一个编辑负责人。改公共契约或迁移的负责人先同步字段、缺失值、时间与验收范围，其他人围绕这份契约实施。不要各线分别造平台枚举、数据 DTO 或热度定义。
+先分析“接入/worker”“数据模型/仓储”“API/read model/UI”涉及的模块，再沿一份共享契约实施。平台字段、缺失值、时间与验收范围在 `source-content.ts` 定义，不各层分别造平台枚举、DTO 或热度定义。
 
-每个功能按一个小闭环提交：契约与必要迁移 → provider/落库 → 分析/API → UI；需要跨人配合时分成可独立核对的提交，未接通的功能明确标为进行中。集成窗口串行检查和推送；共用分支上创建 PR 是整批审阅，不能隔离三个人的未提交修改。外部机器开发者应在自己的分支上提交再集成。
+每个功能按一个小闭环实施：契约与必要迁移 → provider/落库 → 分析/API → UI；未接通的功能明确标为进行中。本地测试不代表部署验收，发布与远端 Git 操作需要用户确认。
+
+## Arctic Shift 来源与查询
+
+迁移到 `029_source_content_collection.sql` 后，登录工作台进入 `/content`（“来源内容”）。管理员创建来源：平台为 Reddit、provider 为 `arctic_shift`；社区或账号可采帖子/评论，帖子 ID 仅采评论。可保存范围内关键词；上游限制较活跃目标的关键词检索，不支持无范围全站搜索。查询页的关键词是已保存标题/正文的字面匹配，支持中文，与上游检索范围分开。
+
+设置查询时间窗后点击对应来源的采集按钮；日期为空默认最近 24 小时。HTTP 只入队，worker 另行启动。每页 1–100 条、每任务 1–20 页，默认 25 条/5 页，当前 UI 使用默认值；`worker:sources:once` 只处理一页，不代表完整任务结束。达到预算但仍有 checkpoint 的任务可继续；失败任务可重试。单来源同时只允许一个活动任务，相同参数重复提交返回同一任务，不同窗口/预算返回 409。
+
+| 方法与端点 | 用途 |
+| --- | --- |
+| `GET /v1/sources` | 已保存来源与实际 provider 能力 |
+| `POST /v1/sources` | 创建/更新同一目标的来源标签 |
+| `POST /v1/sources/:id/collect` | 提交有界采集，返回 202 与任务 |
+| `GET /v1/source-jobs/:id` | 状态、计数、checkpoint、覆盖及错误 |
+| `POST /v1/source-jobs/:id/retry`、`/continue` | 重试失败任务或从有界完成任务的 checkpoint 继续 |
+| `GET /v1/content` | 按 platform/provider/sourceId/kind/query/from/to/limit/cursor 查询已落库内容 |
+| `GET /v1/content/stats` | 相同过滤范围的总数、类型分布与 UTC 日计数 |
+
+所有这些端点要求登录 session 或有效 bearer；写入要求 admin/owner，bearer 沿用 machine 权限。查询不会触发外部网络。`from` 含、`to` 不含，使用 ISO 时间；列表 cursor 绑定过滤条件，修改过滤后不能复用。查询量以已采集内容为分母，未知发布时间不进入日桶。详细请求/响应类型由 [共享契约](../packages/contracts/src/source-content.ts) 定义。
+
+限流、暂时传输错误与部分 422 超时每页最多自动尝试三次；403 等授权错误直接失败。逐页提交后保留 checkpoint，进程异常退出后两分钟租约可回收。当前 worker 只消费手动提交的任务，尚未实现按小时自动创建新窗口或成熟指标自动刷新；不能据此承诺 12 小时新鲜度。
 
 ## 验证
 
-```bash
+```powershell
 npm run docs:check
 npm run typecheck
 npm run lint:web
 npm run verify:repo       # 文档、类型、API/Web 构建、compiled smoke
-# 小内存服务器全量测试串行运行
+# 全量测试串行运行
 npm test
 ```
 
 先跑受影响测试；只有跨层里程碑或实际变更范围需要时才跑全量构建/回归。代码检查通过后，纯文档更新只跑 `docs:check` 与 diff 检查。外部数据解析、幂等/恢复、缺失指标与公共权限边界值得做回归测试；不为内部 getter、纯文字或每种假想状态增加测试矩阵。
 
 `npm test` 是离线回归；数据库或网络验证另行执行并记录环境。compiled smoke 或 provider 的 `--config-only` 通过，只证明构建/配置，不能证明真实采集。存在已知失败时见 [当前状态](status.md)，比较基线与新增失败，不能将失败测试禁用后宣称完成。
+
+新增的 PostgreSQL 集成测试默认跳过，必须提供独立 loopback `source_validation_*` 测试库的 `TEST_SOURCE_DATABASE_URL`，测试会执行迁移和写入合成记录，不得指向业务库：
+
+```powershell
+# 先创建隔离测试库，再配置它的 TEST_SOURCE_DATABASE_URL
+node --import tsx --test tests/integration/source-content-postgres.test.ts
+```
 
 ## 存储维护
 

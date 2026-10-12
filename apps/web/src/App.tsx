@@ -12,6 +12,7 @@ const MarketBoard = lazy(() => import('./pages/MarketBoard').then((module) => ({
 const Compare = lazy(() => import('./pages/Compare').then((module) => ({ default: module.Compare })));
 const TargetDetail = lazy(() => import('./pages/TargetDetail').then((module) => ({ default: module.TargetDetail })));
 const Queries = lazy(() => import('./pages/Queries').then((module) => ({ default: module.Queries })));
+const Content = lazy(() => import('./pages/Content').then((module) => ({ default: module.Content })));
 const Saved = lazy(() => import('./pages/Saved').then((module) => ({ default: module.Saved })));
 const RunPhase1 = lazy(() => import('./pages/RunPhase1').then((module) => ({ default: module.RunPhase1 })));
 const Ops = lazy(() => import('./pages/Ops').then((module) => ({ default: module.Ops })));
@@ -47,6 +48,7 @@ export default function App() {
                 <Route path="/dashboard" element={<Navigate to="/markets" replace />} />
                 <Route path="/compare" element={<Compare />} />
                 <Route path="/queries" element={<Queries />} />
+                <Route path="/content" element={<Content />} />
                 <Route path="/saved" element={<Saved />} />
                 <Route path="/run" element={<RunPhase1 />} />
                 <Route path="/target/:targetId" element={<TargetDetail />} />

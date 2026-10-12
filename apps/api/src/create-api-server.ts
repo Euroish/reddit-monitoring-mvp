@@ -153,6 +153,8 @@ import {
   readCookieValue,
 } from "./auth-cookie";
 import { canUseOpsWrite, resolveSessionActor, type ApiActor } from "./auth-guard";
+import { handleSourceContentRoute, matchSourceContentRoute } from "./source-content-routes";
+import type { SourceContentService } from "../../../src/application/services/source-content.service";
 
 const MAX_JSON_BODY_BYTES = 1_048_576;
 
@@ -269,6 +271,7 @@ function parseAnomalySignalTypeList(value: string | null): AnomalySignalType[] |
 }
 
 export interface CreateApiServerOptions {
+  sourceContent?: SourceContentService;
   repositories: ApiRepositoryBundle;
   sqlDb?: SqlQueryable;
   createConnector: (
@@ -1177,13 +1180,14 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
       let actor: ApiActor | null = null;
       const bearerIsValid = bearerToken ? isBearerTokenValid(req, bearerToken) : false;
-      const needsPrivilegedAuth = isPrivilegedWritePath(pathname);
+      const sourceContentRoute = matchSourceContentRoute(req.method ?? "GET", pathname);
+      const needsPrivilegedAuth = isPrivilegedWritePath(pathname) || Boolean(sourceContentRoute?.write);
       const needsAuth =
         (Boolean(bearerToken) &&
           protectedPathPrefixes.some((prefix) => pathname.startsWith(prefix))) ||
         pathname === "/v1/ops/readyz" ||
         pathname === "/v1/ops/storage" ||
-        isAuthAdminPath(pathname);
+        isAuthAdminPath(pathname) || Boolean(sourceContentRoute);
       if (bearerIsValid) {
         actor = { type: "machine" };
       } else if (needsAuth) {
@@ -1239,7 +1243,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         pathname === "/v1/keyword-queries" || pathname.startsWith("/v1/keyword-queries/");
       const isQueryRoute =
         (req.method === "GET" && pathname.startsWith("/v1/trends/")) ||
-        ((req.method === "GET" || req.method === "POST") && isKeywordQueryRoute);
+        ((req.method === "GET" || req.method === "POST") && isKeywordQueryRoute) || (req.method === "GET" && Boolean(sourceContentRoute));
       if (!actor && isQueryRoute) {
         actor = await resolveSessionActor({
           req,
@@ -1300,6 +1304,13 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           });
           return;
         }
+      }
+
+      if (sourceContentRoute) {
+        const body = req.method === "POST" ? await readJsonBody<unknown>(req) : undefined;
+        const result = await handleSourceContentRoute({ method: req.method ?? "GET", url, body, requestId, service: options.sourceContent });
+        respond(result);
+        return;
       }
 
       if (req.method === "GET" && pathname === "/healthz") {

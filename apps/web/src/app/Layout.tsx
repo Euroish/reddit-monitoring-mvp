@@ -17,6 +17,7 @@ export function Layout() {
     { to: '/markets/board', label: t('Board') },
     { to: '/compare', label: t('Compare') },
     { to: '/queries', label: t('Queries') },
+    { to: '/content', label: t('Collected content') },
     { to: '/saved', label: t('Saved') },
     { to: '/run', label: t('Run Phase 1') },
   ];
@@ -40,7 +41,7 @@ export function Layout() {
       <header className="topbar">
         <div className="topbar-left">
           <div>
-            <div style={{ fontWeight: 590, color: 'var(--text-primary)' }}>{t('Reddit Monitoring')}</div>
+            <div style={{ fontWeight: 590, color: 'var(--text-primary)' }}>{t('Information Workbench')}</div>
             <div style={{ color: 'var(--text-tertiary)', fontSize: '12px', marginTop: '4px' }}>
               {t('Analysis workbench and admin control plane')}
             </div>

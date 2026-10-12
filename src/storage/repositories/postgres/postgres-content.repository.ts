@@ -52,7 +52,7 @@ export class PostgresContentRepository implements ContentRepository {
             created_at_source, first_seen_at, last_seen_at, discovery_source, first_collection_mode,
             first_listing, first_time_range, first_collection_job_id, total_eligible
           ) VALUES ${placeholders}
-          ON CONFLICT (source_id, external_id)
+          ON CONFLICT (source_id, kind, external_id)
           DO UPDATE SET
             target_id = EXCLUDED.target_id,
             account_id = EXCLUDED.account_id,

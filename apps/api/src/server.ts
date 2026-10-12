@@ -4,6 +4,7 @@ import {
 import { parseBooleanFlag, parsePort, parsePositiveInt } from "../../../src/runtime/runtime-parsing";
 import { assertProductionLaunchConfig } from "./public-launch-config";
 import { createApiServer } from "./create-api-server";
+import { createSourceContentService } from "../../../src/runtime/source-content-runtime";
 
 const port = parsePort(process.env.PORT, 3000);
 const apiBearerToken = process.env.API_BEARER_TOKEN?.trim();
@@ -39,6 +40,7 @@ assertProductionLaunchConfig({
 const runtime = createPostgresPhase1Runtime();
 
 const server = createApiServer({
+  sourceContent: createSourceContentService(runtime.db),
   repositories: runtime.repositories,
   sqlDb: runtime.db,
   createConnector: runtime.createConnector,

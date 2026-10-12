@@ -13,6 +13,8 @@ type LanguageContextValue = {
 const STORAGE_KEY = 'reddit-monitoring.language';
 
 const ZH_CN: Record<string, string> = {
+  'Collected content': '来源内容',
+  'Information Workbench': '信息工作台',
   'Reddit Monitoring': 'Reddit 监控',
   'Analysis workbench and admin control plane': '分析工作台与管理控制台',
   'Markets': '市场',
