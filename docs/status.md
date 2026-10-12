@@ -12,7 +12,7 @@
 - Arctic Shift 尚未实现，X、Instagram 及外部聚合源尚未实现。多平台是已确认方向，尚非代码能力。
 - 首版范围确认为 Reddit + X，用户接受最多 12 小时延迟，订阅由系统输入并持久化。候选价格与验证方案见 [产品计划](README.md)；预算、X 凭证与实际持续可用性尚未确认。
 - Codex CLI 版本为 0.162.1，dev-a 此前已登录 ChatGPT；root 原登录/历史保留，dev-owner/dev-b 尚未完成自己的登录。worktree 不复制或更换任何用户的 Codex auth。
-- root 对应 Euroish，已有推送凭证；dev-a 对应 HikariVerse，已配置准确 Git noreply 身份并发出 write 邀请，邀请接受和个人 SSH 公钥登记仍需本人完成。dev-b 未配置本轮开发 worktree。
+- root 对应 Euroish，已有推送凭证；dev-a 对应 HikariVerse，已配置准确 Git noreply 身份，GitHub 回读确认邀请已接受、角色 write、push=true/admin=false/maintain=false；服务器 SSH push dry-run 仍 publickey 失败，个人公钥登记需本人完成。dev-b 未配置本轮开发 worktree。
 - root 和 dev-a 的独立目录/分支见 [开发说明](development.md)，共享 Git 对象库；`/srv/team/project` 保留为 shared-dev 集成目录。两个新 worktree 尚未安装依赖，不启动常驻服务或采集；代码目录/暂存区隔离不代表远端授权已打通。
 - main 分支保护已通过 GitHub API 配置并回读：PR 至少一次批准、旧批准随新提交失效、审核讨论解决、禁止普通协作者强推/删分支；owner 保留应急绕过，不绑定尚未验证的 CI 名称。
 
