@@ -17,13 +17,15 @@
 - 正式 Windows local:* 工具与独立数据库/owner/合成数据已运行；连续 start 复用 PID，stop --keep-db/start 已验证。关键词 2207 条 SQL 验收通过；迁移并发/回滚 SQL 验收通过。增长用 v2 相邻观测差分，历史 v1 不呈现实测 driver；普通查询不隐式重建索引。API 编译和 compiled smoke 通过，秘密与证据均留 output/。
 - 阶段 1 的暂存树单独导出后，typecheck、API/Web 构建及 365 项回归通过（362 pass、3 个 SQL 默认 skip、0 fail），确认不依赖阶段 2/3 的未提交源码。启动器最后补 loopback API_HOST 与进程身份检查，避免占用端口上的其他服务被误当成启动成功。
 
-## 阶段 2：持续采集与任务管理（已实现，准备 0.3.0 本地快照）
+## 阶段 2：持续采集与任务管理（已实现，修正快照 0.3.1）
 
 - 030 来源生命周期迁移、active/paused/archived、标签/分组与 schedule/refresh、任务 purpose/取消/新增更新计数、provider 预算、sourceOps/worker 心跳已沿契约/仓储/API/worker/UI 打通，029 未修改。
 - 新增 demo_reddit/demo_x 离线演示 provider，与真实 provider 身份分开，正文明确标记合成，不发外部网络请求。演示只证明流程，不证明真实平台数据质量。
 - 后台离线/本机 API 初始 31/31 通过，隔离来源 SQL 2/2；72 小时模拟覆盖增量重叠、暂停恢复、租约中断、checkpoint 子任务、预算与成熟刷新。复核补 worker 顶部导入初始化、disabled provider 不生成失败周期任务、自动成熟刷新仅 archive 的明确 guard。
 - 来源管理 Chromium 合成 API 验证设置/状态/任务/预算/权限、桌面和 390px、统一统计和 CSV/JSON 续导出全部通过，外部请求 0、页面错误 0。工作台/导出基础提前纳入阶段 2，API/service 离线 4/4 通过；不承诺冻结 SQL 快照或跨平台统一热度。
 - 正式 local:start 的真实 localhost UI→认证/API→合成 worker→新 PostgreSQL→查询/续采/周期→归档→工作台/分段导出闭环通过，截图与结果在 output/local-dev/smoke-evidence.json 和 output/playwright/local-demo-real-pipeline-*。这证明本地流程，真实数据源请求为 0。
+- 0a05f41 / local-phase2-v0.3.0 独立快照构建通过，但漏入 X 合成页使用的稳定 ID 前缀；386 项回归中 1 项固定页预算用例失败。root 在结果返回时未阻止提交，保留该快照作为已知失败记录，补齐公共身份前缀后重验并用 0.3.1 交付，不移动原标签、不降低断言。
+- 0.3.1 修正快照独立全量 386 项：382 pass、4 个隔离 SQL 默认 skip、0 fail；阶段 2 构建已通过。交付用 local-phase2-v0.3.1，已知失败的 0.3.0 只用于追溯。
 
 ## 阶段 3：X 配置、统一查询与导出（待实施）
 

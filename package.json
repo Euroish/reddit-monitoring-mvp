@@ -1,6 +1,6 @@
 {
   "name": "reddit-monitoring-mvp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Multi-platform information aggregation and visualization, evolving from a Reddit workbench",
   "scripts": {
