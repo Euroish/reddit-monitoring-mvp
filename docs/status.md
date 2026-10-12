@@ -9,10 +9,15 @@
 - 当前真实 provider 为旧 HTTP / Scrapling，mock 用于离线开发。此服务器此前真实 Reddit 请求返回 403，当前不能依赖旧路径继续稳定采集；这不是关于 Reddit 全球访问政策的判断。
 - 2026-10-11 在此服务器对 Arctic Shift 做了一次有界历史帖子查询（technology、2026-02-01 之前、limit=1），HTTP 200 且返回一条记录；这只证明该次请求可达，不证明完整覆盖、实时性或接入完成。
 - 2026-10-12 UTC 02:54，curl 对 technology、MachineLearning、worldnews 最新帖子各查询一条，均 HTTP 200；帖子年龄分别约 17.6、263.7、7.5 分钟，不能解释为来源延迟或全量覆盖。近期 score/num_comments 为 1/0 或 1/1；文档说明约 36 小时补齐指标，不可当实时热度。相近查询用 urllib URL 编码参数返回 403，尚未定位是客户端/URL/网络路径差异；接入需要用实际 Node HTTP 客户端复验。报告在被忽略的 `output/source-checks/`。
+- 协作开发前复验：2026-10-12 使用本服务器 Node 原生 fetch，对 technology 最新三条帖子分别使用原始逗号与 URLSearchParams 编码字段参数，两次均 HTTP 200、返回相同三条记录（约 2.1/1.2 秒）。本次 Node 可用，之前 urllib 403 的原因仍未知；不能据此证明持续可用、完整覆盖或 12 小时延迟达标。没有使用付费 X 请求，也未启动常驻采集。
 - Arctic Shift 尚未实现，X、Instagram 及外部聚合源尚未实现。多平台是已确认方向，尚非代码能力。
-- 首版范围确认为 Reddit + X，用户接受最多 12 小时延迟，订阅由系统输入并持久化。候选价格与验证方案见 [产品计划](README.md)；预算、X 凭证与实际持续可用性尚未确认。
-- 2026-10-12 三个开发用户 Codex CLI 版本均为 0.162.1，本地创建/修改/删除与 Git 远端读取通过；dev-a 已登录 ChatGPT，dev-owner/dev-b 尚未登录。dev-owner 推送 dry-run 通过，dev-a/dev-b 未配置 Git author 且 SSH 推送 publickey 失败；GitHub 协作者 GET 当前只列 Euroish。个人登录、公钥登记和邀请接受须由对应账号完成，不能标记三人全部就绪。
-- 共享开发目录 `/srv/team/project`，共同分支 `shared-dev`；开发环境与生产发布分开。本轮未启动公开部署或采集调度。
+- 首版范围确认为 Reddit + X，用户接受最多 12 小时延迟，订阅由系统输入并持久化。数据采购预算每月最多 4 美元，用户要求自动补齐参数范围内匹配内容；目标规模/历史窗口、X 会话授权与实际覆盖/持续可用性待确认。候选与限制见 [产品计划](README.md)。
+- 免费 X 研究已读 twitter-cli/twscrape 的客户端及分页源码，并比较 x-cli、Twikit、Nitter：尚无证据证明免费方案满足全量与稳定要求，没有安装或实测 X 采集。GitHub API 回读证明 root 当前凭证有本仓库 push 权限，公开项目读取可用；twscrape 最近 push 为 2026-10-05、twitter-cli 为 2026-05-07、Twikit 为 2026-03-10，这些仅是仓库活动日期，不是功能验收。
+- Codex CLI 版本为 0.162.1，dev-a 此前已登录 ChatGPT；root 原登录/历史保留，dev-owner/dev-b 尚未完成自己的登录。worktree 不复制或更换任何用户的 Codex auth。
+- root 对应 Euroish，已有推送凭证；dev-a 对应 HikariVerse，已配置准确 Git noreply 身份，GitHub 回读确认邀请已接受、角色 write、push=true/admin=false/maintain=false；服务器 SSH push dry-run 仍 publickey 失败，个人公钥登记需本人完成。dev-b 未配置本轮开发 worktree。
+- root 和 dev-a 的独立目录/分支见 [开发说明](development.md)，共享 Git 对象库；`/srv/team/project` 保留为 shared-dev 集成目录。两个新 worktree 尚未安装依赖，不启动常驻服务或采集；代码目录/暂存区隔离不代表远端授权已打通。
+- main 分支保护已通过 GitHub API 配置并回读：PR 至少一次批准、旧批准随新提交失效、审核讨论解决、禁止普通协作者强推/删分支；owner 保留应急绕过，不绑定尚未验证的 CI 名称。
+
 
 ## 本轮整理
 
@@ -41,6 +46,7 @@
 
 ## 验证记录
 
+- worktree 设置验证：root/dev-a 可独立创建并暂存同名不同内容文件，index 路径不同、common Git 相同，`team-git` 在各自目录和目录外默认路由正确；测试文件已清理。Git author 与 Codex CLI 可读，未额外启动服务或安装依赖。
 - 文档检查通过：六个 Markdown 文件、相对链接有效；额外文档和失效链接的拦截也已检查。整理前有 203 个 Markdown 文件。
 - `npm run typecheck`、`npm run lint:web`、`npm run build`、`npm run smoke:compiled` 通过；报告脚本在临时目录读取旧样本并只向 `output/provider-reports/` 写入的离线检查通过。
 - 最终串行全量回归：331 项，314 通过、17 失败。相比原基线无新增失败，并修复 viewer 采集运行权限回归；旧部署文档文本断言已移除，增加一项有界清理回归。
