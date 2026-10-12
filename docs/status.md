@@ -9,6 +9,7 @@
 - 当前真实 provider 为旧 HTTP / Scrapling，mock 用于离线开发。此服务器此前真实 Reddit 请求返回 403，当前不能依赖旧路径继续稳定采集；这不是关于 Reddit 全球访问政策的判断。
 - 2026-10-11 在此服务器对 Arctic Shift 做了一次有界历史帖子查询（technology、2026-02-01 之前、limit=1），HTTP 200 且返回一条记录；这只证明该次请求可达，不证明完整覆盖、实时性或接入完成。
 - 2026-10-12 UTC 02:54，curl 对 technology、MachineLearning、worldnews 最新帖子各查询一条，均 HTTP 200；帖子年龄分别约 17.6、263.7、7.5 分钟，不能解释为来源延迟或全量覆盖。近期 score/num_comments 为 1/0 或 1/1；文档说明约 36 小时补齐指标，不可当实时热度。相近查询用 urllib URL 编码参数返回 403，尚未定位是客户端/URL/网络路径差异；接入需要用实际 Node HTTP 客户端复验。报告在被忽略的 `output/source-checks/`。
+- 协作开发前复验：2026-10-12 使用本服务器 Node 原生 fetch，对 technology 最新三条帖子分别使用原始逗号与 URLSearchParams 编码字段参数，两次均 HTTP 200、返回相同三条记录（约 2.1/1.2 秒）。本次 Node 可用，之前 urllib 403 的原因仍未知；不能据此证明持续可用、完整覆盖或 12 小时延迟达标。没有使用付费 X 请求，也未启动常驻采集。
 - Arctic Shift 尚未实现，X、Instagram 及外部聚合源尚未实现。多平台是已确认方向，尚非代码能力。
 - 首版范围确认为 Reddit + X，用户接受最多 12 小时延迟，订阅由系统输入并持久化。候选价格与验证方案见 [产品计划](README.md)；预算、X 凭证与实际持续可用性尚未确认。
 - Codex CLI 版本为 0.162.1，dev-a 此前已登录 ChatGPT；root 原登录/历史保留，dev-owner/dev-b 尚未完成自己的登录。worktree 不复制或更换任何用户的 Codex auth。
