@@ -48,7 +48,7 @@ export interface SourceCapability {
   /** Provider may return/bill a fixed page even when a smaller page is requested. */
   requestResourceUpperBound?: number;
 }
-export interface SourceSchedule { enabled: boolean; cadenceSeconds: number; overlapSeconds: number; initialLookbackHours: number; maxCatchupHours: number; pageSize: number; maxPages: number }
+export interface SourceSchedule { enabled: boolean; cadenceSeconds: number; overlapSeconds: number; initialLookbackHours: number; maxCatchupHours: number; pageSize: number; maxPages: number; recheckLookbackHours?:number; recheckCadenceSeconds?:number }
 export interface SourceRefresh { enabled: boolean; afterHours: number; minIntervalHours: number; maxAttempts: number; batchSize: number }
 export interface CollectionSource {
   id: string; platform: ContentPlatform; provider: string; label: string; target: SourceTarget;
@@ -56,20 +56,21 @@ export interface CollectionSource {
   latestPublishedAt: string | null; coverage: "unknown" | "partial";
   state: "active" | "paused" | "archived"; group: string | null; updatedAt: string;
   schedule: SourceSchedule; refresh: SourceRefresh; nextDueAt: string | null; incrementalTo: string | null;
+  nextRecheckAt?:string|null;
 }
 export interface CreateCollectionSourceRequest {
   platform: ContentPlatform; provider: string; label?: string; target: SourceTarget; contentKind: PublicContentKind;
 }
 export interface StartSourceCollectionRequest { from?: string; to?: string; pageSize?: number; maxPages?: number }
 export interface UpdateCollectionSourceRequest { label?: string; group?: string | null; schedule?: Partial<SourceSchedule>; refresh?: Partial<SourceRefresh> }
-export interface SourceProviderBudget { provider: string; enabled: boolean; dailyRequests: number; monthlyRequests: number; dailyResources: number; monthlyResources: number }
-export interface SourceProviderUsage { provider: string; day: string; month: string; dailyRequests: number; monthlyRequests: number; dailyResources: number; monthlyResources: number; budget: SourceProviderBudget }
+export interface SourceProviderBudget { provider: string; enabled: boolean; dailyRequests: number; monthlyRequests: number; dailyResources: number; monthlyResources: number; minimumIntervalMs?:number }
+export interface SourceProviderUsage { provider: string; day: string; month: string; dailyRequests: number; monthlyRequests: number; dailyResources: number; monthlyResources: number; budget: SourceProviderBudget; lastReservationAt?:string|null }
 export interface SourceCollectionJob {
   id: string; sourceId: string; status: "queued" | "running" | "retrying" | "succeeded" | "failed" | "cancelled";
   from: string; to: string; pageSize: number; maxPages: number; pagesCommitted: number; recordsProcessed: number;
   checkpoint: JsonValue | null; coverage: "unknown" | "partial"; exhausted: boolean;
   attempts: number; error: string | null; nextRunAt: string; createdAt: string; finishedAt: string | null;
-  purpose: "manual" | "scheduled" | "refresh"; parentJobId: string | null; refreshIds: string[];
+  purpose: "manual" | "scheduled" | "refresh" | "recheck"; parentJobId: string | null; refreshIds: string[];
   recordsInserted: number; recordsUpdated: number;
   /** Registered adapter attempts; cancellation/lease loss may prevent a fenced write. Not a provider bill. */
   requestCount?: number; requestDurationMs?: number;
@@ -81,6 +82,8 @@ export interface SourceOps {
   queue: { status: SourceCollectionJob["status"]; count: number }[]; oldestQueuedAt: string | null;
   sources: { sourceId: string; state: CollectionSource["state"]; lastSuccessAgeHours: number | null; latestPublishedAgeHours: number | null; coverage: CollectionSource["coverage"]; nextDueAt: string | null; activeJobs: number }[];
   providers: SourceProviderUsage[];
+  recentFailures?:{jobId:string;sourceId:string;error:string;finishedAt:string|null}[];
+  requests?:{registeredCount:number;totalDurationMs:number;scope:"retained_jobs"};
 }
 export interface ContentQuery {
   platform?: ContentPlatform; provider?: string; sourceId?: string; kind?: PublicContentKind;

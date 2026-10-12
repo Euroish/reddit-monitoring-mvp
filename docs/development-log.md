@@ -1,6 +1,6 @@
 # 分阶段开发日志
 
-本文件按用户明确要求记录阶段 1–3 的开发过程、已实行内容、测试与本地版本；不是另一份产品计划。当前实现总览仍见 [状态](status.md)，操作与交接见 [交接](handoff.md)。秘密、合成样本和运行报告只在忽略的 output/。
+本文件按用户明确要求记录阶段 1–3 及 4A–5B 的开发过程、已实行内容、测试与本地版本；不是另一份产品计划。当前实现总览仍见 [状态](status.md)，操作与交接见 [交接](handoff.md)。秘密、合成样本和运行报告只在忽略的 output/。
 
 ## 2026-10-12：任务启动与版本基线
 
@@ -45,3 +45,24 @@
 - 产品计划、架构、状态、开发说明及交接原段落同步纠正；4A 优先、4B 可并行、4C 持续使用，5A 内容闭环/5B 检索与研究复现支撑 6 分析。个人保存验收依赖账号隔离；G 的 AS 授权与 X 凭证/费用条件分别记录，Instagram 和 RSS/web 不共用同一验收出口。前端继续以功能补充为主。
 - R2 HTML/JSON、生成脚本与浏览器证据留在忽略的 output/validation，不覆盖历史报告。报告 9 项检查通过，保留原 60/20 项及源码位置、筛选/证据展开/完整 JSON 下载、桌面/390px 布局；页面错误与外部请求均为 0。首次 Chromium 沙箱启动失败，允许本机启动后完成同一检查，结果不算项目业务验收。
 - 文档检查继续覆盖八份，diff 检查通过；软件版本保持 0.4.0，本次作为本地文档修订保存。没有真实来源验收、付费试跑、部署、远端 Git 操作或前端整体改造。
+
+## 阶段 4A：正确性、调度与执行入口（0.5.0 软件交付）
+
+- 开始时个人分支 `codex/arctic-shift-content-query` 工作区干净，基线为 `2eab855`；未切换 main/shared-dev。用户授权 4A→4B→4C→5A→5B 和阶段版本管理，随后允许并行，三个子代理分别处理数据/配置、前端、来源调度，root 集成执行政策、readiness、API 与阶段快照。
+- 调度先筛 eligible 再限批，复现并修复 21 个来源中前 20 个空候选造成的饥饿；不同 purpose 可并存排队，同来源运行互斥，持久化每四次为 manual/refresh 留一次优先机会。新增有界 recheck（默认 12 小时/6 小时）与 provider 最小间隔，不推进增量高水位，不把预算预留当账单。
+- Target 的首次发现采样与发布时间图表分开；未取样为 null，已取样为空为 0，未知互动不归 quiet/普通。日桶不被部分 firstSeen 采样覆盖，20,000 条截断明示下界；最新存储行不能重建已覆盖的历史指标，明确保留该限制。
+- 共用执行政策覆盖新旧 runtime、同步/异步 API、use-case、worker/CLI 和 connector 工厂。网络关闭禁止 live，production 禁止 mock/demo，非法请求在写目标/入队前拒绝。严格配置、localhost 端口/代理校验、source worker 编译 smoke、离线与 SQL 独立 runner、CI workflow 已写；readiness 纳入来源队列/活跃 worker/近期失败与登记耗时。
+- 033 新增迁移，未修改原 SQL；隔离库应用完整 35 个 SQL，重复执行无新增，未升级 `info_workbench_dev` 或生产库。033 校验值为 `3E26D15B27D7BF23CAA67C35581BA909DFB776B4072B2DD18D983D0AD3D0D1E7`。
+- 首次沙箱全量因 loopback EACCES 失败；允许本机执行后定位环境错误文案及执行环境 overlay 两项实际回归，修复后再次验收，没有降低断言。初次临时 UI 端口失效后由 root 新建 41975，仅用合成 API 重验。
+- 为避免并行 4B 混入，冻结暂存树并导出独立快照 `output/validation/phase-4a-snapshot-b873eef7`。最终报告 `phase-4a-snapshot-verification.json`：425 项离线全部通过、15 项隔离 SQL 全部通过，均 0 fail/0 skip；typecheck、API/Web/Vite 构建、Web lint、compiled smoke、八份 docs 检查通过。依赖复用既有安装，不声称重新清洁安装；云端 CI 未运行。
+- 两套 Chromium 合成 UI 覆盖采样语义、来源设置/状态/任务/预算/导出及 390px；外部请求 0、页面错误 0。证据分别为 `output/playwright/phase1-functional-evidence.json`、`output/validation/phase-4a-sources-ui.txt` 与对应截图。4A 阶段保存本地标签 `local-phase4a-v0.5.0`，不包含后续 4B 代码。
+
+## 2026-10-13：停止并行、单 agent 交接与 4B 未完成检查点
+
+- 用户最新要求为：不再开子代理，完成已有子代理交接、写当前日志后停止。三个子代理均已停止，root 收齐文件、接口、专项结果、未完成项和进程状态；后续全部分配给单 agent，不自动继续实施 4B/4C/5A/5B，不再启动业务测试。
+- 数据/配置代理留下账户安全与审计服务、PG/memory 仓储、权限政策和 034；包括凭证版本 fencing、原子改密/撤会话、最后 active owner 锁、加密随机邀请码。损坏 scrypt hex 可误认证的问题已离线复现并在收到停止消息前保存修复，9 项专项通过；账户隔离 SQL 1/1（在最后 hash 修复前执行），不等于全项目验收。审计 intent 与结果分开持久化，`attempted` 代表中断结果未知，不声称与业务变更原子提交。
+- 前端代理留下 auth epoch/abort/账号缓存与草稿隔离、账户/审计页面、用户角色和目标 dirty/CAS UI。auth epoch 2/2，合成 Chromium 66 个 API 请求、外部请求 0、错误 0，最终 Web lint 通过；此前核心 build 在追加 target CAS 之前，不能视为最终构建。账户 API 实接、公共 revoke/target revision 类型、来源 CAS UI、邀请角色选项和 SPA 后退提醒仍待接续。
+- 来源代理留下 source/budget CAS、target 仓储条件更新及 035。035 未应用，CAS 单测/API/原生 SQL/worker 暂停并发尚未执行；旧 target API、bulk policy 与前端来源接线未完成，pause/commit 锁序存在待复核的静态风险。
+- root 留下 3 项有意失败的写安全回归：登录专用限流/伪造 forwarded 地址、跨来源写入拒绝、默认 PATCH/PUT/DELETE CORS 与 header 白名单。相应功能尚未实现；账户新路由和业务审计接线尚未写。既有 typecheck 记录含 PublicContent 合成夹具缺字段、`authRateLimit` 配置不存在及并行接口未整合；停止后不靠新的业务修改消除这些失败。
+- 4B 作为 `local-phase4b-wip-single-agent-20261013` 保存未完成本地检查点，不赋予新的交付版本。4C 的保留/恢复/发布/性能、5A 的公共内容使用闭环、5B 的检索/冻结研究导出均尚未开始；详细单 agent 接续顺序维护在 [交接](handoff.md)，不新建另一套交接文件。
+- root 的临时 Vite 41975 与 PostgreSQL 启动 helper 已关闭；PostgreSQL 25432 保留运行及数据，用户其他服务未动，临时/隔离数据库未删除。所有改动保留在个人分支，没有真实来源、付费、部署、push、force push、分支删除或 PR 合并。收尾仅更新原有文档、运行 docs/diff 检查及保存本地版本，然后停止。

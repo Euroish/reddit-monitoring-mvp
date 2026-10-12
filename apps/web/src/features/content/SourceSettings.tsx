@@ -9,7 +9,7 @@ export function SourceSettings({ source, capability, zh, onUpdated }: {
 }) {
   const copy = (en: string, cn: string) => zh ? cn : en;
   const snapshot = (value: CollectionSource) => ({ base: value.updatedAt, dirty: false,
-    fields: { label: value.label, group: value.group ?? '', schedule: { ...value.schedule }, refresh: { ...value.refresh } } });
+    fields: { label: value.label, group: value.group ?? '', schedule: { ...value.schedule, recheckLookbackHours: value.schedule.recheckLookbackHours ?? 12, recheckCadenceSeconds: value.schedule.recheckCadenceSeconds ?? 21600 }, refresh: { ...value.refresh } } });
   const [edit, setEdit] = useState(() => snapshot(source));
   const current = !edit.dirty && edit.base !== source.updatedAt ? snapshot(source) : edit;
   const conflict = edit.dirty && edit.base !== source.updatedAt;
@@ -35,6 +35,8 @@ export function SourceSettings({ source, capability, zh, onUpdated }: {
     ['maxCatchupHours', 'Maximum catch-up window (hours)', '单次追赶窗口（小时）', 1, 168],
     ['pageSize', 'Records per page', '每页条数', 1, 100],
     ['maxPages', 'Pages per job', '每任务页数', 1, 20],
+    ['recheckLookbackHours', 'Late-arrival recheck window (hours; 0 disables)', '迟到回查窗口（小时；0 关闭）', 0, 168],
+    ['recheckCadenceSeconds', 'Late-arrival recheck interval (seconds)', '迟到回查间隔（秒）', 60, 86400],
   ] as const;
   const refreshFields = [
     ['afterHours', 'Refresh after publication (hours)', '发布后刷新（小时）', 1, 8760],
@@ -63,6 +65,7 @@ export function SourceSettings({ source, capability, zh, onUpdated }: {
           <label key={field}>{copy(en, cn)}<Input type="number" min={min} max={max} step={1} required value={Number.isFinite(current.fields.refresh[field]) ? current.fields.refresh[field] : ''} onChange={event => setSetting('refresh', field, event.target.value === '' ? Number.NaN : Number(event.target.value))} /></label>)}</div>
       </fieldset>
       <p className="content-muted">{copy('Scheduling requires a running source worker. Paused and archived sources do not start new collection jobs. Identity stays fixed; add a source to change its target.', '调度需要来源 worker 持续运行。暂停或归档来源不会启动新采集任务；若要改变采集目标，请新增来源。')}</p>
+      <p className="content-muted">{copy('Late-arrival checks revisit only the configured recent window and consume the same provider budget. They preserve incremental checkpoints and cannot prove full upstream coverage.', '迟到回查只重查配置的近期窗口，计入同一 provider 预算并保留增量 checkpoint；不能证明上游完整覆盖。')}</p>
       {conflict && <p role="alert" className="content-error">{copy('The source changed while you were editing. Reload its settings before saving.', '编辑期间来源已更新，请重新载入设置再保存。')} <Button type="button" onClick={() => setEdit(snapshot(source))}>{copy('Reload settings', '重新载入设置')}</Button></p>}
       {update.error && <p role="alert" className="content-error">{update.error.message}</p>}
       <Button type="submit" variant="primary" disabled={update.isPending || conflict || !current.dirty}>{update.isPending ? copy('Saving…', '正在保存…') : copy('Save source settings', '保存来源设置')}</Button>

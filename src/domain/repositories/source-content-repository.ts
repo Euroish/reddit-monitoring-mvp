@@ -18,7 +18,7 @@ export interface SourceContentRepository {
   scheduleDue(now: string, refreshProviders: readonly string[], limit: number, enabledProviders?: readonly string[]): Promise<number>;
   providerUsage(now: string): Promise<SourceProviderUsage[]>;
   setProviderBudget(budget: SourceProviderBudget, now?: string): Promise<SourceProviderBudget>;
-  reserveUsage(provider: string, resources: number, now: string): Promise<{ allowed: boolean; retryAt: string }>;
+  reserveUsage(provider: string, resources: number, now: string): Promise<{ allowed: boolean; retryAt: string;reason?:"budget"|"interval" }>;
   heartbeat(value: SourceWorkerHeartbeat): Promise<void>;
   sourceOps(now: string): Promise<SourceOps>;
   claim(now: string): Promise<ClaimedSourceJob | null>;

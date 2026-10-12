@@ -1,4 +1,5 @@
 import type { MonitorTargetRepository } from "../../domain/repositories/monitor-target-repository";
+import { assertCollectionExecutionAllowed } from "../../runtime/collection-execution-policy";
 import type { CollectionJobRepository } from "../../domain/repositories/collection-job-repository";
 import type { CrawlCursorRepository } from "../../domain/repositories/crawl-cursor-repository";
 import type { MonitorTarget } from "../../domain/entities/monitor-target";
@@ -43,6 +44,7 @@ export async function dispatchRedditPhase1Run(
 ): Promise<DispatchRedditPhase1RunResult> {
   const nowIso = deps.now?.() ?? new Date().toISOString();
   const env = deps.env ?? process.env;
+  assertCollectionExecutionAllowed(input.mode, env);
   const targets = await resolveRequestedTargets(deps.repositories.monitorTargetRepository, {
     subreddit: input.subreddit,
     nowIso,

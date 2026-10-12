@@ -15,6 +15,7 @@ import type { RedditConnector } from "../src/connectors/reddit/reddit-connector.
 import { parseOptionalPositiveInt } from "../src/runtime/runtime-parsing";
 import { PostgresClient } from "../src/storage/postgres/postgres-client";
 import { runRedditPhase1Cycle } from "../src/workers/reddit-phase1.worker";
+import { assertCollectionExecutionAllowed } from "../src/runtime/collection-execution-policy";
 
 export type RunMode = Phase1RunMode;
 export type RunCrawlMode = Phase1CrawlMode;
@@ -39,6 +40,7 @@ export async function runPhase1OnceWithPostgres(
   const subreddit = options.subreddit ?? process.env.REDDIT_RUN_SUBREDDIT ?? "machinelearning";
   const nowIso = options.nowIso ?? new Date().toISOString();
   const runMode = options.runMode ?? resolvePhase1RunMode(process.env.REDDIT_RUN_MODE);
+  assertCollectionExecutionAllowed(runMode);
   const crawlMode = options.crawlMode ?? resolvePhase1CrawlMode(process.env.REDDIT_CRAWL_MODE);
   const runtime = createPostgresPhase1Runtime({
     db: options.db,

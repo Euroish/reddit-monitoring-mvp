@@ -12,6 +12,7 @@ import {
 } from "../../runtime/reddit-phase1-runtime";
 import { createRedditFetchExecutionEngine } from "../../runtime/reddit-fetch-execution-engine";
 import { resolveRedditProviderRoutingPolicyContextFromEnv } from "../../runtime/reddit-provider-routing-policy";
+import { assertCollectionExecutionAllowed } from "../../runtime/collection-execution-policy";
 
 type Phase1Repositories = Omit<RedditPhase1WorkerDependencies, "redditConnector" | "redditMapper">;
 
@@ -52,6 +53,7 @@ export async function prepareTriggeredRedditPhase1Run(
 ): Promise<PreparedRedditPhase1Run> {
   const nowIso = deps.now?.() ?? new Date().toISOString();
   const env = deps.env ?? process.env;
+  assertCollectionExecutionAllowed(input.mode, env);
   const redditMapper = deps.redditMapper ?? new DefaultRedditMapper();
   let canonicalName: string | undefined;
 

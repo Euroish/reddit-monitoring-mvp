@@ -13,10 +13,13 @@ import {
   InMemorySubredditTrendPointRepository,
 } from "../storage/repositories/in-memory/in-memory.repositories";
 import { runRedditPhase1Cycle } from "./reddit-phase1.worker";
+import { assertCollectionExecutionAllowed } from "../runtime/collection-execution-policy";
 
 async function main(): Promise<void> {
   const subreddit = process.env.REDDIT_SMOKE_SUBREDDIT ?? "machinelearning";
   const mode = process.env.REDDIT_SMOKE_MODE ?? "mock";
+  if (mode !== "mock" && mode !== "live") throw new Error("REDDIT_SMOKE_MODE must be mock or live");
+  assertCollectionExecutionAllowed(mode);
   const nowIso = new Date().toISOString();
 
   const monitorTargetRepository = new InMemoryMonitorTargetRepository();

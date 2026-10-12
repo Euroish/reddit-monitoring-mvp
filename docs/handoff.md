@@ -1,6 +1,6 @@
 # 阶段交接与交付状态
 
-用户要求阶段 1、2、3 均形成可交付结果。本文件维护每阶段版本、已实现范围、验证方法、待验收边界与接续步骤；过程见 [开发日志](development-log.md)，稳定启动说明见 [开发说明](development.md)。
+用户原授权阶段 1、2、3 及后续 4A、4B、4C、5A、5B；2026-10-13 最新要求是停止多 agent、完成已有交接与日志后停止任务。三个子代理已停止，剩余责任统一移交单 agent，当前不继续开发。本文件维护阶段版本、实际范围、验证边界和恢复后的接续步骤；过程见 [开发日志](development-log.md)，稳定启动说明见 [开发说明](development.md)。
 
 ## 版本与范围
 
@@ -11,6 +11,29 @@
 | 0.3.0（阶段 2 中间快照） | 来源生命周期、周期任务、成熟归档刷新、任务中心/预算/心跳；提前交付统一统计/导出基础 | 0a05f41 构建通过，独立回归发现稳定 ID 前缀漏项；保留记录，不作为交付版本 |
 | 0.3.1（阶段 2 交付） | 同上，补齐公共稳定身份前缀 | 提交 0496b1d / local-phase2-v0.3.1；独立快照 386 项：382 pass / 4 skip / 0 fail；构建通过 |
 | 0.4.0（阶段 3 交付） | X 可配置 adapter 与 demo、共享身份/规范写保护、请求观测、双语入口和多平台查询/导出 | local-phase3-v0.4.0；最终离线 400 pass / 7 SQL skip / 0 fail，SQL 另跑 7/7；真实 X 按用户意见保留 |
+| 0.5.0（阶段 4A 交付） | 公平调度/recheck/请求间隔、采样与发布时间口径、新旧执行政策、配置/CI/readiness | local-phase4a-v0.5.0；独立代码快照离线 425/425、隔离 SQL 15/15，零 skip；类型/构建/lint/compiled/docs 通过；复用依赖，云端 CI/真实来源未执行 |
+| 4B WIP（停止检查点） | 账户/审计仓储服务与 UI、账号隔离、部分配置 CAS 和写安全红测 | local-phase4b-wip-single-agent-20261013；未完成 HTTP/契约整合，已有 typecheck 与安全测试失败，不作为交付版本 |
+
+## 单 agent 接续分配与停止边界
+
+本次任务已停止，不再启动子代理或业务测试。个人分支保持 `codex/arctic-shift-content-query`；4A 交付与 4B WIP 分开保存，所有修改保留。下面是恢复开发时的单 agent 顺序，不代表这些步骤已经执行。
+
+| 原代理/职责 | 停止时成果 | 统一接续责任 |
+| --- | --- | --- |
+| phase1_data：配置与账户后台 | 4A 配置/CI 已验收；4B 账户安全/审计服务、仓储、034 及专项 | 单 agent 整合账户 API、角色政策、业务审计、memory session 绑定与事务边界 |
+| phase1_frontend：统计与账户 UI | 4A 采样/图表语义已验收；4B 缓存隔离、账户/审计/用户/目标 UI 与合成冒烟 | 单 agent 核对公共类型和实际 HTTP，补来源 CAS/邀请选项，重验账号切换及草稿 |
+| phase2_sources：调度与配置 CAS | 4A 调度/预算间隔已验收；4B source/budget CAS、target 仓储条件更新与 035 | 单 agent 补 target API/客户端 revision、并发与暂停回归，复核锁序并隔离验证 035 |
+| root：跨层集成与版本 | 4A 网络闸门/readiness/独立快照完成；4B 写安全红测尚无实现 | 单 agent 完成安全实现与全部集成验收，再保存 4B 交付版本，随后 4C→5A→5B |
+
+1. **先收口契约与类型。** 核对 `http.ts` 中账户/审计类型；补 `AuthSessionRevokeResponse`、`SubredditTargetAdminView.revision`、`UpdateSubredditTargetRequest.expectedRevision` 并替换 Account 临时响应类型。修正 `smoke-account-security.ts` 的 PublicContent 缺 `url/language/author`；定义专用 authRateLimit 后再接安全红测。旧独立构造 memory session 仓储的调用点必须绑定 user repository。最后 typecheck 失败日志是过程证据，不能当作最终树的完整错误清单。
+2. **账户 HTTP 与写安全。** `AccountSecurityService` 已有 `changePassword/listSessions/revokeSession/revokeAllSessions/changeStatus/changeRole`；接 `/auth/password`、`/auth/sessions`、单/全部撤销、用户角色路由，并把旧 status/invite 写路径接授权政策。密码 12–128、改密后 `reauthenticate:true`，会话 view 用 `current`；机器身份不能执行个人会话操作。补专用登录/注册限流、未信任 forwarded 地址政策、写 Origin 校验、PATCH/PUT/DELETE CORS 与固定 header 白名单。现有 3 项 `api-server-write-security.test.ts` 仍为失败状态。
+3. **业务操作审计。** `appAuditRepository.begin/complete/list` 与 `/v1/ops/audit` 所需 `entries/nextCursor` 已准备；尚未接 HTTP 和来源/任务/预算/用户/邀请写路径。先持久化 attempted，再保存结果；只记录脱敏的固定元数据，不声称 audit 与业务事务完全原子。校验 owner/admin/viewer/machine 边界、分页及未知结果处理。
+4. **配置并发贯通。** 035 初始 revision=1，未存预算=0；source/state/budget 接 optional expectedRevision，target 仓储已有 `updateIfRevision`，未提供则仍允许兼容盲写。补旧 target API、来源设置/状态/预算 UI、bulk 逐行版本策略及冲突草稿；不让 worker 时间/用量更新误增配置版本。验证 035 全迁移/重复执行、并发创建与更新、pause/commit 锁序和取消；当前 035 尚未应用、CAS 新回归尚未执行。
+5. **完成 4B 验收再进入后续阶段。** 依次运行 typecheck、API/Web build、lint、offline、全部 native SQL 和合成浏览器，再走 localhost 前端→实际账户 API→隔离 PostgreSQL 的邀请/激活/改密/撤会话/审计/CAS 闭环。现有合成 UI 不能替代实际 HTTP/SQL；未经真实来源授权不运行 live。保存交付版本后由同一个 agent 顺序实施 4C（保留 dry-run、恢复、发布、性能）、5A（详情/筛选/保存/收藏）、5B（检索投影/一致性/冻结研究导出）。这些阶段尚未开始。
+
+停止时账户专项 9/9、账户隔离 SQL 1/1、auth epoch 2/2、合成 UI 66 请求零外部/零错误与 Web lint 通过；账户 SQL 在最后 scrypt 格式修复前执行，核心 Web build 在追加 target CAS 前执行，均不能合并成最终 4B 全量验收。SPA 后退未强制阻挡、bulk 暂无 CAS、OpsInvites admin 选项未限制。损坏 scrypt 格式的修复已经保存，但仍需随完整 4B 验收回归。
+
+迁移只新增，不改已应用 SQL。033 仅隔离库验收、034 仅账户隔离库验收，035 未应用，本机 `info_workbench_dev` 未升级这些迁移。root 临时 Vite 41975 和启动 helper 已关闭，本机 PostgreSQL 25432 保留运行与数据，不触碰用户其他服务。
 
 ## 验收约束
 
@@ -21,9 +44,9 @@
 
 ## 与审计清单的对应（2026-10-12 修订 R2）
 
-初始基线仍为 cd920c5，上一轮 Arctic Shift 保存快照为 abd24f5，当前软件基线为 e88ca2e / v0.4.0。阶段版本记录的是实际交付范围，不代表原 60 项改进目标全部完成。旧报告将部分条目统一归为 Delivered/Future，分类过粗，本表覆盖其完成判定；历史报告及运行证据保持原样。
+初始基线仍为 cd920c5，上一轮 Arctic Shift 保存快照为 abd24f5，R2 软件基线为 e88ca2e / v0.4.0。阶段版本记录的是实际交付范围，不代表原 60 项改进目标全部完成。旧报告将部分条目统一归为 Delivered/Future，分类过粗，本表保留编号并按本次 4A/4B 停止事实更新相关条目；历史报告及运行证据保持原样。
 
-本轮对照为 9 项限定软件目标完成、32 项部分完成、1 项软件已实现待真实验收、2 项待真实验收、8 项目标尚未实现、8 项需求确认后推进。各目标宽度不同，不据此计算整个项目完成度百分比。已完成包含基线保留能力或本次修复，不都是新建功能。已有 400 离线 + 7 隔离 SQL 通过记录，本轮只读复核，没有重新执行业务/来源验收。
+R2 当时统计为 9 项限定软件目标完成、32 项部分完成、1 项软件已实现待真实验收、2 项待真实验收、8 项目标尚未实现、8 项需求确认后推进；该历史数字不作为本次停止状态汇总，各目标宽度不同，不计算项目完成率。已完成包含基线保留能力或本次修复，不都是新建功能。当前以顶部 4A 独立验收与 4B WIP 边界为准，4A 测试结果不能覆盖 WIP 分支。
 
 阶段代号和依赖/出口以 [产品计划](README.md) 为准；下面逐项保留原编号与差距。4A/4B/4C 为可靠性与持续使用，5A 为内容使用，5B 为公共检索/研究复现，6 为分析迁移，G 为待授权真实验收。
 
@@ -33,18 +56,18 @@
 | P0-02 图表正确性 | 已完成限定软件目标 | 曲线与overlay按日期并集对齐，缺值null。 | 维持不同起点/缺日/乱序回归。 | 维持 |
 | P0-03 图表生命周期 | 已完成限定软件目标 | 空→有→空→有生命周期与移动遮挡已修并有合成浏览器证据。 | 新图表沿用相同生命周期回归。 | 维持 |
 | P0-04 保存视图 | 已完成限定软件目标 | 目标/比较受控保存URL、恢复series/overlay/range和失败反馈已完成。 | 公共content保存属P2-09，不能把此项完成扩大成全部收藏完成。 | 维持 |
-| P0-05 统计口径 | 部分完成 | 已索引范围的完整计数与独立样本；公共列表/统计同过滤。 | 索引覆盖率与正文覆盖未量化；旧卡片把firstSeen采样窗和最新单日published桶作fallback，范围与availability未统一。 | 4A/5B |
+| P0-05 统计口径 | 部分完成 | 已索引范围的完整计数与独立样本；公共列表/统计同过滤；4A 独立 firstSeen 采样窗、发布时间桶及 availability。 | 公共索引覆盖/正文覆盖未量化，历史被覆盖的最新指标无法重建。 | 5B/6 |
 | P0-06 增长语义 | 已完成限定软件目标 | 旧增长v2由相邻真实记录观测差分产生；单快照/缺指标不算增长，v1不进实测driver。 | 新公共平台分析仍待P1-10/P2-07；不把归档成熟刷新当近期增长。 | 维持 |
-| P0-07 数据解释 | 部分完成 | 新/旧范围与合成标识、null/0、榜单候选上限说明已增加。 | TargetDetail部分||fallback会混不同时间基础；空数组默认值又把未取样与真实0混在一起。 | 4A |
-| P0-08 环境隔离 | 部分完成 | 新公共runtime的demo/network/key/预算闸门及专用种子库限制已实现。 | 旧运行API允许body.mode覆盖环境且缺production mock guard；SOURCE_NETWORK_ENABLED并未约束旧factory。 | 4A |
+| P0-07 数据解释 | 已完成限定软件目标 | 4A 保留 null/0/未知、窗口两端及 20,000 截断下界，图表按发布时间桶；新旧范围/合成标识已有。 | 新公共分析仍未迁移，旧历史指标重建不支持。 | 6 |
+| P0-08 环境隔离 | 已完成限定软件目标 | 4A 共用网络/mode 政策覆盖新旧 API、worker/use-case/CLI/factory，非法请求在写入前拒绝。 | production/部署及真实来源另验。 | G/发布门槛 |
 | P0-09 公网安全 | 部分完成 | 角色写入、cookie HttpOnly/SameSite/production Secure与基本CORS已有。 | 登录/注册专用限流、邀请码随机性、写请求来源政策、PATCH/PUT CORS、两个readyz路径与TLS尚未闭合。 | 4B/发布门槛 |
 | P0-10 迁移可靠性 | 部分完成 | 迁移事务锁、DDL/checksum原子性、并发/失败回滚测试已实现。 | 旧库副本升级、恢复演练、较大库锁时长与发布故障恢复尚未验收；不能再称缺迁移锁。 | 4C |
 | P1-01 来源管理 | 已完成限定软件目标 | 来源标签/group/state/schedule/refresh、暂停取消、归档保留已完成。 | 目标身份固定，更换目标需新建；数据库乐观锁不在此已完成范围。 | 维持 |
-| P1-02 周期采集 | 部分完成 | 周期、高水位、overlap、有界catch-up、checkpoint子任务已实现。 | 候选先LIMIT20后筛eligible可能饥饿；同来源近期/历史任务公平和迟到覆盖保证未实现。 | 4A |
+| P1-02 周期采集 | 部分完成 | 周期/高水位/overlap/catch-up/checkpoint；4A eligible 先筛、公平机会、recheck 和用途运行互斥已验。 | 有界回查不保证窗口外迟到或上游全量；真实持续新鲜度未验。 | G |
 | P1-03 新鲜度验收 | 待真实验收 | 72h模拟和本机合成闭环通过。 | 48–72h真实可用性、遗漏/迟到、源延迟与≤12h目标尚未验收。 | G |
 | P1-04 成熟指标 | 已完成限定软件目标 | Arctic/archive initial按年龄/次数/间隔有界ID成熟刷新及单独观测完成。 | 真实AS刷新效果待授权验收；X snapshot自动刷新不属于已完成archive能力。 | 维持/G |
 | P1-05 任务操作 | 已完成限定软件目标 | 任务历史筛选、cancel/retry/continue、冲突和页计数完成。 | 长历史cursor分页可作P2-11增强；当前最多100条不等于完整归档浏览。 | 维持 |
-| P1-06 工作量与费用 | 部分完成 | 日/月请求/资源保守预留、有限重试、默认付费0和预算唤醒完成。 | provider请求间隔、近期/回填优先、货币预算与实际账单对账未完成；预留不是费用。 | 4A/G |
+| P1-06 工作量与费用 | 部分完成 | 日/月请求/资源预留、有限重试、默认付费0、预算唤醒；4A 请求间隔与公平调度已验。 | 货币预算与实际账单对账未完成；预留不是费用。 | G |
 | P1-07 内容更新策略 | 部分完成 | 公共字段时间守卫、未知时间/语言补齐、旧upsert保护、web namespace工具完成。 | 字段质量/缺失/删除冲突规则及真实web adapter应用未闭合。 | 5B |
 | P1-08 研究导出 | 部分完成 | 公共CSV/JSON有界导出、同过滤总数、证据、CSV防注入与大ID保护完成。 | 研究级冻结成员/分母、完整指标定义/单位/版本manifest未实现；并发更新可改变续页。 | 5B |
 | P1-09 X 最小接入 | 软件已实现，真实验收待授权 | TwitterAPI.io账号/搜索/ID adapter、平台注册、闸门与合成闭环完成。 | 无key/预算/真实账号与检索、媒体/遗漏/延迟/账单验收。 | G |
@@ -53,14 +76,14 @@
 | P1-12 索引生成 | 部分完成 | 旧collector增量写索引、显式限批补建、查询不seed完成。 | AS/X公共页提交无公共检索投影；旧索引依赖target且只320字符；更新/删除/事务恢复一致性未闭合。 | 5B |
 | P1-13 主入口与能力 UI | 部分完成 | Content动态平台/provider/目标/指标、禁用说明、管理入口和empty链接已实现。 | 默认/登录入口仍markets，导航旧新并列；来源→内容→分析主流程尚未完整建立。 | 5A |
 | P1-14 Windows 启停 | 已完成限定软件目标 | Windows local:*完整PG复制、cluster/PID身份、端口、owner/代理与重复启动/停启已验证。 | 部分setup失败、配置损坏与优雅stop为后续增强；无需重做启动器。 | 维持/4C |
-| P1-15 环境配置 | 部分完成 | local env加载、demo overrides与loopback配置已有。 | 统一schema校验/示例、端口与代理一致性、POSIX旧命令的PowerShell兼容尚欠。 | 4A |
+| P1-15 环境配置 | 部分完成 | local env/demo/loopback；4A 严格校验、端口与代理预检、config-only 命令已验。 | 历史零散 POSIX 工具跨平台整理与生产配置另验。 | 4C/发布门槛 |
 | P1-16 API 维护 | 部分完成 | 新公共来源routes就近声明方法/权限已拆出。 | 认证/旧分析/ops大handler仍集中，约3787行；只在相应功能改动时按域拆。 | 伴随各阶段 |
-| P1-17 持续集成 | 目标尚未实现 | 已有本地npm校验脚本，仓库无CI workflow。 | 完整清洁安装+lint/test/build+SQL+合成E2E门禁；compiled检查应覆盖source worker，SQL缺环境不得假绿。 | 4A |
-| P1-18 来源运维 | 部分完成 | 心跳/队列/独立年龄/任务错误计数/登记请求与累计耗时可查。 | 新来源未并入旧readyz；源级近期失败摘要/耗时分布/覆盖可观测性不足。 | 4A/4C |
+| P1-17 持续集成 | 部分完成 | 4A workflow 和零 skip offline/native SQL runner 已写，compiled 覆盖 source worker；本机独立快照门禁通过。 | 清洁重装与云端 workflow 未执行；4B 红测和类型失败须先收口。 | 4B/发布门槛 |
+| P1-18 来源运维 | 部分完成 | 4A readyz 纳入来源队列与活跃 worker；近期失败摘要、登记平均耗时和旧运维入口已接。 | 完整耗时分布、覆盖可观测与保留/容量尚缺；最近100任务不代表长期全量。 | 4C/G |
 | P1-19 真实验收测试 | 部分完成 | 离线API权限、原生SQL和合成UI、本机UI→API→worker→PG脚本完成。 | 完整邀请→pending→激活→账号切换→来源全流程尚未串联CI；真实源/部署另验。 | 4A/4B/G |
 | P1-20 备份与发布 | 部分完成 | 有旧systemd/nginx/env和compiled入口及文档说明。 | 新source worker服务、无秘密不可变产物manifest、dump/restore演练与回滚闭环未完成。 | 4C/发布门槛 |
-| P1-21 账号体验与权限 | 部分完成 | 邀请/pending/激活/登录/logout/禁用基础已有。 | 改密/会话撤销/活跃会话与owner授权政策未完成；禁用后恢复可能重用旧session。 | 4B |
-| P1-22 操作审计 | 目标尚未实现 | audit表已有，但无业务写入链；请求日志无actor变更摘要。 | 来源/任务/预算/用户/邀请持久化审计与脱敏/保留。 | 4B |
+| P1-21 账号体验与权限 | 部分完成 | 既有基础；4B 服务/仓储已写改密/撤会话/version fence/owner 政策，专项通过。 | HTTP 和旧写路径政策未接、UI 实际服务闭环未验，4B 不可交付。 | 4B |
+| P1-22 操作审计 | 部分完成 | 4B durable intent/结果仓储、脱敏分页、审计 UI 已写，专项通过。 | HTTP 与来源/任务/预算/用户/邀请业务写入未接；保留仍待4C。 | 4B/4C |
 | P2-01 低成本补充来源 | 目标尚未实现 | web身份/字段准备与合成存储已有。 | RSS/feed/web真实adapter、URL/DNS/redirect约束与真实文章验收均无。 | 条件扩源 |
 | P2-02 媒体 | 部分完成 | X媒体适配与公用media字段，AS外链已保存。 | 媒体预览/失效/可访问性与provider真实字段覆盖不全。 | 5A/G |
 | P2-03 内容详情 | 目标尚未实现 | 引用ID与原链接可见。 | 无公共内容detail route/API、线程/评论有界展开与关联跳转。 | 5A |
@@ -75,8 +98,8 @@
 | P2-12 保留与容量 | 部分完成 | 旧三类表有界prune已有。 | 新observation/job/usage/heartbeat保留与容量未闭环，当前月usage/活动checkpoint不可盲删。 | 4C |
 | P2-13 界面与无障碍 | 部分完成 | 关键新流程错误/禁用/重试、role与390px已测。 | 全角色完整导航/键盘焦点/图表替代数据/旧页面仍未整体验收。 | 伴随4/5/6 |
 | P2-14 国际化与时区 | 部分完成 | 新页面双语与UTC日桶已有。 | 旧硬编码文案、统一指标翻译/日期、跨零点DST边界系统验收未完成。 | 伴随4/5/6 |
-| P2-15 管理草稿 | 部分完成 | 来源/预算编辑dirty与刷新冲突保留草稿已做。 | 旧OpsTargets等草稿/取消/离开提醒和后端乐观并发控制尚缺。 | 4B/5A |
-| P2-16 账号切换与缓存 | 部分完成 | logout清query缓存，最近任务按userId存session。 | 401仅清auth/login不清旧个人缓存，Saved key不含userId；异常登录切换需回归。 | 4B |
+| P2-15 管理草稿 | 部分完成 | 4B OpsTargets 草稿/取消/冲突与部分 CAS 仓储已写，合成 UI 专项通过。 | 公共 target 类型/API 与 source CAS UI 未整合；bulk 无 CAS、SPA 后退提醒未完成、035 未验。 | 4B/5A |
+| P2-16 账号切换与缓存 | 部分完成 | 4B auth epoch/abort/401 清缓存、Saved 用户 key 和草稿重挂已写；合成专项通过。 | 需实际账户 HTTP/PG 串联和最终全量构建验收。 | 4B |
 | P2-17 契约与 schema 版本 | 部分完成 | SQL checksum、growth/planner/X/web identity标记已有。 | 公用API/capability/metric定义版本与旧观测解释/compat政策缺。 | 5B/6 |
 | P2-18 算法校准 | 目标尚未实现 | 旧算法及解释字段存在，v2差分语义已修。 | 冻结代表样本、敏感性/误报漏报与真实校准未开展。 | 6/G |
 | P2-19 provider 质量与成本 | 待真实验收 | 错误、reservation与登记耗时可离线查。 | provider覆盖/遗漏/实际延迟/空页重复费用需真实样本/合同账单。 | G |
@@ -92,6 +115,12 @@
 
 ## 修改文件与证据
 
+- 4A 完整路径以 `git diff --name-only 2eab855 local-phase4a-v0.5.0` 为准；核心变化包括 collection-execution-policy/environment-config/source-readiness、来源 service/repository/033、Target 读取模型与图表、CI/本机工具/门禁及对应回归。独立快照报告 `output/validation/phase-4a-snapshot-verification.json`，SQL 与构建原始日志为 `phase-4a-snapshot-*.txt`。
+- 4B 完整路径以 `git diff --name-only local-phase4a-v0.5.0 local-phase4b-wip-single-agent-20261013` 为准；账户 service/实体/仓储/政策、auth use-cases/password hashing/034、App/AuthContext/client/Saved/Account/OpsAudit/OpsUsers/OpsTargets、source/target CAS 仓储/路由/035、HTTP 类型和专项测试均是 WIP。公共文件已按 A/B 分开快照，不能把两阶段测试混用。
+- 4B 证据：`output/validation/phase4b-account-security-unit.txt`、`phase4b-account-security-postgres.txt`、`4b-cas-typecheck-progress.txt`；合成账户 UI 为 `output/playwright/phase4b-account-security-evidence.json` 及 `phase4b-account-mobile.png`。红测在 `tests/integration/api-server-write-security.test.ts`；035 没有应用记录或最终并发验证。
+
+阶段 1–3 的文件与历史证据保留如下：
+
 - 公共契约：[source-content.ts](../packages/contracts/src/source-content.ts)。后台主要为 source-content service/repository、provider interface、Arctic/X/demo connector、source worker、共享 web identity；旧关键词/增长/质量阈值路径同时修正。
 - 数据库新增 030 来源生命周期、031 X 注册、032 请求观测；原迁移 checksum 保持。旧 PostgresContent upsert 保护公共规范字段，run-migrations 保证事务/并发锁。
 - API 为 source-content-routes、create-api-server、saved-view-route 与环境加载入口；Web 为图表/URL/Saved/Compare/TargetDetail、Content 与四个管理/导出组件及旧分析范围说明。
@@ -100,8 +129,8 @@
 
 ## 本地验证与接续
 
-已初始化的本机使用 `npm run local:start`，地址/进程看 `local:status`，owner 凭证看 `local:account`；进入 `/content` 即可查询 Reddit/X 合成数据与管理来源。首次其他机器需要完整 PostgreSQL bin 和 Node/npm 依赖，流程统一在 [开发说明](development.md)。`smoke:local` 写入有界合成 E2E 来源后归档，不运行真实 provider；完整测试与隔离 SQL 指令也见开发说明。
+稳定入口为 `npm run local:start`，地址/进程看 `local:status`，owner 凭证看 `local:account`；进入 `/content` 可查询 Reddit/X 合成数据与管理来源。当前 WIP 有已知类型失败且账户路由未接，不能据此承诺完整启动/账户验收；先按本文件单 agent 顺序收口，或在保留 WIP 的独立工作区验证 4A 标签，禁止覆盖现有改动。首次其他机器需要完整 PostgreSQL bin 和 Node/npm 依赖，流程统一在 [开发说明](development.md)。`smoke:local` 写入有界合成 E2E 来源后归档，不运行真实 provider；停止期间不启动这些业务测试。
 
-下一步建议先推进 4A：离线复现调度候选饥饿，统一数据 availability/时间基础及新旧执行闸门，再补配置、CI 与公共健康信号；4B 账号/审计可并行，4C 恢复/保留随后闭合。5A 的公共详情/筛选可以先行，个人保存与切账号验收依赖 4B；5B 建立共同检索与研究冻结口径后支撑 6 的分析迁移。具体依赖与验收出口见产品计划，不把这次计划修订视作新功能开发授权。G 中 AS 需用户另行授权真实请求，X 还需私有凭证/费用上限；目前均不执行，不阻塞前述离线工作。
+恢复后的顺序为单 agent 收口 4B→4C→5A→5B，4A 已有独立交付；依赖与验收出口见产品计划。当前停止指令优先，不因原路线图自动继续。G 中 AS 需用户另行授权真实请求，X 还需私有凭证/费用上限，目前均不执行。
 
 前端目前存在旧/新分析入口并列和信息密度问题，但新增来源/任务/预算/导出流程均可运行且桌面/390px 已验收，没有必须开始大规模前端改造的功能阻碍。后续可以根据实际使用反馈评估默认入口与导航调整，当前不启动重设计计划。

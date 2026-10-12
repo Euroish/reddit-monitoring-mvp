@@ -5,6 +5,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
+import { validateManagedConfig, managedEnvironment } from './local-dev-config.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const home = path.join(root, 'output', 'local-dev');
@@ -14,7 +15,13 @@ const envFile = path.join(root, '.env.local');
 const action = process.argv[2] ?? 'status';
 const option = name => { const i = process.argv.indexOf(name); return i < 0 ? undefined : process.argv[i + 1]; };
 fs.mkdirSync(home, { recursive: true });
-const read = file => fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
+const read = file => {
+  if (!fs.existsSync(file)) return null;
+  let value;
+  try { value = JSON.parse(fs.readFileSync(file, 'utf8')); }
+  catch { throw new Error(`Invalid JSON in ${path.relative(root, file)}; inspect the configuration. Existing files were preserved.`); }
+  return file === configFile ? validateManagedConfig(value, home) : value;
+};
 const write = (file, data) => fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 async function freePort(preferred) {
@@ -37,9 +44,9 @@ async function run(binary, args, env = process.env, logName = 'setup.log') {
   } finally { fs.closeSync(fd); }
 }
 function localEnv(config) {
+  if (!fs.existsSync(envFile)) throw new Error('Managed .env.local is missing; restore its private configuration before proceeding');
   const values = parseEnv(fs.readFileSync(envFile, 'utf8'));
-  if (values.DATABASE_URL !== config.databaseUrl) throw new Error('.env.local database differs from managed configuration; inspect it before proceeding');
-  return { ...process.env, ...values, LOCAL_ENV_FILE: envFile, API_HOST: '127.0.0.1', SOURCE_RUN_MODE: 'demo', SOURCE_NETWORK_ENABLED: 'false', REDDIT_RUN_MODE: 'mock' };
+  return { ...managedEnvironment(config, values), LOCAL_ENV_FILE: envFile };
 }
 async function ensureDatabase(config) {
   const pg = name => path.join(config.pgBin, `${name}${process.platform === 'win32' ? '.exe' : ''}`);
@@ -80,8 +87,8 @@ async function setup() {
     fs.writeFileSync(envFile, '# Managed local demo; private. Never commit.\n' + Object.entries(values).map(([key, value]) => `${key}=${value}`).join('\n') + '\n');
     write(configFile, config);
   }
-  await ensureDatabase(config);
   const env = localEnv(config);
+  await ensureDatabase(config);
   await run(process.execPath, ['--import', 'tsx', 'src/storage/schema/run-migrations.ts'], env);
   const { default: pg } = await import('pg');
   const client = new pg.Client({ connectionString: config.databaseUrl });
@@ -93,6 +100,7 @@ async function setup() {
   console.log(`Local offline demo ready. Run npm run local:start. Account: output/local-dev/account.json`);
 }
 function commandLine(pid) {
+  if (process.platform === 'linux') { try { return fs.readFileSync(`/proc/${Number(pid)}/cmdline`, 'utf8').replaceAll('\0', ' '); } catch { return null; } }
   if (process.platform !== 'win32') return null;
   try { return execFileSync('pwsh.exe', ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "ProcessId = ${Number(pid)}").CommandLine`], { windowsHide: true, encoding: 'utf8' }).trim(); } catch { return null; }
 }
@@ -112,8 +120,8 @@ async function waitUrl(url) {
 async function start() {
   const config = read(configFile);
   if (!config?.setupComplete) throw new Error('Run npm run local:setup -- --pg-bin <bin> first');
-  await ensureDatabase(config);
   const env = localEnv(config), state = read(stateFile) ?? {};
+  await ensureDatabase(config);
   const entries = { api: ['apps/api/src/server.ts', ['--import', 'tsx']], worker: ['workers/source-content-worker.ts', ['--import', 'tsx']], web: ['apps/web/node_modules/vite/bin/vite.js', []] };
   for (const [name, [entry, prefix]] of Object.entries(entries)) {
     if (owned(state[name])) continue;
@@ -133,13 +141,16 @@ async function start() {
 async function stop() {
   const state = read(stateFile) ?? {};
   for (const [name, info] of Object.entries(state)) {
-    if (owned(info)) { execFileSync('taskkill.exe', ['/PID', String(info.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }); }
+    if (owned(info)) {
+      if (process.platform === 'win32') execFileSync('taskkill.exe', ['/PID', String(info.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+      else process.kill(info.pid, 'SIGTERM');
+    }
     else if (alive(info.pid)) { console.log(`Preserved unverified PID ${info.pid} (${name})`); continue; }
     delete state[name];
   }
   write(stateFile, state);
   const config = read(configFile);
-  if (!process.argv.includes('--keep-db') && config && fs.existsSync(path.join(config.pgData, 'postmaster.pid'))) await run(path.join(config.pgBin, 'pg_ctl.exe'), ['-D', config.pgData, '-m', 'fast', '-w', 'stop']);
+  if (!process.argv.includes('--keep-db') && config && fs.existsSync(path.join(config.pgData, 'postmaster.pid'))) await run(path.join(config.pgBin, process.platform === 'win32' ? 'pg_ctl.exe' : 'pg_ctl'), ['-D', config.pgData, '-m', 'fast', '-w', 'stop']);
   console.log('Managed local services stopped; data and configuration retained.');
 }
 try {
@@ -148,5 +159,6 @@ try {
   else if (action === 'stop') await stop();
   else if (action === 'account') { const account = read(path.join(home, 'account.json')); if (!account) throw new Error('No managed account; run setup'); console.log(JSON.stringify(account, null, 2)); }
   else if (action === 'status') { const config = read(configFile); console.log(JSON.stringify({ configured: !!config, webUrl: config && `http://127.0.0.1:${config.webPort}`, databasePort: config?.pgPort, services: Object.fromEntries(Object.entries(read(stateFile) ?? {}).map(([key, value]) => [key, { pid: value.pid, running: owned(value) }])) }, null, 2)); }
-  else throw new Error('Expected setup, start, stop, status, or account');
+  else if (action === 'config-only') { const config = read(configFile); if (!config) throw new Error('No managed configuration; run local:setup first'); localEnv(config); console.log('Managed local configuration valid; no database or services were started.'); }
+  else throw new Error('Expected setup, start, stop, status, account, or config-only');
 } catch (error) { console.error(error.message); process.exitCode = 1; }

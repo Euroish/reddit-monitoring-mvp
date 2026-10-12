@@ -156,6 +156,8 @@ import { canUseOpsWrite, resolveSessionActor, type ApiActor } from "./auth-guard
 import { handleSourceContentRoute, matchSourceContentRoute } from "./source-content-routes";
 import { isAllowedSavedViewRoute } from "./saved-view-route";
 import type { SourceContentService } from "../../../src/application/services/source-content.service";
+import { collectionExecutionViolation } from "../../../src/runtime/collection-execution-policy";
+import { buildSourceReadiness } from "./source-readiness";
 
 const MAX_JSON_BODY_BYTES = 1_048_576;
 
@@ -272,6 +274,7 @@ function parseAnomalySignalTypeList(value: string | null): AnomalySignalType[] |
 }
 
 export interface CreateApiServerOptions {
+  executionEnvironment?: NodeJS.ProcessEnv;
   sourceContent?: SourceContentService;
   repositories: ApiRepositoryBundle;
   sqlDb?: SqlQueryable;
@@ -954,11 +957,11 @@ function applyCollectionSettingsPatch(args: {
   };
 }
 
-function toCollectionSettingsEnvOverlay(settings: CollectionSettingsView): NodeJS.ProcessEnv {
+function toCollectionSettingsEnvOverlay(settings: CollectionSettingsView, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const providerHint =
     settings.providerPreference === "default" ? undefined : settings.providerPreference;
   return {
-    ...process.env,
+    ...env,
     REDDIT_DEFAULT_FAVORITE_TARGET_CADENCE_HOURS: String(settings.defaultCadenceHours),
     REDDIT_POST_LIMIT_BASE: String(settings.postLimitBase),
     REDDIT_POST_LIMIT_BOOST: String(settings.postLimitBoost),
@@ -966,7 +969,7 @@ function toCollectionSettingsEnvOverlay(settings: CollectionSettingsView): NodeJ
     REDDIT_BACKFILL_POST_LIMIT: String(settings.backfillPostLimit),
     REDDIT_BACKFILL_TARGET_DAYS: String(settings.backfillTargetDays),
     REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET: String(settings.backfillMaxIterationsPerTarget),
-    REDDIT_LIVE_PROVIDER: providerHint ?? process.env.REDDIT_LIVE_PROVIDER,
+    REDDIT_LIVE_PROVIDER: providerHint ?? env.REDDIT_LIVE_PROVIDER,
   };
 }
 
@@ -1855,6 +1858,12 @@ export function createApiServer(options: CreateApiServerOptions): Server {
               }
             : undefined,
         });
+        const sourceCollection = options.sourceContent ? await buildSourceReadiness(options.sourceContent, nowIso) : undefined;
+        if (sourceCollection) {
+          readiness.degradedReasons.push(...sourceCollection.reasons);
+          if (sourceCollection.status === "not_ready") {readiness.isReady=false;readiness.status="not_ready";}
+          else if (sourceCollection.status === "degraded" && readiness.isReady) readiness.status="degraded";
+        }
         const payload: ApiReadinessResponse = {
           ok: readiness.isReady,
           requestId,
@@ -1867,6 +1876,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           activeSessions: readiness.activeSessions,
           activeTargets: readiness.activeTargets,
           degradedReasons: readiness.degradedReasons,
+          sourceCollection,
         };
 
         respond({
@@ -2203,8 +2213,13 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             : null,
           nowIso: now(),
         });
-        const effectiveEnv = toCollectionSettingsEnvOverlay(collectionSettings);
+        const effectiveEnv = toCollectionSettingsEnvOverlay(collectionSettings, options.executionEnvironment ?? process.env);
         const mode = "live" as const;
+        const violation = collectionExecutionViolation(mode, options.executionEnvironment ?? process.env);
+        if (violation) {
+          respond({statusCode:409,body:toApiError({requestId,message:violation.message,code:violation.code}),errorCode:violation.code});
+          return;
+        }
         const crawlMode = resolveCrawlMode(body?.crawlMode);
         if (!crawlMode) {
           respond({
@@ -2428,7 +2443,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             : null,
           nowIso: now(),
         });
-        const effectiveEnv = toCollectionSettingsEnvOverlay(collectionSettings);
+        const effectiveEnv = toCollectionSettingsEnvOverlay(collectionSettings, options.executionEnvironment ?? process.env);
         const requestedMode = body?.mode ?? process.env.REDDIT_RUN_MODE;
         const mode = resolveRunMode(requestedMode);
         if (!mode) {
@@ -2444,6 +2459,11 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           return;
         }
         const requestedCrawlMode = body?.crawlMode ?? process.env.REDDIT_CRAWL_MODE;
+        const violation = collectionExecutionViolation(mode, options.executionEnvironment ?? process.env);
+        if (violation) {
+          respond({statusCode:409,body:toApiError({requestId,message:violation.message,code:violation.code}),errorCode:violation.code});
+          return;
+        }
         const crawlMode = resolveCrawlMode(requestedCrawlMode);
         if (!crawlMode) {
           respond({

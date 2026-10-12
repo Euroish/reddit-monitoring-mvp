@@ -99,6 +99,17 @@ export interface ApiReadinessQueueBucket {
   deadLetter: number;
 }
 
+export interface SourceCollectionReadiness {
+  status: "idle" | "ready" | "degraded" | "not_ready";
+  activeSources: number; activeJobs: number; workerRequired: boolean; liveWorkers: number;
+  oldestPendingAgeSeconds: number | null;
+  /** Bounded diagnostic sample, never a provider invoice or corpus coverage claim. */
+  sampleScope: "latest_100_jobs";
+  recentFailures: {jobId:string;sourceId:string;finishedAt:string|null;error:string|null}[];
+  requestTiming: {registeredRequests:number;durationMs:number;meanMs:number|null};
+  reasons: string[];
+}
+
 export interface ApiReadinessResponse {
   ok: boolean;
   requestId: string;
@@ -176,6 +187,7 @@ export interface ApiReadinessResponse {
   activeSessions: number;
   activeTargets: number;
   degradedReasons: string[];
+  sourceCollection?: SourceCollectionReadiness;
 }
 
 export interface ApiStorageTableStatResponse {
@@ -973,21 +985,36 @@ export interface TargetWorkbenchResponse {
     sourceId: string;
   }>;
   composition: {
-    fetchedPostCount: number;
-    qualifiedPostCount: number;
-    driverPostCount: number;
+    scope: {
+      availability: "available" | "unavailable";
+      timeBasis: "first_seen_at";
+      fromIso: string;
+      toIso: string;
+      boundary: "inclusive";
+      limit: number | null;
+      truncated: boolean;
+      engagementAsOfIso: string;
+      engagementBasis: "latest_stored_at_or_before_end";
+      thresholdBasis: "capture_day_fact_or_latest_tier_fallback";
+    };
+    fetchedPostCount: number | null;
+    qualifiedPostCount: number | null;
+    driverPostCount: number | null;
+    knownQualifiedPostCount: number | null;
+    qualificationEvaluatedPostCount: number | null;
+    qualificationUnknownPostCount: number | null;
     listingMix: Array<{
       id: "new" | "hot" | "best" | "rising" | "top" | "unknown";
       label: string;
       count: number;
     }>;
     classificationMix: Array<{
-      id: "qualified" | "driver" | "ordinary";
+      id: "qualified" | "driver" | "ordinary" | "unknown";
       label: string;
       count: number;
     }>;
     engagementMix: Array<{
-      id: "score_led" | "comment_led" | "balanced" | "quiet";
+      id: "score_led" | "comment_led" | "balanced" | "quiet" | "unknown";
       label: string;
       count: number;
     }>;

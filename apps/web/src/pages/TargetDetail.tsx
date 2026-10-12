@@ -32,7 +32,7 @@ import type {
 } from '../../../../packages/contracts/src/http';
 
 function formatNumber(value: number | null | undefined, digits = 0) {
-  if (value == null || Number.isNaN(value)) return 'n/a';
+  if (value == null || !Number.isFinite(value)) return '—';
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: digits }).format(value);
 }
 
@@ -88,9 +88,11 @@ function CompositionDonut({
   onModeChange: (mode: CompositionMode) => void;
   onActiveChange: (id: string | null) => void;
 }) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const copy = (en: string, zh: string) => language === 'zh-CN' ? zh : en;
   const segments = toCompositionSegments(data, mode);
   const total = segments.reduce((sum, item) => sum + item.count, 0);
+  const sampleAvailable = data.composition.scope.availability === 'available';
   const activeSegment = segments.find((item) => item.id === activeId) ?? segments[0] ?? null;
   return (
     <div className="target-composition">
@@ -110,7 +112,7 @@ function CompositionDonut({
               }}
               className={`target-control${mode === item ? ' active' : ''}`}
             >
-              {item}
+              {copy(item, { listing: '首次列表', classification: '分类', engagement: '互动' }[item])}
             </button>
           ))}
         </div>
@@ -124,8 +126,8 @@ function CompositionDonut({
           onClick={() => onActiveChange(activeSegment?.id ?? null)}
         >
           <span>
-            <strong>{formatNumber(activeSegment?.count ?? total)}</strong>
-            <em>{activeSegment ? activeSegment.label : t('Fetched')}</em>
+            <strong>{formatNumber(sampleAvailable ? activeSegment?.count ?? total : null)}</strong>
+            <em>{activeSegment ? t(activeSegment.label) : sampleAvailable ? t('Fetched') : copy('Unavailable', '未提供采样')}</em>
           </span>
         </button>
         <div className="target-donut-legend">
@@ -141,7 +143,7 @@ function CompositionDonut({
                 onClick={() => onActiveChange(activeId === segment.id ? null : segment.id)}
               >
                 <span className="target-donut-dot" style={{ background: segment.color }} />
-                <span>{segment.label}</span>
+                <span>{segment.id === 'unknown' && mode !== 'listing' ? copy('Unknown engagement', '互动未知') : t(segment.label)}</span>
                 <strong>{formatNumber(segment.count)}</strong>
                 <em>{formatNumber(pct, 1)}%</em>
               </button>
@@ -149,13 +151,15 @@ function CompositionDonut({
           })}
         </div>
       </div>
-      <p>{data.composition.ruleLabel}</p>
+      <p>{copy(data.composition.ruleLabel, '优质判定使用首次发现日的阈值；缺少当日事实时使用最新层级阈值。缺少完整互动指标的内容保留为未知。')}</p>
+      <p>{copy('Each mix uses the same retained capture sample; driver classification takes precedence.', '各构成图使用同一份保留的采集样本，驱动分类优先。')}</p>
     </div>
   );
 }
 
 export function TargetDetail() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const copy = (en: string, zh: string) => language === 'zh-CN' ? zh : en;
   const { targetId } = useParams<{ targetId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -232,22 +236,19 @@ export function TargetDetail() {
       data.series.find((series) => series.id === seriesId)?.points.find((point) => point.at === latestDate)?.value ?? null;
     return {
       heatPrice: valueFor('heat_price'),
-      posts: valueFor('total_new_posts'),
-      qualifiedPosts: valueFor('qualified_post_count'),
-      postsLabel: 'Fetched Posts',
-      qualifiedPostsLabel: 'Qualified Posts',
+      at: latestDate,
     };
   }, [data]);
   const qualifiedHighlight = useMemo(() => {
-    const fetched = data?.composition.fetchedPostCount || latestDailyPoint?.posts || 0;
-    const qualified = data?.composition.qualifiedPostCount || latestDailyPoint?.qualifiedPosts || 0;
-    const share = fetched > 0 && qualified > 0 ? Math.min(100, Math.max(0, (qualified / fetched) * 100)) : 0;
+    const fetched = data?.composition.fetchedPostCount ?? null;
+    const qualified = data?.composition.qualifiedPostCount ?? null;
+    const share = fetched !== null && fetched > 0 && qualified !== null ? (qualified / fetched) * 100 : null;
     return {
       fetched,
       qualified,
       share,
     };
-  }, [data, latestDailyPoint]);
+  }, [data]);
 
   const selectedCompareTargets = parseCompareTargets(compare);
   const suggestedCompareTargets = (() => {
@@ -433,29 +434,33 @@ export function TargetDetail() {
                 <div className="target-eyebrow">{t('Trading desk')}</div>
                 <h2>{data.target.canonicalName} {t('capture surface')}</h2>
                 <p>
-                  {t('Total fetched pool, qualified signal, and driver fallback are promoted to the primary readout.')}
+                  {copy('Capture cards use first discovery time, across all listing lanes in the selected UTC window (both endpoints included).', '采集卡片按首次发现时间，统计所选 UTC 窗口内全部列表来源（包含两端）。')}
                 </p>
+                <p>{data.composition.scope.fromIso} — {data.composition.scope.toIso}</p>
+                {data.composition.scope.availability === 'unavailable' && <p role="status">{copy('Capture sample was not provided. Counts are unknown.', '未提供采集样本，计数未知。')}</p>}
+                {data.composition.scope.truncated && <p role="status">{copy(`Only the first ${formatNumber(data.composition.scope.limit)} captures are retained; counts are lower bounds and shares describe this subset.`, `仅保留最先 ${formatNumber(data.composition.scope.limit)} 条首次发现内容；数量是下界，比例仅描述此子集。`)}</p>}
+                <p>{copy('Qualification uses the latest stored engagement at or before the window end; historical metrics may be unavailable.', '优质判定使用窗口结束前的最新已存互动记录；历史指标可能不可用。')}</p>
               </div>
               <div className="target-hero-stats">
                 <div className="target-metric target-metric-major">
-                  <div className="target-metric-label">{t(latestDailyPoint?.postsLabel ?? 'Fetched Posts')}</div>
-                  <div className="target-metric-value">{formatNumber(data.composition.fetchedPostCount || latestDailyPoint?.posts)}</div>
+                  <div className="target-metric-label">{t('Fetched Posts')}</div>
+                  <div className="target-metric-value" data-testid="capture-count">{data.composition.scope.truncated ? '≥ ' : ''}{formatNumber(qualifiedHighlight.fetched)}</div>
                   <div className="target-metric-caption">{t('All captured listing lanes in range')}</div>
                 </div>
                 <div className="target-metric target-metric-major qualified">
-                  <div className="target-metric-label">{t(latestDailyPoint?.qualifiedPostsLabel ?? 'Qualified Posts')}</div>
-                  <div className="target-metric-value">{formatNumber(data.composition.qualifiedPostCount || latestDailyPoint?.qualifiedPosts)}</div>
-                  <div className="target-metric-caption">{t('Widened qualification rule')}</div>
+                  <div className="target-metric-label">{t('Qualified Posts')}</div>
+                  <div className="target-metric-value" data-testid="capture-qualified-count">{data.composition.scope.truncated && qualifiedHighlight.qualified !== null ? '≥ ' : ''}{formatNumber(qualifiedHighlight.qualified)}</div>
+                  <div className="target-metric-caption">{copy(`${formatNumber(data.composition.knownQualifiedPostCount)} known qualified / ${formatNumber(data.composition.qualificationEvaluatedPostCount)} evaluated; ${formatNumber(data.composition.qualificationUnknownPostCount)} unknown`, `已知优质 ${formatNumber(data.composition.knownQualifiedPostCount)} / 已评估 ${formatNumber(data.composition.qualificationEvaluatedPostCount)}；未知 ${formatNumber(data.composition.qualificationUnknownPostCount)}`)}</div>
                 </div>
                 <div className="target-metric">
                   <div className="target-metric-label">{t('Drivers')}</div>
-                  <div className="target-metric-value">{formatNumber(data.drivers.length)}</div>
-                  <div className="target-metric-caption">{t('Growth facts or hot-listing fallback')}</div>
+                  <div className="target-metric-value">{data.composition.scope.truncated ? '≥ ' : ''}{formatNumber(data.composition.driverPostCount)}</div>
+                  <div className="target-metric-caption">{copy('Returned drivers within this capture sample', '返回的驱动内容中属于本采集样本的数量')}</div>
                 </div>
                 <div className="target-metric">
                   <div className="target-metric-label">{t('Heat')}</div>
                   <div className="target-metric-value">{formatNumber(latestDailyPoint?.heatPrice)}</div>
-                  <div className="target-metric-caption">{data.reliability.provider ?? 'provider n/a'}</div>
+                  <div className="target-metric-caption">{copy('Published-day fact', '发布时间日事实')} · {latestDailyPoint?.at ?? '—'} UTC · {data.reliability.provider ?? '—'}</div>
                 </div>
               </div>
               <CompositionDonut
@@ -471,7 +476,7 @@ export function TargetDetail() {
               <div className="target-chart-toolbar">
                 <div className="target-chart-title">
                   <h3>{t('Workbench Chart')}</h3>
-                  <p>{t('Captured-day volume and heat movement, with draggable time scale and crosshair readout.')}</p>
+                  <p>{copy('Daily chart uses published-date UTC facts. These daily buckets differ from the capture-window cards above.', '日图按发布时间的 UTC 日事实绘制，与上方首次发现窗口卡片的时间口径不同。')}</p>
                 </div>
                 <div className="target-chart-summary">
                   <div>
@@ -480,12 +485,13 @@ export function TargetDetail() {
                   </div>
                   <div className="target-qualified-band-visual">
                     <div className="target-qualified-band-meta">
-                      <span>{formatNumber(qualifiedHighlight.share, 1)}% {t('qualified')}</span>
+                      <span data-testid="capture-qualified-share">{qualifiedHighlight.share === null ? copy('Share unknown', '比例未知') : `${formatNumber(qualifiedHighlight.share, 1)}% ${t('qualified')}`}</span>
                       <strong>{formatNumber(qualifiedHighlight.fetched)} {t('fetched')}</strong>
                     </div>
                     <div className="target-qualified-bar">
-                      <span style={{ width: `${qualifiedHighlight.share}%` }} />
+                      <span style={{ width: `${qualifiedHighlight.share ?? 0}%` }} />
                     </div>
+                    <small>{copy(data.composition.scope.truncated ? 'Within retained capture sample' : 'Within the same capture window', data.composition.scope.truncated ? '仅保留的采集子集' : '同一首次发现窗口')}</small>
                   </div>
                 </div>
                 <div className="target-control-cloud">

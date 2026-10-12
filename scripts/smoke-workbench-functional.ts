@@ -18,12 +18,34 @@ const emptyMarketWorkbench: MarketWorkbenchResponse = { ok: true, requestId: 'sy
   summary: { rankedTargetCount: 0, breakoutCount: 0, anomalyCount: 0 }, leaders: emptyMarket.rankings,
   targets: [], breakouts: [], anomalies: [] };
 
-function targetFixture(): TargetWorkbenchResponse {
+function targetFixture(mode = 'technology'): TargetWorkbenchResponse {
+  const captureScenario = mode.startsWith('capture-');
+  const captureRows = captureScenario && mode !== 'capture-empty' ? ['one', 'two'].map((id) => ({
+    id, source: 'reddit' as const, targetId: 'technology', externalId: id, kind: 'post' as const,
+    title: id, permalink: `https://www.reddit.com/r/technology/comments/${id}/`,
+    createdAtSource: '2026-10-01T10:00:00.000Z', firstSeenAt: '2026-10-12T10:00:00.000Z',
+    lastSeenAt: now, firstListing: 'new' as const,
+  })) : captureScenario ? [] : undefined;
+  const captureMetrics = captureRows?.map((row, index) => ({
+    contentId: row.id, targetId: 'technology', source: 'reddit' as const, observedAt: now,
+    collectionJobId: 'synthetic-capture-job',
+    score: mode === 'capture-quiet' || index > 0 ? 0 : 50,
+    numComments: mode === 'capture-unknown' && index > 0 ? undefined : mode === 'capture-quiet' || index > 0 ? 0 : 10,
+  }));
   const response = buildTargetWorkbenchReadModel({ requestId: 'synthetic-ui-smoke', generatedAtIso: now,
     target: { id: 'technology', source: 'reddit', targetType: 'subreddit', canonicalName: 'r/technology',
       status: 'active', config: {}, createdAt: now, updatedAt: now },
     fromIso: '2026-10-10T00:00:00.000Z', toIso: '2026-10-13T00:00:00.000Z', timeframe: '1d', rangePreset: '7d',
-    dailyFacts: [], trendPoints: [], keywordDailyRows: [], postGrowthFacts: [], contents: [], anomalyEvents: [], providerHealthWindows: [] });
+    dailyFacts: captureScenario ? [{ targetId: 'technology', day: '2026-10-12', postVolume: 12, qualifiedPostVolume: 4,
+      sampledPostVolume: 12, scoreSum: 120, commentSum: 24, subscriberCount: 50_000, activeUserCount: 100,
+      activePostRatio: 0.3, dispersionScore: 0.5, impactScoreSum: 10, impactPostVolume: 2, topImpactShare: 0.4,
+      heatPrice: 20, heatChangePct: 0, ema7: 20, ema30: 20, subredditTier: 'small',
+      qualityThresholdScore: 15, qualityThresholdComments: 5, algorithmVersion: 'synthetic-capture-fact', explainPayload: {} }] : [],
+    capturedContents: captureRows, capturedLatestEngagements: captureMetrics,
+    capturedSampleLimit: mode === 'capture-truncated' ? 2 : undefined,
+    capturedSampleTruncated: mode === 'capture-truncated',
+    trendPoints: [], keywordDailyRows: [], postGrowthFacts: [], contents: [], anomalyEvents: [], providerHealthWindows: [] });
+  if (captureScenario) return response;
   response.series = [
     { id: 'heat_price', label: 'Heat Price', family: 'trend', unit: 'score', points: [
       { at: '2026-10-10', value: 10, quality: 'observed', coverageStatus: 'partial', valueSemantics: 'observed_total' },
@@ -78,7 +100,7 @@ async function main() {
       if (url.pathname === '/api/v1/trends/market') return respond(emptyMarket);
       if (url.pathname === '/api/v1/workbench/market') return respond(emptyMarketWorkbench);
       if (url.pathname === '/api/v1/workbench/compare') return respond(comparisonFixture(url));
-      if (url.pathname.startsWith('/api/v1/workbench/target/')) return respond(targetFixture());
+      if (url.pathname.startsWith('/api/v1/workbench/target/')) return respond(targetFixture(url.pathname.split('/').at(-1)));
       if (url.pathname.includes('/anomalies/incidents')) return respond({ ok: true, incidents: [] });
       if (url.pathname === '/api/v1/workbench/saved-views') {
         if (route.request().method() === 'POST') {
@@ -124,6 +146,9 @@ async function main() {
     assert.equal(await page.getByLabel('Range', { exact: true }).inputValue(), '30d');
     await page.goto(`${base.origin}/target/technology?range=7d&keywords=AI&series=ema_7&hiddenOverlays=keyword%3AAI`);
     await page.getByRole('heading', { name: 'Workbench Chart', exact: true }).waitFor();
+    assert.equal(await page.getByTestId('capture-count').textContent(), '—');
+    assert.equal(await page.getByTestId('capture-qualified-count').textContent(), '—');
+    assert.equal(await page.getByTestId('capture-qualified-share').textContent(), 'Share unknown');
     await page.locator('.workbench-chart-canvas canvas').first().waitFor();
     assert.equal(await page.getByRole('checkbox', { name: 'EMA 7', exact: true }).isChecked(), true);
     assert.equal(await page.getByRole('checkbox', { name: 'Heat Price', exact: true }).isChecked(), false);
@@ -164,13 +189,45 @@ async function main() {
     await page.goto(`${base.origin}/markets`);
     await page.getByRole('link', { name: '添加或管理来源，查询已采集内容', exact: true }).waitFor();
     await page.getByText(/尚未纳入来源采集的 Arctic Shift/).waitFor();
+    await page.getByTitle('English', { exact: true }).click();
+    await page.setViewportSize({ width: 1366, height: 900 });
+    for (const [scenario, fetched, qualified, share] of [
+      ['capture-empty', '0', '0', 'Share unknown'],
+      ['capture-quiet', '2', '0', '0% qualified'],
+      ['capture-qualified', '2', '1', '50% qualified'],
+      ['capture-unknown', '2', '—', 'Share unknown'],
+      ['capture-truncated', '≥ 2', '≥ 1', '50% qualified'],
+    ]) {
+      await page.goto(`${base.origin}/target/${scenario}?range=7d`);
+      await page.getByRole('heading', { name: 'Workbench Chart', exact: true }).waitFor();
+      assert.equal(await page.getByTestId('capture-count').textContent(), fetched);
+      assert.equal(await page.getByTestId('capture-qualified-count').textContent(), qualified);
+      assert.equal(await page.getByTestId('capture-qualified-share').textContent(), share);
+      await page.getByText(/Daily chart uses published-date UTC facts/).waitFor();
+      if (scenario === 'capture-unknown') {
+        await page.getByText('1 known qualified / 1 evaluated; 1 unknown', { exact: true }).waitFor();
+        await page.getByRole('button', { name: 'engagement', exact: true }).click();
+        await page.locator('.target-donut-legend-row').filter({ hasText: 'Unknown engagement' }).waitFor();
+      }
+      if (scenario === 'capture-truncated') await page.getByText(/counts are lower bounds/).waitFor();
+    }
+    await page.getByTitle('简体中文', { exact: true }).click();
+    await page.goto(`${base.origin}/target/capture-unknown?range=7d`);
+    await page.getByText('已知优质 1 / 已评估 1；未知 1', { exact: true }).waitFor();
+    assert.equal(await page.getByTestId('capture-qualified-share').textContent(), '比例未知');
+    await page.getByText(/日图按发布时间的 UTC 日事实绘制/).waitFor();
+    await page.screenshot({ path: 'output/playwright/phase4a-capture-unknown-desktop.png', fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
     assert.deepEqual(errors, []);
     assert.deepEqual(blockedExternal, []);
     const result = { ok: true, mode: 'synthetic_api_offline_ui', checked: ['empty-data-empty-data chart lifecycle',
       'date-keyed series rendering', 'visible save failure and successful retry', 'comparison saved route restoration',
       'target series and hidden overlay restoration', '390px no horizontal overflow or overlapping controls',
       'board candidate limit and source empty link', 'bilingual indexed-search semantics and source link',
-      'Chinese dashboard legacy-scope notice and source empty link'], externalRequests: 0, errors };
+      'Chinese dashboard legacy-scope notice and source empty link',
+      'capture input omitted vs supplied empty zero, zero qualification, nonzero, unknown and truncated subset',
+      'same capture denominator, publication-day chart explanation and bilingual unknown metrics'], externalRequests: 0, errors };
     await writeFile('output/playwright/phase1-functional-evidence.json', JSON.stringify(result, null, 2), 'utf8');
     console.log(JSON.stringify(result));
   } finally {

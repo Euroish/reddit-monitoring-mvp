@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { validateRuntimeEnvironment } from "./environment-config";
 
 /** Explicit shell values always win. Production never implicitly loads development secrets. */
 export function loadLocalEnvironment(): string | null {
@@ -16,3 +17,4 @@ export function loadLocalEnvironment(): string | null {
 }
 
 loadLocalEnvironment();
+validateRuntimeEnvironment();

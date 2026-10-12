@@ -51,7 +51,7 @@ export class SourceContentService {
     if(Object.keys(input).some(key=>!["label","group","schedule","refresh"].includes(key)))throw new SourceContentError("Only label, group, schedule and refresh can be edited; create a new source for a different identity");
     if(input.label!==undefined&&(typeof input.label!=="string"||!input.label.trim()||input.label.trim().length>100))throw new SourceContentError("Label must contain 1–100 characters");
     if(input.group!==undefined&&input.group!==null&&(typeof input.group!=="string"||input.group.trim().length>100))throw new SourceContentError("Group must be at most 100 characters");
-    const checks=[{key:"schedule" as const,settings:input.schedule,limits:{cadenceSeconds:[60,86400],overlapSeconds:[0,86400],initialLookbackHours:[1,8760],maxCatchupHours:[1,168],pageSize:[1,100],maxPages:[1,20]}},{key:"refresh" as const,settings:input.refresh,limits:{afterHours:[1,8760],minIntervalHours:[1,720],maxAttempts:[1,20],batchSize:[1,100]}}];
+    const checks=[{key:"schedule" as const,settings:input.schedule,limits:{cadenceSeconds:[60,86400],overlapSeconds:[0,86400],initialLookbackHours:[1,8760],maxCatchupHours:[1,168],pageSize:[1,100],maxPages:[1,20],recheckLookbackHours:[0,168],recheckCadenceSeconds:[60,86400]}},{key:"refresh" as const,settings:input.refresh,limits:{afterHours:[1,8760],minIntervalHours:[1,720],maxAttempts:[1,20],batchSize:[1,100]}}];
     for(const {settings,limits} of checks) {
       if(settings===undefined)continue;if(!settings||typeof settings!=="object"||Array.isArray(settings))throw new SourceContentError("Invalid schedule/refresh settings");
       for(const [key,value] of Object.entries(settings)){if(key==="enabled"){if(typeof value!=="boolean")throw new SourceContentError("enabled must be boolean");continue;}const range=limits[key as keyof typeof limits] as number[]|undefined;if(!range||typeof value!=="number"||!Number.isInteger(value)||value<range[0]!||value>range[1]!)throw new SourceContentError(`Invalid ${key} setting`);}
@@ -74,7 +74,7 @@ export class SourceContentService {
     if (Date.parse(from) >= Date.parse(to) || Date.parse(to) > Date.parse(now) + 60_000) throw new SourceContentError("Collection window must be ordered and must not be in the future");
     const pageSize = integer(input.pageSize,25,100), maxPages = integer(input.maxPages,5,20);
     const queued = await this.repository.enqueue({ id: randomUUID(), sourceId, now, from, to, pageSize, maxPages });
-    if (queued.from !== from || queued.to !== to || queued.pageSize !== pageSize || queued.maxPages !== maxPages) throw new SourceContentError("Source is already collecting a different window or page budget; wait for that job to finish",409);
+    if (queued.purpose !== "manual" || queued.from !== from || queued.to !== to || queued.pageSize !== pageSize || queued.maxPages !== maxPages) throw new SourceContentError("Source is already collecting a different window or page budget; wait for that job to finish",409);
     return queued;
   }
   normalizeQuery(input: ContentQuery): ContentQuery {
@@ -88,12 +88,18 @@ export class SourceContentService {
     return query;
   }
   async getJob(id: string) { const job = await this.repository.getJob(requireSourceId(id)); if (!job) throw new SourceContentError("Job not found", 404); return job; }
-  async retryJob(id: string) { const previous=await this.getJob(id);await this.requireActiveSource(previous.sourceId);const job = await this.repository.retryJob(id, this.now()); if (!job) throw new SourceContentError("Only failed jobs with no active job on the same source can be retried", 409); return job; }
+  async retryJob(id: string) { const previous=await this.getJob(id);await this.requireActiveSource(previous.sourceId);const job = await this.repository.retryJob(id, this.now()); if (!job) throw new SourceContentError("Only failed jobs with no active job for the same source and purpose can be retried", 409); return job; }
   async continueJob(id: string) { const previous=await this.getJob(id);await this.requireActiveSource(previous.sourceId);const job = await this.repository.continueJob(id, randomUUID(), this.now()); if (!job) throw new SourceContentError("Only bounded completed jobs with a saved checkpoint and no conflicting active job can continue", 409); return job; }
   private async requireActiveSource(id:string) {const source=await this.repository.getSource(id);if(!source||source.state!=="active")throw new SourceContentError("Source must be active",409);if(!this.providerFor(source.platform,source.provider))throw new SourceContentError("Provider is not enabled",409);}
   async listJobs(query:SourceJobQuery) {if(query.sourceId)requireSourceId(query.sourceId);if(query.status&&!["queued","running","retrying","succeeded","failed","cancelled"].includes(query.status))throw new SourceContentError("Invalid job status");return this.repository.listJobs({...query,limit:integer(query.limit,50,100)});}
   async cancelJob(id:string) {const result=await this.repository.cancelJob(requireSourceId(id),this.now());if(!result)throw new SourceContentError("Only active jobs can be cancelled",409);return result;}
-  async setProviderBudget(provider:string,input:Omit<SourceProviderBudget,"provider">) {if(!/^[a-z0-9_]{1,60}$/.test(provider)||!this.providers.some(item=>item.capability.provider===provider))throw new SourceContentError("Unknown provider");if(!input||typeof input!=="object"||typeof input.enabled!=="boolean"||Object.keys(input).some(key=>!["enabled","dailyRequests","monthlyRequests","dailyResources","monthlyResources"].includes(key)))throw new SourceContentError("Invalid provider budget");for(const key of ["dailyRequests","monthlyRequests","dailyResources","monthlyResources"] as const)if(typeof input[key]!=="number"||!Number.isInteger(input[key])||input[key]<0||input[key]>100000000)throw new SourceContentError(`Invalid ${key} budget`);return this.repository.setProviderBudget({...input,provider},this.now());}
+  async setProviderBudget(provider:string,input:Omit<SourceProviderBudget,"provider">) {
+    if(!/^[a-z0-9_]{1,60}$/.test(provider)||!this.providers.some(item=>item.capability.provider===provider))throw new SourceContentError("Unknown provider");
+    if(!input||typeof input!=="object"||typeof input.enabled!=="boolean"||Object.keys(input).some(key=>!["enabled","dailyRequests","monthlyRequests","dailyResources","monthlyResources","minimumIntervalMs"].includes(key)))throw new SourceContentError("Invalid provider budget");
+    for(const key of ["dailyRequests","monthlyRequests","dailyResources","monthlyResources"] as const)if(typeof input[key]!=="number"||!Number.isInteger(input[key])||input[key]<0||input[key]>100000000)throw new SourceContentError(`Invalid ${key} budget`);
+    if(input.minimumIntervalMs!==undefined&&(!Number.isInteger(input.minimumIntervalMs)||input.minimumIntervalMs<0||input.minimumIntervalMs>3600000))throw new SourceContentError("minimumIntervalMs must be 0–3600000");
+    return this.repository.setProviderBudget({...input,provider},this.now());
+  }
   async ops() {return this.repository.sourceOps(this.now());}
   async heartbeat(value:Omit<SourceWorkerHeartbeat,"lastHeartbeatAt">) {return this.repository.heartbeat({...value,lastHeartbeatAt:this.now()});}
 
@@ -111,7 +117,7 @@ export class SourceContentService {
       if (!provider) throw new ContentProviderError("Source provider is not enabled", false);
       const reservedResources=claimed.job.purpose==="refresh"?claimed.job.refreshIds.length:Math.max(claimed.job.pageSize,provider.capability.requestResourceUpperBound??0);
       const budget=await this.repository.reserveUsage(source.provider,reservedResources,this.now());
-      if(!budget.allowed){await this.repository.failJob(claimed,"Provider budget disabled or exhausted; no upstream request was sent",budget.retryAt,this.now(),true);return true;}
+    if(!budget.allowed){await this.repository.failJob(claimed,budget.reason==="interval"?"Provider request spacing; no upstream request was sent":"Provider budget disabled or exhausted; no upstream request was sent",budget.retryAt,this.now(),true);return true;}
       if(signal?.aborted){await this.repository.failJob(claimed,"Worker stopped before requesting a reserved page",this.now(),this.now(),true);return true;}
       const started=performance.now();let page;
       try{page=claimed.job.purpose==="refresh" ? await (provider.refreshIds?.({source,externalIds:claimed.job.refreshIds,signal})??Promise.reject(new ContentProviderError("Provider does not support refresh by IDs",false))) : await provider.collectPage({ source, from: claimed.job.from, to: claimed.job.to, limit: claimed.job.pageSize, checkpoint: claimed.job.checkpoint, signal });}

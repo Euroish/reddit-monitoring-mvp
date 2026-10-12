@@ -1,7 +1,10 @@
 import { runMigrations } from "../src/storage/schema/run-migrations";
 import { runPhase1OnceWithPostgres } from "../workers/reddit-phase1-once";
+import { assertCollectionExecutionAllowed } from "../src/runtime/collection-execution-policy";
+import { resolvePhase1RunMode } from "../src/runtime/reddit-phase1-runtime";
 
 async function main(): Promise<void> {
+  assertCollectionExecutionAllowed(resolvePhase1RunMode(process.env.REDDIT_RUN_MODE));
   if (!process.env.DATABASE_URL) {
     // eslint-disable-next-line no-console
     console.error("DATABASE_URL is required");

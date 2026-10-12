@@ -16,7 +16,7 @@ test("source lifecycle API edits schedules, lists/cancels jobs and persists prov
     const created=await fetch(`${base}/v1/sources`,{method:"POST",headers,body:JSON.stringify({platform:"reddit",provider:"demo_reddit",contentKind:"post",target:{type:"community",community:"fixture"}})}),source=(await created.json() as CollectionSourceResponse).source;assert.equal(created.status,201);
     const edited=await fetch(`${base}/v1/sources/${source.id}`,{method:"PATCH",headers,body:JSON.stringify({group:"Research",schedule:{enabled:true,cadenceSeconds:600,pageSize:1}})});assert.equal(edited.status,200);assert.equal((await edited.json() as CollectionSourceResponse).source.schedule.enabled,true);
     const budget=await fetch(`${base}/v1/source-provider-budgets/demo_reddit`,{method:"PUT",headers,body:JSON.stringify({enabled:true,dailyRequests:10,monthlyRequests:100,dailyResources:250,monthlyResources:2500})});assert.equal(budget.status,200);
-    await service.workOnce();const jobs=await (await fetch(`${base}/v1/source-jobs?sourceId=${source.id}`,{headers})).json() as SourceJobsResponse;assert.equal(jobs.jobs.length,1);assert.equal(jobs.jobs[0].purpose,"scheduled");
+    await service.workOnce();const jobs=await (await fetch(`${base}/v1/source-jobs?sourceId=${source.id}`,{headers})).json() as SourceJobsResponse;assert.equal(jobs.jobs.length,2);assert.deepEqual(jobs.jobs.map(item=>item.purpose).sort(),["recheck","scheduled"]);
     const queued=await fetch(`${base}/v1/sources/${source.id}/collect`,{method:"POST",headers,body:JSON.stringify({from:"2026-10-09",to:FIXED_CONTENT_NOW})});
     // The still-active scheduled page budget makes a different manual window conflict.
     assert.equal(queued.status,409);

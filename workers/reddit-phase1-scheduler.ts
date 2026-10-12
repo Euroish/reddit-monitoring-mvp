@@ -1,4 +1,5 @@
 import { runExistingSubredditAboutJob } from "../src/jobs/collect-subreddit-about.job";
+import { assertCollectionExecutionAllowed } from "../src/runtime/collection-execution-policy";
 import { runExistingSubredditNewPostsJob } from "../src/jobs/collect-subreddit-new-posts.job";
 import type { RedditConnector } from "../src/connectors/reddit/reddit-connector.interface";
 import type { RedditMapper } from "../src/connectors/reddit/reddit-mapper.interface";
@@ -604,6 +605,7 @@ async function main(): Promise<void> {
   const runOnBoot = parseBooleanFlag(process.env.PHASE1_SCHEDULER_RUN_ON_START, false);
   const runnableJobLimit = parsePositiveInt(process.env.PHASE1_SCHEDULER_RUNNABLE_LIMIT, 20);
   const runMode = resolvePhase1RunMode(process.env.REDDIT_RUN_MODE);
+  assertCollectionExecutionAllowed(runMode);
   const subreddits = parseSubredditListFromEnv(process.env);
   const runtime = createPostgresPhase1Runtime();
   const repos = runtime.repositories;

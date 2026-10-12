@@ -20,12 +20,12 @@ test("72-hour simulated cadence persists incremental windows, overlap, interrupt
     if(hour===12){await service.setSourceState(source.id,"paused");queuedAtPause=(await repo.getSource(source.id))!.incrementalTo;}
     if(hour===18)await service.setSourceState(source.id,"active");
     if(hour===24){await repo.scheduleDue(now,[],20);const interrupted=await repo.claim(now);assert.ok(interrupted);now=new Date(Date.parse(now)+121000).toISOString();}
-    await service.workOnce();
+    for(let tick=0;tick<4&&await service.workOnce();tick++){/* Drain bounded scheduled/recheck pages at this simulated hour. */}
     if(hour>=12&&hour<18)assert.equal((await repo.getSource(source.id))!.incrementalTo,queuedAtPause);
   }
   const saved=(await repo.getSource(source.id))!,jobs=await repo.listJobs({sourceId:source.id,limit:100});
-  assert.equal(saved.incrementalTo,now);assert.equal(saved.group,"Research");assert.ok(jobs.length>50);assert.ok(jobs.every(item=>item.purpose==="scheduled"&&item.status==="succeeded"));
-  const ordered=jobs.sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
+  assert.equal(saved.incrementalTo,now);assert.equal(saved.group,"Research");assert.ok(jobs.length>50);assert.ok(jobs.every(item=>["scheduled","recheck"].includes(item.purpose)&&item.status==="succeeded"));
+  const ordered=jobs.filter(item=>item.purpose==="scheduled").sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
   assert.equal(Date.parse(ordered[1].from),Date.parse(ordered[0].to)-300000);
   assert.ok((await repo.contentStats({sourceId:source.id})).total>120);assert.ok((await service.ops()).providers[0].monthlyRequests>50);
 });

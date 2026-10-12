@@ -4,6 +4,8 @@
 
 使用 Node.js 22+ 与 npm，本轮 Windows 本地验证使用 Node.js 24.14.0、PowerShell 7。从仓库根目录执行：
 
+2026-10-13 停止检查点：个人分支保存未完成的 4B，既有整库 typecheck 有失败、账户页面所需新 HTTP 路由尚未接通；下面命令是稳定开发入口，不代表该检查点可完整启动验收。可交付的 4A 代码以 `local-phase4a-v0.5.0` 为准；当前工作不得通过 reset/clean/stash 丢弃，单 agent 应先按 [交接](handoff.md) 收口后再验收。临时 Vite 41975 已停止，本机 PostgreSQL 25432 保留运行，033/034/035 未升级 `info_workbench_dev`。
+
 ```powershell
 npm ci
 npm --prefix apps/web ci
@@ -15,7 +17,7 @@ npm run typecheck
 
 ### Windows 一键本地演示
 
-此入口将新来源 worker 配置为合成 provider，标准 `/content` 演示流程不请求真实 Reddit、Arctic Shift 或 X；既有合成验收记录为外部请求 0。旧 Run 接口的请求 mode 可覆盖环境，且不受新 `SOURCE_NETWORK_ENABLED` 闸门约束，故当前不能把演示配置视为整个 API 的全局网络禁用；统一新旧闸门列为下一阶段首要修正，本轮不触发旧 live 入口。需要完整 PostgreSQL 安装目录中的 `bin`（含 initdb/pg_ctl/postgres，父目录含 share），不自动下载安装。首次 setup 复制运行库到忽略的 `output/local-dev/pgsql`，创建全新 loopback 集群和 `info_workbench_dev`，不会连接旧展示库。已有 `.env.local` 会保留并拒绝自动覆盖。
+此入口将来源 worker 配置为合成 provider，`/content` 演示不请求真实 Reddit、Arctic Shift 或 X。4A 的共同政策将 `SOURCE_NETWORK_ENABLED=false` 覆盖到旧入队/同步 Run、worker/CLI 与 connector 工厂；live 还要求运行模式不是 demo，production 拒绝 mock/demo。合成验证中的 connector 或 fetch stub 可显式配置测试环境，不能用全局联网绕过门禁。需要完整 PostgreSQL 安装目录中的 `bin`（含 initdb/pg_ctl/postgres，父目录含 share），不自动下载安装。首次 setup 复制运行库到忽略的 `output/local-dev/pgsql`，创建全新 loopback 集群和 `info_workbench_dev`，不会连接旧展示库。已有 `.env.local` 会保留并拒绝自动覆盖。
 
 ```powershell
 npm run local:setup -- --pg-bin 'C:\your-postgresql\bin'
@@ -111,7 +113,9 @@ npm test
 
 先跑受影响测试；只有跨层里程碑或实际变更范围需要时才跑全量构建/回归。代码检查通过后，纯文档更新只跑 `docs:check` 与 diff 检查。外部数据解析、幂等/恢复、缺失指标与公共权限边界值得做回归测试；不为内部 getter、纯文字或每种假想状态增加测试矩阵。
 
-`npm test` 是离线回归；数据库或网络验证另行执行并记录环境。compiled smoke 或 provider 的 `--config-only` 通过，只证明构建/配置，不能证明真实采集。存在已知失败时见 [当前状态](status.md)，比较基线与新增失败，不能将失败测试禁用后宣称完成。
+`npm run config:check` 校验已加载环境，`npm run local:config` 只预检管理配置、不启动或写数据库。新旧正式采集入口的外部请求都要求明确 `SOURCE_NETWORK_ENABLED=true`，本次任务仍禁止开启真实请求。
+
+`npm run test:offline` 明确排除 native SQL 文件，并要求零 fail/零 skip；`npm run test:postgres` 自动发现全部 `*-postgres.test.ts`，缺少合法独立 `TEST_SOURCE_DATABASE_URL` 时直接失败。`.github/workflows/verify.yml` 运行清洁依赖、docs/lint/typecheck/离线/build/compiled、独立 PostgreSQL 与合成 E2E；本机通过不等于云端已执行。`npm test` 保留原回归入口及 SQL 默认 skip 行为，不能作为 SQL 已通过证据；数据库或网络验证另行执行并记录环境。compiled smoke 或 provider 的 `--config-only` 通过，只证明构建/配置，不能证明真实采集。存在已知失败时见 [当前状态](status.md)，比较基线与新增失败，不能将失败测试禁用后宣称完成。
 
 新增的 PostgreSQL 集成测试默认跳过，必须提供独立 loopback `source_validation_*` 测试库的 `TEST_SOURCE_DATABASE_URL`，测试会执行迁移和写入合成记录，不得指向业务库：
 
@@ -120,7 +124,7 @@ npm test
 node --import tsx --test tests/integration/source-content-postgres.test.ts
 ```
 
-提供独立 `TEST_SOURCE_DATABASE_URL` 后，可运行 `npm run test:sources:postgres` 验证全部七项 SQL 场景（脚本仅接入合成 provider）。每项均检查 loopback 和 `source_validation_*`；未提供时明确跳过，不能当 SQL 验收。`npm run smoke:local` 使用当前管理工具的本机私有账号，走真实前端/API/worker/PostgreSQL，创建有界合成 E2E 来源后归档，并验证 Reddit/X 已存内容与浏览器 JSON/CSV 下载；要求先 local:setup/start，浏览器配置同 smoke:workbench。纯 UI 合成 API 管理冒烟为 `npm run smoke:sources`，需要 `SMOKE_WEB_BASE_URL`。
+提供独立 `TEST_SOURCE_DATABASE_URL` 后，可运行 `npm run test:sources:postgres` 验证最初七项 SQL 场景（4A 及后续新增场景统一用 test:postgres）（脚本仅接入合成 provider）。每项均检查 loopback 和 `source_validation_*`；未提供时明确跳过，不能当 SQL 验收。`npm run smoke:local` 使用当前管理工具的本机私有账号，走真实前端/API/worker/PostgreSQL，创建有界合成 E2E 来源后归档，并验证 Reddit/X 已存内容与浏览器 JSON/CSV 下载；要求先 local:setup/start，浏览器配置同 smoke:workbench。纯 UI 合成 API 管理冒烟为 `npm run smoke:sources`，需要 `SMOKE_WEB_BASE_URL`。
 
 ## 存储维护
 

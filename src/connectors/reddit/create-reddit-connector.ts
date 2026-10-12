@@ -3,6 +3,7 @@ import {
   RedditCircuitBreakerConnector,
 } from "./reddit-circuit-breaker.connector";
 import type { RedditConnector } from "./reddit-connector.interface";
+import { assertCollectionExecutionAllowed } from "../../runtime/collection-execution-policy";
 import { RedditHttpConnector, type RedditHttpTransport } from "./reddit-http.connector";
 import { RedditMockConnector } from "./reddit-mock.connector";
 import {
@@ -30,6 +31,7 @@ export function resolveRedditScraplingProfile(
 }
 
 export interface CreateRedditConnectorOptions {
+  executionEnvironment?: NodeJS.ProcessEnv;
   mode: RedditRunMode;
   liveProvider?: RedditLiveProvider;
   accessToken?: string;
@@ -56,6 +58,7 @@ export function resolveRedditLiveProvider(value: string | undefined): RedditLive
 }
 
 export function createRedditConnector(options: CreateRedditConnectorOptions): RedditConnector {
+  assertCollectionExecutionAllowed(options.mode, options.executionEnvironment ?? process.env);
   if (options.mode === "mock") {
     return new RedditMockConnector();
   }
