@@ -128,6 +128,15 @@ node --import tsx --test tests/integration/source-content-postgres.test.ts
 
 ## 存储维护
 
+`npm run storage:plan -- --out output/validation/storage-preview.json` 只读统计所有 public 表与候选，默认天数是操作预览，不批准删除。容量需要同时指定 `--daily-content 数值 --daily-observations 数值 --capacity-days 90`；未指定流量为未知null。使用私有 `DATABASE_URL`，限定 loopback，无URL额外参数。
+
+备份需要完整且与服务器匹配的客户端 `PG_BIN`，含 pg_dump/pg_restore；当前本机17.11已补全。运行 `npm run db:backup -- --file output/backups/唯一名称.dump`，凭证只来自私有DATABASE_URL环境；不会覆盖已有文件。运行 `npm run db:restore -- --file output/backups/唯一名称.dump --target info_workbench_restore_唯一名称`，仅创建新库、拒绝原库或已有库。检查同快照manifest/SHA/行数/迁移后，在恢复库另验登录、来源、观测、checkpoint、预算和Saved；工具不自动切业务连接或删除备份。
+
+`npm run release:pack` 构建/compiled smoke后产生 output/releases 的新目录；`npm run release:verify -- output/releases/目录` 检查精确库存和所有SHA。包含编译API/worker、Web、SQL、公开模板和原八份文档，排除私有环境、数据库、原始数据和node_modules。未签名、未部署，生产依赖需按manifest另安装，部署入口仍需核对实际宿主。
+
+`npm run benchmark:sources -- --rows 20000 --repeats 20 --out output/validation/唯一报告.json` 需要TEST_SOURCE_DATABASE_URL为专用loopback source_validation_*，新建合成库，不使用业务库；报告包括repository P95/EXPLAIN/DB大小/WAL差量/客户端RSS。不要将本机暖缓存结果当真实provider或生产SLO。
+
+
 旧维护入口仍为 `ops:prune:raw-events`、`ops:prune:metrics-snapshots` 与 scheduler 内的保留任务。`REDDIT_RETENTION_PRUNE_MAX_BATCHES` 默认 10，每张表每轮最多执行这么多批，剩余到下轮继续；HTTP 维护入口也受默认批数约束。CLI 返回的 deletedRows 只指本次删除量，不代表已清空全部过期数据。保留策略和新增表覆盖见 [架构](architecture.md)，不要直接对全部业务表运行无界删除。
 
 ## 部署边界
@@ -137,7 +146,5 @@ node --import tsx --test tests/integration/source-content-postgres.test.ts
 先构建不可变发布目录（含 `dist/`、`apps/web/dist/`、运行依赖和 SQL），备份数据库，再执行 `db:migrate:compiled`，新空库才运行 `auth:bootstrap-owner:compiled`。Nginx 应限制公开 `/readyz`，域名使用 HTTPS，启用安全 cookie 与明确的 CORS。真实 provider 验证和小规模采集通过后再启动调度；代码回滚不等于数据库回滚。
 
 部署时可使用 `pg_dump --format=custom` 备份，并在隔离环境验证 `pg_restore --clean --if-exists --no-owner` 的恢复；这些操作需要真实数据库参数。公开服务配置完成后执行 `PUBLIC_BASE_URL=https://example.com npm run smoke:public-launch`，认证检查参数见 `scripts/smoke-public-launch.ts`。不在文档保存账号密码。
-
-账户验证：`npm run smoke:accounts` 使用合成 API；`npm run smoke:accounts:local` 要求 `TEST_SOURCE_DATABASE_URL` 指向 loopback 的 `source_validation_*` 库，创建新合成库并启动自己的临时 API/Vite，实际验证改密、会话撤销、账号隔离和持久化审计。已有 Chromium 可通过 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定。临时进程结束，合成数据库保留；凭证不打印，外部请求禁止。
 
 账户验证：`npm run smoke:accounts` 使用合成 API；`npm run smoke:accounts:local` 要求 `TEST_SOURCE_DATABASE_URL` 指向 loopback 的 `source_validation_*` 库，创建新合成库并启动自己的临时 API/Vite，实际验证改密、会话撤销、账号隔离和持久化审计。已有 Chromium 可通过 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定。临时进程结束，合成数据库保留；凭证不打印，外部请求禁止。

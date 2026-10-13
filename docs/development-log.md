@@ -82,10 +82,10 @@
 - 冻结暂存导出 phase-4b-snapshot-a40734d1 排除并行4C/5A/5B，455/455 offline、24/24 native 全通过零 skip，typecheck/API/Web/Vite/lint/compiled/docs 通过。新实际账户 smoke 加入该快照后 typecheck 通过，真实浏览器→API→独立 PG 检查改密/旧会话401/A-B Saved 隔离/撤全/持久审计；18 API 请求，外部请求0、page errors0、390px截图。复制脚本首次路径错误后按绝对路径重跑成功。
 - 合成 Web 另验来源/预算/target/bulk CAS 和离开草稿，93 请求零外部零错误。证据 phase-4b-snapshot-verification.json、phase4b-real-account-local.json、phase4b-account-security-evidence.json；复用依赖，未清洁重装/云CI/真实来源/部署。保存本地 local-phase4b-v0.6.0，保留历史WIP；后续按4C→5A→5B独立交付。
 
-## 阶段 4B：账户、权限、审计与配置并发（0.6.0 软件交付）
+## 阶段4C：容量、恢复、发布与性能（0.7.0软件交付）
 
-- 从 3db313e 的停止点恢复，三个代理滚动推进。补齐账户 HTTP/公共契约、机器与角色边界、专用 socket IP 限流、Origin/CORS、写入前 intent 与脱敏结果审计；既有类型和安全红测修复并保持断言。
-- source/budget/target revision CAS 贯通客户端；bulk 全员锁定校验后才写，任一冲突零部分提交；worker 用量/时间不增加配置版本。暂停与 commitPage 锁序统一。409 保稿、SPA 后退/关闭提示、admin 邀请 viewer 限制、auth epoch 和账户隔离完成。
-- 034/035 仅新隔离库应用，原 SQL 校验未改、开发业务库未升级。035 SHA256 608705B7C2FCCBE529E584767C0AADEE0B5A3DE0300F4B72EE16BEA5680AA619。
-- 冻结暂存导出 phase-4b-snapshot-a40734d1 排除并行4C/5A/5B，455/455 offline、24/24 native 全通过零 skip，typecheck/API/Web/Vite/lint/compiled/docs 通过。新实际账户 smoke 加入该快照后 typecheck 通过，真实浏览器→API→独立 PG 检查改密/旧会话401/A-B Saved 隔离/撤全/持久审计；18 API 请求，外部请求0、page errors0、390px截图。复制脚本首次路径错误后按绝对路径重跑成功。
-- 合成 Web 另验来源/预算/target/bulk CAS 和离开草稿，93 请求零外部零错误。证据 phase-4b-snapshot-verification.json、phase4b-real-account-local.json、phase4b-account-security-evidence.json；复用依赖，未清洁重装/云CI/真实来源/部署。保存本地 local-phase4b-v0.6.0，保留历史WIP；后续按4C→5A→5B独立交付。
+- 主agent独立实施所有public表只读库存/容量与保留预览，保护活动任务/可续checkpoint/必要观测/当月配额/未决审计。没有数据删除，未提供流量时保持未知null；密度估算只覆盖内容/观测，其他容量另算。
+- 真实pg_dump/restore共享RR快照，独立新恢复库逐业务验登录/内容0与null/观测/任务checkpoint/预算/Saved/审计；tamper、新目标限制与已有目标拒绝均验证。最初loopback权限、PG服务停止、客户端缺失和新库public schema冲突逐项修正，失败日志保留。从EDB PostgreSQL17.11官方归档按range读取两个缺失客户端并核对CRC/SHA，未改旧项目；版本17.11匹配本机服务，工具来源证据postgres-client-tools-provenance.json。
+- 新source worker systemd/env公开模板、产物允许清单与不可覆盖输出、580文件manifest/精确库存/所有SHA通过；无秘密/DB/node_modules，不部署、不签名。CI固定Ubuntu24.04及PG16客户端以匹配服务，但云workflow未执行。
+- 20,000内容/40,000观测/每场景20次暖缓存测量：全部list/stats P95 9.842/126.989ms，单源10.274/71.764ms，字面14.605/221.074ms；EXPLAIN/DB/WAL/客户端RSS保留，不是HTTP/生产负载或总系统RSS。SQL合成夹具首次UNION类型失败经显式cast修复后重跑。
+- 独立暂存phase-4c-snapshot-40fd1515排除5A/B，460离线与25 SQL全pass零skip，类型/构建/lint/compiled/docs通过；actualCLI保持未知容量，发布pack/verify580文件通过。证据phase-4c-snapshot-verification.json、phase4c-recovery-native.txt、phase4c-performance-20000.json；本地local-phase4c-v0.7.0，依赖复用，清洁安装/云CI/真实源/部署未验。

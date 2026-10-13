@@ -1,0 +1,19 @@
+[Unit]
+Description=Multi-platform source content worker
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/reddit-monitoring
+EnvironmentFile=/etc/reddit-monitoring/sources.env
+ExecStart=/usr/bin/node /opt/reddit-monitoring/dist/workers/source-content-worker.js
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+User=reddit-monitoring
+Group=reddit-monitoring
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

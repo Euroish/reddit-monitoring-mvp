@@ -153,4 +153,4 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 
 账户采用凭证版本 fencing，改密原子写新 hash/提升版本并撤销会话；机器身份禁止个人账户操作。owner/admin/viewer 政策覆盖角色、状态和邀请，最后 active owner 有事务锁保护。业务审计先保存 attempted，变更后保存脱敏结果；intent 失败拒绝变更，结果持久化失败返回 `audit_result_unknown`，不声称业务与审计原子，UI 先刷新确认。匿名登录/注册走安全日志和独立 IP 限流，不伪造审计 actor。配置 revision 仅配置变更提升，bulk 锁定全部目标验证后再写，来源页提交与暂停采用一致 source→job 锁序。
 
-账户采用凭证版本 fencing，改密原子写新 hash/提升版本并撤销会话；机器身份禁止个人账户操作。owner/admin/viewer 政策覆盖角色、状态和邀请，最后 active owner 有事务锁保护。业务审计先保存 attempted，变更后保存脱敏结果；intent 失败拒绝变更，结果持久化失败返回 `audit_result_unknown`，不声称业务与审计原子，UI 先刷新确认。匿名登录/注册走安全日志和独立 IP 限流，不伪造审计 actor。配置 revision 仅配置变更提升，bulk 锁定全部目标验证后再写，来源页提交与暂停采用一致 source→job 锁序。
+4C 运维以只读事务统计全部 public 表大小与精确行数，保留预览保护活动/可续 checkpoint、被引用父任务、每来源最新观测与 archive_initial、当前UTC月预算和未决 attempted 审计。没有删除执行器或自动保留政策。备份由 RR 导出 snapshot 同步 pg_dump 与库存/迁移checksum；仅恢复到新建指定前缀数据库，拒绝已有目标，校验SHA和库存后还需业务验收。发布采用允许清单、不可覆盖新目录、逐文件SHA256/精确库存，未签名、未部署。生产保留时长和冷恢复/RPO/RTO还需明确。
