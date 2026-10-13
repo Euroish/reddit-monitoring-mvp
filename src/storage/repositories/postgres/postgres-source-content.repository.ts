@@ -1,18 +1,27 @@
 import { randomUUID } from "node:crypto";
 import type { QueryResultRow } from "pg";
-import type { CollectionSource, ContentQuery, ContentStatsResponse, CreateCollectionSourceRequest, PublicContent, SourceCollectionJob, UpdateCollectionSourceRequest, SourceJobQuery, SourceProviderBudget, SourceProviderUsage, SourceWorkerHeartbeat, SourceOps } from "../../../../packages/contracts/src/source-content";
+import type { CollectionSource, ContentQuery, ContentStatsResponse, CreateCollectionSourceRequest, PublicContent, SourceCollectionJob, UpdateCollectionSourceRequest, SourceJobQuery, SourceProviderBudget, SourceProviderUsage, SourceWorkerHeartbeat, SourceOps,PublicContentSearchCoverage } from "../../../../packages/contracts/src/source-content";
 import { SourceConfigurationConflictError,type ClaimedSourceJob,type SourceContentRepository,type SourceJobInput } from "../../../domain/repositories/source-content-repository";
 import type { CollectedPage } from "../../../connectors/shared/content-provider.interface";
 import type { PostgresClient } from "../../postgres/postgres-client";
 import { decodeContentCursor, encodeContentCursor } from "../../source-content-query";
 import { defaultProviderBudget, nextUsageDay, scheduledWindow, recheckWindow } from "../../source-lifecycle";
+import { writePublicSearchDocument,hasPublicSearch,publicSearchTerms,normalizePublicSearchText } from "../../public-content-search";
+import { SourceContentError } from "../../../application/services/source-content.service";
 type Row = QueryResultRow;
 const iso = (value: Date | string | null): string | null => value === null ? null : new Date(value).toISOString();
 function source(row: Row): CollectionSource { return { id: row.id, platform: row.platform, provider: row.provider, label: row.label, target: row.target, contentKind: row.content_kind, createdAt: iso(row.created_at)!, lastSuccessAt: iso(row.last_success_at), latestPublishedAt: iso(row.latest_published_at), coverage: row.coverage,state:row.state,group:row.source_group,updatedAt:iso(row.updated_at)!,schedule:row.schedule,refresh:row.refresh,nextDueAt:iso(row.next_due_at),incrementalTo:iso(row.incremental_to),nextRecheckAt:iso(row.next_recheck_at),revision:row.revision }; }
 function job(row: Row): SourceCollectionJob { return { id: row.id, sourceId: row.collection_source_id, status: row.status, from: iso(row.from_at)!, to: iso(row.to_at)!, pageSize: row.page_size, maxPages: row.max_pages, pagesCommitted: row.pages_committed, recordsProcessed: row.records_processed, checkpoint: row.checkpoint, coverage: row.coverage, exhausted: row.exhausted, attempts: row.attempts, error: row.error, nextRunAt: iso(row.next_run_at)!, createdAt: iso(row.created_at)!, finishedAt: iso(row.finished_at),purpose:row.purpose,parentJobId:row.parent_job_id,refreshIds:row.refresh_ids,recordsInserted:row.records_inserted,recordsUpdated:row.records_updated,requestCount:row.request_count,requestDurationMs:row.request_duration_ms }; }
 const sourceSelect = "SELECT cs.*, s.code AS platform FROM collection_source cs JOIN source s ON s.id=cs.platform_id";
+const publicContentColumns="c.id,c.kind,c.external_id,c.title,c.body_text,c.url,c.permalink,c.language,c.content_author,c.created_at_source,c.first_seen_at,c.last_seen_at,c.availability,c.content_references,c.content_media,c.platform_details";
+const scopedObservations=(scope:readonly string[])=>`COALESCE((SELECT jsonb_agg(latest.payload) FROM (SELECT DISTINCT ON(o.collection_source_id)
+  jsonb_build_object('provider',o.provider,'sourceId',o.collection_source_id,'sourceObservedAt',o.source_observed_at,'fetchedAt',o.fetched_at,'timeBasis',o.time_basis,'maturity',o.maturity,'metrics',o.metrics,'evidenceKey',o.evidence_key) AS payload
+  FROM content_observation o WHERE o.content_id=c.id ${scope.length?`AND ${scope.join(" AND ")}`:""}
+  ORDER BY o.collection_source_id,o.source_observed_at DESC NULLS LAST,o.fetched_at DESC,o.id DESC) latest),'[]'::jsonb)`;
 const storedContentSelect=`SELECT c.*,p.code AS platform,COALESCE((SELECT jsonb_agg(latest.payload) FROM (SELECT DISTINCT ON(o.collection_source_id) jsonb_build_object('provider',o.provider,'sourceId',o.collection_source_id,'sourceObservedAt',o.source_observed_at,'fetchedAt',o.fetched_at,'timeBasis',o.time_basis,'maturity',o.maturity,'metrics',o.metrics,'evidenceKey',o.evidence_key) AS payload FROM content_observation o WHERE o.content_id=c.id ORDER BY o.collection_source_id,o.source_observed_at DESC NULLS LAST,o.fetched_at DESC,o.id DESC) latest),'[]'::jsonb) AS observations FROM content c JOIN source p ON p.id=c.source_id`;
 function publicContent(row:Row):PublicContent{return {id:row.id,platform:row.platform,kind:row.kind,externalId:row.external_id,title:row.title,text:row.body_text,url:row.permalink||row.url,language:row.language,author:row.content_author,publishedAt:iso(row.created_at_source),firstFetchedAt:iso(row.first_seen_at)!,lastFetchedAt:iso(row.last_seen_at)!,availability:row.availability,references:row.content_references,media:row.content_media,platformDetails:row.platform_details,observations:row.observations.map((obs:PublicContent["observations"][number])=>({...obs,sourceObservedAt:iso(obs.sourceObservedAt),fetchedAt:iso(obs.fetchedAt)!}))};}
+function coverageRow(row:Row):PublicContentSearchCoverage {const candidateCount=Number(row.candidate_count),indexed=Number(row.indexed),textPresent=Number(row.text_present);return {formatVersion:1,candidateCount,indexed,unindexed:candidateCount-indexed,textPresent,textMissing:indexed-textPresent,state:indexed===candidateCount?"complete":"partial",textBasis:"stored_title_text"};}
+const coverageSql=(terms:string[])=>`SELECT COUNT(*)::integer AS candidate_count,COUNT(doc.content_id)::integer AS indexed,COUNT(doc.content_id) FILTER(WHERE doc.text_present)::integer AS text_present FROM content c JOIN source p ON p.id=c.source_id LEFT JOIN public_content_search_document doc ON doc.content_id=c.id AND doc.format_version=1 WHERE ${terms.join(" AND ")}`;
 
 export class PostgresSourceContentRepository implements SourceContentRepository {
   constructor(private readonly db: Pick<PostgresClient,"query"|"withTransaction">) {}
@@ -89,9 +98,10 @@ export class PostgresSourceContentRepository implements SourceContentRepository 
             content_media=CASE WHEN content.content_observed_at IS NULL OR EXCLUDED.content_observed_at>=content.content_observed_at THEN EXCLUDED.content_media ELSE content.content_media END,
             language=COALESCE(content.language,EXCLUDED.language),created_at_source=COALESCE(content.created_at_source,EXCLUDED.created_at_source),
             last_seen_at=GREATEST(content.last_seen_at,EXCLUDED.last_seen_at)
-          RETURNING id,(xmax=0) AS inserted`, [item.id,current.platform_id,item.externalId,item.kind,item.title,item.text,item.url,item.publishedAt,item.fetchedAt,JSON.stringify(item.author),JSON.stringify(item.media),JSON.stringify(item.references),JSON.stringify(item.platformDetails),item.language,item.availability,item.observation.sourceObservedAt??item.fetchedAt]);
+          RETURNING id,title,body_text,platform_details,(xmax=0) AS inserted`, [item.id,current.platform_id,item.externalId,item.kind,item.title,item.text,item.url,item.publishedAt,item.fetchedAt,JSON.stringify(item.author),JSON.stringify(item.media),JSON.stringify(item.references),JSON.stringify(item.platformDetails),item.language,item.availability,item.observation.sourceObservedAt??item.fetchedAt]);
         inserted.rows[0].inserted?added++:updated++;
         const contentId = inserted.rows[0].id, obs = item.observation;
+        const canonical=inserted.rows[0];await writePublicSearchDocument(client,contentId,canonical.title,canonical.body_text,now);
         await client.query(`INSERT INTO content_discovery(content_id,collection_source_id,first_fetched_at,last_fetched_at) VALUES($1,$2,$3,$3)
           ON CONFLICT(content_id,collection_source_id) DO UPDATE SET last_fetched_at=GREATEST(content_discovery.last_fetched_at,EXCLUDED.last_fetched_at)`, [contentId,current.collection_source_id,item.fetchedAt]);
         await client.query(`INSERT INTO content_observation(content_id,collection_source_id,provider,source_observed_at,fetched_at,time_basis,maturity,metrics,evidence_key)
@@ -183,7 +193,6 @@ export class PostgresSourceContentRepository implements SourceContentRepository 
     const bind = (value: unknown) => { params.push(value); return `$${params.length}`; };
     if (query.platform) terms.push(`p.code=${bind(query.platform)}`);
     if (query.kind) terms.push(`c.kind=${bind(query.kind)}`);
-    if (query.query) terms.push(`strpos(lower(COALESCE(c.title,'') || ' ' || COALESCE(c.body_text,'')),lower(${bind(query.query)}))>0`);
     if (query.from) terms.push(`c.created_at_source>=${bind(query.from)}::timestamptz`);
     if (query.to) terms.push(`c.created_at_source<${bind(query.to)}::timestamptz`);
     if(query.author){const author=bind(query.author);terms.push(`(lower(c.content_author->>'handle')=lower(${author}) OR lower(c.content_author->>'externalId')=lower(${author}))`);}
@@ -195,32 +204,58 @@ export class PostgresSourceContentRepository implements SourceContentRepository 
     if(query.sourceGroup){const group=bind(query.sourceGroup);sourceTerms.push(`cs.source_group=${group}`);observationScope.push(`o.collection_source_id IN(SELECT id FROM collection_source WHERE source_group=${group})`);}
     terms.push(`EXISTS(SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id WHERE ${sourceTerms.join(" AND ")})`);
     if(query.metricKey){const key=bind(query.metricKey),value=`CASE WHEN jsonb_typeof(latest.metrics->${key}::text)='number' THEN (latest.metrics->>${key}::text)::numeric END`,range=[`(${value}) IS NOT NULL`];terms.push(`p.code=${bind(query.metricKey.split(".")[0])}`);if(query.minMetric!==undefined)range.push(`(${value})>=${bind(query.minMetric)}`);if(query.maxMetric!==undefined)range.push(`(${value})<=${bind(query.maxMetric)}`);terms.push(`EXISTS(SELECT 1 FROM(SELECT DISTINCT ON(o.collection_source_id) o.metrics FROM content_observation o WHERE o.content_id=c.id ${observationScope.length?`AND ${observationScope.join(" AND ")}`:""} ORDER BY o.collection_source_id,o.source_observed_at DESC NULLS LAST,o.fetched_at DESC,o.id DESC) latest WHERE ${range.join(" AND ")})`);}
-    return { params, terms, observationScope, bind };
+    const baseTerms=[...terms];
+    if(hasPublicSearch(query)){const text=query.searchScope==="title"?"doc.normalized_title":query.searchScope==="text"?"doc.normalized_text":"doc.normalized_title||' '||doc.normalized_text",matches=publicSearchTerms(query).map(term=>`strpos(${text},${bind(term)})>0`);for(const exclusion of query.exclusions??[])matches.push(`strpos(${text},${bind(normalizePublicSearchText(exclusion))})=0`);terms.push(`EXISTS(SELECT 1 FROM public_content_search_document doc WHERE doc.content_id=c.id AND doc.format_version=1 AND ${matches.join(" AND ")||"TRUE"})`);}
+    return { params, terms,baseTerms,sourceTerms, observationScope, bind };
   }
   async listContent(query: ContentQuery) {
-    const { params, terms, observationScope, bind } = this.filters(query), cursor = decodeContentCursor(query);
+    const { params, terms,baseTerms, observationScope, bind } = this.filters(query), cursor = decodeContentCursor(query);
     const ascending=query.sort==="published_asc",direction=ascending?"ASC":"DESC";
     if (cursor) terms.push(`(COALESCE(c.created_at_source,c.first_seen_at),c.id)${ascending?">":"<"}(${bind(cursor.timestamp)}::timestamptz,${bind(cursor.id)}::uuid)`);
     const limit = query.limit ?? 25;
-    const result = await this.db.query(`SELECT c.*,p.code AS platform,COALESCE(c.created_at_source,c.first_seen_at) AS sort_time,
-      COALESCE((SELECT jsonb_agg(latest.payload) FROM (SELECT DISTINCT ON(o.collection_source_id)
-        jsonb_build_object('provider',o.provider,'sourceId',o.collection_source_id,'sourceObservedAt',o.source_observed_at,'fetchedAt',o.fetched_at,'timeBasis',o.time_basis,'maturity',o.maturity,'metrics',o.metrics,'evidenceKey',o.evidence_key) AS payload
-        FROM content_observation o WHERE o.content_id=c.id ${observationScope.length ? `AND ${observationScope.join(" AND ")}` : ""}
-        ORDER BY o.collection_source_id,o.source_observed_at DESC NULLS LAST,o.fetched_at DESC,o.id DESC) latest),'[]'::jsonb) AS observations
+    const result = await this.querySearch(`WITH coverage AS(${coverageSql(baseTerms)}),selected AS(SELECT ${publicContentColumns},p.code AS platform,COALESCE(c.created_at_source,c.first_seen_at) AS sort_time,
+      ${scopedObservations(observationScope)} AS observations
       FROM content c JOIN source p ON p.id=c.source_id WHERE ${terms.join(" AND ")}
-      ORDER BY sort_time ${direction},c.id ${direction} LIMIT ${bind(limit+1)}`, params);
-    const rows = result.rows.slice(0,limit), last = rows.at(-1);
+      ORDER BY sort_time ${direction},c.id ${direction} LIMIT ${bind(limit+1)}) SELECT row_to_json(coverage) AS search_coverage,COALESCE((SELECT jsonb_agg(row_to_json(selected) ORDER BY selected.sort_time ${direction},selected.id ${direction}) FROM selected),'[]'::jsonb) AS items FROM coverage`, params);
+    const coverage=coverageRow(result.rows[0].search_coverage);this.requireSearchCoverage(query,coverage);
+    const allRows:Row[]=result.rows[0].items,rows = allRows.slice(0,limit), last = rows.at(-1);
     const items=rows.map(publicContent);
-    return { items, nextCursor: result.rows.length>limit && last ? encodeContentCursor(query,iso(last.sort_time)!,last.id) : null };
+    return { items, nextCursor: allRows.length>limit && last ? encodeContentCursor(query,iso(last.sort_time)!,last.id) : null,searchCoverage:coverage };
   }
   async getContent(id:string){const result=await this.db.query(`${storedContentSelect} WHERE c.id=$1 AND c.platform_details IS NOT NULL`,[id]);return result.rows[0]?publicContent(result.rows[0]):null;}
   async findContentByIdentity(platform:PublicContent["platform"],kind:PublicContent["kind"],externalId:string){const result=await this.db.query(`${storedContentSelect} WHERE p.code=$1 AND c.kind=$2 AND c.external_id=$3 AND c.platform_details IS NOT NULL`,[platform,kind,externalId]);return result.rows[0]?publicContent(result.rows[0]):null;}
   async relatedChildren(content:PublicContent,limit:number){return (await this.db.query(`${storedContentSelect} WHERE p.code=$1 AND c.id<>$2 AND c.platform_details IS NOT NULL AND EXISTS(SELECT 1 FROM jsonb_array_elements(c.content_references) ref WHERE ref->>'externalId'=$3 AND ref->>'kind'=$4 AND ref->>'relation' IN('reply_to','thread_root')) ORDER BY COALESCE(c.created_at_source,c.first_seen_at) DESC,c.id DESC LIMIT $5`,[content.platform,content.id,content.externalId,content.kind,limit])).rows.map(publicContent);}
   async contentStats(query: ContentQuery): Promise<Omit<ContentStatsResponse,"ok"|"requestId">> {
-    const { params, terms } = this.filters(query);
-    const result = await this.db.query(`SELECT c.kind,to_char(c.created_at_source AT TIME ZONE 'UTC','YYYY-MM-DD') AS day,COUNT(*)::int AS count FROM content c JOIN source p ON p.id=c.source_id WHERE ${terms.join(" AND ")} GROUP BY c.kind,day ORDER BY day`,params);
+    const { params, terms,baseTerms } = this.filters(query);
+    const result = await this.querySearch(`WITH coverage AS(${coverageSql(baseTerms)}),counts AS(SELECT c.kind,to_char(c.created_at_source AT TIME ZONE 'UTC','YYYY-MM-DD') AS day,COUNT(*)::int AS count FROM content c JOIN source p ON p.id=c.source_id WHERE ${terms.join(" AND ")} GROUP BY c.kind,day ORDER BY day) SELECT row_to_json(coverage) AS search_coverage,COALESCE((SELECT jsonb_agg(row_to_json(counts)) FROM counts),'[]'::jsonb) AS counts FROM coverage`,params);
+    const coverage=coverageRow(result.rows[0].search_coverage);this.requireSearchCoverage(query,coverage);
     const byKind = new Map<PublicContent["kind"],number>(), daily = new Map<string,number>(); let total=0, unknownPublishedAtCount=0;
-    for (const row of result.rows) { total+=row.count; byKind.set(row.kind,(byKind.get(row.kind)??0)+row.count); if (row.day===null) unknownPublishedAtCount+=row.count; else { const day=String(row.day); daily.set(day,(daily.get(day)??0)+row.count); } }
-    return { total,byKind:[...byKind].map(([kind,count])=>({kind,count})),daily:[...daily].map(([day,count])=>({day,count})),scope:"collected_content",unknownPublishedAtCount };
+    for (const row of result.rows[0].counts) { total+=row.count; byKind.set(row.kind,(byKind.get(row.kind)??0)+row.count); if (row.day===null) unknownPublishedAtCount+=row.count; else { const day=String(row.day); daily.set(day,(daily.get(day)??0)+row.count); } }
+    return { total,byKind:[...byKind].map(([kind,count])=>({kind,count})),daily:[...daily].map(([day,count])=>({day,count})),scope:"collected_content",unknownPublishedAtCount,searchCoverage:coverage };
+  }
+  private async querySearch(sql:string,params:unknown[]){try{return await this.db.query(sql,params);}catch(error){if((error as {code?:string}).code==="42P01")throw new SourceContentError("Public search projection storage is unavailable; apply the project migrations",503);throw error;}}
+  private requireSearchCoverage(query:ContentQuery,coverage:PublicContentSearchCoverage){if(hasPublicSearch(query)&&coverage.unindexed)throw new SourceContentError("Public search coverage is incomplete; run the explicit bounded public-index backfill before searching",503);}
+  async searchCoverage(contentIds:readonly string[]){const result=await this.querySearch(coverageSql(["c.platform_details IS NOT NULL","c.id=ANY($1::uuid[])"]),[[...new Set(contentIds)]]);return coverageRow(result.rows[0]);}
+  async researchPayloadPreflight(query:ContentQuery){
+    const {params,terms,baseTerms,sourceTerms,observationScope}=this.filters(query);
+    // Serialize each row in PostgreSQL and return only scalar sizes. This includes
+    // untrusted JSON values that a later public sanitizer may discard, so they
+    // cannot bypass the pre-fetch bound. No aggregate payload crosses to Node.
+    const result=await this.querySearch(`WITH coverage AS(${coverageSql(baseTerms)}),selected AS(
+      SELECT ${publicContentColumns},p.code AS platform,COALESCE(c.created_at_source,c.first_seen_at) AS sort_time,${scopedObservations(observationScope)} AS observations
+      FROM content c JOIN source p ON p.id=c.source_id WHERE ${terms.join(" AND ")}),scoped_sources AS(
+      ${sourceSelect} WHERE EXISTS(SELECT 1 FROM content_discovery d JOIN selected c ON c.id=d.content_id WHERE d.collection_source_id=cs.id AND ${sourceTerms.join(" AND ")}))
+      SELECT row_to_json(coverage) AS search_coverage,(SELECT COUNT(*)::integer FROM selected) AS total,
+      (SELECT COALESCE(SUM(octet_length(to_jsonb(selected)::text)::bigint+2),0)::text FROM selected) AS content_bytes,
+      (SELECT COUNT(*)::integer FROM scoped_sources) AS source_count,
+      (SELECT COALESCE(SUM(octet_length(to_jsonb(scoped_sources)::text)::bigint+2),0)::text FROM scoped_sources) AS source_bytes FROM coverage`,params);
+    const row=result.rows[0];this.requireSearchCoverage(query,coverageRow(row.search_coverage));
+    return {total:Number(row.total),contentBytes:Number(row.content_bytes)+2,sourceCount:Number(row.source_count),sourceBytes:Number(row.source_bytes)+2};
+  }
+  async listSourcesForResearch(query:ContentQuery){
+    const {params,terms,sourceTerms}=this.filters(query);
+    const result=await this.querySearch(`WITH selected AS(SELECT c.id FROM content c JOIN source p ON p.id=c.source_id WHERE ${terms.join(" AND ")})
+      ${sourceSelect} WHERE EXISTS(SELECT 1 FROM content_discovery d JOIN selected c ON c.id=d.content_id WHERE d.collection_source_id=cs.id AND ${sourceTerms.join(" AND ")}) ORDER BY cs.created_at,cs.id`,params);
+    return result.rows.map(source);
   }
 }

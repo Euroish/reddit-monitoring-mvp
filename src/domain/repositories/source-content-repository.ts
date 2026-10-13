@@ -1,10 +1,12 @@
-import type { CollectionSource, ContentQuery, ContentStatsResponse, CreateCollectionSourceRequest, PublicContent, SourceCollectionJob, StartSourceCollectionRequest, UpdateCollectionSourceRequest, SourceJobQuery, SourceOps, SourceProviderBudget, SourceProviderUsage, SourceWorkerHeartbeat } from "../../../packages/contracts/src/source-content";
+import type { CollectionSource, ContentQuery, ContentStatsResponse, CreateCollectionSourceRequest, PublicContent, SourceCollectionJob, StartSourceCollectionRequest, UpdateCollectionSourceRequest, SourceJobQuery, SourceOps, SourceProviderBudget, SourceProviderUsage, SourceWorkerHeartbeat,PublicContentSearchCoverage } from "../../../packages/contracts/src/source-content";
 import type { CollectedPage } from "../../connectors/shared/content-provider.interface";
 
 export interface ClaimedSourceJob { job: SourceCollectionJob; leaseToken: string }
 /** Raised only when a caller opts into optimistic configuration updates. */
 export class SourceConfigurationConflictError extends Error { constructor(){super("Configuration changed; reload it before retrying");} }
 export interface SourceJobInput extends Required<StartSourceCollectionRequest> { id: string; sourceId: string; now: string; purpose?: SourceCollectionJob["purpose"]; parentJobId?: string | null; refreshIds?: string[] }
+/** UTF-8 bytes of the selected transport rows, measured before fetching payloads. */
+export interface ResearchPayloadPreflight { total:number;contentBytes:number;sourceCount:number;sourceBytes:number }
 export interface SourceContentRepository {
   listSources(): Promise<CollectionSource[]>;
   createSource(source: CreateCollectionSourceRequest & { id: string; label: string; createdAt: string }): Promise<CollectionSource>;
@@ -27,7 +29,10 @@ export interface SourceContentRepository {
   commitPage(claim: ClaimedSourceJob, page: CollectedPage, now: string): Promise<void>;
   failJob(claim: ClaimedSourceJob, error: string, retryAt: string | null, now: string, resetAttempts?: boolean): Promise<void>;
   recordRequestAttempt(claim: ClaimedSourceJob, durationMs: number): Promise<void>;
-  listContent(query: ContentQuery): Promise<{ items: PublicContent[]; nextCursor: string | null }>;
+  listContent(query: ContentQuery): Promise<{ items: PublicContent[]; nextCursor: string | null;searchCoverage?:PublicContentSearchCoverage }>;
+  searchCoverage(contentIds:readonly string[]):Promise<PublicContentSearchCoverage>;
+  researchPayloadPreflight(query:ContentQuery):Promise<ResearchPayloadPreflight>;
+  listSourcesForResearch(query:ContentQuery):Promise<CollectionSource[]>;
   getContent(id:string):Promise<PublicContent|null>;
   findContentByIdentity(platform:PublicContent["platform"],kind:PublicContent["kind"],externalId:string):Promise<PublicContent|null>;
   relatedChildren(content:PublicContent,limit:number):Promise<PublicContent[]>;

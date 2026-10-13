@@ -7,6 +7,7 @@ import { buildSavedWorkbenchRoute } from '../features/workbench/model/urlState';
 import { useLanguage } from '../i18n/LanguageContext';
 import type { ListSavedWorkbenchViewsResponse } from '../../../../packages/contracts/src/http';
 import { PersonalSavedContent } from '../features/content/PersonalSavedContent';
+import { ResearchExports } from '../features/content/ResearchExports';
 import './Content.css';
 
 export function Saved() {
@@ -29,6 +30,7 @@ export function Saved() {
       </div>
 
       <PersonalSavedContent zh={language === 'zh-CN'} />
+      <ResearchExports zh={language === 'zh-CN'} />
       <h2 style={{ margin: '32px 0 18px' }}>{copy('Target and comparison views', '目标与对比视图')}</h2>
 
       {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>{copy('Loading saved views...', '正在加载保存视图...')}</div>}

@@ -3,7 +3,7 @@ import type { ContentQuery } from "../../packages/contracts/src/source-content";
 import { SourceContentError } from "../application/services/source-content.service";
 
 function scope(query: ContentQuery): string {
-  return createHash("sha256").update(JSON.stringify([query.platform ?? null, query.provider ?? null, query.sourceId ?? null, query.kind ?? null, query.query ?? null, query.from ?? null, query.to ?? null,query.author??null,query.language??null,query.sourceGroup??null,query.sort??"published_desc",query.metricKey??null,query.minMetric??null,query.maxMetric??null])).digest("hex").slice(0, 24);
+  return createHash("sha256").update(JSON.stringify([query.platform ?? null, query.provider ?? null, query.sourceId ?? null, query.kind ?? null, query.query ?? null, query.from ?? null, query.to ?? null,query.author??null,query.language??null,query.sourceGroup??null,query.sort??"published_desc",query.metricKey??null,query.minMetric??null,query.maxMetric??null,query.searchMode??"literal",query.searchScope??"title_text",query.exclusions??[]])).digest("hex").slice(0, 24);
 }
 export function encodeContentCursor(query: ContentQuery, timestamp: string, id: string): string { return Buffer.from(JSON.stringify({ timestamp, id, scope: scope(query) })).toString("base64url"); }
 export function decodeContentCursor(query: ContentQuery): { timestamp: string; id: string } | null {

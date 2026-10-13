@@ -11,11 +11,12 @@ test("retention policy requires exact bounded horizons instead of silently delet
 
 test("capacity estimates preserve unknown density and distinguish allocation from incremental payload", () => {
   assert.deepEqual(capacityProjection({ allocatedContentBytes: 0, contentRows: 0, allocatedObservationBytes: 0, observationRows: 0 }, { dailyContent: 100, dailyObservations: 200, days: 90 }), {
-    estimatedContentBytes: null, estimatedObservationBytes: null, estimatedTotalBytes: null,
-    method: "allocated_relation_bytes_per_stored_row", excludes: ["WAL", "backup", "free-space reuse", "future schema growth"],
+    estimatedContentBytes: null, estimatedObservationBytes: null, estimatedContentAndObservationBytes: null,
+    scope: "content_and_observation_only", method: "allocated_relation_bytes_per_stored_row",
+    excludes: ["public search projection", "content discovery", "frozen research members", "personal saved queries and annotations", "other public tables", "WAL", "backup", "free-space reuse", "future schema growth"],
   });
   const estimate = capacityProjection({ allocatedContentBytes: 10000, contentRows: 10, allocatedObservationBytes: 2000, observationRows: 20 }, { dailyContent: 100, dailyObservations: 200, days: 90 });
   assert.equal(estimate.estimatedContentBytes, 9000000); assert.equal(estimate.estimatedObservationBytes, 1800000);
-  assert.equal(estimate.estimatedTotalBytes, 10800000);
+  assert.equal(estimate.estimatedContentAndObservationBytes, 10800000);
   assert.throws(() => capacityProjection({ allocatedContentBytes: 1, contentRows: 1, allocatedObservationBytes: 1, observationRows: 1 }, { dailyContent: -1, dailyObservations: 1, days: 90 }), /dailyContent/);
 });

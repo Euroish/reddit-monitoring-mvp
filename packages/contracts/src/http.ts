@@ -1,4 +1,5 @@
 export * from "./source-content";
+export * from "./research-export";
 
 export interface ApiHealthResponse {
   ok: boolean;

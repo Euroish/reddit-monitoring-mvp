@@ -39,8 +39,12 @@ async function main() {
     await page.goto(`${base}/content`);
     await page.locator("#login-email").fill(account.email);
     await page.locator("#login-password").fill(account.password);
-    await page.locator('button[type="submit"]').click();
-    await page.waitForURL("**/content");
+    const [login] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === "/api/auth/login" && response.request().method() === "POST"),
+      page.locator('button[type="submit"]').click(),
+    ]);
+    assert.equal(login.status(), 200, "Managed account login must succeed before content workflow acceptance");
+    await page.waitForURL(url => url.pathname === "/content");
     await page.getByRole("heading", { name: "Collected content" }).waitFor();
     const sources = await request<SourceListResponse>("/v1/sources");
     assert.ok(sources.capabilities.some(row => row.provider === "demo_reddit" && row.enabled));

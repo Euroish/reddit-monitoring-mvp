@@ -21,8 +21,9 @@ export function capacityProjection(density: { allocatedContentBytes: number; con
   const estimatedObservationBytes = density.observationRows > 0
     ? Math.ceil(density.allocatedObservationBytes / density.observationRows * traffic.dailyObservations * traffic.days) : null;
   return { estimatedContentBytes, estimatedObservationBytes,
-    estimatedTotalBytes: estimatedContentBytes === null || estimatedObservationBytes === null ? null : estimatedContentBytes + estimatedObservationBytes,
-    method: "allocated_relation_bytes_per_stored_row", excludes: ["WAL", "backup", "free-space reuse", "future schema growth"] };
+    estimatedContentAndObservationBytes: estimatedContentBytes === null || estimatedObservationBytes === null ? null : estimatedContentBytes + estimatedObservationBytes,
+    scope: "content_and_observation_only", method: "allocated_relation_bytes_per_stored_row",
+    excludes: ["public search projection", "content discovery", "frozen research members", "personal saved queries and annotations", "other public tables", "WAL", "backup", "free-space reuse", "future schema growth"] };
 }
 
 interface TablePlan { rows: number; allocatedBytes: number; candidates: number; protection: string }

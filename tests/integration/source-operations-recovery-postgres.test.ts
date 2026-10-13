@@ -12,6 +12,13 @@ import { PostgresAppUserRepository } from "../../src/storage/repositories/postgr
 import { PostgresAppSessionRepository } from "../../src/storage/repositories/postgres/postgres-app-session.repository";
 import { PostgresSourceContentRepository } from "../../src/storage/repositories/postgres/postgres-source-content.repository";
 import { loginAppUser } from "../../src/application/use-cases/login-app-user.use-case";
+import { SourceContentService } from "../../src/application/services/source-content.service";
+import { ContentPersonalService } from "../../src/application/services/content-personal.service";
+import { ResearchExportService } from "../../src/application/services/research-export.service";
+import { DemoContentProvider } from "../../src/connectors/demo/demo-content.connector";
+import { PostgresContentPersonalRepository } from "../../src/storage/repositories/postgres/postgres-content-personal.repository";
+import { PostgresResearchExportRepository } from "../../src/storage/repositories/postgres/postgres-research-export.repository";
+import { backfillPublicSearchIndex } from "../../src/storage/backfill-public-search-index";
 
 const connectionString = process.env.TEST_SOURCE_DATABASE_URL;
 test("native retention preview protects quota/checkpoints/evidence; snapshot backup restores accounts sources jobs budgets Saved and audit without overwriting", { skip: !connectionString }, async () => {
@@ -57,8 +64,17 @@ test("native retention preview protects quota/checkpoints/evidence; snapshot bac
     await db.query("INSERT INTO source_worker_heartbeat(id,started_at,last_heartbeat_at,state,last_job_id) VALUES('old-active',$1,$1,'active',$2),('old-stopped',$1,$1,'stopped',NULL),('fresh',$3,$3,'active',NULL)", [old, activeJob, now]);
     for (const [outcome, at] of [["attempted", old], ["failed", old], ["succeeded", now]])
       await db.query("INSERT INTO app_audit_log(id,actor_user_id,action,created_at,outcome) VALUES($1,$2,'synthetic.recovery',$3,$4)", [randomUUID(), owner, at, outcome]);
+    await backfillPublicSearchIndex(db, { limit: 100, now });
+    const publicService = new SourceContentService(new PostgresSourceContentRepository(db), new DemoContentProvider("reddit", () => now), () => now);
+    const personal = new ContentPersonalService(new PostgresContentPersonalRepository(db), publicService, () => now);
+    const savedQuery = await personal.saveQuery(owner, { name: "Recovery content query", query: { sourceId: source, query: "Retained" }, expectedRevision: 0 });
+    await personal.saveAnnotation(owner, content, { favorite: true, note: "Private recovery note", expectedRevision: 0 });
+    const frozen = await new ResearchExportService(new PostgresResearchExportRepository(db), publicService, () => now).create(owner, { name: "Recovery frozen sample", query: { sourceId: source, query: "Retained" } });
     const plan = await sourceStoragePlan(db, { jobDays: 90, observationDays: 90, heartbeatDays: 14, usageDays: 1, auditDays: 90 }, now);
     assert.equal(plan.mode, "dry-run"); assert.equal(plan.deletionExecuted, false);
+    for (const table of ["content_saved_query", "content_annotation", "research_export", "research_export_member", "public_content_search_document"]) {
+      assert.equal(plan.tables[table].rows, 1); assert.equal(plan.tables[table].candidates, 0);
+    }
     for (const name of ["source_collection_job", "content_observation", "source_provider_usage", "source_worker_heartbeat", "app_audit_log"])
       assert.equal(plan.tables[name].candidates, 1, name);
     assert.equal((await db.query("SELECT count(*)::int AS count FROM content_observation")).rows[0].count, 4);
@@ -82,6 +98,14 @@ test("native retention preview protects quota/checkpoints/evidence; snapshot bac
       const page = await new PostgresSourceContentRepository(restoredDb).listContent({ sourceId: source });
       assert.equal(page.items[0].text, "Retained synthetic body"); assert.equal(page.items[0].observations[0].metrics["reddit.score"], 0);
       assert.equal(page.items[0].observations[0].metrics["reddit.num_comments"], null);
+      const restoredPublic = new SourceContentService(new PostgresSourceContentRepository(restoredDb), new DemoContentProvider("reddit", () => now), () => now);
+      const restoredPersonal = new ContentPersonalService(new PostgresContentPersonalRepository(restoredDb), restoredPublic, () => now);
+      assert.equal((await restoredPersonal.listQueries(owner)).queries[0].id, savedQuery.id);
+      assert.equal((await restoredPersonal.getAnnotation(owner, content))?.note, "Private recovery note");
+      const restoredResearch = await new ResearchExportService(new PostgresResearchExportRepository(restoredDb), restoredPublic, () => now).pageContent(owner, frozen.id, { limit: 100 });
+      assert.equal(restoredResearch.total, 1); assert.equal(restoredResearch.items[0].text, "Retained synthetic body");
+      assert.equal(restoredResearch.manifest.coverage.indexed, 1);
+      assert.equal((await new PostgresSourceContentRepository(restoredDb).listContent({ sourceId: source, query: "Retained" })).items.length, 1);
     } finally { await restoredDb.close(); }
     const damaged = `output/validation/recovery-${suffix}/damaged/fixture.dump`;
     await mkdir(path.dirname(damaged), { recursive: true }); await copyFile(file, damaged); await copyFile(`${file}.manifest.json`, `${damaged}.manifest.json`);

@@ -8,6 +8,8 @@ import { createApiServer } from "./create-api-server";
 import { createSourceContentService } from "../../../src/runtime/source-content-runtime";
 import { ContentPersonalService } from "../../../src/application/services/content-personal.service";
 import { PostgresContentPersonalRepository } from "../../../src/storage/repositories/postgres/postgres-content-personal.repository";
+import { ResearchExportService } from "../../../src/application/services/research-export.service";
+import { PostgresResearchExportRepository } from "../../../src/storage/repositories/postgres/postgres-research-export.repository";
 
 const port = parsePort(process.env.PORT, 3000);
 const apiBearerToken = process.env.API_BEARER_TOKEN?.trim();
@@ -46,6 +48,7 @@ const sourceContent = createSourceContentService(runtime.db);
 const server = createApiServer({
   sourceContent,
   contentPersonal: new ContentPersonalService(new PostgresContentPersonalRepository(runtime.db), sourceContent),
+  researchExports: new ResearchExportService(new PostgresResearchExportRepository(runtime.db), sourceContent),
   repositories: runtime.repositories,
   sqlDb: runtime.db,
   createConnector: runtime.createConnector,

@@ -4,6 +4,8 @@ import type { CollectedPage } from "../../../connectors/shared/content-provider.
 import { SourceConfigurationConflictError,type ClaimedSourceJob,type SourceContentRepository,type SourceJobInput } from "../../../domain/repositories/source-content-repository";
 import { decodeContentCursor, encodeContentCursor } from "../../source-content-query";
 import { activeJob, backgroundJob, defaultProviderBudget, defaultSourceRefresh, defaultSourceSchedule, nextUsageDay, scheduledWindow, recheckWindow } from "../../source-lifecycle";
+import { publicSearchDocument,matchesPublicSearch,hasPublicSearch,searchCoverage,type PublicSearchDocument } from "../../public-content-search";
+import { SourceContentError } from "../../../application/services/source-content.service";
 
 /** Offline/test adapter; live runtimes always use PostgreSQL. */
 export class InMemorySourceContentRepository implements SourceContentRepository {
@@ -18,8 +20,9 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
   private refreshes = new Map<string,{attempts:number;at:string}>();
   private claims=0;
   private lastReservations=new Map<string,string>();
+  private searchDocuments=new Map<string,PublicSearchDocument>();
   /** Synchronous isolated read view for offline research snapshots. */
-  snapshotForResearch(){const copy=new InMemorySourceContentRepository();copy.sources=structuredClone(this.sources);copy.contents=structuredClone(this.contents);copy.contentVersions=structuredClone(this.contentVersions);return copy;}
+  snapshotForResearch(){const copy=new InMemorySourceContentRepository();copy.sources=structuredClone(this.sources);copy.contents=structuredClone(this.contents);copy.contentVersions=structuredClone(this.contentVersions);copy.searchDocuments=structuredClone(this.searchDocuments);return copy;}
   async listSources() { return structuredClone([...this.sources.values()]); }
   async getSource(id: string) { return structuredClone(this.sources.get(id) ?? null); }
   async createSource(input: CreateCollectionSourceRequest & { id: string; label: string; createdAt: string }) {
@@ -76,6 +79,7 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
       const lastFetchedAt=existing&&existing.lastFetchedAt>fetchedAt?existing.lastFetchedAt:fetchedAt;
       const content: PublicContent = existing && !replace ? { ...existing,language:existing.language ?? fields.language,publishedAt:existing.publishedAt ?? fields.publishedAt,lastFetchedAt,observations } : { ...fields,language:existing?.language??fields.language,publishedAt:existing?.publishedAt??fields.publishedAt,firstFetchedAt:existing?.firstFetchedAt ?? fetchedAt,lastFetchedAt,observations };
       this.contents.set(item.id,structuredClone(content));
+      this.searchDocuments.set(item.id,publicSearchDocument(content.title,content.text,now));
       if(replace)this.contentVersions.set(item.id,observed);
     }
     if(current.purpose==="refresh")for(const item of this.contents.values())if(current.refreshIds.includes(item.externalId)&&item.observations.some(obs=>obs.sourceId===origin.id)){const key=`${origin.id}:${item.id}`,old=this.refreshes.get(key);this.refreshes.set(key,{attempts:(old?.attempts??0)+1,at:now});}
@@ -119,29 +123,46 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
     Object.assign(current,{status:retryAt ? "retrying" : "failed",error,nextRunAt:retryAt ?? now,finishedAt:retryAt ? null : now,attempts:resetAttempts?0:current.attempts}); this.leases.delete(current.id);
   }
   async recordRequestAttempt(claim:ClaimedSourceJob,durationMs:number) {const current=this.jobs.get(claim.job.id);if(!current||current.status!=="running"||this.leases.get(current.id)?.token!==claim.leaseToken)return;current.requestCount=(current.requestCount??0)+1;current.requestDurationMs=(current.requestDurationMs??0)+durationMs;}
-  private filtered(query: ContentQuery) {
+  private filtered(query: ContentQuery,includeSearch=true) {
     return [...this.contents.values()].filter(item => (!query.platform || item.platform===query.platform) && (!query.kind || item.kind===query.kind)
-      && (!query.query || `${item.title ?? ""} ${item.text ?? ""}`.toLowerCase().includes(query.query.toLowerCase()))
+      && (!includeSearch||!hasPublicSearch(query)||Boolean(this.searchDocuments.get(item.id)&&matchesPublicSearch(this.searchDocuments.get(item.id)!,query)))
       && (!query.from || Boolean(item.publishedAt && item.publishedAt>=query.from)) && (!query.to || Boolean(item.publishedAt && item.publishedAt<query.to))
       && (!query.author||[item.author?.handle,item.author?.externalId].some(value=>value?.toLowerCase()===query.author!.toLowerCase()))&&(!query.language||item.language?.toLowerCase()===query.language.toLowerCase())
       && item.observations.some(obs=>this.matchesObservation(obs,query))&&(!query.metricKey||item.platform===query.metricKey.split(".")[0]&&item.observations.filter(obs=>this.matchesObservation(obs,query)).some(obs=>{const value=obs.metrics[query.metricKey!];return typeof value==="number"&&(query.minMetric===undefined||value>=query.minMetric)&&(query.maxMetric===undefined||value<=query.maxMetric);}))) ;
   }
   private matchesObservation(obs:PublicContent["observations"][number],query:ContentQuery){return (!query.sourceId||obs.sourceId===query.sourceId)&&(!query.provider||obs.provider===query.provider)&&(!query.sourceGroup||this.sources.get(obs.sourceId)?.group===query.sourceGroup);}
   async listContent(query: ContentQuery) {
+    const coverage=this.coverageFor(query);if(hasPublicSearch(query)&&coverage.unindexed)throw new SourceContentError("Public search coverage is incomplete; run the explicit bounded public-index backfill before searching",503);
     const cursor=decodeContentCursor(query), limit=query.limit ?? 25;
     const direction=query.sort==="published_asc"?1:-1;
     const rows=this.filtered(query).sort((a,b)=>direction*((a.publishedAt ?? a.firstFetchedAt).localeCompare(b.publishedAt ?? b.firstFetchedAt)||a.id.localeCompare(b.id)))
       .filter(item=>!cursor||direction*((item.publishedAt??item.firstFetchedAt).localeCompare(cursor.timestamp)||item.id.localeCompare(cursor.id))>0);
     const selected=rows.slice(0,limit), last=selected.at(-1);
     const items=selected.map(item=>({...item,observations:item.observations.filter(obs=>this.matchesObservation(obs,query))}));
-    return { items:structuredClone(items),nextCursor:rows.length>limit && last ? encodeContentCursor(query,last.publishedAt ?? last.firstFetchedAt,last.id) : null };
+    return { items:structuredClone(items),nextCursor:rows.length>limit && last ? encodeContentCursor(query,last.publishedAt ?? last.firstFetchedAt,last.id) : null,searchCoverage:coverage };
   }
   async getContent(id:string){return structuredClone(this.contents.get(id)??null);}
   async findContentByIdentity(platform:PublicContent["platform"],kind:PublicContent["kind"],externalId:string){return structuredClone([...this.contents.values()].find(item=>item.platform===platform&&item.kind===kind&&item.externalId===externalId)??null);}
   async relatedChildren(content:PublicContent,limit:number){return structuredClone([...this.contents.values()].filter(item=>item.id!==content.id&&item.platform===content.platform&&item.references.some(reference=>["reply_to","thread_root"].includes(reference.relation)&&reference.kind===content.kind&&reference.externalId===content.externalId)).sort((a,b)=>(b.publishedAt??b.firstFetchedAt).localeCompare(a.publishedAt??a.firstFetchedAt)||b.id.localeCompare(a.id)).slice(0,limit));}
   async contentStats(query: ContentQuery) {
+    const coverage=this.coverageFor(query);if(hasPublicSearch(query)&&coverage.unindexed)throw new SourceContentError("Public search coverage is incomplete; run the explicit bounded public-index backfill before searching",503);
     const rows=this.filtered(query), kinds=new Map<PublicContent["kind"],number>(), days=new Map<string,number>(); let unknownPublishedAtCount=0;
     for (const item of rows) { kinds.set(item.kind,(kinds.get(item.kind)??0)+1); if (item.publishedAt) { const day=item.publishedAt.slice(0,10); days.set(day,(days.get(day)??0)+1); } else unknownPublishedAtCount++; }
-    return { total:rows.length,byKind:[...kinds].map(([kind,count])=>({kind,count})),daily:[...days].sort().map(([day,count])=>({day,count})),scope:"collected_content" as const,unknownPublishedAtCount };
+    return { total:rows.length,byKind:[...kinds].map(([kind,count])=>({kind,count})),daily:[...days].sort().map(([day,count])=>({day,count})),scope:"collected_content" as const,unknownPublishedAtCount,searchCoverage:coverage };
   }
+  private coverageFor(query:ContentQuery){const rows=this.filtered(query,false);return searchCoverage(rows.length,rows.map(item=>this.searchDocuments.get(item.id)).filter((item):item is PublicSearchDocument=>Boolean(item)));}
+  async searchCoverage(contentIds:readonly string[]){const rows=[...new Set(contentIds)].filter(id=>this.contents.has(id));return searchCoverage(rows.length,rows.map(id=>this.searchDocuments.get(id)).filter((item):item is PublicSearchDocument=>Boolean(item)));}
+  private researchScope(query:ContentQuery){
+    const coverage=this.coverageFor(query);if(hasPublicSearch(query)&&coverage.unindexed)throw new SourceContentError("Public search coverage is incomplete; run the explicit bounded public-index backfill before searching",503);
+    const rows=this.filtered(query),sourceIds=new Set(rows.flatMap(item=>item.observations.filter(obs=>this.matchesObservation(obs,query)).map(obs=>obs.sourceId)));
+    return {rows,sources:[...this.sources.values()].filter(source=>sourceIds.has(source.id))};
+  }
+  async researchPayloadPreflight(query:ContentQuery){
+    // This is synchronous on the research snapshot clone before the first await.
+    const {rows,sources}=this.researchScope(query);
+    const contentBytes=rows.reduce((sum,item)=>sum+Buffer.byteLength(JSON.stringify({...item,observations:item.observations.filter(obs=>this.matchesObservation(obs,query))}),"utf8")+2,2);
+    const sourceBytes=sources.reduce((sum,item)=>sum+Buffer.byteLength(JSON.stringify(item),"utf8")+2,2);
+    return {total:rows.length,contentBytes,sourceCount:sources.length,sourceBytes};
+  }
+  async listSourcesForResearch(query:ContentQuery){return structuredClone(this.researchScope(query).sources);}
 }

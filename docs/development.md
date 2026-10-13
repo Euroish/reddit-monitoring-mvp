@@ -4,7 +4,7 @@
 
 使用 Node.js 22+ 与 npm，本轮 Windows 本地验证使用 Node.js 24.14.0、PowerShell 7。从仓库根目录执行：
 
-2026-10-13 已恢复并行，4B 0.6.0 的独立版本已完成类型、构建、离线/SQL 与本地账户闭环验收。原 WIP 停止标签保留；后续工作不能用 reset/clean/stash 覆盖。033/034/035 已在隔离库验证，本机 `info_workbench_dev` 尚未升级。
+2026-10-13 已恢复并行，4B 0.6.0 的独立版本已完成类型、构建、离线/SQL 与本地账户闭环验收。原 WIP 停止标签保留；后续工作不能用 reset/clean/stash 覆盖。当前全部40个SQL已在隔离库与管理info_workbench_dev应用；既有账号/数据保留，真实provider关闭。
 
 ```powershell
 npm ci
@@ -43,7 +43,7 @@ npm --prefix apps/web run dev
 
 公共来源运行由 `SOURCE_RUN_MODE=demo|live` 决定。demo 注册 `demo_reddit/demo_x`，真实 provider 显示禁用，即使 shell 有 key/network=true 也不联网。live 默认网络关闭；只有明确配置 `SOURCE_NETWORK_ENABLED=true` 才启用真实 Arctic Shift（不需 key）；X 还要求私有 `TWITTERAPI_IO_API_KEY`，超时 `TWITTERAPI_IO_TIMEOUT_MS` 默认 20000（允许 100–120000）。旧 `REDDIT_RUN_MODE` 与 `REDDIT_LIVE_PROVIDER=http|scrapling` 只控制旧 Reddit 功能，不能用于选择 Arctic Shift 或 X。管理工具固定使用 demo；本轮不得改成 live 试跑。
 
-公共入口和默认登录落点为 `/content`，筛选作者/语言/来源group、平台/provider/source/kind/正文/发布时间/指标和排序保存在URL；登录恢复原path+query，旧Markets/比较入口保留。已存详情 `/content/:id` 展示可空字段、独立指标时间/单位和来源，引用与children各≤20；媒体只在主动点击时读取HTTP(S)链接。个人保存查询在 `/saved` 管理、重开、重命名和删除；收藏/注释按user隔离，用revision冲突保持草稿再reload。公共内容导出使用 `/content` 的 JSON/CSV 下载（每文件最多 2000，支持 nextCursor 续导出），记录过滤范围、总分母、条数和截断；CSV 首行 export_metadata，随后字段表头/记录，数字内容 ID 作为文本、来源文本防公式执行。并发采集时统计与续页可变化，当前不是冻结 SQL 快照。旧 `research:export:reddit` 与 `research:export:reddit-search` 仍依赖旧模型。所有生成结果归入 `output/`。
+公共入口和默认登录落点为 `/content`，筛选作者/语言/来源group、平台/provider/source/kind/正文/发布时间/指标和排序保存在URL；登录恢复原path+query，旧Markets/比较入口保留。已存详情 `/content/:id` 展示可空字段、独立指标时间/单位和来源，引用与children各≤20；媒体只在主动点击时读取HTTP(S)链接。个人保存查询在 `/saved` 管理、重开、重命名和删除；收藏/注释按user隔离，用revision冲突保持草稿再reload。公共内容导出使用 `/content` 的 JSON/CSV 下载（每文件最多 2000，支持 nextCursor 续导出），记录过滤范围、总分母、条数和截断；CSV 首行 export_metadata，随后字段表头/记录，数字内容 ID 作为文本、来源文本防公式执行。即时导出在并发采集时统计与续页可变化；研究需要固定成员时在同页展开冻结导出、指定名称和条数上限，创建后在 `/saved?research=ID` 查看manifest并按每页1–100条下载JSON/CSV。冻结成员/分母、来源配置、最新范围观测和单位/版本保存在同RR快照，live变更或删除不改变已冻结成员；所属用户显式删除snapshot会级联其成员。32MiB完整UTF8载荷、最多20,000条，超额整笔拒绝413不截断；数据库先计算读载荷预算，再取完整正文/JSON和范围内来源；最终规范manifest+items再精确校验。旧 `research:export:reddit` 与 `research:export:reddit-search` 仍依赖旧模型。所有生成结果归入 `output/`。
 
 ## Windows 本地独立 Git 工作区
 
@@ -65,9 +65,9 @@ git diff -- path/to/file
 
 ## Arctic Shift 来源与查询
 
-迁移到 `029_source_content_collection.sql` 后，登录工作台进入 `/content`（“来源内容”）。管理员创建来源：平台为 Reddit、provider 为 `arctic_shift`；社区或账号可采帖子/评论，帖子 ID 仅采评论。可保存范围内关键词；上游限制较活跃目标的关键词检索，不支持无范围全站搜索。查询页的关键词是已保存标题/正文的字面匹配，支持中文，与上游检索范围分开。
+应用全部当前SQL迁移（目前40个，含030/035配置与038索引）后，登录工作台进入 `/content`（“来源内容”）。本轮管理工具固定demo，只创建 `demo_reddit/demo_x` 合成来源；下面Arctic Shift属于后续另获用户授权的live配置说明，当前不得尝试真实请求。live条件满足后管理员创建来源：平台为Reddit、provider为`arctic_shift`；社区或账号可采帖子/评论，帖子 ID 仅采评论。可保存范围内关键词；上游限制较活跃目标的关键词检索，不支持无范围全站搜索。查询页的关键词是已保存标题/正文的字面匹配，支持中文，与上游检索范围分开。
 
-设置查询时间窗后点击对应来源的采集按钮；日期为空默认最近 24 小时。HTTP 只入队，worker 另行启动。每页 1–100 条、每任务 1–20 页，默认 25 条/5 页，当前 UI 使用默认值；`worker:sources:once` 只处理一页，不代表完整任务结束。达到预算但仍有 checkpoint 的任务可继续；失败任务可重试。单来源同时只允许一个活动任务，相同参数重复提交返回同一任务，不同窗口/预算返回 409。
+设置查询时间窗后点击对应来源的采集按钮；日期为空默认最近 24 小时。HTTP 只入队，worker 另行启动。每页 1–100 条、每任务 1–20 页，默认 25 条/5 页，当前 UI 使用默认值；`worker:sources:once` 只处理一页，不代表完整任务结束。达到预算但仍有 checkpoint 的任务可继续；失败任务可重试。仓储允许每purpose一条活动队列，单来源同时仅一个running。当前手动collect入口先检查任何active：相同manual参数复用，不同窗口/预算或非manual活动任务返回409；不能承诺任意入队顺序都可立即追加manual。后台scheduler可与已有manual按purpose排队，已验证公平机会与互斥。
 
 | 方法与端点 | 用途 |
 | --- | --- |
@@ -82,9 +82,14 @@ git diff -- path/to/file
 | `GET /v1/content/stats` | 相同过滤范围的总数、类型分布与 UTC 日计数 |
 | `GET /v1/content/workbench` | 同范围唯一总数/类型/日桶/平台/provider；provider 计数允许重叠，不相加 |
 | `GET /v1/content/export?format=json\|csv&maxItems=2000` | 有界导出、完整元数据与续页；viewer 可以读取和导出 |
+| `GET /v1/content/:id` | 已存规范内容详情、来源与引用/children各最多20，不联网上补 |
+| `GET/POST /v1/content-saved-queries`、`PATCH/DELETE /:id` | 当前用户保存查询的分页、创建、重命名/筛选更新和删除 |
+| `GET /v1/content-annotations`、`GET/PUT/DELETE /v1/content/:id/annotation` | 当前用户收藏/注释、分页和带revision编辑/删除 |
+| `GET/POST /v1/research-exports`、`GET/DELETE /:id` | 当前用户完整冻结样本、分页列表、manifest和显式删除 |
+| `GET /v1/research-exports/:id/content`、`GET .../export?format=json\|csv` | 冻结ordinal页（1–100）、固定total/manifest/nextCursor |
 | `GET /v1/source-ops`、`PUT /v1/source-provider-budgets/:provider` | 队列/worker 心跳/独立时间年龄，以及每日/月度预算 |
 
-所有这些端点要求登录 session 或有效 bearer；写入要求 admin/owner，bearer 沿用 machine 权限。查询不会触发外部网络。`from` 含、`to` 不含，使用 ISO 时间；列表 cursor 绑定过滤条件，修改过滤后不能复用。查询量以已采集内容为分母，未知发布时间不进入日桶。详细请求/响应类型由 [共享契约](../packages/contracts/src/source-content.ts) 定义。
+公共内容/来源读取要求session或有效bearer，来源/任务/预算写入要求admin/owner或machine；个人query/annotation和research只允许拥有资源的用户session，viewer可管理自己的记录，machine401。个人创建必须expectedRevision=0，更新/删除必须当前revision（DELETE带JSON body），409保持稿后reload；来源/预算/target的expectedRevision兼容客户端可省略盲写，Web实际携带版本。查询不会触发外部网络。`from` 含、`to` 不含，使用 ISO 时间；列表 cursor 绑定过滤条件，修改过滤后不能复用。查询量以已采集内容为分母，未知发布时间不进入日桶。详细请求/响应类型由 [共享契约](../packages/contracts/src/source-content.ts) 定义。
 
 限流、暂时传输错误与部分 422 超时每页最多自动尝试三次；403 等授权错误直接失败。逐页提交保留 checkpoint，异常退出两分钟租约可回收。来源设置默认关闭自动任务；启用后按持久化 nextDueAt 创建增量窗口，重叠去重、最长窗口有界，未耗尽窗口通过 checkpoint 子任务继续；暂停/归档取消活动任务。自动成熟刷新只对支持 ID 刷新的 archive provider（Arctic Shift/Demo Reddit）启用，默认发布 36 小时后、最少 12 小时间隔、最多 3 次，缺失 ID 不当成已删除。snapshot 的 X ID 刷新只保留 adapter 能力，本轮不提供自动指标刷新。
 
@@ -128,7 +133,7 @@ node --import tsx --test tests/integration/source-content-postgres.test.ts
 
 ## 存储维护
 
-`npm run storage:plan -- --out output/validation/storage-preview.json` 只读统计所有 public 表与候选，默认天数是操作预览，不批准删除。容量需要同时指定 `--daily-content 数值 --daily-observations 数值 --capacity-days 90`；未指定流量为未知null。使用私有 `DATABASE_URL`，限定 loopback，无URL额外参数。
+`npm run storage:plan -- --out output/validation/storage-preview.json` 只读统计所有 public 表与候选，默认天数是操作预览，不批准删除。容量需要同时指定 `--daily-content 数值 --daily-observations 数值 --capacity-days 90`；未指定流量为未知null。使用私有 `DATABASE_URL`，限定 loopback，无URL额外参数。`estimatedContentAndObservationBytes` 仅估内容与观测，scope为content_and_observation_only；公共投影、discovery、冻结成员、个人数据及其它public表均在excludes列出，不能当全库预测。
 
 备份需要完整且与服务器匹配的客户端 `PG_BIN`，含 pg_dump/pg_restore；当前本机17.11已补全。运行 `npm run db:backup -- --file output/backups/唯一名称.dump`，凭证只来自私有DATABASE_URL环境；不会覆盖已有文件。运行 `npm run db:restore -- --file output/backups/唯一名称.dump --target info_workbench_restore_唯一名称`，仅创建新库、拒绝原库或已有库。检查同快照manifest/SHA/行数/迁移后，在恢复库另验登录、来源、观测、checkpoint、预算和Saved；工具不自动切业务连接或删除备份。
 
@@ -143,10 +148,20 @@ node --import tsx --test tests/integration/source-content-postgres.test.ts
 
 本轮以开发为重心，尚未公开上线。`deploy/` 是旧 Reddit 运行模板；部署前核对 Node 可执行路径、工作目录、环境、服务用户、数据库、真实 provider 与内存预算。不要把模板复制即视为可上线。
 
-先构建不可变发布目录（含 `dist/`、`apps/web/dist/`、运行依赖和 SQL），备份数据库，再执行 `db:migrate:compiled`，新空库才运行 `auth:bootstrap-owner:compiled`。Nginx 应限制公开 `/readyz`，域名使用 HTTPS，启用安全 cookie 与明确的 CORS。真实 provider 验证和小规模采集通过后再启动调度；代码回滚不等于数据库回滚。
+先构建不可变发布目录（含 `dist/`、`apps/web/dist/`、SQL和生产依赖lockfile，运行依赖另按manifest安装），备份数据库，再执行 `db:migrate:compiled`，新空库才运行 `auth:bootstrap-owner:compiled`。Nginx 应限制公开 `/readyz`，域名使用 HTTPS，启用安全 cookie 与明确的 CORS。真实 provider 验证和小规模采集通过后再启动调度；代码回滚不等于数据库回滚。
 
 部署时可使用 `pg_dump --format=custom` 备份，并在隔离环境验证 `pg_restore --clean --if-exists --no-owner` 的恢复；这些操作需要真实数据库参数。公开服务配置完成后执行 `PUBLIC_BASE_URL=https://example.com npm run smoke:public-launch`，认证检查参数见 `scripts/smoke-public-launch.ts`。不在文档保存账号密码。
 
 账户验证：`npm run smoke:accounts` 使用合成 API；`npm run smoke:accounts:local` 要求 `TEST_SOURCE_DATABASE_URL` 指向 loopback 的 `source_validation_*` 库，创建新合成库并启动自己的临时 API/Vite，实际验证改密、会话撤销、账号隔离和持久化审计。已有 Chromium 可通过 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定。临时进程结束，合成数据库保留；凭证不打印，外部请求禁止。
 
 5A 验证：`npm run smoke:content` 为合成API浏览器；`npm run smoke:content:local` 用新建专用loopback验证库，实际API、合成provider/worker与浏览器，检查保存/重开/详情/注释CAS/下载和账号隔离，私有凭证不打印，退出自己的临时服务，保留合成库。
+
+公共检索：`/content` 或 `/v1/content` 的 `searchMode=literal|terms|phrase`，`searchScope=title|text|title_text`，默认literal/title_text；terms为空白分词后的全员AND字面子串，literal/phrase都匹配连续文字；不stemming、不OR、不把引号当DSL。NFKC、Unicode toLowerCase及空白归一由同一JS代码处理。`exclusions` URL重复参数最多10项、每项200字符，Web每行一项；仅对选定已存字段生效，不搜索外网或未采集内容。列表/stats/即时导出共享同filter/cursor与真实candidate/index/text覆盖；漏投影时文本查询返回503而非假0。
+
+升级038后历史公共内容需要显式有界回填：`npm run ops:backfill:public-search -- --limit=100 --dry-run` 只预览，去掉dry-run后每批写缺失/变化行；用返回nextCursor作为 `--after=UUID` 续批直到remaining=0，requiresRescan时重新开始有界pass。它用当前私有DATABASE_URL，操作前核对开发库；读查询不会写索引。页提交维护投影，外部SQL更改title/body会使投影失效，再显式回填。
+
+5B验证：`npm run smoke:research` 为合成API流程；`npm run smoke:research:local` 新建专用loopback合成库并启动自己的API/Vite/worker实例，验证104成员100+4分页、JSON/CSV/manifest、live修改独立、账号隔离和删除；不改业务库、不联网。CI模板已串入三个实际local脚本，云端尚未运行。
+
+发布或已升级旧库存：应用038后、开启文本查询前，先用生产可运行的 `node dist/scripts/backfill-public-search-index.js --limit=100 --dry-run` 检查，移除dry-run后显式有界回填；按nextCursor加 `--after=UUID` 续批、remaining=0才算当前pass完整。omit-dev产物不含tsx/TS源，不能用开发命令替代。新页提交会维护投影，未回填的旧范围文本query明确503。
+
+当前本机演示地址由local:status确认，本轮为 http://127.0.0.1:28061/content（API28060/PG25432），不要假定5173仍是本项目。已有配置可 `npm run local:setup` 追加迁移/合成种子后 `npm run local:start`；原账号见local:account，勿贴凭证。应用升级后若服务已在运行，应local:stop再start以加载新代码，保留数据；操作时确认进程是管理入口记录的本仓库服务。

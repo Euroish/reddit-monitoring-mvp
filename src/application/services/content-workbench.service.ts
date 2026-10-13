@@ -26,7 +26,7 @@ export async function contentExport(service: SourceContentService, query: Conten
     cursor = nextCursor ?? undefined;
   } while (nextCursor && items.length < maxItems);
   const stats: Omit<ContentStatsResponse, "ok" | "requestId"> = await service.repository.contentStats(query);
-  return { exportedAt: new Date().toISOString(), scope: "collected_content", coverage: "stored_sample", filters: { ...query, cursor: undefined, limit: undefined }, totalMatching: stats.total, exportedCount: items.length, maxItems, truncated: nextCursor !== null, nextCursor, items };
+  return { exportedAt: new Date().toISOString(), scope: "collected_content", coverage: "stored_sample", filters: { ...query, cursor: undefined, limit: undefined }, totalMatching: stats.total, exportedCount: items.length, maxItems, truncated: nextCursor !== null, nextCursor, items,searchCoverage:stats.searchCoverage };
 }
 
 function csvCell(value: unknown): string {

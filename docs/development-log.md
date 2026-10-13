@@ -97,3 +97,19 @@
 - freeze19后台+15Web路径和主API接线，通过hash-object/update-index只暂存5A blob，保留5B工作树，不reset/clean/stash。独立phase-5a-snapshot-61d20db7通过471离线/27native零skip与类型/构建/lint/compiled/docs。
 - 合成UI80请求、2主动媒体、0外部/0pageerror，桌面及中文390px；实际localhost浏览器→API→demo worker→新PG35请求，8条同过滤结果、保存重开、详情、注释CAS冲突保稿、JSON下载和A/B私有隔离及持久记录全部通过。脚本初版误用仓储total、空状态文本定位失败，按实际契约修脚本后重跑，没改业务断言或降要求。phase5a-real-content-local.json与截图留output。
 - 保存local-phase5a-v0.8.0，依赖复用；媒体夹具不代表真实provider媒体，真实来源、部署、云CI/清洁安装仍未验。前端仅功能增补，未发现功能需要整体重设计的阻碍。
+
+## 阶段5B：公共检索与冻结研究（0.9.0软件交付）
+
+- 使用全部四个并发槽滚动推进公共索引/研究导出/Web，root集成session权限、查询限流、research composition、脱敏审计resource ID、公共HTTP导出契约、CI及实际loopback脚本。新037/038只新增，旧已应用SQL校验不改。公共检索规定NFKC/lower/空白、literal/phrase连续、terms全AND、scope和≤10排除项，URL/Saved/cursor与list/stats/export共享字段。
+- 038在monotonic guard后的canonical RETURNING上同页事务更新；其它SQL写title/body触发失效，delete cascade、重放/Unicode/>320正文/历史有界回填native通过。漏投影query明确503，普通列表给真实candidate/index/text缺口，不造0/平台全量。
+- 037同RR冻结完整成员、来源标签和最新范围观测/真实索引覆盖、单位与契约版本manifest；最多20k与32MiB，全部取完且校验后原子保存，无live FK，用户/cursor作用域和显式删除级联；JSON/null/大ID与CSV公式/原类型保留。205成员并发修改/删除仍不漏重，第二批插入失败全rollback。
+- 自审发现原32MiB在整页进入Node后才查，source与research代理协同加DB标量预取预算和selected-member范围来源；33MiB正文/media/观测metrics/关联来源label均拒绝且未调用完整列表/来源物化，最终规范JSON仍精确校验。预检首轮漏cs.id关联，被count强断言抓到修复；巨大evidence_key触发btree8191B限制的fixture改为巨大metrics JSON，未降低目标断言。
+- UI增检索/覆盖/503与研究创建/管理/manifest/分页JSON/CSV/删除，auth epoch保护二进制读取及下载回调；最终16前端回归、91合成API请求、205成员100/100/5、中文390px/100字符长名称与键盘全通过，外部/异常0。
+- 独立冻结phase-5b-snapshot-a77b3fe4：494offline/30native全pass零skip，类型/API/Web/Vite/lint/compiled/docs全通过。最终实际浏览器→API→demo worker→新PG34请求验证terms/title/exclusions、104成员100+4、固定分母/无漏重、manifest/CSV/null、live正文修改独立、A/B隔离和delete成员cascade，外部/pageerror0。expanded recovery把036/037/038非空业务纳入dump/restore与真实service读取，最终native1/1。其首轮误用private page validator后改pageContent重跑保持断言。
+- 5B 20k/40k观测第一次完整P95证据保留，末版SQL复测遇默认30s read timeout，未放宽；繁忙窗口的下一重试主动终止，再待无并发PG窗口独跑。容量forecast原estimatedTotalBytes会误称全库，改estimatedContentAndObservationBytes及partial scope，显式排除现有投影/discovery/研究/个人/其它表；未知流量null，现有单元回归通过。
+- Git只读核对：13研究路径index等于工作文件、增强预检native/HTTP没漏；私有环境/输出/DB和秘密特征无暂存，旧SQL无M/D，main与remote tracking均cd920c5，未连接远端。保留历史停止WIP与已交付0.5/0.6/0.7/0.8，本地保存local-phase5b-v0.9.0；当前本机40迁移应用、原账号/数据保留，API28060/Web28061/source worker已启动；最终发布产物与本机浏览器结果在本段补齐，真实源/收费/部署/清洁依赖/云CI不算验收。
+
+- 并发PG专项结束后独跑最终benchmark成功（原30s不放宽）：2万内容/4万观测、每场景20次，all list/stats P95 214.116/294.220ms，单源85.327/108.849ms，字面138.580/625.340ms；20批回填24.819s、覆盖20k/20k，客户端RSS173.72MiB、DB89.61MiB，WAL是cluster差量可能含其它活动。证据phase5b-performance-20000-final.json，SHA256 8778BDB8FE7D51F3E0E202ABD7D0D8EFA91C608F76CCF3DCE86D45365E7768CE；首次与timeout/主动停止日志保留，不把前版14ms测量当当前值，也不称生产SLO。
+
+- 最终管理演示实测抓到Origin接线缺口：Vite反代改Host后Web28061 Origin未进API信任列表，登录403；未绕过安全策略。先red复现HTTP与环境2项失败，再修managedEnvironment及CI演示env，固定已校验Web端口的loopback Origin，不改私有.env、不信任forwarded；7专项green、typecheck与mjs语法通过。smoke:local补登录200断言与path匹配，失败能及时定位且不丢query恢复。
+- 追加修复后全量offline495/495零skip通过；SQL相关生产/测试blob未改，原独立30/30 native证据继续适用。最后API重新构建/compiled smoke通过，Web最终产物未再修改。实际管理服务重启后登录→create→真实demo worker→PG→continue→pause/resume/schedule/archive→查询/JSON/CSV全通过（smoke-evidence.json），provider和浏览器外部请求0/pageerror0。40迁移应用，显式公共回填32/32、remaining0；原账号密码/数据不覆盖。API28060/Web28061/worker真实存活、健康HTTP200，临时Vite41975已由所属代理关闭；隔离DB/证据保留。

@@ -24,7 +24,7 @@
 
 当前流程：目标/来源设置 → 手动或持久化周期窗口入队 → provider 预算预留 → 有界取一页 → 公共内容和独立观测 → 小事务落库/checkpoint → 同范围唯一内容/UTC 日统计/按平台渠道汇总 → API → UI/JSON/CSV 导出。同来源不同 purpose 可并存排队、每来源一个 running，持久化四次领取中为 manual/refresh 保留一次优先机会；暂停/归档取消旧租约；重启回收租约并从已提交页继续。周期高水位只在耗尽窗口后推进，失败或页预算不足保留同窗口子任务；每页间让出 worker，不持有整段历史回填。免费/付费每日月度预算分开，重试/未知结果保守保留 requests/resources 预留；provider 计数因多发现可重叠。
 
-自动成熟刷新只支持 archive provider 的 initial 观测，snapshot 不套用 36 小时成熟规则。统一工作台的跨平台通用量是内容数，不把 Reddit score 与 X likes 相加；各指标使用 capability 的单位/符号与观测时间。内容读/导出不会联网，分页与统计不是冻结快照。5A详情使用规范唯一身份查已存引用/children，各限20；作者按externalId/handle忽略大小写准确匹配，语言准确匹配，source group区分大小写。指标筛选取当前scope每来源最新观测，任一符合即可，null不按0；时间排序以身份打破平局，cursor绑定全部筛选。036个人保存查询/收藏注释表user FK、内容annotation FK与revision；仅用户session可读写自己的记录，机器不拥有个人空间，HTTP与落库沿同契约。API 不等待远端抓取完成；旧热度模型尚未迁移至 Arctic Shift，旧增长 v2 使用实际相邻观测，不将单个归档快照写成实时热度。
+自动成熟刷新只支持 archive provider 的 initial 观测，snapshot 不套用 36 小时成熟规则。统一工作台的跨平台通用量是内容数，不把 Reddit score 与 X likes 相加；各指标使用 capability 的单位/符号与观测时间。内容读取/导出不会向provider联网；即时list/stats/export分页与统计不是冻结快照，研究导出另用同RR冻结。5A详情使用规范唯一身份查已存引用/children，各限20；作者按externalId/handle忽略大小写准确匹配，语言准确匹配，source group区分大小写。指标筛选取当前scope每来源最新观测，任一符合即可，null不按0；时间排序以身份打破平局，cursor绑定全部筛选。036个人保存查询/收藏注释表user FK、内容annotation FK与revision；仅用户session可读写自己的记录，机器不拥有个人空间，HTTP与落库沿同契约。API 不等待远端抓取完成；旧热度模型尚未迁移至 Arctic Shift，旧增长 v2 使用实际相邻观测，不将单个归档快照写成实时热度。
 
 ## 平台、获取渠道和订阅目标
 
@@ -51,7 +51,7 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 
 ## 统一存储：共享身份，独立证据
 
-现有 `source` 继续承载平台注册。[029 迁移](../src/storage/schema/029_source_content_collection.sql) 复用 `content`，增加必要关联/观测/任务，没有复制整套内容表。阶段 3 的 34 个 SQL 已在独立合成开发库及隔离验证库应用；4A 新增 033 调度可靠性迁移，隔离库完整 35 个 SQL 应用与重复执行通过。033 未升级本机开发业务库。4B 新增 034 账户安全与 035 配置 revision，隔离库验证全迁移、重复执行与并发 CAS，其跨层集成已交付。原业务数据库和正式部署没有实施本次迁移或升级验收。
+现有 `source` 继续承载平台注册。[029 迁移](../src/storage/schema/029_source_content_collection.sql) 复用 `content`，增加必要关联/观测/任务，没有复制整套内容表。阶段 3 的 34 个 SQL 已在独立合成开发库及隔离验证库应用；4A 新增 033 调度可靠性迁移，隔离库完整 35 个 SQL 应用与重复执行通过。当前管理开发库已升级全部40个SQL；此前各阶段使用新隔离库验收。4B新增034/035账户安全与revision，5A新增036个人内容空间，5B新增037冻结导出与038公共检索投影；新隔离库完整40个SQL、重复执行与事务/并发测试，原迁移未改。本机info_workbench_dev已保留数据升级；生产业务库和正式部署未实施迁移或部署验收。
 
 | 逻辑对象 | 最小信息与去重 | 存储原则 |
 | --- | --- | --- |
@@ -85,13 +85,19 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 
 ## API 与前端契约
 
-沿用 `packages/contracts/src/http.ts` 作为共同入口，前后端不维护另一份内容模型。已实现来源列表/创建/设置/生命周期/有限采集、任务筛选/cancel/retry/continue、provider 预算与 sourceOps；内容列表/stats/workbench/CSV/JSON export，准确方法及路径见 [开发说明](development.md)。`source-content-routes.ts` 独立处理新路由，method/path/write 权限就近声明；composition root 统一认证，读取要求 session/bearer，写入限 admin/owner/machine。
+沿用 `packages/contracts/src/http.ts` 作为共同入口，前后端不维护另一份内容模型。已实现来源列表/创建/设置/生命周期/有限采集、任务筛选/cancel/retry/continue、provider 预算与 sourceOps；内容列表/stats/workbench/即时CSV/JSON、详情、个人查询/注释与冻结研究export，准确方法及路径见 [开发说明](development.md)。`source-content-routes.ts` 独立处理新路由，method/path/write 权限就近声明；composition root 统一认证，读取要求 session/bearer，来源/运维写入限admin/owner/machine；个人保存/注释与研究export只允许拥有资源的session，viewer可管理自己的记录，机器无个人空间。
 
-- 读取仅查已落库数据，支持 platform/provider/sourceId/kind、标题/正文关键词、发布时间 `[from,to)`、limit/cursor。关键词为字面匹配，中文和 `%` 不当 SQL 通配符；尚未做全站全文索引。排序为 `(COALESCE(publishedAt,firstFetchedAt),id)`，cursor 绑定过滤条件；采集 checkpoint 与产品分页分开。
+- 读取仅查已落库数据，支持 platform/provider/sourceId/kind、标题/正文关键词、发布时间 `[from,to)`、limit/cursor。5B公共索引覆盖完整已存title/text；NFKC+Unicode lowercase+空白归一，literal/phrase连续匹配、terms空白term全AND字面子串，exclusions对指定title/text/title_text排除；中文/%不当SQL通配符，不stemming或兼容旧OR词界语义。候选覆盖基于非文本筛选scope，正文present仅指索引已知的存储字符串（包括已知空串）；未索引和null分开计数。排序为 `(COALESCE(publishedAt,firstFetchedAt),id)`，cursor 绑定过滤条件；采集 checkpoint 与产品分页分开。
 - 抓取/回填/重算通过管理员写端点提交有限任务，返回 202 与 job ID，读取任务状态查看进度。网页刷新不会自动启动全平台抓取。
 - 列表返回观测、时间和实际指标，coverage 为 stored_sample；任务/来源只标 partial 或 unknown，不声称全量。统计与列表用相同过滤，总数覆盖匹配的全部已落库样本；UTC 日桶排除未知发布时间并返回 unknownPublishedAtCount。复杂 series 后续再定义版本/单位与范围。
 - UI 根据来源能力提供筛选和图表，保留来源筛选和原链接。不能因为服务健康检查成功就展示“实时数据正常”。权限继续在 API 边界验证，业务函数不重复实现另一套登录与角色判断。
 - `create-api-server.ts` 已约 3,800 行，新增公共功能时按 auth、collection、content/analysis、ops 分离路由处理函数，保留一个 composition root。每次只迁移要改的模块，不整库换框架。路由的 method/path/权限与 handler 就近声明，共用一次授权入口，避免新增端点忘记加入独立权限路径清单。
+
+账户采用凭证版本 fencing，改密原子写新 hash/提升版本并撤销会话；机器身份禁止个人账户操作。owner/admin/viewer 政策覆盖角色、状态和邀请，最后 active owner 有事务锁保护。业务审计先保存 attempted，变更后保存脱敏结果；intent 失败拒绝变更，结果持久化失败返回 `audit_result_unknown`，不声称业务与审计原子，UI 先刷新确认。匿名登录/注册走安全日志和独立 IP 限流，不伪造审计 actor。配置 revision 仅配置变更提升，bulk 锁定全部目标验证后再写，来源页提交与暂停采用一致 source→job 锁序。
+
+037研究冻结在同一个REPEATABLE READ事务先固定分母/数据库必要载荷与来源字节预算，再按同filter有界读取规范内容、所选成员关联来源、每来源最新已知观测和真实索引覆盖，保存manifest及ordinal成员后原子提交。最多20,000条/32MiB，任何超额/中途插入失败全rollback。成员无live content FK，live删除不破坏冻结；user/export ownership、cursor和显式delete级联，未做自动保留。manifest版本、单位、未知/null/字符串大ID与CSV公式防护明确；预算包含可能被sanitize去除的未知JSON，避免先撑爆Node。
+
+038投影content FK CASCADE；canonical RETURNING after monotonic guard的实际title/body在同页事务写入，重放不让旧body降级。其它SQL改字段的trigger使document失效；历史回填行锁、限批、fingerprint/format校验，查询无自动回填。覆盖partial时文本检索拒绝503，普通列表仍报告缺口；存储样本覆盖不能当平台覆盖。没有搜索集群或自动删除。
 
 ## 算法与跨来源聚合
 
@@ -109,7 +115,7 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 
 连接池当前默认每进程 5，可用 `PG_POOL_MAX` 调整。API、现有两个 scheduler、人工开发与迁移进程各有池，总数必须留出 PostgreSQL 管理连接；增加进程时不能只考虑单池。RSSHub 等外部聚合优先视为 provider 使用已有授权/可用服务；若自建，先计入资源预算，默认不在本机启浏览器集群。
 
-容量估算用实测“日新增唯一内容数 × 单条内容/索引字节 + 日观测数 × 保留天数 × 单条观测/索引字节”，另留 WAL、VACUUM、备份和发布空间。storage observability 已加入四张新表，新任务/观测尚无完整自动保留策略。删行不保证立刻释放文件空间，常规维护采用 autovacuum，不用频繁 VACUUM FULL 或清 Linux page cache 作性能手段。
+容量估算用实测“日新增唯一内容数 × 单条内容/索引字节 + 日观测数 × 保留天数 × 单条观测/索引字节”，另留 WAL、VACUUM、备份和发布空间。运维库存动态统计全部public表大小/行数；现capacityProjection仅估内容与观测，明确排除现有公共投影/discovery/冻结成员/个人和其它表。新任务/观测尚无已批准的自动保留策略。删行不保证立刻释放文件空间，常规维护采用 autovacuum，不用频繁 VACUUM FULL 或清 Linux page cache 作性能手段。
 
 | 数据类别 | 初始策略与当前边界 |
 | --- | --- |
@@ -121,7 +127,9 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 
 旧维护每张表每轮最多 10 批，未完留到下一轮；有界批数不等于全库自动容量管理。上线前用代表目标测每页延迟、每任务 RSS、数据库/索引增长和读接口延迟。API/worker/数据库合计约 1–1.5 GiB、系统余量至少约 0.8 GiB 是旧服务器测量预算，尚未负载证明，不能当作当前 Windows 配置。
 
-继续使用 PostgreSQL 的现有索引和队列表。旧关键词查询使用中文字面匹配、英文词边界/复数与排除词；仓储在同一范围计算完整计数，再提供有界样本，检索范围是旧目标已索引的标题/320 字符正文保留片段。旧 collector 维护投影、历史通过显式有界 CLI 回填，正常查询不重建索引；新 Arctic/X 页提交尚无公共检索投影，后续需先统一 mode/scope 与正文保留口径，再在页事务或可恢复 outbox 中维护更新/删除一致性。web 身份按显式 namespace+kind+原 GUID 通过 webContentIdentity 派生，URL 默认保留路径/查询语义；adapter 将原 ID/namespace/version 放白名单 extensions，不改旧合成 ID。旧 PostgreSQL upsert 保留已有公共规范字段；新旧路径不能相互绕过观测守卫。只有执行计划、实际吞吐或功能要求显示瓶颈后才评估新组件、分区或拆服务；不预设 Redis、消息中间件、搜索集群或向量库。最少监控关注内存/磁盘、数据库和 API 延迟、任务积压/失败及源延迟/覆盖，先复用现有日志和 ops 页面。
+继续使用 PostgreSQL 的现有索引和队列表。旧关键词查询使用中文字面匹配、英文词边界/复数与排除词；仓储在同一范围计算完整计数，再提供有界样本，检索范围是旧目标已索引的标题/320 字符正文保留片段。旧 collector 维护投影、历史通过显式有界 CLI 回填，正常查询不重建索引；5B新Arctic/X页提交已按独立公共mode/scope在页事务中维护完整已存title/text投影、更新/删除/重放一致性；旧target索引仍保留320字符/旧词界语义，二者不混用。web 身份按显式 namespace+kind+原 GUID 通过 webContentIdentity 派生，URL 默认保留路径/查询语义；adapter 将原 ID/namespace/version 放白名单 extensions，不改旧合成 ID。旧 PostgreSQL upsert 保留已有公共规范字段；新旧路径不能相互绕过观测守卫。只有执行计划、实际吞吐或功能要求显示瓶颈后才评估新组件、分区或拆服务；不预设 Redis、消息中间件、搜索集群或向量库。最少监控关注内存/磁盘、数据库和 API 延迟、任务积压/失败及源延迟/覆盖，先复用现有日志和 ops 页面。
+
+4C 运维以只读事务统计全部 public 表大小与精确行数，保留预览保护活动/可续 checkpoint、被引用父任务、每来源最新观测与 archive_initial、当前UTC月预算和未决 attempted 审计。没有删除执行器或自动保留政策。备份由 RR 导出 snapshot 同步 pg_dump 与库存/迁移checksum；仅恢复到新建指定前缀数据库，拒绝已有目标，校验SHA和库存后还需业务验收。发布采用允许清单、不可覆盖新目录、逐文件SHA256/精确库存，未签名、未部署。生产保留时长和冷恢复/RPO/RTO还需明确。
 
 ## 失败场景与必要保证
 
@@ -150,7 +158,3 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 | [Airbyte 协议](https://github.com/airbytehq/airbyte/blob/master/docs/platform/understanding-airbyte/airbyte-protocol.md) | 数据记录与增量状态分离，state 用于恢复 | 保留逐页提交/stream checkpoint 语义，不部署完整 ETL 平台 |
 
 上述资料提供模式，本文件的模型、进程预算和迁移顺序是基于本仓库的设计判断，需以实际来源、容量和查询验收校准。
-
-账户采用凭证版本 fencing，改密原子写新 hash/提升版本并撤销会话；机器身份禁止个人账户操作。owner/admin/viewer 政策覆盖角色、状态和邀请，最后 active owner 有事务锁保护。业务审计先保存 attempted，变更后保存脱敏结果；intent 失败拒绝变更，结果持久化失败返回 `audit_result_unknown`，不声称业务与审计原子，UI 先刷新确认。匿名登录/注册走安全日志和独立 IP 限流，不伪造审计 actor。配置 revision 仅配置变更提升，bulk 锁定全部目标验证后再写，来源页提交与暂停采用一致 source→job 锁序。
-
-4C 运维以只读事务统计全部 public 表大小与精确行数，保留预览保护活动/可续 checkpoint、被引用父任务、每来源最新观测与 archive_initial、当前UTC月预算和未决 attempted 审计。没有删除执行器或自动保留政策。备份由 RR 导出 snapshot 同步 pg_dump 与库存/迁移checksum；仅恢复到新建指定前缀数据库，拒绝已有目标，校验SHA和库存后还需业务验收。发布采用允许清单、不可覆盖新目录、逐文件SHA256/精确库存，未签名、未部署。生产保留时长和冷恢复/RPO/RTO还需明确。

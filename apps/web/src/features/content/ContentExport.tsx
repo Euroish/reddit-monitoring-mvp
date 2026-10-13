@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { ApiError, UNAUTHORIZED_EVENT, fetchApi, resolveApiPath } from '../../api/client';
+import { fetchApi, fetchApiBlob, getAuthEpoch } from '../../api/client';
 import { Button, Input } from '../../components/ui';
 import type { ContentExportResponse } from '../../../../../packages/contracts/src/http';
 
@@ -14,6 +14,7 @@ export function ContentExport({ filters, zh }: { filters: string; zh: boolean })
   const limit = Number(maxItems);
   const validLimit = /^\d+$/.test(maxItems) && Number.isInteger(limit) && limit >= 1 && limit <= 2000;
   const download = useMutation({ mutationFn: async ({ format, next }: { format: 'json' | 'csv'; next: boolean }) => {
+    const epoch = getAuthEpoch();
     const params = new URLSearchParams(filters);
     params.set('format', format); params.set('maxItems', String(limit));
     const part = next && current ? current.part + 1 : 1;
@@ -25,22 +26,17 @@ export function ContentExport({ filters, zh }: { filters: string; zh: boolean })
       blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
       count = data.exportedCount; truncated = data.truncated; nextCursor = data.nextCursor;
     } else {
-      const response = await fetch(resolveApiPath(`/v1/content/export?${params}`), { credentials: 'include' });
-      if (!response.ok) {
-        if (response.status === 401) window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
-        const error = await response.json().catch(() => null);
-        const message = typeof error?.error === 'string' ? error.error.trim() : response.statusText.trim();
-        throw new ApiError(error?.errorCode || 'export_failed', message || copy(`Export failed (HTTP ${response.status}). Try again.`, `导出失败（HTTP ${response.status}），请重试。`));
-      }
-      blob = await response.blob();
+      const response = await fetchApiBlob(`/v1/content/export?${params}`);
+      blob = response.blob;
       const countHeader = response.headers.get('X-Export-Count');
       const truncatedHeader = response.headers.get('X-Export-Truncated');
       count = countHeader !== null && Number.isFinite(Number(countHeader)) ? Number(countHeader) : null;
       truncated = truncatedHeader === null ? null : truncatedHeader === 'true';
       nextCursor = response.headers.get('X-Export-Next-Cursor') || null;
     }
-    return { blob, info: { filters, format, part, count, truncated, nextCursor } };
-  }, onSuccess: ({ blob, info }) => {
+    return { blob, epoch, info: { filters, format, part, count, truncated, nextCursor } };
+  }, onSuccess: ({ blob, epoch, info }) => {
+    if (epoch !== getAuthEpoch()) return;
     const objectUrl = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = objectUrl; anchor.download = `collected-content-part-${info.part}.${info.format}`;

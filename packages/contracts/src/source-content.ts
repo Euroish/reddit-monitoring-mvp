@@ -94,7 +94,9 @@ export interface ContentQuery {
   author?: string; language?: string; sourceGroup?: string;
   sort?: "published_desc" | "published_asc";
   metricKey?: string; minMetric?: number; maxMetric?: number;
+  searchMode?:"literal"|"terms"|"phrase";searchScope?:"title"|"text"|"title_text";exclusions?:string[];
 }
+export interface PublicContentSearchCoverage {formatVersion:1;candidateCount:number;indexed:number;unindexed:number;textPresent:number;textMissing:number;state:"complete"|"partial";textBasis:"stored_title_text"}
 
 export interface ContentDetailResponse {
   ok: true; requestId: string; content: PublicContent; sources: CollectionSource[];
@@ -119,12 +121,14 @@ export interface ContentAnnotationListResponse {
 export interface ContentListResponse {
   ok: true; requestId: string; items: PublicContent[]; nextCursor: string | null;
   coverage: "stored_sample"; queryScope: "collected_content";
+  searchCoverage?:PublicContentSearchCoverage;
 }
 export interface ContentStatsResponse {
   ok: true; requestId: string; total: number; byKind: { kind: PublicContentKind; count: number }[];
   daily: { day: string; count: number }[]; scope: "collected_content";
   /** Unknown publish dates count toward total but do not appear in published-day buckets. */
   unknownPublishedAtCount: number;
+  searchCoverage?:PublicContentSearchCoverage;
 }
 export interface SourceListResponse { ok: true; requestId: string; sources: CollectionSource[]; capabilities: SourceCapability[]; providers?: SourceProviderUsage[] }
 export interface CollectionSourceResponse { ok: true; requestId: string; source: CollectionSource }
@@ -143,4 +147,5 @@ export interface ContentExportResponse {
   ok: true; requestId: string; exportedAt: string; scope: "collected_content"; coverage: "stored_sample";
   filters: ContentQuery; totalMatching: number; exportedCount: number; maxItems: number;
   truncated: boolean; nextCursor: string | null; items: PublicContent[];
+  searchCoverage?:PublicContentSearchCoverage;
 }

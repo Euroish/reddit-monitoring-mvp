@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {randomUUID} from "node:crypto";
+import path from "node:path";
 import {createApiServer} from "../../apps/api/src/create-api-server";
 import {RedditMockConnector} from "../../src/connectors/reddit/reddit-mock.connector";
+import {PasswordHashingService} from "../../src/application/services/password-hashing.service";
 import {createApiTestRepositories,startServer,stopServer} from "./api-server.helpers";
 
 test("authentication rate limit cannot be evaded using an untrusted forwarded address",async()=>{
@@ -40,5 +43,20 @@ test("default CORS supports PATCH PUT DELETE and does not reflect arbitrary pref
     assert.equal(result.status,204);
     for(const method of ["PATCH","PUT","DELETE"])assert.ok(result.headers.get("access-control-allow-methods")?.includes(method));
     assert.ok(!result.headers.get("access-control-allow-headers")?.includes("x-unapproved-header"));
+  }finally{await stopServer(server);}
+});
+
+test("managed local web origin permits session login through an API host while remote origins stay blocked",async()=>{
+  const {managedEnvironment,validateManagedConfig}=await import("../../scripts/local-dev-config.mjs");
+  const home=path.resolve("output","local-dev"),config=validateManagedConfig({pgBin:path.join(home,"pgsql","bin"),pgData:path.join(home,"postgres-data"),pgPort:25432,apiPort:28060,webPort:28061,databaseUrl:"postgresql://postgres@127.0.0.1:25432/info_workbench_dev",setupComplete:true},home);
+  const env=managedEnvironment(config,{DATABASE_URL:config.databaseUrl,PORT:"28060",LOCAL_WEB_PORT:"28061",VITE_API_PROXY_TARGET:"http://127.0.0.1:28060",NODE_ENV:"development"},{API_CORS_ALLOW_ORIGINS:"https://untrusted.example"});
+  const repositories=createApiTestRepositories(),passwords=new PasswordHashingService(),password="Synthetic-managed-password-12",now=new Date().toISOString();
+  const user={id:randomUUID(),email:"managed-origin@example.test",role:"viewer" as const,status:"active" as const,createdAt:now,updatedAt:now};
+  await repositories.appUserRepository.create(user,{userId:user.id,passwordHash:await passwords.hashPassword(password),passwordAlgo:passwords.passwordAlgo,updatedAt:now});
+  const server=createApiServer({repositories,createConnector:()=>new RedditMockConnector(),cors:{allowedOrigins:(env.API_CORS_ALLOW_ORIGINS??"").split(",")},logger:()=>{}});
+  try{const base=await startServer(server);
+    const send=(origin:string)=>fetch(`${base}/auth/login`,{method:"POST",headers:{"content-type":"application/json",origin,"x-forwarded-host":"127.0.0.1:28061","x-forwarded-proto":"http"},body:JSON.stringify({email:user.email,password})});
+    const allowed=await send("http://127.0.0.1:28061");assert.equal(allowed.status,200);assert.ok(allowed.headers.get("set-cookie"));
+    const blocked=await send("https://untrusted.example");assert.equal(blocked.status,403);assert.equal((await blocked.json()).errorCode,"write_origin_not_allowed");
   }finally{await stopServer(server);}
 });

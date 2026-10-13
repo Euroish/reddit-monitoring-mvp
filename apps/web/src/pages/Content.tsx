@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
-import { fetchApi } from '../api/client';
+import { ApiError, fetchApi } from '../api/client';
 import { Button, Input, Select } from '../components/ui';
 import { useAuth } from '../auth/AuthContext';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -11,7 +11,8 @@ import { SourceTasks } from '../features/content/SourceTasks';
 import { SourceOperations } from '../features/content/SourceOperations';
 import { ContentExport } from '../features/content/ContentExport';
 import { SaveContentQuery } from '../features/content/SaveContentQuery';
-import { contentFilterDraft, contentQueryFromDraft, contentQueryFromParams, contentQueryParams, safeContentUrl, type ContentFilterDraft } from '../features/content/queryState';
+import { CreateResearchExport } from '../features/content/ResearchExports';
+import { contentExclusionsFromDraft, contentFilterDraft, contentQueryFromDraft, contentQueryFromParams, contentQueryParams, safeContentUrl, type ContentFilterDraft } from '../features/content/queryState';
 import './Content.css';
 
 export function Content() {
@@ -52,7 +53,8 @@ export function Content() {
     : creationCapability?.contentKinds.includes(collectKind) ? collectKind : creationCapability?.contentKinds[0] ?? 'post';
   const list = useQuery({ queryKey: ['sourceContent', filters, cursor], queryFn: () => fetchApi<ContentListResponse>(`/v1/content?limit=25&${filters}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`), retry: false });
   const workbench = useQuery({ queryKey: ['sourceContentWorkbench', filters], queryFn: () => fetchApi<ContentWorkbenchResponse>(`/v1/content/workbench?${filters}`), retry: false });
-  const stats = workbench.data?.stats;
+  const searchFailure = [list.error, workbench.error].find(error => error instanceof ApiError && error.code === 'public_search_unavailable');
+  const stats = searchFailure ? undefined : workbench.data?.stats;
   const job = useQuery({ queryKey: ['sourceContentJob', jobId], queryFn: () => fetchApi<SourceJobResponse>(`/v1/source-jobs/${jobId}`), enabled: Boolean(jobId), retry: false, refetchInterval: query => ['queued', 'running', 'retrying'].includes(query.state.data?.job.status ?? '') ? 3000 : false });
   useEffect(() => {
     if (job.data?.job.status === 'succeeded' || job.data?.job.status === 'failed' || job.data?.job.status === 'cancelled') {
@@ -87,6 +89,7 @@ export function Content() {
     event.preventDefault(); setQueryError('');
     if (from && to && Date.parse(from) >= Date.parse(to)) { setQueryError(copy('Publication start must be before the end.', '发布时间起点必须早于终点。')); return; }
     if (draft.minMetric && draft.maxMetric && Number(draft.minMetric) > Number(draft.maxMetric)) { setQueryError(copy('Metric minimum must not exceed the maximum.', '指标最小值不能大于最大值。')); return; }
+    try { contentExclusionsFromDraft(draft.exclusions); } catch { setQueryError(copy('Use at most 10 exclusion lines, each containing 1–200 characters.', '排除短语最多 10 行，每行 1–200 个字符。')); return; }
     setParams(contentQueryParams(contentQueryFromDraft(draft))); setCursor(''); setPrevious([]);
     void client.invalidateQueries({ queryKey: ['sourceContent'] }); void client.invalidateQueries({ queryKey: ['sourceContentWorkbench'] });
   };
@@ -105,6 +108,7 @@ export function Content() {
   const canResumeJob = canCollect && currentJobSource?.state === 'active' && supported(currentJobSource);
   const activeJob = Boolean(currentJob && ['queued', 'running', 'retrying'].includes(currentJob.status));
   const failure = sources.error ?? list.error ?? workbench.error ?? job.error ?? createSource.error ?? collect.error ?? resume.error ?? sourceState.error;
+  const searchCoverage = searchFailure ? undefined : list.data?.searchCoverage ?? stats?.searchCoverage;
   return (
     <div className="source-content-page">
       <header className="content-heading"><h1>{copy('Collected content', '来源内容查询')}</h1><p>{copy('Search saved content across sources. Manage collection, tasks and budgets without changing the source identity.', '跨来源查询已存内容，并管理采集计划、任务和预算。')}</p></header>
@@ -149,6 +153,8 @@ export function Content() {
       <section aria-labelledby="query-title"><h2 id="query-title">{copy('Search saved content', '查询已存内容')}</h2>
         <form onSubmit={search} className="content-fields">
           <label htmlFor="content-keyword">{copy('Keyword', '关键词')}<Input id="content-keyword" value={keyword} onChange={event => setKeyword(event.target.value)} maxLength={200} placeholder={copy('Match title or text', '匹配标题或正文')} /></label>
+          <label htmlFor="content-search-mode">{copy('Search mode', '检索模式')}<Select id="content-search-mode" aria-label={copy('Search mode', '检索模式')} value={draft.searchMode || 'literal'} onChange={event => updateFilter('searchMode', event.target.value)}><option value="literal">{copy('Literal substring', '字面子串')}</option><option value="terms">{copy('All terms (AND)', '所有词项（AND）')}</option><option value="phrase">{copy('Continuous phrase', '连续短语')}</option></Select></label>
+          <label htmlFor="content-search-scope">{copy('Search fields', '检索字段')}<Select id="content-search-scope" aria-label={copy('Search fields', '检索字段')} value={draft.searchScope || 'title_text'} onChange={event => updateFilter('searchScope', event.target.value)}><option value="title_text">{copy('Combined title and text', '标题与正文组合')}</option><option value="title">{copy('Title only', '仅标题')}</option><option value="text">{copy('Stored text only', '仅已存正文')}</option></Select></label>
           <label htmlFor="content-source">{copy('Source', '来源')}<Select aria-label={copy('Source', '来源')} id="content-source" value={selectedSource} onChange={event => setSelectedSource(event.target.value)}><option value="">{copy('All collected sources', '所有已采集来源')}</option>{sources.data?.sources.map(source => <option key={source.id} value={source.id}>{sourceName(source)}</option>)}</Select></label>
           <label htmlFor="content-platform">{copy('Platform', '平台')}<Select aria-label={copy('Platform', '平台')} id="content-platform" value={platformFilter} onChange={event => setPlatformFilter(event.target.value)}><option value="">{copy('All platforms', '全部平台')}</option>{[...new Set([...capabilities.map(item => item.platform), ...(sources.data?.sources.map(item => item.platform) ?? [])])].map(value => <option key={value} value={value}>{value}</option>)}</Select></label>
           <label htmlFor="content-provider">{copy('Provider', '获取渠道')}<Select aria-label={copy('Provider', '获取渠道')} id="content-provider" value={providerFilter} onChange={event => setProviderFilter(event.target.value)}><option value="">{copy('All providers', '全部渠道')}</option>{[...new Set([...capabilities.map(item => item.provider), ...(sources.data?.sources.map(item => item.provider) ?? [])])].map(value => <option key={value} value={value}>{value}{isDemo(value) ? copy(' (synthetic)', '（合成）') : ''}</option>)}</Select></label>
@@ -162,6 +168,7 @@ export function Content() {
           <label htmlFor="content-max-metric">{copy('Metric maximum', '指标最大值')}<Input id="content-max-metric" type="number" step="any" disabled={!draft.metricKey} value={draft.maxMetric} onChange={event => updateFilter('maxMetric', event.target.value)} /></label>
           <label htmlFor="content-from">{copy('Published from', '发布时间起点')}<Input id="content-from" type="datetime-local" step="0.001" value={from} onChange={event => setFrom(event.target.value)} /></label>
           <label htmlFor="content-to">{copy('Published before', '发布时间终点')}<Input id="content-to" type="datetime-local" step="0.001" value={to} onChange={event => setTo(event.target.value)} /></label>
+          <label htmlFor="content-exclusions">{copy('Exclusions (one phrase per line, max 10)', '排除短语（每行一条，最多 10 条）')}<textarea id="content-exclusions" aria-label={copy('Exclusion phrases', '排除短语')} rows={3} maxLength={2010} value={draft.exclusions} onChange={event => updateFilter('exclusions', event.target.value)} /></label>
           <Button type="submit" variant="primary" disabled={list.isFetching}>{copy('Search', '查询')}</Button>
         </form>
         {queryError && <p role="alert" className="content-error">{queryError}</p>}
@@ -169,18 +176,21 @@ export function Content() {
         <p className="content-muted">{copy('Date inputs use your local time; the URL records UTC instants. Start is inclusive and end is exclusive. A date filter excludes unknown publication times; daily buckets use UTC. Equal publication times have a stable identity order.', '日期输入使用本地时间，URL 保存 UTC 时刻；包含起点、不包含终点。设置日期筛选后排除发布时间未知的内容，每日统计按 UTC 分桶；相同发布时间按内容身份稳定排序。')}</p>
         <SaveContentQuery query={appliedQuery} zh={zh} />
         <p className="content-muted">{copy('Collection uses the search time window, or the last 24 hours when dates are empty. Search only reads saved results.', '采集使用查询区的时间范围；日期留空时取最近 24 小时。查询只读取已保存结果。')}</p>
-        <p role="note" className="content-muted">{copy('Saved-content search matches one continuous literal substring in title or text, retaining emoji and punctuation. Quotes and - are ordinary characters here. Collection keywords use the selected provider’s syntax and are separate from this local search.', '已存内容查询按标题或正文中的连续字面子串匹配，保留 emoji 与标点；引号和 - 在此仅为普通字符。采集关键词采用对应 provider 的语法，与本地查询分开。')}</p>
+        <p role="note" className="content-muted">{copy('Search covers retained title/text, not unseen source body text. It normalizes Unicode compatibility, letter case and whitespace, retaining emoji and punctuation. Literal and phrase modes require continuous text; terms splits on whitespace and requires every substring (AND). Exclusions are literal phrases in the chosen fields; commas, quotes and - stay ordinary characters. Provider collection syntax is separate.', '检索范围为已保留的标题/正文，不包含未存的上游正文。检索统一 Unicode 兼容形式、大小写和空白，保留 emoji 与标点；字面与短语模式要求连续文本，词项模式按空白拆分并要求每个子串均匹配（AND）。排除项在所选字段中按字面短语匹配，逗号、引号和 - 仍为普通字符；provider 采集语法单独使用。')}</p>
+        {searchFailure && <p role="alert" className="content-error">{copy('Text search could not confirm complete index coverage in this stored scope. Your filters are preserved. An administrator should inspect storage and run a controlled backfill if needed; refreshing does not rebuild the index. This is not an empty search result.', '当前已存范围未能确认完整索引覆盖，文本检索不可用，筛选条件已保留。请由管理员检查存储并按需受控回填；刷新不会自动重建索引，此状态不表示搜索结果为零。')}</p>}
+        {searchCoverage ? <p className="content-summary" data-testid="content-search-coverage">{copy('Stored search coverage', '已存检索覆盖')}: {searchCoverage.state} · {copy('Candidates before text filtering', '文本筛选前候选')} {searchCoverage.candidateCount} · {copy('Indexed', '已索引')} {searchCoverage.indexed} · {copy('Unindexed', '未索引')} {searchCoverage.unindexed}<span className="content-muted">{copy('Indexed records with stored body text', '已索引且有已存正文')} {searchCoverage.textPresent} · {copy('Indexed records missing body text', '已索引但正文缺失')} {searchCoverage.textMissing} · {searchCoverage.textBasis} · v{searchCoverage.formatVersion}{copy(' · A stored empty string counts as known text; title alone does not.', ' · 已知空字符串仍计入有正文，仅有标题不计入。')}</span></p> : !searchFailure && <p className="content-muted">{copy('Measured search coverage has not been supplied by this response.', '当前响应尚未提供实测检索覆盖信息。')}</p>}
         {stats && <p className="content-summary">{copy('Saved matches', '已存匹配内容')} <strong>{stats.total}</strong> · {stats.byKind.map(item => `${kindLabel(item.kind)} ${item.count}`).join(' · ')} <span className="content-muted">{copy('Counts cover unique saved content, not all platform activity.', '统计范围为唯一已存内容，不代表平台全量。')}{stats.unknownPublishedAtCount > 0 ? ` ${copy('Unknown publication dates', '发布时间未知')}: ${stats.unknownPublishedAtCount}` : ''}</span></p>}
-        {workbench.data && <details><summary>{copy('Unified source overview', '统一来源概览')}</summary>
+        {workbench.data && !searchFailure && <details><summary>{copy('Unified source overview', '统一来源概览')}</summary>
           <p>{copy('By platform', '按平台')}: {workbench.data.byPlatform.map(item => `${item.platform} ${item.count}`).join(' · ') || '—'}</p>
           <p>{copy('By provider', '按获取渠道')}: {workbench.data.byProvider.map(item => `${item.provider} ${item.count}`).join(' · ') || '—'}</p>
           <p className="content-muted">{copy('Provider counts may share content identities and cannot be summed into the total. Metrics retain platform units; score, likes and views are not combined into a common heat value.', '不同 provider 可能获取相同内容，其条数不能相加得到全局总数。指标保留平台单位；score、点赞与浏览量不合并为通用热度。')}</p>
         </details>}
         {stats && stats.daily.length > 0 && <details><summary>{copy('Daily saved counts (UTC)', '每日已存内容数（UTC）')}</summary><ol className="content-daily">{stats.daily.map(day => <li key={day.day}><span>{day.day}</span><strong>{day.count}</strong></li>)}</ol></details>}
         <ContentExport filters={filters} zh={zh} />
+        <CreateResearchExport query={appliedQuery} zh={zh} />
         {list.isLoading && <p role="status">{copy('Loading content…', '正在加载内容…')}</p>}
-        {list.data?.items.length === 0 && <p className="content-empty">{copy('No saved content matches. Change the filters or collect a source.', '没有匹配的已存内容。可调整筛选条件，或先采集来源。')}</p>}
-        <div className="content-results">{list.data?.items.map(item => <article key={item.id} className="content-result">
+        {!searchFailure && list.data?.items.length === 0 && <p className="content-empty">{copy('No saved content matches. Change the filters or collect a source.', '没有匹配的已存内容。可调整筛选条件，或先采集来源。')}</p>}
+        <div className="content-results">{!searchFailure && list.data?.items.map(item => <article key={item.id} className="content-result">
           <div className="content-meta"><span>{item.platform} · {kindLabel(item.kind)}{item.observations.some(obs => isDemo(obs.provider)) ? ` · ${copy('SYNTHETIC DEMO', '合成演示')}` : ''}</span><span>{item.author?.handle ?? copy('Author unavailable', '作者未知')}</span><span>{copy('Published', '发布')} {time(item.publishedAt)}</span></div>
           <h3><Link to={`/content/${encodeURIComponent(item.id)}?back=${encodeURIComponent(`/content${filters ? `?${filters}` : ''}`)}`}>{item.title || kindLabel(item.kind)}</Link></h3>
           {safeContentUrl(item.url) && <a href={safeContentUrl(item.url)!} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">{copy('Open original', '打开原链接')}</a>}

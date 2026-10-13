@@ -30,7 +30,7 @@ export function resolveApiPath(path: string): string {
   return path.startsWith('/api/') ? path : `/api${path.startsWith('/') ? path : `/${path}`}`;
 }
 
-export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
+async function requestApi<T>(path: string, options: RequestInit | undefined, readSuccess: (response: Response) => Promise<T>): Promise<T> {
   // Use /api/ prefix as configured in vite proxy, or directly if hosted on the same origin later
   const url = resolveApiPath(path);
   const requestEpoch = authEpoch;
@@ -43,7 +43,7 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
     const headers = new Headers(options?.headers);
     if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
     const response = await fetch(url, { ...options, headers, signal: controller.signal, credentials: 'include' });
-    const data = await response.json().catch(() => null);
+    const data = response.ok ? await readSuccess(response) : await response.json().catch(() => null);
     if (requestEpoch !== authEpoch || controller.signal.aborted) {
       throw new DOMException('Authentication context changed', 'AbortError');
     }
@@ -51,7 +51,7 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
       if (response.status === 401 && typeof window !== 'undefined' && !['/api/auth/login', '/api/auth/register'].includes(url)) {
         window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT, { detail: { epoch: requestEpoch } }));
       }
-      let message = typeof data?.error === 'string' && data.error.trim() ? data.error : response.statusText || `HTTP ${response.status}`;
+      let message = typeof data?.error === 'string' && data.error.trim() ? data.error : typeof data?.error?.message === 'string' && data.error.message.trim() ? data.error.message : response.statusText || `HTTP ${response.status}`;
       if (data?.errorCode === 'audit_result_unknown') {
         let zh = false;
         try { zh = typeof window !== 'undefined' && window.localStorage?.getItem('reddit-monitoring.language') === 'zh-CN'; } catch { /* unavailable preferences must not hide the operation outcome */ }
@@ -64,4 +64,13 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
     activeRequests.delete(controller);
     options?.signal?.removeEventListener('abort', abort);
   }
+}
+
+export function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
+  return requestApi(path, options, response => response.json().catch(() => null));
+}
+
+/** Binary downloads share the same abort/epoch/401 fence as JSON, including while the body is read. */
+export function fetchApiBlob(path: string, options?: RequestInit): Promise<{ blob: Blob; headers: Headers }> {
+  return requestApi(path, options, async response => ({ blob: await response.blob(), headers: response.headers }));
 }

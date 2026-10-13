@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import type { CollectionSource, ContentPlatform, ContentQuery, CreateCollectionSourceRequest, PublicContentKind, SourceCollectionJob, StartSourceCollectionRequest, UpdateCollectionSourceRequest, SourceJobQuery, SourceProviderBudgetRequest, SourceWorkerHeartbeat } from "../../../packages/contracts/src/source-content";
 import { ContentProviderError, type ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { SourceConfigurationConflictError,type SourceContentRepository } from "../../domain/repositories/source-content-repository";
+import { normalizePublicSearchText } from "../../storage/public-content-search";
 
 export class SourceContentError extends Error {
-  constructor(message: string, public readonly status: 400 | 404 | 409 = 400) { super(message); }
+  constructor(message: string, public readonly status: 400 | 404 | 409 | 503 = 400) { super(message); }
 }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function requireSourceId(value: string): string { if (!uuid.test(value)) throw new SourceContentError("Invalid source/job identifier"); return value; }
@@ -85,13 +86,16 @@ export class SourceContentService {
     if (input.kind && !kinds.includes(input.kind)) throw new SourceContentError("Invalid kind filter");
     if (input.sourceId) requireSourceId(input.sourceId);
     if (input.provider && !/^[a-z0-9_]{1,60}$/.test(input.provider)) throw new SourceContentError("Invalid provider filter");
-    if (input.query !== undefined && (typeof input.query !== "string" || input.query.length > 200||/[\u0000-\u001f]/.test(input.query))) throw new SourceContentError("Search text must be at most 200 characters without control characters");
+    if (input.query !== undefined && (typeof input.query !== "string" || input.query.length > 200||/[\u0000-\u0008\u000e-\u001f\u007f]/.test(input.query))) throw new SourceContentError("Search text must be at most 200 characters without non-whitespace control characters");
     for(const key of ["author","language","sourceGroup"] as const)if(input[key]!==undefined&&(typeof input[key]!=="string"||input[key]!.length>(key==="language"?40:100)||/[\u0000-\u001f]/.test(input[key]!)))throw new SourceContentError(`Invalid ${key} filter`);
     if(input.sort!==undefined&&!["published_desc","published_asc"].includes(input.sort))throw new SourceContentError("Invalid content sort");
+    if(input.searchMode!==undefined&&!["literal","terms","phrase"].includes(input.searchMode))throw new SourceContentError("Invalid searchMode");
+    if(input.searchScope!==undefined&&!["title","text","title_text"].includes(input.searchScope))throw new SourceContentError("Invalid searchScope");
+    if(input.exclusions!==undefined&&(!Array.isArray(input.exclusions)||input.exclusions.length>10||input.exclusions.some(value=>typeof value!=="string"||value.length>200||/[\u0000-\u0008\u000e-\u001f\u007f]/.test(value)||!normalizePublicSearchText(value))))throw new SourceContentError("exclusions accepts at most 10 nonempty literal phrases of at most 200 characters");
     if(input.metricKey!==undefined&&(!/^(reddit|x|instagram|web)\.[a-z0-9_]{1,50}$/.test(input.metricKey)||input.platform&&input.metricKey.split(".")[0]!==input.platform))throw new SourceContentError("Metric key must be namespaced to the selected platform");
     for(const key of ["minMetric","maxMetric"] as const)if(input[key]!==undefined&&(typeof input[key]!=="number"||!Number.isFinite(input[key])))throw new SourceContentError("Metric bounds must be finite numbers");
     if((input.minMetric!==undefined||input.maxMetric!==undefined)&&!input.metricKey||input.minMetric!==undefined&&input.maxMetric!==undefined&&input.minMetric>input.maxMetric)throw new SourceContentError("Invalid metric range");
-    const query = { ...input, query: input.query?.trim() || undefined,author:input.author?.trim()||undefined,language:input.language?.trim()||undefined,sourceGroup:input.sourceGroup?.trim()||undefined,sort:input.sort??"published_desc" as const, limit: integer(input.limit, 25, 100), from: input.from === undefined ? undefined : date(input.from, ""), to: input.to === undefined ? undefined : date(input.to, "") };
+    const query = { ...input, query: input.query?normalizePublicSearchText(input.query)||undefined:undefined,searchMode:input.searchMode??"literal" as const,searchScope:input.searchScope??"title_text" as const,exclusions:[...new Set((input.exclusions??[]).map(normalizePublicSearchText))],author:input.author?.trim()||undefined,language:input.language?.trim()||undefined,sourceGroup:input.sourceGroup?.trim()||undefined,sort:input.sort??"published_desc" as const, limit: integer(input.limit, 25, 100), from: input.from === undefined ? undefined : date(input.from, ""), to: input.to === undefined ? undefined : date(input.to, "") };
     if (query.from && query.to && query.from >= query.to) throw new SourceContentError("Invalid query window");
     return query;
   }

@@ -76,6 +76,9 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y postgresql-client-16
       - run: node --import tsx scripts/run-ci-tests.ts postgres
       - run: npx playwright install --with-deps chromium
+      - run: npm run smoke:accounts:local
+      - run: npm run smoke:content:local
+      - run: npm run smoke:research:local
       - run: node scripts/ci-demo.mjs
       - uses: actions/upload-artifact@v4
         if: always()
@@ -86,3 +89,7 @@ jobs:
             output/local-dev/ci-*.log
             output/local-dev/smoke-evidence.json
             output/playwright/local-demo-real-pipeline-*.png
+            output/validation/phase4b-real-account-local.json
+            output/validation/phase5a-real-content-local.json
+            output/validation/phase5b-real-research-local.json
+            output/playwright/phase*-real-*-local-mobile.png

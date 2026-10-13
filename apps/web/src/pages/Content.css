@@ -11,6 +11,7 @@
 .content-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); align-items: end; gap: 16px; margin: 14px 0; }
 .content-fields label { display: grid; gap: 8px; color: var(--text-secondary); font-size: 13px; min-width: 0; }
 .content-fields select { background-color: var(--bg-panel) !important; }
+.content-fields textarea { box-sizing: border-box; width: 100%; padding: 10px; resize: vertical; background: var(--bg-panel); color: var(--text-primary); border: 1px solid var(--border-secondary); border-radius: var(--radius-sm); font: inherit; min-height: 84px; }
 .content-fields button { min-height: 42px; }
 .source-content-page :is(input, select, button, summary, a):focus-visible { outline: 2px solid var(--accent-hover) !important; outline-offset: 3px; }
 .source-content-page input { caret-color: var(--accent-hover); }
@@ -46,5 +47,12 @@
 .content-observation-detail, .content-saved-query-list > li { padding: 16px 0; border-bottom: 1px solid var(--border-secondary); overflow-wrap: anywhere; }
 .content-metric-list li { padding: 8px 0; overflow-wrap: anywhere; }
 .content-personal-saved { margin-bottom: 32px; }
+.content-research-saved { margin-bottom: 32px; }
+.content-research-detail { padding: 18px 0; border-top: 1px solid var(--border-secondary); overflow-wrap: anywhere; }
+.content-research-manifest { display: grid; gap: 14px; }
+.content-research-manifest > button { justify-self: start; }
+.content-page-size { display: grid; gap: 8px; max-width: 240px; margin: 16px 0; }
+.content-frozen-members { list-style: none; padding: 0; max-height: 360px; overflow: auto; scrollbar-color: var(--border-tertiary) var(--bg-panel); }
+.content-frozen-members li { display: grid; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--border-primary); overflow-wrap: anywhere; }
 @media (max-width: 600px) { .content-detail-fields { grid-template-columns: 1fr; gap: 4px; }.content-detail-fields dd { margin-bottom: 12px; }.content-detail-page h1 { overflow-wrap: anywhere; } }
 @media (max-width: 600px) { .content-fields { grid-template-columns: 1fr; } .content-source-list li { align-items: start; gap: 12px; } .content-pager { justify-content: space-between; } }

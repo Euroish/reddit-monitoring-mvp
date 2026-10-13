@@ -16,7 +16,10 @@ test("managed config binds database identity, owned paths and distinct exact por
 
 test("managed startup validates env/port/proxy before writes and fixes demo values despite shell network/key settings", async () => {
   const { managedEnvironment } = await import("../../scripts/local-dev-config.mjs");
-  const result = managedEnvironment(config, values, { SOURCE_RUN_MODE: "live", SOURCE_NETWORK_ENABLED: "true", REDDIT_RUN_MODE: "live" });
+  const originValues = { ...values, API_CORS_ALLOW_ORIGINS: "https://untrusted.example" };
+  const result = managedEnvironment(config, originValues, { SOURCE_RUN_MODE: "live", SOURCE_NETWORK_ENABLED: "true", REDDIT_RUN_MODE: "live", API_CORS_ALLOW_ORIGINS: "*" });
   assert.equal(result.SOURCE_NETWORK_ENABLED, "false"); assert.equal(result.SOURCE_RUN_MODE, "demo"); assert.equal(result.REDDIT_RUN_MODE, "mock");
+  assert.equal(result.API_CORS_ALLOW_ORIGINS, "http://127.0.0.1:5173");
+  assert.equal(originValues.API_CORS_ALLOW_ORIGINS, "https://untrusted.example", "Private environment input must remain unchanged");
   for (const change of [{ PORT: "3001" }, { LOCAL_WEB_PORT: "5174" }, { VITE_API_PROXY_TARGET: "http://127.0.0.1:3000/api" }, { DATABASE_URL: "postgresql://postgres@127.0.0.1:25432/another" }, { SOURCE_NETWORK_ENABLED: "tru" }, { API_HOST: "0.0.0.0" }, { NODE_ENV: "production" }]) assert.throws(() => managedEnvironment(config, { ...values, ...change }), /\.env.local/);
 });

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { SaveContentQueryRequest,UpdateContentAnnotationRequest,SavedContentQuery } from "../../../packages/contracts/src/source-content";
 import type { ContentPersonalRepository,PersonalPageQuery } from "../../domain/repositories/content-personal-repository";
 import { SourceContentError,SourceContentService,requireSourceId } from "./source-content.service";
-const queryKeys=new Set(["platform","provider","sourceId","kind","query","from","to","author","language","sourceGroup","sort","metricKey","minMetric","maxMetric"]);
+const queryKeys=new Set(["platform","provider","sourceId","kind","query","from","to","author","language","sourceGroup","sort","metricKey","minMetric","maxMetric","searchMode","searchScope","exclusions"]);
 function expected(value:unknown,create=false){if(typeof value!=="number"||!Number.isInteger(value)||value<(create?0:1)||value>2147483646)throw new SourceContentError("expectedRevision is required; use 0 to create and the current revision to update/delete");return value;}
 function object(value:unknown,keys:string[]):asserts value is Record<string,unknown>{if(!value||typeof value!=="object"||Array.isArray(value)||Object.keys(value).some(key=>!keys.includes(key)))throw new SourceContentError("Invalid personal workspace request fields");}
 export class ContentPersonalService {

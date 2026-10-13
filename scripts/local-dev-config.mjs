@@ -28,5 +28,5 @@ export function managedEnvironment(config, values, shell = process.env) {
   if (values.NODE_ENV !== 'development') error('NODE_ENV');
   if (values.SOURCE_RUN_MODE !== undefined && !['demo', 'live'].includes(values.SOURCE_RUN_MODE)) error('SOURCE_RUN_MODE');
   if (values.SOURCE_NETWORK_ENABLED !== undefined && !['true', 'false'].includes(values.SOURCE_NETWORK_ENABLED)) error('SOURCE_NETWORK_ENABLED');
-  return { ...shell, ...values, API_HOST: '127.0.0.1', SOURCE_RUN_MODE: 'demo', SOURCE_NETWORK_ENABLED: 'false', REDDIT_RUN_MODE: 'mock' };
+  return { ...shell, ...values, API_HOST: '127.0.0.1', API_CORS_ALLOW_ORIGINS: `http://127.0.0.1:${config.webPort}`, SOURCE_RUN_MODE: 'demo', SOURCE_NETWORK_ENABLED: 'false', REDDIT_RUN_MODE: 'mock' };
 }

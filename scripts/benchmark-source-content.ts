@@ -6,6 +6,7 @@ import { Client, type QueryResult, type QueryResultRow } from "pg";
 import { PostgresClient } from "../src/storage/postgres/postgres-client";
 import { runMigrations } from "../src/storage/schema/run-migrations";
 import { PostgresSourceContentRepository } from "../src/storage/repositories/postgres/postgres-source-content.repository";
+import { backfillPublicSearchIndex } from "../src/storage/backfill-public-search-index";
 import type { ContentQuery } from "../packages/contracts/src/source-content";
 
 class MeasuredDatabase extends PostgresClient {
@@ -14,6 +15,8 @@ class MeasuredDatabase extends PostgresClient {
     this.lastStatement = { text, params }; return super.query<T>(text, params);
   }
 }
+let benchmarkPhase="initialization";
+const markPhase=(phase:string)=>{benchmarkPhase=phase;console.error(JSON.stringify({event:"benchmark_phase",phase}));};
 const option = (name: string) => { const index = process.argv.indexOf(name); return index < 0 ? undefined : process.argv[index + 1]; };
 const summary = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b);
@@ -38,9 +41,11 @@ async function main() {
   const db = new MeasuredDatabase({ connectionString: url.href, max: 2 });
   let peakClientRssBytes = process.memoryUsage().rss;
   try {
+    markPhase("migrations");
     await runMigrations({ db });
     const redditSource = randomUUID(), xSource = randomUUID(), now = "2026-10-13T01:00:00.000Z";
     const beforeWal = (await db.query("SELECT pg_current_wal_lsn()::text AS lsn")).rows[0].lsn;
+    markPhase("synthetic_seed");
     await db.query(`INSERT INTO collection_source(id,platform_id,provider,label,target,content_kind,created_at,updated_at)
       SELECT $1::uuid,id,'demo_reddit','Synthetic benchmark Reddit','{"type":"community","community":"benchmark"}'::jsonb,'post',$3::timestamptz,$3::timestamptz FROM source WHERE code='reddit'
       UNION ALL SELECT $2::uuid,id,'demo_x','Synthetic benchmark X','{"type":"search","query":"benchmark"}'::jsonb,'post',$3::timestamptz,$3::timestamptz FROM source WHERE code='x'`, [redditSource, xSource, now]);
@@ -61,7 +66,16 @@ async function main() {
       UNION ALL SELECT d.content_id,d.collection_source_id,cs.provider,$1,$1,'provider_snapshot','unknown',
         jsonb_build_object(CASE WHEN cs.provider='demo_reddit' THEN 'reddit.score' ELSE 'x.likes' END,20),'latest'
       FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id`, [now]);
-    await db.query("ANALYZE content"); await db.query("ANALYZE content_discovery"); await db.query("ANALYZE content_observation");
+    // Direct SQL fixture seeding deliberately bypasses page commits. Populate
+    // the public projection explicitly before timing any keyword reads.
+    markPhase("explicit_public_index_backfill");
+    const indexStarted=performance.now();let indexScanned=0,indexWritten=0,indexBatches=0,indexCursor:string|undefined;
+    for(;;){const batch=await backfillPublicSearchIndex(db,{limit:1000,after:indexCursor,now});indexScanned+=batch.scanned;indexWritten+=batch.written;indexBatches++;if(!batch.remaining)break;if(!batch.nextCursor||batch.requiresRescan)throw new Error("Synthetic public-index backfill did not finish its bounded ordered pass");indexCursor=batch.nextCursor;}
+    const indexBackfillMs=performance.now()-indexStarted;
+    const indexCoverage=(await db.query(`SELECT COUNT(*)::integer AS public_content,COUNT(d.content_id)::integer AS indexed,COUNT(d.content_id) FILTER(WHERE d.text_present)::integer AS text_present FROM content c LEFT JOIN public_content_search_document d ON d.content_id=c.id AND d.format_version=1 WHERE c.platform_details IS NOT NULL`)).rows[0];
+    if(indexCoverage.public_content!==rows||indexCoverage.indexed!==rows||indexWritten!==rows)throw new Error("Synthetic public search projection coverage differs from the seeded content");
+    peakClientRssBytes=Math.max(peakClientRssBytes,process.memoryUsage().rss);
+    await db.query("ANALYZE content"); await db.query("ANALYZE content_discovery"); await db.query("ANALYZE content_observation");await db.query("ANALYZE public_content_search_document");
     const walBytes = Number((await db.query("SELECT pg_wal_lsn_diff(pg_current_wal_lsn(),$1::pg_lsn)::text AS bytes", [beforeWal])).rows[0].bytes);
     const repository = new PostgresSourceContentRepository(db);
     const cases: { name: string; query: ContentQuery; expectedTotal: number }[] = [
@@ -71,6 +85,7 @@ async function main() {
     ];
     const measurements = [];
     for (const item of cases) {
+      markPhase(`measure_${item.name}`);
       await repository.listContent(item.query); await repository.contentStats(item.query);
       const listTimes: number[] = [], statsTimes: number[] = [];
       for (let i = 0; i < repeats; i++) {
@@ -86,8 +101,10 @@ async function main() {
       const statsExplain = (await db.query(`EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) ${statsStatement.text}`, statsStatement.params)).rows[0]["QUERY PLAN"];
       measurements.push({ name: item.name, expectedTotal: item.expectedTotal, list: summary(listTimes), stats: summary(statsTimes), listExplain, statsExplain });
     }
+    markPhase("write_report");
     const databaseBytes = Number((await db.query("SELECT pg_database_size(current_database())::text AS bytes")).rows[0].bytes);
     const result = { version: 1, scope: "synthetic_repository_loopback_warm_cache", database, rows, observations: rows * 2, repeats, measurements,
+      publicSearchIndex:{mode:"explicit_bounded_backfill_before_queries",formatVersion:1,batchLimit:1000,batches:indexBatches,scanned:indexScanned,written:indexWritten,durationMs:indexBackfillMs,coverage:{candidateCount:indexCoverage.public_content,indexed:indexCoverage.indexed,textPresent:indexCoverage.text_present,textMissing:indexCoverage.indexed-indexCoverage.text_present}},
       peakClientRssBytes, databaseAllocatedBytes: databaseBytes, clusterWalBytesDuringSeed: walBytes,
       limitations: ["Repository timings include client mapping; they are not full HTTP/UI latency", "Warm-cache synthetic content is not production load", "WAL delta is cluster-wide and may include concurrent tests", "Client RSS is this benchmark process, not API/worker/PostgreSQL combined memory"],
       realSourceRequests: 0, businessDatabaseModified: false };
@@ -96,4 +113,4 @@ async function main() {
       p95: measurements.map(item => ({ name: item.name, listMs: item.list.p95Ms, statsMs: item.stats.p95Ms })), realSourceRequests: 0 }));
   } finally { await db.close(); }
 }
-if (require.main === module) void main().catch(error => { console.error(error instanceof Error ? error.message : "Benchmark failed"); process.exitCode = 1; });
+if (require.main === module) void main().catch(error => { console.error(JSON.stringify({event:"benchmark_failed",phase:benchmarkPhase,message:error instanceof Error?error.message:"Benchmark failed"})); process.exitCode = 1; });
