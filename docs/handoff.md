@@ -136,3 +136,5 @@ R2 当时统计为 9 项限定软件目标完成、32 项部分完成、1 项软
 后续按原基线继续6（公共日期桶、平台内可比观测、完整范围榜单）与待授权G；当前没有X key/预算，真实provider仍不运行。治理需要明确保留时长/备份频率/RPO/RTO、provider删除与snapshot政策；公网部署、清洁安装、云CI、实际旧库副本升级独立验收。没有自动数据清理，不启动整体前端重设计。
 
 最终0.9.0性能使用phase5b-performance-20000-final.json（原30s超时不放宽复跑成功），前版P95只作历史证据。当前管理演示已升级40个SQL并保留既有账号/业务数据，API28060/Web28061/worker运行，入口看local:status。管理员初次升级需显式公共回填，否则旧范围文本query503；这次开发库已执行有界回填，真实provider默认禁用。
+
+本轮本地版本：4B 0b09c7a / local-phase4b-v0.6.0；4C 2e05935 / local-phase4c-v0.7.0；5A f190678 / local-phase5a-v0.8.0；5B e05cd5c / local-phase5b-v0.9.0，4A a9f5403 / 0.5.0和历史WIP保留。633文件不可变发布产物在output/releases/phase5b-v0.9.0-complete，生产依赖按manifest另安装，无秘密/数据库/node_modules，未签名/部署；按release:verify检查，完整修改文件与验证汇总在output/validation/phase4-5-delivery-summary.json。原生SQL30与最终offline495均零失败/零skip；原全部SQL未改，真实请求0，main/remote tracking未动、无push或PR操作。
