@@ -8,4 +8,6 @@ export interface MonitorTargetRepository {
   upsert(target: MonitorTarget): Promise<MonitorTarget>;
   /** Existing target only; null means the revision changed or the target disappeared. */
   updateIfRevision(target:MonitorTarget,expectedRevision:number):Promise<MonitorTarget|null>;
+  /** All rows are checked and written atomically; a conflict writes nothing. */
+  updateManyIfRevisions(updates:{target:MonitorTarget;expectedRevision:number}[]):Promise<MonitorTarget[]|null>;
 }

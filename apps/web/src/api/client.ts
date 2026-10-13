@@ -1,9 +1,11 @@
 export class ApiError extends Error {
   code: string;
+  status?: number;
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, status?: number) {
     super(message);
     this.code = code;
+    this.status = status;
     this.name = 'ApiError';
   }
 }
@@ -49,8 +51,13 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
       if (response.status === 401 && typeof window !== 'undefined' && !['/api/auth/login', '/api/auth/register'].includes(url)) {
         window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT, { detail: { epoch: requestEpoch } }));
       }
-      const message = typeof data?.error === 'string' && data.error.trim() ? data.error : response.statusText || `HTTP ${response.status}`;
-      throw new ApiError(data?.errorCode || 'UNKNOWN_ERROR', message);
+      let message = typeof data?.error === 'string' && data.error.trim() ? data.error : response.statusText || `HTTP ${response.status}`;
+      if (data?.errorCode === 'audit_result_unknown') {
+        let zh = false;
+        try { zh = typeof window !== 'undefined' && window.localStorage?.getItem('reddit-monitoring.language') === 'zh-CN'; } catch { /* unavailable preferences must not hide the operation outcome */ }
+        message += zh ? ' 操作可能已生效，结果尚未确认；请先刷新并核对实际状态，再决定是否重试。' : ' The operation may have taken effect. Refresh and verify the actual resource state before deciding to retry.';
+      }
+      throw new ApiError(data?.errorCode || 'UNKNOWN_ERROR', message, response.status);
     }
     return data as T;
   } finally {

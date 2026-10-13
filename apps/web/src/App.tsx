@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext';
 import { RequireAuth, RoleGuard } from './auth/RequireAuth';
 import { Layout } from './app/Layout';
@@ -34,11 +34,8 @@ function RouteLoadingFallback() {
   );
 }
 
-export default function App() {
+function AppRoutes() {
   return (
-    <LanguageProvider>
-      <AuthProvider>
-        <BrowserRouter>
           <Suspense fallback={<RouteLoadingFallback />}>
             <Routes>
               <Route path="/login" element={<Login />} />
@@ -97,8 +94,11 @@ export default function App() {
               </Route>
             </Routes>
           </Suspense>
-        </BrowserRouter>
-      </AuthProvider>
-    </LanguageProvider>
   );
+}
+
+const router = createBrowserRouter([{ path: '*', element: <AppRoutes /> }]);
+
+export default function App() {
+  return <LanguageProvider><AuthProvider><RouterProvider router={router} /></AuthProvider></LanguageProvider>;
 }

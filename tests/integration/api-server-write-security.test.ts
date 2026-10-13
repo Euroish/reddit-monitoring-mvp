@@ -13,6 +13,15 @@ test("authentication rate limit cannot be evaded using an untrusted forwarded ad
   }finally{await stopServer(server);}
 });
 
+test("login and registration share a dedicated socket-IP limit independent of query limiting",async()=>{
+  const server=createApiServer({repositories:createApiTestRepositories(),createConnector:()=>new RedditMockConnector(),rateLimit:{enabled:false},authRateLimit:{points:1,durationSeconds:60},logger:()=>{}});
+  try{const base=await startServer(server);
+    assert.equal((await fetch(`${base}/auth/login`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({email:"unknown@example.test",password:"fixture-password"})})).status,401);
+    const blocked=await fetch(`${base}/auth/register`,{method:"POST",headers:{"content-type":"application/json","x-forwarded-for":"192.0.2.33"},body:JSON.stringify({email:"new@example.test",password:"fixture-password",inviteCode:"190123"})});
+    assert.equal(blocked.status,429);assert.ok(Number(blocked.headers.get("retry-after"))>0);assert.equal((await blocked.json()).errorCode,"rate_limited");
+  }finally{await stopServer(server);}
+});
+
 test("cross-origin writes are rejected even without configured CORS, while reads remain available",async()=>{
   const repositories=createApiTestRepositories();
   const server=createApiServer({repositories,createConnector:()=>new RedditMockConnector(),auth:{bearerToken:"synthetic-secret"},logger:()=>{}});

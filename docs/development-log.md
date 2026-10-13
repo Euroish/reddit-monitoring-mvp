@@ -66,3 +66,26 @@
 - root 留下 3 项有意失败的写安全回归：登录专用限流/伪造 forwarded 地址、跨来源写入拒绝、默认 PATCH/PUT/DELETE CORS 与 header 白名单。相应功能尚未实现；账户新路由和业务审计接线尚未写。既有 typecheck 记录含 PublicContent 合成夹具缺字段、`authRateLimit` 配置不存在及并行接口未整合；停止后不靠新的业务修改消除这些失败。
 - 4B 作为 `local-phase4b-wip-single-agent-20261013` 保存未完成本地检查点，不赋予新的交付版本。4C 的保留/恢复/发布/性能、5A 的公共内容使用闭环、5B 的检索/冻结研究导出均尚未开始；详细单 agent 接续顺序维护在 [交接](handoff.md)，不新建另一套交接文件。
 - root 的临时 Vite 41975 与 PostgreSQL 启动 helper 已关闭；PostgreSQL 25432 保留运行及数据，用户其他服务未动，临时/隔离数据库未删除。所有改动保留在个人分支，没有真实来源、付费、部署、push、force push、分支删除或 PR 合并。收尾仅更新原有文档、运行 docs/diff 检查及保存本地版本，然后停止。
+
+## 2026-10-13：恢复并行开发
+
+- 用户明确恢复任务，并重新授权最大化子代理并行。复工读取原八份文档及暂停交接，核对个人分支与 Git 状态：HEAD 为 `3db313e`，工作区干净；`a9f5403 / local-phase4a-v0.5.0` 与 4B WIP 标签保持。
+- 三个子代理按账户 HTTP/权限/审计、来源/目标 CAS、前端功能接线恢复；root 负责公共契约、集成、阶段版本与独立 4C 的容量/恢复/发布准备。当前四个可用并发槽全部使用，后续空出后滚动分配 5A/5B。
+- 复工 typecheck 确认两项既有失败：PublicContent 冒烟夹具缺 url/language/author、专用 authRateLimit 尚未定义；不降低断言。root 已补会话撤销、目标 revision/update/bulk expectedRevisions 共同类型，跨层实现由相应代理继续。
+- 原验收约束继续有效：仅离线、隔离 PostgreSQL、localhost 合成闭环；不真实采集、不收费、不部署、不 push/删分支/合并。4C 的保留策略先给可检查 dry-run，不自动删除用户数据；前端保留结构做功能补充。
+
+## 阶段 4B：账户、权限、审计与配置并发（0.6.0 软件交付）
+
+- 从 3db313e 的停止点恢复，三个代理滚动推进。补齐账户 HTTP/公共契约、机器与角色边界、专用 socket IP 限流、Origin/CORS、写入前 intent 与脱敏结果审计；既有类型和安全红测修复并保持断言。
+- source/budget/target revision CAS 贯通客户端；bulk 全员锁定校验后才写，任一冲突零部分提交；worker 用量/时间不增加配置版本。暂停与 commitPage 锁序统一。409 保稿、SPA 后退/关闭提示、admin 邀请 viewer 限制、auth epoch 和账户隔离完成。
+- 034/035 仅新隔离库应用，原 SQL 校验未改、开发业务库未升级。035 SHA256 608705B7C2FCCBE529E584767C0AADEE0B5A3DE0300F4B72EE16BEA5680AA619。
+- 冻结暂存导出 phase-4b-snapshot-a40734d1 排除并行4C/5A/5B，455/455 offline、24/24 native 全通过零 skip，typecheck/API/Web/Vite/lint/compiled/docs 通过。新实际账户 smoke 加入该快照后 typecheck 通过，真实浏览器→API→独立 PG 检查改密/旧会话401/A-B Saved 隔离/撤全/持久审计；18 API 请求，外部请求0、page errors0、390px截图。复制脚本首次路径错误后按绝对路径重跑成功。
+- 合成 Web 另验来源/预算/target/bulk CAS 和离开草稿，93 请求零外部零错误。证据 phase-4b-snapshot-verification.json、phase4b-real-account-local.json、phase4b-account-security-evidence.json；复用依赖，未清洁重装/云CI/真实来源/部署。保存本地 local-phase4b-v0.6.0，保留历史WIP；后续按4C→5A→5B独立交付。
+
+## 阶段 4B：账户、权限、审计与配置并发（0.6.0 软件交付）
+
+- 从 3db313e 的停止点恢复，三个代理滚动推进。补齐账户 HTTP/公共契约、机器与角色边界、专用 socket IP 限流、Origin/CORS、写入前 intent 与脱敏结果审计；既有类型和安全红测修复并保持断言。
+- source/budget/target revision CAS 贯通客户端；bulk 全员锁定校验后才写，任一冲突零部分提交；worker 用量/时间不增加配置版本。暂停与 commitPage 锁序统一。409 保稿、SPA 后退/关闭提示、admin 邀请 viewer 限制、auth epoch 和账户隔离完成。
+- 034/035 仅新隔离库应用，原 SQL 校验未改、开发业务库未升级。035 SHA256 608705B7C2FCCBE529E584767C0AADEE0B5A3DE0300F4B72EE16BEA5680AA619。
+- 冻结暂存导出 phase-4b-snapshot-a40734d1 排除并行4C/5A/5B，455/455 offline、24/24 native 全通过零 skip，typecheck/API/Web/Vite/lint/compiled/docs 通过。新实际账户 smoke 加入该快照后 typecheck 通过，真实浏览器→API→独立 PG 检查改密/旧会话401/A-B Saved 隔离/撤全/持久审计；18 API 请求，外部请求0、page errors0、390px截图。复制脚本首次路径错误后按绝对路径重跑成功。
+- 合成 Web 另验来源/预算/target/bulk CAS 和离开草稿，93 请求零外部零错误。证据 phase-4b-snapshot-verification.json、phase4b-real-account-local.json、phase4b-account-security-evidence.json；复用依赖，未清洁重装/云CI/真实来源/部署。保存本地 local-phase4b-v0.6.0，保留历史WIP；后续按4C→5A→5B独立交付。

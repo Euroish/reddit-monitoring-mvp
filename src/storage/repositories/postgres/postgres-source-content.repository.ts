@@ -64,6 +64,9 @@ export class PostgresSourceContentRepository implements SourceContentRepository 
   }
   async commitPage(claim: ClaimedSourceJob, page: CollectedPage, now: string) {
     await this.db.withTransaction(async client => {
+      // Lifecycle and scheduling already lock source before job. Use that order
+      // for page commits too, so a concurrent pause cannot form a lock cycle.
+      await client.query(`SELECT cs.id FROM collection_source cs JOIN source_collection_job j ON j.collection_source_id=cs.id WHERE j.id=$1 FOR UPDATE OF cs`,[claim.job.id]);
       const locked = await client.query(`SELECT j.*,s.platform_id,s.provider,s.content_kind,p.code AS platform FROM source_collection_job j JOIN collection_source s ON s.id=j.collection_source_id JOIN source p ON p.id=s.platform_id WHERE j.id=$1 AND j.status='running' AND j.lease_token=$2 FOR UPDATE OF j`, [claim.job.id, claim.leaseToken]);
       const current = locked.rows[0]; if (!current) throw new Error("Collection lease lost");
       let added=0,updated=0;

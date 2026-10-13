@@ -21,10 +21,11 @@ export function OpsAudit() {
       <Button type="button" disabled={audit.isFetching} onClick={() => void audit.refetch()}>{copy('Refresh', '刷新')}</Button></div>
     {audit.isLoading && <p role="status">{copy('Loading audit...', '正在加载审计...')}</p>}
     {audit.error && <p role="alert" style={{ color: '#ff4d4f' }}>{audit.error.message}</p>}
+    <p className="page-subtitle">{copy('Attempted records have an unknown operation result. Check the current resource before retrying. A failed request does not prove that every change was rolled back.', '已尝试记录的操作结果未知，重试前应核对资源当前状态；请求失败不代表全部变更都已回滚。')}</p>
     <div className="list-stack" style={{ gap: 16 }}>
       {audit.data?.entries.map(entry => <Card key={entry.id}>
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12 }}><h3>{entry.action}</h3>
-          <Badge variant={entry.outcome === 'succeeded' ? 'success' : 'neutral'}>{copy(entry.outcome, { attempted: '已尝试', succeeded: '成功', failed: '失败' }[entry.outcome])}</Badge></div>
+          <Badge variant={entry.outcome === 'succeeded' ? 'success' : 'neutral'}>{copy(entry.outcome === 'attempted' ? 'Attempted · result unknown' : entry.outcome, { attempted: '已尝试 · 结果未知', succeeded: '成功', failed: '失败' }[entry.outcome])}</Badge></div>
         <p style={{ color: 'var(--text-tertiary)', overflowWrap: 'anywhere' }}>{new Date(entry.createdAt).toLocaleString()} · {entry.actorType} · {entry.actorUserId ?? copy('Machine', '机器身份')}</p>
         <p style={{ overflowWrap: 'anywhere' }}>{entry.resourceType}: {entry.resourceId ?? '—'} · {copy('Request', '请求')}: {entry.requestId ?? '—'}</p>
         <details><summary>{copy('Recorded changes', '变更记录')}</summary>

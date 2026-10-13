@@ -89,6 +89,14 @@ export class InMemoryMonitorTargetRepository implements MonitorTargetRepository 
     const updated={...target,createdAt:previous.createdAt,revision:expectedRevision+1};this.byCanonicalName.set(target.canonicalName,structuredClone(updated));return structuredClone(updated);
   }
 
+  public async updateManyIfRevisions(updates:{target:MonitorTarget;expectedRevision:number}[]):Promise<MonitorTarget[]|null> {
+    if(new Set(updates.map(item=>item.target.id)).size!==updates.length)return null;
+    for(const {target,expectedRevision} of updates){const previous=this.byCanonicalName.get(target.canonicalName);if(!previous||previous.id!==target.id||previous.source!==target.source||previous.targetType!==target.targetType||(previous.revision??1)!==expectedRevision)return null;}
+    const result=updates.map(({target,expectedRevision})=>({...target,createdAt:this.byCanonicalName.get(target.canonicalName)!.createdAt,revision:expectedRevision+1}));
+    for(const target of result)this.byCanonicalName.set(target.canonicalName,structuredClone(target));
+    return structuredClone(result);
+  }
+
   public all(): MonitorTarget[] {
     return structuredClone(Array.from(this.byCanonicalName.values()));
   }

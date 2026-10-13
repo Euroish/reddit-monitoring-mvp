@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { advanceAuthEpoch, fetchApi, getAuthEpoch, UNAUTHORIZED_EVENT } from "../../apps/web/src/api/client";
+import { advanceAuthEpoch, ApiError, fetchApi, getAuthEpoch, UNAUTHORIZED_EVENT } from "../../apps/web/src/api/client";
 
 // Ignore abort in the fake transport to prove the post-response epoch guard as well.
 test("a late successful response cannot cross an authentication boundary", async () => {
@@ -15,6 +15,16 @@ test("a late successful response cannot cross an authentication boundary", async
     await assert.rejects(oldResponse, { name: "AbortError" });
     globalThis.fetch = async () => Response.json({ owner: "next-user" });
     assert.deepEqual(await fetchApi("/v1/workbench/saved-views"), { owner: "next-user" });
+  } finally { globalThis.fetch = nativeFetch; advanceAuthEpoch(); }
+});
+
+test("configuration conflicts retain their HTTP status and unknown audited results require state reconciliation", async () => {
+  const nativeFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => Response.json({ errorCode: "source_conflict", error: "Configuration revision changed" }, { status: 409 });
+    await assert.rejects(fetchApi("/v1/sources/fixture", { method: "PATCH" }), error => error instanceof ApiError && error.status === 409 && error.code === "source_conflict");
+    globalThis.fetch = async () => Response.json({ errorCode: "audit_result_unknown", error: "Operation outcome is unknown" }, { status: 503 });
+    await assert.rejects(fetchApi("/v1/source-provider-budgets/demo_reddit", { method: "PUT" }), error => error instanceof ApiError && error.status === 503 && error.code === "audit_result_unknown" && /verify the actual resource state/.test(error.message));
   } finally { globalThis.fetch = nativeFetch; advanceAuthEpoch(); }
 });
 

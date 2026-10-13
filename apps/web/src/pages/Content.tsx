@@ -72,7 +72,11 @@ export function Content() {
     onSuccess: data => { rememberJob(data.job.id); void client.invalidateQueries({ queryKey: ['sourceJobs'] }); void client.invalidateQueries({ queryKey: ['sourceOps'] }); },
   });
   const resume = useMutation({ mutationFn: (action: 'retry' | 'continue' | 'cancel') => fetchApi<SourceJobResponse>(`/v1/source-jobs/${jobId}/${action}`, { method: 'POST', body: '{}' }), onSuccess: data => { rememberJob(data.job.id); void client.invalidateQueries({ queryKey: ['sourceContentJob'] }); void client.invalidateQueries({ queryKey: ['sourceJobs'] }); void client.invalidateQueries({ queryKey: ['sourceOps'] }); } });
-  const sourceState = useMutation({ mutationFn: ({ id, action }: { id: string; action: 'pause' | 'resume' | 'archive' }) => fetchApi<CollectionSourceResponse>(`/v1/sources/${id}/${action}`, { method: 'POST', body: '{}' }), onSuccess: () => { void client.invalidateQueries({ queryKey: ['contentSources'] }); void client.invalidateQueries({ queryKey: ['sourceJobs'] }); void client.invalidateQueries({ queryKey: ['sourceOps'] }); } });
+  const sourceState = useMutation({ mutationFn: ({ id, action }: { id: string; action: 'pause' | 'resume' | 'archive' }) => fetchApi<CollectionSourceResponse>(`/v1/sources/${id}/${action}`, { method: 'POST', body: JSON.stringify({ expectedRevision: sources.data?.sources.find(source => source.id === id)?.revision }) }), onSuccess: data => {
+    client.setQueryData<SourceListResponse>(['contentSources'], previous => previous ? { ...previous, sources: previous.sources.map(item => item.id === data.source.id ? data.source : item) } : previous);
+    void client.invalidateQueries({ queryKey: ['contentSources'] }); void client.invalidateQueries({ queryKey: ['sourceJobs'] }); void client.invalidateQueries({ queryKey: ['sourceOps'] });
+  },
+    onError: () => { void client.invalidateQueries({ queryKey: ['contentSources'] }); } });
   const search = (event: FormEvent) => {
     event.preventDefault(); const params = new URLSearchParams();
     if (keyword.trim()) params.set('query', keyword.trim());
@@ -108,6 +112,7 @@ export function Content() {
         <h2 id="sources-title">{copy('Sources', '数据来源')}</h2>
         <p className="content-muted">{copy('Provider availability follows local configuration. Demo providers generate synthetic data and never represent live platform coverage.', 'Provider 可用性以本地配置为准；Demo provider 生成合成数据，不代表真实平台内容或覆盖。')}</p>
         <details className="content-source-disclosure" open={sources.data?.sources.length === 0}><summary>{canCollect ? copy('View and manage sources', '查看与管理来源') : copy('View sources', '查看来源')} ({sources.data?.sources.length ?? 0})</summary>
+        <Button type="button" disabled={sources.isFetching} onClick={() => void sources.refetch()}>{copy('Refresh sources', '刷新来源')}</Button>
         {sources.isLoading && <p role="status">{copy('Loading sources…', '正在加载来源…')}</p>}
         {sources.data?.sources.length === 0 && <p>{copy('No sources yet.', '尚未添加来源。')}{!canCollect && copy('Ask an administrator to add a source.', '请联系管理员添加来源。')}</p>}
         <ul className="content-source-list">{sources.data?.sources.map(source => <li key={source.id}>

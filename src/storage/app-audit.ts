@@ -1,7 +1,14 @@
 import type { AppAuditRecord } from "../domain/entities/app-audit";
 import type { AppAuditQuery } from "../domain/repositories/app-audit-repository";
 
-const keys = new Set(["before","after","label","group","state","role","status","provider","platform","targetType","contentKind","schedule","refresh","enabled","cadenceSeconds","initialLookbackHours","overlapMinutes","maxCatchupHours","maturityHours","maxAgeDays","maxAttempts","intervalHours","pageSize","maxPages","dailyRequests","monthlyRequests","dailyResources","monthlyResources","usedCount","maxUses","expiresAt","from","to","purpose","sourceId","jobId","userId","inviteId","count","revoked","current","errorCode","reason","requestedRole","requestedStatus"]);
+const keys = new Set([
+  "before", "after", "label", "group", "state", "role", "status", "provider", "platform", "targetType", "contentKind",
+  "schedule", "refresh", "enabled", "cadenceSeconds", "cadenceHours", "favorite", "initialLookbackHours", "overlapMinutes", "overlapSeconds", "maxCatchupHours", "recheckLookbackHours", "recheckCadenceSeconds",
+  "maturityHours", "maxAgeDays", "maxAttempts", "intervalHours", "afterHours", "minIntervalHours", "batchSize", "pageSize", "maxPages",
+  "defaultCadenceHours", "postLimitBase", "postLimitBoost", "adaptiveLimitEnabled", "backfillPostLimit", "backfillTargetDays", "backfillMaxIterationsPerTarget", "providerPreference",
+  "dailyRequests", "monthlyRequests", "dailyResources", "monthlyResources", "minimumIntervalMs", "usedCount", "maxUses", "expiresAt",
+  "from", "to", "purpose", "sourceId", "jobId", "userId", "inviteId", "count", "revoked", "current", "errorCode", "reason", "requestedRole", "requestedStatus",
+]);
 /** Fixed metadata allowlist. Request bodies, credentials, headers and content payloads never pass through. */
 export function auditChanges(input: Record<string, unknown> = {}, depth = 0): Record<string, unknown> {
   const result: Record<string, unknown> = {};
@@ -23,11 +30,11 @@ export function auditQuery(query: AppAuditQuery = {}) {
     try {
       if (!/^[A-Za-z0-9_-]{1,512}$/.test(query.cursor)) throw new Error();
       const value = JSON.parse(Buffer.from(query.cursor,"base64url").toString("utf8"));
-      if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== "string" || !Number.isFinite(Date.parse(value[0])) || !/^[0-9a-f-]{36}$/i.test(value[1])) throw new Error();
+      if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== "string" || !Number.isFinite(Date.parse(value[0])) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value[1])) throw new Error();
       after = { createdAt: new Date(value[0]).toISOString(), id: value[1] };
     } catch { throw new Error("Invalid audit cursor"); }
   }
-  if (query.actorId && !/^[0-9a-f-]{36}$/i.test(query.actorId)) throw new Error("Invalid audit actor ID");
+  if (query.actorId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query.actorId)) throw new Error("Invalid audit actor ID");
   if (query.action && !/^[a-z][a-z0-9_.:-]{0,79}$/.test(query.action)) throw new Error("Invalid audit action");
   if (query.outcome && !["attempted","succeeded","failed"].includes(query.outcome)) throw new Error("Invalid audit outcome");
   return { ...query, limit, after };

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium, type Page, type Route } from 'playwright';
-import type { AuthUserView, CollectionSource, PublicContent, SavedWorkbenchViewResponseItem, SourceCapability } from '../packages/contracts/src/http.js';
+import type { AuthUserView, CollectionSource, PublicContent, SavedWorkbenchViewResponseItem, SourceCapability, SourceProviderBudget, SourceOpsResponse } from '../packages/contracts/src/http.js';
 
 // Stateful browser fixture only: no database, cookie token, provider or external network is used.
 const base = new URL(process.env.SMOKE_WEB_BASE_URL ?? 'http://127.0.0.1:5173');
@@ -16,12 +16,12 @@ const passwords = new Map([[owner.email, initialPassword], [admin.email, initial
 const capability: SourceCapability = { platform: 'reddit', provider: 'demo_reddit', enabled: true, contentKinds: ['post'],
   targetTypes: ['community'], keywordSearch: 'scoped', metrics: [], observationModel: 'archive', refreshByIds: true,
   limitations: ['Synthetic account-flow fixture only.'] };
-const source: CollectionSource = { id: 'synthetic-source', platform: 'reddit', provider: 'demo_reddit', label: 'Synthetic shared source',
+const source: CollectionSource = { revision: 1, id: 'synthetic-source', platform: 'reddit', provider: 'demo_reddit', label: 'Synthetic shared source',
   target: { type: 'community', community: 'technology' }, contentKind: 'post', createdAt: now, updatedAt: now,
   coverage: 'partial', lastSuccessAt: now, latestPublishedAt: now, state: 'active', group: null,
   schedule: { enabled: false, cadenceSeconds: 3600, overlapSeconds: 300, initialLookbackHours: 24, maxCatchupHours: 6, pageSize: 25, maxPages: 5 },
   refresh: { enabled: false, afterHours: 36, minIntervalHours: 12, maxAttempts: 3, batchSize: 25 }, nextDueAt: null, incrementalTo: null };
-const publicItem: PublicContent = { id: 'synthetic-public-item', externalId: 'public-1', platform: 'reddit', kind: 'post',
+const publicItem: PublicContent = { url: null, language: null, author: null, id: 'synthetic-public-item', externalId: 'public-1', platform: 'reddit', kind: 'post',
   title: 'Synthetic shared content', text: 'Stored public fixture shared by authenticated users.', publishedAt: now,
   firstFetchedAt: now, lastFetchedAt: now, availability: 'available', references: [], media: [], platformDetails: { platform: 'reddit', community: 'technology', flair: null, nsfw: null },
   observations: [{ provider: 'demo_reddit', sourceId: source.id, sourceObservedAt: null, fetchedAt: now, timeBasis: 'unknown', maturity: 'unknown', metrics: {}, evidenceKey: 'synthetic-identity-no-source-claim' }] };
@@ -57,8 +57,13 @@ async function main() {
   let auditReads = 0;
   let otherSession = true;
   let inviteIssued = false;
+  let budget: SourceProviderBudget = { provider: 'demo_reddit', revision: 1, enabled: true, dailyRequests: 100, monthlyRequests: 1000, dailyResources: 1000, monthlyResources: 10000, minimumIntervalMs: 0 };
+  let usageRequests = 0;
+  let nextBudgetOutcomeUnknown = false;
   const targetRecord = { id: 'synthetic-target', canonicalName: 'r/technology', status: 'active', favorite: false,
     cadenceHours: null as number | null, notes: 'Stored note', category: 'baseline', revision: 1 };
+  const secondTarget = { ...targetRecord, id: 'synthetic-target-2', canonicalName: 'r/science' };
+  const targets = [targetRecord, secondTarget];
   const requests: { path: string; actor: string | null; method: string }[] = [];
   try {
     await context.addInitScript(() => localStorage.setItem('reddit-monitoring.language', 'en'));
@@ -88,7 +93,7 @@ async function main() {
         return json({ ok: true, requestId: 'synthetic-register', user });
       }
       if (!activeUser) return error('Sign in required', 401);
-      if (path === '/auth/invites') { inviteIssued = true; return json({ ok: true, requestId: 'synthetic-invite', code: 'SYNTHETIC-INVITE', invite: { id: 'synthetic-invite', roleOnAccept: 'viewer', maxUses: 1, usedCount: 0, createdAt: now } }); }
+      if (path === '/auth/invites') { assert.ok(activeUser.role === 'owner' || route.request().postDataJSON().roleOnAccept === 'viewer'); inviteIssued = true; return json({ ok: true, requestId: 'synthetic-invite', code: 'SYNTHETIC-INVITE', invite: { id: 'synthetic-invite', roleOnAccept: 'viewer', maxUses: 1, usedCount: 0, createdAt: now } }); }
       if (path === '/auth/users') return json({ ok: true, requestId: 'synthetic-users', users });
       const userAction = path.match(/^\/auth\/users\/([^/]+)\/(activate|status|role)$/);
       if (userAction) {
@@ -125,7 +130,15 @@ async function main() {
         return json({ ok: true, requestId: 'synthetic-audit', entries: [auditEntries[url.searchParams.has('cursor') ? 1 : 0]], nextCursor: url.searchParams.has('cursor') ? null : 'synthetic-next' });
       }
       if (path === '/v1/workbench/saved-views') return json({ ok: true, requestId: 'synthetic-saved', views: [privateView(activeUser)] });
-      if (path === '/v1/targets/subreddit') return json({ ok: true, requestId: 'synthetic-targets', targets: [targetRecord] });
+      if (path === '/v1/targets/subreddit') return json({ ok: true, requestId: 'synthetic-targets', targets });
+      if (path === '/v1/targets/subreddit/bulk-update') {
+        const body = route.request().postDataJSON() as { canonicalNames: string[]; expectedRevisions: Record<string, number>; patch: { status: string; cadenceHours?: number } };
+        assert.deepEqual(Object.keys(body.expectedRevisions).sort(), body.canonicalNames.slice().sort());
+        const rows = body.canonicalNames.map(name => targets.find(target => target.canonicalName === name));
+        if (rows.some(row => !row || body.expectedRevisions[row.canonicalName] !== row.revision)) return error('Synthetic bulk revision conflict; no targets changed', 409);
+        for (const row of rows) { row!.status = body.patch.status; if (body.patch.cadenceHours !== undefined) row!.cadenceHours = body.patch.cadenceHours; row!.revision += 1; }
+        return json({ ok: true, requestId: 'synthetic-bulk', updatedCount: rows.length, targets: rows });
+      }
       if (path === '/v1/targets/subreddit/technology' && method === 'PATCH') {
         const patch = route.request().postDataJSON() as { expectedRevision: number; notes: string; category: string; status: string; favorite: boolean; cadenceHours: number | null };
         if (patch.expectedRevision !== targetRecord.revision) return error('Synthetic target changed during edit', 409);
@@ -134,6 +147,29 @@ async function main() {
         return json({ ok: true, requestId: 'synthetic-target-update', target: targetRecord });
       }
       if (path === '/v1/sources') return json({ ok: true, requestId: 'synthetic-sources', sources: [source], capabilities: [capability], providers: [] });
+      if (path === `/v1/sources/${source.id}` && method === 'PATCH') {
+        const body = route.request().postDataJSON();
+        if (body.expectedRevision !== source.revision) return error('Synthetic source revision conflict', 409);
+        source.label = body.label; source.group = body.group; source.schedule = body.schedule; source.refresh = body.refresh; source.revision! += 1;
+        return json({ ok: true, requestId: 'synthetic-source-update', source });
+      }
+      if (path.startsWith(`/v1/sources/${source.id}/`) && ['pause', 'resume', 'archive'].includes(path.split('/').at(-1)!)) {
+        const body = route.request().postDataJSON();
+        if (body.expectedRevision !== source.revision) return error('Synthetic source state conflict', 409);
+        source.state = path.endsWith('/pause') ? 'paused' : path.endsWith('/archive') ? 'archived' : 'active'; source.revision! += 1;
+        return json({ ok: true, requestId: 'synthetic-source-state', source });
+      }
+      if (path === '/v1/source-ops') {
+        const body: SourceOpsResponse = { ok: true, requestId: 'synthetic-ops', ops: { checkedAt: now, workers: [], queue: [], oldestQueuedAt: null, sources: [], providers: [{ provider: budget.provider, day: '2026-10-13', month: '2026-10', dailyRequests: usageRequests, monthlyRequests: usageRequests, dailyResources: 0, monthlyResources: 0, budget }] } };
+        return json(body);
+      }
+      if (path === `/v1/source-provider-budgets/${budget.provider}` && method === 'PUT') {
+        const body = route.request().postDataJSON(); assert.equal(body.revision, undefined);
+        if (body.expectedRevision !== budget.revision) return error('Synthetic budget revision conflict', 409);
+        const { expectedRevision, ...fields } = body; budget = { ...fields, provider: budget.provider, revision: expectedRevision + 1 };
+        if (nextBudgetOutcomeUnknown) { nextBudgetOutcomeUnknown = false; return json({ ok: false, errorCode: 'audit_result_unknown', error: 'Synthetic operation outcome unknown' }, 503); }
+        return json({ ok: true, requestId: 'synthetic-budget', budget });
+      }
       if (path === '/v1/content') return json({ ok: true, requestId: 'synthetic-content', items: [publicItem], stats, nextCursor: null });
       if (path === '/v1/content/workbench') {
         if (activeUser.id === owner.id && url.searchParams.get('query') === 'late_owner') { lateOwnerRoute = route; return; }
@@ -211,6 +247,11 @@ async function main() {
     await page.getByRole('button', { name: 'Revoke all sessions and sign out', exact: true }).click();
     await page.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
     await signIn(page, admin.email);
+    await visit(page, '/ops/invites');
+    assert.equal(await page.getByLabel('Role on accept', { exact: true }).isDisabled(), true);
+    assert.deepEqual(await page.getByLabel('Role on accept', { exact: true }).locator('option').allTextContents(), ['viewer']);
+    await page.getByRole('button', { name: 'Create invite', exact: true }).click();
+    await page.getByText('SYNTHETIC-INVITE', { exact: true }).waitFor();
     await visit(page, '/ops/users');
     assert.equal(await page.getByLabel('Change role', { exact: true }).first().isDisabled(), true);
     await visit(page, '/ops/audit');
@@ -219,34 +260,96 @@ async function main() {
     await page.getByRole('heading', { name: 'source.updated', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Previous page', exact: true }).click();
     await page.getByRole('heading', { name: 'user.activated', exact: true }).waitFor();
+    await visit(page, '/content');
+    await page.getByText(/View and manage sources/).click();
+    await page.getByText('Source settings', { exact: true }).click();
+    const settings = page.locator('form[aria-label^="Settings for"]');
+    const sourceLabel = settings.getByLabel('Source label', { exact: true });
+    await sourceLabel.fill('Retained source draft');
+    source.updatedAt = '2026-10-13T02:00:00.000Z';
+    await page.getByRole('button', { name: 'Refresh sources', exact: true }).click();
+    assert.equal(await sourceLabel.inputValue(), 'Retained source draft');
+    assert.equal(await settings.getByRole('button', { name: 'Save source settings', exact: true }).isDisabled(), false);
+    source.label = 'Remote source label'; source.revision! += 1;
+    await settings.getByRole('button', { name: 'Save source settings', exact: true }).click();
+    await settings.getByRole('alert').filter({ hasText: 'Synthetic source revision conflict' }).waitFor();
+    assert.equal(await sourceLabel.inputValue(), 'Retained source draft');
+    assert.equal(await settings.getByRole('button', { name: 'Save source settings', exact: true }).isDisabled(), true);
+    await settings.getByRole('button', { name: 'Reload settings', exact: true }).click();
+    assert.equal(await sourceLabel.inputValue(), 'Remote source label');
+    await sourceLabel.fill('Saved source label');
+    await settings.getByRole('button', { name: 'Save source settings', exact: true }).click();
+    await settings.getByText('Settings saved', { exact: true }).waitFor();
+    assert.equal(source.label, 'Saved source label');
+    await page.getByRole('button', { name: 'Pause source', exact: true }).click();
+    await page.getByRole('button', { name: 'Resume source', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Resume source', exact: true }).click();
+    await page.getByRole('button', { name: 'Pause source', exact: true }).waitFor();
+    await page.getByText('Worker status and provider budgets', { exact: true }).click();
+    const budgetForm = page.getByRole('form', { name: 'Budget for demo_reddit', exact: true });
+    const daily = budgetForm.getByLabel('Daily request limit', { exact: true });
+    await daily.fill('120'); usageRequests += 1;
+    await page.getByRole('button', { name: 'Refresh worker status', exact: true }).click();
+    assert.equal(await daily.inputValue(), '120');
+    assert.equal(await budgetForm.getByRole('button', { name: 'Save provider budget', exact: true }).isDisabled(), false);
+    budget.dailyRequests = 115; budget.revision! += 1;
+    await budgetForm.getByRole('button', { name: 'Save provider budget', exact: true }).click();
+    await budgetForm.getByRole('alert').filter({ hasText: 'Synthetic budget revision conflict' }).waitFor();
+    assert.equal(await daily.inputValue(), '120');
+    await budgetForm.getByRole('button', { name: 'Reload budget', exact: true }).click();
+    assert.equal(await daily.inputValue(), '115');
+    await daily.fill('130'); nextBudgetOutcomeUnknown = true;
+    await budgetForm.getByRole('button', { name: 'Save provider budget', exact: true }).click();
+    await budgetForm.getByRole('alert').filter({ hasText: 'verify the actual resource state' }).waitFor();
+    assert.equal(budget.dailyRequests, 130);
+    assert.equal(await budgetForm.getByRole('button', { name: 'Save provider budget', exact: true }).isDisabled(), true);
+    await budgetForm.getByRole('button', { name: 'Cancel budget edits', exact: true }).click();
+    await daily.fill('140');
+    await budgetForm.getByRole('button', { name: 'Save provider budget', exact: true }).click();
+    await budgetForm.getByText('Budget saved', { exact: true }).waitFor();
+    assert.equal(budget.dailyRequests, 140);
     await visit(page, '/ops/targets');
     const notes = page.getByLabel('Notes r/technology', { exact: true });
+    const targetCard = page.locator('div').filter({ has: notes }).filter({ has: page.getByRole('button', { name: 'Save target', exact: true }) }).last();
     await notes.fill('Unsaved row note');
     targetRecord.notes = 'Remote stored note'; targetRecord.revision += 1;
     await page.getByRole('button', { name: 'Refresh targets', exact: true }).click();
     await page.getByRole('alert').filter({ hasText: 'changed while editing' }).waitFor();
     assert.equal(await notes.inputValue(), 'Unsaved row note');
-    assert.equal(await page.getByRole('button', { name: 'Save target', exact: true }).isDisabled(), true);
-    await page.getByRole('button', { name: 'Cancel edits', exact: true }).click();
+    assert.equal(await targetCard.getByRole('button', { name: 'Save target', exact: true }).isDisabled(), true);
+    await targetCard.getByRole('button', { name: 'Cancel edits', exact: true }).click();
     assert.equal(await notes.inputValue(), 'Remote stored note');
     await notes.fill('Will conflict with another save');
     targetRecord.notes = 'Another remote note'; targetRecord.revision += 1;
-    await page.getByRole('button', { name: 'Save target', exact: true }).click();
+    await targetCard.getByRole('button', { name: 'Save target', exact: true }).click();
     await page.getByRole('alert').filter({ hasText: 'Synthetic target changed during edit' }).waitFor();
     assert.equal(await notes.inputValue(), 'Will conflict with another save');
-    await page.getByRole('button', { name: 'Cancel edits', exact: true }).click();
+    await targetCard.getByRole('button', { name: 'Cancel edits', exact: true }).click();
     assert.equal(await notes.inputValue(), 'Another remote note');
     await notes.fill('Saved row note');
-    await page.getByRole('button', { name: 'Save target', exact: true }).click();
+    await targetCard.getByRole('button', { name: 'Save target', exact: true }).click();
     await page.getByText('Target saved.', { exact: true }).waitFor();
     assert.equal(targetRecord.notes, 'Saved row note');
-    assert.equal(await page.getByRole('button', { name: 'Save target', exact: true }).isDisabled(), true);
+    assert.equal(await targetCard.getByRole('button', { name: 'Save target', exact: true }).isDisabled(), true);
+    await page.getByLabel('r/technology', { exact: true }).check();
+    await page.getByLabel('r/science', { exact: true }).check();
+    const statusBeforeBulk = targetRecord.status, revisionBeforeBulk = targetRecord.revision;
+    secondTarget.revision += 1;
+    await page.getByRole('button', { name: 'Apply bulk update', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: 'Synthetic bulk revision conflict' }).waitFor();
+    assert.equal(targetRecord.status, statusBeforeBulk); assert.equal(targetRecord.revision, revisionBeforeBulk);
+    assert.equal(await page.getByLabel('r/technology', { exact: true }).isChecked(), true);
+    await page.getByRole('button', { name: 'Apply bulk update', exact: true }).click();
+    await page.getByText('Bulk update saved.', { exact: true }).waitFor();
+    assert.ok(targets.every(row => row.status === 'paused'));
     await notes.fill('Do not lose this draft');
-    page.once('dialog', dialog => void dialog.dismiss());
-    await visit(page, '/saved');
+    await Promise.all([page.waitForEvent('dialog').then(dialog => dialog.dismiss()), visit(page, '/saved')]);
     assert.equal(new URL(page.url()).pathname, '/ops/targets');
     assert.equal(await notes.inputValue(), 'Do not lose this draft');
-    await page.getByRole('button', { name: 'Cancel edits', exact: true }).click();
+    await Promise.all([page.waitForEvent('dialog').then(dialog => dialog.dismiss()), page.goBack()]);
+    await page.waitForURL('**/ops/targets');
+    assert.equal(await notes.inputValue(), 'Do not lose this draft');
+    await targetCard.getByRole('button', { name: 'Cancel edits', exact: true }).click();
     await visit(page, '/ops/audit');
     await page.getByTitle('简体中文', { exact: true }).click();
     await page.getByRole('heading', { name: '操作审计', exact: true }).waitFor();
@@ -260,7 +363,9 @@ async function main() {
     const result = { ok: true, mode: 'synthetic_api_offline_ui', checked: ['invite→pending→activation→login', 'owner self guard and other-user role change',
       'A→401→B private cache and local draft isolation', 'late A 401 does not expire B', 'viewer source query and audit guard',
       'session revocation', 'keyboard password mismatch and successful reauthentication', 'revoke-all', 'admin role boundary', 'audit pagination',
-      'target draft refresh, stale revision conflict, cancel/reload, successful save and cancel navigation', 'Chinese account/audit and 390px layout'],
+      'admin viewer-only invitation', 'source/budget CAS preserves drafts and ignores worker/usage-only updates', 'source state expected revision',
+      'unknown audit result blocks blind retry and supports reconciliation', 'atomic bulk revision map and zero writes on conflict',
+      'target draft refresh, stale revision conflict, cancel/reload, successful save and blocked link/browser-back navigation', 'Chinese account/audit and 390px layout'],
       externalRequests: 0, errors, requestCount: requests.length };
     await writeFile('output/playwright/phase4b-account-security-evidence.json', JSON.stringify(result, null, 2), 'utf8');
     console.log(JSON.stringify(result));

@@ -51,7 +51,7 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 
 ## 统一存储：共享身份，独立证据
 
-现有 `source` 继续承载平台注册。[029 迁移](../src/storage/schema/029_source_content_collection.sql) 复用 `content`，增加必要关联/观测/任务，没有复制整套内容表。阶段 3 的 34 个 SQL 已在独立合成开发库及隔离验证库应用；4A 新增 033 调度可靠性迁移，隔离库完整 35 个 SQL 应用与重复执行通过。033 未升级本机开发业务库。4B 检查点另有 034 账户安全（仅账户隔离库应用）与 035 配置 revision（未应用）；其跨层集成尚未交付。原业务数据库和正式部署没有实施本次迁移或升级验收。
+现有 `source` 继续承载平台注册。[029 迁移](../src/storage/schema/029_source_content_collection.sql) 复用 `content`，增加必要关联/观测/任务，没有复制整套内容表。阶段 3 的 34 个 SQL 已在独立合成开发库及隔离验证库应用；4A 新增 033 调度可靠性迁移，隔离库完整 35 个 SQL 应用与重复执行通过。033 未升级本机开发业务库。4B 新增 034 账户安全与 035 配置 revision，隔离库验证全迁移、重复执行与并发 CAS，其跨层集成已交付。原业务数据库和正式部署没有实施本次迁移或升级验收。
 
 | 逻辑对象 | 最小信息与去重 | 存储原则 |
 | --- | --- | --- |
@@ -150,3 +150,7 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 | [Airbyte 协议](https://github.com/airbytehq/airbyte/blob/master/docs/platform/understanding-airbyte/airbyte-protocol.md) | 数据记录与增量状态分离，state 用于恢复 | 保留逐页提交/stream checkpoint 语义，不部署完整 ETL 平台 |
 
 上述资料提供模式，本文件的模型、进程预算和迁移顺序是基于本仓库的设计判断，需以实际来源、容量和查询验收校准。
+
+账户采用凭证版本 fencing，改密原子写新 hash/提升版本并撤销会话；机器身份禁止个人账户操作。owner/admin/viewer 政策覆盖角色、状态和邀请，最后 active owner 有事务锁保护。业务审计先保存 attempted，变更后保存脱敏结果；intent 失败拒绝变更，结果持久化失败返回 `audit_result_unknown`，不声称业务与审计原子，UI 先刷新确认。匿名登录/注册走安全日志和独立 IP 限流，不伪造审计 actor。配置 revision 仅配置变更提升，bulk 锁定全部目标验证后再写，来源页提交与暂停采用一致 source→job 锁序。
+
+账户采用凭证版本 fencing，改密原子写新 hash/提升版本并撤销会话；机器身份禁止个人账户操作。owner/admin/viewer 政策覆盖角色、状态和邀请，最后 active owner 有事务锁保护。业务审计先保存 attempted，变更后保存脱敏结果；intent 失败拒绝变更，结果持久化失败返回 `audit_result_unknown`，不声称业务与审计原子，UI 先刷新确认。匿名登录/注册走安全日志和独立 IP 限流，不伪造审计 actor。配置 revision 仅配置变更提升，bulk 锁定全部目标验证后再写，来源页提交与暂停采用一致 source→job 锁序。

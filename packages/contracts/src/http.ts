@@ -94,6 +94,7 @@ export interface AuthPasswordChangeRequest { currentPassword: string; newPasswor
 export interface AuthPasswordChangeResponse { ok: true; requestId: string; reauthenticate: true }
 export interface AuthSessionView { id: string; createdAt: string; lastSeenAt: string; expiresAt: string; current: boolean }
 export interface AuthSessionsResponse { ok: true; requestId: string; sessions: AuthSessionView[] }
+export interface AuthSessionRevokeResponse { ok: true; requestId: string; currentSessionRevoked: boolean }
 export interface UpdateAppUserRoleRequest { role: AppUserRole }
 export interface UpdateAppUserRoleResponse { ok: true; requestId: string; user: AuthUserView }
 export interface AppAuditRecord {
@@ -258,6 +259,7 @@ export interface TriggerPhase1RunResponse {
 
 export interface SubredditTargetAdminView {
   id: string;
+  revision?: number;
   canonicalName: string;
   status: "active" | "paused";
   favorite: boolean;
@@ -276,6 +278,7 @@ export interface ListSubredditTargetsResponse {
 }
 
 export interface UpdateSubredditTargetRequest {
+  expectedRevision?: number;
   status?: "active" | "paused";
   favorite?: boolean;
   cadenceHours?: number | null;
@@ -292,6 +295,8 @@ export interface UpdateSubredditTargetResponse {
 export interface BulkUpdateSubredditTargetsRequest {
   canonicalNames: string[];
   patch: UpdateSubredditTargetRequest;
+  /** Canonical target name to observed revision; supplied batch updates are all-or-nothing. */
+  expectedRevisions?: Record<string, number>;
 }
 
 export interface BulkUpdateSubredditTargetsResponse {

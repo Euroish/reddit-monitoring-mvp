@@ -1,22 +1,30 @@
 import { useState, type FormEvent } from 'react';
-import { useMutation } from '@tanstack/react-query';
-import { fetchApi } from '../../api/client';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ApiError, fetchApi } from '../../api/client';
 import { Button, Input } from '../../components/ui';
-import type { CollectionSource, CollectionSourceResponse, SourceCapability, UpdateCollectionSourceRequest } from '../../../../../packages/contracts/src/http';
+import type { CollectionSource, CollectionSourceResponse, SourceCapability, SourceListResponse, UpdateCollectionSourceRequest } from '../../../../../packages/contracts/src/http';
 
 export function SourceSettings({ source, capability, zh, onUpdated }: {
   source: CollectionSource; capability: SourceCapability | undefined; zh: boolean; onUpdated: () => void;
 }) {
   const copy = (en: string, cn: string) => zh ? cn : en;
-  const snapshot = (value: CollectionSource) => ({ base: value.updatedAt, dirty: false,
+  const client = useQueryClient();
+  const version = (value: CollectionSource) => JSON.stringify([value.revision, value.label, value.group, value.schedule, value.refresh]);
+  const snapshot = (value: CollectionSource) => ({ base: version(value), revision: value.revision, dirty: false,
     fields: { label: value.label, group: value.group ?? '', schedule: { ...value.schedule, recheckLookbackHours: value.schedule.recheckLookbackHours ?? 12, recheckCadenceSeconds: value.schedule.recheckCadenceSeconds ?? 21600 }, refresh: { ...value.refresh } } });
   const [edit, setEdit] = useState(() => snapshot(source));
-  const current = !edit.dirty && edit.base !== source.updatedAt ? snapshot(source) : edit;
-  const conflict = edit.dirty && edit.base !== source.updatedAt;
+  const current = !edit.dirty && edit.base !== version(source) ? snapshot(source) : edit;
+  const stale = edit.dirty && edit.base !== version(source);
   const canAutomaticallyRefresh = capability?.observationModel === 'archive' && capability.refreshByIds === true;
   const update = useMutation({ mutationFn: (payload: UpdateCollectionSourceRequest) =>
     fetchApi<CollectionSourceResponse>(`/v1/sources/${source.id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-    onSuccess: data => { setEdit(snapshot(data.source)); onUpdated(); } });
+    onSuccess: data => {
+      client.setQueryData<SourceListResponse>(['contentSources'], previous => previous ? { ...previous, sources: previous.sources.map(item => item.id === data.source.id ? data.source : item) } : previous);
+      setEdit(snapshot(data.source)); onUpdated();
+    },
+    onError: error => { if (error instanceof ApiError && (error.status === 409 || error.code === 'audit_result_unknown')) onUpdated(); } });
+  const conflict = stale || (update.error instanceof ApiError && update.error.status === 409);
+  const outcomeUnknown = update.error instanceof ApiError && update.error.code === 'audit_result_unknown';
   const setField = (field: 'label' | 'group', value: string) => {
     update.reset(); setEdit({ ...current, dirty: true, fields: { ...current.fields, [field]: value } });
   };
@@ -25,8 +33,8 @@ export function SourceSettings({ source, capability, zh, onUpdated }: {
       fields: { ...current.fields, [section]: { ...current.fields[section], [field]: value } } });
   };
   const save = (event: FormEvent) => {
-    event.preventDefault(); if (conflict) return;
-    update.mutate({ ...current.fields, group: current.fields.group.trim() || null });
+    event.preventDefault(); if (conflict || outcomeUnknown) return;
+    update.mutate({ ...current.fields, group: current.fields.group.trim() || null, expectedRevision: current.revision });
   };
   const scheduleFields = [
     ['cadenceSeconds', 'Collection interval (seconds)', '采集间隔（秒）', 60, 86400],
@@ -66,9 +74,10 @@ export function SourceSettings({ source, capability, zh, onUpdated }: {
       </fieldset>
       <p className="content-muted">{copy('Scheduling requires a running source worker. Paused and archived sources do not start new collection jobs. Identity stays fixed; add a source to change its target.', '调度需要来源 worker 持续运行。暂停或归档来源不会启动新采集任务；若要改变采集目标，请新增来源。')}</p>
       <p className="content-muted">{copy('Late-arrival checks revisit only the configured recent window and consume the same provider budget. They preserve incremental checkpoints and cannot prove full upstream coverage.', '迟到回查只重查配置的近期窗口，计入同一 provider 预算并保留增量 checkpoint；不能证明上游完整覆盖。')}</p>
-      {conflict && <p role="alert" className="content-error">{copy('The source changed while you were editing. Reload its settings before saving.', '编辑期间来源已更新，请重新载入设置再保存。')} <Button type="button" onClick={() => setEdit(snapshot(source))}>{copy('Reload settings', '重新载入设置')}</Button></p>}
+      {conflict && <p role="alert" className="content-error">{copy('The source changed while you were editing. Your draft is retained. Reload its settings before saving.', '编辑期间来源已更新，草稿已保留。请重新载入设置再保存。')} <Button type="button" onClick={() => { setEdit(snapshot(source)); update.reset(); }}>{copy('Reload settings', '重新载入设置')}</Button></p>}
       {update.error && <p role="alert" className="content-error">{update.error.message}</p>}
-      <Button type="submit" variant="primary" disabled={update.isPending || conflict || !current.dirty}>{update.isPending ? copy('Saving…', '正在保存…') : copy('Save source settings', '保存来源设置')}</Button>
+      <Button type="submit" variant="primary" disabled={update.isPending || conflict || outcomeUnknown || !current.dirty}>{update.isPending ? copy('Saving…', '正在保存…') : copy('Save source settings', '保存来源设置')}</Button>
+      <Button type="button" disabled={!current.dirty || update.isPending} onClick={() => { setEdit(snapshot(source)); update.reset(); }}>{copy('Cancel source edits', '取消来源修改')}</Button>
       {update.isSuccess && <span role="status" style={{ marginLeft: '12px' }}>{copy('Settings saved', '设置已保存')}</span>}
     </form>
   </details>;

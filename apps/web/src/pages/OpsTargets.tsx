@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
 import { Badge, Button, Card, Input, Select } from '../components/ui';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import type {
   BulkUpdateSubredditTargetsResponse,
+  BulkUpdateSubredditTargetsRequest,
   ListSubredditTargetsResponse,
   SubredditTargetAdminView,
   UpdateSubredditTargetRequest,
@@ -45,22 +47,7 @@ export function OpsTargets() {
   const [notice, setNotice] = useState('');
   const dirtyNames = Object.keys(drafts).filter(name => draftSnapshot(drafts[name]) !== drafts[name].baseSnapshot);
   const hasUnsaved = dirtyNames.length > 0;
-  useEffect(() => {
-    if (!hasUnsaved) return;
-    const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
-    const beforeLink = (event: MouseEvent) => {
-      if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || !(event.target instanceof Element)) return;
-      const link = event.target.closest('a');
-      if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
-      const destination = new URL(link.href, location.href);
-      if (destination.pathname === location.pathname && destination.search === location.search) return;
-      const message = language === 'zh-CN' ? '离开后将丢弃未保存的目标修改，是否继续？' : 'Leaving will discard unsaved target changes. Continue?';
-      if (!window.confirm(message)) { event.preventDefault(); event.stopPropagation(); }
-    };
-    window.addEventListener('beforeunload', beforeUnload);
-    document.addEventListener('click', beforeLink, true);
-    return () => { window.removeEventListener('beforeunload', beforeUnload); document.removeEventListener('click', beforeLink, true); };
-  }, [hasUnsaved, language]);
+  useUnsavedChanges(hasUnsaved, copy('Leaving will discard unsaved target changes. Continue?', '离开后将丢弃未保存的目标修改，是否继续？'));
 
   const targets = useMemo(() => data?.targets ?? [], [data?.targets]);
   const effectiveDrafts = useMemo(() => {
@@ -86,12 +73,13 @@ export function OpsTargets() {
   });
 
   const bulkUpdate = useMutation({
-    mutationFn: (payload: { canonicalNames: string[]; patch: UpdateSubredditTargetRequest }) =>
+    mutationFn: (payload: BulkUpdateSubredditTargetsRequest) =>
       fetchApi<BulkUpdateSubredditTargetsResponse>('/v1/targets/subreddit/bulk-update', {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
     onSuccess: () => { setNotice(copy('Bulk update saved.', '批量修改已保存。')); return queryClient.invalidateQueries({ queryKey: ['ops.targets'] }); },
+    onError: () => { void queryClient.invalidateQueries({ queryKey: ['ops.targets'] }); },
   });
 
   const toggleSelected = (canonicalName: string) => {
@@ -118,9 +106,10 @@ export function OpsTargets() {
   };
 
   const applyBulk = () => {
-    if (selected.length === 0) return;
+    if (selected.length === 0 || selected.length > 100 || selected.some(name => !Number.isInteger(targets.find(target => target.canonicalName === name)?.revision) || (targets.find(target => target.canonicalName === name)?.revision ?? 0) < 1)) return;
     bulkUpdate.mutate({
       canonicalNames: selected,
+      expectedRevisions: Object.fromEntries(selected.map(name => [name, targets.find(target => target.canonicalName === name)?.revision ?? 0])),
       patch: {
         status: bulkStatus,
         cadenceHours: bulkCadenceHours.trim() === '' ? undefined : Number(bulkCadenceHours),
@@ -144,16 +133,17 @@ export function OpsTargets() {
       <Card style={{ marginBottom: '24px' }}>
         <div className="filter-bar">
           <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>{selected.length} {t('selected')}</span>
-          <Select value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value as 'active' | 'paused')} style={{ maxWidth: '160px' }}>
+          <Select aria-label={copy('Bulk target status', '批量目标状态')} value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value as 'active' | 'paused')} style={{ maxWidth: '160px' }}>
             <option value="paused">paused</option>
             <option value="active">active</option>
           </Select>
-          <Input value={bulkCadenceHours} onChange={(event) => setBulkCadenceHours(event.target.value)} placeholder={t('cadence hours')} style={{ maxWidth: '160px' }} />
-          <Button type="button" variant="primary" onClick={applyBulk} disabled={selected.length === 0 || bulkUpdate.isPending || saveTarget.isPending || selected.some(name => dirtyNames.includes(name))}>
+          <Input type="number" min={1} max={168} aria-label={copy('Bulk cadence hours', '批量间隔小时')} value={bulkCadenceHours} onChange={(event) => setBulkCadenceHours(event.target.value)} placeholder={t('cadence hours')} style={{ maxWidth: '160px' }} />
+          <Button type="button" variant="primary" onClick={applyBulk} disabled={selected.length === 0 || selected.length > 100 || bulkUpdate.isPending || saveTarget.isPending || selected.some(name => dirtyNames.includes(name) || (targets.find(target => target.canonicalName === name)?.revision ?? 0) < 1)}>
             {bulkUpdate.isPending ? t('Applying...') : t('Apply bulk update')}
           </Button>
         </div>
-        <p className="page-subtitle">{copy('Bulk updates have no per-row revision check. Save or discard selected row drafts first.', '批量更新不检查每行版本，请先保存或丢弃所选行的草稿。')}</p>
+        <p className="page-subtitle">{copy('Bulk updates check every selected revision and apply together. A conflict saves none. Save or discard selected row drafts first.', '批量更新会检查所选各行版本并整体保存；任一冲突均不写入。请先保存或丢弃所选行草稿。')}</p>
+        {selected.some(name => (targets.find(target => target.canonicalName === name)?.revision ?? 0) < 1) && <p role="alert">{copy('A selected target has no current version. Refresh targets before a bulk update.', '所选目标缺少当前版本，请先刷新目标再批量更新。')}</p>}
       </Card>
 
       {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>{t('Loading targets...')}</div>}

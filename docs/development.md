@@ -4,7 +4,7 @@
 
 使用 Node.js 22+ 与 npm，本轮 Windows 本地验证使用 Node.js 24.14.0、PowerShell 7。从仓库根目录执行：
 
-2026-10-13 停止检查点：个人分支保存未完成的 4B，既有整库 typecheck 有失败、账户页面所需新 HTTP 路由尚未接通；下面命令是稳定开发入口，不代表该检查点可完整启动验收。可交付的 4A 代码以 `local-phase4a-v0.5.0` 为准；当前工作不得通过 reset/clean/stash 丢弃，单 agent 应先按 [交接](handoff.md) 收口后再验收。临时 Vite 41975 已停止，本机 PostgreSQL 25432 保留运行，033/034/035 未升级 `info_workbench_dev`。
+2026-10-13 已恢复并行，4B 0.6.0 的独立版本已完成类型、构建、离线/SQL 与本地账户闭环验收。原 WIP 停止标签保留；后续工作不能用 reset/clean/stash 覆盖。033/034/035 已在隔离库验证，本机 `info_workbench_dev` 尚未升级。
 
 ```powershell
 npm ci
@@ -137,3 +137,7 @@ node --import tsx --test tests/integration/source-content-postgres.test.ts
 先构建不可变发布目录（含 `dist/`、`apps/web/dist/`、运行依赖和 SQL），备份数据库，再执行 `db:migrate:compiled`，新空库才运行 `auth:bootstrap-owner:compiled`。Nginx 应限制公开 `/readyz`，域名使用 HTTPS，启用安全 cookie 与明确的 CORS。真实 provider 验证和小规模采集通过后再启动调度；代码回滚不等于数据库回滚。
 
 部署时可使用 `pg_dump --format=custom` 备份，并在隔离环境验证 `pg_restore --clean --if-exists --no-owner` 的恢复；这些操作需要真实数据库参数。公开服务配置完成后执行 `PUBLIC_BASE_URL=https://example.com npm run smoke:public-launch`，认证检查参数见 `scripts/smoke-public-launch.ts`。不在文档保存账号密码。
+
+账户验证：`npm run smoke:accounts` 使用合成 API；`npm run smoke:accounts:local` 要求 `TEST_SOURCE_DATABASE_URL` 指向 loopback 的 `source_validation_*` 库，创建新合成库并启动自己的临时 API/Vite，实际验证改密、会话撤销、账号隔离和持久化审计。已有 Chromium 可通过 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定。临时进程结束，合成数据库保留；凭证不打印，外部请求禁止。
+
+账户验证：`npm run smoke:accounts` 使用合成 API；`npm run smoke:accounts:local` 要求 `TEST_SOURCE_DATABASE_URL` 指向 loopback 的 `source_validation_*` 库，创建新合成库并启动自己的临时 API/Vite，实际验证改密、会话撤销、账号隔离和持久化审计。已有 Chromium 可通过 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定。临时进程结束，合成数据库保留；凭证不打印，外部请求禁止。

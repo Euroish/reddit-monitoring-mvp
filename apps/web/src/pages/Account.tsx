@@ -5,9 +5,7 @@ import { fetchApi } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { Badge, Button, Card, Input } from '../components/ui';
 import { useLanguage } from '../i18n/LanguageContext';
-import type { AuthPasswordChangeResponse, AuthSessionsResponse } from '../../../../packages/contracts/src/http';
-
-type RevokeResponse = { ok: true; requestId: string; currentSessionRevoked: boolean };
+import type { AuthPasswordChangeResponse, AuthSessionsResponse, AuthSessionRevokeResponse } from '../../../../packages/contracts/src/http';
 
 export function Account() {
   const { user, clearSession } = useAuth();
@@ -33,14 +31,14 @@ export function Account() {
     onSuccess: reauthenticate,
   });
   const revoke = useMutation({
-    mutationFn: (id: string) => fetchApi<RevokeResponse>(`/auth/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    mutationFn: (id: string) => fetchApi<AuthSessionRevokeResponse>(`/auth/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     onSuccess: response => {
       if (response.currentSessionRevoked) reauthenticate();
       else { setNotice(copy('Session revoked.', '会话已撤销。')); void client.invalidateQueries({ queryKey: sessionKey }); }
     },
   });
   const revokeAll = useMutation({
-    mutationFn: () => fetchApi<RevokeResponse>('/auth/sessions/revoke-all', { method: 'POST', body: '{}' }),
+    mutationFn: () => fetchApi<AuthSessionRevokeResponse>('/auth/sessions/revoke-all', { method: 'POST', body: '{}' }),
     onSuccess: response => {
       if (response.currentSessionRevoked) reauthenticate();
       else { setNotice(copy('Sessions revoked.', '会话已撤销。')); void client.invalidateQueries({ queryKey: sessionKey }); }

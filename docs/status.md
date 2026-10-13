@@ -1,6 +1,6 @@
 # 当前状态与下一步
 
-核对日期：2026-10-13。用户要求改为单 agent、完成交接和日志后停止，本次任务已停止。阶段 1–3 已交付约定的软件闭环；4A 的已验证软件快照为 v0.5.0，当前个人分支另保存 4B 未完成检查点，不能把整个分支当作已验收版本。4C/5A/5B 尚未开始。阶段 3 软件基线仍保留 e88ca2e / v0.4.0，最初审计基线仍为 cd920c5。逐项对照及单 agent 接续见 [交接](handoff.md)，过程见 [开发日志](development-log.md)，运行方式见 [开发说明](development.md)。真实来源验收仍不执行。
+核对日期：2026-10-13。阶段 1–3 与 4A 已交付；4B 已收口为 0.6.0 软件交付：账户 HTTP、角色权限、持久化脱敏审计、来源/预算/目标 revision CAS、批量原子冲突和账号缓存/草稿隔离已贯通。独立冻结版本通过 455/455 离线、24/24 隔离 SQL、类型/构建/lint/compiled/docs；实际 localhost 浏览器→API→新合成 PG 验证改密再认证、旧会话拒绝、A/B Saved 隔离和撤销全部会话，18 个 API 请求、外部请求/页面错误均为 0。复用已安装依赖，云端 CI、清洁安装、生产部署和真实 provider 未验。 后续 4C、5A、5B 正在准备，尚未作为交付版本。最初审计基线 cd920c5、阶段 3 e88ca2e / v0.4.0 保留。分工与接续见 [交接](handoff.md)，过程见 [开发日志](development-log.md)，运行见 [开发说明](development.md)。
 
 ## 已交付的软件范围
 
@@ -30,20 +30,20 @@
 
 证据位于忽略的 `output/validation/`、`output/playwright/`、`output/local-dev/`；不提交密钥、账号凭证、数据或报告。此前 Arctic Shift 两条真实样本属于更早的数据源研究，不属于阶段 1–3 验收或 R2 重测。R2 只做源码、文档和报告检查。
 
-## 4A 交付验证与 4B 停止状态
+## 4A / 4B 交付验证
 
-| 范围 | 停止时事实 |
+| 范围 | 当前事实 |
 | --- | --- |
 | 4A 独立暂存快照 | 425 项离线全部通过，15 项隔离 PostgreSQL 全部通过，均零失败、零 skip；typecheck、API/Web/Vite 构建、Web lint、compiled smoke、八份文档检查通过 |
 | 4A 浏览器 | 合成 API 的采样语义、来源/任务/预算/导出与 390px 检查通过；外部请求 0、页面错误 0 |
 | 4A 验证边界 | 快照排除 4B 修改，复用现有 lockfile 安装的依赖；未验证重新清洁安装、云端 CI、生产部署或真实来源 |
-| 4B 账户与审计 | 仓储、服务、权限政策、034 迁移及账户/审计 UI 已写；账户安全专项 9/9、隔离 SQL 1/1、auth epoch 2/2 和合成 UI 专项通过；账户 HTTP 路由、业务审计与最终整合未完成 |
-| 4B 配置并发 | source/budget 的部分 CAS 和 target 仓储条件更新已写；035 未应用，CAS 回归与并发 SQL 未执行；旧 target API/公共类型/来源 UI 接线未完成 |
-| 4B 已知失败 | 既有 typecheck 记录含 PublicContent 夹具缺字段和未实现 authRateLimit 配置；3 项写安全红测仍失败。没有最终全量 typecheck/build/离线/SQL/E2E 交付记录 |
-| 迁移范围 | 033 在隔离验证库应用，4A 完整迁移共 35 个 SQL；034 仅账户隔离库应用，035 未应用。未升级本机 info_workbench_dev 或生产业务库 |
-| 4C / 5A / 5B | 尚未开始本阶段实现或验收；由单 agent 恢复后顺序接续 |
+| 4B 账户与审计 | 改密、列出/撤销会话、角色与状态政策、审计 HTTP 已接；账户 API 专项 44/44 与 SQL 2/2，实际浏览器账户闭环通过 |
+| 4B 配置并发 | source/budget/target 全栈 CAS、batch 全员版本检查后原子更新、worker 不改变配置版本；409 留稿和 SPA 后退提示；并发 SQL/暂停锁序通过 |
+| 4B 独立验证 | 455 离线、24 SQL 全通过，均零 skip；类型/API/Web 构建/lint/compiled/docs 通过；旧类型失败和 3 项写安全红测已修复并回归 |
+| 迁移范围 | 033 在隔离验证库应用，4A 完整迁移共 35 个 SQL；034/035 已在新隔离库全迁移、重复和并发验证。未升级本机 info_workbench_dev 或生产业务库 |
+| 4C / 5A / 5B | 并行准备中；按依赖顺序验收，未交付 |
 
-4A 独立快照报告为 `output/validation/phase-4a-snapshot-verification.json`；4B 专项证据与未完成接线清单见交接。4A 的通过结果不覆盖当前 4B 工作树。三个子代理均已冻结并交接给单 agent；临时 Vite 41975 和 PostgreSQL 启动 helper 已关闭，本机 PostgreSQL 25432 保留运行与数据，未关闭用户其他服务。
+4A 独立快照报告为 `output/validation/phase-4a-snapshot-verification.json`；4B 为 `phase-4b-snapshot-verification.json`、`phase4b-real-account-local.json` 和合成 UI 证据；后续工作树改动不混入 4B 暂存快照。四个并发槽持续推进，本机 PG 25432 已恢复，临时 Vite 41975 服务 UI 验证，未动用户其他服务。
 
 ## 4A 修正与后续边界
 

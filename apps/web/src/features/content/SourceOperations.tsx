@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchApi } from '../../api/client';
+import { ApiError, fetchApi } from '../../api/client';
 import { Button, Input } from '../../components/ui';
 import type { SourceOpsResponse, SourceProviderBudget, SourceProviderUsage } from '../../../../../packages/contracts/src/http';
 
@@ -10,11 +10,18 @@ function ProviderBudget({ usage, canEdit, zh }: { usage: SourceProviderUsage; ca
   const base = JSON.stringify(usage.budget);
   const [draft, setDraft] = useState({ base, dirty: false, value: { ...usage.budget } });
   const current = !draft.dirty && draft.base !== base ? { base, dirty: false, value: { ...usage.budget } } : draft;
-  const conflict = draft.dirty && draft.base !== base;
+  const stale = draft.dirty && draft.base !== base;
   const update = useMutation({ mutationFn: (budget: SourceProviderBudget) => {
-    const { provider, ...body } = budget;
+    const { provider, revision, ...fields } = budget;
+    const body = { ...fields, expectedRevision: revision };
     return fetchApi<{ ok: true; budget: SourceProviderBudget }>(`/v1/source-provider-budgets/${provider}`, { method: 'PUT', body: JSON.stringify(body) });
-  }, onSuccess: data => { setDraft({ base: JSON.stringify(data.budget), dirty: false, value: data.budget }); void client.invalidateQueries({ queryKey: ['sourceOps'] }); void client.invalidateQueries({ queryKey: ['contentSources'] }); } });
+  }, onSuccess: data => {
+    client.setQueryData<SourceOpsResponse>(['sourceOps'], previous => previous ? { ...previous, ops: { ...previous.ops, providers: previous.ops.providers.map(item => item.provider === data.budget.provider ? { ...item, budget: data.budget } : item) } } : previous);
+    setDraft({ base: JSON.stringify(data.budget), dirty: false, value: data.budget }); void client.invalidateQueries({ queryKey: ['sourceOps'] }); void client.invalidateQueries({ queryKey: ['contentSources'] });
+  },
+    onError: error => { if (error instanceof ApiError && (error.status === 409 || error.code === 'audit_result_unknown')) void client.invalidateQueries({ queryKey: ['sourceOps'] }); } });
+  const conflict = stale || (update.error instanceof ApiError && update.error.status === 409);
+  const outcomeUnknown = update.error instanceof ApiError && update.error.code === 'audit_result_unknown';
   const labels = [
     ['dailyRequests', 'Daily request limit', '每日请求上限'], ['monthlyRequests', 'Monthly request limit', '每月请求上限'],
     ['dailyResources', 'Daily resource reservation limit', '每日资源预留上限'], ['monthlyResources', 'Monthly resource reservation limit', '每月资源预留上限'],
@@ -22,13 +29,14 @@ function ProviderBudget({ usage, canEdit, zh }: { usage: SourceProviderUsage; ca
   return <div style={{ padding: '16px 0', borderBottom: '1px solid var(--border-primary)' }}>
     <strong>{usage.provider}{usage.provider.startsWith('demo_') ? ` · ${copy('Synthetic demo', '合成演示')}` : ''}</strong>
     <p className="content-muted">{copy('Requests reserved', '已预留请求')}: {usage.dailyRequests} / {usage.budget.dailyRequests} ({usage.day}) · {usage.monthlyRequests} / {usage.budget.monthlyRequests} ({usage.month})<br />{copy('Resource capacity reserved', '已预留资源容量')}: {usage.dailyResources} / {usage.budget.dailyResources} ({usage.day}) · {usage.monthlyResources} / {usage.budget.monthlyResources} ({usage.month})</p>
-    {canEdit && <form aria-label={`${copy('Budget for', '预算设置')} ${usage.provider}`} onSubmit={event => { event.preventDefault(); if (!conflict) update.mutate(current.value); }}>
+    {canEdit && <form aria-label={`${copy('Budget for', '预算设置')} ${usage.provider}`} onSubmit={event => { event.preventDefault(); if (!conflict && !outcomeUnknown) update.mutate(current.value); }}>
       <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><input type="checkbox" checked={current.value.enabled} onChange={event => { update.reset(); setDraft({ ...current, dirty: true, value: { ...current.value, enabled: event.target.checked } }); }} />{copy('Allow collection requests within this budget', '允许在额度内发起采集请求')}</label>
       <div className="content-fields">{labels.map(([field, en, cn]) => <label key={field}>{copy(en, cn)}<Input type="number" min={0} max={100000000} step={1} required value={Number.isFinite(current.value[field]) ? current.value[field] : ''} onChange={event => { update.reset(); setDraft({ ...current, dirty: true, value: { ...current.value, [field]: event.target.value === '' ? Number.NaN : Number(event.target.value) } }); }} /></label>)}</div>
       <label>{copy('Minimum interval between provider requests (milliseconds)', 'provider 请求最小间隔（毫秒）')}<Input type="number" min={0} max={3600000} step={1} required value={Number.isFinite(current.value.minimumIntervalMs ?? 0) ? current.value.minimumIntervalMs ?? 0 : ''} onChange={event => { update.reset(); setDraft({ ...current, dirty: true, value: { ...current.value, minimumIntervalMs: event.target.value === '' ? Number.NaN : Number(event.target.value) } }); }} /></label>
-      {conflict && <p role="alert">{copy('Budget changed while editing. Reload before saving.', '编辑期间预算已变更，请重新载入再保存。')} <Button type="button" onClick={() => setDraft({ base, dirty: false, value: { ...usage.budget } })}>{copy('Reload budget', '重新载入预算')}</Button></p>}
+      {conflict && <p role="alert">{copy('Budget changed while editing. Your draft is retained. Reload before saving.', '编辑期间预算已变更，草稿已保留。请重新载入再保存。')} <Button type="button" onClick={() => { setDraft({ base, dirty: false, value: { ...usage.budget } }); update.reset(); }}>{copy('Reload budget', '重新载入预算')}</Button></p>}
       {update.error && <p role="alert" className="content-error">{update.error.message}</p>}
-      <Button type="submit" disabled={!current.dirty || update.isPending || conflict}>{copy('Save provider budget', '保存 provider 预算')}</Button>
+      <Button type="submit" disabled={!current.dirty || update.isPending || conflict || outcomeUnknown}>{copy('Save provider budget', '保存 provider 预算')}</Button>
+      <Button type="button" disabled={!current.dirty || update.isPending} onClick={() => { setDraft({ base, dirty: false, value: { ...usage.budget } }); update.reset(); }}>{copy('Cancel budget edits', '取消预算修改')}</Button>
       {update.isSuccess && <span role="status" style={{ marginLeft: '12px' }}>{copy('Budget saved', '预算已保存')}</span>}
     </form>}
   </div>;
