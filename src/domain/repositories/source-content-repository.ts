@@ -28,5 +28,8 @@ export interface SourceContentRepository {
   failJob(claim: ClaimedSourceJob, error: string, retryAt: string | null, now: string, resetAttempts?: boolean): Promise<void>;
   recordRequestAttempt(claim: ClaimedSourceJob, durationMs: number): Promise<void>;
   listContent(query: ContentQuery): Promise<{ items: PublicContent[]; nextCursor: string | null }>;
+  getContent(id:string):Promise<PublicContent|null>;
+  findContentByIdentity(platform:PublicContent["platform"],kind:PublicContent["kind"],externalId:string):Promise<PublicContent|null>;
+  relatedChildren(content:PublicContent,limit:number):Promise<PublicContent[]>;
   contentStats(query: ContentQuery): Promise<Omit<ContentStatsResponse, "ok" | "requestId">>;
 }

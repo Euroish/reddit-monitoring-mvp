@@ -25,6 +25,10 @@ export function writeAuditRoute(method: string, pathname: string): Pick<BeginApp
   if (pathname === "/v1/runs/reddit-phase1") return { action: "collection.run", resourceType: "job" };
   if (pathname === "/v1/workbench/saved-views") return { action: "workbench.saved_view.create", resourceType: "saved_view" };
   if (pathname === "/v1/keyword-queries") return { action: "content.keyword_query.create", resourceType: "query" };
+  const savedQuery = /^\/v1\/content-saved-queries(?:\/([^/]+))?$/.exec(pathname);
+  if (savedQuery) return { action: `content.saved_query.${method.toLowerCase()}`, resourceType: "query", resourceId: savedQuery[1] };
+  const annotation = /^\/v1\/content\/([^/]+)\/annotation$/.exec(pathname);
+  if (annotation) return { action: `content.annotation.${method.toLowerCase()}`, resourceType: "content", resourceId: annotation[1] };
   return null;
 }
 
@@ -51,7 +55,7 @@ export function writeAuditMetadata(pathname: string, input: unknown, output: unk
   }
   if (typeof result.currentSessionRevoked === "boolean") selected.current = result.currentSessionRevoked;
   if (typeof result.errorCode === "string") selected.errorCode = result.errorCode;
-  const resource = [result.source, result.job, result.invite, result.user, result.view].find(value => value && typeof value === "object") as Record<string, unknown> | undefined;
+  const resource = [result.source, result.job, result.invite, result.user, result.view, result.savedQuery].find(value => value && typeof value === "object") as Record<string, unknown> | undefined;
   const resourceId = typeof resource?.id === "string" ? resource.id : typeof result.targetId === "string" ? result.targetId : undefined;
   return { resourceId, changes: auditChanges({ after: selected }) };
 }

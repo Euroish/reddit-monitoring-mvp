@@ -6,6 +6,8 @@ import { parseBooleanFlag, parsePort, parsePositiveInt } from "../../../src/runt
 import { assertProductionLaunchConfig } from "./public-launch-config";
 import { createApiServer } from "./create-api-server";
 import { createSourceContentService } from "../../../src/runtime/source-content-runtime";
+import { ContentPersonalService } from "../../../src/application/services/content-personal.service";
+import { PostgresContentPersonalRepository } from "../../../src/storage/repositories/postgres/postgres-content-personal.repository";
 
 const port = parsePort(process.env.PORT, 3000);
 const apiBearerToken = process.env.API_BEARER_TOKEN?.trim();
@@ -39,9 +41,11 @@ assertProductionLaunchConfig({
   allowInsecureSessionCookieInProduction,
 });
 const runtime = createPostgresPhase1Runtime();
+const sourceContent = createSourceContentService(runtime.db);
 
 const server = createApiServer({
-  sourceContent: createSourceContentService(runtime.db),
+  sourceContent,
+  contentPersonal: new ContentPersonalService(new PostgresContentPersonalRepository(runtime.db), sourceContent),
   repositories: runtime.repositories,
   sqlDb: runtime.db,
   createConnector: runtime.createConnector,

@@ -31,4 +31,20 @@
 .content-text { white-space: pre-wrap; color: var(--text-secondary); max-width: 75ch; line-height: 1.7; }
 .content-observations > div { display: grid; gap: 6px; margin-top: 14px; font-size: 13px; font-variant-numeric: tabular-nums; }
 .content-pager { display: flex; justify-content: flex-end; align-items: center; gap: 18px; margin-top: 24px; font-variant-numeric: tabular-nums; }
+.content-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.content-check { display: flex; align-items: center; gap: 10px; margin: 12px 0; }
+.content-check input { width: 18px; height: 18px; accent-color: var(--brand-indigo); }
+.content-note-label { display: grid; gap: 8px; color: var(--text-secondary); }
+.content-note-label textarea { box-sizing: border-box; width: 100%; min-height: 130px; resize: vertical; padding: 12px; border: 1px solid var(--border-secondary); border-radius: var(--radius-sm); background: var(--bg-panel); color: var(--text-primary); font: inherit; line-height: 1.6; }
+.source-content-page textarea:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 3px; }
+.content-detail-fields { display: grid; grid-template-columns: minmax(130px, auto) 1fr; gap: 12px 20px; line-height: 1.7; }
+.content-detail-fields dt { color: var(--text-tertiary); }.content-detail-fields dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.content-platform-fields { overflow-wrap: anywhere; white-space: pre-wrap; padding: 16px; background: var(--bg-panel); font-size: 13px; }
+.content-media-list, .content-metric-list, .content-saved-query-list { list-style: none; padding: 0; }
+.content-media-item { display: grid; gap: 12px; justify-items: start; padding: 16px 0; border-bottom: 1px solid var(--border-primary); }
+.content-media-item :is(img, video) { max-width: 100%; max-height: 500px; object-fit: contain; }.content-media-item audio { max-width: 100%; }
+.content-observation-detail, .content-saved-query-list > li { padding: 16px 0; border-bottom: 1px solid var(--border-secondary); overflow-wrap: anywhere; }
+.content-metric-list li { padding: 8px 0; overflow-wrap: anywhere; }
+.content-personal-saved { margin-bottom: 32px; }
+@media (max-width: 600px) { .content-detail-fields { grid-template-columns: 1fr; gap: 4px; }.content-detail-fields dd { margin-bottom: 12px; }.content-detail-page h1 { overflow-wrap: anywhere; } }
 @media (max-width: 600px) { .content-fields { grid-template-columns: 1fr; } .content-source-list li { align-items: start; gap: 12px; } .content-pager { justify-content: space-between; } }

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useSearchParams } from 'react-router-dom';
 import { fetchApi } from '../api/client';
 import { Button, Input, Select } from '../components/ui';
 import { useAuth } from '../auth/AuthContext';
@@ -9,6 +10,8 @@ import { SourceSettings } from '../features/content/SourceSettings';
 import { SourceTasks } from '../features/content/SourceTasks';
 import { SourceOperations } from '../features/content/SourceOperations';
 import { ContentExport } from '../features/content/ContentExport';
+import { SaveContentQuery } from '../features/content/SaveContentQuery';
+import { contentFilterDraft, contentQueryFromDraft, contentQueryFromParams, contentQueryParams, safeContentUrl, type ContentFilterDraft } from '../features/content/queryState';
 import './Content.css';
 
 export function Content() {
@@ -24,16 +27,19 @@ export function Content() {
   const [scopeName, setScopeName] = useState('');
   const [sourceQuery, setSourceQuery] = useState('');
   const [collectKind, setCollectKind] = useState<PublicContentKind>('post');
-  const [platformFilter, setPlatformFilter] = useState('');
-  const [providerFilter, setProviderFilter] = useState('');
-  const [keyword, setKeyword] = useState('');
-  const [selectedSource, setSelectedSource] = useState('');
-  const [kind, setKind] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const [filters, setFilters] = useState('');
-  const [cursor, setCursor] = useState('');
-  const [previous, setPrevious] = useState<string[]>([]);
+  const [params, setParams] = useSearchParams();
+  const appliedQuery = contentQueryFromParams(params);
+  const filters = contentQueryParams(appliedQuery);
+  const [draftState, setDraftState] = useState(() => ({ base: filters, value: contentFilterDraft(appliedQuery) }));
+  const draft = draftState.base === filters ? draftState.value : contentFilterDraft(appliedQuery);
+  const updateFilter = (key: keyof ContentFilterDraft, value: string) => setDraftState(previous => ({ base: filters, value: { ...(previous.base === filters ? previous.value : contentFilterDraft(appliedQuery)), [key]: value } }));
+  const platformFilter = draft.platform, providerFilter = draft.provider, keyword = draft.query, selectedSource = draft.sourceId, kind = draft.kind, from = draft.from, to = draft.to;
+  const setPlatformFilter = (value: string) => updateFilter('platform', value), setProviderFilter = (value: string) => updateFilter('provider', value), setKeyword = (value: string) => updateFilter('query', value), setSelectedSource = (value: string) => updateFilter('sourceId', value), setKind = (value: string) => updateFilter('kind', value), setFrom = (value: string) => updateFilter('from', value), setTo = (value: string) => updateFilter('to', value);
+  const [paging, setPaging] = useState({ base: filters, cursor: '', previous: [] as string[] });
+  const cursor = paging.base === filters ? paging.cursor : '', previous = paging.base === filters ? paging.previous : [];
+  const setCursor = (value: string) => setPaging(old => ({ base: filters, previous: old.base === filters ? old.previous : [], cursor: value }));
+  const setPrevious = (value: string[]) => setPaging(old => ({ base: filters, cursor: old.base === filters ? old.cursor : '', previous: value }));
+  const [queryError, setQueryError] = useState('');
   const jobStorageKey = `source-content-job:${user?.id ?? 'session'}`;
   const [jobId, setJobId] = useState(() => sessionStorage.getItem(jobStorageKey) ?? '');
   const rememberJob = (id: string) => { sessionStorage.setItem(jobStorageKey, id); setJobId(id); };
@@ -78,15 +84,10 @@ export function Content() {
   },
     onError: () => { void client.invalidateQueries({ queryKey: ['contentSources'] }); } });
   const search = (event: FormEvent) => {
-    event.preventDefault(); const params = new URLSearchParams();
-    if (keyword.trim()) params.set('query', keyword.trim());
-    if (selectedSource) params.set('sourceId', selectedSource);
-    if (platformFilter) params.set('platform', platformFilter);
-    if (providerFilter) params.set('provider', providerFilter);
-    if (kind) params.set('kind', kind);
-    if (from) params.set('from', new Date(from).toISOString());
-    if (to) params.set('to', new Date(to).toISOString());
-    setFilters(params.toString()); setCursor(''); setPrevious([]);
+    event.preventDefault(); setQueryError('');
+    if (from && to && Date.parse(from) >= Date.parse(to)) { setQueryError(copy('Publication start must be before the end.', '发布时间起点必须早于终点。')); return; }
+    if (draft.minMetric && draft.maxMetric && Number(draft.minMetric) > Number(draft.maxMetric)) { setQueryError(copy('Metric minimum must not exceed the maximum.', '指标最小值不能大于最大值。')); return; }
+    setParams(contentQueryParams(contentQueryFromDraft(draft))); setCursor(''); setPrevious([]);
     void client.invalidateQueries({ queryKey: ['sourceContent'] }); void client.invalidateQueries({ queryKey: ['sourceContentWorkbench'] });
   };
   const time = (value: string | null) => value ? new Date(value).toLocaleString(zh ? 'zh-CN' : 'en-US') : copy('Unknown', '未知');
@@ -152,10 +153,21 @@ export function Content() {
           <label htmlFor="content-platform">{copy('Platform', '平台')}<Select aria-label={copy('Platform', '平台')} id="content-platform" value={platformFilter} onChange={event => setPlatformFilter(event.target.value)}><option value="">{copy('All platforms', '全部平台')}</option>{[...new Set([...capabilities.map(item => item.platform), ...(sources.data?.sources.map(item => item.platform) ?? [])])].map(value => <option key={value} value={value}>{value}</option>)}</Select></label>
           <label htmlFor="content-provider">{copy('Provider', '获取渠道')}<Select aria-label={copy('Provider', '获取渠道')} id="content-provider" value={providerFilter} onChange={event => setProviderFilter(event.target.value)}><option value="">{copy('All providers', '全部渠道')}</option>{[...new Set([...capabilities.map(item => item.provider), ...(sources.data?.sources.map(item => item.provider) ?? [])])].map(value => <option key={value} value={value}>{value}{isDemo(value) ? copy(' (synthetic)', '（合成）') : ''}</option>)}</Select></label>
           <label htmlFor="content-kind">{copy('Content type', '内容类型')}<Select aria-label={copy('Query content type', '查询内容类型')} id="content-kind" value={kind} onChange={event => setKind(event.target.value)}><option value="">{copy('All types', '全部类型')}</option>{[...new Set(sources.data?.capabilities.flatMap(item => item.contentKinds) ?? ['post', 'comment'])].map(value => <option key={value} value={value}>{kindLabel(value as PublicContentKind)}</option>)}</Select></label>
-          <label htmlFor="content-from">{copy('Published from', '发布时间起点')}<Input id="content-from" type="datetime-local" value={from} onChange={event => setFrom(event.target.value)} /></label>
-          <label htmlFor="content-to">{copy('Published before', '发布时间终点')}<Input id="content-to" type="datetime-local" value={to} onChange={event => setTo(event.target.value)} /></label>
+          <label htmlFor="content-author">{copy('Author', '作者')}<Input id="content-author" value={draft.author} onChange={event => updateFilter('author', event.target.value)} maxLength={200} placeholder={copy('Exact ID or handle', '准确 ID 或账号名')} /></label>
+          <label htmlFor="content-language">{copy('Content language', '内容语言')}<Input id="content-language" value={draft.language} onChange={event => updateFilter('language', event.target.value)} maxLength={32} placeholder="en / zh" /></label>
+          <label htmlFor="content-group">{copy('Source group', '来源集合')}<Select aria-label={copy('Source group', '来源集合')} id="content-group" value={draft.sourceGroup} onChange={event => updateFilter('sourceGroup', event.target.value)}><option value="">{copy('All source groups', '全部来源集合')}</option>{[...new Set([...(sources.data?.sources.flatMap(source => source.group ? [source.group] : []) ?? []), ...(draft.sourceGroup ? [draft.sourceGroup] : [])])].sort().map(group => <option key={group} value={group}>{group}</option>)}</Select></label>
+          <label htmlFor="content-sort">{copy('Publication order', '发布时间排序')}<Select aria-label={copy('Publication order', '发布时间排序')} id="content-sort" value={draft.sort} onChange={event => updateFilter('sort', event.target.value)}><option value="published_desc">{copy('Newest first', '最新优先')}</option><option value="published_asc">{copy('Oldest first', '最早优先')}</option></Select></label>
+          <label htmlFor="content-metric">{copy('Metric', '指标')}<Select aria-label={copy('Metric', '指标')} id="content-metric" value={draft.metricKey} onChange={event => updateFilter('metricKey', event.target.value)}><option value="">{copy('No metric filter', '不按指标筛选')}</option>{[...new Set([...capabilities.flatMap(capability => capability.metrics.map(metric => metric.key)), ...(draft.metricKey ? [draft.metricKey] : [])])].map(key => <option key={key} value={key}>{metricLabel(key)} · {key}</option>)}</Select></label>
+          <label htmlFor="content-min-metric">{copy('Metric minimum', '指标最小值')}<Input id="content-min-metric" type="number" step="any" disabled={!draft.metricKey} value={draft.minMetric} onChange={event => updateFilter('minMetric', event.target.value)} /></label>
+          <label htmlFor="content-max-metric">{copy('Metric maximum', '指标最大值')}<Input id="content-max-metric" type="number" step="any" disabled={!draft.metricKey} value={draft.maxMetric} onChange={event => updateFilter('maxMetric', event.target.value)} /></label>
+          <label htmlFor="content-from">{copy('Published from', '发布时间起点')}<Input id="content-from" type="datetime-local" step="0.001" value={from} onChange={event => setFrom(event.target.value)} /></label>
+          <label htmlFor="content-to">{copy('Published before', '发布时间终点')}<Input id="content-to" type="datetime-local" step="0.001" value={to} onChange={event => setTo(event.target.value)} /></label>
           <Button type="submit" variant="primary" disabled={list.isFetching}>{copy('Search', '查询')}</Button>
         </form>
+        {queryError && <p role="alert" className="content-error">{queryError}</p>}
+        <p className="content-muted">{copy('Filters are stored in this URL. Share or bookmark it to reopen the same query. Author IDs/handles and language use exact, case-insensitive matching; source groups match their case-sensitive setting. Metric bounds use the latest observation per source within the selected scope; a matching value from any source is sufficient. Missing values are excluded, never treated as zero.', '筛选条件保存在当前 URL，可分享或收藏后恢复。作者 ID/账号名和语言采用忽略大小写的准确匹配；来源集合名称区分大小写。指标范围使用当前筛选范围内每个来源的最新观测，任一来源的数值符合范围即可；缺失值排除，不当作 0。')}</p>
+        <p className="content-muted">{copy('Date inputs use your local time; the URL records UTC instants. Start is inclusive and end is exclusive. A date filter excludes unknown publication times; daily buckets use UTC. Equal publication times have a stable identity order.', '日期输入使用本地时间，URL 保存 UTC 时刻；包含起点、不包含终点。设置日期筛选后排除发布时间未知的内容，每日统计按 UTC 分桶；相同发布时间按内容身份稳定排序。')}</p>
+        <SaveContentQuery query={appliedQuery} zh={zh} />
         <p className="content-muted">{copy('Collection uses the search time window, or the last 24 hours when dates are empty. Search only reads saved results.', '采集使用查询区的时间范围；日期留空时取最近 24 小时。查询只读取已保存结果。')}</p>
         <p role="note" className="content-muted">{copy('Saved-content search matches one continuous literal substring in title or text, retaining emoji and punctuation. Quotes and - are ordinary characters here. Collection keywords use the selected provider’s syntax and are separate from this local search.', '已存内容查询按标题或正文中的连续字面子串匹配，保留 emoji 与标点；引号和 - 在此仅为普通字符。采集关键词采用对应 provider 的语法，与本地查询分开。')}</p>
         {stats && <p className="content-summary">{copy('Saved matches', '已存匹配内容')} <strong>{stats.total}</strong> · {stats.byKind.map(item => `${kindLabel(item.kind)} ${item.count}`).join(' · ')} <span className="content-muted">{copy('Counts cover unique saved content, not all platform activity.', '统计范围为唯一已存内容，不代表平台全量。')}{stats.unknownPublishedAtCount > 0 ? ` ${copy('Unknown publication dates', '发布时间未知')}: ${stats.unknownPublishedAtCount}` : ''}</span></p>}
@@ -170,7 +182,8 @@ export function Content() {
         {list.data?.items.length === 0 && <p className="content-empty">{copy('No saved content matches. Change the filters or collect a source.', '没有匹配的已存内容。可调整筛选条件，或先采集来源。')}</p>}
         <div className="content-results">{list.data?.items.map(item => <article key={item.id} className="content-result">
           <div className="content-meta"><span>{item.platform} · {kindLabel(item.kind)}{item.observations.some(obs => isDemo(obs.provider)) ? ` · ${copy('SYNTHETIC DEMO', '合成演示')}` : ''}</span><span>{item.author?.handle ?? copy('Author unavailable', '作者未知')}</span><span>{copy('Published', '发布')} {time(item.publishedAt)}</span></div>
-          <h3>{item.url ? <a href={item.url} target="_blank" rel="noopener noreferrer">{item.title || (item.kind === 'comment' ? copy('View comment', '查看评论') : copy('View source content', '查看原始内容'))}</a> : item.title || kindLabel(item.kind)}</h3>
+          <h3><Link to={`/content/${encodeURIComponent(item.id)}?back=${encodeURIComponent(`/content${filters ? `?${filters}` : ''}`)}`}>{item.title || kindLabel(item.kind)}</Link></h3>
+          {safeContentUrl(item.url) && <a href={safeContentUrl(item.url)!} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">{copy('Open original', '打开原链接')}</a>}
           {item.text && <p className="content-text">{item.text.slice(0, 800)}{item.text.length > 800 ? '…' : ''}</p>}
           {item.availability === 'removed' || item.availability === 'deleted' ? <p>{copy('Content removed or deleted at the source.', '源内容已移除或删除。')}</p> : null}
           {item.references.length > 0 && <p className="content-muted">{item.references.map(ref => `${ref.relation}: ${ref.externalId}`).join(' · ')}</p>}

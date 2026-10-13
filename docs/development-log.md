@@ -89,3 +89,11 @@
 - 新source worker systemd/env公开模板、产物允许清单与不可覆盖输出、580文件manifest/精确库存/所有SHA通过；无秘密/DB/node_modules，不部署、不签名。CI固定Ubuntu24.04及PG16客户端以匹配服务，但云workflow未执行。
 - 20,000内容/40,000观测/每场景20次暖缓存测量：全部list/stats P95 9.842/126.989ms，单源10.274/71.764ms，字面14.605/221.074ms；EXPLAIN/DB/WAL/客户端RSS保留，不是HTTP/生产负载或总系统RSS。SQL合成夹具首次UNION类型失败经显式cast修复后重跑。
 - 独立暂存phase-4c-snapshot-40fd1515排除5A/B，460离线与25 SQL全pass零skip，类型/构建/lint/compiled/docs通过；actualCLI保持未知容量，发布pack/verify580文件通过。证据phase-4c-snapshot-verification.json、phase4c-recovery-native.txt、phase4c-performance-20000.json；本地local-phase4c-v0.7.0，依赖复用，清洁安装/云CI/真实源/部署未验。
+
+## 阶段5A：公共内容使用闭环（0.8.0软件交付）
+
+- 后台/前端并行，沿共同content契约完成作者/语言/group/每来源最新指标/时间排序/游标，详情与已存引用/children各≤20、未知/缺失解释、主动媒体预览、URL与登录query恢复；默认content，旧分析结构保留。个人query CRUD/收藏注释使用user-scoped仓储与revision，仅session，409保持草稿、reload后再试。
+- 新036迁移仅隔离库应用，SHA256 45AE4B5CDAA4D305A35BE1A88AED599D9E29F7F561877E9F328E79DA47FA5BFC。主API单独组装personal service，viewer个人写与管理员来源写分开，DELETE读revision body；审计记录新query resourceId且不记录query正文/notes。新增实际HTTP两项验证ownership/机器拒绝/CAS/delete/审计秘密哨兵。
+- freeze19后台+15Web路径和主API接线，通过hash-object/update-index只暂存5A blob，保留5B工作树，不reset/clean/stash。独立phase-5a-snapshot-61d20db7通过471离线/27native零skip与类型/构建/lint/compiled/docs。
+- 合成UI80请求、2主动媒体、0外部/0pageerror，桌面及中文390px；实际localhost浏览器→API→demo worker→新PG35请求，8条同过滤结果、保存重开、详情、注释CAS冲突保稿、JSON下载和A/B私有隔离及持久记录全部通过。脚本初版误用仓储total、空状态文本定位失败，按实际契约修脚本后重跑，没改业务断言或降要求。phase5a-real-content-local.json与截图留output。
+- 保存local-phase5a-v0.8.0，依赖复用；媒体夹具不代表真实provider媒体，真实来源、部署、云CI/清洁安装仍未验。前端仅功能增补，未发现功能需要整体重设计的阻碍。

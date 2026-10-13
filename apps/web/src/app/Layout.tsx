@@ -17,11 +17,11 @@ export function Layout() {
   const canAccessOps = user?.role === 'admin' || user?.role === 'owner';
 
   const analysisLinks = [
+    { to: '/content', label: t('Collected content') },
     { to: '/markets', label: t('Markets') },
     { to: '/markets/board', label: t('Board') },
     { to: '/compare', label: t('Compare') },
     { to: '/queries', label: t('Queries') },
-    { to: '/content', label: t('Collected content') },
     { to: '/saved', label: t('Saved') },
     { to: '/account', label: copy('Account', '账户') },
     { to: '/run', label: t('Run Phase 1') },

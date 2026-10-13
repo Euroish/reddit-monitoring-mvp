@@ -43,7 +43,7 @@ npm --prefix apps/web run dev
 
 公共来源运行由 `SOURCE_RUN_MODE=demo|live` 决定。demo 注册 `demo_reddit/demo_x`，真实 provider 显示禁用，即使 shell 有 key/network=true 也不联网。live 默认网络关闭；只有明确配置 `SOURCE_NETWORK_ENABLED=true` 才启用真实 Arctic Shift（不需 key）；X 还要求私有 `TWITTERAPI_IO_API_KEY`，超时 `TWITTERAPI_IO_TIMEOUT_MS` 默认 20000（允许 100–120000）。旧 `REDDIT_RUN_MODE` 与 `REDDIT_LIVE_PROVIDER=http|scrapling` 只控制旧 Reddit 功能，不能用于选择 Arctic Shift 或 X。管理工具固定使用 demo；本轮不得改成 live 试跑。
 
-公共内容导出使用 `/content` 的 JSON/CSV 下载（每文件最多 2000，支持 nextCursor 续导出），记录过滤范围、总分母、条数和截断；CSV 首行 export_metadata，随后字段表头/记录，数字内容 ID 作为文本、来源文本防公式执行。并发采集时统计与续页可变化，当前不是冻结 SQL 快照。旧 `research:export:reddit` 与 `research:export:reddit-search` 仍依赖旧模型。所有生成结果归入 `output/`。
+公共入口和默认登录落点为 `/content`，筛选作者/语言/来源group、平台/provider/source/kind/正文/发布时间/指标和排序保存在URL；登录恢复原path+query，旧Markets/比较入口保留。已存详情 `/content/:id` 展示可空字段、独立指标时间/单位和来源，引用与children各≤20；媒体只在主动点击时读取HTTP(S)链接。个人保存查询在 `/saved` 管理、重开、重命名和删除；收藏/注释按user隔离，用revision冲突保持草稿再reload。公共内容导出使用 `/content` 的 JSON/CSV 下载（每文件最多 2000，支持 nextCursor 续导出），记录过滤范围、总分母、条数和截断；CSV 首行 export_metadata，随后字段表头/记录，数字内容 ID 作为文本、来源文本防公式执行。并发采集时统计与续页可变化，当前不是冻结 SQL 快照。旧 `research:export:reddit` 与 `research:export:reddit-search` 仍依赖旧模型。所有生成结果归入 `output/`。
 
 ## Windows 本地独立 Git 工作区
 
@@ -148,3 +148,5 @@ node --import tsx --test tests/integration/source-content-postgres.test.ts
 部署时可使用 `pg_dump --format=custom` 备份，并在隔离环境验证 `pg_restore --clean --if-exists --no-owner` 的恢复；这些操作需要真实数据库参数。公开服务配置完成后执行 `PUBLIC_BASE_URL=https://example.com npm run smoke:public-launch`，认证检查参数见 `scripts/smoke-public-launch.ts`。不在文档保存账号密码。
 
 账户验证：`npm run smoke:accounts` 使用合成 API；`npm run smoke:accounts:local` 要求 `TEST_SOURCE_DATABASE_URL` 指向 loopback 的 `source_validation_*` 库，创建新合成库并启动自己的临时 API/Vite，实际验证改密、会话撤销、账号隔离和持久化审计。已有 Chromium 可通过 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定。临时进程结束，合成数据库保留；凭证不打印，外部请求禁止。
+
+5A 验证：`npm run smoke:content` 为合成API浏览器；`npm run smoke:content:local` 用新建专用loopback验证库，实际API、合成provider/worker与浏览器，检查保存/重开/详情/注释CAS/下载和账号隔离，私有凭证不打印，退出自己的临时服务，保留合成库。

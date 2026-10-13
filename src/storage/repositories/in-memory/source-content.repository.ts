@@ -18,6 +18,8 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
   private refreshes = new Map<string,{attempts:number;at:string}>();
   private claims=0;
   private lastReservations=new Map<string,string>();
+  /** Synchronous isolated read view for offline research snapshots. */
+  snapshotForResearch(){const copy=new InMemorySourceContentRepository();copy.sources=structuredClone(this.sources);copy.contents=structuredClone(this.contents);copy.contentVersions=structuredClone(this.contentVersions);return copy;}
   async listSources() { return structuredClone([...this.sources.values()]); }
   async getSource(id: string) { return structuredClone(this.sources.get(id) ?? null); }
   async createSource(input: CreateCollectionSourceRequest & { id: string; label: string; createdAt: string }) {
@@ -121,16 +123,22 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
     return [...this.contents.values()].filter(item => (!query.platform || item.platform===query.platform) && (!query.kind || item.kind===query.kind)
       && (!query.query || `${item.title ?? ""} ${item.text ?? ""}`.toLowerCase().includes(query.query.toLowerCase()))
       && (!query.from || Boolean(item.publishedAt && item.publishedAt>=query.from)) && (!query.to || Boolean(item.publishedAt && item.publishedAt<query.to))
-      && item.observations.some(obs=>(!query.sourceId || obs.sourceId===query.sourceId) && (!query.provider || obs.provider===query.provider)));
+      && (!query.author||[item.author?.handle,item.author?.externalId].some(value=>value?.toLowerCase()===query.author!.toLowerCase()))&&(!query.language||item.language?.toLowerCase()===query.language.toLowerCase())
+      && item.observations.some(obs=>this.matchesObservation(obs,query))&&(!query.metricKey||item.platform===query.metricKey.split(".")[0]&&item.observations.filter(obs=>this.matchesObservation(obs,query)).some(obs=>{const value=obs.metrics[query.metricKey!];return typeof value==="number"&&(query.minMetric===undefined||value>=query.minMetric)&&(query.maxMetric===undefined||value<=query.maxMetric);}))) ;
   }
+  private matchesObservation(obs:PublicContent["observations"][number],query:ContentQuery){return (!query.sourceId||obs.sourceId===query.sourceId)&&(!query.provider||obs.provider===query.provider)&&(!query.sourceGroup||this.sources.get(obs.sourceId)?.group===query.sourceGroup);}
   async listContent(query: ContentQuery) {
     const cursor=decodeContentCursor(query), limit=query.limit ?? 25;
-    const rows=this.filtered(query).sort((a,b)=>(b.publishedAt ?? b.firstFetchedAt).localeCompare(a.publishedAt ?? a.firstFetchedAt) || b.id.localeCompare(a.id))
-      .filter(item=>!cursor || (item.publishedAt ?? item.firstFetchedAt)<cursor.timestamp || (item.publishedAt ?? item.firstFetchedAt)===cursor.timestamp && item.id<cursor.id);
+    const direction=query.sort==="published_asc"?1:-1;
+    const rows=this.filtered(query).sort((a,b)=>direction*((a.publishedAt ?? a.firstFetchedAt).localeCompare(b.publishedAt ?? b.firstFetchedAt)||a.id.localeCompare(b.id)))
+      .filter(item=>!cursor||direction*((item.publishedAt??item.firstFetchedAt).localeCompare(cursor.timestamp)||item.id.localeCompare(cursor.id))>0);
     const selected=rows.slice(0,limit), last=selected.at(-1);
-    const items=selected.map(item=>({...item,observations:item.observations.filter(obs=>(!query.sourceId || obs.sourceId===query.sourceId) && (!query.provider || obs.provider===query.provider))}));
+    const items=selected.map(item=>({...item,observations:item.observations.filter(obs=>this.matchesObservation(obs,query))}));
     return { items:structuredClone(items),nextCursor:rows.length>limit && last ? encodeContentCursor(query,last.publishedAt ?? last.firstFetchedAt,last.id) : null };
   }
+  async getContent(id:string){return structuredClone(this.contents.get(id)??null);}
+  async findContentByIdentity(platform:PublicContent["platform"],kind:PublicContent["kind"],externalId:string){return structuredClone([...this.contents.values()].find(item=>item.platform===platform&&item.kind===kind&&item.externalId===externalId)??null);}
+  async relatedChildren(content:PublicContent,limit:number){return structuredClone([...this.contents.values()].filter(item=>item.id!==content.id&&item.platform===content.platform&&item.references.some(reference=>["reply_to","thread_root"].includes(reference.relation)&&reference.kind===content.kind&&reference.externalId===content.externalId)).sort((a,b)=>(b.publishedAt??b.firstFetchedAt).localeCompare(a.publishedAt??a.firstFetchedAt)||b.id.localeCompare(a.id)).slice(0,limit));}
   async contentStats(query: ContentQuery) {
     const rows=this.filtered(query), kinds=new Map<PublicContent["kind"],number>(), days=new Map<string,number>(); let unknownPublishedAtCount=0;
     for (const item of rows) { kinds.set(item.kind,(kinds.get(item.kind)??0)+1); if (item.publishedAt) { const day=item.publishedAt.slice(0,10); days.set(day,(days.get(day)??0)+1); } else unknownPublishedAtCount++; }

@@ -1,6 +1,6 @@
 {
   "name": "reddit-monitoring-mvp",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "description": "Multi-platform information aggregation and visualization, evolving from a Reddit workbench",
   "scripts": {
@@ -79,7 +79,9 @@
     "db:restore": "node scripts/database-backup.mjs restore",
     "release:pack": "npm run build && npm run smoke:compiled && node scripts/package-release.mjs",
     "release:verify": "node scripts/verify-release.mjs",
-    "benchmark:sources": "tsx scripts/benchmark-source-content.ts"
+    "benchmark:sources": "tsx scripts/benchmark-source-content.ts",
+    "smoke:content": "tsx scripts/smoke-content-workflow.ts",
+    "smoke:content:local": "tsx scripts/smoke-content-local.ts"
   },
   "dependencies": {
     "opossum": "^9.0.0",

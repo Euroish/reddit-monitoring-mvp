@@ -9,7 +9,7 @@ export async function contentWorkbench(service: SourceContentService, query: Con
   const byPlatform = await Promise.all(platforms.map(async platform => ({ platform, count: (await service.repository.contentStats({ ...query, platform })).total })));
   const providers = query.provider ? [query.provider] : [...new Set(sources.filter(source => !query.platform || source.platform === query.platform).map(source => source.provider))];
   const byProvider = await Promise.all(providers.map(async provider => ({ provider, count: (await service.repository.contentStats({ ...query, provider })).total })));
-  const relevant = sources.filter(source => (!query.platform || source.platform === query.platform) && (!query.provider || source.provider === query.provider) && (!query.sourceId || source.id === query.sourceId) && (!query.kind || source.contentKind === query.kind));
+  const relevant = sources.filter(source => (!query.platform || source.platform === query.platform) && (!query.provider || source.provider === query.provider) && (!query.sourceId || source.id === query.sourceId) && (!query.kind || source.contentKind === query.kind)&&(!query.sourceGroup||source.group===query.sourceGroup));
   return { generatedAt: new Date().toISOString(), stats, byPlatform: byPlatform.filter(row => row.count > 0), byProvider: byProvider.filter(row => row.count > 0), sources: relevant, capabilities: service.capabilities(), scope: "collected_content", providerCountsMayOverlap: true, metricComparison: "platform_units_only" };
 }
 

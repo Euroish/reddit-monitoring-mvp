@@ -22,6 +22,7 @@ const routes = [
   { method: "GET", path: /^\/v1\/content\/stats$/, action: "stats", write: false },
   { method: "GET", path: /^\/v1\/content\/workbench$/, action: "workbench", write: false },
   { method: "GET", path: /^\/v1\/content\/export$/, action: "export", write: false },
+  { method:"GET",path:/^\/v1\/content\/([^/]+)$/,action:"detail",write:false },
 ] as const;
 export function matchSourceContentRoute(method: string, path: string) { return routes.find(route => route.method === method && route.path.test(path)); }
 export async function handleSourceContentRoute(args: { method: string; url: URL; body?: unknown; requestId: string; service?: SourceContentService }): Promise<{ statusCode: number; body?: unknown; headers?:Record<string,string>;rawBody?:string }> {
@@ -44,9 +45,10 @@ export async function handleSourceContentRoute(args: { method: string; url: URL;
     if(route.action==="cancel")return {statusCode:200,body:{ok:true,requestId,job:await service.cancelJob(id)}};
     if(route.action==="ops")return {statusCode:200,body:{ok:true,requestId,ops:await service.ops()}};
     if(route.action==="budget")return {statusCode:200,body:{ok:true,requestId,budget:await service.setProviderBudget(id,args.body as SourceProviderBudgetRequest)}};
+    if(route.action==="detail")return {statusCode:200,body:{ok:true,requestId,...await service.contentDetail(id)}};
     const params = args.url.searchParams;
     if(route.action==="jobs")return {statusCode:200,body:{ok:true,requestId,jobs:await service.listJobs({sourceId:params.get("sourceId")??undefined,status:(params.get("status")??undefined) as SourceCollectionJob["status"]|undefined,limit:params.has("limit")?Number(params.get("limit")):undefined})}};
-    const query: ContentQuery = service.normalizeQuery({ platform: (params.get("platform") ?? undefined) as ContentPlatform | undefined, provider: params.get("provider") ?? undefined, sourceId: params.get("sourceId") ?? undefined, kind: (params.get("kind") ?? undefined) as PublicContentKind | undefined, query: params.get("query") ?? undefined, from: params.get("from") ?? undefined, to: params.get("to") ?? undefined, limit: params.has("limit") ? Number(params.get("limit")) : undefined, cursor: params.get("cursor") ?? undefined });
+    const query: ContentQuery = service.normalizeQuery({ platform: (params.get("platform") ?? undefined) as ContentPlatform | undefined, provider: params.get("provider") ?? undefined, sourceId: params.get("sourceId") ?? undefined, kind: (params.get("kind") ?? undefined) as PublicContentKind | undefined, query: params.get("query") ?? undefined, from: params.get("from") ?? undefined, to: params.get("to") ?? undefined, limit: params.has("limit") ? Number(params.get("limit")) : undefined, cursor: params.get("cursor") ?? undefined,author:params.get("author")??undefined,language:params.get("language")??undefined,sourceGroup:params.get("sourceGroup")??undefined,sort:(params.get("sort")??undefined) as ContentQuery["sort"],metricKey:params.get("metricKey")??undefined,minMetric:params.has("minMetric")?Number(params.get("minMetric")):undefined,maxMetric:params.has("maxMetric")?Number(params.get("maxMetric")):undefined });
     if (route.action === "stats") return { statusCode: 200, body: { ok: true, requestId, ...await service.repository.contentStats(query) } };
     if(route.action==="workbench")return {statusCode:200,body:{ok:true,requestId,...await contentWorkbench(service,query)}};
     if(route.action==="export") {

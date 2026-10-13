@@ -17,11 +17,13 @@
 
 | 0.7.0（阶段4C交付） | 容量/保留dry-run、备份恢复、发布产物与性能 | local-phase4c-v0.7.0；460离线、25 SQL零skip；580文件完整性、实际合成恢复和2万内容测量通过 |
 
+| 0.8.0（阶段5A交付） | 内容详情/高级与URL筛选、保存查询、收藏注释与媒体预览 | local-phase5a-v0.8.0；471离线/27 SQL零skip；80请求合成UI与35请求实际PG内容闭环通过 |
+
 ## 当前分工与接续
 
 个人分支保持 `codex/arctic-shift-content-query`，复工基线 `3db313e` 工作区干净；停止 WIP 与 4A、4B 交付版本分开保存。4B 已收口为 0.6.0 软件交付：账户 HTTP、角色权限、持久化脱敏审计、来源/预算/目标 revision CAS、批量原子冲突和账号缓存/草稿隔离已贯通。独立冻结版本通过 455/455 离线、24/24 隔离 SQL、类型/构建/lint/compiled/docs；实际 localhost 浏览器→API→新合成 PG 验证改密再认证、旧会话拒绝、A/B Saved 隔离和撤销全部会话，18 个 API 请求、外部请求/页面错误均为 0。复用已安装依赖，云端 CI、清洁安装、生产部署和真实 provider 未验。
 
-三个子代理滚动分配：phase1_data 负责 Web 5A 工作流，phase2_sources 负责 5A 内容后台及 5B 公共索引，auth_api_4b 负责 5B 冻结研究导出，root 负责集成、4C 运维、独立验收与版本。4C 已交付；接续按 5A→5B 顺序，不把并行准备作为交付。033/034/035 仅隔离库验证，本机开发库和生产库未升级。
+三个子代理滚动分配：phase1_data 负责 Web 5A 工作流，phase2_sources 负责 5A 内容后台及 5B 公共索引，auth_api_4b 负责 5B 冻结研究导出，root 负责集成、4C 运维、独立验收与版本。4C/5A已交付，当前收口5B，不把并行准备作为交付。033/034/035 仅隔离库验证，本机开发库和生产库未升级。
 
 ## 验收约束
 
@@ -73,14 +75,14 @@ R2 当时统计为 9 项限定软件目标完成、32 项部分完成、1 项软
 | P1-21 账号体验与权限 | 部分完成 | 既有基础；4B 服务/仓储已写改密/撤会话/version fence/owner 政策，专项通过。 | HTTP/旧写路径与实际本地账户闭环已验；邮件找回、公网独立验收待推进。 | 4B |
 | P1-22 操作审计 | 部分完成 | 4B durable intent/结果仓储、脱敏分页、审计 UI 已写，专项通过。 | HTTP 与业务写入已接；审计与业务非单事务，4C保留预览保护未决intent。 | 4B/4C |
 | P2-01 低成本补充来源 | 目标尚未实现 | web身份/字段准备与合成存储已有。 | RSS/feed/web真实adapter、URL/DNS/redirect约束与真实文章验收均无。 | 条件扩源 |
-| P2-02 媒体 | 部分完成 | X媒体适配与公用media字段，AS外链已保存。 | 媒体预览/失效/可访问性与provider真实字段覆盖不全。 | 5A/G |
-| P2-03 内容详情 | 目标尚未实现 | 引用ID与原链接可见。 | 无公共内容detail route/API、线程/评论有界展开与关联跳转。 | 5A |
-| P2-04 高级筛选 | 部分完成 | 已有platform/provider/source/kind/text/time过滤与cursor。 | 作者/语言/指标筛选、稳定排序、URL恢复缺失。 | 5A |
+| P2-02 媒体 | 部分完成 | X媒体适配与公用media字段，AS外链已保存。 | 主动安全链接媒体预览/加载失败状态已验，真实provider媒体字段覆盖待G。 | 5A/G |
+| P2-03 内容详情 | 目标尚未实现 | 引用ID与原链接可见。 | 公共详情API/UI与已存引用/children各20、关联跳转已验；缺失不会联网补抓。 | 5A |
+| P2-04 高级筛选 | 部分完成 | 已有platform/provider/source/kind/text/time过滤与cursor。 | 作者/语言/来源group/指标与稳定排序/URL恢复已验；更多业务筛选按后续需求。 | 5A |
 | P2-05 榜单范围 | 目标尚未实现 | 旧榜单范围前50已有明确说明。 | 服务端按指定排序全范围分页尚未实现；加说明没有修复漏榜。 | 6 |
 | P2-06 主题组织 | 部分完成 | 来源group与多发现内容去重已实现。 | 主题集合实体、用户收藏/注释、活跃发布者分析尚无。 | 5A/6 |
 | P2-07 跨平台指标 | 部分完成 | 指标有单位/符号/方向，防止跨平台粗暴相加。 | platform/kind/provider/cohort统计与可解释评分未实现；真实校准留G。 | 6/G |
 | P2-08 增量分析 | 目标尚未实现 | 旧Reddit派生jobs存在。 | 公共内容/日期dirty投影、迟到更新和有界增量分析未迁移。 | 6 |
-| P2-09 保存与收藏 | 部分完成 | 旧target/compare series/overlay恢复已修。 | 公共content筛选保存、删除/管理Saved、内容收藏/注释未实现。 | 5A |
+| P2-09 保存与收藏 | 部分完成 | 旧target/compare series/overlay恢复已修。 | 公共query CRUD/按原URL重开、内容收藏注释及冲突保稿已验；旧Saved视图删除另看需求。 | 5A |
 | P2-10 查询性能 | 目标尚未实现 | 2207条合成SQL正确性验证已有。 | 未做代表规模EXPLAIN/P95/RSS/DB/WAL预算；正确性样本不是性能验收。 | 4C |
 | P2-11 接口与 Web 开销 | 部分完成 | 内容/导出有界；来源任务详情已按打开状态控制轮询。 | 来源/任务长历史分页、摘要详情分离、浏览器后台页poll控制、多次统计读取开销欠缺。 | 4C/5A |
 | P2-12 保留与容量 | 部分完成 | 旧三类表有界prune已有。 | 新observation/job/usage/heartbeat保留与容量未闭环，当前月usage/活动checkpoint不可盲删。 | 4C |
@@ -119,8 +121,10 @@ R2 当时统计为 9 项限定软件目标完成、32 项部分完成、1 项软
 
 稳定入口为 `npm run local:start`，地址/进程看 `local:status`，owner 凭证看 `local:account`；进入 `/content` 可查询 Reddit/X 合成数据与管理来源。4B 已验，后续开发继续保留分阶段边界。首次其他机器需要完整 PostgreSQL bin 和 Node/npm 依赖，流程统一在 [开发说明](development.md)。`smoke:local` 写入有界合成 E2E 来源后归档，不运行真实 provider；所有本轮测试禁止真实数据源。
 
-恢复后的顺序为并行准备、顺序验收 4C→5A→5B，4A 已有独立交付；依赖与验收出口见产品计划。用户已重新授权推进。G 中 AS 需用户另行授权真实请求，X 还需私有凭证/费用上限，目前均不执行。
+4A/4B/4C/5A已有独立交付，当前收口5B，4A 已有独立交付；依赖与验收出口见产品计划。用户已重新授权推进。G 中 AS 需用户另行授权真实请求，X 还需私有凭证/费用上限，目前均不执行。
 
 前端目前存在旧/新分析入口并列和信息密度问题，但新增来源/任务/预算/导出流程均可运行且桌面/390px 已验收，没有必须开始大规模前端改造的功能阻碍。后续可以根据实际使用反馈评估默认入口与导航调整，当前不启动重设计计划。
 
 4C 证据：phase-4c-snapshot-verification.json、phase4c-recovery-native.txt、phase4c-performance-20000.json、阶段4C冻结副本内580文件 release-manifest.json。保留只预览不删除；备份工具未切业务连接；发布文件未签名或上线。实际规则、备份频率、生产RPO/RTO和大规模冷/并发负载待确认。
+
+5A证据 phase-5a-snapshot-verification.json、phase5a-real-content-local.json、phase5a-content-workflow-evidence.json/桌面与中文390px截图。036 SHA256 45AE4B5CDAA4D305A35BE1A88AED599D9E29F7F561877E9F328E79DA47FA5BFC，仅新隔离库验证，不改应用SQL。5A代码冻结后5B同路径变更保留工作树，通过Git blob分别保存版本。

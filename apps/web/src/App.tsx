@@ -13,6 +13,7 @@ const Compare = lazy(() => import('./pages/Compare').then((module) => ({ default
 const TargetDetail = lazy(() => import('./pages/TargetDetail').then((module) => ({ default: module.TargetDetail })));
 const Queries = lazy(() => import('./pages/Queries').then((module) => ({ default: module.Queries })));
 const Content = lazy(() => import('./pages/Content').then((module) => ({ default: module.Content })));
+const ContentDetail = lazy(() => import('./pages/ContentDetail').then((module) => ({ default: module.ContentDetail })));
 const Saved = lazy(() => import('./pages/Saved').then((module) => ({ default: module.Saved })));
 const Account = lazy(() => import('./pages/Account').then((module) => ({ default: module.Account })));
 const RunPhase1 = lazy(() => import('./pages/RunPhase1').then((module) => ({ default: module.RunPhase1 })));
@@ -48,6 +49,7 @@ function AppRoutes() {
                 <Route path="/compare" element={<Compare />} />
                 <Route path="/queries" element={<Queries />} />
                 <Route path="/content" element={<Content />} />
+                <Route path="/content/:contentId" element={<ContentDetail />} />
                 <Route path="/saved" element={<Saved />} />
                 <Route path="/account" element={<Account />} />
                 <Route path="/run" element={<RunPhase1 />} />
@@ -90,7 +92,7 @@ function AppRoutes() {
                     <OpsMaintenance />
                   </RoleGuard>
                 } />
-                <Route path="/" element={<Navigate to="/markets" replace />} />
+                <Route path="/" element={<Navigate to="/content" replace />} />
               </Route>
             </Routes>
           </Suspense>

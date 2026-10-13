@@ -6,6 +6,8 @@ import { Badge, Card } from '../components/ui';
 import { buildSavedWorkbenchRoute } from '../features/workbench/model/urlState';
 import { useLanguage } from '../i18n/LanguageContext';
 import type { ListSavedWorkbenchViewsResponse } from '../../../../packages/contracts/src/http';
+import { PersonalSavedContent } from '../features/content/PersonalSavedContent';
+import './Content.css';
 
 export function Saved() {
   const { user } = useAuth();
@@ -22,9 +24,12 @@ export function Saved() {
       <div className="page-header">
         <div>
           <h1>{copy('Saved Views', '保存视图')}</h1>
-          <p className="page-subtitle">{copy('Open a saved target or comparison with its filters and series.', '恢复已保存目标或对比的过滤条件与图表系列。')}</p>
+          <p className="page-subtitle">{copy('Manage personal content queries, favorites and notes; reopen saved target and comparison views.', '管理个人内容查询、收藏与注释，并恢复原有目标和对比视图。')}</p>
         </div>
       </div>
+
+      <PersonalSavedContent zh={language === 'zh-CN'} />
+      <h2 style={{ margin: '32px 0 18px' }}>{copy('Target and comparison views', '目标与对比视图')}</h2>
 
       {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>{copy('Loading saved views...', '正在加载保存视图...')}</div>}
       {error && <div role="alert" style={{ color: '#ff4d4f' }}>{copy('Error loading saved views.', '无法加载保存视图。')} {error.message}</div>}

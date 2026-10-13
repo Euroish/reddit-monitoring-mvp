@@ -91,6 +91,30 @@ export interface SourceOps {
 export interface ContentQuery {
   platform?: ContentPlatform; provider?: string; sourceId?: string; kind?: PublicContentKind;
   query?: string; from?: string; to?: string; limit?: number; cursor?: string;
+  author?: string; language?: string; sourceGroup?: string;
+  sort?: "published_desc" | "published_asc";
+  metricKey?: string; minMetric?: number; maxMetric?: number;
+}
+
+export interface ContentDetailResponse {
+  ok: true; requestId: string; content: PublicContent; sources: CollectionSource[];
+  references: { reference: ContentReference; content: PublicContent | null }[];
+  children: PublicContent[]; relatedLimit: number; relatedTruncated: boolean; scope: "stored_content";
+}
+export type SavedContentQuery = Omit<ContentQuery, "cursor" | "limit">;
+export interface ContentSavedQueryView {
+  id: string; name: string; query: SavedContentQuery; revision: number; createdAt: string; updatedAt: string;
+}
+export interface ContentSavedQueryListResponse { ok: true; requestId: string; queries: ContentSavedQueryView[]; nextCursor: string | null }
+export interface SaveContentQueryRequest { name: string; query: SavedContentQuery; expectedRevision?: number }
+export interface SaveContentQueryResponse { ok: true; requestId: string; savedQuery: ContentSavedQueryView }
+export interface ContentAnnotationView {
+  contentId: string; favorite: boolean; note: string; revision: number; createdAt: string; updatedAt: string;
+}
+export interface UpdateContentAnnotationRequest { favorite?: boolean; note?: string; expectedRevision?: number }
+export interface ContentAnnotationResponse { ok: true; requestId: string; annotation: ContentAnnotationView | null }
+export interface ContentAnnotationListResponse {
+  ok: true; requestId: string; items: { annotation: ContentAnnotationView; content: PublicContent }[]; nextCursor: string | null;
 }
 export interface ContentListResponse {
   ok: true; requestId: string; items: PublicContent[]; nextCursor: string | null;

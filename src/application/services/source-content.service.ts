@@ -80,15 +80,22 @@ export class SourceContentService {
     return queued;
   }
   normalizeQuery(input: ContentQuery): ContentQuery {
+    if(!input||typeof input!=="object"||Array.isArray(input))throw new SourceContentError("Invalid content query");
     if (input.platform && !platforms.includes(input.platform)) throw new SourceContentError("Invalid platform filter");
     if (input.kind && !kinds.includes(input.kind)) throw new SourceContentError("Invalid kind filter");
     if (input.sourceId) requireSourceId(input.sourceId);
     if (input.provider && !/^[a-z0-9_]{1,60}$/.test(input.provider)) throw new SourceContentError("Invalid provider filter");
-    if (input.query !== undefined && (typeof input.query !== "string" || input.query.length > 200)) throw new SourceContentError("Search text must be at most 200 characters");
-    const query = { ...input, query: input.query?.trim() || undefined, limit: integer(input.limit, 25, 100), from: input.from === undefined ? undefined : date(input.from, ""), to: input.to === undefined ? undefined : date(input.to, "") };
+    if (input.query !== undefined && (typeof input.query !== "string" || input.query.length > 200||/[\u0000-\u001f]/.test(input.query))) throw new SourceContentError("Search text must be at most 200 characters without control characters");
+    for(const key of ["author","language","sourceGroup"] as const)if(input[key]!==undefined&&(typeof input[key]!=="string"||input[key]!.length>(key==="language"?40:100)||/[\u0000-\u001f]/.test(input[key]!)))throw new SourceContentError(`Invalid ${key} filter`);
+    if(input.sort!==undefined&&!["published_desc","published_asc"].includes(input.sort))throw new SourceContentError("Invalid content sort");
+    if(input.metricKey!==undefined&&(!/^(reddit|x|instagram|web)\.[a-z0-9_]{1,50}$/.test(input.metricKey)||input.platform&&input.metricKey.split(".")[0]!==input.platform))throw new SourceContentError("Metric key must be namespaced to the selected platform");
+    for(const key of ["minMetric","maxMetric"] as const)if(input[key]!==undefined&&(typeof input[key]!=="number"||!Number.isFinite(input[key])))throw new SourceContentError("Metric bounds must be finite numbers");
+    if((input.minMetric!==undefined||input.maxMetric!==undefined)&&!input.metricKey||input.minMetric!==undefined&&input.maxMetric!==undefined&&input.minMetric>input.maxMetric)throw new SourceContentError("Invalid metric range");
+    const query = { ...input, query: input.query?.trim() || undefined,author:input.author?.trim()||undefined,language:input.language?.trim()||undefined,sourceGroup:input.sourceGroup?.trim()||undefined,sort:input.sort??"published_desc" as const, limit: integer(input.limit, 25, 100), from: input.from === undefined ? undefined : date(input.from, ""), to: input.to === undefined ? undefined : date(input.to, "") };
     if (query.from && query.to && query.from >= query.to) throw new SourceContentError("Invalid query window");
     return query;
   }
+  async contentDetail(id:string){const content=await this.repository.getContent(requireSourceId(id));if(!content)throw new SourceContentError("Content not found",404);const relatedLimit=20,references=await Promise.all(content.references.slice(0,relatedLimit).map(async reference=>({reference,content:await this.repository.findContentByIdentity(content.platform,reference.kind,reference.externalId)}))),children=await this.repository.relatedChildren(content,relatedLimit+1),ids=new Set(content.observations.map(item=>item.sourceId)),sources=(await this.repository.listSources()).filter(item=>ids.has(item.id));return {content,sources,references,children:children.slice(0,relatedLimit),relatedLimit,relatedTruncated:content.references.length>relatedLimit||children.length>relatedLimit,scope:"stored_content" as const};}
   async getJob(id: string) { const job = await this.repository.getJob(requireSourceId(id)); if (!job) throw new SourceContentError("Job not found", 404); return job; }
   async retryJob(id: string) { const previous=await this.getJob(id);await this.requireActiveSource(previous.sourceId);const job = await this.repository.retryJob(id, this.now()); if (!job) throw new SourceContentError("Only failed jobs with no active job for the same source and purpose can be retried", 409); return job; }
   async continueJob(id: string) { const previous=await this.getJob(id);await this.requireActiveSource(previous.sourceId);const job = await this.repository.continueJob(id, randomUUID(), this.now()); if (!job) throw new SourceContentError("Only bounded completed jobs with a saved checkpoint and no conflicting active job can continue", 409); return job; }

@@ -153,6 +153,8 @@ import { canUseOpsWrite, resolveSessionActor, type ApiActor } from "./auth-guard
 import { handleSourceContentRoute, matchSourceContentRoute } from "./source-content-routes";
 import { isAllowedSavedViewRoute } from "./saved-view-route";
 import type { SourceContentService } from "../../../src/application/services/source-content.service";
+import type { ContentPersonalService } from "../../../src/application/services/content-personal.service";
+import { handleContentPersonalRoute, matchContentPersonalRoute } from "./content-personal-routes";
 import { collectionExecutionViolation } from "../../../src/runtime/collection-execution-policy";
 import { buildSourceReadiness } from "./source-readiness";
 import type { AppAuditRepository } from "../../../src/domain/repositories/app-audit-repository";
@@ -281,6 +283,7 @@ function parseAnomalySignalTypeList(value: string | null): AnomalySignalType[] |
 export interface CreateApiServerOptions {
   executionEnvironment?: NodeJS.ProcessEnv;
   sourceContent?: SourceContentService;
+  contentPersonal?: ContentPersonalService;
   repositories: ApiRepositoryBundle;
   sqlDb?: SqlQueryable;
   createConnector: (
@@ -1202,6 +1205,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
       let actor: ApiActor | null = null;
       const bearerIsValid = bearerToken ? isBearerTokenValid(req, bearerToken) : false;
       const sourceContentRoute = matchSourceContentRoute(req.method ?? "GET", pathname);
+      const contentPersonalRoute = matchContentPersonalRoute(req.method ?? "GET", pathname);
       const accountRoute = matchAuthAccountRoute(req.method, pathname);
       const auditRoute = writeAuditRoute(req.method, pathname);
       const needsPrivilegedAuth = isPrivilegedWritePath(pathname) || Boolean(sourceContentRoute?.write);
@@ -1210,7 +1214,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           protectedPathPrefixes.some((prefix) => pathname.startsWith(prefix))) ||
         pathname === "/v1/ops/readyz" ||
         pathname === "/v1/ops/storage" ||
-        isAuthAdminPath(pathname) || Boolean(sourceContentRoute) || accountRoute;
+        isAuthAdminPath(pathname) || Boolean(sourceContentRoute) || Boolean(contentPersonalRoute) || accountRoute;
       if (bearerIsValid) {
         actor = { type: "machine" };
       } else if (needsAuth || auditRoute) {
@@ -1280,7 +1284,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         pathname === "/v1/keyword-queries" || pathname.startsWith("/v1/keyword-queries/");
       const isQueryRoute =
         (req.method === "GET" && pathname.startsWith("/v1/trends/")) ||
-        ((req.method === "GET" || req.method === "POST") && isKeywordQueryRoute) || (req.method === "GET" && Boolean(sourceContentRoute));
+        ((req.method === "GET" || req.method === "POST") && isKeywordQueryRoute) || (req.method === "GET" && (Boolean(sourceContentRoute) || Boolean(contentPersonalRoute)));
       if (!actor && isQueryRoute) {
         actor = await resolveSessionActor({
           req,
@@ -1360,6 +1364,12 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         const session = actor?.type === "session" && token && repos.appSessionRepository ? await repos.appSessionRepository.findByTokenHash(sessionTokenService.hashToken(token)) : null;
         const body = ["POST", "PATCH", "PUT"].includes(req.method) ? await readJsonBody<unknown>(req) : undefined;
         await respond(await handleAuthAccountRoute({ method: req.method, url, requestId, actor, currentSessionId: session?.userId === (actor?.type === "session" ? actor.userId : undefined) ? session?.id : undefined, body, now, cookieName: sessionCookieName, cookieSecure: sessionCookieSecure, appUserRepository: repos.appUserRepository, appSessionRepository: repos.appSessionRepository, appAuditRepository: repos.appAuditRepository }));
+        return;
+      }
+
+      if (contentPersonalRoute) {
+        const body = ["POST", "PATCH", "PUT", "DELETE"].includes(req.method ?? "") ? await readJsonBody<unknown>(req) : undefined;
+        await respond(await handleContentPersonalRoute({ method: req.method ?? "GET", url, body, actor, requestId, service: options.contentPersonal }));
         return;
       }
 

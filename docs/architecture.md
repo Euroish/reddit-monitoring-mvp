@@ -24,7 +24,7 @@
 
 当前流程：目标/来源设置 → 手动或持久化周期窗口入队 → provider 预算预留 → 有界取一页 → 公共内容和独立观测 → 小事务落库/checkpoint → 同范围唯一内容/UTC 日统计/按平台渠道汇总 → API → UI/JSON/CSV 导出。同来源不同 purpose 可并存排队、每来源一个 running，持久化四次领取中为 manual/refresh 保留一次优先机会；暂停/归档取消旧租约；重启回收租约并从已提交页继续。周期高水位只在耗尽窗口后推进，失败或页预算不足保留同窗口子任务；每页间让出 worker，不持有整段历史回填。免费/付费每日月度预算分开，重试/未知结果保守保留 requests/resources 预留；provider 计数因多发现可重叠。
 
-自动成熟刷新只支持 archive provider 的 initial 观测，snapshot 不套用 36 小时成熟规则。统一工作台的跨平台通用量是内容数，不把 Reddit score 与 X likes 相加；各指标使用 capability 的单位/符号与观测时间。内容读/导出不会联网，分页与统计不是冻结快照。API 不等待远端抓取完成；旧热度模型尚未迁移至 Arctic Shift，旧增长 v2 使用实际相邻观测，不将单个归档快照写成实时热度。
+自动成熟刷新只支持 archive provider 的 initial 观测，snapshot 不套用 36 小时成熟规则。统一工作台的跨平台通用量是内容数，不把 Reddit score 与 X likes 相加；各指标使用 capability 的单位/符号与观测时间。内容读/导出不会联网，分页与统计不是冻结快照。5A详情使用规范唯一身份查已存引用/children，各限20；作者按externalId/handle忽略大小写准确匹配，语言准确匹配，source group区分大小写。指标筛选取当前scope每来源最新观测，任一符合即可，null不按0；时间排序以身份打破平局，cursor绑定全部筛选。036个人保存查询/收藏注释表user FK、内容annotation FK与revision；仅用户session可读写自己的记录，机器不拥有个人空间，HTTP与落库沿同契约。API 不等待远端抓取完成；旧热度模型尚未迁移至 Arctic Shift，旧增长 v2 使用实际相邻观测，不将单个归档快照写成实时热度。
 
 ## 平台、获取渠道和订阅目标
 
