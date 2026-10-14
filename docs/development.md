@@ -91,7 +91,7 @@ git diff -- path/to/file
 
 公共内容/来源读取要求session或有效bearer，来源/任务/预算写入要求admin/owner或machine；个人query/annotation和research只允许拥有资源的用户session，viewer可管理自己的记录，machine401。个人创建必须expectedRevision=0，更新/删除必须当前revision（DELETE带JSON body），409保持稿后reload；来源/预算/target的expectedRevision兼容客户端可省略盲写，Web实际携带版本。查询不会触发外部网络。`from` 含、`to` 不含，使用 ISO 时间；列表 cursor 绑定过滤条件，修改过滤后不能复用。查询量以已采集内容为分母，未知发布时间不进入日桶。详细请求/响应类型由 [共享契约](../packages/contracts/src/source-content.ts) 定义。
 
-限流、暂时传输错误与部分 422 超时每页最多自动尝试三次；403 等授权错误直接失败。逐页提交保留 checkpoint，异常退出两分钟租约可回收。来源设置默认关闭自动任务；启用后按持久化 nextDueAt 创建增量窗口，重叠去重、最长窗口有界，未耗尽窗口通过 checkpoint 子任务继续；暂停/归档取消活动任务。自动成熟刷新只对支持 ID 刷新的 archive provider（Arctic Shift/Demo Reddit）启用，默认发布 36 小时后、最少 12 小时间隔、最多 3 次，缺失 ID 不当成已删除。snapshot 的 X ID 刷新只保留 adapter 能力，本轮不提供自动指标刷新。
+0.9.1将失败分为transient/permanent。永久错误使来源automaticCollectionBlocked=true，拒绝自动领取/调度及新增/续采；修正配置后在任务历史或当前任务面板显式Retry，原子解除阻塞并保留checkpoint，resume不会解除。临时错误/429同一任务页最多三次保守请求启动尝试，预算/spacing拒绝、租约恢复不会重置。刷新maxAttempts为最多自动轮次：首次请求前持久记轮次/冷却，每轮最多三次启动尝试（含首请求），人工Retry明确授权额外一轮，仍受provider预算/间隔。前置记账后进程崩溃可能未实际发请求，不能当账单。默认36小时成熟、12小时间隔、3自动轮次；缺失ID不视为删除，X snapshot仍无自动刷新。
 
 预算每日/月度以 UTC 计；requests 包含每次重试尝试，resources 为 pageSize/固定上游页界限或刷新 ID 数的保守预留，不是账单。未知请求结果保留预留。付费 provider 默认禁用且四个上限为 0；授权角色提高预算后会唤醒预算阻塞的任务。网络能力关闭时不会持续生成新的周期失败任务，已有手动任务保留明确错误。worker 心跳、最近成功年龄、最新已存发布时间年龄分开展示，不能承诺上游实际 12 小时新鲜度。
 
@@ -148,6 +148,8 @@ node --import tsx --test tests/integration/source-content-postgres.test.ts
 
 本轮以开发为重心，尚未公开上线。`deploy/` 是旧 Reddit 运行模板；部署前核对 Node 可执行路径、工作目录、环境、服务用户、数据库、真实 provider 与内存预算。不要把模板复制即视为可上线。
 
+0.9.1模板同时限制/readyz与/api/readyz；公网smoke检查两条。Nginx登录/注册按$binary_remote_addr做20次/分钟、burst5边缘限流，不信任任意XFF；API仍有代理socket地址共用的默认认证总量桶，须按实际并发明确部署容量，不能把模板静态回归称为TLS/反代运行验收。注册/bootstrap/改密共用12–128字符新密码政策，旧短密码只保留登录兼容。
+
 先构建不可变发布目录（含 `dist/`、`apps/web/dist/`、SQL和生产依赖lockfile，运行依赖另按manifest安装），备份数据库，再执行 `db:migrate:compiled`，新空库才运行 `auth:bootstrap-owner:compiled`。Nginx 应限制公开 `/readyz`，域名使用 HTTPS，启用安全 cookie 与明确的 CORS。真实 provider 验证和小规模采集通过后再启动调度；代码回滚不等于数据库回滚。
 
 部署时可使用 `pg_dump --format=custom` 备份，并在隔离环境验证 `pg_restore --clean --if-exists --no-owner` 的恢复；这些操作需要真实数据库参数。公开服务配置完成后执行 `PUBLIC_BASE_URL=https://example.com npm run smoke:public-launch`，认证检查参数见 `scripts/smoke-public-launch.ts`。不在文档保存账号密码。
@@ -165,3 +167,11 @@ node --import tsx --test tests/integration/source-content-postgres.test.ts
 发布或已升级旧库存：应用038后、开启文本查询前，先用生产可运行的 `node dist/scripts/backfill-public-search-index.js --limit=100 --dry-run` 检查，移除dry-run后显式有界回填；按nextCursor加 `--after=UUID` 续批、remaining=0才算当前pass完整。omit-dev产物不含tsx/TS源，不能用开发命令替代。新页提交会维护投影，未回填的旧范围文本query明确503。
 
 当前本机演示地址由local:status确认，本轮为 http://127.0.0.1:28061/content（API28060/PG25432），不要假定5173仍是本项目。已有配置可 `npm run local:setup` 追加迁移/合成种子后 `npm run local:start`；原账号见local:account，勿贴凭证。应用升级后若服务已在运行，应local:stop再start以加载新代码，保留数据；操作时确认进程是管理入口记录的本仓库服务。
+
+## 版本收口与提交前准备
+
+本次0.9.1本地提交基于ddf144f与既有0.9.0标签，package.json和根lockfile版本一起更新，历史标签/发布目录不覆盖。039使SQL文件总数为41；本轮仅新隔离库验收，不升级既有管理库或生产库。039对无失败类别的历史failed采用保守阻塞，升级后修正配置并显式Retry；不会自动丢弃checkpoint/history。
+
+提交前依次核对git status/diff、旧SQL完整性、版本/lockfile、秘密与生成物排除，再运行docs:check、typecheck、lint:web、test:offline、独立test:postgres、build/compiled及合成浏览器。新增`npm run smoke:content:closeout`自行启动临时loopback Vite，拦截API/外网，验证空/缺正文、动态库存、阻塞后两处Retry缓存恢复和移动中文；结束只关闭自身服务。本轮固定候选与命令/哈希/报告放output/validation/closeout-v0.9.1，复用已安装依赖不冒充clean install。
+
+版本摘要和范围见handoff，实际过程见development-log；待提交路径清单与提交说明在上述忽略目录。2026-10-14用户已授权一次本地提交：逐路径暂存后复核cached diff与docs，并核对提交父节点、分支与工作区状态。结果记录于output/validation/commit-v0.9.1-20261014；不创建新标签、不push或合并，不把检查报告、数据库、凭证或node_modules纳入Git。

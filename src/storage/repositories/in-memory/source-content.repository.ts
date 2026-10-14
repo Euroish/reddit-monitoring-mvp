@@ -18,6 +18,8 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
   private usage = new Map<string,{requests:number;resources:number}>();
   private workers = new Map<string,SourceWorkerHeartbeat>();
   private refreshes = new Map<string,{attempts:number;at:string}>();
+  private refreshRoundStarts = new Map<string,string>();
+  private pageRequestAttempts = new Map<string,number>();
   private claims=0;
   private lastReservations=new Map<string,string>();
   private searchDocuments=new Map<string,PublicSearchDocument>();
@@ -28,15 +30,16 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
   async createSource(input: CreateCollectionSourceRequest & { id: string; label: string; createdAt: string }) {
     const existing = [...this.sources.values()].find(item => item.platform===input.platform && item.provider===input.provider && item.contentKind===input.contentKind && JSON.stringify(item.target)===JSON.stringify(input.target));
     if (existing) { existing.label=input.label;existing.updatedAt=input.createdAt;existing.revision=(existing.revision??1)+1; return structuredClone(existing); }
-    const value: CollectionSource = { ...input, lastSuccessAt:null,latestPublishedAt:null,coverage:"unknown",state:"active",group:null,updatedAt:input.createdAt,schedule:defaultSourceSchedule(),refresh:defaultSourceRefresh(),nextDueAt:null,incrementalTo:null,nextRecheckAt:new Date(Date.parse(input.createdAt)+21600000).toISOString(),revision:1 };
+    const value: CollectionSource = { ...input, lastSuccessAt:null,latestPublishedAt:null,coverage:"unknown",state:"active",group:null,updatedAt:input.createdAt,schedule:defaultSourceSchedule(),refresh:defaultSourceRefresh(),nextDueAt:null,incrementalTo:null,nextRecheckAt:new Date(Date.parse(input.createdAt)+21600000).toISOString(),revision:1,automaticCollectionBlocked:false };
     this.sources.set(value.id,value); return structuredClone(value);
   }
   async updateSource(id: string, changes: UpdateCollectionSourceRequest, now: string) { const value=this.sources.get(id); if(!value||changes.expectedRevision!==undefined&&changes.expectedRevision!==(value.revision??1))return null;const {expectedRevision:_expected,...patch}=changes; Object.assign(value,{...patch,schedule:{...value.schedule,...changes.schedule},refresh:{...value.refresh,...changes.refresh},updatedAt:now,revision:(value.revision??1)+1}); if(changes.schedule){value.nextDueAt=value.schedule.enabled ? now : null;if(value.schedule.enabled&&(value.schedule.initialLookbackHours>value.schedule.maxCatchupHours||Object.hasOwn(changes.schedule,"recheckLookbackHours")||Object.hasOwn(changes.schedule,"recheckCadenceSeconds")))value.nextRecheckAt=now;} return structuredClone(value); }
   async setSourceState(id: string,state:CollectionSource["state"],now:string,expectedRevision?:number) { const value=this.sources.get(id);if(!value||expectedRevision!==undefined&&expectedRevision!==(value.revision??1))return null;value.state=state;value.updatedAt=now;value.revision=(value.revision??1)+1;value.nextDueAt=state==="active"&&value.schedule.enabled?now:null;if(state!=="active")for(const job of this.jobs.values())if(job.sourceId===id&&activeJob(job))await this.cancelJob(job.id,now);return structuredClone(value); }
   async enqueue(input: SourceJobInput) {
+    const origin=this.sources.get(input.sourceId);if(!origin||origin.state!=="active"||origin.automaticCollectionBlocked)throw new SourceContentError("Source must be active and unblocked to enqueue; Retry its failed job",409);
     const purpose=input.purpose??"manual",values=[...this.jobs.values()].filter(item => item.sourceId===input.sourceId && activeJob(item)),existing=values.find(item=>item.purpose===purpose)??(purpose==="manual"?values[0]:undefined);
     if (existing) return structuredClone(existing);
-    const value: SourceCollectionJob = { id:input.id,sourceId:input.sourceId,from:input.from,to:input.to,pageSize:input.pageSize,maxPages:input.maxPages,status:"queued",pagesCommitted:0,recordsProcessed:0,recordsInserted:0,recordsUpdated:0,requestCount:0,requestDurationMs:0,purpose:input.purpose??"manual",parentJobId:input.parentJobId??null,refreshIds:input.refreshIds??[],checkpoint:null,coverage:"unknown",exhausted:false,attempts:0,error:null,nextRunAt:input.now,createdAt:input.now,finishedAt:null };
+    const value: SourceCollectionJob = { id:input.id,sourceId:input.sourceId,from:input.from,to:input.to,pageSize:input.pageSize,maxPages:input.maxPages,status:"queued",pagesCommitted:0,recordsProcessed:0,recordsInserted:0,recordsUpdated:0,requestCount:0,requestDurationMs:0,failureKind:null,purpose:input.purpose??"manual",parentJobId:input.parentJobId??null,refreshIds:input.refreshIds??[],checkpoint:null,coverage:"unknown",exhausted:false,attempts:0,error:null,nextRunAt:input.now,createdAt:input.now,finishedAt:null };
     this.jobs.set(value.id,value); return structuredClone(value);
   }
   async getJob(id: string) { return structuredClone(this.jobs.get(id) ?? null); }
@@ -44,22 +47,35 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
   async cancelJob(id:string,now:string) { const value=this.jobs.get(id);if(!value||!activeJob(value))return null;Object.assign(value,{status:"cancelled",finishedAt:now,error:"Cancelled by source lifecycle or user"});this.leases.delete(id);return structuredClone(value); }
   async retryJob(id: string, now: string) {
     const current = this.jobs.get(id);
-    if (!current || current.status!=="failed" || [...this.jobs.values()].some(item => item.sourceId===current.sourceId && item.purpose===current.purpose&&activeJob(item))) return null;
-    Object.assign(current,{ status:"queued",attempts:0,error:null,nextRunAt:now,finishedAt:null }); return structuredClone(current);
+    const origin=current&&this.sources.get(current.sourceId);
+    if (!current || !origin || origin.state!=="active" || current.status!=="failed" || [...this.jobs.values()].some(item => item.sourceId===current.sourceId && item.purpose===current.purpose&&activeJob(item))) return null;
+    Object.assign(current,{ status:"queued",attempts:0,error:null,failureKind:null,nextRunAt:now,finishedAt:null });this.refreshRoundStarts.delete(id);this.pageRequestAttempts.delete(id);origin.automaticCollectionBlocked=false; return structuredClone(current);
   }
   async claim(now: string): Promise<ClaimedSourceJob | null> {
     const backgroundTurn=(this.claims+1)%4===0,priority=(item:SourceCollectionJob)=>item.status==="running"?-1:backgroundJob(item)===backgroundTurn?0:1;
-    const current = [...this.jobs.values()].filter(item=>this.sources.get(item.sourceId)?.state==="active"&&![...this.jobs.values()].some(other=>other.sourceId===item.sourceId&&other.id!==item.id&&other.status==="running")).sort((a,b)=>priority(a)-priority(b)||a.nextRunAt.localeCompare(b.nextRunAt)||a.id.localeCompare(b.id)).find(item => ["queued","retrying"].includes(item.status) && item.nextRunAt<=now || item.status==="running" && (this.leases.get(item.id)?.until ?? "")<=now);
+    const current = [...this.jobs.values()].filter(item=>this.sources.get(item.sourceId)?.state==="active"&&!this.sources.get(item.sourceId)?.automaticCollectionBlocked&&![...this.jobs.values()].some(other=>other.sourceId===item.sourceId&&other.id!==item.id&&other.status==="running")).sort((a,b)=>priority(a)-priority(b)||a.nextRunAt.localeCompare(b.nextRunAt)||a.id.localeCompare(b.id)).find(item => ["queued","retrying"].includes(item.status) && item.nextRunAt<=now || item.status==="running" && (this.leases.get(item.id)?.until ?? "")<=now);
     if (!current) return null;
     this.claims++;current.status="running"; current.attempts++;
     const token=randomUUID(); this.leases.set(current.id,{ token,until:new Date(Date.parse(now)+120000).toISOString() });
-    return { job:structuredClone(current),leaseToken:token };
+    return { job:structuredClone(current),leaseToken:token,pageRequestAttempts:this.pageRequestAttempts.get(current.id)??0 };
   }
   async continueJob(id: string, newId: string, now: string) {
-    const previous=this.jobs.get(id); if (!previous || previous.status!=="succeeded" || previous.checkpoint===null) return null;
+    const previous=this.jobs.get(id); if (!previous || previous.status!=="succeeded" || previous.checkpoint===null || this.sources.get(previous.sourceId)?.state!=="active" || this.sources.get(previous.sourceId)?.automaticCollectionBlocked) return null;
     const active=[...this.jobs.values()].find(item=>item.sourceId===previous.sourceId && item.purpose===previous.purpose&&activeJob(item)); if (active) return active.parentJobId===previous.id ? structuredClone(active) : null;
     const next:SourceCollectionJob={...structuredClone(previous),id:newId,parentJobId:previous.id,status:"queued",pagesCommitted:0,recordsProcessed:0,recordsInserted:0,recordsUpdated:0,requestCount:0,requestDurationMs:0,attempts:0,error:null,nextRunAt:now,createdAt:now,finishedAt:null};
     this.jobs.set(newId,next); return structuredClone(next);
+  }
+  async beginRequestAttempt(claim:ClaimedSourceJob,now:string) {
+    const current=this.jobs.get(claim.job.id),origin=current&&this.sources.get(current.sourceId);
+    if(!current||!origin||origin.state!=="active"||origin.automaticCollectionBlocked||current.status!=="running"||this.leases.get(current.id)?.token!==claim.leaseToken)return null;
+    if((this.pageRequestAttempts.get(current.id)??0)>=3){Object.assign(current,{status:"failed",failureKind:"transient",error:"Page request attempt limit reached after interruption; Retry or the next eligible automatic round can resume the checkpoint",nextRunAt:now,finishedAt:now});this.leases.delete(current.id);return null;}
+    if(current.purpose==="refresh"&&!this.refreshRoundStarts.has(current.id)){
+      for(const item of this.contents.values())if(current.refreshIds.includes(item.externalId)&&item.observations.some(obs=>obs.sourceId===origin.id)){
+        const key=`${origin.id}:${item.id}`,previous=this.refreshes.get(key);this.refreshes.set(key,{attempts:(previous?.attempts??0)+1,at:now});
+      }
+      this.refreshRoundStarts.set(current.id,now);
+    }
+    const attempts=(this.pageRequestAttempts.get(current.id)??0)+1;this.pageRequestAttempts.set(current.id,attempts);return attempts;
   }
   async commitPage(claim: ClaimedSourceJob, page: CollectedPage, now: string) {
     const current=this.jobs.get(claim.job.id), origin=current && this.sources.get(current.sourceId);
@@ -82,10 +98,10 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
       this.searchDocuments.set(item.id,publicSearchDocument(content.title,content.text,now));
       if(replace)this.contentVersions.set(item.id,observed);
     }
-    if(current.purpose==="refresh")for(const item of this.contents.values())if(current.refreshIds.includes(item.externalId)&&item.observations.some(obs=>obs.sourceId===origin.id)){const key=`${origin.id}:${item.id}`,old=this.refreshes.get(key);this.refreshes.set(key,{attempts:(old?.attempts??0)+1,at:now});}
     current.recordsInserted+=inserted;current.recordsUpdated+=updated;
     current.pagesCommitted++; current.recordsProcessed+=page.items.length; current.checkpoint=page.nextCheckpoint; current.exhausted=page.exhausted;
     current.coverage=page.exhausted && page.coverage!=="partial" ? "unknown" : "partial"; current.error=page.warning; current.attempts=0;
+    current.failureKind=null;this.pageRequestAttempts.delete(current.id);
     const done=page.exhausted || page.nextCheckpoint===null || current.pagesCommitted>=current.maxPages;
     current.status=done ? "succeeded" : "queued"; current.finishedAt=done ? now : null; current.nextRunAt=new Date(Date.parse(now)+5000).toISOString();
     origin.lastSuccessAt=now; origin.coverage=current.coverage;
@@ -97,10 +113,10 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
   async scheduleDue(now:string,refreshProviders:readonly string[],limit:number,enabledProviders?:readonly string[]) {
     let count=0;
     for(const source of [...this.sources.values()].sort((a,b)=>(a.nextDueAt??now).localeCompare(b.nextDueAt??now))) {
-      if(count>=limit||source.state!=="active"||enabledProviders&&!enabledProviders.includes(`${source.platform}:${source.provider}`))continue;
+      if(count>=limit||source.state!=="active"||source.automaticCollectionBlocked||enabledProviders&&!enabledProviders.includes(`${source.platform}:${source.provider}`))continue;
       for(const purpose of ["scheduled","recheck"] as const){const due=purpose==="scheduled"?source.nextDueAt:source.nextRecheckAt;
       if(count<limit&&source.schedule.enabled&&(purpose!=="recheck"||(source.schedule.recheckLookbackHours??12)>0)&&(!due||due<=now)&&![...this.jobs.values()].some(item=>item.sourceId===source.id&&item.purpose===purpose&&activeJob(item))) {
-        const previous=[...this.jobs.values()].filter(item=>item.sourceId===source.id&&item.purpose===purpose&&(item.status==="failed"||item.status==="succeeded"&&item.checkpoint!==null)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).find(item=>!this.jobsHasChild(item.id));
+        const previous=[...this.jobs.values()].filter(item=>item.sourceId===source.id&&item.purpose===purpose&&(item.status==="failed"&&item.failureKind==="transient"||item.status==="succeeded"&&item.checkpoint!==null)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).find(item=>!this.jobsHasChild(item.id));
         const window=previous?{from:previous.from,to:previous.to}:purpose==="scheduled"?scheduledWindow(source,now):recheckWindow(source,now);if(window.from>=window.to)continue;
         const queued=await this.enqueue({id:randomUUID(),sourceId:source.id,now,...window,pageSize:source.schedule.pageSize,maxPages:source.schedule.maxPages,purpose,parentJobId:previous?.id??null});if(previous)this.jobs.get(queued.id)!.checkpoint=structuredClone(previous.checkpoint);
         const next=new Date(Date.parse(now)+(purpose==="scheduled"?source.schedule.cadenceSeconds:source.schedule.recheckCadenceSeconds??21600)*1000).toISOString();purpose==="scheduled"?source.nextDueAt=next:source.nextRecheckAt=next;count++;
@@ -117,10 +133,10 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
   async providerUsage(now:string):Promise<SourceProviderUsage[]> {return [...new Set([...this.sources.values()].map(item=>item.provider).concat([...this.budgets.keys()]))].map(provider=>this.usageFor(provider,now));}
   async reserveUsage(provider:string,resources:number,now:string) {if(!this.budgets.has(provider))this.budgets.set(provider,{...defaultProviderBudget(provider),revision:1});const value=this.usageFor(provider,now),b=value.budget,nextRequest=new Date(Date.parse(this.lastReservations.get(provider)??now)+(b.minimumIntervalMs??0)).toISOString();if(b.enabled&&this.lastReservations.has(provider)&&nextRequest>now)return {allowed:false,retryAt:nextRequest,reason:"interval" as const};const allowed=b.enabled&&value.dailyRequests+1<=b.dailyRequests&&value.monthlyRequests+1<=b.monthlyRequests&&value.dailyResources+resources<=b.dailyResources&&value.monthlyResources+resources<=b.monthlyResources;if(allowed){this.usage.set(`${provider}:${now.slice(0,10)}`,{requests:value.dailyRequests+1,resources:value.dailyResources+resources});this.lastReservations.set(provider,now);}const monthBlocked=value.monthlyRequests+1>b.monthlyRequests||value.monthlyResources+resources>b.monthlyResources;const nextMonth=new Date(Date.UTC(Number(now.slice(0,4)),Number(now.slice(5,7)),1)).toISOString();return {allowed,retryAt:monthBlocked?nextMonth:nextUsageDay(now),reason:allowed?undefined:"budget" as const};}
   async heartbeat(value:SourceWorkerHeartbeat) {this.workers.set(value.id,structuredClone(value));}
-  async sourceOps(now:string):Promise<SourceOps> {const jobs=[...this.jobs.values()],age=(at:string|null)=>at?Math.max(0,(Date.parse(now)-Date.parse(at))/3600000):null;return {checkedAt:now,workers:[...this.workers.values()].map(value=>({...value,stale:value.state!=="stopped"&&Date.parse(now)-Date.parse(value.lastHeartbeatAt)>90000})),queue:[...new Set(jobs.map(item=>item.status))].map(status=>({status,count:jobs.filter(item=>item.status===status).length})),oldestQueuedAt:jobs.filter(activeJob).map(item=>item.createdAt).sort()[0]??null,sources:[...this.sources.values()].map(item=>({sourceId:item.id,state:item.state,lastSuccessAgeHours:age(item.lastSuccessAt),latestPublishedAgeHours:age(item.latestPublishedAt),coverage:item.coverage,nextDueAt:item.nextDueAt,activeJobs:jobs.filter(job=>job.sourceId===item.id&&activeJob(job)).length})),providers:await this.providerUsage(now),recentFailures:jobs.filter(item=>item.status==="failed").sort((a,b)=>(b.finishedAt??b.createdAt).localeCompare(a.finishedAt??a.createdAt)||b.id.localeCompare(a.id)).slice(0,20).map(item=>({jobId:item.id,sourceId:item.sourceId,error:item.error??"Collection failed",finishedAt:item.finishedAt})),requests:{registeredCount:jobs.reduce((sum,item)=>sum+(item.requestCount??0),0),totalDurationMs:jobs.reduce((sum,item)=>sum+(item.requestDurationMs??0),0),scope:"retained_jobs"}};}
-  async failJob(claim: ClaimedSourceJob, error: string, retryAt: string | null, now: string,resetAttempts=false) {
+  async sourceOps(now:string):Promise<SourceOps> {const jobs=[...this.jobs.values()],age=(at:string|null)=>at?Math.max(0,(Date.parse(now)-Date.parse(at))/3600000):null;return {checkedAt:now,workers:[...this.workers.values()].map(value=>({...value,stale:value.state!=="stopped"&&Date.parse(now)-Date.parse(value.lastHeartbeatAt)>90000})),queue:[...new Set(jobs.map(item=>item.status))].map(status=>({status,count:jobs.filter(item=>item.status===status).length})),oldestQueuedAt:jobs.filter(activeJob).map(item=>item.createdAt).sort()[0]??null,sources:[...this.sources.values()].map(item=>({sourceId:item.id,state:item.state,lastSuccessAgeHours:age(item.lastSuccessAt),latestPublishedAgeHours:age(item.latestPublishedAt),coverage:item.coverage,nextDueAt:item.nextDueAt,activeJobs:jobs.filter(job=>job.sourceId===item.id&&activeJob(job)).length,oldestPendingAt:jobs.filter(job=>job.sourceId===item.id&&["queued","retrying"].includes(job.status)).map(job=>job.createdAt).sort()[0]??null})),providers:await this.providerUsage(now),recentFailures:jobs.filter(item=>item.status==="failed").sort((a,b)=>(b.finishedAt??b.createdAt).localeCompare(a.finishedAt??a.createdAt)||b.id.localeCompare(a.id)).slice(0,20).map(item=>({jobId:item.id,sourceId:item.sourceId,error:item.error??"Collection failed",finishedAt:item.finishedAt})),requests:{registeredCount:jobs.reduce((sum,item)=>sum+(item.requestCount??0),0),totalDurationMs:jobs.reduce((sum,item)=>sum+(item.requestDurationMs??0),0),scope:"retained_jobs"}};}
+  async failJob(claim: ClaimedSourceJob, error: string, retryAt: string | null, now: string,resetAttempts=false,failureKind:SourceCollectionJob["failureKind"]=retryAt?"transient":"permanent") {
     const current=this.jobs.get(claim.job.id); if (!current || this.leases.get(current.id)?.token!==claim.leaseToken) return;
-    Object.assign(current,{status:retryAt ? "retrying" : "failed",error,nextRunAt:retryAt ?? now,finishedAt:retryAt ? null : now,attempts:resetAttempts?0:current.attempts}); this.leases.delete(current.id);
+    Object.assign(current,{status:retryAt ? "retrying" : "failed",error,failureKind,nextRunAt:retryAt ?? now,finishedAt:retryAt ? null : now,attempts:resetAttempts?0:current.attempts});if(failureKind==="permanent")this.sources.get(current.sourceId)!.automaticCollectionBlocked=true;this.leases.delete(current.id);
   }
   async recordRequestAttempt(claim:ClaimedSourceJob,durationMs:number) {const current=this.jobs.get(claim.job.id);if(!current||current.status!=="running"||this.leases.get(current.id)?.token!==claim.leaseToken)return;current.requestCount=(current.requestCount??0)+1;current.requestDurationMs=(current.requestDurationMs??0)+durationMs;}
   private filtered(query: ContentQuery,includeSearch=true) {

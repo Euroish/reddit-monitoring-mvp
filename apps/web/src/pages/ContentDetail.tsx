@@ -51,7 +51,9 @@ export function ContentDetail() {
         {original ? <a href={original} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">{copy('Open original', '打开原链接')}</a> : <p className="content-muted">{copy('Original link unavailable.', '原链接未知或不可安全打开。')}</p>}
       </header>
       <section aria-labelledby="content-body-title"><h2 id="content-body-title">{copy('Content and publication', '内容与发布时间')}</h2>
-        {item.text ? <p className="content-text">{item.text}</p> : <p className="content-muted">{copy('Text was not provided; missing text is not an empty source post.', '来源未提供正文，缺失正文不表示源内容为空。')}</p>}
+        {item.text === null ? <p className="content-muted">{copy('Text was not provided; missing text is not an empty source post.', '来源未提供正文，缺失正文不表示源内容为空。')}</p>
+          : item.text.length === 0 ? <p className="content-muted">{copy('The stored body text is empty.', '已存正文为空。')}</p>
+            : <p className="content-text">{item.text}</p>}
         {['deleted', 'removed'].includes(item.availability) && <p>{copy('The source reports removed or deleted content. Stored fields reflect the retained observation.', '源内容已删除或移除，当前字段来自保留的观测。')}</p>}
         <dl className="content-detail-fields"><dt>{copy('Author', '作者')}</dt><dd>{item.author?.displayName ?? item.author?.handle ?? copy('Unknown', '未知')}{item.author?.handle && ` · ${item.author.handle}`}{item.author?.externalId && ` · ID ${item.author.externalId}`}{authorUrl && <> · <a href={authorUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">{copy('Author link', '作者链接')}</a></>}</dd>
           <dt>{copy('Published', '发布')}</dt><dd>{time(item.publishedAt)}</dd><dt>{copy('First fetched', '首次取回')}</dt><dd>{time(item.firstFetchedAt)}</dd><dt>{copy('Last fetched', '最近取回')}</dt><dd>{time(item.lastFetchedAt)}</dd></dl>

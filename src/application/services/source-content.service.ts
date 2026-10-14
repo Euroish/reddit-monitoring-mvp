@@ -72,6 +72,7 @@ export class SourceContentService {
     const source = await this.repository.getSource(sourceId);
     if (!source) throw new SourceContentError("Source not found", 404);
     if(source.state!=="active")throw new SourceContentError("Paused or archived sources cannot collect; resume the source first",409);
+    if(source.automaticCollectionBlocked)throw new SourceContentError("Collection is blocked by a permanent failure; correct its cause and Retry the failed job",409);
     if (!this.providerFor(source.platform,source.provider)) throw new SourceContentError("This platform/provider is not enabled for collection");
     const now = this.now(), to = date(input.to, now), from = date(input.from, new Date(Date.parse(to) - 86400000).toISOString());
     if (Date.parse(from) >= Date.parse(to) || Date.parse(to) > Date.parse(now) + 60_000) throw new SourceContentError("Collection window must be ordered and must not be in the future");
@@ -102,7 +103,7 @@ export class SourceContentService {
   async contentDetail(id:string){const content=await this.repository.getContent(requireSourceId(id));if(!content)throw new SourceContentError("Content not found",404);const relatedLimit=20,references=await Promise.all(content.references.slice(0,relatedLimit).map(async reference=>({reference,content:await this.repository.findContentByIdentity(content.platform,reference.kind,reference.externalId)}))),children=await this.repository.relatedChildren(content,relatedLimit+1),ids=new Set(content.observations.map(item=>item.sourceId)),sources=(await this.repository.listSources()).filter(item=>ids.has(item.id));return {content,sources,references,children:children.slice(0,relatedLimit),relatedLimit,relatedTruncated:content.references.length>relatedLimit||children.length>relatedLimit,scope:"stored_content" as const};}
   async getJob(id: string) { const job = await this.repository.getJob(requireSourceId(id)); if (!job) throw new SourceContentError("Job not found", 404); return job; }
   async retryJob(id: string) { const previous=await this.getJob(id);await this.requireActiveSource(previous.sourceId);const job = await this.repository.retryJob(id, this.now()); if (!job) throw new SourceContentError("Only failed jobs with no active job for the same source and purpose can be retried", 409); return job; }
-  async continueJob(id: string) { const previous=await this.getJob(id);await this.requireActiveSource(previous.sourceId);const job = await this.repository.continueJob(id, randomUUID(), this.now()); if (!job) throw new SourceContentError("Only bounded completed jobs with a saved checkpoint and no conflicting active job can continue", 409); return job; }
+  async continueJob(id: string) { const previous=await this.getJob(id);await this.requireActiveSource(previous.sourceId);const source=await this.repository.getSource(previous.sourceId);if(source?.automaticCollectionBlocked)throw new SourceContentError("Collection is blocked by a permanent failure; correct its cause and Retry the failed job",409);const job = await this.repository.continueJob(id, randomUUID(), this.now()); if (!job) throw new SourceContentError("Only bounded completed jobs with a saved checkpoint and no conflicting active job can continue", 409); return job; }
   private async requireActiveSource(id:string) {const source=await this.repository.getSource(id);if(!source||source.state!=="active")throw new SourceContentError("Source must be active",409);if(!this.providerFor(source.platform,source.provider))throw new SourceContentError("Provider is not enabled",409);}
   async listJobs(query:SourceJobQuery) {if(query.sourceId)requireSourceId(query.sourceId);if(query.status&&!["queued","running","retrying","succeeded","failed","cancelled"].includes(query.status))throw new SourceContentError("Invalid job status");return this.repository.listJobs({...query,limit:integer(query.limit,50,100)});}
   async cancelJob(id:string) {const result=await this.repository.cancelJob(requireSourceId(id),this.now());if(!result)throw new SourceContentError("Only active jobs can be cancelled",409);return result;}
@@ -124,7 +125,9 @@ export class SourceContentService {
     if (!claimed) return false;
     this.lastWorkedJobId=claimed.job.id;
     if(signal?.aborted){await this.repository.failJob(claimed,"Worker stopped before requesting a page",this.now(),this.now(),true);return true;}
+    let pageRequestAttempts=0;
     try {
+      if((claimed.pageRequestAttempts??0)>=3){await this.repository.beginRequestAttempt(claimed,this.now());return true;}
       const source = await this.repository.getSource(claimed.job.sourceId);
       if (!source) throw new ContentProviderError("Source no longer exists", false);
       const provider = this.providerFor(source.platform,source.provider);
@@ -133,15 +136,17 @@ export class SourceContentService {
       const budget=await this.repository.reserveUsage(source.provider,reservedResources,this.now());
     if(!budget.allowed){await this.repository.failJob(claimed,budget.reason==="interval"?"Provider request spacing; no upstream request was sent":"Provider budget disabled or exhausted; no upstream request was sent",budget.retryAt,this.now(),true);return true;}
       if(signal?.aborted){await this.repository.failJob(claimed,"Worker stopped before requesting a reserved page",this.now(),this.now(),true);return true;}
+      const begun=await this.repository.beginRequestAttempt(claimed,this.now());if(begun===null)return true;pageRequestAttempts=begun;
       const started=performance.now();let page;
       try{page=claimed.job.purpose==="refresh" ? await (provider.refreshIds?.({source,externalIds:claimed.job.refreshIds,signal})??Promise.reject(new ContentProviderError("Provider does not support refresh by IDs",false))) : await provider.collectPage({ source, from: claimed.job.from, to: claimed.job.to, limit: claimed.job.pageSize, checkpoint: claimed.job.checkpoint, signal });}
       finally{await this.repository.recordRequestAttempt(claimed,Math.max(0,performance.now()-started));}
       await this.repository.commitPage(claimed, page, this.now());
     } catch (error) {
-      const retryable = signal?.aborted || error instanceof ContentProviderError && error.retryable && claimed.job.attempts < 3;
+      const retryable = signal?.aborted || error instanceof ContentProviderError && error.retryable && pageRequestAttempts < 3;
       const wait = error instanceof ContentProviderError ? error.retryAfterSeconds : 30;
       const retryAt = retryable ? new Date(Date.parse(this.now()) + (signal?.aborted ? 0 : Math.max(5, wait) * 1000)).toISOString() : null;
-      await this.repository.failJob(claimed, error instanceof Error ? error.message.slice(0, 400) : "Collection failed", retryAt, this.now(),signal?.aborted);
+      const failureKind = signal?.aborted || error instanceof ContentProviderError && error.retryable ? "transient" : "permanent";
+      await this.repository.failJob(claimed, error instanceof Error ? error.message.slice(0, 400) : "Collection failed", retryAt, this.now(),signal?.aborted,failureKind);
     }
     return true;
   }

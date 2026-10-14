@@ -45,6 +45,18 @@ test("single session revoke is owner-scoped, expired sessions stay hidden, and r
   assert.equal((await f.service.listSessions(f.user.id)).length,0);
 });
 
+test("password changes accept both length boundaries, preserve spaces and keep legacy login compatible", async () => {
+  for (const password of [" twelvechar ", ` ${"x".repeat(126)} `]) {
+    const f = await fixture();
+    await f.login();
+    await f.service.changePassword(f.user.id, { currentPassword: oldPassword, newPassword: password });
+    const options = { appUserRepository: f.users, appSessionRepository: f.sessions, now: () => now };
+    await loginAppUser(options, { email: f.user.email, password });
+    await assert.rejects(loginAppUser(options, { email: f.user.email, password: password.trim() }),
+      error => error instanceof AuthError && error.code === "invalid_credentials");
+  }
+});
+
 test("a password verified before disable/reactivate cannot create a resurrected session",async()=>{
   const f=await fixture();let release!:()=>void,verified!:()=>void;
   const hold=new Promise<void>(resolve=>{release=resolve;}),ready=new Promise<void>(resolve=>{verified=resolve;});

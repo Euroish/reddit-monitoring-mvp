@@ -2,6 +2,7 @@ import type { AppUser } from "../../domain/entities/app-user";
 import type { AppUserRepository, AccountSecurityActor } from "../../domain/repositories/app-user-repository";
 import type { AppSessionRepository } from "../../domain/repositories/app-session-repository";
 import { PasswordHashingService } from "./password-hashing.service";
+import { isValidNewPassword, NEW_PASSWORD_POLICY_MESSAGE } from "./password-policy";
 
 export class AccountSecurityError extends Error {
   constructor(public readonly code: "invalid_request" | "invalid_credentials" | "account_changed" | "not_found" | "forbidden" | "last_owner" | "self_change", public readonly status: 400 | 401 | 403 | 404 | 409, message: string) { super(message); }
@@ -14,7 +15,7 @@ export class AccountSecurityService {
 
   async changePassword(id: string, input: { currentPassword: string; newPassword: string }): Promise<void> {
     userId(id);
-    if (typeof input.currentPassword !== "string" || typeof input.newPassword !== "string" || !input.currentPassword || input.newPassword.length < 12 || input.newPassword.length > 128) throw new AccountSecurityError("invalid_request", 400, "New password must be 12–128 characters; current password is required");
+    if (typeof input.currentPassword !== "string" || !input.currentPassword || !isValidNewPassword(input.newPassword)) throw new AccountSecurityError("invalid_request", 400, `${NEW_PASSWORD_POLICY_MESSAGE}; current password is required`);
     const user = await this.repositories.appUserRepository.findById(id);
     const record = user ? await this.repositories.appUserRepository.findByEmailWithPassword(user.email) : null;
     if (!record || record.user.id !== id || record.user.status !== "active" || !await this.passwords.verifyPassword(input.currentPassword, record.password.passwordHash)) throw new AccountSecurityError("invalid_credentials", 401, "Current password is incorrect or the account is inactive");

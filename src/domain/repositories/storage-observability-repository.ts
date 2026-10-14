@@ -1,5 +1,6 @@
 export interface StorageTableStat {
   tableName: string;
+  /** PostgreSQL statistics estimate; may be stale or zero before statistics exist. */
   rowEstimate: number;
   tableBytes: number;
   indexBytes: number;

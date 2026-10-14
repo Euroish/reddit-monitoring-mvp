@@ -49,7 +49,7 @@ async function readRequestBody(req: IncomingMessage): Promise<Buffer | undefined
   return Buffer.concat(chunks);
 }
 
-async function createPublicLaunchProxy(apiBaseUrl: string): Promise<{ server: Server; baseUrl: string }> {
+async function createPublicLaunchProxy(apiBaseUrl: string, blockApiReady = true): Promise<{ server: Server; baseUrl: string }> {
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     if (!req.url || !req.method) {
       res.statusCode = 400;
@@ -58,7 +58,7 @@ async function createPublicLaunchProxy(apiBaseUrl: string): Promise<{ server: Se
     }
 
     const incomingUrl = new URL(req.url, "http://127.0.0.1");
-    if (incomingUrl.pathname === "/readyz") {
+    if (incomingUrl.pathname === "/readyz" || (blockApiReady && incomingUrl.pathname === "/api/readyz")) {
       res.statusCode = 403;
       res.end();
       return;
@@ -103,7 +103,7 @@ test("public launch smoke proves authenticated cookie and credentialed CORS flow
   await seedAppUser({
     repos,
     email: "owner@example.com",
-    password: "launch-password",
+    password: " launch-password ",
     role: "owner",
     nowIso: fixedNow,
   });
@@ -130,7 +130,7 @@ test("public launch smoke proves authenticated cookie and credentialed CORS flow
       PUBLIC_BASE_URL: publicProxy.baseUrl,
       PUBLIC_ALLOW_HTTP: "true",
       PUBLIC_LOGIN_EMAIL: "owner@example.com",
-      PUBLIC_LOGIN_PASSWORD: "launch-password",
+      PUBLIC_LOGIN_PASSWORD: " launch-password ",
       PUBLIC_ALLOWED_ORIGIN: "https://public.example.com",
       PUBLIC_BLOCKED_ORIGIN: "https://blocked-origin.example",
     });
@@ -138,6 +138,7 @@ test("public launch smoke proves authenticated cookie and credentialed CORS flow
     assert.deepEqual(result.checks, [
       "healthz.public_ok",
       "readyz.not_public",
+      "readyz.api_alias_not_public",
       "cors.allowed_origin",
       "cors.blocked_origin",
       "auth.secure_cookie",
@@ -151,4 +152,15 @@ test("public launch smoke proves authenticated cookie and credentialed CORS flow
     await stopServer(publicProxy.server);
     await stopServer(apiServer);
   }
+});
+
+test("public launch smoke rejects a proxy that exposes readiness through its API prefix", async () => {
+  const api = createServer((_req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ ok: true }));
+  });
+  const apiBase = await startServer(api), proxy = await createPublicLaunchProxy(apiBase, false);
+  try {
+    await assert.rejects(runPublicLaunchSmoke({ PUBLIC_BASE_URL: proxy.baseUrl, PUBLIC_ALLOW_HTTP: "true" }), /\/api\/readyz/);
+  } finally { await stopServer(proxy.server); await stopServer(api); }
 });

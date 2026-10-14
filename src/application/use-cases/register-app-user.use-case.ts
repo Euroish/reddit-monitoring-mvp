@@ -3,6 +3,7 @@ import type { AppUser } from "../../domain/entities/app-user";
 import type { AppInviteRepository } from "../../domain/repositories/app-invite-repository";
 import type { AppUserRepository } from "../../domain/repositories/app-user-repository";
 import { PasswordHashingService } from "../services/password-hashing.service";
+import { isValidNewPassword, NEW_PASSWORD_POLICY_MESSAGE } from "../services/password-policy";
 import { SessionTokenService } from "../services/session-token.service";
 
 export class RegisterAppUserError extends Error {
@@ -38,6 +39,9 @@ export async function registerAppUser(
   const email = input.email.trim().toLowerCase();
   if (!email || !input.password || !input.inviteCode.trim()) {
     throw new RegisterAppUserError("email, password, and inviteCode are required", "invalid_register_request");
+  }
+  if (!isValidNewPassword(input.password)) {
+    throw new RegisterAppUserError(NEW_PASSWORD_POLICY_MESSAGE, "invalid_register_request");
   }
 
   const sessionTokenService = options.sessionTokenService ?? new SessionTokenService();

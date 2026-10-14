@@ -17,24 +17,6 @@ interface DatabaseSizeRow {
   database_size_bytes: string | number;
 }
 
-const OBSERVED_TABLES = [
-  "collection_source",
-  "content_discovery",
-  "content_observation",
-  "source_collection_job",
-  "reddit_fetch_event",
-  "raw_reddit_event",
-  "metrics_snapshot",
-  "post_engagement_latest",
-  "post_engagement_window",
-  "content",
-  "post_search_document",
-  "subreddit_daily_fact",
-  "keyword_trend_daily",
-  "subreddit_trend_point",
-  "post_growth_fact",
-] as const;
-
 export class PostgresStorageObservabilityRepository implements StorageObservabilityRepository {
   constructor(
     private readonly db: SqlQueryable,
@@ -61,11 +43,9 @@ export class PostgresStorageObservabilityRepository implements StorageObservabil
           ON n.oid = c.relnamespace
         WHERE
           n.nspname = 'public'
-          AND c.relkind = 'r'
-          AND c.relname = ANY($1::text[])
+          AND c.relkind IN ('r', 'p')
         ORDER BY pg_total_relation_size(c.oid) DESC, c.relname ASC
         `,
-        [OBSERVED_TABLES],
       ),
     ]);
 

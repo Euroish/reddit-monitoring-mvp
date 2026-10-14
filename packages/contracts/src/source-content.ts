@@ -49,7 +49,11 @@ export interface SourceCapability {
   requestResourceUpperBound?: number;
 }
 export interface SourceSchedule { enabled: boolean; cadenceSeconds: number; overlapSeconds: number; initialLookbackHours: number; maxCatchupHours: number; pageSize: number; maxPages: number; recheckLookbackHours?:number; recheckCadenceSeconds?:number }
-export interface SourceRefresh { enabled: boolean; afterHours: number; minIntervalHours: number; maxAttempts: number; batchSize: number }
+export interface SourceRefresh {
+  enabled: boolean; afterHours: number; minIntervalHours: number;
+  /** Maximum automatic rounds, including failed rounds. Each round permits at most three request-start attempts; explicit Retry authorizes another round. */
+  maxAttempts: number; batchSize: number;
+}
 export interface CollectionSource {
   id: string; platform: ContentPlatform; provider: string; label: string; target: SourceTarget;
   contentKind: PublicContentKind; createdAt: string; lastSuccessAt: string | null;
@@ -57,6 +61,8 @@ export interface CollectionSource {
   state: "active" | "paused" | "archived"; group: string | null; updatedAt: string;
   schedule: SourceSchedule; refresh: SourceRefresh; nextDueAt: string | null; incrementalTo: string | null;
   nextRecheckAt?:string|null;
+  /** Operational fence after a permanent collection failure; explicit failed-job Retry releases it. */
+  automaticCollectionBlocked?: boolean;
   /** Configuration revision; worker progress and observations do not change it. */
   revision?:number;
 }
@@ -77,13 +83,15 @@ export interface SourceCollectionJob {
   recordsInserted: number; recordsUpdated: number;
   /** Registered adapter attempts; cancellation/lease loss may prevent a fenced write. Not a provider bill. */
   requestCount?: number; requestDurationMs?: number;
+  /** Permanent failures require explicit Retry; transient failures retain automatic recovery. */
+  failureKind?: "transient" | "permanent" | null;
 }
 export interface SourceJobQuery { sourceId?: string; status?: SourceCollectionJob["status"]; limit?: number }
 export interface SourceWorkerHeartbeat { id: string; startedAt: string; lastHeartbeatAt: string; state: "active" | "draining" | "stopped"; lastJobId: string | null }
 export interface SourceOps {
   checkedAt: string; workers: (SourceWorkerHeartbeat & { stale: boolean })[];
   queue: { status: SourceCollectionJob["status"]; count: number }[]; oldestQueuedAt: string | null;
-  sources: { sourceId: string; state: CollectionSource["state"]; lastSuccessAgeHours: number | null; latestPublishedAgeHours: number | null; coverage: CollectionSource["coverage"]; nextDueAt: string | null; activeJobs: number }[];
+  sources: { sourceId: string; state: CollectionSource["state"]; lastSuccessAgeHours: number | null; latestPublishedAgeHours: number | null; coverage: CollectionSource["coverage"]; nextDueAt: string | null; activeJobs: number; oldestPendingAt?: string | null }[];
   providers: SourceProviderUsage[];
   recentFailures?:{jobId:string;sourceId:string;error:string;finishedAt:string|null}[];
   requests?:{registeredCount:number;totalDurationMs:number;scope:"retained_jobs"};

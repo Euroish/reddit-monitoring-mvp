@@ -20,7 +20,7 @@ export function SourceTasks({ sources, canEdit, zh, onJob }: {
     refetchInterval: query => open && query.state.data?.jobs.some(job => ['queued', 'running', 'retrying'].includes(job.status)) ? 5000 : false });
   const action = useMutation({ mutationFn: ({ id, action }: { id: string; action: 'cancel' | 'retry' | 'continue' }) =>
     fetchApi<SourceJobResponse>(`/v1/source-jobs/${id}/${action}`, { method: 'POST', body: '{}' }),
-    onSuccess: data => { onJob(data.job.id); void client.invalidateQueries({ queryKey: ['sourceJobs'] }); void client.invalidateQueries({ queryKey: ['sourceContentJob'] }); void client.invalidateQueries({ queryKey: ['sourceOps'] }); } });
+    onSuccess: data => { onJob(data.job.id); void client.invalidateQueries({ queryKey: ['sourceJobs'] }); void client.invalidateQueries({ queryKey: ['sourceContentJob'] }); void client.invalidateQueries({ queryKey: ['sourceOps'] }); void client.invalidateQueries({ queryKey: ['contentSources'] }); } });
   const statuses: SourceCollectionJob['status'][] = ['queued', 'running', 'retrying', 'succeeded', 'failed', 'cancelled'];
   const label = (status: SourceCollectionJob['status']) => ({ queued: copy('Queued', '排队'), running: copy('Running', '运行中'), retrying: copy('Retrying', '等待重试'), succeeded: copy('Finished', '已结束'), failed: copy('Failed', '失败'), cancelled: copy('Cancelled', '已取消') })[status];
   return <details onToggle={event => setOpen(event.currentTarget.open)}><summary>{copy('Collection task history', '采集任务历史')}</summary>
@@ -40,6 +40,8 @@ export function SourceTasks({ sources, canEdit, zh, onJob }: {
         <p className="content-muted">{copy('Purpose', '用途')}: {job.purpose} · {copy('Pages', '页数')} {job.pagesCommitted}/{job.maxPages} · {copy('Processed', '处理')} {job.recordsProcessed} · {copy('Inserted', '新增')} {job.recordsInserted} · {copy('Existing identities updated', '已有内容更新')} {job.recordsUpdated}<br />{new Date(job.from).toLocaleString()} → {new Date(job.to).toLocaleString()} · {job.id}</p>
         <p className="content-muted">{copy('Registered requests', '已登记请求')} {job.requestCount ?? '—'} · {copy('Cumulative fetch/parse time (ms)', '累计取页耗时(ms)')} {job.requestDurationMs ?? '—'}</p>
         {job.error && <p className="content-error">{job.error}</p>}
+        {job.status === 'failed' && job.failureKind === 'permanent' && <p role="note" className="content-error">{copy('Automatic collection is blocked. Correct the provider configuration, then retry this failed task to resume collection.', '自动采集已阻塞。修正数据渠道配置后，重试此失败任务以恢复采集。')}</p>}
+        {job.status === 'succeeded' && !job.exhausted && <p role="note" className="content-muted">{copy('This task ended with partial coverage. The collection window is not complete; inspect its warning and checkpoint before continuing.', '此任务已结束，但覆盖仍不完整。采集窗口尚未耗尽，请检查提示和检查点后再决定如何继续。')}</p>}
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <Button type="button" onClick={() => onJob(job.id)}>{copy('Inspect task', '查看任务')}</Button>
           {canEdit && active && <Button type="button" disabled={action.isPending} onClick={() => action.mutate({ id: job.id, action: 'cancel' })}>{copy('Cancel task', '取消任务')}</Button>}

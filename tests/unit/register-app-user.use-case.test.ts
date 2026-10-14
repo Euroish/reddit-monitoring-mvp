@@ -68,7 +68,7 @@ test("registerAppUser uses atomic registration path without consuming invite on 
         },
         {
           email: "race@example.com",
-          password: "password",
+          password: "Synthetic-race-password-12",
           inviteCode,
         },
       ),

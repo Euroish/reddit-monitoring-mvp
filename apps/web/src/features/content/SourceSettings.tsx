@@ -49,7 +49,7 @@ export function SourceSettings({ source, capability, zh, onUpdated }: {
   const refreshFields = [
     ['afterHours', 'Refresh after publication (hours)', '发布后刷新（小时）', 1, 8760],
     ['minIntervalHours', 'Minimum refresh interval (hours)', '最小刷新间隔（小时）', 1, 720],
-    ['maxAttempts', 'Maximum refresh attempts', '最多刷新次数', 1, 20],
+    ['maxAttempts', 'Maximum automatic refresh rounds', '最多自动刷新轮次', 1, 20],
     ['batchSize', 'Refresh batch size', '刷新批量条数', 1, 100],
   ] as const;
   return <details><summary>{copy('Source settings', '来源设置')}</summary>
@@ -73,6 +73,7 @@ export function SourceSettings({ source, capability, zh, onUpdated }: {
           <label key={field}>{copy(en, cn)}<Input type="number" min={min} max={max} step={1} required value={Number.isFinite(current.fields.refresh[field]) ? current.fields.refresh[field] : ''} onChange={event => setSetting('refresh', field, event.target.value === '' ? Number.NaN : Number(event.target.value))} /></label>)}</div>
       </fieldset>
       <p className="content-muted">{copy('Scheduling requires a running source worker. Paused and archived sources do not start new collection jobs. Identity stays fixed; add a source to change its target.', '调度需要来源 worker 持续运行。暂停或归档来源不会启动新采集任务；若要改变采集目标，请新增来源。')}</p>
+      <p className="content-muted">{copy('A refresh round begins when its first request is sent, including failed requests. Each round allows at most three requests for temporary errors. Manual retry explicitly starts another round, still subject to provider budgets.', '刷新轮次从首次发出请求时开始计数，失败也计入。每轮暂时错误最多允许三次请求；手动重试明确开启额外一轮，仍受数据渠道预算限制。')}</p>
       <p className="content-muted">{copy('Late-arrival checks revisit only the configured recent window and consume the same provider budget. They preserve incremental checkpoints and cannot prove full upstream coverage.', '迟到回查只重查配置的近期窗口，计入同一 provider 预算并保留增量 checkpoint；不能证明上游完整覆盖。')}</p>
       {conflict && <p role="alert" className="content-error">{copy('The source changed while you were editing. Your draft is retained. Reload its settings before saving.', '编辑期间来源已更新，草稿已保留。请重新载入设置再保存。')} <Button type="button" onClick={() => { setEdit(snapshot(source)); update.reset(); }}>{copy('Reload settings', '重新载入设置')}</Button></p>}
       {update.error && <p role="alert" className="content-error">{update.error.message}</p>}

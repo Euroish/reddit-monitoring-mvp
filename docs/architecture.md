@@ -47,11 +47,11 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 
 已实现的 [ContentProvider](../src/connectors/shared/content-provider.interface.ts) 声明 `capability`，以 `normalizeTarget(target, kind)` 适配目标，以 `collectPage({source, from, to, limit, checkpoint, signal})` 返回 `CollectedPage`：内容/观测、provider 自己解释的 checkpoint、覆盖、耗尽及 warning。服务按 platform/provider 注册 adapter，仅启用实际能力；provider 标识使用小写字母、数字和下划线。未来 feed/search 留给对应 adapter 校验，公共层不透传任意 URL 或秘密，不把 Reddit about/hot/fullname cursor 强加给其他来源。
 
-能力不足返回明确的 unsupported 或 partial；网络失败与有效空结果区分。默认不切到另一个语义不同的来源补零。重试由明确的一层负责，短暂传输问题有限重试，429 延后任务，401/403 配置或授权错误直接记录并停止该来源，避免 connector、任务、API 三层重复重试。
+能力不足返回明确的 unsupported 或 partial；网络失败与有效空结果区分。默认不切到另一个语义不同的来源补零。0.9.1 将任务失败记录为 transient/permanent；非 retryable 错误使当前任务失败并阻塞该来源的自动调度、领取和新增/续采。配置修正后显式 Retry 原子解除来源阻塞并保留原检查点，resume 或配置保存不会解除；后台进度不提升配置revision。临时错误与429同一任务页/刷新轮次最多三次保守请求启动尝试，预算/间隔拒绝不增加或重置，崩溃后的租约恢复仍检查持久上限。首次刷新请求前在source→job事务中记录轮次和冷却，进程若在记账后请求前崩溃也保守占用；成功提交不重复计数，不能把计数当账单。自动轮次耗尽后停止；手动 Retry 明确授权额外一轮，仍受provider预算/间隔限制。取消后的旧租约不能登记新尝试或提交页；已发上游请求不能保证撤回。
 
 ## 统一存储：共享身份，独立证据
 
-现有 `source` 继续承载平台注册。[029 迁移](../src/storage/schema/029_source_content_collection.sql) 复用 `content`，增加必要关联/观测/任务，没有复制整套内容表。阶段 3 的 34 个 SQL 已在独立合成开发库及隔离验证库应用；4A 新增 033 调度可靠性迁移，隔离库完整 35 个 SQL 应用与重复执行通过。当前管理开发库已升级全部40个SQL；此前各阶段使用新隔离库验收。4B新增034/035账户安全与revision，5A新增036个人内容空间，5B新增037冻结导出与038公共检索投影；新隔离库完整40个SQL、重复执行与事务/并发测试，原迁移未改。本机info_workbench_dev已保留数据升级；生产业务库和正式部署未实施迁移或部署验收。
+现有 `source` 继续承载平台注册。[029 迁移](../src/storage/schema/029_source_content_collection.sql) 复用 `content`，增加必要关联/观测/任务，没有复制整套内容表。阶段3应用34个SQL，4A新增033，4B新增034/035，5A新增036，5B新增037/038；各阶段新隔离库完整迁移、重复与事务/并发验收，既有管理开发库交付时已保留账号/数据升级40个SQL。0.9.1仅新增039，代码共41个迁移，本轮使用全新隔离集群，不改管理或生产库。039为历史failed保留数据但采用保守permanent类别，并阻塞最新任务仍失败的来源，升级后需明确人工Retry；原40个SQL未改，正式升级/部署另验。
 
 | 逻辑对象 | 最小信息与去重 | 存储原则 |
 | --- | --- | --- |
@@ -81,7 +81,7 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 
 `platformDetails` 为判别联合，额外字段仅由 adapter 白名单映射到 namespaced `extensions`，不保存任意上游 payload。`availability` 区分 available/removed/deleted/unknown。观测单独携带 provider/sourceId、sourceObservedAt/fetchedAt、timeBasis、maturity、metrics、evidenceKey，源时间未知不以本地抓取时间伪造历史指标时间。
 
-当前 Arctic Shift adapter 提取外链媒体、作者、父/根/转帖引用与上述 Reddit 字段；TwitterAPI.io adapter 已映射 X 媒体/引用/线程与受控指标，离线契约及合成 SQL 验证通过。完整媒体详情 UI、Instagram/web 的真实 adapter 尚未实现；X 没有凭证或真实接入验收，字段及合成样本不能证明真实覆盖或数据质量。
+当前 Arctic Shift adapter 提取外链媒体、作者、父/根/转帖引用与上述 Reddit 字段；TwitterAPI.io adapter 已映射 X 媒体/引用/线程与受控指标，离线契约及合成 SQL 验证通过。5A 已实现公共详情与主动 image/video/audio/link 预览、媒体缺失和加载失败说明；真实 provider 媒体覆盖仍未验收。Instagram/web 的真实 adapter 尚未实现；X 没有凭证或真实接入验收，字段及合成样本不能证明真实覆盖或数据质量。
 
 ## API 与前端契约
 
@@ -97,7 +97,7 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 
 037研究冻结在同一个REPEATABLE READ事务先固定分母/数据库必要载荷与来源字节预算，再按同filter有界读取规范内容、所选成员关联来源、每来源最新已知观测和真实索引覆盖，保存manifest及ordinal成员后原子提交。最多20,000条/32MiB，任何超额/中途插入失败全rollback。成员无live content FK，live删除不破坏冻结；user/export ownership、cursor和显式delete级联，未做自动保留。manifest版本、单位、未知/null/字符串大ID与CSV公式防护明确；预算包含可能被sanitize去除的未知JSON，避免先撑爆Node。
 
-038投影content FK CASCADE；canonical RETURNING after monotonic guard的实际title/body在同页事务写入，重放不让旧body降级。其它SQL改字段的trigger使document失效；历史回填行锁、限批、fingerprint/format校验，查询无自动回填。覆盖partial时文本检索拒绝503，普通列表仍报告缺口；存储样本覆盖不能当平台覆盖。没有搜索集群或自动删除。
+038投影content FK CASCADE；canonical RETURNING after monotonic guard的实际title/body在同页事务写入，重放不让旧body降级。其它SQL改字段的trigger删除旧document使其失效；历史回填按缺失投影选择、行锁限批并写入fingerprint/format，未扫描已有投影校验fingerprint，查询无自动回填。覆盖partial时文本检索拒绝503，普通列表仍报告缺口；存储样本覆盖不能当平台覆盖。没有搜索集群或自动删除。
 
 ## 算法与跨来源聚合
 
