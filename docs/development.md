@@ -174,4 +174,4 @@ node --import tsx --test tests/integration/source-content-postgres.test.ts
 
 提交前依次核对git status/diff、旧SQL完整性、版本/lockfile、秘密与生成物排除，再运行docs:check、typecheck、lint:web、test:offline、独立test:postgres、build/compiled及合成浏览器。新增`npm run smoke:content:closeout`自行启动临时loopback Vite，拦截API/外网，验证空/缺正文、动态库存、阻塞后两处Retry缓存恢复和移动中文；结束只关闭自身服务。本轮固定候选与命令/哈希/报告放output/validation/closeout-v0.9.1，复用已安装依赖不冒充clean install。
 
-版本摘要和范围见handoff，实际过程见development-log；待提交路径清单与提交说明在上述忽略目录。2026-10-14用户已授权一次本地提交：逐路径暂存后复核cached diff与docs，并核对提交父节点、分支与工作区状态。结果记录于output/validation/commit-v0.9.1-20261014；不创建新标签、不push或合并，不把检查报告、数据库、凭证或node_modules纳入Git。
+版本摘要和范围见handoff，实际过程见development-log；待提交路径清单与提交说明在上述忽略目录。2026-10-14用户已授权一次本地提交：逐路径暂存后复核cached diff与docs，并核对提交父节点、分支与工作区状态。本地提交2b1d257及结果记录于output/validation/commit-v0.9.1-20261014。用户随后授权GitHub提交：通过HTTPS将当前功能分支及既有阶段历史推送到origin，创建草稿PR供审阅，不直接修改main、不合并或创建新标签；不把检查报告、数据库、凭证或node_modules纳入Git。
