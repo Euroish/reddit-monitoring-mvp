@@ -1,0 +1,51 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { buildSourceReadiness } from "../../apps/api/src/source-readiness";
+import { SourceContentService } from "../../src/application/services/source-content.service";
+import { ContentProviderError } from "../../src/connectors/shared/content-provider.interface";
+import { DemoContentProvider } from "../../src/connectors/demo/demo-content.connector";
+import { InMemorySourceContentRepository } from "../../src/storage/repositories/in-memory/source-content.repository";
+
+test("permanently blocked source queues remain visible without requiring a worker, and explicit retry restores runnable readiness", async () => {
+  const now = "2026-10-13T01:00:00.000Z";
+  const repository = new InMemorySourceContentRepository();
+  const provider = new DemoContentProvider("reddit", () => now);
+  provider.collectPage = async () => { throw new ContentProviderError("Synthetic permanent authorization failure", false); };
+  const service = new SourceContentService(repository, provider, () => now);
+  const source = await service.createSource({ platform: "reddit", provider: "demo_reddit", contentKind: "post", target: { type: "community", community: "blocked_readiness" } });
+  await service.updateSource(source.id, { schedule: { enabled: true } });
+  await service.workOnce();
+  assert.equal((await repository.getSource(source.id))!.automaticCollectionBlocked, true);
+  assert.ok((await service.ops()).queue.some(bucket => bucket.status === "queued" && bucket.count > 0), "Blocked queues remain available in operations history");
+  const blocked = await buildSourceReadiness(service, now);
+  assert.equal(blocked.workerRequired, false, "Non-runnable queues must not demand a worker");
+  assert.equal(blocked.activeJobs, 0);
+  assert.equal(blocked.oldestPendingAgeSeconds, null);
+  assert.equal(blocked.status, "degraded");
+  assert.ok(blocked.reasons.includes("source_automatic_collection_blocked"));
+  assert.ok(!blocked.reasons.includes("source_worker_unavailable"));
+  const failed = (await service.listJobs({ sourceId: source.id })).find(job => job.status === "failed")!;
+  await service.retryJob(failed.id);
+  const retried = await buildSourceReadiness(service, now);
+  assert.equal(retried.workerRequired, true);
+  assert.ok(retried.activeJobs > 0);
+  assert.ok(!retried.reasons.includes("source_automatic_collection_blocked"));
+});
+
+test("blocked old queues do not contaminate the runnable queue age of another source", async () => {
+  let now = "2026-10-13T01:00:00.000Z";
+  const repository = new InMemorySourceContentRepository();
+  const provider = new DemoContentProvider("reddit", () => now);
+  provider.collectPage = async () => { throw new ContentProviderError("Synthetic permanent authorization failure", false); };
+  const service = new SourceContentService(repository, provider, () => now);
+  const blocked = await service.createSource({ platform: "reddit", provider: "demo_reddit", contentKind: "post", target: { type: "community", community: "old_blocked_readiness" } });
+  await service.updateSource(blocked.id, { schedule: { enabled: true } });
+  await service.workOnce();
+  now = "2026-10-13T03:00:00.000Z";
+  const runnable = await service.createSource({ platform: "reddit", provider: "demo_reddit", contentKind: "post", target: { type: "community", community: "new_runnable_readiness" } });
+  await service.enqueue(runnable.id, { from: "2026-10-12T00:00:00.000Z", to: now });
+  const readiness = await buildSourceReadiness(service, now);
+  assert.equal(readiness.activeJobs, 1);
+  assert.equal(readiness.oldestPendingAgeSeconds, 0);
+  assert.ok(!readiness.reasons.includes("source_queue_age_elevated"));
+});

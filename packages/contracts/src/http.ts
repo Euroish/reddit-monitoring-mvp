@@ -1,3 +1,6 @@
+export * from "./source-content";
+export * from "./research-export";
+
 export interface ApiHealthResponse {
   ok: boolean;
   requestId: string;
@@ -88,6 +91,21 @@ export interface UpdateAppUserStatusResponse {
   user: AuthUserView;
 }
 
+export interface AuthPasswordChangeRequest { currentPassword: string; newPassword: string }
+export interface AuthPasswordChangeResponse { ok: true; requestId: string; reauthenticate: true }
+export interface AuthSessionView { id: string; createdAt: string; lastSeenAt: string; expiresAt: string; current: boolean }
+export interface AuthSessionsResponse { ok: true; requestId: string; sessions: AuthSessionView[] }
+export interface AuthSessionRevokeResponse { ok: true; requestId: string; currentSessionRevoked: boolean }
+export interface UpdateAppUserRoleRequest { role: AppUserRole }
+export interface UpdateAppUserRoleResponse { ok: true; requestId: string; user: AuthUserView }
+export interface AppAuditRecord {
+  id: string; actorUserId: string | null; actorType: "session" | "machine"; action: string;
+  resourceType: string | null; resourceId: string | null; requestId: string | null;
+  outcome: "attempted" | "succeeded" | "failed"; changes: Record<string, unknown>;
+  createdAt: string; completedAt: string | null;
+}
+export interface ListAppAuditResponse { ok: true; requestId: string; entries: AppAuditRecord[]; nextCursor: string | null }
+
 export type CrawlMode = "live" | "backfill";
 
 export interface ApiReadinessQueueBucket {
@@ -95,6 +113,17 @@ export interface ApiReadinessQueueBucket {
   scheduled: number;
   running: number;
   deadLetter: number;
+}
+
+export interface SourceCollectionReadiness {
+  status: "idle" | "ready" | "degraded" | "not_ready";
+  activeSources: number; activeJobs: number; workerRequired: boolean; liveWorkers: number;
+  oldestPendingAgeSeconds: number | null;
+  /** Bounded diagnostic sample, never a provider invoice or corpus coverage claim. */
+  sampleScope: "latest_100_jobs";
+  recentFailures: {jobId:string;sourceId:string;finishedAt:string|null;error:string|null}[];
+  requestTiming: {registeredRequests:number;durationMs:number;meanMs:number|null};
+  reasons: string[];
 }
 
 export interface ApiReadinessResponse {
@@ -174,6 +203,7 @@ export interface ApiReadinessResponse {
   activeSessions: number;
   activeTargets: number;
   degradedReasons: string[];
+  sourceCollection?: SourceCollectionReadiness;
 }
 
 export interface ApiStorageTableStatResponse {
@@ -230,6 +260,7 @@ export interface TriggerPhase1RunResponse {
 
 export interface SubredditTargetAdminView {
   id: string;
+  revision?: number;
   canonicalName: string;
   status: "active" | "paused";
   favorite: boolean;
@@ -248,6 +279,7 @@ export interface ListSubredditTargetsResponse {
 }
 
 export interface UpdateSubredditTargetRequest {
+  expectedRevision?: number;
   status?: "active" | "paused";
   favorite?: boolean;
   cadenceHours?: number | null;
@@ -264,6 +296,8 @@ export interface UpdateSubredditTargetResponse {
 export interface BulkUpdateSubredditTargetsRequest {
   canonicalNames: string[];
   patch: UpdateSubredditTargetRequest;
+  /** Canonical target name to observed revision; supplied batch updates are all-or-nothing. */
+  expectedRevisions?: Record<string, number>;
 }
 
 export interface BulkUpdateSubredditTargetsResponse {
@@ -971,21 +1005,36 @@ export interface TargetWorkbenchResponse {
     sourceId: string;
   }>;
   composition: {
-    fetchedPostCount: number;
-    qualifiedPostCount: number;
-    driverPostCount: number;
+    scope: {
+      availability: "available" | "unavailable";
+      timeBasis: "first_seen_at";
+      fromIso: string;
+      toIso: string;
+      boundary: "inclusive";
+      limit: number | null;
+      truncated: boolean;
+      engagementAsOfIso: string;
+      engagementBasis: "latest_stored_at_or_before_end";
+      thresholdBasis: "capture_day_fact_or_latest_tier_fallback";
+    };
+    fetchedPostCount: number | null;
+    qualifiedPostCount: number | null;
+    driverPostCount: number | null;
+    knownQualifiedPostCount: number | null;
+    qualificationEvaluatedPostCount: number | null;
+    qualificationUnknownPostCount: number | null;
     listingMix: Array<{
       id: "new" | "hot" | "best" | "rising" | "top" | "unknown";
       label: string;
       count: number;
     }>;
     classificationMix: Array<{
-      id: "qualified" | "driver" | "ordinary";
+      id: "qualified" | "driver" | "ordinary" | "unknown";
       label: string;
       count: number;
     }>;
     engagementMix: Array<{
-      id: "score_led" | "comment_led" | "balanced" | "quiet";
+      id: "score_led" | "comment_led" | "balanced" | "quiet" | "unknown";
       label: string;
       count: number;
     }>;

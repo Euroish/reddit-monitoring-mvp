@@ -1,30 +1,46 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
 import { Badge, Card } from '../components/ui';
+import { buildSavedWorkbenchRoute } from '../features/workbench/model/urlState';
+import { useLanguage } from '../i18n/LanguageContext';
 import type { ListSavedWorkbenchViewsResponse } from '../../../../packages/contracts/src/http';
+import { PersonalSavedContent } from '../features/content/PersonalSavedContent';
+import { ResearchExports } from '../features/content/ResearchExports';
+import './Content.css';
 
 export function Saved() {
+  const { user } = useAuth();
+  const { language } = useLanguage();
+  const copy = (en: string, zh: string) => language === 'zh-CN' ? zh : en;
   const { data, isLoading, error } = useQuery({
-    queryKey: ['saved.views'],
-    queryFn: () => fetchApi<ListSavedWorkbenchViewsResponse>('/v1/workbench/saved-views?limit=50'),
+    queryKey: ['saved.views', user?.id],
+    queryFn: ({ signal }) => fetchApi<ListSavedWorkbenchViewsResponse>('/v1/workbench/saved-views?limit=50', { signal }),
+    enabled: Boolean(user),
   });
 
   return (
     <div>
       <div className="page-header">
         <div>
-          <h1>Saved Views</h1>
-          <p className="page-subtitle">Pinned workbench entry points for target and comparison workflows.</p>
+          <h1>{copy('Saved Views', '保存视图')}</h1>
+          <p className="page-subtitle">{copy('Manage personal content queries, favorites and notes; reopen saved target and comparison views.', '管理个人内容查询、收藏与注释，并恢复原有目标和对比视图。')}</p>
         </div>
       </div>
 
-      {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>Loading saved views...</div>}
-      {error && <div style={{ color: '#ff4d4f' }}>Error loading saved views.</div>}
+      <PersonalSavedContent zh={language === 'zh-CN'} />
+      <ResearchExports zh={language === 'zh-CN'} />
+      <h2 style={{ margin: '32px 0 18px' }}>{copy('Target and comparison views', '目标与对比视图')}</h2>
+
+      {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>{copy('Loading saved views...', '正在加载保存视图...')}</div>}
+      {error && <div role="alert" style={{ color: '#ff4d4f' }}>{copy('Error loading saved views.', '无法加载保存视图。')} {error.message}</div>}
 
       {data && (
         <div className="responsive-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
-          {data.views.map((view) => (
+          {data.views.map((view) => {
+            const route = buildSavedWorkbenchRoute(view);
+            return (
             <Card key={view.id}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', marginBottom: '14px' }}>
                 <div>
@@ -35,26 +51,27 @@ export function Saved() {
               </div>
 
               <div className="list-stack" style={{ marginBottom: '18px' }}>
-                <div className="list-row"><span>Compare targets</span><span>{view.compareTargets.length}</span></div>
-                <div className="list-row"><span>Keywords</span><span>{view.keywords.length}</span></div>
-                <div className="list-row"><span>Updated</span><span>{new Date(view.updatedAt).toLocaleString()}</span></div>
+                <div className="list-row"><span>{copy('Compare targets', '对比目标')}</span><span>{view.compareTargets.length}</span></div>
+                <div className="list-row"><span>{copy('Keywords', '关键词')}</span><span>{view.keywords.length}</span></div>
+                <div className="list-row"><span>{copy('Series', '图表系列')}</span><span>{view.seriesIds.length}</span></div>
+                <div className="list-row"><span>{copy('Updated', '更新时间')}</span><span>{new Date(view.updatedAt).toLocaleString()}</span></div>
               </div>
 
-              {view.routePath.startsWith('/v1/') ? (
+              {!route ? (
                 <div style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>
-                  This saved view points to an old API-path route and can no longer be opened directly from the UI.
+                  {copy('This saved path cannot be opened. Save the view again from its workbench.', '该路径无法打开，请从对应工作台重新保存视图。')}
                 </div>
               ) : (
-                <Link to={view.routePath} style={{ color: 'var(--text-primary)', fontWeight: 560 }}>
-                  Open saved view
+                <Link to={route} style={{ color: 'var(--text-primary)', fontWeight: 560 }}>
+                  {copy('Open saved view', '打开保存视图')}
                 </Link>
               )}
             </Card>
-          ))}
+          ); })}
 
           {data.views.length === 0 && (
             <Card>
-              <div className="card-empty">No saved views yet. Save from target or compare pages.</div>
+              <div className="card-empty">{copy('No saved views yet. Save from target or compare pages.', '暂无保存视图，可以从目标或对比页面保存。')}</div>
             </Card>
           )}
         </div>

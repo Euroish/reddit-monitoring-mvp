@@ -1,0 +1,14 @@
+BEGIN;
+ALTER TABLE collection_source ADD COLUMN next_recheck_at TIMESTAMPTZ;
+ALTER TABLE collection_source ALTER COLUMN schedule SET DEFAULT '{"enabled":false,"cadenceSeconds":3600,"overlapSeconds":300,"initialLookbackHours":24,"maxCatchupHours":6,"pageSize":25,"maxPages":5,"recheckLookbackHours":12,"recheckCadenceSeconds":21600}'::jsonb;
+UPDATE collection_source SET schedule='{"recheckLookbackHours":12,"recheckCadenceSeconds":21600}'::jsonb||schedule,next_recheck_at=COALESCE(next_due_at,created_at);
+ALTER TABLE source_collection_job DROP CONSTRAINT source_collection_job_purpose_check;
+ALTER TABLE source_collection_job ADD CONSTRAINT source_collection_job_purpose_check CHECK(purpose IN ('manual','scheduled','refresh','recheck'));
+DROP INDEX uq_source_collection_active;
+CREATE UNIQUE INDEX uq_source_collection_active ON source_collection_job(collection_source_id,purpose) WHERE status IN ('queued','running','retrying');
+CREATE UNIQUE INDEX uq_source_collection_running ON source_collection_job(collection_source_id) WHERE status='running';
+CREATE TABLE source_dispatch_state(id INTEGER PRIMARY KEY CHECK(id=1),claims BIGINT NOT NULL DEFAULT 0);
+INSERT INTO source_dispatch_state(id) VALUES(1);
+ALTER TABLE source_provider_budget ADD COLUMN minimum_interval_ms INTEGER NOT NULL DEFAULT 0 CHECK(minimum_interval_ms BETWEEN 0 AND 3600000);
+ALTER TABLE source_provider_budget ADD COLUMN last_request_at TIMESTAMPTZ;
+COMMIT;

@@ -1,53 +1,81 @@
 # 当前状态与下一步
 
-核对日期：2026-10-12。本文件只记录已核对实现与本次验证，取代旧交接稿和历史报告。后续任务更新相应段落，不新增一份状态文档。
+核对日期：2026-10-14。4A–5B 已分阶段交付0.9.0；用户已授权现有功能收口及本地提交，本次0.9.1提交基于ddf144f，在codex/arctic-shift-content-query保存。初始cd920c5、阶段3 e88ca2e和各阶段标签保留。此次修复失败调度/刷新、统一密码政策、详情/存储口径和既有部署模板，不开发阶段6或执行真实来源G。
 
-## 已实现与已知限制
+分阶段版本/完整路径与接续见[交接](handoff.md)，过程与失败修复见[开发日志](development-log.md)，本地命令见[开发说明](development.md)。0.9.1功能收口验收未执行真实provider、收费或生产部署；2026-10-14用户另行授权推送当前功能分支到GitHub并通过草稿PR审阅，main保持原状，云CI结果以GitHub实际运行记录为准；依赖复用既有安装，云CI和清洁重装未验。
 
-- Node.js / TypeScript API、PostgreSQL 仓储和迁移、Reddit connector/worker、React 工作台存在。
-- Web 包含认证、趋势/榜单、对比、关键词、保存视图与管理页面；代码存在不等于所有行为已经验收。
-- 当前真实 provider 为旧 HTTP / Scrapling，mock 用于离线开发。此服务器此前真实 Reddit 请求返回 403，当前不能依赖旧路径继续稳定采集；这不是关于 Reddit 全球访问政策的判断。
-- 2026-10-11 在此服务器对 Arctic Shift 做了一次有界历史帖子查询（technology、2026-02-01 之前、limit=1），HTTP 200 且返回一条记录；这只证明该次请求可达，不证明完整覆盖、实时性或接入完成。
-- 2026-10-12 UTC 02:54，curl 对 technology、MachineLearning、worldnews 最新帖子各查询一条，均 HTTP 200；帖子年龄分别约 17.6、263.7、7.5 分钟，不能解释为来源延迟或全量覆盖。近期 score/num_comments 为 1/0 或 1/1；文档说明约 36 小时补齐指标，不可当实时热度。相近查询用 urllib URL 编码参数返回 403，尚未定位是客户端/URL/网络路径差异；接入需要用实际 Node HTTP 客户端复验。报告在被忽略的 `output/source-checks/`。
-- Arctic Shift 尚未实现，X、Instagram 及外部聚合源尚未实现。多平台是已确认方向，尚非代码能力。
-- 首版范围确认为 Reddit + X，用户接受最多 12 小时延迟，订阅由系统输入并持久化。候选价格与验证方案见 [产品计划](README.md)；预算、X 凭证与实际持续可用性尚未确认。
-- 2026-10-12 三个开发用户 Codex CLI 版本均为 0.162.1，本地创建/修改/删除与 Git 远端读取通过；dev-a 已登录 ChatGPT，dev-owner/dev-b 尚未登录。dev-owner 推送 dry-run 通过，dev-a/dev-b 未配置 Git author 且 SSH 推送 publickey 失败；GitHub 协作者 GET 当前只列 Euroish。个人登录、公钥登记和邀请接受须由对应账号完成，不能标记三人全部就绪。
-- 共享开发目录 `/srv/team/project`，共同分支 `shared-dev`；开发环境与生产发布分开。本轮未启动公开部署或采集调度。
+## 已交付的软件范围
 
-## 本轮整理
+- Windows 本地独立工作区、个人功能分支 `codex/arctic-shift-content-query`。已保存阶段本地提交和标签，未 push、force push、修改 main、删分支或合并 PR。
+- 阶段 1：17 项既有失败已归因修复；默认 new-listing 不隐式追加 discovery，显式 opt-in 保留能力，质量阈值恢复既有契约。旧目标关键词按已索引保留片段的完整同范围计数、独立限量样本，支持中文字面、英文边界/复数和排除词；旧 collector 写入维护索引，历史缺失/变化行通过有界 CLI 回填，查询不重建索引。5B已建立公共页提交同事务投影与显式历史回填。
+- 图表按日期并集合并、缺失保留 null，修复空→有→空生命周期、最新指标日期匹配；比较保存受控 UI URL并恢复系列/范围/隐藏 overlay，错误提示与移动端遮挡修复。增长 v2 使用实际相邻观测差分，单快照/缺指标不生成增长，历史 v1 保留但不进入实测 driver/增长异常。
+- Windows `local:setup/start/stop/status/account` 创建独立 PostgreSQL、owner 与标记合成样本，复制完整运行库，不依赖旧项目路径；检查端口、进程身份、loopback API/DB、代理，重复启动复用进程，停止/重启保留数据。迁移 pinned transaction/advisory lock 保证 DDL 与 checksum 账本原子提交。
+- 阶段 2：来源标签/分组/生命周期、周期增量窗口与持久化高水位、重叠去重、checkpoint 子任务、暂停/归档取消 token、任务历史/筛选/取消/重试/继续、成熟归档 ID 刷新、每日/月度预算与 worker 心跳已沿契约→仓储→API→UI接通。付费 provider 默认 disabled/0，保守 resources 预留与实际计费分开。
+- 阶段 3：TwitterAPI.io 账号、搜索、ID adapter 与 X 注册迁移；大整数 ID 字符串、标题/作者/时间可空、媒体/引用/线程与六类指标、端点响应 schema、分页/限流/abort 有离线验证。新公共来源 runtime 的 demo 模式注册 Reddit/X 合成 provider 并禁用真实 provider；X live 要 key/network/独立预算均满足才可请求。4A 以共同执行政策覆盖旧 API 入队/同步、旧 use-case、worker/CLI 和 connector 工厂；默认网络关闭，production 拒绝 mock/demo。
+- 统一内容查询、同过滤总数/日桶/平台/provider 分布、JSON/CSV 2000 条有界导出与 cursor 续页；保留指标单位、观测时间和来源证据。CSV 防公式与数字 ID 精度丢失。web 命名空间身份工具防止不同站点相同 GUID 碰撞，尚无真实 web/Instagram adapter。
+- 公共正文、作者、媒体、引用、可用性等按观测时间保护更新；language/发布时间保留已有非空值并仅补空，尚无已有值纠错策略。旧 PostgreSQL upsert 不覆盖已有公共标题/正文/URL/发布时间。032 记录已登记 provider 调用与取页/解析耗时，取消/租约丢失可能拒绝晚到登记，不能当数据商账单。
+- 前端保留整体结构，补来源设置、任务、预算、统计/导出和双语范围说明。旧市场榜单只在前 50 热度候选内排序，旧词项查询与公共字面检索语义分开；未发现必须大规模重设计的功能阻碍。
 
-- 移除重复的项目 skills/prompts、Obsidian 笔记、第三方设计素材副本、旧交接稿及历史采集报告。历史可从 Git 恢复。
-- 文档收敛为本目录四个文件及根目录 README / AGENTS，取消旧默认 skill 和 Reddit-only 范围锁定；清理已推送 main/shared-dev（068e357）。
-- 保留现有业务功能、SQL 与部署模板。旧 provider 待新源验收后清理，不在资料整理时删除仍有调用的功能。
-- 运行报告改写入被 Git 忽略的 `output/provider-reports/`；文档结构与相对链接通过 `docs:check` 检查。
+## 阶段 1–3 既有验证结果
 
-## 深入审计与本轮优化
+| 验证 | 既有交付结果与范围，R2 没有重跑 |
+| --- | --- |
+| 接手基线 cd920c5 | 331 项：314 pass / 17 fail |
+| 阶段 1 独立快照 | 365 项：362 pass / 0 fail / 3 个 SQL 默认 skip；typecheck/API/Web 构建通过 |
+| 阶段 2 交付快照 0.3.1 | 386 项：382 pass / 0 fail / 4 个 SQL 默认 skip；构建通过。0.3.0 的漏项失败保留在日志 |
+| 最终 0.4.0 全量离线 | 407 项：400 pass / 0 fail / 7 个 SQL 默认 skip |
+| 七项隔离 PostgreSQL | 7 pass / 0 fail / 0 skip；含 2207 合成帖子的完整查询、原子页/幂等/异构字段、周期/预算/取消、迁移并发/回滚、X 多发现、旧写保护和计时 |
+| 项目迁移 | 新隔离库全部 34 个 SQL 应用成功，重复运行无新增；未改已应用 SQL |
+| UI 合成 API Chromium | 图表/保存恢复、来源/任务/预算/权限/导出、双语说明及 390px；外部请求 0、页面错误 0 |
+| 真实本地合成闭环 | 实际前端登录→API→worker→独立 PostgreSQL→手动/周期/续采→归档→工作台→Reddit/X 查询与浏览器 JSON/CSV 下载；完整 stop/start 后数据保留；真实来源请求 0 |
+| 静态与构建 | typecheck、Web lint、API/Web build、compiled smoke、docs:check（八份）、diff check 通过 |
 
-外部核对覆盖 Arctic Shift、AIHOT、NewsNow、RSSHub、Miniflux 和 Airbyte 的契约/存储/worker/状态协议；参考链接及取舍集中在架构。形成了平台/provider/目标、内容/发现/观测、分析/API/UI 与容量生命周期的端到端设计，未将设计中的新表和接口标记为已实现。
+证据位于忽略的 `output/validation/`、`output/playwright/`、`output/local-dev/`；不提交密钥、账号凭证、数据或报告。此前 Arctic Shift 两条真实样本属于更早的数据源研究，不属于阶段 1–3 验收或 R2 重测。R2 只做源码、文档和报告检查。
 
-本轮实际代码变化：连接池默认 10 → 5 并支持 `PG_POOL_MAX`；未知 Reddit provider 明确报错；搜索 projection 未变化时跳过重复写；三类保留清理每轮每表最多 10 批。补齐旧 `/v1/runs/reddit-phase1` 的权限路径，使 viewer 不能提交采集任务，管理员和有效 bearer 行为由原有测试验证。
+## 4A–5B独立交付验证
 
-| 当前代码证据 | 对后续开发的影响 | 实施优先级 |
-| --- | --- | --- |
-| common.ts/connector 类型、SOURCE_IDS、多个仓储和 row mapper 写死 Reddit | 仅改 SourceCode 会误存/误读平台 | 第二来源之前一起迁移 |
-| content 唯一键 `(source_id, external_id)`，upsert 会改 target_id | 一个内容匹配多目标时不能保留全部关联 | 多目标/聚合来源前补 discovery 关联 |
-| post_engagement latest/window 没有 provider 维度，旧 job 用本地窗口时间作 observedAt | 归档与实时证据容易互相覆盖，算法时间语义不成立 | Arctic Shift 落库前处理 |
-| persistCollectionPlan 各仓储分别提交，cursor 后置；claimRunnable 只有状态竞争保护 | 页写入中断会部分提交，running 任务没有完整通用回收 | 新采集路径落库/checkpoint 小事务与恢复 |
-| daily/growth job 一次可读 50k/100k 内容，materialization 有较长回看 | 回填扩量时增加内存和重复计算压力 | 小目标闭环后改为增量桶/分页处理 |
-| keyword query miss 仍 seed 最近 2000 内容，搜索数量有限而 countByScope 为整个范围 | 本轮只减少重复写；索引覆盖和命中率仍不能视为全量统计 | 公共读取模型迁移时改写入侧索引与统计范围 |
-| normalizer 以 ASCII lexeme 为主，content kind 当前仅 post | 中文/多语言与评论落库不能假设沿用即可 | 对应来源实际接入时扩展与验收 |
-| retention 只清 raw、target metrics、engagement window | fetch/job/query/health 等仍需保留策略；批数有界不代表库大小有界 | 上线前按引用和诊断需要补齐 |
-| API 约 3769 行，回填还可走同步旧入口 | 新来源不应继续向单文件堆逻辑或在请求内长时间采集 | 随公共端点实施分离模块和统一入队 |
+| 范围 | 当前事实 |
+| --- | --- |
+| 4A 独立暂存快照 | 425 项离线全部通过，15 项隔离 PostgreSQL 全部通过，均零失败、零 skip；typecheck、API/Web/Vite 构建、Web lint、compiled smoke、八份文档检查通过 |
+| 4A 浏览器 | 合成 API 的采样语义、来源/任务/预算/导出与 390px 检查通过；外部请求 0、页面错误 0 |
+| 4A 验证边界 | 快照排除 4B 修改，复用现有 lockfile 安装的依赖；未验证重新清洁安装、云端 CI、生产部署或真实来源 |
+| 4B 账户与审计 | 改密、列出/撤销会话、角色与状态政策、审计 HTTP 已接；账户 API 专项 44/44 与 SQL 2/2，实际浏览器账户闭环通过 |
+| 4B 配置并发 | source/budget/target 全栈 CAS、batch 全员版本检查后原子更新、worker 不改变配置版本；409 留稿和 SPA 后退提示；并发 SQL/暂停锁序通过 |
+| 4B 独立验证 | 455 离线、24 SQL 全通过，均零 skip；类型/API/Web 构建/lint/compiled/docs 通过；旧类型失败和 3 项写安全红测已修复并回归 |
+| 迁移范围 | 033 在隔离验证库应用，4A 完整迁移共 35 个 SQL；034/035 已在新隔离库全迁移、重复和并发验证。当前管理开发库已升级完整40个SQL并保留账号/数据；生产库未改 |
+| 4C | 460 离线、25 SQL 零失败零 skip；实际合成库恢复业务检查、容量CLI和580文件发布完整性通过 |
+| 5A | 471离线/27 SQL零skip；合成浏览器80请求/2主动媒体与实际PG35请求内容闭环通过，桌面/中文390px通过 |
+| 5B | 独立快照494离线/30 SQL全通过零skip，随后Origin入口修复最终495离线通过；类型/API/Web/Vite/lint/compiled/docs、205并发与32MiB预检、合成91请求及实际34请求/104成员分页通过 |
 
-## 验证记录
+4A 独立快照报告为 `output/validation/phase-4a-snapshot-verification.json`；4B 为 `phase-4b-snapshot-verification.json`、`phase4b-real-account-local.json` 和合成 UI 证据；后续工作树改动不混入 4B 暂存快照。四个并发槽持续推进，本机 PG 25432 已恢复，临时 Vite 41975 服务 UI 验证，未动用户其他服务。
 
-- 文档检查通过：六个 Markdown 文件、相对链接有效；额外文档和失效链接的拦截也已检查。整理前有 203 个 Markdown 文件。
-- `npm run typecheck`、`npm run lint:web`、`npm run build`、`npm run smoke:compiled` 通过；报告脚本在临时目录读取旧样本并只向 `output/provider-reports/` 写入的离线检查通过。
-- 最终串行全量回归：331 项，314 通过、17 失败。相比原基线无新增失败，并修复 viewer 采集运行权限回归；旧部署文档文本断言已移除，增加一项有界清理回归。
-- 56 项 provider/runtime/索引/清理相关测试与 16 项原有认证回归通过。独立临时 PostgreSQL 14 真实验证了默认/环境/构造覆盖连接池（并发后端数 5/2/1）、未变化 projection 不写/变化可更新（含空 snippet），三张表达到删除预算后可继续清理；临时库已停止并删除，业务数据库未启动或修改。
-- 剩余 17 项既有失败涉及采集分页/计数/provider 路由、phase1 调度、日事实覆盖与质量阈值。迁移开发需定位原因，不可据此宣称全量测试通过。
-- 整理过程重任务串行、Node 堆上限 512 MiB；完成时服务器可用内存约 3 GiB，未启动采集或生产服务。
+## 4A 修正与后续边界
 
-## 下一步
+- 4A 已用隔离 SQL 复现并修复前 20 个空刷新候选阻塞后续来源；先筛 eligible 再限批。来源不同 purpose 可以并存排队，同一来源仅一个 running；持久化每四次分配一次 manual/refresh 优先机会，近期 scheduled/recheck 优先其余机会。迟到回查默认 12 小时窗口/6 小时间隔、0 关闭，不推进增量高水位；它不保证窗口外迟到或上游全量。
+- 4A Target 卡片独立展示首次发现窗口（现仓储两端包含），缺失样本为 null、真实空为 0；未知互动不归普通/quiet，提供已评估/未知数量，20,000 条截断显示下界。图表使用发布时间日桶，不再被部分日期的 firstSeen 采样覆盖。互动仓储只留最新行，无法重建被覆盖的历史指标，UI 明示此限制。
+- 4A 旧同步/异步 Run 的显式 live 请求在网络关闭时均被拒绝，production mock 在写目标/入队前被拒；4A 复现与修复均用合成 connector，没有真实来源请求。provider 最小请求间隔在预算锁内预留，拒绝时不消耗额度。
+- 公共内容已有详情、URL/个人保存查询、收藏注释与主动媒体，默认/登录入口为content；共同检索投影与冻结研究已交付，新分析桶待6。详情引用与children各限20，只看已存内容，不抓补缺失引用。媒体点击后浏览器按已有安全HTTP(S)链接加载；真实媒体覆盖另验。
+- 4A readiness 已接新来源队列、worker 心跳和最近 100 任务的失败/登记平均耗时；有工作才要求活跃 worker，源年龄不证明真实新鲜度。配置错误明确且不输出秘密，CI 增加清洁安装/离线零 skip/隔离 SQL/合成浏览器门禁；未 push，云端 workflow 未执行。账号/审计、保留/容量/恢复和公共使用闭环由 4B–5B 接续。
 
-按架构中的公共内容/来源观测、逐页 checkpoint 和能力边界实施 Arctic Shift 最小采集闭环；先处理归档时间与缺失指标，随后联通分析/API/UI，最后按真实容量扩目标。更远的产品待定项统一见 [产品计划](README.md)，不从旧笔记恢复未确认的要求。
+## 明确保留的边界
+
+- 本轮没有真实 Arctic Shift/Reddit/X 采集、付费试跑、48–72 小时真实新鲜度验收、公网部署或生产迁移。72 小时模拟只证明逻辑；成功取回/最新已存发布时间不能证明上游实际延迟或达成 12 小时目标。
+- 2026-10-16 最小采集修正：Arctic Shift 小页按已见边界记录扩大请求（最多100），饱和失败保留checkpoint；未耗尽但无cursor不再提交为成功。已知源时间正文不被未知时间快照覆盖，未知版本之间仍允许按取回时间更新；搜索投影未变化不写新行版本，明确数据库暂态错误有限延后。定向离线回归及隔离 PostgreSQL 14 的正文/投影事务测试通过，未做真实来源验收。普通导出字节预检和重复全范围统计尚未优化。
+- 自动成熟刷新仅 archive 的 initial 观测；X snapshot 无自动指标刷新。0.9.1 已补永久失败阻塞、显式 Retry 解除、刷新轮次/冷却和保守请求启动计数，预算/间隔拒绝及崩溃租约恢复不重置同轮上限。界面明示阻塞/恢复及部分覆盖，readiness仅对可运行任务要求worker。旧热度/榜单仍用旧Reddit模型，公共分析待6。
+- 列表与统计分母是已采集样本；provider 多发现计数可重叠，不相加；跨平台指标不合并热度。即时导出分页与统计不是冻结SQL快照，并发更新可能改变后续页/分母；个人研究导出另走RR固定成员/total/manifest与ordinal分页，不受live改写或删除影响。
+- 新表容量/保留只读预览、合成备份恢复与2万规模测量已完成；实际保留政策未批准，不自动删数据；生产负载、公网与后续分析独立推进。当前不预设新增微服务、搜索集群或大型前端改造。
+
+4C 代表测量是本机合成仓储/暖缓存，20次每场景：全部列表P95 9.842ms/统计126.989ms，来源列表10.274ms/统计71.764ms，字面检索列表14.605ms/统计221.074ms。EXPLAIN buffers、DB大小、WAL差量和客户端RSS在 phase4c-performance-20000.json；不代表HTTP/冷缓存/生产并发SLO。容量默认流量未知返回null，指定流量才估算内容与观测增长；WAL/备份/未来表增长另算。
+
+5B真实已存样本语义：literal/phrase连续子串、terms空白全AND，NFKC/lower/空白规范及scope/exclusions；候选/索引/正文覆盖分开，漏投影文本query503。038支持页提交/更新/删除/重放，查询不回填；037成员固定并按用户管理，读前预算与精确最终20k/32MiB限额均拒绝超额不截断。恢复演练已扩展个人query/annotation、索引和冻结成员，实际服务读取通过；现40个迁移仅新增SQL，已应用管理开发库。最终性能独跑通过，字面list/stats P95 138.580/625.340ms，客户端峰RSS173.72MiB（非API/PG总RSS），完整证据见交接，公开或持续真实源验收仍未执行。
+
+0.9.0已保存本地提交/阶段标签；633文件不可变release通过SHA/库存，未签名/部署。交付时管理smoke通过；随后目录审计确认API/Web/worker停止，不能由交付记录推断持续运行。本次0.9.1使用独立合成PG集群与临时浏览器服务验证，未启动管理服务或改管理开发库；既有库的40迁移交付记录保留，039新增后代码共41迁移，升级本机前须先local:setup。0.9.1本地提交范围、验证结果与路径清单见下段及交接；未合并main或正式发布。
+
+## 0.9.1 收口与本地提交
+
+- 039新增失败类别、来源自动阻塞、刷新轮次和页请求启动计数；历史失败缺乏retryability证据，保留checkpoint/history并采用需人工Retry的保守升级策略。原40个SQL不得修改。
+- 新密码12–128字符统一到注册/bootstrap/改密；保留密码原文，登录兼容既有短密码。Nginx同时限制两个readyz路径并按真实连接IP做边缘认证限流；代理后的API总量桶和真实TLS/Nginx容量尚未验。
+- 详情区分null/空串；存储Web动态枚举public表并明确统计估计。公共统计多次读取非同快照、完整榜单与分析桶仍为后续范围。
+- 最终冻结副本511/511离线、41/41原生SQL全部通过，均零失败/零skip；类型、Web lint、API/Web build和compiled smoke通过。首轮510/511的失败来自注册竞态旧短密码夹具，改合规夹具并保留原断言后全量复跑；首轮和红测日志未覆盖。新增039全迁移/旧40升级/重复与恢复已验，原40SQL无修改。
+- 实际账户/内容/研究三条浏览器→API/worker→新PG闭环分别27/37/33请求通过；研究104成员100+4分页与live修改独立。额外收口合成浏览器9项/75请求/2次Retry通过，中文390px截图目视检查；外部请求、页面错误、真实来源请求均0。独立PG已停止，数据/证据保留；管理服务/业务库未操作。
+- 固定候选554个来源文件、锁文件SHA与命令/结果归入output/validation/closeout-v0.9.1；最终工作区仅文档结果与冻结时不同，代码身份单独核验。正式文档仍八份；2026-10-14按用户授权逐路径暂存并复核差异后提交，提交结果记录于output/validation/commit-v0.9.1-20261014。历史标签不动，不覆盖0.9.0证据。依赖复用，清洁重装/云CI/真实provider/生产部署未验。

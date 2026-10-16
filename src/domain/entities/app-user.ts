@@ -11,6 +11,8 @@ export interface AppUser {
   status: AppUserStatus;
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
+  /** Internal optimistic credential fence; older synthetic fixtures default to zero. */
+  credentialVersion?: number;
 }
 
 export interface AppUserPassword {

@@ -40,6 +40,22 @@ const VOLUME_BAR_OFFSETS: Record<string, number> = {
   qualified_post_count: 6,
 };
 
+function dateKeys(groups: Array<Array<{ at: string }>>): string[] {
+  return Array.from(new Set(groups.flatMap((points) => points.map((point) => point.at))))
+    .sort();
+}
+
+function alignValues(
+  dates: string[],
+  points: Array<{ at: string; value: number | null }>,
+): Array<number | null> {
+  const byDate = new Map(points.map((point) => [point.at, point.value]));
+  return dates.map((date) => {
+    const value = byDate.get(date);
+    return value != null && Number.isFinite(value) ? value : null;
+  });
+}
+
 export function createInitialSeriesSelection(data: TargetWorkbenchResponse | undefined) {
   const coverage = data?.dataQuality.coverage;
   const useCompleteTotals =
@@ -60,21 +76,25 @@ export function createInitialSeriesSelection(data: TargetWorkbenchResponse | und
 }
 
 export function buildTargetWorkbenchChartOptions(args: {
-  data: TargetWorkbenchResponse | undefined;
+  data: Pick<TargetWorkbenchResponse, 'series' | 'indicators' | 'overlays'> | undefined;
   activeSeries: Set<string>;
   hiddenOverlayIds: Set<string>;
 }): WorkbenchChartModel {
-  if (!args.data || args.data.series.length === 0) return { dates: [], series: [] };
+  if (!args.data) return { dates: [], series: [] };
 
-  const dates = args.data.series[0]?.points.map((point) => point.at) ?? [];
+  const selectedSeries = args.data.series.filter((series) => args.activeSeries.has(series.id));
+  const selectedOverlays = args.data.overlays
+    .filter((overlay) => !args.hiddenOverlayIds.has(overlay.id))
+    .slice(0, 3);
+  const dates = dateKeys([...selectedSeries, ...selectedOverlays].map((series) => series.points));
   const indicatorsById = new Map(args.data.indicators.map((indicator) => [indicator.id, indicator]));
-  const visibleSeries = args.data.series.filter((series) => args.activeSeries.has(series.id)).map((series) => {
+  const visibleSeries = selectedSeries.map((series) => {
     const indicator = indicatorsById.get(series.id);
     return {
       id: series.id,
       name: series.label,
       type: indicator?.chartType ?? 'line',
-      values: series.points.map((point) => point.value),
+      values: alignValues(dates, series.points),
       barOffsetHours: VOLUME_BAR_OFFSETS[series.id],
       axis: indicator?.axis ?? 'primary',
       color: SERIES_COLORS[series.id] ?? '#8a8f98',
@@ -82,14 +102,12 @@ export function buildTargetWorkbenchChartOptions(args: {
       strokeStyle: series.id.startsWith('ema_') ? 'dashed' as const : 'solid' as const,
     };
   });
-  const overlaySeries = args.data.overlays
-    .filter((overlay) => !args.hiddenOverlayIds.has(overlay.id))
-    .slice(0, 3)
+  const overlaySeries = selectedOverlays
     .map((overlay) => ({
       id: overlay.id,
       name: overlay.label,
       type: 'line' as const,
-      values: overlay.points.map((point) => point.value),
+      values: alignValues(dates, overlay.points),
       axis: 'secondary' as const,
       color: '#e879f9',
       strokeWidth: 1.5,
@@ -103,10 +121,10 @@ export function buildTargetWorkbenchChartOptions(args: {
 }
 
 export function buildComparisonChartOptions(
-  comparisonData: TargetComparisonWorkbenchResponse | undefined,
+  comparisonData: Pick<TargetComparisonWorkbenchResponse, 'comparisons' | 'series'> | undefined,
 ): WorkbenchChartModel {
   if (!comparisonData || comparisonData.comparisons.length === 0) return { dates: [], series: [] };
-  const dates = comparisonData.comparisons[0]?.points.map((point) => point.at) ?? [];
+  const dates = dateKeys(comparisonData.comparisons.map((comparison) => comparison.points));
   const palette = ['#5e6ad2', '#10b981', '#f59f00', '#e879f9', '#38bdf8', '#f43f5e'];
   const chartSeries = comparisonData.comparisons.map((comparison, index) => {
     const seriesLabel =
@@ -116,7 +134,10 @@ export function buildComparisonChartOptions(
       id: `${comparison.targetId}:${comparison.seriesId}`,
       name: `${comparison.canonicalName} ${seriesLabel}`,
       type: 'line' as const,
-      values: comparison.points.map((point) => point.normalizedValue),
+      values: alignValues(dates, comparison.points.map((point) => ({
+        at: point.at,
+        value: point.normalizedValue,
+      }))),
       axis: 'primary' as const,
       color: palette[index % palette.length],
       strokeWidth: comparison.seriesId === 'heat_price' ? 2.5 : 1.5,

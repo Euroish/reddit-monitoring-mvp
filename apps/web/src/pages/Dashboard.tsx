@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
 import { Card, Badge, Button } from '../components/ui';
 import { useLanguage } from '../i18n/LanguageContext';
+import { LegacyAnalysisNotice, SourceEmptyLink } from '../features/content/LegacyAnalysisNotice';
 import type { MarketTrendResponse, MarketWorkbenchResponse } from '../../../../packages/contracts/src/http';
 
 function formatSignedPct(value: number): string {
@@ -140,6 +141,8 @@ export function Dashboard() {
         </div>
       </div>
 
+	      <LegacyAnalysisNotice />
+	      {data && data.rankings.byHeat.length === 0 && <SourceEmptyLink />}
 	      {isLoading && <div style={{ color: 'var(--text-tertiary)' }}>{t('Loading market trends...')}</div>}
 	      {error && <div style={{ color: '#ff4d4f' }}>{t('Error loading data')}</div>}
 

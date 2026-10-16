@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomInt } from "node:crypto";
 import type { AppInvite } from "../../domain/entities/app-invite";
 import type { AppUserRole } from "../../domain/entities/app-user";
 import type { AppInviteRepository } from "../../domain/repositories/app-invite-repository";
@@ -48,7 +48,7 @@ async function resolveInviteCode(args: {
   }
 
   for (let attempt = 0; attempt < 50; attempt += 1) {
-    const candidate = Math.floor(Math.random() * 1_000_000)
+    const candidate = randomInt(0, 1_000_000)
       .toString()
       .padStart(6, "0");
     const existing = await args.appInviteRepository.findByCodeHash(

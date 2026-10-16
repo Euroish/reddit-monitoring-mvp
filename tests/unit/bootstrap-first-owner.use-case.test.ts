@@ -7,6 +7,7 @@ import {
   type BootstrapFirstOwnerStore,
 } from "../../src/application/use-cases/bootstrap-first-owner.use-case";
 import { parseBootstrapFirstOwnerArgs } from "../../scripts/bootstrap-first-owner";
+import { PasswordHashingService } from "../../src/application/services/password-hashing.service";
 
 function createStore(): BootstrapFirstOwnerStore & {
   createdUser?: AppUser;
@@ -36,7 +37,7 @@ test("bootstrapFirstOwner creates an active owner on an empty auth store", async
     },
     {
       email: "Owner@Example.com",
-      password: "s3cr3t",
+      password: "Bootstrap-owner-password-12",
       displayName: "Owner",
     },
   );
@@ -59,13 +60,29 @@ test("bootstrapFirstOwner rejects bootstrap when any app user already exists", a
         { store },
         {
           email: "owner@example.com",
-          password: "s3cr3t",
+          password: "Bootstrap-owner-password-12",
         },
       ),
     (error: unknown) =>
       error instanceof BootstrapFirstOwnerError &&
       error.code === "owner_bootstrap_not_empty",
   );
+});
+
+test("bootstrapFirstOwner bounds new credentials and preserves accepted password characters", async () => {
+  for (const password of ["x".repeat(11), "x".repeat(129)]) {
+    const store = createStore();
+    await assert.rejects(bootstrapFirstOwner({ store }, { email: "owner@example.test", password }),
+      error => error instanceof BootstrapFirstOwnerError && error.code === "invalid_bootstrap_request" && !error.message.includes(password));
+    assert.equal(store.createdUser, undefined);
+  }
+  const hashes = new PasswordHashingService();
+  for (const password of [" twelvechar ", ` ${"x".repeat(126)} `]) {
+    const store = createStore();
+    await bootstrapFirstOwner({ store }, { email: "owner@example.test", password });
+    assert.equal(await hashes.verifyPassword(password, store.createdPassword!.passwordHash), true);
+    assert.equal(await hashes.verifyPassword(password.trim(), store.createdPassword!.passwordHash), false);
+  }
 });
 
 test("parseBootstrapFirstOwnerArgs reads cli flags and env fallbacks", () => {

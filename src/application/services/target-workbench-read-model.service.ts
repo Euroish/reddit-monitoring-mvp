@@ -122,7 +122,7 @@ const SERIES_DEFS: Array<{
     defaultVisible: true,
     chartType: "bar",
     axis: "secondary",
-    description: "Total new posts for the selected daily bucket.",
+    description: "Observed posts in the published-date UTC daily fact, distinct from the first-discovery capture window.",
   },
   {
     id: "qualified_post_count",
@@ -132,7 +132,7 @@ const SERIES_DEFS: Array<{
     defaultVisible: true,
     chartType: "bar",
     axis: "secondary",
-    description: "Posts that passed the configured quality threshold for the day.",
+    description: "Quality-qualified posts in the published-date UTC daily fact, distinct from the first-discovery capture window.",
   },
 ];
 
@@ -151,6 +151,8 @@ export function buildTargetWorkbenchReadModel(args: {
   contents: Content[];
   capturedContents?: Content[];
   capturedLatestEngagements?: PostEngagementLatest[];
+  capturedSampleLimit?: number;
+  capturedSampleTruncated?: boolean;
   anomalyEvents: AnomalyEvent[];
   providerHealthWindows: ProviderHealthWindow[];
   collectionCoverage?: SubredditCollectionCoverage[];
@@ -168,12 +170,12 @@ export function buildTargetWorkbenchReadModel(args: {
   driverLimit?: number;
   anomalyLimit?: number;
 }): TargetWorkbenchResponse {
+  // Daily facts use publication days. Capture-window composition below uses firstSeenAt;
+  // passing captures here would silently replace only some publication-day buckets.
   const dailyInsights = buildSubredditDailyInsights({
     dailyFacts: args.dailyFacts,
     points: args.trendPoints,
     posts: [],
-    capturedContents: args.capturedContents,
-    capturedLatestEngagements: args.capturedLatestEngagements,
     keywordDailyRows: args.keywordDailyRows,
     fromIso: args.fromIso,
     toIso: args.toIso,
@@ -339,8 +341,12 @@ export function buildTargetWorkbenchReadModel(args: {
       sourceId: anomaly.eventId,
     })),
     composition: buildCompositionSummary({
-      capturedContents: args.capturedContents ?? [],
-      capturedLatestEngagements: args.capturedLatestEngagements ?? [],
+      capturedContents: args.capturedContents,
+      capturedLatestEngagements: args.capturedLatestEngagements,
+      fromIso: args.fromIso,
+      toIso: args.toIso,
+      sampleLimit: args.capturedSampleLimit,
+      sampleTruncated: args.capturedSampleTruncated,
       dailyFacts: args.dailyFacts,
       drivers,
     }),
@@ -427,13 +433,24 @@ function buildListingFallbackDrivers(args: {
 }
 
 function buildCompositionSummary(args: {
-  capturedContents: Content[];
-  capturedLatestEngagements: PostEngagementLatest[];
+  capturedContents?: Content[];
+  capturedLatestEngagements?: PostEngagementLatest[];
+  fromIso: string;
+  toIso: string;
+  sampleLimit?: number;
+  sampleTruncated?: boolean;
   dailyFacts: SubredditDailyFact[];
   drivers: TargetDriverPost[];
 }): TargetWorkbenchResponse["composition"] {
+  const sampleAvailable = args.capturedContents !== undefined;
+  const capturedContents = (args.capturedContents ?? []).filter((content) =>
+    content.firstSeenAt >= args.fromIso && content.firstSeenAt <= args.toIso,
+  );
   const engagementByContentId = new Map(
-    args.capturedLatestEngagements.map((row) => [row.contentId, row] as const),
+    (args.capturedLatestEngagements ?? [])
+      .filter((row) => row.observedAt <= args.toIso)
+      .sort((a, b) => a.observedAt.localeCompare(b.observedAt))
+      .map((row) => [row.contentId, row] as const),
   );
   const factByDay = new Map(args.dailyFacts.map((fact) => [fact.day, fact] as const));
   const latestTier = args.dailyFacts.at(-1)?.subredditTier ?? "small";
@@ -450,15 +467,25 @@ function buildCompositionSummary(args: {
     comment_led: 0,
     balanced: 0,
     quiet: 0,
+    unknown: 0,
   };
   const qualifiedContentIds = new Set<string>();
+  const unknownContentIds = new Set<string>();
 
-  for (const content of args.capturedContents) {
+  for (const content of capturedContents) {
     const listing = content.firstListing ?? "unknown";
     listingCounts[listing] = (listingCounts[listing] ?? 0) + 1;
     const engagement = engagementByContentId.get(content.id);
-    const score = Math.max(0, engagement?.score ?? 0);
-    const comments = Math.max(0, engagement?.numComments ?? 0);
+    if (
+      typeof engagement?.score !== "number" || !Number.isFinite(engagement.score) ||
+      typeof engagement.numComments !== "number" || !Number.isFinite(engagement.numComments)
+    ) {
+      engagementCounts.unknown += 1;
+      unknownContentIds.add(content.id);
+      continue;
+    }
+    const score = Math.max(0, engagement.score);
+    const comments = Math.max(0, engagement.numComments);
     if (score <= 0 && comments <= 0) {
       engagementCounts.quiet += 1;
     } else if (score >= comments * 3) {
@@ -485,16 +512,33 @@ function buildCompositionSummary(args: {
   }
 
   const driverContentIds = new Set(args.drivers.map((driver) => driver.id));
+  const capturedContentIds = new Set(capturedContents.map((content) => content.id));
   const driverCount = Array.from(driverContentIds).filter((id) =>
-    args.capturedContents.some((content) => content.id === id),
+    capturedContentIds.has(id),
   ).length;
   const qualifiedNonDriverCount = Array.from(qualifiedContentIds).filter((id) => !driverContentIds.has(id)).length;
-  const ordinaryCount = Math.max(0, args.capturedContents.length - driverCount - qualifiedNonDriverCount);
+  const unknownNonDriverCount = Array.from(unknownContentIds).filter((id) => !driverContentIds.has(id)).length;
+  const ordinaryCount = Math.max(0, capturedContents.length - driverCount - qualifiedNonDriverCount - unknownNonDriverCount);
 
   return {
-    fetchedPostCount: args.capturedContents.length,
-    qualifiedPostCount: qualifiedContentIds.size,
-    driverPostCount: driverCount,
+    scope: {
+      availability: sampleAvailable ? "available" : "unavailable",
+      timeBasis: "first_seen_at",
+      fromIso: args.fromIso,
+      toIso: args.toIso,
+      boundary: "inclusive",
+      limit: args.sampleLimit ?? null,
+      truncated: args.sampleTruncated ?? false,
+      engagementAsOfIso: args.toIso,
+      engagementBasis: "latest_stored_at_or_before_end",
+      thresholdBasis: "capture_day_fact_or_latest_tier_fallback",
+    },
+    fetchedPostCount: sampleAvailable ? capturedContents.length : null,
+    qualifiedPostCount: sampleAvailable && unknownContentIds.size === 0 ? qualifiedContentIds.size : null,
+    driverPostCount: sampleAvailable ? driverCount : null,
+    knownQualifiedPostCount: sampleAvailable ? qualifiedContentIds.size : null,
+    qualificationEvaluatedPostCount: sampleAvailable ? capturedContents.length - unknownContentIds.size : null,
+    qualificationUnknownPostCount: sampleAvailable ? unknownContentIds.size : null,
     listingMix: ([
       { id: "new", label: "New", count: listingCounts.new },
       { id: "hot", label: "Hot", count: listingCounts.hot },
@@ -507,14 +551,16 @@ function buildCompositionSummary(args: {
       { id: "qualified", label: "Qualified", count: qualifiedNonDriverCount },
       { id: "driver", label: "Driver", count: driverCount },
       { id: "ordinary", label: "Ordinary", count: ordinaryCount },
+      { id: "unknown", label: "Unknown engagement", count: unknownNonDriverCount },
     ] satisfies TargetWorkbenchResponse["composition"]["classificationMix"]).filter((item) => item.count > 0),
     engagementMix: ([
       { id: "score_led", label: "Score-led", count: engagementCounts.score_led },
       { id: "comment_led", label: "Comment-led", count: engagementCounts.comment_led },
       { id: "balanced", label: "Balanced", count: engagementCounts.balanced },
       { id: "quiet", label: "Quiet", count: engagementCounts.quiet },
+      { id: "unknown", label: "Unknown engagement", count: engagementCounts.unknown },
     ] satisfies TargetWorkbenchResponse["composition"]["engagementMix"]).filter((item) => item.count > 0),
-    ruleLabel: "Qualified = widened tier threshold, balanced signal, score-led, or discussion-led.",
+    ruleLabel: "Qualification uses the capture-day threshold, or the latest tier threshold when that fact is absent. Missing engagement remains unknown.",
   };
 }
 

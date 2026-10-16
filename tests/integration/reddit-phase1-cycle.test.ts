@@ -266,6 +266,13 @@ test("phase1 cycle writes raw, normalized and trend data", async () => {
     createdAt: nowIso,
     updatedAt: nowIso,
   });
+  // A measured growth fact needs an earlier recorded observation, not a birth-time zero.
+  await postEngagementRepository.upsertWindowedMany([{
+    contentId: stableUuidFromString("reddit:content:t3_mock_1"), targetId, source: "reddit",
+    windowStart: "2026-04-10T06:00:00.000Z", windowEnd: "2026-04-10T12:00:00.000Z",
+    observedAt: "2026-04-10T11:58:00.000Z", score: 100, numComments: 10,
+    collectionJobId: stableUuidFromString("job:cycle-prior-engagement"),
+  }]);
   await subredditTrendPointRepository.upsertMany([
     {
       targetId,
@@ -308,9 +315,11 @@ test("phase1 cycle writes raw, normalized and trend data", async () => {
   assert.equal(contentRepository.all().length, 2);
   assert.equal(metricsSnapshotRepository.all().length, 3);
   assert.equal(postEngagementRepository.allLatest().length, 2);
-  assert.equal(postEngagementRepository.allWindows().length, 2);
+  assert.equal(postEngagementRepository.allWindows().filter((row) => row.observedAt === nowIso).length, 2);
+  assert.equal(postEngagementRepository.allWindows().length, 3);
   assert.equal(subredditDailyFactRepository.all().length > 0, true);
   assert.equal(postGrowthFactRepository.all().length > 0, true);
+  assert.equal(postGrowthFactRepository.all().every((row) => row.algorithmVersion === "post_growth_v2_observation_delta"), true);
   assert.equal(subredditTrendPointRepository.all().length > 0, true);
   assert.equal(anomalyEventRepository.all().some((row) => row.signalType === "volume"), true);
 });

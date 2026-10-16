@@ -11,6 +11,8 @@ import {
 import { resolveRedditCircuitBreakerOptionsFromEnv } from "../connectors/reddit/reddit-circuit-breaker.config";
 import type { RedditScraplingProfile } from "../connectors/reddit/reddit-scrapling.connector";
 import { stableUuidFromString } from "../shared/ids/stable-id";
+import { assertCollectionExecutionAllowed } from "./collection-execution-policy";
+import { validateRuntimeEnvironment } from "./environment-config";
 import { PostgresClient } from "../storage/postgres/postgres-client";
 import {
   createPostgresRepositoryBundle,
@@ -86,6 +88,7 @@ export function createPostgresPhase1Runtime(args: {
   redditMapper?: RedditMapper;
 } = {}): PostgresPhase1Runtime {
   const env = args.env ?? process.env;
+  validateRuntimeEnvironment(env);
   const db = args.db ?? new PostgresClient();
   const shouldClose = !args.db;
   return {
@@ -125,6 +128,8 @@ export function createRedditConnectorFromEnv(args: {
   scraplingProfileOverride?: RedditScraplingProfile;
   disableCircuitBreakerFallbackOnError?: boolean;
 }): ReturnType<typeof createRedditConnector> {
+  validateRuntimeEnvironment(args.env);
+  assertCollectionExecutionAllowed(args.mode, args.env);
   const crawlMode = args.crawlMode ?? "live";
   const configuredProvider =
     args.providerOverride ??
@@ -153,6 +158,7 @@ export function createRedditConnectorFromEnv(args: {
     circuitBreaker.routeToFallbackOnError = false;
   }
   return createRedditConnector({
+    executionEnvironment: args.env,
     mode: args.mode,
     liveProvider,
     httpTransport: resolveRedditHttpTransport(args.env.REDDIT_HTTP_TRANSPORT),

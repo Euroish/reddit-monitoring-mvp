@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ApiError, fetchApi } from '../api/client';
 import { Card, Badge, Button } from '../components/ui';
 import { Phase1RunCard } from '../components/Phase1RunCard';
+import { useLanguage } from '../i18n/LanguageContext';
 import type {
   ApiReadinessResponse,
   ApiStorageObservabilityResponse,
@@ -27,6 +28,8 @@ function formatBytes(value: number): string {
 }
 
 export function Ops() {
+  const {language}=useLanguage();
+  const copy=(en:string,zh:string)=>language==='zh-CN'?zh:en;
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['readyz'],
     queryFn: () => fetchApi<ApiReadinessResponse>('/v1/ops/readyz'),
@@ -69,6 +72,14 @@ export function Ops() {
 
       {data && (
         <div className="ops-grid">
+          {data.sourceCollection && <Card>
+            <h3>{copy('Public source collection', '公共来源采集')} · {data.sourceCollection.status}</h3>
+            <p>{copy('Active sources / pending jobs / live workers', '活动来源 / 待处理任务 / 活跃 worker')}: {data.sourceCollection.activeSources} / {data.sourceCollection.activeJobs} / {data.sourceCollection.liveWorkers}</p>
+            <p>{copy('Worker required', '当前是否需要 worker')}: {data.sourceCollection.workerRequired ? copy('Yes', '是') : copy('No', '否')} · {copy('Oldest pending age (seconds)', '最早待处理年龄（秒）')}: {data.sourceCollection.oldestPendingAgeSeconds ?? '—'}</p>
+            <p>{copy('Registered requests / mean milliseconds', '已登记请求 / 平均毫秒')}: {data.sourceCollection.requestTiming.registeredRequests} / {data.sourceCollection.requestTiming.meanMs?.toFixed(1) ?? '—'}</p>
+            <p className="content-muted">{copy('Diagnostic sample: latest 100 jobs. This measures registered adapter attempts, not a provider bill or upstream coverage.', '诊断范围为最近 100 个任务；登记调用不能代表 provider 账单或上游覆盖。')}</p>
+            {data.sourceCollection.recentFailures.length>0 && <ul>{data.sourceCollection.recentFailures.map(job=><li key={job.jobId} style={{overflowWrap:'anywhere'}}>{job.sourceId}: {job.error ?? copy('Unknown error', '未知错误')}</li>)}</ul>}
+          </Card>}
           <Card>
             <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
               Overall Status

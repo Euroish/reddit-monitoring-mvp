@@ -1,9 +1,15 @@
+import "../../../src/runtime/load-local-env";
 import {
   createPostgresPhase1Runtime,
 } from "../../../src/runtime/reddit-phase1-runtime";
 import { parseBooleanFlag, parsePort, parsePositiveInt } from "../../../src/runtime/runtime-parsing";
 import { assertProductionLaunchConfig } from "./public-launch-config";
 import { createApiServer } from "./create-api-server";
+import { createSourceContentService } from "../../../src/runtime/source-content-runtime";
+import { ContentPersonalService } from "../../../src/application/services/content-personal.service";
+import { PostgresContentPersonalRepository } from "../../../src/storage/repositories/postgres/postgres-content-personal.repository";
+import { ResearchExportService } from "../../../src/application/services/research-export.service";
+import { PostgresResearchExportRepository } from "../../../src/storage/repositories/postgres/postgres-research-export.repository";
 
 const port = parsePort(process.env.PORT, 3000);
 const apiBearerToken = process.env.API_BEARER_TOKEN?.trim();
@@ -37,8 +43,12 @@ assertProductionLaunchConfig({
   allowInsecureSessionCookieInProduction,
 });
 const runtime = createPostgresPhase1Runtime();
+const sourceContent = createSourceContentService(runtime.db);
 
 const server = createApiServer({
+  sourceContent,
+  contentPersonal: new ContentPersonalService(new PostgresContentPersonalRepository(runtime.db), sourceContent),
+  researchExports: new ResearchExportService(new PostgresResearchExportRepository(runtime.db), sourceContent),
   repositories: runtime.repositories,
   sqlDb: runtime.db,
   createConnector: runtime.createConnector,
@@ -58,9 +68,10 @@ const server = createApiServer({
   },
 });
 
-server.listen(port, () => {
+const host = process.env.API_HOST ?? "0.0.0.0";
+server.listen(port, host, () => {
   // eslint-disable-next-line no-console
-  console.log(`API listening on http://localhost:${port}`);
+  console.log(`API listening on http://${host}:${port}`);
 });
 
 async function closeGracefully(): Promise<void> {

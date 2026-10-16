@@ -21,6 +21,7 @@ import { InMemoryRuntimeSettingRepository } from "../../src/storage/repositories
 test("resolveRedditPhase1CycleOptionsFromEnv keeps http-first live defaults aligned", () => {
   const options = resolveRedditPhase1CycleOptionsFromEnv({
     env: {
+      SOURCE_NETWORK_ENABLED: "true",
       REDDIT_LIVE_PROVIDER: "http",
       REDDIT_POST_LIMIT_BASE: "18",
       REDDIT_POST_LIMIT_BOOST: "42",
@@ -51,6 +52,7 @@ test("resolveRedditPhase1CycleOptionsFromEnv keeps http-first live defaults alig
 test("resolveRedditPhase1CycleOptionsFromEnv defaults backfill to http while keeping mock distinct", () => {
   const backfill = resolveRedditPhase1CycleOptionsFromEnv({
     env: {
+      SOURCE_NETWORK_ENABLED: "true",
       REDDIT_BACKFILL_POST_LIMIT: "120",
       REDDIT_BACKFILL_TARGET_DAYS: "15",
       REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET: "9",
@@ -74,6 +76,7 @@ test("resolveRedditPhase1CycleOptionsFromEnv defaults backfill to http while kee
 test("createRedditConnectorFromEnv defaults backfill connector to http when provider is unset", () => {
   const connector = createRedditConnectorFromEnv({
     env: {
+      SOURCE_NETWORK_ENABLED: "true",
       REDDIT_CB_ENABLED: "false",
     },
     mode: "live",
@@ -86,6 +89,7 @@ test("createRedditConnectorFromEnv defaults backfill connector to http when prov
 test("resolveRedditPhase1CycleOptionsFromEnv applies explicit bounded backfill overrides", () => {
   const options = resolveRedditPhase1CycleOptionsFromEnv({
     env: {
+      SOURCE_NETWORK_ENABLED: "true",
       REDDIT_BACKFILL_PROVIDER: "http",
       REDDIT_BACKFILL_POST_LIMIT: "100",
       REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET: "24",
@@ -106,6 +110,7 @@ test("resolveRedditPhase1CycleOptionsFromEnv applies explicit bounded backfill o
 test("resolveRedditPhase1CycleOptionsFromEnv keeps bounded backfill defaults when env is absent", () => {
   const options = resolveRedditPhase1CycleOptionsFromEnv({
     env: {
+      SOURCE_NETWORK_ENABLED: "true",
       REDDIT_BACKFILL_PROVIDER: "http",
     },
     mode: "live",
@@ -119,6 +124,7 @@ test("resolveRedditPhase1CycleOptionsFromEnv keeps bounded backfill defaults whe
 test("resolveRedditPhase1CycleOptionsFromEnv parses target-level scrapling promotion list", () => {
   const options = resolveRedditPhase1CycleOptionsFromEnv({
     env: {
+      SOURCE_NETWORK_ENABLED: "true",
       REDDIT_LIVE_PROVIDER: "http",
       REDDIT_SCRAPLING_PRIMARY_SUBREDDITS: "machinelearning,r/DataScience,machinelearning",
     },
@@ -148,6 +154,7 @@ test("resolveCollectionSettingsRuntimeEnv overlays stored collection settings on
 
   const effectiveEnv = await resolveCollectionSettingsRuntimeEnv({
     env: {
+      SOURCE_NETWORK_ENABLED: "true",
       REDDIT_DEFAULT_FAVORITE_TARGET_CADENCE_HOURS: "8",
       REDDIT_POST_LIMIT_BASE: "16",
       REDDIT_POST_LIMIT_BOOST: "40",
@@ -182,6 +189,7 @@ test("phase1 mode and crawl mode resolvers default to mock for safe local iterat
 test("createRedditConnectorFromEnv passes through http transport override", () => {
   const connector = createRedditConnectorFromEnv({
     env: {
+      SOURCE_NETWORK_ENABLED: "true",
       REDDIT_HTTP_TRANSPORT: "powershell",
       REDDIT_CB_ENABLED: "false",
     },
@@ -196,6 +204,7 @@ test("createRedditConnectorFromEnv passes through http transport override", () =
 test("createRedditConnectorFromEnv passes through http timeout override", () => {
   const connector = createRedditConnectorFromEnv({
     env: {
+      SOURCE_NETWORK_ENABLED: "true",
       REDDIT_HTTP_TIMEOUT_MS: "30000",
       REDDIT_CB_ENABLED: "false",
     },
@@ -210,6 +219,7 @@ test("createRedditConnectorFromEnv passes through http timeout override", () => 
 test("createRedditConnectorFromEnv passes through dedicated http proxy", () => {
   const connector = createRedditConnectorFromEnv({
     env: {
+      SOURCE_NETWORK_ENABLED: "true",
       REDDIT_HTTP_PROXY: "http://127.0.0.1:1080",
       REDDIT_HTTP_PROXY_FAILOVER_COMMAND: "/usr/local/sbin/reddit-collector-failover",
       REDDIT_CB_ENABLED: "false",
@@ -226,6 +236,7 @@ test("createRedditConnectorFromEnv passes through dedicated http proxy", () => {
 test("createRedditConnectorFromEnv allows provider override per execution target", () => {
   const connector = createRedditConnectorFromEnv({
     env: {
+      SOURCE_NETWORK_ENABLED: "true",
       REDDIT_LIVE_PROVIDER: "http",
       REDDIT_CB_ENABLED: "false",
     },
@@ -240,6 +251,7 @@ test("createRedditConnectorFromEnv allows provider override per execution target
 test("createRedditConnectorFromEnv supports scrapling provider and profile", () => {
   const connector = createRedditConnectorFromEnv({
     env: {
+      SOURCE_NETWORK_ENABLED: "true",
       REDDIT_LIVE_PROVIDER: "scrapling",
       REDDIT_SCRAPLING_PROFILE: "stealth",
       REDDIT_SCRAPLING_PYTHON: "py",
@@ -262,6 +274,7 @@ test("createRedditConnectorFromEnv supports scrapling provider and profile", () 
 test("createRedditConnectorFromEnv keeps dynamic scrapling primary by default without circuit fallback to http", () => {
   const connector = createRedditConnectorFromEnv({
     env: {
+      SOURCE_NETWORK_ENABLED: "true",
       REDDIT_LIVE_PROVIDER: "scrapling",
       REDDIT_SCRAPLING_PROFILE: "dynamic",
       REDDIT_CB_ENABLED: "true",
@@ -278,6 +291,7 @@ test("createRedditConnectorFromEnv keeps dynamic scrapling primary by default wi
 test("createRedditConnectorFromEnv allows explicit dynamic scrapling circuit fallback to http via env", () => {
   const connector = createRedditConnectorFromEnv({
     env: {
+      SOURCE_NETWORK_ENABLED: "true",
       REDDIT_LIVE_PROVIDER: "scrapling",
       REDDIT_SCRAPLING_PROFILE: "dynamic",
       REDDIT_SCRAPLING_CB_ROUTE_TO_HTTP: "true",

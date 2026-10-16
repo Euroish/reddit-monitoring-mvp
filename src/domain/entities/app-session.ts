@@ -7,4 +7,5 @@ export interface AppSession {
   expiresAt: ISODateTime;
   lastSeenAt: ISODateTime;
   createdAt: ISODateTime;
+  credentialVersion?: number;
 }

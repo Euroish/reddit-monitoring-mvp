@@ -93,6 +93,12 @@ test("buildPostGrowthFactsJob materializes 1h/6h/24h rows with cohort normalizat
     engagement(targetId, content24h, 120, 20, observedAt, "job:24h"),
     engagement(targetId, contentOld, 300, 50, observedAt, "job:old"),
   ]);
+  await postEngagementRepository.upsertWindowedMany([
+    { ...engagement(targetId, content1hA, 30, 6, "2026-04-17T11:30:00.000Z", "job:prior1ha"), windowStart: "2026-04-17T11:30:00.000Z", windowEnd: "2026-04-17T11:45:00.000Z" },
+    { ...engagement(targetId, content1hB, 30, 4, "2026-04-17T11:30:00.000Z", "job:prior1hb"), windowStart: "2026-04-17T11:30:00.000Z", windowEnd: "2026-04-17T11:45:00.000Z" },
+    { ...engagement(targetId, content6h, 40, 4, "2026-04-17T09:00:00.000Z", "job:prior6h"), windowStart: "2026-04-17T06:00:00.000Z", windowEnd: "2026-04-17T12:00:00.000Z" },
+    { ...engagement(targetId, content24h, 30, 4, "2026-04-16T18:00:00.000Z", "job:prior24h"), windowStart: "2026-04-16T18:00:00.000Z", windowEnd: "2026-04-17T00:00:00.000Z" },
+  ]);
 
   const rows = await buildPostGrowthFactsJob(
     {
@@ -113,7 +119,9 @@ test("buildPostGrowthFactsJob materializes 1h/6h/24h rows with cohort normalizat
     rows.map((row) => row.ageBucket).sort(),
     ["1h", "1h", "24h", "6h"],
   );
-  assert.equal(rows.every((row) => row.algorithmVersion === "post_growth_v1"), true);
+  assert.equal(rows.every((row) => row.algorithmVersion === "post_growth_v2_observation_delta"), true);
+  assert.equal(rows.find((row) => row.contentId === content1hA)?.scoreVelocityPerHour, 120);
+  assert.equal(rows.find((row) => row.contentId === content1hA)?.commentVelocityPerHour, 24);
   assert.equal(rows.every((row) => row.driverScore >= 0 && row.driverScore <= 100), true);
   assert.equal(rows.every((row) => row.explainPayload && typeof row.explainPayload === "object"), true);
 
@@ -149,6 +157,27 @@ test("buildPostGrowthFactsJob skips invalid range", async () => {
   );
 
   assert.deepEqual(rows, []);
+});
+
+test("growth requires two actual metric observations and preserves measured negative score changes", async () => {
+  const targetId = stableUuidFromString("reddit:target:growth-evidence-target");
+  const contentId = stableUuidFromString("reddit:content:growth-evidence-content");
+  const contentRepository = new InMemoryContentRepository();
+  const metricsSnapshotRepository = new InMemoryMetricsSnapshotRepository();
+  const postEngagementRepository = new InMemoryPostEngagementRepository();
+  const postGrowthFactRepository = new InMemoryPostGrowthFactRepository();
+  await contentRepository.upsertMany([{ id: contentId, source: "reddit", targetId, externalId: "t3_delta", kind: "post", title: "Delta evidence", permalink: "/r/test/comments/delta", createdAtSource: "2026-04-17T10:00:00.000Z", firstSeenAt: "2026-04-17T10:00:00.000Z", lastSeenAt: "2026-04-17T10:00:00.000Z" }]);
+  await postEngagementRepository.upsertLatestMany([engagement(targetId, contentId, -4, 0, "2026-04-17T12:00:00.000Z", "job:delta-current")]);
+  const deps = { contentRepository, metricsSnapshotRepository, postEngagementRepository, postGrowthFactRepository };
+  const input = { targetId, fromIso: "2026-04-17T11:00:00.000Z", toIso: "2026-04-17T12:30:00.000Z" };
+  assert.deepEqual(await buildPostGrowthFactsJob(deps, input), [], "single cumulative snapshot has no calculable measured velocity");
+  await postEngagementRepository.upsertWindowedMany([{ ...engagement(targetId, contentId, 2, 0, "2026-04-17T11:00:00.000Z", "job:delta-prior"), windowStart: "2026-04-17T06:00:00.000Z", windowEnd: "2026-04-17T12:00:00.000Z" }]);
+  const rows = await buildPostGrowthFactsJob(deps, input);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.score, -4);
+  assert.equal(rows[0]?.scoreVelocityPerHour, -6);
+  assert.equal(rows[0]?.commentVelocityPerHour, 0);
+  assert.deepEqual(rows[0]?.explainPayload.measurement, { method: "adjacent_recorded_observation_delta", scope: "stored_reddit_engagement_observations", from: "2026-04-17T11:00:00.000Z", to: "2026-04-17T12:00:00.000Z", intervalMinutes: 60, previousScore: 2, previousComments: 0, scoreDelta: -6, commentDelta: 0, signedScore: true });
 });
 
 function metric(

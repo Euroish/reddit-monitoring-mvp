@@ -181,6 +181,7 @@ test("probeRedditProviderCapability classifies network policy body from connecto
 test("createRedditCapabilityProbeConnectorFromEnv disables circuit breaker fallback routing", () => {
   const connector = createRedditCapabilityProbeConnectorFromEnv({
     env: {
+      SOURCE_NETWORK_ENABLED: "true",
       REDDIT_LIVE_PROVIDER: "scrapling",
       REDDIT_CB_ROUTE_TO_FALLBACK: "true",
     },

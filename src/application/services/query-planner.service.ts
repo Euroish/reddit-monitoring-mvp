@@ -1,4 +1,4 @@
-import { normalizeAsciiLexeme } from "../../shared/text/normalized-lexemes";
+import { normalizeSearchTerm } from "../../shared/text/search-terms";
 import { normalizeQueryV2 } from "./query-normalization-v2.service";
 
 export interface QueryPlan {
@@ -33,15 +33,15 @@ const STOPWORDS = new Set([
 ]);
 
 export function buildQueryPlan(rawQuery: string): QueryPlan {
-  const normalizedQueryV2 = normalizeQueryV2(rawQuery);
-  const normalizedQuery = normalizedQueryV2.normalizedQueryText;
+  const positiveQuery = rawQuery.replace(/(?:^|\s)-[^\s]+/g, " ");
+  const normalizedQueryV2 = normalizeQueryV2(positiveQuery);
   const rawTokens = rawQuery
     .trim()
     .toLowerCase()
     .split(/\s+/)
     .filter(Boolean);
   const positiveTokens: string[] = normalizedQueryV2.searchTokens
-    .map((token) => normalizeAsciiLexeme(token))
+    .map((token) => normalizeSearchTerm(token))
     .filter((token) => token.length >= 2 && !STOPWORDS.has(token))
     .slice(0, 8);
   const negativeTokens: string[] = [];
@@ -49,7 +49,7 @@ export function buildQueryPlan(rawQuery: string): QueryPlan {
 
   for (const token of rawTokens) {
     if (token.startsWith("-")) {
-      const normalized = normalizeAsciiLexeme(token.slice(1));
+      const normalized = normalizeSearchTerm(token.slice(1));
       if (!normalized || normalized.length < 2 || STOPWORDS.has(normalized)) {
         continue;
       }
@@ -62,9 +62,9 @@ export function buildQueryPlan(rawQuery: string): QueryPlan {
 
   return {
     rawQuery,
-    normalizedQuery,
+    normalizedQuery: [normalizedQueryV2.normalizedQueryText, ...negativeTokens.map((token) => `-${token}`)].join(" "),
     positiveTokens: positiveTokens.slice(0, 8),
     negativeTokens: negativeTokens.slice(0, 8),
-    plannerVersion: "query_planner_v2",
+    plannerVersion: "query_planner_v3_literal_scope",
   };
 }

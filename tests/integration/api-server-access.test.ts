@@ -320,7 +320,8 @@ test("api server supports CORS preflight and blocks unknown origins", async () =
       preflight.headers.get("access-control-allow-origin"),
       "https://frontend.example.com",
     );
-    assert.equal(preflight.headers.get("access-control-allow-methods"), "GET, POST, OPTIONS");
+    assert.equal(preflight.headers.get("access-control-allow-methods"), "GET, POST, PATCH, PUT, DELETE, OPTIONS");
+    assert.equal(preflight.headers.get("access-control-allow-headers"), "content-type, authorization, x-request-id");
 
     const blocked = await postJson<ApiErrorResponse>(
       `${baseUrl}/v1/targets/subreddit`,
@@ -329,7 +330,7 @@ test("api server supports CORS preflight and blocks unknown origins", async () =
     );
     assert.equal(blocked.status, 403);
     assert.equal(blocked.body.ok, false);
-    assert.equal(blocked.body.errorCode, "cors_origin_not_allowed");
+    assert.equal(blocked.body.errorCode, "write_origin_not_allowed");
   } finally {
     await stopServer(server);
   }

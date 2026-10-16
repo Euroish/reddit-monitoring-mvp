@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { fetchApi } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
 import { Badge, Button, Card, Input, Select } from '../components/ui';
 import type { AppUserRole, CreateInviteRequest, CreateInviteResponse } from '../../../../packages/contracts/src/http';
 
 export function OpsInvites() {
+  const { user } = useAuth();
+  const canGrantRole = user?.role === 'owner';
   const [roleOnAccept, setRoleOnAccept] = useState<AppUserRole>('viewer');
   const [maxUses, setMaxUses] = useState('1');
   const [code, setCode] = useState('');
@@ -20,7 +23,7 @@ export function OpsInvites() {
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     createInvite.mutate({
-      roleOnAccept,
+      roleOnAccept: canGrantRole ? roleOnAccept : 'viewer',
       maxUses: Number(maxUses),
       code: code.trim() || undefined,
     });
@@ -42,10 +45,10 @@ export function OpsInvites() {
               <label htmlFor="invite-role" style={{ display: 'block', marginBottom: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
                 Role on accept
               </label>
-              <Select id="invite-role" value={roleOnAccept} onChange={(event) => setRoleOnAccept(event.target.value as AppUserRole)}>
+              <Select id="invite-role" value={canGrantRole ? roleOnAccept : 'viewer'} disabled={!canGrantRole} onChange={(event) => setRoleOnAccept(event.target.value as AppUserRole)}>
                 <option value="viewer">viewer</option>
-                <option value="admin">admin</option>
-                <option value="owner">owner</option>
+                {canGrantRole && <option value="admin">admin</option>}
+                {canGrantRole && <option value="owner">owner</option>}
               </Select>
             </div>
 
@@ -67,6 +70,7 @@ export function OpsInvites() {
               {createInvite.isPending ? 'Creating...' : 'Create invite'}
             </Button>
           </form>
+          {createInvite.error && <p role="alert" style={{ color: 'var(--error, #ff4d4f)' }}>{createInvite.error.message}</p>}
         </Card>
 
         <Card>

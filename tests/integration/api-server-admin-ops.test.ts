@@ -90,6 +90,7 @@ test("admin ops routes manage targets, collection settings, and maintenance acti
   await seedOwner(repos);
 
   const server = createApiServer({
+    executionEnvironment: { NODE_ENV: "test", SOURCE_NETWORK_ENABLED: "true" },
     repositories: repos,
     sqlDb: createFakeSqlDb(),
     createConnector: () => new RedditMockConnector(),

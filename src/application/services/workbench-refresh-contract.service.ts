@@ -316,13 +316,14 @@ export async function buildTargetWorkbenchFromRefreshContract(
     contract.normalizedQueries.length > 0 ? (["explicit_query"] as const) : undefined;
   const fromDay = toUtcDay(contract.fromIso);
   const toDay = toUtcDay(contract.toIso);
+  const capturedSampleLimit = 20_000;
   const [
     dailyFacts,
     trendPoints,
     keywordDailyRows,
     postGrowthFacts,
     contents,
-    capturedContents,
+    capturedCandidates,
     anomalyEvents,
     providerHealthWindows,
     collectionCoverage,
@@ -365,7 +366,7 @@ export async function buildTargetWorkbenchFromRefreshContract(
       targetId: target.id,
       from: contract.fromIso,
       to: contract.toIso,
-      limit: 20_000,
+      limit: capturedSampleLimit + 1,
       totalEligibleOnly: false,
     }),
     repos.anomalyEventRepository.listByTargetInRange({
@@ -406,6 +407,7 @@ export async function buildTargetWorkbenchFromRefreshContract(
       limit: Math.max(contract.driverLimit * 10, 200),
     }),
   ]);
+  const capturedContents = capturedCandidates.slice(0, capturedSampleLimit);
   const capturedLatestEngagements =
     repos.postEngagementRepository && capturedContents.length > 0
       ? await repos.postEngagementRepository.listLatestByContentIdsInRange({
@@ -413,7 +415,7 @@ export async function buildTargetWorkbenchFromRefreshContract(
           from: "1970-01-01T00:00:00.000Z",
           to: contract.toIso,
         })
-      : [];
+      : undefined;
 
   return buildTargetWorkbenchReadModel({
     requestId: contract.requestId,
@@ -430,6 +432,8 @@ export async function buildTargetWorkbenchFromRefreshContract(
     contents,
     capturedContents,
     capturedLatestEngagements,
+    capturedSampleLimit,
+    capturedSampleTruncated: capturedCandidates.length > capturedSampleLimit,
     anomalyEvents,
     providerHealthWindows,
     collectionCoverage,

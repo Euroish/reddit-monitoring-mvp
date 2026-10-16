@@ -87,7 +87,7 @@ test("buildAnomalyEventsJob includes exact-threshold signal rows", async () => {
       cohortMedianCommentVelocity: 8,
       velocityZScore: 1.4,
       driverScore: ANOMALY_EVENT_DEFAULTS.minScore.driver * 100,
-      algorithmVersion: "post_growth_v1",
+      algorithmVersion: "post_growth_v2_observation_delta",
       explainPayload: {},
     },
   ]);
@@ -177,7 +177,7 @@ test("buildAnomalyEventsJob excludes below-threshold rows", async () => {
       cohortMedianCommentVelocity: 8,
       velocityZScore: 1.4,
       driverScore: ANOMALY_EVENT_DEFAULTS.minScore.driver * 100 - 0.1,
-      algorithmVersion: "post_growth_v1",
+      algorithmVersion: "post_growth_v2_observation_delta",
       explainPayload: {},
     },
   ]);

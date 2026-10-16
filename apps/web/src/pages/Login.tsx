@@ -5,6 +5,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Card, Input, Button } from '../components/ui';
 import { LanguageToggle } from '../i18n/LanguageToggle';
 import { useLanguage } from '../i18n/LanguageContext';
+import { loginReturnPath } from '../auth/internalReturnPath';
 
 export function Login() {
   const { login } = useAuth();
@@ -17,7 +18,7 @@ export function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const from = location.state?.from?.pathname || '/markets';
+  const from = loginReturnPath(location.state, searchParams);
   const registrationSucceeded = searchParams.get('registered') === '1';
 
   const handleSubmit = async (e: React.FormEvent) => {

@@ -178,3 +178,47 @@ test("runKeywordPulseQuery filters polluted substring-only matches", async () =>
   assert.equal(result.samples[0]?.title, "AI model evaluation checklist");
   assert.equal(result.session.explainPayload.pollutionFilteredCount, 1);
 });
+
+test("keyword statistics cover all 2505 indexed matches regardless of sample/search cap and do not seed on reads", async () => {
+  const repo = new InMemoryPostSearchDocumentRepository();
+  repo.seedFromContent = async () => { throw new Error("query must not rebuild the index"); };
+  await repo.upsertMany(Array.from({ length: 2505 }, (_, index) => ({
+    contentId: stableUuidFromString(`reddit:content:keyword-full-scope:${index}`),
+    targetId: stableUuidFromString("reddit:target:keyword-full-scope:target"),
+    canonicalSubreddit: "r/test", title: `AI analysis ${index}`,
+    bodySnippet: "A complete example retained as an indexed sample document.",
+    permalink: `/r/test/comments/${index}`, createdAtSource: "2026-04-12T10:00:00.000Z",
+  })));
+  const run = (limit: number, searchLimit: number) => runKeywordPulseQuery({
+    input: { queryText: "ai", limit, searchLimit, nowIso: "2026-04-12T12:00:00.000Z" },
+    postSearchDocumentRepository: repo, keywordQuerySessionRepository: new InMemoryKeywordQuerySessionRepository(),
+  });
+  const small = await run(2, 3);
+  const large = await run(10, 200);
+  assert.equal(small.session.supportCount, 2505);
+  assert.equal(large.session.supportCount, 2505);
+  assert.equal(small.session.mentionRate, 1);
+  assert.equal(large.session.mentionRate, 1);
+  assert.equal(small.samples.length, 2);
+  assert.equal(small.session.explainPayload.samplesTruncated, true);
+  assert.equal(small.session.explainPayload.statisticsVersion, "stored_scope_exact_v1");
+});
+
+test("keyword query supports Chinese literal terms, English boundaries and negative terms without widening positives", async () => {
+  const repo = new InMemoryPostSearchDocumentRepository();
+  await repo.upsertMany(["智能体 AI 研究", "智能体广告 AI", "普通 Airflow", "无关广告"].map((title, index) => ({
+    contentId: stableUuidFromString(`reddit:content:keyword-chinese:${index}`), targetId: stableUuidFromString("reddit:target:keyword-chinese:target"),
+    canonicalSubreddit: "r/test", title, permalink: `/r/test/comments/${index}`, createdAtSource: "2026-04-12T10:00:00.000Z",
+  })));
+  const result = await runKeywordPulseQuery({
+    input: { queryText: "智能体 -广告", limit: 5, nowIso: "2026-04-12T12:00:00.000Z" },
+    postSearchDocumentRepository: repo, keywordQuerySessionRepository: new InMemoryKeywordQuerySessionRepository(),
+  });
+  assert.equal(result.session.supportCount, 1);
+  assert.equal(result.session.mentionRate, 0.25);
+  assert.equal(result.samples[0]?.title, "智能体 AI 研究");
+  assert.deepEqual(result.session.explainPayload.positiveTokens, ["智能体"]);
+  assert.deepEqual(result.session.explainPayload.negativeTokens, ["广告"]);
+  const english = await repo.summarizeSearch({ tokens: ["ai"], sampleLimit: 1 });
+  assert.equal(english.supportCount, 2);
+});

@@ -6,14 +6,12 @@ import type {
 } from "../../domain/entities/keyword-query-session";
 import type { KeywordQuerySessionRepository } from "../../domain/repositories/keyword-query-session-repository";
 import type { PostSearchDocumentRepository } from "../../domain/repositories/post-search-document-repository";
-import { hasAnyAsciiLexemeMatch } from "../../shared/text/normalized-lexemes";
 import { buildQueryPlan } from "./query-planner.service";
 import {
   buildRepresentativeSamples,
   ceilIsoFromBucketStart,
   clampRate,
   floorIsoToMinuteBucket,
-  isQualifiedMatch,
   resolveAggregateDataQuality,
   resolveConfidenceLevel,
   resolveCoverageLevel,
@@ -71,7 +69,7 @@ export async function runKeywordPulseQuery(args: {
     sampleLimit: args.input.limit,
     pulsePointLimit,
   });
-  if (reusable) {
+  if (reusable?.session.explainPayload.plannerVersion === planner.plannerVersion) {
     return {
       session: reusable.session,
       samples: reusable.samples,
@@ -80,30 +78,17 @@ export async function runKeywordPulseQuery(args: {
     };
   }
 
-  const seededRows = await args.postSearchDocumentRepository.seedFromContent(2000);
-  const totalScopeDocs = await args.postSearchDocumentRepository.countByScope({
-    canonicalSubreddit: args.input.canonicalSubreddit,
-  });
-
-  const documents = await args.postSearchDocumentRepository.search({
+  const summary = await args.postSearchDocumentRepository.summarizeSearch({
     tokens: planner.positiveTokens,
+    negativeTokens: planner.negativeTokens,
     canonicalSubreddit: args.input.canonicalSubreddit,
-    limit: searchLimit,
+    sampleLimit: searchLimit,
+    createdAtTo: args.input.nowIso,
   });
-
-  const filteredDocuments = documents.filter((doc) => {
-    const haystack = `${doc.title} ${doc.bodySnippet ?? ""}`;
-    if (!hasAnyAsciiLexemeMatch(haystack, planner.positiveTokens)) {
-      return false;
-    }
-    if (planner.negativeTokens.length === 0) {
-      return true;
-    }
-    return !hasAnyAsciiLexemeMatch(haystack, planner.negativeTokens);
-  });
-
-  const supportCount = filteredDocuments.length;
-  const qualifiedCount = filteredDocuments.filter((doc) => isQualifiedMatch(doc.title, doc.bodySnippet)).length;
+  const totalScopeDocs = summary.totalScopeDocs;
+  const filteredDocuments = summary.documents;
+  const supportCount = summary.supportCount;
+  const qualifiedCount = summary.qualifiedCount;
   const denominator = Math.max(1, totalScopeDocs);
   const mentionRate = clampRate(supportCount / denominator);
   const qualifiedMentionRate = clampRate(qualifiedCount / denominator);
@@ -149,10 +134,15 @@ export async function runKeywordPulseQuery(args: {
       plannerVersion: planner.plannerVersion,
       positiveTokens: planner.positiveTokens,
       negativeTokens: planner.negativeTokens,
-      seededRows,
+      seededRows: 0,
+      statisticsVersion: "stored_scope_exact_v1",
+      statisticsScope: "stored_reddit_post_search_documents",
+      matching: "any_positive_english_word_or_unicode_literal_excluding_any_negative",
+      statisticsTo: args.input.nowIso,
+      samplesTruncated: supportCount > filteredDocuments.length,
       totalScopeDocs,
       searchLimit,
-      pollutionFilteredCount: Math.max(0, documents.length - filteredDocuments.length),
+      pollutionFilteredCount: Math.max(0, summary.candidateCount - supportCount),
       filteredCount: supportCount,
       qualifiedCount,
       cacheStatus: "miss",

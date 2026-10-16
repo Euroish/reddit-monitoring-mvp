@@ -3,6 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { useLanguage } from '../i18n/LanguageContext';
 import type { AppUserRole } from '../../../../packages/contracts/src/http';
+import { safeInternalReturnPath } from './internalReturnPath';
 
 export function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -14,7 +15,8 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    const returnTo = safeInternalReturnPath(`${location.pathname}${location.search}`);
+    return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} state={{ from: location }} replace />;
   }
 
   return <>{children}</>;

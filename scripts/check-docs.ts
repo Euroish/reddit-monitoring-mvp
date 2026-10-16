@@ -10,6 +10,8 @@ const documents = [
   "docs/architecture.md",
   "docs/development.md",
   "docs/status.md",
+  "docs/development-log.md",
+  "docs/handoff.md",
 ];
 const root = path.resolve(__dirname, "..");
 const files = new Set(

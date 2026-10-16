@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext';
 import { RequireAuth, RoleGuard } from './auth/RequireAuth';
 import { Layout } from './app/Layout';
@@ -12,11 +12,15 @@ const MarketBoard = lazy(() => import('./pages/MarketBoard').then((module) => ({
 const Compare = lazy(() => import('./pages/Compare').then((module) => ({ default: module.Compare })));
 const TargetDetail = lazy(() => import('./pages/TargetDetail').then((module) => ({ default: module.TargetDetail })));
 const Queries = lazy(() => import('./pages/Queries').then((module) => ({ default: module.Queries })));
+const Content = lazy(() => import('./pages/Content').then((module) => ({ default: module.Content })));
+const ContentDetail = lazy(() => import('./pages/ContentDetail').then((module) => ({ default: module.ContentDetail })));
 const Saved = lazy(() => import('./pages/Saved').then((module) => ({ default: module.Saved })));
+const Account = lazy(() => import('./pages/Account').then((module) => ({ default: module.Account })));
 const RunPhase1 = lazy(() => import('./pages/RunPhase1').then((module) => ({ default: module.RunPhase1 })));
 const Ops = lazy(() => import('./pages/Ops').then((module) => ({ default: module.Ops })));
 const OpsStorage = lazy(() => import('./pages/OpsStorage').then((module) => ({ default: module.OpsStorage })));
 const OpsUsers = lazy(() => import('./pages/OpsUsers').then((module) => ({ default: module.OpsUsers })));
+const OpsAudit = lazy(() => import('./pages/OpsAudit').then((module) => ({ default: module.OpsAudit })));
 const OpsInvites = lazy(() => import('./pages/OpsInvites').then((module) => ({ default: module.OpsInvites })));
 const OpsTargets = lazy(() => import('./pages/OpsTargets').then((module) => ({ default: module.OpsTargets })));
 const OpsCollection = lazy(() => import('./pages/OpsCollection').then((module) => ({ default: module.OpsCollection })));
@@ -31,11 +35,8 @@ function RouteLoadingFallback() {
   );
 }
 
-export default function App() {
+function AppRoutes() {
   return (
-    <LanguageProvider>
-      <AuthProvider>
-        <BrowserRouter>
           <Suspense fallback={<RouteLoadingFallback />}>
             <Routes>
               <Route path="/login" element={<Login />} />
@@ -47,7 +48,10 @@ export default function App() {
                 <Route path="/dashboard" element={<Navigate to="/markets" replace />} />
                 <Route path="/compare" element={<Compare />} />
                 <Route path="/queries" element={<Queries />} />
+                <Route path="/content" element={<Content />} />
+                <Route path="/content/:contentId" element={<ContentDetail />} />
                 <Route path="/saved" element={<Saved />} />
+                <Route path="/account" element={<Account />} />
                 <Route path="/run" element={<RunPhase1 />} />
                 <Route path="/target/:targetId" element={<TargetDetail />} />
                 <Route path="/ops" element={
@@ -64,6 +68,9 @@ export default function App() {
                   <RoleGuard allowedRoles={['admin', 'owner']}>
                     <OpsUsers />
                   </RoleGuard>
+                } />
+                <Route path="/ops/audit" element={
+                  <RoleGuard allowedRoles={['admin', 'owner']}><OpsAudit /></RoleGuard>
                 } />
                 <Route path="/ops/invites" element={
                   <RoleGuard allowedRoles={['admin', 'owner']}>
@@ -85,12 +92,15 @@ export default function App() {
                     <OpsMaintenance />
                   </RoleGuard>
                 } />
-                <Route path="/" element={<Navigate to="/markets" replace />} />
+                <Route path="/" element={<Navigate to="/content" replace />} />
               </Route>
             </Routes>
           </Suspense>
-        </BrowserRouter>
-      </AuthProvider>
-    </LanguageProvider>
   );
+}
+
+const router = createBrowserRouter([{ path: '*', element: <AppRoutes /> }]);
+
+export default function App() {
+  return <LanguageProvider><AuthProvider><RouterProvider router={router} /></AuthProvider></LanguageProvider>;
 }

@@ -15,6 +15,7 @@ import type { KeywordTrendDailyRepository } from "../domain/repositories/keyword
 import type { MetricsSnapshotRepository } from "../domain/repositories/metrics-snapshot-repository";
 import type { MonitorTargetRepository } from "../domain/repositories/monitor-target-repository";
 import type { PostEngagementRepository } from "../domain/repositories/post-engagement-repository";
+import type { PostSearchDocumentRepository } from "../domain/repositories/post-search-document-repository";
 import type { PostGrowthFactRepository } from "../domain/repositories/post-growth-fact-repository";
 import type { ProviderHealthWindowRepository } from "../domain/repositories/provider-health-window-repository";
 import type { RawEventRepository } from "../domain/repositories/raw-event-repository";
@@ -59,6 +60,7 @@ export interface RedditPhase1WorkerDependencies {
   anomalyEventRepository?: AnomalyEventRepository;
   metricsSnapshotRepository: MetricsSnapshotRepository;
   postEngagementRepository?: PostEngagementRepository;
+  postSearchDocumentRepository?: PostSearchDocumentRepository;
   subredditDailyFactRepository: SubredditDailyFactRepository;
   subredditCollectionCoverageRepository?: SubredditCollectionCoverageRepository;
   subredditTrendPointRepository: SubredditTrendPointRepository;
@@ -357,6 +359,7 @@ export async function runRedditPhase1Cycle(
           accountRepository: deps.accountRepository,
           metricsSnapshotRepository: deps.metricsSnapshotRepository,
           postEngagementRepository: deps.postEngagementRepository,
+          postSearchDocumentRepository: deps.postSearchDocumentRepository,
           providerHealthWindowRepository: deps.providerHealthWindowRepository,
           redditConnector: targetConnector,
           redditMapper: deps.redditMapper,
@@ -471,6 +474,7 @@ async function runBoundedTargetBackfill(
     | "crawlCursorRepository"
     | "metricsSnapshotRepository"
     | "postEngagementRepository"
+    | "postSearchDocumentRepository"
     | "providerHealthWindowRepository"
     | "rawEventRepository"
     | "redditConnector"
@@ -524,6 +528,7 @@ async function runBoundedTargetBackfill(
         providerHealthWindowRepository: deps.providerHealthWindowRepository,
         metricsSnapshotRepository: deps.metricsSnapshotRepository,
         postEngagementRepository: deps.postEngagementRepository,
+        postSearchDocumentRepository: deps.postSearchDocumentRepository,
       },
       {
         targetId: args.targetId,

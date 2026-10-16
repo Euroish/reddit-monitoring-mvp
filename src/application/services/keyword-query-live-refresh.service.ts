@@ -1,7 +1,6 @@
 import type { KeywordQuerySessionStatus } from "../../domain/entities/keyword-query-session";
 import type { KeywordQuerySessionRepository } from "../../domain/repositories/keyword-query-session-repository";
 import type { PostSearchDocumentRepository } from "../../domain/repositories/post-search-document-repository";
-import { hasAnyAsciiLexemeMatch } from "../../shared/text/normalized-lexemes";
 import { buildQueryPlan } from "./query-planner.service";
 import {
   buildRepresentativeSamples,
@@ -12,7 +11,6 @@ import {
   resolveConfidenceLevel,
   resolveCoverageLevel,
   resolveAggregateDataQuality,
-  isQualifiedMatch,
 } from "./keyword-query-metrics";
 
 export interface RunKeywordQueryLiveRefreshCycleInput {
@@ -79,36 +77,28 @@ export async function runKeywordQueryLiveRefreshCycle(
       continue;
     }
 
-    const totalScopeDocs = await input.postSearchDocumentRepository.countByScope({
-      canonicalSubreddit: session.canonicalSubreddit,
-    });
-
-    const documents = await input.postSearchDocumentRepository.search({
+    const summary = await input.postSearchDocumentRepository.summarizeSearch({
       tokens: planner.positiveTokens,
+      negativeTokens: planner.negativeTokens,
       canonicalSubreddit: session.canonicalSubreddit,
-      limit: bucketSearchLimit,
-      createdAtFrom: bucketStart,
+      sampleLimit: bucketSearchLimit,
+      createdAtFrom: bucketStart > session.createdAt ? bucketStart : session.createdAt,
       createdAtTo: bucketEnd,
     });
-
-    const filteredDocuments = documents.filter((doc) => {
-      const haystack = `${doc.title} ${doc.bodySnippet ?? ""}`;
-      if (!hasAnyAsciiLexemeMatch(haystack, planner.positiveTokens)) {
-        return false;
-      }
-      if (planner.negativeTokens.length === 0) {
-        return true;
-      }
-      return !hasAnyAsciiLexemeMatch(haystack, planner.negativeTokens);
+    const scopeSummary = await input.postSearchDocumentRepository.summarizeSearch({
+      tokens: planner.positiveTokens,
+      negativeTokens: planner.negativeTokens,
+      canonicalSubreddit: session.canonicalSubreddit,
+      sampleLimit: representativeSampleLimit,
+      createdAtTo: bucketEnd,
     });
-
-    const mentionCount = filteredDocuments.length;
-    const qualifiedMentionCount = filteredDocuments.filter((doc) =>
-      isQualifiedMatch(doc.title, doc.bodySnippet),
-    ).length;
-    const denominator = Math.max(1, totalScopeDocs);
-    const bucketMentionRate = clampRate(mentionCount / denominator);
-    const bucketQualifiedMentionRate = clampRate(qualifiedMentionCount / denominator);
+    const filteredDocuments = summary.documents;
+    const mentionCount = summary.supportCount;
+    const qualifiedMentionCount = summary.qualifiedCount;
+    const denominator = Math.max(1, scopeSummary.totalScopeDocs);
+    const bucketDenominator = Math.max(1, summary.totalScopeDocs);
+    const bucketMentionRate = clampRate(mentionCount / bucketDenominator);
+    const bucketQualifiedMentionRate = clampRate(qualifiedMentionCount / bucketDenominator);
     const pulseSamples = buildRepresentativeSamples({
       queryId: session.id,
       documents: filteredDocuments,
@@ -129,13 +119,8 @@ export async function runKeywordQueryLiveRefreshCycle(
 
     const summaryTotals = await input.keywordQuerySessionRepository.getResultSummaryTotals(session.id);
     const indexMentionCount = Number(session.sourceTypeSummary.index ?? session.supportCount);
-    const indexQualifiedCount = resolveIndexQualifiedCount({
-      explainPayload: session.explainPayload,
-      denominator,
-      qualifiedMentionRate: session.qualifiedMentionRate,
-    });
-    const supportCount = indexMentionCount + summaryTotals.mentionCount;
-    const qualifiedCount = indexQualifiedCount + summaryTotals.qualifiedMentionCount;
+    const supportCount = scopeSummary.supportCount;
+    const qualifiedCount = scopeSummary.qualifiedCount;
     const mentionRate = clampRate(supportCount / denominator);
     const qualifiedMentionRate = clampRate(qualifiedCount / denominator);
     const coverageLevel = resolveCoverageLevel(supportCount);
@@ -206,13 +191,19 @@ export async function runKeywordQueryLiveRefreshCycle(
       explainPayload: {
         ...session.explainPayload,
         dataQuality: sessionDataQuality,
+        statisticsVersion: "stored_scope_exact_v1",
+        totalScopeDocs: scopeSummary.totalScopeDocs,
+        filteredCount: supportCount,
+        qualifiedCount,
+        statisticsTo: bucketEnd,
         liveRefresh: {
           refreshedAt: input.nowIso,
           bucketStart,
           bucketEnd,
           mentionCount,
           qualifiedMentionCount,
-          pollutionFilteredCount: Math.max(0, documents.length - filteredDocuments.length),
+          pollutionFilteredCount: Math.max(0, summary.candidateCount - mentionCount),
+          bucketScopeDocs: summary.totalScopeDocs,
           totalLiveMentionCount: summaryTotals.mentionCount,
           totalLiveQualifiedMentionCount: summaryTotals.qualifiedMentionCount,
           representativeSampleCount: pulseSamples.length,
@@ -252,16 +243,4 @@ function resolveLiveRefreshStatus(args: {
     return "completed";
   }
   return "live_refreshing";
-}
-
-function resolveIndexQualifiedCount(args: {
-  explainPayload: Record<string, unknown>;
-  denominator: number;
-  qualifiedMentionRate: number;
-}): number {
-  const fromExplain = args.explainPayload["qualifiedCount"];
-  if (typeof fromExplain === "number" && Number.isFinite(fromExplain) && fromExplain >= 0) {
-    return Math.floor(fromExplain);
-  }
-  return Math.max(0, Math.round(args.qualifiedMentionRate * args.denominator));
 }

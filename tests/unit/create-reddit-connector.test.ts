@@ -35,12 +35,12 @@ test("resolveRedditScraplingProfile defaults to http", () => {
 });
 
 test("createRedditConnector uses http as live default", () => {
-  const connector = createRedditConnector({ mode: "live" });
+  const connector = createRedditConnector({ executionEnvironment: {NODE_ENV:"test",SOURCE_NETWORK_ENABLED:"true"}, mode: "live" });
   assert.equal(connector instanceof RedditHttpConnector, true);
 });
 
 test("createRedditConnector supports explicit http provider", () => {
-  const connector = createRedditConnector({
+  const connector = createRedditConnector({ executionEnvironment: {NODE_ENV:"test",SOURCE_NETWORK_ENABLED:"true"},
     mode: "live",
     liveProvider: "http",
   });
@@ -48,7 +48,7 @@ test("createRedditConnector supports explicit http provider", () => {
 });
 
 test("createRedditConnector supports explicit scrapling provider", () => {
-  const connector = createRedditConnector({
+  const connector = createRedditConnector({ executionEnvironment: {NODE_ENV:"test",SOURCE_NETWORK_ENABLED:"true"},
     mode: "live",
     liveProvider: "scrapling",
   });
@@ -56,12 +56,12 @@ test("createRedditConnector supports explicit scrapling provider", () => {
 });
 
 test("createRedditConnector keeps mock mode behavior", () => {
-  const connector = createRedditConnector({ mode: "mock" });
+  const connector = createRedditConnector({ executionEnvironment: {NODE_ENV:"test",SOURCE_NETWORK_ENABLED:"true"}, mode: "mock" });
   assert.equal(connector instanceof RedditMockConnector, true);
 });
 
 test("createRedditConnector can wrap live connector with circuit breaker", () => {
-  const connector = createRedditConnector({
+  const connector = createRedditConnector({ executionEnvironment: {NODE_ENV:"test",SOURCE_NETWORK_ENABLED:"true"},
     mode: "live",
     circuitBreaker: {
       enabled: true,

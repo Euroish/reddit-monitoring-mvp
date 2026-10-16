@@ -1,0 +1,95 @@
+name: Offline verification
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      LOCAL_ENV_FILE: none
+      SOURCE_RUN_MODE: demo
+      SOURCE_NETWORK_ENABLED: 'false'
+      REDDIT_RUN_MODE: mock
+      TWITTERAPI_IO_API_KEY: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/web/package-lock.json
+      - run: npm ci
+      - run: npm --prefix apps/web ci
+      - run: npm run docs:check
+      - run: npm run lint:web
+      - run: npm run typecheck
+      - run: node --import tsx scripts/run-ci-tests.ts offline
+      - run: npm run build
+      - run: npm run smoke:compiled
+
+  postgres-and-browser:
+    runs-on: ubuntu-24.04
+    needs: offline
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_fixture_only
+          POSTGRES_DB: source_validation_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      LOCAL_ENV_FILE: none
+      SOURCE_RUN_MODE: demo
+      SOURCE_NETWORK_ENABLED: 'false'
+      REDDIT_RUN_MODE: mock
+      TWITTERAPI_IO_API_KEY: ''
+      TEST_SOURCE_DATABASE_URL: postgresql://postgres:ci_fixture_only@127.0.0.1:5432/source_validation_ci
+      PG_BIN: /usr/lib/postgresql/16/bin
+      CI_DEMO_DATABASE_URL: postgresql://postgres:ci_fixture_only@127.0.0.1:5432/info_workbench_dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/web/package-lock.json
+      - run: npm ci
+      - run: npm --prefix apps/web ci
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client-16
+      - run: node --import tsx scripts/run-ci-tests.ts postgres
+      - run: npx playwright install --with-deps chromium
+      - run: npm run smoke:accounts:local
+      - run: npm run smoke:content:local
+      - run: npm run smoke:research:local
+      - run: node scripts/ci-demo.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: synthetic-e2e-evidence
+          if-no-files-found: ignore
+          path: |
+            output/local-dev/ci-*.log
+            output/local-dev/smoke-evidence.json
+            output/playwright/local-demo-real-pipeline-*.png
+            output/validation/phase4b-real-account-local.json
+            output/validation/phase5a-real-content-local.json
+            output/validation/phase5b-real-research-local.json
+            output/playwright/phase*-real-*-local-mobile.png

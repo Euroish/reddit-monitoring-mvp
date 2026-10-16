@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { AppUser, AppUserPassword } from "../../domain/entities/app-user";
 import type { AppUserWithPassword } from "../../domain/repositories/app-user-repository";
 import { PasswordHashingService } from "../services/password-hashing.service";
+import { isValidNewPassword, NEW_PASSWORD_POLICY_MESSAGE } from "../services/password-policy";
 
 export class BootstrapFirstOwnerError extends Error {
   constructor(
@@ -36,12 +37,15 @@ export async function bootstrapFirstOwner(
   },
 ): Promise<AppUser> {
   const email = input.email.trim().toLowerCase();
-  const password = input.password.trim();
+  const password = input.password;
   if (!email || !password) {
     throw new BootstrapFirstOwnerError(
       "email and password are required",
       "invalid_bootstrap_request",
     );
+  }
+  if (!isValidNewPassword(password)) {
+    throw new BootstrapFirstOwnerError(NEW_PASSWORD_POLICY_MESSAGE, "invalid_bootstrap_request");
   }
 
   const existingUser = await options.store.findByEmailWithPassword(email);

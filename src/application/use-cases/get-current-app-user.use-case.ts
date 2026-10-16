@@ -20,7 +20,7 @@ export async function getCurrentAppUser(args: {
   }
 
   const user = await args.appUserRepository.findById(session.userId);
-  if (!user || user.status !== "active") {
+  if (!user || user.status !== "active" || (session.credentialVersion ?? 0) !== (user.credentialVersion ?? 0)) {
     return null;
   }
 

@@ -38,8 +38,6 @@ import type {
   RegisterAppUserResponse,
   RunMode,
   SubredditTargetAdminView,
-  UpdateAppUserStatusRequest,
-  UpdateAppUserStatusResponse,
   UpdateCollectionSettingsRequest,
   UpdateCollectionSettingsResponse,
   UpdateSubredditTargetRequest,
@@ -58,7 +56,6 @@ import type {
 import type { AppUser } from "../../../src/domain/entities/app-user";
 import { dispatchRedditPhase1Run } from "../../../src/application/use-cases/dispatch-reddit-phase1-run.use-case";
 import { prepareTriggeredRedditPhase1Run } from "../../../src/application/use-cases/trigger-reddit-phase1-run.use-case";
-import { activateAppUser } from "../../../src/application/use-cases/activate-app-user.use-case";
 import { createAppInvite } from "../../../src/application/use-cases/create-app-invite.use-case";
 import { CreateAppInviteError } from "../../../src/application/use-cases/create-app-invite.use-case";
 import { getCurrentAppUser } from "../../../src/application/use-cases/get-current-app-user.use-case";
@@ -153,8 +150,21 @@ import {
   readCookieValue,
 } from "./auth-cookie";
 import { canUseOpsWrite, resolveSessionActor, type ApiActor } from "./auth-guard";
+import { handleSourceContentRoute, matchSourceContentRoute } from "./source-content-routes";
+import { isAllowedSavedViewRoute } from "./saved-view-route";
+import type { SourceContentService } from "../../../src/application/services/source-content.service";
+import type { ContentPersonalService } from "../../../src/application/services/content-personal.service";
+import { handleContentPersonalRoute, matchContentPersonalRoute } from "./content-personal-routes";
+import type { ResearchExportService } from "../../../src/application/services/research-export.service";
+import { handleResearchExportRoute, matchResearchExportRoute } from "./research-export-routes";
+import { collectionExecutionViolation } from "../../../src/runtime/collection-execution-policy";
+import { buildSourceReadiness } from "./source-readiness";
+import type { AppAuditRepository } from "../../../src/domain/repositories/app-audit-repository";
+import { handleAuthAccountRoute, matchAuthAccountRoute } from "./auth-account-routes";
+import { writeAuditMetadata, writeAuditRoute } from "./write-audit";
 
 const MAX_JSON_BODY_BYTES = 1_048_576;
+const parsedRequestBodies = new WeakMap<IncomingMessage, unknown>();
 
 function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
   res.statusCode = statusCode;
@@ -171,6 +181,7 @@ class RequestBodyTooLargeError extends Error {
 }
 
 async function readJsonBody<T>(req: IncomingMessage): Promise<T | null> {
+  if (parsedRequestBodies.has(req)) return parsedRequestBodies.get(req) as T | null;
   const chunks: Buffer[] = [];
   let totalBytes = 0;
   for await (const chunk of req) {
@@ -189,7 +200,9 @@ async function readJsonBody<T>(req: IncomingMessage): Promise<T | null> {
     return null;
   }
   try {
-    return JSON.parse(raw) as T;
+    const body = JSON.parse(raw) as T;
+    parsedRequestBodies.set(req, body);
+    return body;
   } catch {
     throw new BadRequestError("invalid JSON body", "invalid_json");
   }
@@ -220,6 +233,7 @@ export interface ApiRepositoryBundle {
   appUserRepository?: AppUserRepository;
   appInviteRepository?: AppInviteRepository;
   appSessionRepository?: AppSessionRepository;
+  appAuditRepository?: AppAuditRepository;
   anomalyEventRepository: AnomalyEventRepository;
   contentRepository: ContentRepository;
   keywordTrendDailyRepository?: KeywordTrendDailyRepository;
@@ -269,6 +283,10 @@ function parseAnomalySignalTypeList(value: string | null): AnomalySignalType[] |
 }
 
 export interface CreateApiServerOptions {
+  executionEnvironment?: NodeJS.ProcessEnv;
+  sourceContent?: SourceContentService;
+  contentPersonal?: ContentPersonalService;
+  researchExports?: ResearchExportService;
   repositories: ApiRepositoryBundle;
   sqlDb?: SqlQueryable;
   createConnector: (
@@ -299,6 +317,7 @@ export interface CreateApiServerOptions {
     points?: number;
     durationSeconds?: number;
   };
+  authRateLimit?: { enabled?: boolean; points?: number; durationSeconds?: number };
 }
 
 type CollectionSettingsRecord = Omit<CollectionSettingsView, "updatedAt"> & {
@@ -670,10 +689,7 @@ function applyPreflightHeaders(args: {
 }): void {
   args.res.setHeader("Access-Control-Allow-Methods", args.allowedMethods.join(", "));
 
-  const requestedHeaders = args.req.headers["access-control-request-headers"];
-  const requested = typeof requestedHeaders === "string" ? requestedHeaders.trim() : "";
-  const allowHeaders = requested.length > 0 ? requested : args.allowedHeaders.join(", ");
-  args.res.setHeader("Access-Control-Allow-Headers", allowHeaders);
+  args.res.setHeader("Access-Control-Allow-Headers", args.allowedHeaders.join(", "));
   args.res.setHeader("Access-Control-Max-Age", String(args.maxAgeSeconds));
 }
 
@@ -690,10 +706,6 @@ function readBearerToken(req: IncomingMessage): string | null {
 }
 
 function resolveClientIp(req: IncomingMessage): string {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string" && forwarded.trim().length > 0) {
-    return forwarded.split(",")[0]?.trim() || "unknown";
-  }
   const socketIp = req.socket.remoteAddress?.trim();
   if (!socketIp) {
     return "unknown";
@@ -761,7 +773,8 @@ function isPrivilegedWritePath(pathname: string): boolean {
     pathname === "/v1/ops/maintenance/prune/post-engagement-windows" ||
     pathname === "/auth/invites" ||
     /^\/auth\/users\/[^/]+\/activate$/.test(pathname) ||
-    /^\/auth\/users\/[^/]+\/status$/.test(pathname)
+    /^\/auth\/users\/[^/]+\/status$/.test(pathname) ||
+    /^\/auth\/users\/[^/]+\/role$/.test(pathname)
   );
 }
 
@@ -770,7 +783,8 @@ function isAuthAdminPath(pathname: string): boolean {
     pathname === "/auth/invites" ||
     pathname === "/auth/users" ||
     /^\/auth\/users\/[^/]+\/activate$/.test(pathname) ||
-    /^\/auth\/users\/[^/]+\/status$/.test(pathname)
+    /^\/auth\/users\/[^/]+\/status$/.test(pathname) ||
+    /^\/auth\/users\/[^/]+\/role$/.test(pathname)
   );
 }
 
@@ -788,20 +802,6 @@ function canUseOpsRead(actor: ApiActor | null): boolean {
 
 function canUseAuthAdminRead(actor: ApiActor | null): boolean {
   return actor?.type === "machine" || canUseOpsRead(actor);
-}
-
-function parseUserIdFromActivatePath(pathname: string): string | null {
-  const match = /^\/auth\/users\/([^/]+)\/activate$/.exec(pathname);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
-}
-
-function parseUserIdFromStatusPath(pathname: string): string | null {
-  const match = /^\/auth\/users\/([^/]+)\/status$/.exec(pathname);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
-}
-
-function isSupportedAppUserStatus(value: unknown): value is AppUser["status"] {
-  return value === "pending" || value === "active" || value === "disabled";
 }
 
 function readBoolean(value: unknown): boolean | undefined {
@@ -950,11 +950,11 @@ function applyCollectionSettingsPatch(args: {
   };
 }
 
-function toCollectionSettingsEnvOverlay(settings: CollectionSettingsView): NodeJS.ProcessEnv {
+function toCollectionSettingsEnvOverlay(settings: CollectionSettingsView, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const providerHint =
     settings.providerPreference === "default" ? undefined : settings.providerPreference;
   return {
-    ...process.env,
+    ...env,
     REDDIT_DEFAULT_FAVORITE_TARGET_CADENCE_HOURS: String(settings.defaultCadenceHours),
     REDDIT_POST_LIMIT_BASE: String(settings.postLimitBase),
     REDDIT_POST_LIMIT_BOOST: String(settings.postLimitBoost),
@@ -962,7 +962,7 @@ function toCollectionSettingsEnvOverlay(settings: CollectionSettingsView): NodeJ
     REDDIT_BACKFILL_POST_LIMIT: String(settings.backfillPostLimit),
     REDDIT_BACKFILL_TARGET_DAYS: String(settings.backfillTargetDays),
     REDDIT_BACKFILL_MAX_ITERATIONS_PER_TARGET: String(settings.backfillMaxIterationsPerTarget),
-    REDDIT_LIVE_PROVIDER: providerHint ?? process.env.REDDIT_LIVE_PROVIDER,
+    REDDIT_LIVE_PROVIDER: providerHint ?? env.REDDIT_LIVE_PROVIDER,
   };
 }
 
@@ -970,6 +970,7 @@ function isValidTargetPatch(body: UpdateSubredditTargetRequest | null): body is 
   if (!body) {
     return false;
   }
+  if (body.expectedRevision !== undefined && (!Number.isInteger(body.expectedRevision) || body.expectedRevision < 1 || body.expectedRevision > 2_147_483_646)) return false;
   if (body.status != null && body.status !== "active" && body.status !== "paused") {
     return false;
   }
@@ -1016,6 +1017,7 @@ function buildSubredditTargetAdminView(args: {
     recentPostVolume: latestFact?.postVolume,
     notes: config.notes,
     category: config.category,
+    revision: args.target.revision ?? 1,
   };
 }
 
@@ -1065,7 +1067,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
     [];
   const corsAllowedMethods =
     options.cors?.allowedMethods?.map((method) => method.trim().toUpperCase()).filter(Boolean) ??
-    ["GET", "POST", "OPTIONS"];
+    ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"];
   const corsAllowedHeaders =
     options.cors?.allowedHeaders?.map((header) => header.trim()).filter(Boolean) ??
     ["content-type", "authorization", "x-request-id"];
@@ -1080,24 +1082,43 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         duration: rateLimitDurationSeconds,
       })
     : null;
+  const authRateLimitPoints = Math.max(1, options.authRateLimit?.points ?? 20);
+  const authRateLimiter = options.authRateLimit?.enabled === false ? null : new RateLimiterMemory({ keyPrefix: "api_auth", points: authRateLimitPoints, duration: Math.max(1, options.authRateLimit?.durationSeconds ?? 60) });
 
   return createServer(async (req, res) => {
     const requestId = resolveRequestId(req, requestIdGenerator);
     const startedAtMs = Date.now();
     let pathForLog = req.url ?? "/";
     const methodForLog = req.method ?? "UNKNOWN";
+    let auditId: string | null = null;
     res.setHeader("x-request-id", requestId);
 
-    const respond = (args: {
+    const respond = async (args: {
       statusCode: number;
-      body: unknown;
+      body?: unknown;
+      headers?: Record<string, string>;
+      rawBody?: string;
       level?: ApiLogLevel;
       targetId?: string;
       canonicalName?: string;
       mode?: RunMode;
       errorCode?: string;
-    }): void => {
-      sendJson(res, args.statusCode, args.body);
+    }): Promise<void> => {
+      if (auditId) {
+        const id = auditId;
+        auditId = null;
+        const metadata = writeAuditMetadata(pathForLog, parsedRequestBodies.get(req), args.body);
+        try {
+          if (!repos.appAuditRepository || !await repos.appAuditRepository.complete(id, args.statusCode < 400 ? "succeeded" : "failed", metadata.resourceId, metadata.changes)) throw new Error("Audit result unavailable");
+        } catch {
+          args = { statusCode: 503, body: toApiError({ requestId, message: "Audit result could not be saved; operation outcome is unknown. Refresh the resource before retrying.", code: "audit_result_unknown" }), errorCode: "audit_result_unknown", level: "error" };
+        }
+      }
+      for (const [key, value] of Object.entries(args.headers ?? {})) res.setHeader(key, value);
+      if (args.rawBody !== undefined) {
+        res.statusCode = args.statusCode;
+        res.end(args.rawBody);
+      } else sendJson(res, args.statusCode, args.body);
       logger({
         level: args.level ?? (args.statusCode >= 500 ? "error" : "info"),
         event: "api.request.completed",
@@ -1129,7 +1150,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
     try {
       if (!req.url || !req.method) {
-        respond({
+        await respond({
           statusCode: 400,
           body: toApiError({
             requestId,
@@ -1145,13 +1166,22 @@ export function createApiServer(options: CreateApiServerOptions): Server {
       const pathname = url.pathname;
       pathForLog = pathname;
 
+      const origin = typeof req.headers.origin === "string" ? req.headers.origin.trim() : undefined;
+      if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method) && origin) {
+        const ownOrigin = `${(req.socket as import("node:tls").TLSSocket).encrypted ? "https" : "http"}://${req.headers.host ?? "localhost"}`;
+        if (origin !== ownOrigin && !corsAllowedOrigins.includes(origin) && !corsAllowedOrigins.includes("*")) {
+          await respond({ statusCode: 403, body: toApiError({ requestId, message: "Write origin is not allowed", code: "write_origin_not_allowed" }), errorCode: "write_origin_not_allowed" });
+          return;
+        }
+      }
+
       const corsResult = applyCorsHeaders({
         req,
         res,
         allowedOrigins: corsAllowedOrigins,
       });
       if (corsResult.blocked) {
-        respond({
+        await respond({
           statusCode: 403,
           body: toApiError({
             requestId,
@@ -1177,16 +1207,21 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
       let actor: ApiActor | null = null;
       const bearerIsValid = bearerToken ? isBearerTokenValid(req, bearerToken) : false;
-      const needsPrivilegedAuth = isPrivilegedWritePath(pathname);
+      const sourceContentRoute = matchSourceContentRoute(req.method ?? "GET", pathname);
+      const contentPersonalRoute = matchContentPersonalRoute(req.method ?? "GET", pathname);
+      const researchExportRoute = matchResearchExportRoute(req.method ?? "GET", pathname);
+      const accountRoute = matchAuthAccountRoute(req.method, pathname);
+      const auditRoute = writeAuditRoute(req.method, pathname);
+      const needsPrivilegedAuth = isPrivilegedWritePath(pathname) || Boolean(sourceContentRoute?.write);
       const needsAuth =
         (Boolean(bearerToken) &&
           protectedPathPrefixes.some((prefix) => pathname.startsWith(prefix))) ||
         pathname === "/v1/ops/readyz" ||
         pathname === "/v1/ops/storage" ||
-        isAuthAdminPath(pathname);
+        isAuthAdminPath(pathname) || Boolean(sourceContentRoute) || Boolean(contentPersonalRoute) || Boolean(researchExportRoute) || accountRoute;
       if (bearerIsValid) {
         actor = { type: "machine" };
-      } else if (needsAuth) {
+      } else if (needsAuth || auditRoute) {
         actor = await resolveSessionActor({
           req,
           nowIso: now(),
@@ -1195,8 +1230,8 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           cookieName: sessionCookieName,
           sessionTokenService,
         });
-        if (!actor) {
-          respond({
+        if (!actor && needsAuth) {
+          await respond({
             statusCode: 401,
             body: toApiError({
               requestId,
@@ -1209,8 +1244,22 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         }
       }
 
+      if (actor && auditRoute) {
+        if (!repos.appAuditRepository) {
+          await respond({ statusCode: 503, body: toApiError({ requestId, message: "Audit storage is unavailable; operation was not performed", code: "audit_unavailable" }), errorCode: "audit_unavailable" });
+          return;
+        }
+        try {
+          const entry = await repos.appAuditRepository.begin({ ...auditRoute, resourceId: auditRoute.resourceId ?? (auditRoute.resourceType === "user" && actor.type === "session" ? actor.userId : null), actorUserId: actor.type === "session" ? actor.userId : null, actorType: actor.type, requestId, createdAt: now() });
+          auditId = entry.id;
+        } catch {
+          await respond({ statusCode: 503, body: toApiError({ requestId, message: "Audit storage is unavailable; operation was not performed", code: "audit_unavailable" }), errorCode: "audit_unavailable" });
+          return;
+        }
+      }
+
       if (actor && needsPrivilegedAuth && !canUseOpsWrite(actor)) {
-        respond({
+        await respond({
           statusCode: 403,
           body: toApiError({
             requestId,
@@ -1223,7 +1272,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
       }
 
       if (pathname === "/auth/users" && !canUseAuthAdminRead(actor)) {
-        respond({
+        await respond({
           statusCode: 403,
           body: toApiError({
             requestId,
@@ -1239,7 +1288,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         pathname === "/v1/keyword-queries" || pathname.startsWith("/v1/keyword-queries/");
       const isQueryRoute =
         (req.method === "GET" && pathname.startsWith("/v1/trends/")) ||
-        ((req.method === "GET" || req.method === "POST") && isKeywordQueryRoute);
+        ((req.method === "GET" || req.method === "POST") && isKeywordQueryRoute) || (req.method === "GET" && (Boolean(sourceContentRoute) || Boolean(contentPersonalRoute) || Boolean(researchExportRoute))) || (req.method === "POST" && Boolean(researchExportRoute));
       if (!actor && isQueryRoute) {
         actor = await resolveSessionActor({
           req,
@@ -1276,7 +1325,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
               "x-ratelimit-reset",
               String(Math.ceil((Date.now() + rateLimitError.msBeforeNext) / 1000)),
             );
-            respond({
+            await respond({
               statusCode: 429,
               body: toApiError({
                 requestId,
@@ -1288,7 +1337,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             return;
           }
 
-          respond({
+          await respond({
             statusCode: 503,
             body: toApiError({
               requestId,
@@ -1302,6 +1351,45 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         }
       }
 
+      if (authRateLimiter && req.method === "POST" && (pathname === "/auth/login" || pathname === "/auth/register")) {
+        try {
+          await authRateLimiter.consume(`ip:${resolveClientIp(req)}`);
+        } catch (error) {
+          if (isRateLimiterRes(error)) {
+            res.setHeader("retry-after", String(Math.max(1, Math.ceil(error.msBeforeNext / 1000))));
+            await respond({ statusCode: 429, body: toApiError({ requestId, message: "Authentication rate limit exceeded", code: "rate_limited" }), errorCode: "rate_limited" });
+          } else await respond({ statusCode: 503, body: toApiError({ requestId, message: "Authentication rate limiter is unavailable", code: "rate_limiter_unavailable" }), errorCode: "rate_limiter_unavailable" });
+          return;
+        }
+      }
+
+      if (accountRoute) {
+        const token = readCookieValue(req.headers.cookie, sessionCookieName);
+        const session = actor?.type === "session" && token && repos.appSessionRepository ? await repos.appSessionRepository.findByTokenHash(sessionTokenService.hashToken(token)) : null;
+        const body = ["POST", "PATCH", "PUT"].includes(req.method) ? await readJsonBody<unknown>(req) : undefined;
+        await respond(await handleAuthAccountRoute({ method: req.method, url, requestId, actor, currentSessionId: session?.userId === (actor?.type === "session" ? actor.userId : undefined) ? session?.id : undefined, body, now, cookieName: sessionCookieName, cookieSecure: sessionCookieSecure, appUserRepository: repos.appUserRepository, appSessionRepository: repos.appSessionRepository, appAuditRepository: repos.appAuditRepository }));
+        return;
+      }
+
+      if (researchExportRoute) {
+        const body = req.method === "POST" ? await readJsonBody<unknown>(req) : undefined;
+        await respond(await handleResearchExportRoute({ method: req.method ?? "GET", url, body, actor, requestId, service: options.researchExports }));
+        return;
+      }
+
+      if (contentPersonalRoute) {
+        const body = ["POST", "PATCH", "PUT", "DELETE"].includes(req.method ?? "") ? await readJsonBody<unknown>(req) : undefined;
+        await respond(await handleContentPersonalRoute({ method: req.method ?? "GET", url, body, actor, requestId, service: options.contentPersonal }));
+        return;
+      }
+
+      if (sourceContentRoute) {
+        const body = ["POST", "PATCH", "PUT"].includes(req.method ?? "") ? await readJsonBody<unknown>(req) : undefined;
+        const result = await handleSourceContentRoute({ method: req.method ?? "GET", url, body, requestId, service: options.sourceContent });
+        await respond(result);
+        return;
+      }
+
       if (req.method === "GET" && pathname === "/healthz") {
         const payload: ApiHealthResponse = {
           ok: true,
@@ -1309,7 +1397,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           service: "reddit-monitoring-mvp",
           nowIso: now(),
         };
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
         });
@@ -1318,7 +1406,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
       if (req.method === "POST" && pathname === "/auth/login") {
         if (!repos.appUserRepository || !repos.appSessionRepository) {
-          respond({
+          await respond({
             statusCode: 503,
             body: toApiError({
               requestId,
@@ -1338,7 +1426,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           body.email.trim() === "" ||
           body.password === ""
         ) {
-          respond({
+          await respond({
             statusCode: 400,
             body: toApiError({
               requestId,
@@ -1379,14 +1467,14 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             requestId,
             user: toAuthUserView(result.user),
           };
-          respond({
+          await respond({
             statusCode: 200,
             body: payload,
           });
           return;
         } catch (error) {
           if (error instanceof AuthError) {
-            respond({
+            await respond({
               statusCode: 401,
               body: toApiError({
                 requestId,
@@ -1403,7 +1491,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
       if (req.method === "POST" && pathname === "/auth/logout") {
         if (!repos.appSessionRepository) {
-          respond({
+          await respond({
             statusCode: 503,
             body: toApiError({
               requestId,
@@ -1430,7 +1518,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           ok: true,
           requestId,
         };
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
         });
@@ -1439,7 +1527,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
       if (req.method === "POST" && pathname === "/auth/register") {
         if (!repos.appUserRepository || !repos.appInviteRepository) {
-          respond({
+          await respond({
             statusCode: 503,
             body: toApiError({
               requestId,
@@ -1458,7 +1546,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           typeof body.password !== "string" ||
           typeof body.inviteCode !== "string"
         ) {
-          respond({
+          await respond({
             statusCode: 400,
             body: toApiError({
               requestId,
@@ -1491,14 +1579,14 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             requestId,
             user: toAuthUserView(user),
           };
-          respond({
+          await respond({
             statusCode: 201,
             body: payload,
           });
           return;
         } catch (error) {
           if (error instanceof RegisterAppUserError) {
-            respond({
+            await respond({
               statusCode: error.code === "email_already_registered" ? 409 : 400,
               body: toApiError({
                 requestId,
@@ -1515,7 +1603,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
       if (req.method === "GET" && pathname === "/auth/users") {
         if (!repos.appUserRepository) {
-          respond({
+          await respond({
             statusCode: 503,
             body: toApiError({
               requestId,
@@ -1533,133 +1621,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           requestId,
           users: users.map(toAuthUserView),
         };
-        respond({
-          statusCode: 200,
-          body: payload,
-        });
-        return;
-      }
-
-      if (req.method === "POST" && pathname.startsWith("/auth/users/") && pathname.endsWith("/activate")) {
-        if (!repos.appUserRepository) {
-          respond({
-            statusCode: 503,
-            body: toApiError({
-              requestId,
-              message: "auth repositories are unavailable",
-              code: "auth_unavailable",
-            }),
-            errorCode: "auth_unavailable",
-          });
-          return;
-        }
-
-        const userId = parseUserIdFromActivatePath(pathname);
-        if (!userId) {
-          respond({
-            statusCode: 400,
-            body: toApiError({
-              requestId,
-              message: "invalid user id",
-              code: "invalid_user_id",
-            }),
-            errorCode: "invalid_user_id",
-          });
-          return;
-        }
-
-        const user = await activateAppUser({
-          appUserRepository: repos.appUserRepository,
-          userId,
-          nowIso: now(),
-        });
-        if (!user) {
-          respond({
-            statusCode: 404,
-            body: toApiError({
-              requestId,
-              message: "user not found",
-              code: "user_not_found",
-            }),
-            errorCode: "user_not_found",
-          });
-          return;
-        }
-
-        const payload: AuthMeResponse = {
-          ok: true,
-          requestId,
-          user: toAuthUserView(user),
-        };
-        respond({
-          statusCode: 200,
-          body: payload,
-        });
-        return;
-      }
-
-      if (req.method === "POST" && pathname.startsWith("/auth/users/") && pathname.endsWith("/status")) {
-        if (!repos.appUserRepository) {
-          respond({
-            statusCode: 503,
-            body: toApiError({
-              requestId,
-              message: "auth repositories are unavailable",
-              code: "auth_unavailable",
-            }),
-            errorCode: "auth_unavailable",
-          });
-          return;
-        }
-
-        const userId = parseUserIdFromStatusPath(pathname);
-        if (!userId) {
-          respond({
-            statusCode: 400,
-            body: toApiError({
-              requestId,
-              message: "invalid user id",
-              code: "invalid_user_id",
-            }),
-            errorCode: "invalid_user_id",
-          });
-          return;
-        }
-
-        const body = await readJsonBody<UpdateAppUserStatusRequest>(req);
-        if (!body || !isSupportedAppUserStatus(body.status)) {
-          respond({
-            statusCode: 400,
-            body: toApiError({
-              requestId,
-              message: "invalid user status",
-              code: "invalid_user_status",
-            }),
-            errorCode: "invalid_user_status",
-          });
-          return;
-        }
-
-        const user = await repos.appUserRepository.updateStatus(userId, body.status, now());
-        if (!user) {
-          respond({
-            statusCode: 404,
-            body: toApiError({
-              requestId,
-              message: "user not found",
-              code: "user_not_found",
-            }),
-            errorCode: "user_not_found",
-          });
-          return;
-        }
-
-        const payload: UpdateAppUserStatusResponse = {
-          ok: true,
-            requestId,
-          user: toAuthUserView(user),
-        };
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
         });
@@ -1668,7 +1630,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
       if (req.method === "POST" && pathname === "/auth/invites") {
         if (!repos.appInviteRepository) {
-          respond({
+          await respond({
             statusCode: 503,
             body: toApiError({
               requestId,
@@ -1682,6 +1644,10 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
         const body = await readJsonBody<CreateInviteRequest>(req);
         const roleOnAccept = body?.roleOnAccept ?? "viewer";
+        if (actor?.type === "session" && actor.role === "admin" && roleOnAccept !== "viewer") {
+          await respond({ statusCode: 403, body: toApiError({ requestId, message: "Admins may invite viewers only", code: "forbidden" }), errorCode: "forbidden" });
+          return;
+        }
         const maxUses = body?.maxUses ?? 1;
         const expiresAt = typeof body?.expiresAt === "string" ? body.expiresAt : undefined;
         const code = typeof body?.code === "string" ? body.code : undefined;
@@ -1692,7 +1658,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           maxUses > 100 ||
           (expiresAt && Number.isNaN(new Date(expiresAt).getTime()))
         ) {
-          respond({
+          await respond({
             statusCode: 400,
             body: toApiError({
               requestId,
@@ -1731,14 +1697,14 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             },
             code: result.code,
           };
-          respond({
+          await respond({
             statusCode: 201,
             body: payload,
           });
           return;
         } catch (error) {
           if (error instanceof CreateAppInviteError) {
-            respond({
+            await respond({
               statusCode: error.code === "invite_code_conflict" ? 409 : 400,
               body: toApiError({
                 requestId,
@@ -1755,7 +1721,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
       if (req.method === "GET" && pathname === "/auth/me") {
         if (!repos.appUserRepository || !repos.appSessionRepository) {
-          respond({
+          await respond({
             statusCode: 503,
             body: toApiError({
               requestId,
@@ -1777,7 +1743,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             })
           : null;
         if (!current) {
-          respond({
+          await respond({
             statusCode: 401,
             body: toApiError({
               requestId,
@@ -1794,7 +1760,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           requestId,
           user: toAuthUserView(current.user),
         };
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
         });
@@ -1804,7 +1770,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
       if (req.method === "GET" && (pathname === "/readyz" || pathname === "/v1/ops/readyz")) {
         if (pathname === "/v1/ops/readyz") {
           if (!canUseOpsRead(actor)) {
-            respond({
+            await respond({
               statusCode: 403,
               body: toApiError({
                 requestId,
@@ -1837,6 +1803,12 @@ export function createApiServer(options: CreateApiServerOptions): Server {
               }
             : undefined,
         });
+        const sourceCollection = options.sourceContent ? await buildSourceReadiness(options.sourceContent, nowIso) : undefined;
+        if (sourceCollection) {
+          readiness.degradedReasons.push(...sourceCollection.reasons);
+          if (sourceCollection.status === "not_ready") {readiness.isReady=false;readiness.status="not_ready";}
+          else if (sourceCollection.status === "degraded" && readiness.isReady) readiness.status="degraded";
+        }
         const payload: ApiReadinessResponse = {
           ok: readiness.isReady,
           requestId,
@@ -1849,9 +1821,10 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           activeSessions: readiness.activeSessions,
           activeTargets: readiness.activeTargets,
           degradedReasons: readiness.degradedReasons,
+          sourceCollection,
         };
 
-        respond({
+        await respond({
           statusCode: pathname === "/v1/ops/readyz" || readiness.isReady ? 200 : 503,
           body: payload,
           level: readiness.isReady ? "info" : "error",
@@ -1862,7 +1835,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
       if (req.method === "GET" && pathname === "/v1/ops/storage") {
         if (!canUseOpsRead(actor)) {
-          respond({
+          await respond({
             statusCode: 403,
             body: toApiError({
               requestId,
@@ -1874,7 +1847,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           return;
         }
         if (!repos.storageObservabilityRepository) {
-          respond({
+          await respond({
             statusCode: 501,
             body: toApiError({
               requestId,
@@ -1895,7 +1868,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           databaseSizeBytes: snapshot.databaseSizeBytes,
           tables: snapshot.tables,
         };
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
         });
@@ -1905,7 +1878,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
       if (req.method === "POST" && pathname === "/v1/targets/subreddit") {
         const body = await readJsonBody<CreateSubredditTargetRequest>(req);
         if (!body || typeof body.subreddit !== "string" || body.subreddit.trim() === "") {
-          respond({
+          await respond({
             statusCode: 400,
             body: toApiError({
               requestId,
@@ -1939,7 +1912,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           targetId,
           canonicalName,
         };
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
           targetId,
@@ -1950,7 +1923,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
       if (req.method === "GET" && pathname === "/v1/targets/subreddit") {
         if (!canUseOpsRead(actor)) {
-          respond({
+          await respond({
             statusCode: 403,
             body: toApiError({
               requestId,
@@ -2002,14 +1975,14 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             }),
           ),
         };
-        respond({ statusCode: 200, body: payload });
+        await respond({ statusCode: 200, body: payload });
         return;
       }
 
       if (req.method === "PATCH" && pathname.startsWith("/v1/targets/subreddit/")) {
         const body = await readJsonBody<UpdateSubredditTargetRequest>(req);
         if (!isValidTargetPatch(body)) {
-          respond({
+          await respond({
             statusCode: 400,
             body: toApiError({
               requestId,
@@ -2026,7 +1999,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         const canonicalName = `r/${subreddit}`;
         const existing = await repos.monitorTargetRepository.findByCanonicalName(canonicalName);
         if (!existing) {
-          respond({
+          await respond({
             statusCode: 404,
             body: toApiError({
               requestId,
@@ -2037,12 +2010,17 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           });
           return;
         }
-        const updated = await repos.monitorTargetRepository.upsert({
+        const next = {
           ...existing,
           status: body.status ?? existing.status,
           config: withUpdatedTargetConfig({ target: existing, patch: body }),
           updatedAt: now(),
-        });
+        };
+        const updated = body.expectedRevision === undefined ? await repos.monitorTargetRepository.upsert(next) : await repos.monitorTargetRepository.updateIfRevision(next, body.expectedRevision);
+        if (!updated) {
+          await respond({ statusCode: 409, body: toApiError({ requestId, message: "Target changed; reload before saving", code: "target_conflict" }), errorCode: "target_conflict" });
+          return;
+        }
         const payload: UpdateSubredditTargetResponse = {
           ok: true,
           requestId,
@@ -2054,7 +2032,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             backfillCursorByTargetId: new Map(),
           }),
         };
-        respond({ statusCode: 200, body: payload, canonicalName });
+        await respond({ statusCode: 200, body: payload, canonicalName });
         return;
       }
 
@@ -2066,7 +2044,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           body.canonicalNames.length === 0 ||
           !isValidTargetPatch(body.patch)
         ) {
-          respond({
+          await respond({
             statusCode: 400,
             body: toApiError({
               requestId,
@@ -2077,11 +2055,24 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           });
           return;
         }
+        if (body.patch.expectedRevision !== undefined) throw new BadRequestError("Bulk updates must use expectedRevisions for each target", "invalid_target_patch");
+        if (body.expectedRevisions !== undefined && (!body.expectedRevisions || typeof body.expectedRevisions !== "object" || Array.isArray(body.expectedRevisions))) throw new BadRequestError("expectedRevisions must be a target revision map", "invalid_target_patch");
         const updates: SubredditTargetAdminView[] = [];
+        const pending: { target: import("../../../src/domain/entities/monitor-target").MonitorTarget; expectedRevision: number }[] = [];
         for (const item of body.canonicalNames) {
           const canonicalName = `r/${normalizeSubredditName(String(item))}`;
+          const expected = body.expectedRevisions?.[canonicalName];
+          if (body.expectedRevisions !== undefined && (!Number.isInteger(expected) || (expected as number) < 1 || (expected as number) > 2_147_483_646)) throw new BadRequestError(`Missing or invalid expected revision for ${canonicalName}`, "invalid_target_patch");
           const existing = await repos.monitorTargetRepository.findByCanonicalName(canonicalName);
           if (!existing) {
+            if (body.expectedRevisions !== undefined) {
+              await respond({ statusCode: 409, body: toApiError({ requestId, message: "Target changed or disappeared; reload before saving", code: "target_conflict" }), errorCode: "target_conflict" });
+              return;
+            }
+            continue;
+          }
+          if (body.expectedRevisions !== undefined) {
+            pending.push({ target: { ...existing, status: body.patch.status ?? existing.status, config: withUpdatedTargetConfig({ target: existing, patch: body.patch }), updatedAt: now() }, expectedRevision: expected as number });
             continue;
           }
           const updated = await repos.monitorTargetRepository.upsert({
@@ -2100,18 +2091,26 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             }),
           );
         }
+        if (body.expectedRevisions !== undefined) {
+          const updated = await repos.monitorTargetRepository.updateManyIfRevisions(pending);
+          if (!updated) {
+            await respond({ statusCode: 409, body: toApiError({ requestId, message: "A target changed; no target was saved. Reload before saving", code: "target_conflict" }), errorCode: "target_conflict" });
+            return;
+          }
+          updates.push(...updated.map(target => buildSubredditTargetAdminView({ target, latestFactByTargetId: new Map(), latestTrendByTargetId: new Map(), liveCursorByTargetId: new Map(), backfillCursorByTargetId: new Map() })));
+        }
         const payload: BulkUpdateSubredditTargetsResponse = {
           ok: true,
           requestId,
           targets: updates,
         };
-        respond({ statusCode: 200, body: payload });
+        await respond({ statusCode: 200, body: payload });
         return;
       }
 
       if (req.method === "GET" && pathname === "/v1/ops/collection/settings") {
         if (!canUseOpsRead(actor)) {
-          respond({
+          await respond({
             statusCode: 403,
             body: toApiError({
               requestId,
@@ -2134,13 +2133,13 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           requestId,
           settings,
         };
-        respond({ statusCode: 200, body: payload });
+        await respond({ statusCode: 200, body: payload });
         return;
       }
 
       if (req.method === "PATCH" && pathname === "/v1/ops/collection/settings") {
         if (!repos.runtimeSettingRepository) {
-          respond({
+          await respond({
             statusCode: 501,
             body: toApiError({
               requestId,
@@ -2172,7 +2171,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           requestId,
           settings: next,
         };
-        respond({ statusCode: 200, body: payload });
+        await respond({ statusCode: 200, body: payload });
         return;
       }
 
@@ -2185,11 +2184,16 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             : null,
           nowIso: now(),
         });
-        const effectiveEnv = toCollectionSettingsEnvOverlay(collectionSettings);
+        const effectiveEnv = toCollectionSettingsEnvOverlay(collectionSettings, options.executionEnvironment ?? process.env);
         const mode = "live" as const;
+        const violation = collectionExecutionViolation(mode, options.executionEnvironment ?? process.env);
+        if (violation) {
+          await respond({statusCode:409,body:toApiError({requestId,message:violation.message,code:violation.code}),errorCode:violation.code});
+          return;
+        }
         const crawlMode = resolveCrawlMode(body?.crawlMode);
         if (!crawlMode) {
-          respond({
+          await respond({
             statusCode: 400,
             body: toApiError({
               requestId,
@@ -2228,7 +2232,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             requestedCanonicalNames: queued.requestedCanonicalNames,
             processedCanonicalNames: queued.requestedCanonicalNames,
           };
-          respond({ statusCode: 200, body: payload, canonicalName: queued.canonicalName, mode });
+          await respond({ statusCode: 200, body: payload, canonicalName: queued.canonicalName, mode });
           return;
         }
 
@@ -2257,13 +2261,13 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           requestedCanonicalNames: prepared.requestedCanonicalNames,
           processedCanonicalNames: executed.processedCanonicalNames,
         };
-        respond({ statusCode: 200, body: payload, canonicalName: prepared.canonicalName, mode });
+        await respond({ statusCode: 200, body: payload, canonicalName: prepared.canonicalName, mode });
         return;
       }
 
       if (req.method === "GET" && pathname === "/v1/ops/maintenance/preview") {
         if (!canUseOpsRead(actor)) {
-          respond({
+          await respond({
             statusCode: 403,
             body: toApiError({
               requestId,
@@ -2275,7 +2279,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           return;
         }
         if (!sqlDb) {
-          respond({
+          await respond({
             statusCode: 501,
             body: toApiError({
               requestId,
@@ -2309,7 +2313,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             },
           ],
         };
-        respond({ statusCode: 200, body: payload });
+        await respond({ statusCode: 200, body: payload });
         return;
       }
 
@@ -2322,7 +2326,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         )
       ) {
         if (!sqlDb) {
-          respond({
+          await respond({
             statusCode: 501,
             body: toApiError({
               requestId,
@@ -2348,7 +2352,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             max: 100000,
           }) ?? 10000;
         if (!retentionDays) {
-          respond({
+          await respond({
             statusCode: 400,
             body: toApiError({
               requestId,
@@ -2378,7 +2382,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             loopUntilDone,
             estimatedRows: await estimatePruneCandidates({ db: sqlDb, action, retentionDays }),
           };
-          respond({ statusCode: 200, body: payload });
+          await respond({ statusCode: 200, body: payload });
           return;
         }
         const deletedRows =
@@ -2397,7 +2401,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           loopUntilDone,
           deletedRows,
         };
-        respond({ statusCode: 200, body: payload });
+        await respond({ statusCode: 200, body: payload });
         return;
       }
 
@@ -2410,11 +2414,11 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             : null,
           nowIso: now(),
         });
-        const effectiveEnv = toCollectionSettingsEnvOverlay(collectionSettings);
+        const effectiveEnv = toCollectionSettingsEnvOverlay(collectionSettings, options.executionEnvironment ?? process.env);
         const requestedMode = body?.mode ?? process.env.REDDIT_RUN_MODE;
         const mode = resolveRunMode(requestedMode);
         if (!mode) {
-          respond({
+          await respond({
             statusCode: 400,
             body: toApiError({
               requestId,
@@ -2426,9 +2430,14 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           return;
         }
         const requestedCrawlMode = body?.crawlMode ?? process.env.REDDIT_CRAWL_MODE;
+        const violation = collectionExecutionViolation(mode, options.executionEnvironment ?? process.env);
+        if (violation) {
+          await respond({statusCode:409,body:toApiError({requestId,message:violation.message,code:violation.code}),errorCode:violation.code});
+          return;
+        }
         const crawlMode = resolveCrawlMode(requestedCrawlMode);
         if (!crawlMode) {
-          respond({
+          await respond({
             statusCode: 400,
             body: toApiError({
               requestId,
@@ -2450,7 +2459,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         let postLimit: number | undefined;
         if (body?.postLimit != null) {
           if (!Number.isInteger(body.postLimit) || body.postLimit < 1 || body.postLimit > 5000) {
-            respond({
+            await respond({
               statusCode: 400,
               body: toApiError({
                 requestId,
@@ -2470,7 +2479,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             body.backfillPostLimit < 1 ||
             body.backfillPostLimit > 5000
           ) {
-            respond({
+            await respond({
               statusCode: 400,
               body: toApiError({
                 requestId,
@@ -2490,7 +2499,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             body.backfillMaxIterationsPerTarget < 1 ||
             body.backfillMaxIterationsPerTarget > 120
           ) {
-            respond({
+            await respond({
               statusCode: 400,
               body: toApiError({
                 requestId,
@@ -2511,7 +2520,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             body.backfillTargetDays < 1 ||
             body.backfillTargetDays > 30
           ) {
-            respond({
+            await respond({
               statusCode: 400,
               body: toApiError({
                 requestId,
@@ -2555,7 +2564,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             requestedCanonicalNames: runRequest.requestedCanonicalNames,
             processedCanonicalNames: [],
           };
-          respond({
+          await respond({
             statusCode: 202,
             body: payload,
             canonicalName: runRequest.canonicalName,
@@ -2596,7 +2605,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           requestedCanonicalNames: runResult.requestedCanonicalNames,
           processedCanonicalNames: runResult.processedCanonicalNames,
         };
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
           canonicalName: runRequest.canonicalName,
@@ -2607,7 +2616,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
       if (req.method === "POST" && pathname === "/v1/keyword-queries") {
         if (!repos.postSearchDocumentRepository || !repos.keywordQuerySessionRepository) {
-          respond({
+          await respond({
             statusCode: 501,
             body: toApiError({
               requestId,
@@ -2621,7 +2630,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
         const body = await readJsonBody<CreateKeywordQueryRequest>(req);
         if (!body || typeof body.query !== "string") {
-          respond({
+          await respond({
             statusCode: 400,
             body: toApiError({
               requestId,
@@ -2671,7 +2680,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             },
           }),
         };
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
           canonicalName: subreddit ? `r/${subreddit}` : undefined,
@@ -2681,7 +2690,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
       if (req.method === "GET" && pathname.startsWith("/v1/keyword-queries/")) {
         if (!repos.keywordQuerySessionRepository) {
-          respond({
+          await respond({
             statusCode: 501,
             body: toApiError({
               requestId,
@@ -2696,7 +2705,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         const queryIdRaw = pathname.replace("/v1/keyword-queries/", "");
         const queryId = queryIdRaw.trim();
         if (!queryId) {
-          respond({
+          await respond({
             statusCode: 400,
             body: toApiError({
               requestId,
@@ -2717,7 +2726,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
         const record = await repos.keywordQuerySessionRepository.findById(queryId, sampleLimit);
         if (!record) {
-          respond({
+          await respond({
             statusCode: 404,
             body: toApiError({
               requestId,
@@ -2734,7 +2743,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           requestId,
           result: toKeywordQueryView({ record }),
         };
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
           canonicalName: record.session.canonicalSubreddit,
@@ -2808,7 +2817,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           dayCount: readModel.dayCount,
           days: readModel.days,
         };
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
         });
@@ -2817,7 +2826,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
 
       if (pathname === "/v1/workbench/saved-views") {
         if (!repos.savedWorkbenchViewRepository) {
-          respond({
+          await respond({
             statusCode: 501,
             body: toApiError({
               requestId,
@@ -2840,7 +2849,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           });
         }
         if (!actor || actor.type !== "session") {
-          respond({
+          await respond({
             statusCode: 401,
             body: toApiError({
               requestId,
@@ -2869,7 +2878,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             requestId,
             views: views.map(toSavedWorkbenchViewResponseItem),
           };
-          respond({
+          await respond({
             statusCode: 200,
             body: payload,
           });
@@ -2892,7 +2901,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             Array.isArray(body.seriesIds) ? body.seriesIds.join(",") : null,
           );
           const routePath = typeof body.routePath === "string" ? body.routePath.trim() : "";
-          if (!routePath.startsWith("/target/") || routePath.length > 400) {
+          if (!isAllowedSavedViewRoute(routePath, body.viewKind)) {
             throw new BadRequestError("invalid routePath", "invalid_request_body");
           }
           const nowIso = now();
@@ -2914,7 +2923,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             requestId,
             view: toSavedWorkbenchViewResponseItem(view),
           };
-          respond({
+          await respond({
             statusCode: 201,
             body: payload,
           });
@@ -2940,7 +2949,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           seriesIds,
         });
         if ("code" in payload) {
-          respond({
+          await respond({
             statusCode: 404,
             body: toApiError({
               requestId,
@@ -2952,7 +2961,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           });
           return;
         }
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
         });
@@ -2991,7 +3000,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           breakoutLimit,
           anomalyLimit,
         });
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
         });
@@ -3054,7 +3063,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           anomalyLimit,
         });
         if ("code" in payload) {
-          respond({
+          await respond({
             statusCode: 404,
             body: toApiError({
               requestId,
@@ -3066,7 +3075,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           });
           return;
         }
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
           targetId: payload.target.targetId,
@@ -3088,7 +3097,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         const canonicalName = `r/${subreddit}`;
         const target = await repos.monitorTargetRepository.findByCanonicalName(canonicalName);
         if (!target) {
-          respond({
+          await respond({
             statusCode: 404,
             body: toApiError({
               requestId,
@@ -3145,7 +3154,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             explainPayload: incident.explainPayload,
           })),
         };
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
           targetId: target.id,
@@ -3167,7 +3176,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         const canonicalName = `r/${subreddit}`;
         const target = await repos.monitorTargetRepository.findByCanonicalName(canonicalName);
         if (!target) {
-          respond({
+          await respond({
             statusCode: 404,
             body: toApiError({
               requestId,
@@ -3224,7 +3233,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             explainPayload: event.explainPayload,
           })),
         };
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
           targetId: target.id,
@@ -3246,7 +3255,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         const canonicalName = `r/${subreddit}`;
         const target = await repos.monitorTargetRepository.findByCanonicalName(canonicalName);
         if (!target) {
-          respond({
+          await respond({
             statusCode: 404,
             body: toApiError({
               requestId,
@@ -3362,7 +3371,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             explainPayload: driver.explainPayload,
           })),
         };
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
           targetId: target.id,
@@ -3384,7 +3393,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         const canonicalName = `r/${subreddit}`;
         const target = await repos.monitorTargetRepository.findByCanonicalName(canonicalName);
         if (!target) {
-          respond({
+          await respond({
             statusCode: 404,
             body: toApiError({
               requestId,
@@ -3514,7 +3523,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           })),
           keywordHeat: readModel.keywordHeat,
         };
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
           targetId: target.id,
@@ -3530,7 +3539,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         const canonicalName = `r/${subreddit}`;
         const target = await repos.monitorTargetRepository.findByCanonicalName(canonicalName);
         if (!target) {
-          respond({
+          await respond({
             statusCode: 404,
             body: toApiError({
               requestId,
@@ -3610,7 +3619,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
             bodySnippet: toBodySnippet(post.bodyText),
           })),
         };
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
           targetId: target.id,
@@ -3702,14 +3711,14 @@ export function createApiServer(options: CreateApiServerOptions): Server {
               .slice(0, rankingLimit),
           },
         };
-        respond({
+        await respond({
           statusCode: 200,
           body: payload,
         });
         return;
       }
 
-      respond({
+      await respond({
         statusCode: 404,
         body: toApiError({
           requestId,
@@ -3720,7 +3729,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
       });
     } catch (error) {
       if (error instanceof BadRequestError) {
-        respond({
+        await respond({
           statusCode: 400,
           body: toApiError({
             requestId,
@@ -3732,7 +3741,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
         return;
       }
       if (error instanceof RequestBodyTooLargeError) {
-        respond({
+        await respond({
           statusCode: 413,
           body: toApiError({
             requestId,
@@ -3754,7 +3763,7 @@ export function createApiServer(options: CreateApiServerOptions): Server {
           error: message,
         }),
       );
-      respond({
+      await respond({
         statusCode: 500,
         body: toApiError({
           requestId,

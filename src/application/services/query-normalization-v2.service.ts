@@ -55,7 +55,7 @@ export function normalizeQueryV2(
     .map((match) => collapseWhitespace(match[1] ?? ""))
     .filter((value) => value.length >= 2);
   const remainder = collapseWhitespace(loweredBody.replace(/"([^"]+)"/g, " "));
-  const rawTokens = remainder.match(/[a-z0-9_]{2,}/g) ?? [];
+  const rawTokens = remainder.match(/[\p{L}\p{N}_]{2,}/gu) ?? [];
 
   const groups: QueryMatchGroupV2[] = [];
   const seenCanonical = new Set<string>();
@@ -89,7 +89,7 @@ export function normalizeQueryV2(
   const searchTokens = Array.from(
     new Set(
       groups.flatMap((group) =>
-        group.variants.flatMap((variant) => variant.match(/[a-z0-9_]{2,}/g) ?? []),
+        group.variants.flatMap((variant) => variant.match(/[\p{L}\p{N}_]{2,}/gu) ?? []),
       ),
     ),
   );
@@ -158,6 +158,7 @@ function parseScope(
 }
 
 function containsWithBoundary(text: string, variant: string): boolean {
+  if (/[^\x00-\x7f]/.test(variant)) return text.includes(variant);
   const escaped = escapeRegExp(variant).replace(/\\ /g, "\\s+");
   const pattern = new RegExp(`(?:^|[^a-z0-9_])${escaped}(?:$|[^a-z0-9_])`, "i");
   return pattern.test(text);
@@ -181,7 +182,7 @@ function canonicalizeTerm(rawTerm: string): string {
 }
 
 function normalizeTerm(raw: string): string {
-  return collapseWhitespace(raw.toLowerCase().replace(/[^a-z0-9_\s]/g, " "));
+  return collapseWhitespace(raw.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}_\s]/gu, " "));
 }
 
 function normalizeCanonicalSubreddit(value: string | undefined): string | undefined {

@@ -52,6 +52,9 @@ test("registerAppUser uses atomic registration path without consuming invite on 
     async updateStatus() {
       return null;
     },
+    async updateAccess() { throw new Error("not used"); },
+    async replacePasswordAndRevokeSessions() { throw new Error("not used"); },
+    async invalidateSessions() { throw new Error("not used"); },
   };
 
   await assert.rejects(
@@ -65,7 +68,7 @@ test("registerAppUser uses atomic registration path without consuming invite on 
         },
         {
           email: "race@example.com",
-          password: "password",
+          password: "Synthetic-race-password-12",
           inviteCode,
         },
       ),

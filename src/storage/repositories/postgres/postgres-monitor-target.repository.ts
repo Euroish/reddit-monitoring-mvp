@@ -1,16 +1,16 @@
 import type { MonitorTarget } from "../../../domain/entities/monitor-target";
 import type { MonitorTargetRepository } from "../../../domain/repositories/monitor-target-repository";
-import type { SqlQueryable } from "../../postgres/postgres-client";
+import type { PostgresClient } from "../../postgres/postgres-client";
 import { SOURCE_IDS } from "../../postgres/postgres.constants";
 import { mapMonitorTarget, type MonitorTargetRow } from "./postgres-row-mappers";
 
 export class PostgresMonitorTargetRepository implements MonitorTargetRepository {
-  constructor(private readonly db: SqlQueryable) {}
+  constructor(private readonly db: PostgresClient) {}
 
   public async listSubreddits(): Promise<MonitorTarget[]> {
     const result = await this.db.query<MonitorTargetRow>(
       `
-      SELECT id, target_type, external_id, canonical_name, status, config_json, created_at, updated_at
+      SELECT id, target_type, external_id, canonical_name, status, config_json, created_at, updated_at, revision
       FROM monitor_target
       WHERE source_id = $1
         AND target_type = 'subreddit'
@@ -29,7 +29,7 @@ export class PostgresMonitorTargetRepository implements MonitorTargetRepository 
   public async findById(targetId: string): Promise<MonitorTarget | null> {
     const result = await this.db.query<MonitorTargetRow>(
       `
-      SELECT id, target_type, external_id, canonical_name, status, config_json, created_at, updated_at
+      SELECT id, target_type, external_id, canonical_name, status, config_json, created_at, updated_at, revision
       FROM monitor_target
       WHERE source_id = $1
         AND target_type = 'subreddit'
@@ -45,7 +45,7 @@ export class PostgresMonitorTargetRepository implements MonitorTargetRepository 
   public async findByCanonicalName(canonicalName: string): Promise<MonitorTarget | null> {
     const result = await this.db.query<MonitorTargetRow>(
       `
-      SELECT id, target_type, external_id, canonical_name, status, config_json, created_at, updated_at
+      SELECT id, target_type, external_id, canonical_name, status, config_json, created_at, updated_at, revision
       FROM monitor_target
       WHERE source_id = $1
         AND target_type = 'subreddit'
@@ -69,8 +69,9 @@ export class PostgresMonitorTargetRepository implements MonitorTargetRepository 
         external_id = EXCLUDED.external_id,
         status = EXCLUDED.status,
         config_json = EXCLUDED.config_json,
-        updated_at = EXCLUDED.updated_at
-      RETURNING id, target_type, external_id, canonical_name, status, config_json, created_at, updated_at
+        updated_at = EXCLUDED.updated_at,
+        revision = monitor_target.revision + 1
+      RETURNING id, target_type, external_id, canonical_name, status, config_json, created_at, updated_at, revision
       `,
       [
         target.id,
@@ -86,5 +87,23 @@ export class PostgresMonitorTargetRepository implements MonitorTargetRepository 
     );
 
     return mapMonitorTarget(result.rows[0]);
+  }
+
+  public async updateIfRevision(target:MonitorTarget,expectedRevision:number):Promise<MonitorTarget|null> {
+    const result=await this.db.query<MonitorTargetRow>(`UPDATE monitor_target SET external_id=$4,status=$5,config_json=$6::jsonb,updated_at=$7,revision=revision+1 WHERE id=$1 AND source_id=$2 AND target_type=$3 AND canonical_name=$8 AND revision=$9 RETURNING id,target_type,external_id,canonical_name,status,config_json,created_at,updated_at,revision`,[target.id,SOURCE_IDS[target.source],target.targetType,target.externalId??null,target.status,JSON.stringify(target.config??{}),target.updatedAt,target.canonicalName,expectedRevision]);
+    return result.rows[0]?mapMonitorTarget(result.rows[0]):null;
+  }
+
+  public async updateManyIfRevisions(updates:{target:MonitorTarget;expectedRevision:number}[]):Promise<MonitorTarget[]|null> {
+    if(new Set(updates.map(item=>item.target.id)).size!==updates.length)return null;
+    if(!updates.length)return [];
+    return this.db.withTransaction(async client=>{
+      // Consistent lock order prevents overlapping batches from deadlocking.
+      const locked=await client.query<MonitorTargetRow&{source_id:string}>(`SELECT id,source_id,target_type,external_id,canonical_name,status,config_json,created_at,updated_at,revision FROM monitor_target WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE`,[updates.map(item=>item.target.id)]);
+      for(const {target,expectedRevision} of updates){const previous=locked.rows.find(row=>row.id===target.id);if(!previous||previous.source_id!==SOURCE_IDS[target.source]||previous.target_type!==target.targetType||previous.canonical_name!==target.canonicalName||previous.revision!==expectedRevision)return null;}
+      const result:MonitorTarget[]=[];
+      for(const {target,expectedRevision} of updates){const changed=await client.query<MonitorTargetRow>(`UPDATE monitor_target SET external_id=$2,status=$3,config_json=$4::jsonb,updated_at=$5,revision=revision+1 WHERE id=$1 AND revision=$6 RETURNING id,target_type,external_id,canonical_name,status,config_json,created_at,updated_at,revision`,[target.id,target.externalId??null,target.status,JSON.stringify(target.config??{}),target.updatedAt,expectedRevision]);if(!changed.rows[0])throw new Error("Target revision changed while holding its row lock");result.push(mapMonitorTarget(changed.rows[0]));}
+      return result;
+    });
   }
 }

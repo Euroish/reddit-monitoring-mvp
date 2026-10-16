@@ -31,6 +31,7 @@ export interface MonitorTargetRow {
   config_json: Record<string, unknown>;
   created_at: string | Date;
   updated_at: string | Date;
+  revision?:number;
 }
 
 export interface AccountRow {
@@ -417,6 +418,7 @@ export function mapMonitorTarget(row: MonitorTargetRow): MonitorTarget {
     config: row.config_json ?? {},
     createdAt: toIso(row.created_at)!,
     updatedAt: toIso(row.updated_at)!,
+    revision:row.revision??1,
   };
 }
 

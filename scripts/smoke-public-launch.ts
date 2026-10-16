@@ -121,6 +121,11 @@ export async function runPublicLaunchSmoke(env: LaunchSmokeEnv = process.env): P
     expectedStatuses: [401, 403, 404],
   });
   checks.push("readyz.not_public");
+  await expectStatus({
+    url: `${baseUrl}/api/readyz`,
+    expectedStatuses: [401, 403, 404],
+  });
+  checks.push("readyz.api_alias_not_public");
 
   const allowedOrigin = env.PUBLIC_ALLOWED_ORIGIN?.trim();
   if (allowedOrigin) {
@@ -160,7 +165,7 @@ export async function runPublicLaunchSmoke(env: LaunchSmokeEnv = process.env): P
   }
 
   const loginEmail = env.PUBLIC_LOGIN_EMAIL?.trim();
-  const loginPassword = env.PUBLIC_LOGIN_PASSWORD?.trim();
+  const loginPassword = env.PUBLIC_LOGIN_PASSWORD;
   if ((loginEmail && !loginPassword) || (!loginEmail && loginPassword)) {
     throw new Error("PUBLIC_LOGIN_EMAIL and PUBLIC_LOGIN_PASSWORD must be set together");
   }

@@ -271,6 +271,7 @@ function buildDriverEvents(
 ): AnomalyEvent[] {
   const output: AnomalyEvent[] = [];
   for (const row of rows) {
+    if (row.algorithmVersion !== "post_growth_v2_observation_delta") continue;
     const score = clamp(row.driverScore / 100, 0, 1);
     if (score < DRIVER_SCORE_MIN) {
       continue;
