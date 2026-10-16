@@ -63,6 +63,34 @@ test("Source bounded completion can continue its exact checkpoint without re-fet
   const continued=await service.continueJob(first.id);assert.notEqual(continued.id,first.id);assert.deepEqual(continued.checkpoint,completed.checkpoint);assert.equal(continued.pagesCommitted,0);assert.equal(continued.from,completed.from);assert.equal(continued.to,completed.to);
 });
 
+test("Source database deadlocks retry without blocking the provider",async()=>{
+  let now=FIXED_CONTENT_NOW;const repo=new InMemorySourceContentRepository();
+  const service=new SourceContentService(repo,fixtureConnector([{rows:[syntheticRedditPost()]}]),()=>now);
+  const source=await service.createSource(sourceInput),job=await service.enqueue(source.id,window),commit=repo.commitPage.bind(repo);
+  repo.commitPage=async()=>{throw Object.assign(new Error("deadlock detected"),{code:"40P01"});};
+  await service.workOnce();const failed=await service.getJob(job.id);
+  assert.equal(failed.status,"retrying");assert.equal(failed.failureKind,"transient");assert.equal(failed.checkpoint,null);
+  assert.equal((await repo.getSource(source.id))!.automaticCollectionBlocked,false);
+  repo.commitPage=commit;now=failed.nextRunAt;await service.workOnce();
+  assert.equal((await service.getJob(job.id)).status,"succeeded");
+});
+test("Source saturated boundaries retain their checkpoint instead of succeeding",async()=>{
+  let now=FIXED_CONTENT_NOW;const rows=Array.from({length:100},(_,index)=>syntheticRedditPost({id:`abc${index}`}));
+  const repo=new InMemorySourceContentRepository(),service=new SourceContentService(repo,fixtureConnector([{rows}]),()=>now);
+  const source=await service.createSource(sourceInput),job=await service.enqueue(source.id,{...window,pageSize:100});
+  await service.workOnce();const saved=(await service.getJob(job.id)).checkpoint;
+  now=new Date(Date.parse(now)+6000).toISOString();await service.workOnce();
+  const stopped=await service.getJob(job.id);assert.equal(stopped.status,"failed");assert.equal(stopped.exhausted,false);
+  assert.deepEqual(stopped.checkpoint,saved);assert.equal(stopped.pagesCommitted,1);
+});
+test("Source nonexhausted pages without a cursor retain the previous page",async()=>{
+  let now=FIXED_CONTENT_NOW;const repo=new InMemorySourceContentRepository(),provider=fixtureConnector([{rows:[syntheticRedditPost(),syntheticRedditPost({id:"abc124",created_utc:publishedSeconds-10})]}]);
+  const service=new SourceContentService(repo,provider,()=>now),source=await service.createSource(sourceInput),job=await service.enqueue(source.id,{...window,pageSize:2});
+  await service.workOnce();const saved=(await service.getJob(job.id)).checkpoint;
+  provider.collectPage=async()=>({items:[],nextCheckpoint:null,exhausted:false,coverage:"partial",warning:"Cursor stalled"});
+  now=new Date(Date.parse(now)+6000).toISOString();await service.workOnce();const stopped=await service.getJob(job.id);
+  assert.equal(stopped.status,"retrying");assert.deepEqual(stopped.checkpoint,saved);assert.equal(stopped.pagesCommitted,1);
+});
 test("Graceful source worker cancellation leaves a resumable job and does not advance its checkpoint",async()=>{
   const repo=new InMemorySourceContentRepository(),controller=new AbortController();
   const provider=new ArcticShiftContentConnector(async()=>{throw new DOMException("Stopped","AbortError")});

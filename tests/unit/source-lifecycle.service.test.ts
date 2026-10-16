@@ -54,10 +54,10 @@ test("continue rejects an unrelated active job and repeats only its own active c
 
 test("provider budget reserves attempted pages including retries and resumes next UTC day without advancing checkpoint",async()=>{
   let now=FIXED_CONTENT_NOW;const urls:URL[]=[],repo=new InMemorySourceContentRepository(),service=new SourceContentService(repo,fixtureConnector([{status:429,error:"Limited",headers:{"retry-after":"5"}}],urls),()=>now),source=await service.createSource(input);
-  await service.setProviderBudget("arctic_shift",{enabled:true,dailyRequests:1,monthlyRequests:10,dailyResources:25,monthlyResources:250});
+  await service.setProviderBudget("arctic_shift",{enabled:true,dailyRequests:1,monthlyRequests:10,dailyResources:100,monthlyResources:1000});
   const task=await service.enqueue(source.id,window);await service.workOnce();now=new Date(Date.parse(now)+6000).toISOString();await service.workOnce();
   assert.equal(urls.length,1);const deferred=await service.getJob(task.id);assert.equal(deferred.status,"retrying");assert.equal(deferred.checkpoint,null);assert.equal(deferred.attempts,0);assert.match(deferred.error!,/budget/);
-  assert.equal((await service.ops()).providers[0].dailyResources,25);
+  assert.equal((await service.ops()).providers[0].dailyResources,100);
   now="2026-10-13T00:00:00.000Z";await service.workOnce();assert.equal(urls.length,2);assert.equal((await service.ops()).providers[0].monthlyRequests,2);
 });
 

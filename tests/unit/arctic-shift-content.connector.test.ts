@@ -34,10 +34,27 @@ test("Arctic Shift overlaps the last second, deduplicates boundary and detects s
   const source=syntheticSource(), one=syntheticRedditPost({id:"aaa111"}), two=syntheticRedditPost({id:"bbb222",created_utc:publishedSeconds-10}), three=syntheticRedditPost({id:"ccc333",created_utc:publishedSeconds-20});
   const provider=fixtureConnector([{rows:[one,two]},{rows:[two,three]}]);
   const first=await provider.collectPage(request(source,2)); const second=await provider.collectPage({...request(source,2),checkpoint:first.nextCheckpoint});
-  assert.deepEqual(second.items.map(item=>item.externalId),["t3_ccc333"]); assert.equal(second.exhausted,false);
-  const saturated=fixtureConnector([{rows:[one,syntheticRedditPost({id:"bbb222"})]}]);
-  const initial=await saturated.collectPage(request(source,2)); const stopped=await saturated.collectPage({...request(source,2),checkpoint:initial.nextCheckpoint});
-  assert.equal(stopped.items.length,0); assert.equal(stopped.coverage,"partial"); assert.equal(stopped.exhausted,false); assert.equal(stopped.nextCheckpoint,null); assert.match(stopped.warning ?? "",/saturated/);
+  assert.deepEqual(second.items.map(item=>item.externalId),["t3_ccc333"]); assert.equal(second.exhausted,true);
+  const rows=Array.from({length:100},(_,index)=>syntheticRedditPost({id:`abc${index}`}));
+  const saturated=fixtureConnector([{rows}]);
+  const initial=await saturated.collectPage(request(source,100));
+  await assert.rejects(saturated.collectPage({...request(source,100),checkpoint:initial.nextCheckpoint}),/saturated/);
+});
+test("Arctic Shift completes small pages without skipping timestamp ties",async()=>{
+  const rows=[syntheticRedditPost({id:"aaa111"}),syntheticRedditPost({id:"bbb222"}),syntheticRedditPost({id:"ccc333",created_utc:publishedSeconds-10})];
+  const limits:number[]=[];
+  const provider=new ArcticShiftContentConnector(async input=>{
+    const url=new URL(String(input)),limit=Number(url.searchParams.get("limit"));limits.push(limit);
+    return new Response(JSON.stringify({data:rows.filter(row=>row.created_utc<Number(url.searchParams.get("before"))).slice(0,limit)}));
+  },1000,()=>FIXED_CONTENT_NOW);
+  const collected:string[]=[];let saved:Awaited<ReturnType<typeof provider.collectPage>>["nextCheckpoint"]=null;
+  for(let page=0;page<4;page++){
+    const result=await provider.collectPage({...request(syntheticSource(),1),checkpoint:saved});
+    collected.push(...result.items.map(item=>item.externalId));saved=result.nextCheckpoint;
+    if(result.exhausted)break;
+  }
+  assert.deepEqual(collected,["t3_aaa111","t3_bbb222","t3_ccc333"]);
+  assert.equal(saved,null);assert.deepEqual(limits,[1,2,3,2]);
 });
 test("Arctic Shift limits retries to the worker and distinguishes timeout/429/403 from empty results",async()=>{
   for (const [status,message,retryable] of [[422,"Timeout. Maybe slow down a bit",true],[429,"Rate limited",true],[403,"Forbidden",false]] as const) {

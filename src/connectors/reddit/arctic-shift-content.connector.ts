@@ -7,6 +7,7 @@ export const ARCTIC_SHIFT_CAPABILITY: SourceCapability = {
   platform: "reddit", provider: "arctic_shift", enabled: true, contentKinds: ["post", "comment"],
   targetTypes: ["community", "account", "post"], keywordSearch: "scoped", observationModel: "archive",
   refreshByIds:true,
+  requestResourceUpperBound:100,
   metrics: [
     { key: "reddit.score", label: "Score", unit: "count", cumulative: false, signed: true, contentKinds: ["post", "comment"], direction: "higher" },
     { key: "reddit.num_comments", label: "Comments", unit: "count", cumulative: true, signed: false, contentKinds: ["post"], direction: "higher" },
@@ -58,8 +59,9 @@ export class ArcticShiftContentConnector implements ContentProvider {
     const from = Date.parse(request.from) / 1000, to = Date.parse(request.to) / 1000;
     if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) throw new ContentProviderError("Invalid collection window", false);
     const saved = checkpoint(request.checkpoint);
+    const pageLimit = Math.min(100, request.limit + (saved?.seen.length ?? 0));
     const url = new URL(`https://arctic-shift.photon-reddit.com/api/${source.contentKind === "post" ? "posts" : "comments"}/search`);
-    url.searchParams.set("sort", "desc"); url.searchParams.set("limit", String(request.limit));
+    url.searchParams.set("sort", "desc"); url.searchParams.set("limit", String(pageLimit));
     // Request full records: fields projection discards _meta.retrieved_2nd_on.
     url.searchParams.set("after", String(Math.floor(from) - 1));
     url.searchParams.set("before", String(saved?.before ?? Math.ceil(to)));
@@ -69,15 +71,15 @@ export class ArcticShiftContentConnector implements ContentProvider {
     else if (target.type === "post" && source.contentKind === "comment") url.searchParams.set("link_id", target.postId);
     else throw new ContentProviderError("Unsupported Arctic Shift target", false);
     if ("query" in target && target.query) url.searchParams.set(source.contentKind === "comment" ? "body" : "query", target.query);
-    const data=await this.requestData(url,request.limit,request.signal);
+    const data=await this.requestData(url,pageLimit,request.signal);
     const fetchedAt = this.now();
     const all = data.map(value => this.normalize(value, request, fetchedAt));
     const seen = new Set(saved?.seen ?? []);
     const items = all.filter(item => !seen.has(item.externalId) && Date.parse(item.publishedAt!) / 1000 >= from && Date.parse(item.publishedAt!) / 1000 < to);
-    if (all.length < request.limit) return { items, nextCheckpoint: null, exhausted: true, coverage: "unknown", warning: null };
+    if (all.length < pageLimit) return { items, nextCheckpoint: null, exhausted: true, coverage: "unknown", warning: null };
     const boundary = Math.floor(Math.min(...all.map(item => Date.parse(item.publishedAt!) / 1000)));
     const boundaryIds = all.filter(item => Math.floor(Date.parse(item.publishedAt!) / 1000) === boundary).map(item => item.externalId);
-    if (saved && boundary >= saved.boundary && items.length === 0) return { items, nextCheckpoint: null, exhausted: false, coverage: "partial", warning: "Timestamp boundary saturated; collection stopped to avoid silently skipping records." };
+    if (saved && boundary >= saved.boundary && items.length === 0) throw new ContentProviderError("Timestamp boundary saturated at the provider page limit; checkpoint retained for manual recovery.", false);
     const next: ArcticCheckpoint = { before: boundary + 1, boundary, seen: boundaryIds };
     return { items, nextCheckpoint: next as unknown as JsonValue, exhausted: false, coverage: "partial", warning: null };
   }

@@ -47,7 +47,9 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 
 已实现的 [ContentProvider](../src/connectors/shared/content-provider.interface.ts) 声明 `capability`，以 `normalizeTarget(target, kind)` 适配目标，以 `collectPage({source, from, to, limit, checkpoint, signal})` 返回 `CollectedPage`：内容/观测、provider 自己解释的 checkpoint、覆盖、耗尽及 warning。服务按 platform/provider 注册 adapter，仅启用实际能力；provider 标识使用小写字母、数字和下划线。未来 feed/search 留给对应 adapter 校验，公共层不透传任意 URL 或秘密，不把 Reddit about/hot/fullname cursor 强加给其他来源。
 
-能力不足返回明确的 unsupported 或 partial；网络失败与有效空结果区分。默认不切到另一个语义不同的来源补零。0.9.1 将任务失败记录为 transient/permanent；非 retryable 错误使当前任务失败并阻塞该来源的自动调度、领取和新增/续采。配置修正后显式 Retry 原子解除来源阻塞并保留原检查点，resume 或配置保存不会解除；后台进度不提升配置revision。临时错误与429同一任务页/刷新轮次最多三次保守请求启动尝试，预算/间隔拒绝不增加或重置，崩溃后的租约恢复仍检查持久上限。首次刷新请求前在source→job事务中记录轮次和冷却，进程若在记账后请求前崩溃也保守占用；成功提交不重复计数，不能把计数当账单。自动轮次耗尽后停止；手动 Retry 明确授权额外一轮，仍受provider预算/间隔限制。取消后的旧租约不能登记新尝试或提交页；已发上游请求不能保证撤回。
+Arctic Shift 重叠分页按边界已见 ID 数增加请求大小，最多 100 条，每次保守预留 100 个资源；小 pageSize 不再被重叠记录占满。同秒达到上游上限仍不能前进时，任务失败并保留原窗口/checkpoint，需人工处理后 Retry，不跳秒或记作耗尽。其他 provider 未耗尽却无 next checkpoint 时有限重试，保留上一页。
+
+能力不足返回明确的 unsupported 或 partial；网络失败与有效空结果区分。默认不切到另一个语义不同的来源补零。0.9.1 将任务失败记录为 transient/permanent；明确的数据库死锁、序列化冲突和临时连接错误按原有三次页尝试上限延后，不阻塞来源；非 retryable 错误使当前任务失败并阻塞该来源的自动调度、领取和新增/续采。配置修正后显式 Retry 原子解除来源阻塞并保留原检查点，resume 或配置保存不会解除；后台进度不提升配置revision。临时错误与429同一任务页/刷新轮次最多三次保守请求启动尝试，预算/间隔拒绝不增加或重置，崩溃后的租约恢复仍检查持久上限。首次刷新请求前在source→job事务中记录轮次和冷却，进程若在记账后请求前崩溃也保守占用；成功提交不重复计数，不能把计数当账单。自动轮次耗尽后停止；手动 Retry 明确授权额外一轮，仍受provider预算/间隔限制。取消后的旧租约不能登记新尝试或提交页；已发上游请求不能保证撤回。
 
 ## 统一存储：共享身份，独立证据
 
@@ -62,7 +64,7 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 | `source_collection_job`（已实现） | 来源、窗口、checkpoint、页/数量预算、状态、租约、错误 | 每来源每 purpose 最多一个活动任务、每来源一个 running；页数据/checkpoint 同一事务提交 |
 | analysis bucket（后续） | 时间桶、算法版本/范围、输出与覆盖 | 当前内容统计按同范围 SQL 聚合，复杂增量桶尚未迁移 |
 
-时间至少区分 `published_at`（内容发生）、`source_observed_at`（指标观测/归档）、`fetched_at`（本平台取回），不能相互替代。观测时间未知则明确 unknown；重复获取同一归档快照不增加新的互动证据。可查询、排序和去重的核心字段用列与约束，来源扩展属性和少量指标用受控 JSONB；不用一张任意 JSON 大表，也不将每个可选指标拆成大量 EAV 行。
+时间至少区分 `published_at`（内容发生）、`source_observed_at`（指标观测/归档）、`fetched_at`（本平台取回），不能相互替代。正文版本只使用源观测时间：已知源时间优先，未知时间不覆盖已知版本；双方均未知时才按取回时间更新。搜索投影 fingerprint 和格式未变化时不执行冲突更新。观测时间未知则明确 unknown；重复获取同一归档快照不增加新的互动证据。可查询、排序和去重的核心字段用列与约束，来源扩展属性和少量指标用受控 JSONB；不用一张任意 JSON 大表，也不将每个可选指标拆成大量 EAV 行。
 
 每个平台的能力定义指标 key/名称、count/ratio/rank 单位、是否累计、是否有符号、适用 kind 和 higher/lower/neutral 方向。指标用 `reddit.score` 等命名空间，真实 0 保留，缺失用 null；Reddit score、X likes 和榜单 rank 不直接合并。当前 Arctic Shift 保存三类实际指标及归档成熟状态，仅按来源取最新观测，小时/日互动窗口尚未实现。`post_engagement_*`、`metrics_snapshot` 和 `subreddit_*` 保持旧范围，不双写归档指标到增长事实。
 

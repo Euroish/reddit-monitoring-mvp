@@ -13,7 +13,7 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
   private jobs = new Map<string, SourceCollectionJob>();
   private leases = new Map<string, { token: string; until: string }>();
   private contents = new Map<string, PublicContent>();
-  private contentVersions = new Map<string,string>();
+  private contentVersions = new Map<string,string|null>();
   private budgets = new Map<string,SourceProviderBudget>();
   private usage = new Map<string,{requests:number;resources:number}>();
   private workers = new Map<string,SourceWorkerHeartbeat>();
@@ -86,8 +86,8 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
     for (const item of new Map(page.items.map(item=>[item.id,item])).values()) {
       const existing=this.contents.get(item.id), previous=existing?.observations.find(obs => obs.sourceId===origin.id);
       existing ? updated++ : inserted++;
-      const observed=item.observation.sourceObservedAt??item.fetchedAt,version=this.contentVersions.get(item.id);
-      const replace=!version||observed>=version;
+      const observed=item.observation.sourceObservedAt,version=this.contentVersions.get(item.id);
+      const replace=!existing||Boolean(observed&&(!version||observed>=version))||!observed&&!version&&item.fetchedAt>=existing.lastFetchedAt;
       const replaceObservation=!previous||Boolean(item.observation.sourceObservedAt&&(!previous.sourceObservedAt||item.observation.sourceObservedAt>=previous.sourceObservedAt))||!previous.sourceObservedAt&&!item.observation.sourceObservedAt&&item.fetchedAt>=previous.fetchedAt;
       const observations=existing?.observations.filter(obs=>obs.sourceId!==origin.id) ?? [];
       observations.push(replaceObservation ? item.observation : previous!);

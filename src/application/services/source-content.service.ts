@@ -140,12 +140,15 @@ export class SourceContentService {
       const started=performance.now();let page;
       try{page=claimed.job.purpose==="refresh" ? await (provider.refreshIds?.({source,externalIds:claimed.job.refreshIds,signal})??Promise.reject(new ContentProviderError("Provider does not support refresh by IDs",false))) : await provider.collectPage({ source, from: claimed.job.from, to: claimed.job.to, limit: claimed.job.pageSize, checkpoint: claimed.job.checkpoint, signal });}
       finally{await this.repository.recordRequestAttempt(claimed,Math.max(0,performance.now()-started));}
+      if (!page.exhausted && page.nextCheckpoint === null) throw new ContentProviderError(page.warning ?? "Provider pagination stopped without exhausting the window; checkpoint retained", true);
       await this.repository.commitPage(claimed, page, this.now());
     } catch (error) {
-      const retryable = signal?.aborted || error instanceof ContentProviderError && error.retryable && pageRequestAttempts < 3;
+      const databaseTransient = error instanceof Error && "code" in error && ["40P01", "40001", "08000", "08003", "08006", "57P01", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT"].includes(String(error.code));
+      const transient = databaseTransient || error instanceof ContentProviderError && error.retryable;
+      const retryable = signal?.aborted || transient && pageRequestAttempts < 3;
       const wait = error instanceof ContentProviderError ? error.retryAfterSeconds : 30;
       const retryAt = retryable ? new Date(Date.parse(this.now()) + (signal?.aborted ? 0 : Math.max(5, wait) * 1000)).toISOString() : null;
-      const failureKind = signal?.aborted || error instanceof ContentProviderError && error.retryable ? "transient" : "permanent";
+      const failureKind = signal?.aborted || transient ? "transient" : "permanent";
       await this.repository.failJob(claimed, error instanceof Error ? error.message.slice(0, 400) : "Collection failed", retryAt, this.now(),signal?.aborted,failureKind);
     }
     return true;
