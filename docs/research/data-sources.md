@@ -15,13 +15,23 @@ Arctic Shift 上游说明关键词组合可能触发查询超时，建议缩小 
 
 当前 connector 对帖子关键词发送 `query`、对评论发送 `body`；用户原文的 `title=help` 请求与应用参数不同，因此该 curl 的 422 不能直接当成应用关键词采集失败的复现。后续测试须保留实际端点、参数和响应错误正文。
 
+## 长期成本准入
+
+先筛价格，再花时间接入。赠送积分、限时免费和首月优惠不计入长期成本优势；按优惠结束后的正常单价、预计请求量、实际有效页大小和最低消费计算月度费用。免费额度须能持续覆盖目标负载，超额费用也纳入判断。
+
+- **优先：** 可持续免费且配额适用的来源，或正常计费仍满足 $0.07/千条目标、预计月费在预算内的低价来源。
+- **排除：** 试用后高价、强制高额订阅、必须大额预付才有低单价的方案；不作为默认备用接入。
+- **暂不投入：** 正常价格、长期额度或预计月费不明确的服务，先补足成本依据，不为试用奖励开发 adapter。
+
+下面的商业价格表只是正常按量报价线索，尚需按具体目标负载核算；不是已通过准入的来源清单。单位价达标也不能替代总月费判断。
+
 ## 成本口径
 
 目标为 **$0.07 / 1,000 条有效独立内容及以下**。有效内容必须通过 schema/身份校验并成功落库；分别记录帖子、评论、去重后内容和更新观测，不能将重复刷新当成新帖子降低单价。
 
 `有效成本/千条 = 全部可归属实际费用 ÷ 窗口内去重后的有效内容数 × 1000`。
 
-分母为 0 时报告不可计算，不能记 0 成本；还要报告请求成本和失败率。试用赠送额度单列，并用正常计费估算持续运行成本。预测、实际请求估算、供应商账单分别存证；服务器/存储成本另列。跨 provider 的新增边际覆盖也单独统计，避免用同一批重复内容证明备用价值。
+分母为 0 时报告不可计算，不能记 0 成本；还要报告请求成本和失败率。赠送额度不抵扣用于选型的正常费用，试用后费用超标直接排除。预测、实际请求估算、供应商账单分别存证；服务器/存储成本另列。跨 provider 的新增边际覆盖也单独统计，避免用同一批重复内容证明备用价值。
 
 ### 低价商业候选（仅文档报价，未带凭证实测）
 
@@ -33,7 +43,7 @@ Arctic Shift 上游说明关键词组合可能触发查询超时，建议缩小 
 | [Redditapis 普通读取](https://www.redditapis.com/pricing) | $0.002/次 | ≥29 | 评论分页/树是否截断；深度搜索等特殊端点另价 |
 | [CiteRocket 标准读取](https://www.citerocket.com/pricing) | 一次性 $10/10,000 credits，标准调用 1 credit，等效 $0.001/次 | ≥15 | 套餐/端点 credits、真实页大小及回复展开费用 |
 
-阈值按 `ceil(1000 × 单次价格 / 0.07)` 计算，假设每次均按该价且不含额外费用。TwitterAPI.io 已有 adapter，保留作基线比较；原研究的 $0.15/千条报价高于目标，本轮未重新核价，不据此采购。X 官方、SocialData 等也不以旧报价作当前预算依据。
+阈值按 `ceil(1000 × 单次价格 / 0.07)` 计算，假设每次均按该价且不含额外费用。TwitterAPI.io 已有 adapter，仅保留实现作回归基线；原研究的 $0.15/千条报价高于目标，不列入计划采购或付费备用。X 官方、SocialData 同样不列入本轮低成本接入计划；后续仅在正常价格满足准入条件时重新评估。
 
 ## 首批候选
 
@@ -43,8 +53,8 @@ Arctic Shift 上游说明关键词组合可能触发查询超时，建议缩小 
 | --- | --- | --- |
 | [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) | Reddit 帖子、评论、ID；现有 adapter | 保留主路径，先解决受限查询恢复；月度归档仅作历史补充，不能替代增量新鲜度 |
 | [PullPush](https://pullpush.io/) | Reddit 搜索候选，REST | 先探测指定历史和近期窗口，再决定实现；与 AS 的延迟/缺失相关性未知 |
-| TwitterAPIs / GetXAPI | X 账号、查询、回复；REST | 首批择一家实测，另一家作为对照；凭证、总预算和端点价格先明确 |
-| Redditapis / CiteRocket | Reddit 商业补充；REST | 免费备用不达标时再试；公开报价不代表已证明稳定 |
+| TwitterAPIs / GetXAPI | X 账号、查询、回复；REST | 首批择一家实测，另一家作为对照；长期成本准入后再确定凭证与试验预算 |
+| Redditapis / CiteRocket | Reddit 商业补充；REST | 仅在正常月费与单位价均达标后试验，不因免费积分优先接入 |
 | [Bluesky AppView](https://docs.bsky.app/) | 新平台搜索、账号、讨论候选 | 首个新平台试点；分页/身份/删除与线程覆盖逐项验，不直接承诺全网完整 |
 | [Steam 评论](https://partner.steamgames.com/doc/store/getreviews)、[Forem](https://developers.forem.com/api/v1) | 评价/文章评论候选 | 第二批用于检验 cursor 与嵌套评论差异；核对目标类型与指标单位 |
 | [HN Firebase](https://github.com/HackerNews/API)、[Algolia](https://hn.algolia.com/api) | 技术讨论与搜索候选 | 按节点读取的请求放大、父子关系和删除；两接口不算独立内容供应链 |
@@ -60,11 +70,12 @@ Arctic Shift 上游说明关键词组合可能触发查询超时，建议缩小 
 | 连续流 | [Bluesky Jetstream](https://github.com/bluesky-social/jetstream)、[Nostr NIPs](https://github.com/nostr-protocol/nips) | 删除事件、断线回放和 checkpoint 语义不等同普通分页；不沿用原文未复核的 v2/回放承诺 |
 | 联邦社区 | [Mastodon](https://docs.joinmastodon.org/methods/timelines/)、[Lemmy](https://join-lemmy.org/docs/)、[Misskey](https://api-doc.misskey.io/)、[PeerTube](https://docs.joinpeertube.org/api-rest-reference.html) | 按实例验证版本、匿名访问、覆盖和回复截断 |
 | 专业讨论 | [GitHub](https://docs.github.com/en/rest)、[Stack Exchange](https://api.stackexchange.com/docs)、[V2EX](https://www.v2ex.com/help/api)、[Discourse](https://docs.discourse.org/) | 先选具体目标，核对鉴权、分页、配额与站点配置 |
-| Farcaster | [Neynar](https://neynar.com/developer) | 原文赠送 credits 未复核；credits 不等于内容条数 |
 | 授权社群 | [Telegram TDLib](https://core.telegram.org/tdlib/docs/)、[Discord](https://discord.com/developers/docs/resources/message) | 会话/机器人权限与可访问范围，不能当全平台搜索 |
 | 网页与资讯 | [RSSHub](https://docs.rsshub.app/)、[GDELT](https://www.gdeltproject.org/)、[Common Crawl](https://commoncrawl.org/)、网站 RSS | RSS 逐路由验收；新闻/网页不替代原平台评论；自建与归档有资源成本 |
 | 其他条件来源 | [Product Hunt](https://www.producthunt.com/v2/docs)、[4chan](https://github.com/4chan/4chan-API)、Threads、Instagram、TikTok Research | 用途、访问资格、数据保留与具体端点先核对 |
 | 中文站点 | Bilibili、微博、知乎、小红书、抖音的授权接口或 RSSHub 路由 | 未确认满足成本/稳定/覆盖要求的通用接口，不能列为已可用平台 |
+
+Neynar 原研究主要依据赠送 credits，尚无本项目负载下的长期低成本依据，移出候选池；其他仅有试用优势的来源同样处理。
 
 ## 从原研究中修正的结论
 
