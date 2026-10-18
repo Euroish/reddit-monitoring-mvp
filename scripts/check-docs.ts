@@ -10,8 +10,10 @@ const documents = [
   "docs/architecture.md",
   "docs/development.md",
   "docs/status.md",
-  "docs/development-log.md",
-  "docs/handoff.md",
+  "docs/history/development-log.md",
+  "docs/history/handoff.md",
+  "docs/research/data-sources.md",
+  "docs/plans/source-expansion.md",
 ];
 const root = path.resolve(__dirname, "..");
 const files = new Set(
@@ -32,11 +34,17 @@ for (const file of files) {
   }
 }
 
-for (const entry of readdirSync(path.join(root, "docs"))) {
-  if (!documents.includes(`docs/${entry}`)) {
-    errors.push(`Unexpected docs entry: docs/${entry}. Reports belong in output/.`);
+function checkDocumentationDirectory(directory: string): void {
+  for (const entry of readdirSync(path.join(root, directory), { withFileTypes: true })) {
+    const relative = `${directory}/${entry.name}`;
+    if (entry.isDirectory() && documents.some((document) => document.startsWith(`${relative}/`))) {
+      checkDocumentationDirectory(relative);
+    } else if (!entry.isFile() || !documents.includes(relative)) {
+      errors.push(`Unexpected docs entry: ${relative}. Reports belong in output/.`);
+    }
   }
 }
+checkDocumentationDirectory("docs");
 
 for (const document of documents) {
   const fullPath = path.join(root, document);

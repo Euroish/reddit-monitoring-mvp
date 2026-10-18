@@ -7,12 +7,15 @@ test("release packaging allowlist excludes credentials/data and verification det
   const { packRelease, verifyRelease } = await import("../../scripts/release-package-lib.mjs");
   await mkdir("output/validation", { recursive: true });
   const root = await mkdtemp(path.resolve("output/validation/release-fixture-"));
-  for (const folder of ["dist/apps/api/src", "dist/workers", "apps/web/dist", "src/storage/schema", "deploy/env"])
+  for (const folder of ["dist/apps/api/src", "dist/workers", "apps/web/dist", "src/storage/schema", "deploy/env", "docs/history", "docs/research", "docs/plans"])
     await mkdir(path.join(root, folder), { recursive: true });
   for (const [file, content] of [
     ["dist/apps/api/src/server.js", "console.log('synthetic-api');"], ["dist/workers/source-content-worker.js", "console.log('synthetic-worker');"],
     ["apps/web/dist/index.html", "<html lang='en'>synthetic</html>"], ["src/storage/schema/001_fixture.sql", "SELECT 1;"],
     ["package.json", JSON.stringify({ name: "synthetic", version: "0.7.0" })], ["package-lock.json", "{}"],
+    ["docs/history/handoff.md", "historical delivery"], ["docs/history/development-log.md", "historical log"],
+    ["docs/research/data-sources.md", "candidate evidence"], ["docs/plans/source-expansion.md", "future design"],
+    ["docs/private-notes.md", "unapproved notes"],
     [".env.local", "secret=must-not-package"], ["dist/.env", "secret=must-not-package"],
     ["deploy/env/sources.env.example", "SOURCE_NETWORK_ENABLED=false"], ["deploy/env/private.env", "secret=must-not-package"],
   ]) await writeFile(path.join(root, file), content);
@@ -20,6 +23,9 @@ test("release packaging allowlist excludes credentials/data and verification det
   const manifest = await packRelease({ root, destination });
   assert.ok(manifest.files.some(file => file.path === "dist/workers/source-content-worker.js"));
   assert.ok(!manifest.files.some(file => file.path.endsWith(".env") || file.path.includes(".env.local")));
+  for (const file of ["docs/history/handoff.md", "docs/history/development-log.md", "docs/research/data-sources.md", "docs/plans/source-expansion.md"])
+    assert.ok(manifest.files.some(entry => entry.path === file), `Missing moved/new documentation: ${file}`);
+  assert.ok(!manifest.files.some(file => file.path === "docs/private-notes.md"));
   assert.equal((await verifyRelease(destination)).verified, true);
   await assert.rejects(packRelease({ root, destination }), /already exists/);
   await appendFile(path.join(destination, "dist/apps/api/src/server.js"), "tampered");

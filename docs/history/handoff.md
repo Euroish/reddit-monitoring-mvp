@@ -1,6 +1,8 @@
 # 阶段交接与交付状态
 
-用户原授权阶段1–3与4A–5B，停止/恢复和WIP历史保留。0.9.0交付后完成目录审计，用户于2026-10-13另行授权现有功能收口、版本日志和提交前准备；2026-10-14用户授权一次本地提交，0.9.1基于ddf144f在个人功能分支保存，不push、合并或创建新标签。阶段6、真实来源G和公网部署仍不在范围。用户随后授权提交到GitHub，当前功能分支承载阶段1–3、4A–5B及0.9.1完整历史，以草稿PR接续审阅和云CI；不直接修改main或合并。此前“不push”描述保留为当时操作边界。本文件维护版本、验证边界与接续；过程见 [开发日志](development-log.md)，操作见 [开发说明](development.md)。
+> 历史归档：本文件记录截至 2026-10-14 的阶段交付及当时操作限制，不代表当前分支、部署或任务授权。当前事实见 [状态](../status.md)，后续安排见 [开发路线](../plans/source-expansion.md)。
+
+用户原授权阶段1–3与4A–5B，停止/恢复和WIP历史保留。0.9.0交付后完成目录审计，用户于2026-10-13另行授权现有功能收口、版本日志和提交前准备；2026-10-14用户授权一次本地提交，0.9.1基于ddf144f在个人功能分支保存，不push、合并或创建新标签。阶段6、真实来源G和公网部署仍不在范围。用户随后授权提交到GitHub，当前功能分支承载阶段1–3、4A–5B及0.9.1完整历史，以草稿PR接续审阅和云CI；不直接修改main或合并。此前“不push”描述保留为当时操作边界。本文件维护版本、验证边界与接续；过程见 [开发日志](development-log.md)，操作见 [开发说明](../development.md)。
 
 ## 版本与范围
 
@@ -19,11 +21,11 @@
 | 0.9.0（阶段5B交付） | 公共检索/索引、覆盖、冻结研究/manifest/有界下载 | local-phase5b-v0.9.0；495离线/30SQL零skip；205并发与32MiB预检、91请求合成UI及34请求实际PG冻结104成员通过 |
 | 0.9.1（收口，本地提交） | 失败阻塞/刷新轮次/崩溃重试界限与UTC预算、统一密码、详情/库存、readiness与部署模板 | 最终511离线/41 SQL零失败零skip；类型/构建/lint/compiled、9项收口浏览器及三条实际合成PG闭环通过。按用户授权保存本地提交；无新标签，未合并main或正式发布 |
 
-## 当前分工与接续
+## 当时分工与接续（历史）
 
 个人分支保持 `codex/arctic-shift-content-query`，复工基线 `3db313e` 工作区干净；停止 WIP 与 4A、4B 交付版本分开保存。4B 已收口为 0.6.0 软件交付：账户 HTTP、角色权限、持久化脱敏审计、来源/预算/目标 revision CAS、批量原子冲突和账号缓存/草稿隔离已贯通。独立冻结版本通过 455/455 离线、24/24 隔离 SQL、类型/构建/lint/compiled/docs；实际 localhost 浏览器→API→新合成 PG 验证改密再认证、旧会话拒绝、A/B Saved 隔离和撤销全部会话，18 个 API 请求、外部请求/页面错误均为 0。复用已安装依赖，云端 CI、清洁安装、生产部署和真实 provider 未验。
 
-此前三个子代理滚动分配：phase1_data 负责 Web 5A 工作流，phase2_sources 负责 5A 内容后台及 5B 公共索引，auth_api_4b 负责 5B 冻结研究导出，root 负责集成、4C 运维、独立验收与版本。4A–5B 软件、最终发布产物与交付时本机演示验收均已完成，不能把并行准备作为交付。本机管理开发库已保留账号/数据升级完整40个SQL；生产库未升级。交付证据不表示服务一直运行，本次目录复核时的运行状态见 [当前状态](status.md)。
+此前三个子代理滚动分配：phase1_data 负责 Web 5A 工作流，phase2_sources 负责 5A 内容后台及 5B 公共索引，auth_api_4b 负责 5B 冻结研究导出，root 负责集成、4C 运维、独立验收与版本。4A–5B 软件、最终发布产物与交付时本机演示验收均已完成，不能把并行准备作为交付。本机管理开发库已保留账号/数据升级完整40个SQL；生产库未升级。交付证据不表示服务一直运行，本次目录复核时的运行状态见 [当前状态](../status.md)。
 
 ## 验收约束
 
@@ -38,7 +40,7 @@
 
 R2 当时统计为 9 项限定软件目标完成、32 项部分完成、1 项软件已实现待真实验收、2 项待真实验收、8 项目标尚未实现、8 项需求确认后推进；该历史数字不作为本次停止状态汇总，各目标宽度不同，不计算项目完成率。已完成包含基线保留能力或本次修复，不都是新建功能。当前以顶部阶段独立验收为准，后续工作树不混入先前快照。
 
-阶段代号和依赖/出口以 [产品计划](README.md) 为准；下面逐项保留原编号与差距。4A/4B/4C 为可靠性与持续使用，5A 为内容使用，5B 为公共检索/研究复现，6 为分析迁移，G 为待授权真实验收。
+历史阶段代号保留在下表，后续依赖/出口见 [开发路线](../plans/source-expansion.md)；下面逐项保留原编号与差距。4A/4B/4C 为可靠性与持续使用，5A 为内容使用，5B 为公共检索/研究复现，6 为分析迁移，G 为待授权真实验收。
 
 | 原任务 | 修正状态 | 当前已实现 | 剩余目标/边界 | 下一进程 |
 | --- | --- | --- | --- | --- |
@@ -111,7 +113,7 @@ R2 当时统计为 9 项限定软件目标完成、32 项部分完成、1 项软
 
 阶段 1–3 的文件与历史证据保留如下：
 
-- 公共契约：[source-content.ts](../packages/contracts/src/source-content.ts)。后台主要为 source-content service/repository、provider interface、Arctic/X/demo connector、source worker、共享 web identity；旧关键词/增长/质量阈值路径同时修正。
+- 公共契约：[source-content.ts](../../packages/contracts/src/source-content.ts)。后台主要为 source-content service/repository、provider interface、Arctic/X/demo connector、source worker、共享 web identity；旧关键词/增长/质量阈值路径同时修正。
 - 数据库新增 030 来源生命周期、031 X 注册、032 请求观测；原迁移 checksum 保持。旧 PostgresContent upsert 保护公共规范字段，run-migrations 保证事务/并发锁。
 - API 为 source-content-routes、create-api-server、saved-view-route 与环境加载入口；Web 为图表/URL/Saved/Compare/TargetDetail、Content 与四个管理/导出组件及旧分析范围说明。
 - 本地工具为 scripts/local-dev.mjs、seed-local-demo.ts、backfill-post-search-index.ts、三套 smoke 脚本；相应离线/权限/native SQL 测试覆盖真实语义边界。正式文档八份按原职责更新。
@@ -119,7 +121,7 @@ R2 当时统计为 9 项限定软件目标完成、32 项部分完成、1 项软
 
 ## 本地验证与接续
 
-稳定入口为 `npm run local:start`，地址/进程看 `local:status`，owner 凭证看 `local:account`；进入 `/content` 可查询 Reddit/X 合成数据与管理来源。4B 已验，后续开发继续保留分阶段边界。首次其他机器需要完整 PostgreSQL bin 和 Node/npm 依赖，流程统一在 [开发说明](development.md)。`smoke:local` 写入有界合成 E2E 来源后归档，不运行真实 provider；所有本轮测试禁止真实数据源。
+稳定入口为 `npm run local:start`，地址/进程看 `local:status`，owner 凭证看 `local:account`；进入 `/content` 可查询 Reddit/X 合成数据与管理来源。4B 已验，后续开发继续保留分阶段边界。首次其他机器需要完整 PostgreSQL bin 和 Node/npm 依赖，流程统一在 [开发说明](../development.md)。`smoke:local` 写入有界合成 E2E 来源后归档，不运行真实 provider；所有本轮测试禁止真实数据源。
 
 4A–5B已有独立交付，当前仅收口0.9.1及本地提交；依赖与出口见产品计划。G中AS需另行真实请求授权，X还需私有凭证/费用上限，目前均不执行。
 
