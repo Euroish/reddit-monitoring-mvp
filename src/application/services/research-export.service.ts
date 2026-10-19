@@ -3,7 +3,7 @@ import type { CollectionSource, ContentQuery, MetricDefinition, PlatformDetails,
 import type { CreateResearchExportRequest, ResearchExportManifest, ResearchExportPageResponse } from "../../../packages/contracts/src/research-export";
 import type { ResearchExportRepository, ResearchPageQuery, ResearchSnapshotContext } from "../../domain/repositories/research-export-repository";
 import type { SourceContentService } from "./source-content.service";
-import { requireSourceId } from "../../domain/source-content-validation";
+import { requireSourceId, isContentMetricKey } from "../../domain/source-content-validation";
 import { ResearchExportError } from "../../storage/research-export-query";
 
 export const RESEARCH_EXPORT_MAX_ROWS = 20000;
@@ -12,7 +12,7 @@ const queryKeys = new Set(["platform", "provider", "sourceId", "kind", "query", 
 const extensionKeys = new Set(["reddit.stickied", "reddit.locked", "reddit.post_hint", "twitterapi_io.adapter_version", "twitterapi_io.endpoint", "twitterapi_io.request_id", "twitterapi_io.rate_limit_remaining", "x.is_limited_reply", "web.identity_namespace", "web.raw_external_id", "web.identity_version"]);
 function pick<T extends object>(input: T, keys: readonly string[]): Record<string, unknown> { return Object.fromEntries(keys.filter(key => Object.hasOwn(input, key)).map(key => [key, (input as Record<string, unknown>)[key]])); }
 function details(input: PlatformDetails): PlatformDetails {
-  const fields = input.platform === "reddit" ? ["platform", "community", "flair", "nsfw"] : input.platform === "x" ? ["platform", "conversationId", "isReply", "isRepost", "isQuote", "sensitive"] : input.platform === "instagram" ? ["platform", "mediaProduct", "caption", "carouselIds"] : ["platform", "publisher", "canonicalUrl", "feedUrl"];
+  const fields = input.platform === "reddit" ? ["platform", "community", "flair", "nsfw"] : input.platform === "x" ? ["platform", "conversationId", "isReply", "isRepost", "isQuote", "sensitive"] : input.platform === "instagram" ? ["platform", "mediaProduct", "caption", "carouselIds"] : input.platform === "bluesky" ? ["platform", "cid"] : ["platform", "publisher", "canonicalUrl", "feedUrl"];
   const extensions = Object.fromEntries(Object.entries(input.extensions ?? {}).filter(([key, value]) => {
     if (!extensionKeys.has(key)) return false;
     if (value === null) return true;
@@ -30,7 +30,7 @@ function canonicalContent(input: PublicContent): PublicContent {
     references: input.references.map(reference => pick(reference, ["kind", "externalId", "relation"])),
     media: input.media.map(media => pick(media, ["type", "url", "previewUrl", "altText", "durationSeconds"])),
     platformDetails: details(input.platformDetails),
-    observations: input.observations.map(observation => ({ ...pick(observation, ["provider", "sourceId", "sourceObservedAt", "fetchedAt", "timeBasis", "maturity", "evidenceKey"]), metrics: Object.fromEntries(Object.entries(observation.metrics).filter(([key, value]) => /^(reddit|x|instagram|web)\.[a-z0-9_]{1,50}$/.test(key) && (value === null || typeof value === "number" && Number.isFinite(value)))) })),
+    observations: input.observations.map(observation => ({ ...pick(observation, ["provider", "sourceId", "sourceObservedAt", "fetchedAt", "timeBasis", "maturity", "evidenceKey"]), metrics: Object.fromEntries(Object.entries(observation.metrics).filter(([key, value]) => isContentMetricKey(key) && (value === null || typeof value === "number" && Number.isFinite(value)))) })),
   }) as unknown as PublicContent;
 }
 function canonicalSource(input: CollectionSource): CollectionSource {

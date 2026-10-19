@@ -22,7 +22,7 @@
 
 ## 目标设计及实施状态
 
-当前已实现 Arctic Shift 的公共契约、来源配置/生命周期、任务、逐页事务、周期调度、成熟归档 ID 刷新、查询统计与 UI。X 的 TwitterAPI.io 账号/搜索/ID adapter 已实现，默认禁用并保留真实验收；Instagram/web 仍为字段设计和合成存储验证。保持模块化单体、一个 PostgreSQL 和一个 API；`workers/source-content-worker.ts` 统一消费公共来源任务，现有旧 scheduler 暂保留，不按每个平台增加服务。
+当前已实现 Arctic Shift 的公共契约、来源配置/生命周期、任务、逐页事务、周期调度、成熟归档 ID 刷新、查询统计与 UI。X 的 TwitterAPI.io 账号/搜索/ID adapter 已实现，默认禁用并保留真实验收；Bluesky AppView 账号读取已有真实有界闭环，搜索/线程/持续运行未验；Instagram/web 仍为字段设计和合成存储验证。保持模块化单体、一个 PostgreSQL 和一个 API；`workers/source-content-worker.ts` 统一消费公共来源任务，现有旧 scheduler 暂保留，不按每个平台增加服务。
 
 当前流程：目标/来源设置 → 手动或持久化周期窗口入队 → provider 预算预留 → 有界取一页 → 公共内容和独立观测 → 小事务落库/checkpoint → 同范围唯一内容/UTC 日统计/按平台渠道汇总 → API → UI/JSON/CSV 导出。同来源不同 purpose 可并存排队、每来源一个 running，持久化四次领取中为 manual/refresh 保留一次优先机会；暂停/归档取消旧租约；重启回收租约并从已提交页继续。周期高水位只在耗尽窗口后推进，失败或页预算不足保留同窗口子任务；每页间让出 worker，不持有整段历史回填。免费/付费每日月度预算分开，重试/未知结果保守保留 requests/resources 预留；provider 计数因多发现可重叠。
 
@@ -121,7 +121,7 @@ Arctic Shift 重叠分页按边界已见 ID 数增加请求大小，最多 100 �
 
 ## 统一存储：共享身份，独立证据
 
-现有 `source` 继续承载平台注册。[029 迁移](../src/storage/schema/029_source_content_collection.sql) 复用 `content`，增加关联/观测/任务，没有复制整套内容表。当前源码共 41 个 SQL 迁移；039 增加失败策略，对缺少失败类别的历史 failed 保守归为 permanent，并阻塞最新任务仍失败的来源，修正后需显式 Retry。只新增迁移，不修改已应用 SQL。各环境应用与部署结果见 [状态](status.md)，历史阶段结果见 [交接](history/handoff.md)。
+现有 `source` 继续承载平台注册。[029 迁移](../src/storage/schema/029_source_content_collection.sql) 复用 `content`，增加关联/观测/任务，没有复制整套内容表。当前源码共 42 个 SQL 迁移，040 注册 Bluesky 平台；039 增加失败策略，对缺少失败类别的历史 failed 保守归为 permanent，并阻塞最新任务仍失败的来源，修正后需显式 Retry。只新增迁移，不修改已应用 SQL。各环境应用与部署结果见 [状态](status.md)，历史阶段结果见 [交接](history/handoff.md)。
 
 | 逻辑对象 | 最小信息与去重 | 存储原则 |
 | --- | --- | --- |
@@ -146,6 +146,7 @@ Arctic Shift 重叠分页按边界已见 ID 数增加请求大小，最多 100 �
 | --- | --- | --- |
 | Reddit | community、flair、nsfw | 帖子/评论身份和父关系不同，score 可负，Arctic Shift 指标为归档观测 |
 | X（可配置 adapter 已实现，真实验收待授权） | conversationId、isReply/isRepost/isQuote、sensitive | 大整数 ID、无标题正文、引用/转发；likes/replies/reposts/quotes/views/bookmarks 可空，缺指标不补零 |
+| Bluesky（账号读取试点） | AT URI 身份、CID 版本、DID/handle 作者，作者回复仍为 post | sourceObservedAt 未知；indexedAt 不冒充指标时刻；feed 转发/置顶排除，原生 cursor 绑定采集范围，不提前按日期记作耗尽 |
 | Instagram（设计） | mediaProduct、caption、carouselIds | feed/story/reel 与轮播不同；播放/触达可能不可得，不能与点赞等价 |
 | web（设计） | publisher、canonicalUrl、feedUrl | 可能缺作者/发布时间，rank 有方向，RSS 不保证历史互动 |
 

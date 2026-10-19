@@ -4,7 +4,8 @@ import { ContentProviderError, type ContentProvider } from "../../connectors/sha
 import { SourceConfigurationConflictError,type SourceContentRepository } from "../../domain/repositories/source-content-repository";
 import { normalizePublicSearchText } from "../../domain/public-content-search";
 import { SourceContentError } from "../../domain/source-content-error";
-import { requireSourceId } from "../../domain/source-content-validation";
+import { requireSourceId, isContentMetricKey } from "../../domain/source-content-validation";
+import { CONTENT_PLATFORMS } from "../../../packages/contracts/src/source-content";
 
 function date(value: unknown, fallback: string): string {
   if (value === undefined) return fallback;
@@ -18,7 +19,7 @@ function integer(value: unknown, fallback: number, max: number): number {
 }
 function revision(value:unknown,allowZero=false):number|undefined {if(value===undefined)return undefined;if(typeof value!=="number"||!Number.isSafeInteger(value)||value<(allowZero?0:1)||value>2147483646)throw new SourceContentError("Invalid expectedRevision");return value;}
 const kinds: PublicContentKind[] = ["post", "comment", "article", "image", "video"];
-const platforms: ContentPlatform[] = ["reddit", "x", "instagram", "web"];
+const platforms: readonly ContentPlatform[] = CONTENT_PLATFORMS;
 
 export class SourceContentService {
   private readonly providers: readonly ContentProvider[];
@@ -90,7 +91,7 @@ export class SourceContentService {
     if(input.searchMode!==undefined&&!["literal","terms","phrase"].includes(input.searchMode))throw new SourceContentError("Invalid searchMode");
     if(input.searchScope!==undefined&&!["title","text","title_text"].includes(input.searchScope))throw new SourceContentError("Invalid searchScope");
     if(input.exclusions!==undefined&&(!Array.isArray(input.exclusions)||input.exclusions.length>10||input.exclusions.some(value=>typeof value!=="string"||value.length>200||/[\u0000-\u0008\u000e-\u001f\u007f]/.test(value)||!normalizePublicSearchText(value))))throw new SourceContentError("exclusions accepts at most 10 nonempty literal phrases of at most 200 characters");
-    if(input.metricKey!==undefined&&(!/^(reddit|x|instagram|web)\.[a-z0-9_]{1,50}$/.test(input.metricKey)||input.platform&&input.metricKey.split(".")[0]!==input.platform))throw new SourceContentError("Metric key must be namespaced to the selected platform");
+    if(input.metricKey!==undefined&&(!isContentMetricKey(input.metricKey)||input.platform&&input.metricKey.split(".")[0]!==input.platform))throw new SourceContentError("Metric key must be namespaced to the selected platform");
     for(const key of ["minMetric","maxMetric"] as const)if(input[key]!==undefined&&(typeof input[key]!=="number"||!Number.isFinite(input[key])))throw new SourceContentError("Metric bounds must be finite numbers");
     if((input.minMetric!==undefined||input.maxMetric!==undefined)&&!input.metricKey||input.minMetric!==undefined&&input.maxMetric!==undefined&&input.minMetric>input.maxMetric)throw new SourceContentError("Invalid metric range");
     const query = { ...input, query: input.query?normalizePublicSearchText(input.query)||undefined:undefined,searchMode:input.searchMode??"literal" as const,searchScope:input.searchScope??"title_text" as const,exclusions:[...new Set((input.exclusions??[]).map(normalizePublicSearchText))],author:input.author?.trim()||undefined,language:input.language?.trim()||undefined,sourceGroup:input.sourceGroup?.trim()||undefined,sort:input.sort??"published_desc" as const, limit: integer(input.limit, 25, 100), from: input.from === undefined ? undefined : date(input.from, ""), to: input.to === undefined ? undefined : date(input.to, "") };

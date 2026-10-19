@@ -1,17 +1,18 @@
 # 当前状态与下一步
 
-核对日期：2026-10-19。从 `main` 的 `008f676` 在 `dev/root` 持续推进 E0 工程整理，应用版本仍为 0.9.1。PR #2 的功能交付已合入 main；本轮修复类型基线、迁移公共检索纯规则与来源错误，拆出内容读取和保存工作台视图路由、修正浏览器冒烟筛选同步，并将内容详情改为独立的批量读取用例；不新增 provider、不执行真实采集或更新部署。历史阶段验收见 [交接](history/handoff.md) 和 [开发日志](history/development-log.md)。
+核对日期：2026-10-19。从 `main` 的 `008f676` 在 `dev/root` 持续推进 E0 工程整理，应用版本仍为 0.9.1。PR #2 的功能交付已合入 main；E0 已修复类型/模块基线并优化详情读取；E1 已进行有界免费探测，暂停本环境受限的 PullPush，完成 Bluesky 账号读取的首个真实小样本闭环。未修改业务部署，未调用付费来源。历史阶段验收见 [交接](history/handoff.md) 和 [开发日志](history/development-log.md)。
 
 ## 当前实现
 
 | 范围 | 已有能力 | 未完成边界 |
 | --- | --- | --- |
 | Reddit / Arctic Shift | 社区/账号帖子与评论、帖子评论、范围内关键词、ID 成熟刷新；真实小样本落库通过 | 持续新鲜度、完整覆盖、自动缩窗/本地筛选降级未验或未实现 |
+| Bluesky / AppView | 公开账号帖子与作者回复、AT URI 身份、opaque cursor；两页真实样本落库、重放、API/UI/导出通过 | 仅账号读取，排除转发/置顶；无搜索、线程展开、删除检测与持续新鲜度验收 |
 | X / TwitterAPI.io | 账号、搜索、ID adapter；媒体/引用/可空指标；默认禁用、独立预算 | 无真实凭证验收，不算稳定生产来源 |
 | 调度与落库 | 来源生命周期、逐页事务、幂等、checkpoint、高水位、公平领取、有限重试、阻塞/人工 Retry、预算与心跳 | 无跨 provider 自动路由；requests/resources 不是货币账单 |
 | 内容使用 | 统一查询/统计、公共检索投影、详情、个人保存/注释、有界导出、冻结研究成员 | 即时统计/分页不保证同一快照；旧榜单/热度仍用旧 Reddit 模型 |
-| 扩展基础 | ContentProvider + capability、统一身份/独立观测；类型含 reddit/x/instagram/web | runtime 仍显式注册；web/Instagram 无真实 adapter；动态插件或独立测试台不作为当前目标 |
-| 运维 | 41 个 SQL 迁移、备份/恢复工具、发布完整性清单、systemd/Nginx 模板 | 真实持续负载、公共 HTTPS、多用户容量、自动数据保留尚未验收 |
+| 扩展基础 | ContentProvider + capability、统一身份/独立观测；类型含 reddit/x/instagram/web/bluesky | runtime 仍显式注册；web/Instagram 无真实 adapter；动态插件或独立测试台不作为当前目标 |
+| 运维 | 42 个 SQL 迁移、备份/恢复工具、发布完整性清单、systemd/Nginx 模板 | 真实持续负载、公共 HTTPS、多用户容量、自动数据保留尚未验收 |
 
 `965bff1` 已修复 Arctic Shift 小页重叠分页、无 checkpoint 的未耗尽页、未知源时间覆盖已知正文、无变化搜索投影重复写入及数据库暂态错误分类。遇到同秒饱和不会跳过边界；422 只有响应体含 timeout/slow down 才归为可重试，不是所有 422 都重试。自动分窗尚未实现。
 
@@ -32,10 +33,18 @@
 
 E0 已建立可继续开发的类型与模块基线：公共检索纯规则和来源失败类别归 domain，SQL writer 留在 storage，HTTP 状态由 API 单点映射；内容读取和保存工作台视图路由已独立，共同认证、Origin、body 限额和审计保持。没有修改 API、数据身份、检索语义、checkpoint 或 SQL 迁移。
 
-`d24d094` 云 CI [39259318466](https://github.com/Euroish/reddit-monitoring-mvp/actions/runs/39259318466)（Node24/PG16）离线、SQL、浏览器和 ci-demo **全部通过**。首批 `5da1ee9` 曾在 ci-demo 的 X 卡片等待失败；冒烟已改为等待目标筛选的 URL、列表与统计响应，不能再由旧筛选响应满足。此前本机 Node22/PG14 的 521 项离线、41 项 SQL、构建和合成闭环证据分别保存在忽略的 `output/validation/e0-boundaries/`、`e0-second/`；这些是指定快照结果，不表示每批重复全量验证。
+E0 最新 `7f8fa37` 云 CI [39290246148](https://github.com/Euroish/reddit-monitoring-mvp/actions/runs/39290246148)（Node24/PG16）离线、SQL、浏览器和 ci-demo **全部通过**。首批 `5da1ee9` 曾在 ci-demo 的 X 卡片等待失败；冒烟已改为等待目标筛选的 URL、列表与统计响应，不能再由旧筛选响应满足。此前本机 Node22/PG14 的 521 项离线、41 项 SQL、构建和合成闭环证据分别保存在忽略的 `output/validation/e0-boundaries/`、`e0-second/`；这些是指定快照结果，不表示每批重复全量验证。
 
 当前内容详情用例在 `content-detail.service.ts`，不再属于采集服务。引用按 platform + kind + externalId 一次批量查询，用 Map 恢复原始顺序、重复关系与缺失 null；引用/children 仍各最多 20。来源按关联 ID 读取并保持原排序，不再全量读取配置后过滤。内存实现一次扫描、去重匹配；PostgreSQL 使用成对身份半连接和既有唯一索引，不新增索引、缓存或永久内存索引。通用 ID 校验迁到 domain，个人/研究模块不再为此导入采集服务。
 
-本批本机 22 项受影响离线/API 回归、1 项原生 PG14 SQL 详情场景、类型、API 构建与 compiled smoke 通过；未新增测试文件，补强现有夹具中的异 kind、重复、缺失、顺序及 20 条边界。未重跑完整离线/SQL 集、Web 构建或浏览器，当前批云结果以提交记录为准。隔离合成对照：1,004 来源、1,029 内容、20 引用（含重复和缺失），暖缓存各 30 次，SQL 从 23 次降至 4 次、每次解码 JSON 从 901,752 降至 35,171 字节，中位耗时 121.4→38.9 ms、P95 179.3→51.6 ms；仅是本机指定数据量结果，不代表生产容量。EXPLAIN 确认批量身份与来源 ID 使用已有索引。证据在 `output/validation/e0-detail/`。没有真实 provider 请求或业务部署；前端原有 11 项依赖安全告警未在本批升级处理。
+本批本机 22 项受影响离线/API 回归、1 项原生 PG14 SQL 详情场景、类型、API 构建与 compiled smoke 通过；未新增测试文件，补强现有夹具中的异 kind、重复、缺失、顺序及 20 条边界。未重跑完整离线/SQL 集、Web 构建或浏览器，当前批云结果以提交记录为准。隔离合成对照：1,004 来源、1,029 内容、20 引用（含重复和缺失），暖缓存各 30 次，SQL 从 23 次降至 4 次、每次解码 JSON 从 901,752 降至 35,171 字节，中位耗时 121.4→38.9 ms、P95 179.3→51.6 ms；仅是本机指定数据量结果，不代表生产容量。EXPLAIN 确认批量身份与来源 ID 使用已有索引。证据在 `output/validation/e0-detail/`。上述 E0 阶段没有真实 provider 请求或业务部署；前端原有 11 项依赖安全告警未在本批升级处理。
 
-后续按 [全项目工程路线](plans/source-expansion.md) 推进。SourceContentService 仍包含配置、任务、页执行与查询规范化，其他旧 API 路由仍在组合根；后续按实际变更继续解耦，不把所有大类拆完作为 E1 的前置门槛。来源真实验证、项目模型与旧链路退役仍需分别交付。
+## E1 当前交付与缺口
+
+PullPush 首次历史帖子请求返回 429，正文明确拒绝免费 agent 抓取，立即停止；没有为不可用候选开发 adapter 或改走代理。随后对 Bluesky AppView 进行免费小样本验证，新增账号专用 adapter 与 040 平台注册迁移。AT URI 是内容身份，CID 是版本信息；按 DID/handle 选择账号，仅保存作者帖子和作者回复（kind=post），排除 feed 中的转发与置顶。opaque cursor 绑定来源/目标/窗口；不按最旧发布时间提前耗尽，因为 feed 有转发和非发布时间排序。未知指标观察时刻保持 null，不用 indexedAt 或 fetchedAt 伪造；搜索、线程展开、ID 成熟刷新与删除检测未实现。平台枚举与指标命名空间校验已共用一份平台列表，研究冻结保留 Bluesky CID/指标。
+
+本轮数据接口共 8 次请求：PullPush 1 次，Bluesky 7 次（均 200，含探测、一次验证脚本中断及最终闭环）。最终两页读取保存 6 条作者自发内容，首屏重放新增 0；真实 worker 用例→隔离 PG14→API→浏览器 6 张卡片和 JSON/CSV 下载通过，浏览器额外外网请求为 0。任务耗尽=false、coverage=partial，不代表全账号历史或 12 小时新鲜度。首次本地脚本误把页间 5 秒 nextRunAt 当成立即可领，改为等待已有领取时间后通过，生产调度未改、断言未降低。来源结束后归档，临时服务/集群停止，没有启用持续采集。
+
+定向 adapter/runtime/workbench/research 回归通过；新增 3 项离线行为场景及 1 项原生 SQL 闭环（含迁移重跑、API、研究冻结），类型、API/Web 构建、compiled smoke、Web lint 与文档检查通过。未重复全量离线/SQL及三条旧浏览器闭环；本批云结果以提交记录为准。证据在忽略的 `output/validation/e1-pullpush/`、`e1-bluesky/`。新 provider 的预算仍默认 disabled/0，运行时网络默认关闭；本轮没有收费请求、充值或生产部署。
+
+下一步只推进一个有实际目标的持续小试验，核实有效覆盖、新鲜度、配额与使用许可；Reddit 备用仍未落实。X 先考察账号读取的正常有效成本，凭证/付费预算另行授权。其余候选不并行实施；SourceContentService 剩余职责和旧路由按实际修改整理，不作为全部来源验证的前置门槛。

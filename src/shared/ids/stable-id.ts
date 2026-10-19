@@ -5,6 +5,7 @@ const ALLOWED_STABLE_ID_PREFIXES = [
   "reddit:account:",
   "reddit:content:",
   "x:content:",
+  "bluesky:content:",
   "web:content:",
   "job:",
   "api-rate-limit:",

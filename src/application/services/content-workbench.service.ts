@@ -1,4 +1,5 @@
 import type { ContentQuery, ContentStatsResponse, ContentPlatform, ContentWorkbenchResponse, ContentExportResponse } from "../../../packages/contracts/src/source-content";
+import { CONTENT_PLATFORMS } from "../../../packages/contracts/src/source-content";
 import { SourceContentError } from "../../domain/source-content-error";
 import type { SourceContentService } from "./source-content.service";
 
@@ -6,7 +7,7 @@ import type { SourceContentService } from "./source-content.service";
 export async function contentWorkbench(service: SourceContentService, query: ContentQuery): Promise<Omit<ContentWorkbenchResponse, "ok" | "requestId">> {
   const sources = await service.repository.listSources();
   const stats = await service.repository.contentStats(query);
-  const platforms: ContentPlatform[] = query.platform ? [query.platform] : ["reddit", "x", "instagram", "web"];
+  const platforms: readonly ContentPlatform[] = query.platform ? [query.platform] : CONTENT_PLATFORMS;
   const byPlatform = await Promise.all(platforms.map(async platform => ({ platform, count: (await service.repository.contentStats({ ...query, platform })).total })));
   const providers = query.provider ? [query.provider] : [...new Set(sources.filter(source => !query.platform || source.platform === query.platform).map(source => source.provider))];
   const byProvider = await Promise.all(providers.map(async provider => ({ provider, count: (await service.repository.contentStats({ ...query, provider })).total })));

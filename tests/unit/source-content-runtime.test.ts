@@ -10,11 +10,12 @@ test("Runtime lists disabled real adapters by default and demo never enables ext
   try {
     for (const key of keys) delete process.env[key];
     let caps = createSourceContentService(db).capabilities();
-    assert.deepEqual(caps.map(cap => [cap.provider, cap.enabled]), [["arctic_shift", false], ["twitterapi_io", false]]);
+    assert.deepEqual(caps.map(cap => [cap.provider, cap.enabled]), [["arctic_shift", false], ["twitterapi_io", false], ["bluesky_appview", false]]);
     process.env.SOURCE_NETWORK_ENABLED = "true";
     caps = createSourceContentService(db).capabilities();
     assert.equal(caps.find(row => row.provider === "arctic_shift")?.enabled, true);
     assert.equal(caps.find(row => row.provider === "twitterapi_io")?.enabled, false);
+    assert.equal(caps.find(row => row.provider === "bluesky_appview")?.enabled, true);
     process.env.TWITTERAPI_IO_API_KEY = "synthetic-config-key";
     assert.equal(createSourceContentService(db).capabilities().find(row => row.provider === "twitterapi_io")?.enabled, true);
     process.env.SOURCE_RUN_MODE = "demo";

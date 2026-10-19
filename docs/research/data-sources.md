@@ -1,6 +1,6 @@
 # 数据源研究与选型
 
-整理日期：2026-10-18。来自 `d8b481b` 中的 `docs/数据源研究.md`（2026-10-16 至 18 日聊天导出），结合当前源码和已有 Linux 采集证据整理。价格表四家供应商本轮重新核对；其余名录保留为待验证线索，不承诺当前免费额度、版本、覆盖或稳定性。实施顺序见 [开发路线](../plans/source-expansion.md)。
+整理日期：2026-10-18；2026-10-19 更新首轮 E1 验证。来自 `d8b481b` 中的 `docs/数据源研究.md`（2026-10-16 至 18 日聊天导出），结合当前源码和已有 Linux 采集证据整理。价格表四家供应商于 10 月 18 日核对，10 月 19 日再次核对 TwitterAPIs/GetXAPI；其余名录保留为待验证线索，不承诺当前免费额度、版本、覆盖或稳定性。实施顺序见 [开发路线](../plans/source-expansion.md)。
 
 ## 证据与结论
 
@@ -9,6 +9,8 @@
 | Linux `6bd18ad` 真实采集 | Arctic Shift 1 小时社区窗口帖子/评论各 5 条落库，API 读回与重放去重成功 | 24 小时窗口、关键词、全量分页或持续新鲜度正常 |
 | 研究原文用户 curl | 2026-10-16 按 ID 和 Python 社区日期窗口返回 200；增加 title 条件返回 422 | 原文该次未展示错误正文，不能单凭 422 断定具体原因 |
 | 研究原文沙箱 DNS 失败 | 当时执行环境无法联网 | Arctic Shift 服务故障 |
+| 2026-10-19 / PullPush 数据端点 | `technology` 历史帖子首次请求返回 429，JSON 明确表示不向 agents 提供免费抓取资源，随后停止 | 不是所有客户端均不可用或服务宕机的证明；本环境的免费 E1 候选不可据此通过 |
+| 2026-10-19 / Bluesky AppView | 7 次免费公开账号请求均 200；首屏/续页各 5 条、无重叠，首屏重放身份一致；新 adapter 两页筛出并落库 6 条作者自发内容，重放新增 0，API/浏览器 JSON/CSV 通过 | 不是 Reddit 备用，不证明全账号历史、全线程、删除检测、持续稳定性或 12 小时新鲜度；任务仍 partial |
 | 供应商文档/价格页 | 存在公开接口说明或报价，可进入候选试验 | 真实覆盖、独立上游、账单单价和 SLA 已验收 |
 
 Arctic Shift 上游说明关键词组合可能触发查询超时，建议缩小 limit 或增加日期/社区/作者约束。本仓库已按错误正文区分可重试 timeout/slow down；自动缩窗与本地关键词筛选仍需设计和实现。一次 200 不能证明完整覆盖。[上游 API 说明](https://github.com/ArthurHeitmann/arctic_shift/blob/master/api/README.md)
@@ -43,6 +45,8 @@ Arctic Shift 上游说明关键词组合可能触发查询超时，建议缩小 
 | [Redditapis 普通读取](https://www.redditapis.com/pricing) | $0.002/次 | ≥29 | 评论分页/树是否截断；深度搜索等特殊端点另价 |
 | [CiteRocket 标准读取](https://www.citerocket.com/pricing) | 一次性 $10/10,000 credits，标准调用 1 credit，等效 $0.001/次 | ≥15 | 套餐/端点 credits、真实页大小及回复展开费用 |
 
+10 月 19 日补充：TwitterAPIs 价格页自述整体平均约 13 条/次、搜索约 8 条/次。搜索按正常价折算约 **$0.10/千条**，尚未计失败、重复与无效记录，不能按 20 条满页报价认定达标；下一步仅优先考察账号读取。TwitterAPIs/GetXAPI 的购买充值起点均为 $10，不等于少量调用费或采购授权。
+
 阈值按 `ceil(1000 × 单次价格 / 0.07)` 计算，假设每次均按该价且不含额外费用。TwitterAPI.io 已有 adapter，仅保留实现作回归基线；原研究的 $0.15/千条报价高于目标，不列入计划采购或付费备用。X 官方、SocialData 同样不列入本轮低成本接入计划；后续仅在正常价格满足准入条件时重新评估。
 
 ## 首批候选
@@ -52,14 +56,16 @@ Arctic Shift 上游说明关键词组合可能触发查询超时，建议缩小 
 | 来源 | 目标与接入类型 | 验证重点 / 取舍 |
 | --- | --- | --- |
 | [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) | Reddit 帖子、评论、ID；现有 adapter | 保留主路径，先解决受限查询恢复；月度归档仅作历史补充，不能替代增量新鲜度 |
-| [PullPush](https://pullpush.io/) | Reddit 搜索候选，REST | 先探测指定历史和近期窗口，再决定实现；与 AS 的延迟/缺失相关性未知 |
+| [PullPush](https://pullpush.io/) | Reddit 搜索线索，REST；当前暂停免费接入 | 本环境首次数据请求 429 且明确拒绝免费 agent 抓取；未重试、未绕过、未开发 adapter。若需商业授权，重新核对正常费用后再决定 |
 | TwitterAPIs / GetXAPI | X 账号、查询、回复；REST | 首批择一家实测，另一家作为对照；长期成本准入后再确定凭证与试验预算 |
 | Redditapis / CiteRocket | Reddit 商业补充；REST | 仅在正常月费与单位价均达标后试验，不因免费积分优先接入 |
-| [Bluesky AppView](https://docs.bsky.app/) | 新平台搜索、账号、讨论候选 | 首个新平台试点；分页/身份/删除与线程覆盖逐项验，不直接承诺全网完整 |
+| [Bluesky AppView](https://docs.bsky.app/) | 首个新平台试点：公开账号帖子与作者回复已初步接入；搜索/讨论展开仍候选 | 原生 AT URI 身份、opaque cursor；排除 feed 中他人转发和置顶。两页真实闭环通过，未知指标时刻保持 null；未验持续运行与完整覆盖 |
 | [Steam 评论](https://partner.steamgames.com/doc/store/getreviews)、[Forem](https://developers.forem.com/api/v1) | 评价/文章评论候选 | 第二批用于检验 cursor 与嵌套评论差异；核对目标类型与指标单位 |
 | [HN Firebase](https://github.com/HackerNews/API)、[Algolia](https://hn.algolia.com/api) | 技术讨论与搜索候选 | 按节点读取的请求放大、父子关系和删除；两接口不算独立内容供应链 |
 | [YouTube 评论](https://developers.google.com/youtube/v3/docs/commentThreads/list) | 大规模评论候选，需项目/key/配额 | 视频发现与评论预算分开，顶层列表不等于完整回复；配额以接入时控制台/官方文档为准 |
 | [FxEmbed](https://github.com/FxEmbed/FxEmbed)、[vxTwitter](https://github.com/dylanpdx/BetterTwitFix) | X 已知 ID 补全线索 | 先验证具体公共实例和端点，不将 embed/镜像宣称为稳定搜索备份 |
+
+Bluesky 字段依据官方 [getAuthorFeed lexicon](https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/feed/getAuthorFeed.json) 与 [postView/feedViewPost](https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/feed/defs.json)，并以真实小样本核对。接口无需鉴权，不等于无限配额或 SLA。证据放忽略的 `output/validation/e1-pullpush/`、`e1-bluesky/`，不提交原始内容。
 
 ## 后续候选池
 

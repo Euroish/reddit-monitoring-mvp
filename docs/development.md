@@ -57,7 +57,7 @@ owner 当前在 `dev/root` 开发、提交并推送，再通过 `dev/root → ma
 
 ## Arctic Shift 来源与查询
 
-应用全部当前 SQL 迁移（41 个，含 039）后进入 `/content`（“来源内容”）。管理工具创建 `demo_reddit/demo_x` 合成来源；真实 Arctic Shift 不需供应商 key，但需要 live/network 配置与有界任务。live条件满足后管理员创建来源：平台为Reddit、provider为`arctic_shift`；社区或账号可采帖子/评论，帖子 ID 仅采评论。可保存范围内关键词；上游限制较活跃目标的关键词检索，不支持无范围全站搜索。查询页的关键词是已保存标题/正文的字面匹配，支持中文，与上游检索范围分开。
+应用全部当前 SQL 迁移（42 个，含 040）后进入 `/content`（“来源内容”）。管理工具创建 `demo_reddit/demo_x` 合成来源；真实 Arctic Shift 不需供应商 key，但需要 live/network 配置与有界任务。live条件满足后管理员创建来源：平台为Reddit、provider为`arctic_shift`；社区或账号可采帖子/评论，帖子 ID 仅采评论。可保存范围内关键词；上游限制较活跃目标的关键词检索，不支持无范围全站搜索。查询页的关键词是已保存标题/正文的字面匹配，支持中文，与上游检索范围分开。
 
 设置查询时间窗后点击对应来源的采集按钮；日期为空默认最近 24 小时。HTTP 只入队，worker 另行启动。每页 1–100 条、每任务 1–20 页，默认 25 条/5 页，当前 UI 使用默认值；`worker:sources:once` 只处理一页，不代表完整任务结束。达到预算但仍有 checkpoint 的任务可继续；失败任务可重试。仓储允许每purpose一条活动队列，单来源同时仅一个running。当前手动collect入口先检查任何active：相同manual参数复用，不同窗口/预算或非manual活动任务返回409；不能承诺任意入队顺序都可立即追加manual。后台scheduler可与已有manual按purpose排队，已验证公平机会与互斥。
 
@@ -94,6 +94,14 @@ owner 当前在 `dev/root` 开发、提交并推送，再通过 `dev/root → ma
 当前没有 key、费用授权或真实验收；只验证两种官方账号响应 envelope、搜索/ID schema、错误/限流/abort 和离线闭环。不宣称覆盖全历史或实时指标；X 不提供源指标观测时刻时保持 sourceObservedAt=null、fetchedAt 为取回时刻。未来 web adapter 应用 `webContentIdentity` 对 namespace+kind+原 GUID 生成合格身份，保留三项白名单 provenance；不能用未限定站点的 GUID 落库，现有旧合成数据不自动改写。
 
 032 增加已登记 provider 调用数和取页/解析累计耗时；预算拒绝与预先取消不计请求。正常/错误/刷新均登记，但取消/租约丢失会拒绝晚到登记，因此请求数可能低于实际尝试，不能作为账单；原预留不退。旧 PostgreSQL upsert 遇到已有公共规范内容时保留规范标题/正文/URL/发布时间，只维护旧目标关联与取回时间，不能绕过观测顺序保护。
+
+### Bluesky AppView 账号试点
+
+040 注册 `bluesky` 平台，provider 为 `bluesky_appview`。账号 target 支持 handle（如 `bsky.app`）或 DID；长期跟踪同一主体优先 DID，handle 跟随当前解析。仅 post（含作者回复），不接受 source query；仅读取公开 AppView，固定服务端点，无 key，不接受任意 URL。feed 的转发/置顶排除；正文原生 AT URI 作为 externalId，CID 作为版本字段，图片/链接/视频按可得字段映射。来源指标 `bluesky.likes/replies/reposts/quotes` 可为 null，`indexedAt` 不作为指标观测时间。
+
+先迁移，再在明确授权的开发配置中设置 `SOURCE_RUN_MODE=live`、`SOURCE_NETWORK_ENABLED=true`；这仍是全局真实网络开关，不自动批准其他来源。新 provider 沿用默认禁用/0 预算，管理员须通过现有 provider budget 接口/UI 明确设置请求、资源上限和间隔；例如有界试验可设日/月请求各 3、资源各 15、pageSize=5，包含重试，结束暂停/归档。demo 始终禁用真实 AppView，正常网页查询只读已存数据。
+
+opaque cursor 随页事务保存，绑定来源、账号和窗口；相同页面重放沿共享身份/观测规则去重。不根据最旧发布时间提前结束账号历史：日期只过滤当前页，页预算耗尽但仍有 cursor 时继续标记 partial。因而该试点不是高效持续增量、全历史或 12 小时新鲜度承诺；没有搜索、自动线程展开、成熟刷新或删除追踪。前端沿用能力驱动的来源配置、平台筛选、详情和导出，不新增专用页面。
 
 ## 验证
 
