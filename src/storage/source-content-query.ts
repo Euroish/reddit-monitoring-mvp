@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ContentQuery } from "../../packages/contracts/src/source-content";
-import { SourceContentError } from "../application/services/source-content.service";
+import { SourceContentError } from "../domain/source-content-error";
 
 function scope(query: ContentQuery): string {
   return createHash("sha256").update(JSON.stringify([query.platform ?? null, query.provider ?? null, query.sourceId ?? null, query.kind ?? null, query.query ?? null, query.from ?? null, query.to ?? null,query.author??null,query.language??null,query.sourceGroup??null,query.sort??"published_desc",query.metricKey??null,query.minMetric??null,query.maxMetric??null,query.searchMode??"literal",query.searchScope??"title_text",query.exclusions??[]])).digest("hex").slice(0, 24);

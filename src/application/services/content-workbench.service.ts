@@ -1,5 +1,6 @@
 import type { ContentQuery, ContentStatsResponse, ContentPlatform, ContentWorkbenchResponse, ContentExportResponse } from "../../../packages/contracts/src/source-content";
-import { SourceContentError, type SourceContentService } from "./source-content.service";
+import { SourceContentError } from "../../domain/source-content-error";
+import type { SourceContentService } from "./source-content.service";
 
 /** Shared counts use content identities; engagement metrics retain their platform units. */
 export async function contentWorkbench(service: SourceContentService, query: ContentQuery): Promise<Omit<ContentWorkbenchResponse, "ok" | "requestId">> {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { SourceContentService, SourceContentError } from "../../src/application/services/source-content.service";
+import { SourceContentError } from "../../src/domain/source-content-error";
+import { SourceContentService } from "../../src/application/services/source-content.service";
 import { InMemorySourceContentRepository } from "../../src/storage/repositories/in-memory/source-content.repository";
 import { DemoContentProvider } from "../../src/connectors/demo/demo-content.connector";
 import { fixtureConnector,FIXED_CONTENT_NOW,syntheticRedditPost } from "../helpers/source-content-fixtures";
@@ -38,7 +39,7 @@ test("source lifecycle edits preserve identity, cancel leases, archive keeps col
   const task=await service.enqueue(source.id,window),lease=await repo.claim(FIXED_CONTENT_NOW);assert.ok(lease);
   await service.setSourceState(source.id,"paused");assert.equal((await repo.getJob(task.id))!.status,"cancelled");
   await assert.rejects(repo.commitPage(lease,{items:[],nextCheckpoint:null,exhausted:true,coverage:"unknown",warning:null},FIXED_CONTENT_NOW),/lease lost/);
-  await assert.rejects(service.enqueue(source.id,window),(error:unknown)=>error instanceof SourceContentError&&error.status===409);
+  await assert.rejects(service.enqueue(source.id,window),(error:unknown)=>error instanceof SourceContentError&&error.kind === "conflict");
   await service.setSourceState(source.id,"archived");assert.equal((await repo.listContent({sourceId:source.id})).items.length,1);
   await assert.rejects(service.updateSource(source.id,{schedule:{pageSize:101}}),/Invalid pageSize/);
   await assert.rejects(service.updateSource(source.id,{target:{type:"search",query:"new"}} as never),/identity/);
@@ -48,7 +49,7 @@ test("continue rejects an unrelated active job and repeats only its own active c
   const repo=new InMemorySourceContentRepository(),service=new SourceContentService(repo,fixtureConnector([{rows:[syntheticRedditPost()]}]),()=>FIXED_CONTENT_NOW),source=await service.createSource(input);
   const task=await service.enqueue(source.id,{...window,pageSize:1,maxPages:1});await service.workOnce();
   const other=await service.enqueue(source.id,{from:"2026-10-08",to:FIXED_CONTENT_NOW});
-  await assert.rejects(service.continueJob(task.id),(error:unknown)=>error instanceof SourceContentError&&error.status===409);
+  await assert.rejects(service.continueJob(task.id),(error:unknown)=>error instanceof SourceContentError&&error.kind === "conflict");
   await service.cancelJob(other.id);const continued=await service.continueJob(task.id),again=await service.continueJob(task.id);assert.equal(again.id,continued.id);assert.equal(continued.parentJobId,task.id);
 });
 
@@ -125,5 +126,5 @@ test("a disabled provider does not schedule formerly enabled cadence or consume 
 
 test("snapshot providers cannot enable an archive-maturity refresh schedule",async()=>{
   const service=new SourceContentService(new InMemorySourceContentRepository(),new DemoContentProvider("x"),()=>FIXED_CONTENT_NOW),source=await service.createSource({platform:"x",provider:"demo_x",contentKind:"post",target:{type:"account",account:"fixture"}});
-  await assert.rejects(service.updateSource(source.id,{refresh:{enabled:true}}),(error:unknown)=>error instanceof SourceContentError&&error.status===400&&/archive observations only/.test(error.message));assert.equal((await service.repository.getSource(source.id))!.refresh.enabled,false);
+  await assert.rejects(service.updateSource(source.id,{refresh:{enabled:true}}),(error:unknown)=>error instanceof SourceContentError&&error.kind === "invalid_request"&&/archive observations only/.test(error.message));assert.equal((await service.repository.getSource(source.id))!.refresh.enabled,false);
 });

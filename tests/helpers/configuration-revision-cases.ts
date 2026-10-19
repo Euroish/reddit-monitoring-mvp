@@ -3,13 +3,14 @@ import { randomUUID } from "node:crypto";
 import type { MonitorTarget } from "../../src/domain/entities/monitor-target";
 import type { MonitorTargetRepository } from "../../src/domain/repositories/monitor-target-repository";
 import type { SourceContentRepository } from "../../src/domain/repositories/source-content-repository";
-import { SourceContentError,SourceContentService } from "../../src/application/services/source-content.service";
+import { SourceContentError } from "../../src/domain/source-content-error";
+import { SourceContentService } from "../../src/application/services/source-content.service";
 import { DemoContentProvider } from "../../src/connectors/demo/demo-content.connector";
 import { FIXED_CONTENT_NOW } from "./source-content-fixtures";
 
 const now=FIXED_CONTENT_NOW,window={from:"2026-10-12T08:00:00.000Z",to:now};
 const input={platform:"reddit" as const,provider:"demo_reddit",contentKind:"post" as const,target:{type:"community" as const,community:"revision_fixture"}};
-const conflict=(error:unknown)=>error instanceof SourceContentError&&error.status===409;
+const conflict=(error:unknown)=>error instanceof SourceContentError&&error.kind === "conflict";
 function target(name:string):MonitorTarget{return {id:randomUUID(),source:"reddit",targetType:"subreddit",canonicalName:`r/${name}`,status:"active",config:{notes:"Original",collection:{live:{favorite:false}}},createdAt:now,updatedAt:now};}
 export const configurationRevisionCases:{name:string;run:(sources:SourceContentRepository,targets:MonitorTargetRepository)=>Promise<void>}[]=[
   {name:"source CAS admits one concurrent edit and stale pause cannot cancel a worker lease",run:async repo=>{
@@ -50,7 +51,7 @@ export const configurationRevisionCases:{name:string;run:(sources:SourceContentR
     assert.equal(await targets.updateManyIfRevisions([{target:savedFirst,expectedRevision:2},{target:savedFirst,expectedRevision:2}]),null,"Duplicate identities cannot be written twice in one revision batch");
   }},
   {name:"invalid revision input is rejected without changing source or budget configuration",run:async repo=>{
-    const service=new SourceContentService(repo,new DemoContentProvider("reddit"),()=>now),source=await service.createSource(input);for(const expectedRevision of [0,-1,1.5,2147483647]){await assert.rejects(service.updateSource(source.id,{label:"Invalid",expectedRevision}),error=>error instanceof SourceContentError&&error.status===400);await assert.rejects(service.setSourceState(source.id,"paused",expectedRevision),error=>error instanceof SourceContentError&&error.status===400);}
-    for(const expectedRevision of [-1,1.5,2147483647])await assert.rejects(service.setProviderBudget("demo_reddit",{enabled:true,dailyRequests:10,monthlyRequests:100,dailyResources:250,monthlyResources:2500,expectedRevision}),error=>error instanceof SourceContentError&&error.status===400);assert.equal((await repo.getSource(source.id))!.revision,1);assert.equal((await service.ops()).providers[0].budget.revision,0);
+    const service=new SourceContentService(repo,new DemoContentProvider("reddit"),()=>now),source=await service.createSource(input);for(const expectedRevision of [0,-1,1.5,2147483647]){await assert.rejects(service.updateSource(source.id,{label:"Invalid",expectedRevision}),error=>error instanceof SourceContentError&&error.kind === "invalid_request");await assert.rejects(service.setSourceState(source.id,"paused",expectedRevision),error=>error instanceof SourceContentError&&error.kind === "invalid_request");}
+    for(const expectedRevision of [-1,1.5,2147483647])await assert.rejects(service.setProviderBudget("demo_reddit",{enabled:true,dailyRequests:10,monthlyRequests:100,dailyResources:250,monthlyResources:2500,expectedRevision}),error=>error instanceof SourceContentError&&error.kind === "invalid_request");assert.equal((await repo.getSource(source.id))!.revision,1);assert.equal((await service.ops()).providers[0].budget.revision,0);
   }},
 ];

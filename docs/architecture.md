@@ -12,7 +12,7 @@
 | `apps/web/src/` | 工作台、图表、查询、管理页面 |
 | `packages/contracts/src/http.ts`、`source-content.ts` | 共同 HTTP 入口与多平台来源/内容/观测契约 |
 | `src/application/` | 用例编排、读取模型、应用服务 |
-| `src/domain/` | 实体、仓储接口、评分与业务语义 |
+| `src/domain/` | 实体、仓储接口、评分与业务语义；公共检索纯规则、来源失败类别 |
 | `src/connectors/` | 来源请求、响应适配与原始记录 |
 | `src/runtime/` | 环境解析、依赖组装与 provider 路由 |
 | `src/storage/` | PostgreSQL 仓储与 SQL 迁移 |
@@ -34,7 +34,7 @@
 
 数据流为 **来源 → 规范内容/观测 → 页事务 → 整理读模型 → API/模块**；它不是源码 import 方向。
 
-目标依赖方向：HTTP/worker 入口调用应用用例；应用用例依赖领域规则和所需端口；provider/SQL 实现这些端口；runtime 注入实现。纯规则不依赖 HTTP、数据库或 runtime。DTO 放公共契约，领域错误不携带 HTTP 状态，HTTP 层负责映射；平台映射和数据库映射各在自己的边界做一次。这里不要求每个函数增加接口或类，只有外部替换点和模块公共能力需要明确接口。
+目标依赖方向：HTTP/worker 入口调用应用用例；应用用例依赖领域规则和所需端口；provider/SQL 实现这些端口；runtime 注入实现。纯规则不依赖 HTTP、数据库或 runtime。DTO 放公共契约，领域错误不携带 HTTP 状态，HTTP 层负责映射（E0 首批已对 `SourceContentError` 实施，账户与研究等其他错误仍待按需整理）；平台映射和数据库映射各在自己的边界做一次。这里不要求每个函数增加接口或类，只有外部替换点和模块公共能力需要明确接口。
 
 ### 目标模块与数据所有权（待渐进实施）
 
@@ -155,7 +155,7 @@ Arctic Shift 重叠分页按边界已见 ID 数增加请求大小，最多 100 �
 
 ## API 与前端契约
 
-沿用 `packages/contracts/src/http.ts` 作为共同入口，前后端不维护另一份内容模型。已实现来源列表/创建/设置/生命周期/有限采集、任务筛选/cancel/retry/continue、provider 预算与 sourceOps；内容列表/stats/workbench/即时CSV/JSON、详情、个人查询/注释与冻结研究export，准确方法及路径见 [开发说明](development.md)。`source-content-routes.ts` 独立处理新路由，method/path/write 权限就近声明；composition root 统一认证，读取要求 session/bearer，来源/运维写入限admin/owner/machine；个人保存/注释与研究export只允许拥有资源的session，viewer可管理自己的记录，机器无个人空间。
+沿用 `packages/contracts/src/http.ts` 作为共同入口，前后端不维护另一份内容模型。已实现来源列表/创建/设置/生命周期/有限采集、任务筛选/cancel/retry/continue、provider 预算与 sourceOps；内容列表/stats/workbench/即时CSV/JSON、详情、个人查询/注释与冻结研究export，准确方法及路径见 [开发说明](development.md)。`source-content-routes.ts` 处理来源/任务/预算并分派到独立的 `content-read-routes.ts` 内容读取路由，method/path/write 权限就近声明；composition root 统一认证，读取要求 session/bearer，来源/运维写入限admin/owner/machine；个人保存/注释与研究export只允许拥有资源的session，viewer可管理自己的记录，机器无个人空间。
 
 - 读取仅查已落库数据，支持 platform/provider/sourceId/kind、标题/正文关键词、发布时间 `[from,to)`、limit/cursor。5B公共索引覆盖完整已存title/text；NFKC+Unicode lowercase+空白归一，literal/phrase连续匹配、terms空白term全AND字面子串，exclusions对指定title/text/title_text排除；中文/%不当SQL通配符，不stemming或兼容旧OR词界语义。候选覆盖基于非文本筛选scope，正文present仅指索引已知的存储字符串（包括已知空串）；未索引和null分开计数。排序为 `(COALESCE(publishedAt,firstFetchedAt),id)`，cursor 绑定过滤条件；采集 checkpoint 与产品分页分开。
 - 抓取/回填/重算通过管理员写端点提交有限任务，返回 202 与 job ID，读取任务状态查看进度。网页刷新不会自动启动全平台抓取。

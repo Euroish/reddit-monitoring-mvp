@@ -4,8 +4,8 @@ import type { CollectedPage } from "../../../connectors/shared/content-provider.
 import { SourceConfigurationConflictError,type ClaimedSourceJob,type SourceContentRepository,type SourceJobInput } from "../../../domain/repositories/source-content-repository";
 import { decodeContentCursor, encodeContentCursor } from "../../source-content-query";
 import { activeJob, backgroundJob, defaultProviderBudget, defaultSourceRefresh, defaultSourceSchedule, nextUsageDay, scheduledWindow, recheckWindow } from "../../source-lifecycle";
-import { publicSearchDocument,matchesPublicSearch,hasPublicSearch,searchCoverage,type PublicSearchDocument } from "../../public-content-search";
-import { SourceContentError } from "../../../application/services/source-content.service";
+import { publicSearchDocument, matchesPublicSearch, hasPublicSearch, searchCoverage, type PublicSearchDocument } from "../../../domain/public-content-search";
+import { SourceContentError } from "../../../domain/source-content-error";
 
 /** Offline/test adapter; live runtimes always use PostgreSQL. */
 export class InMemorySourceContentRepository implements SourceContentRepository {
@@ -36,7 +36,7 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
   async updateSource(id: string, changes: UpdateCollectionSourceRequest, now: string) { const value=this.sources.get(id); if(!value||changes.expectedRevision!==undefined&&changes.expectedRevision!==(value.revision??1))return null;const {expectedRevision:_expected,...patch}=changes; Object.assign(value,{...patch,schedule:{...value.schedule,...changes.schedule},refresh:{...value.refresh,...changes.refresh},updatedAt:now,revision:(value.revision??1)+1}); if(changes.schedule){value.nextDueAt=value.schedule.enabled ? now : null;if(value.schedule.enabled&&(value.schedule.initialLookbackHours>value.schedule.maxCatchupHours||Object.hasOwn(changes.schedule,"recheckLookbackHours")||Object.hasOwn(changes.schedule,"recheckCadenceSeconds")))value.nextRecheckAt=now;} return structuredClone(value); }
   async setSourceState(id: string,state:CollectionSource["state"],now:string,expectedRevision?:number) { const value=this.sources.get(id);if(!value||expectedRevision!==undefined&&expectedRevision!==(value.revision??1))return null;value.state=state;value.updatedAt=now;value.revision=(value.revision??1)+1;value.nextDueAt=state==="active"&&value.schedule.enabled?now:null;if(state!=="active")for(const job of this.jobs.values())if(job.sourceId===id&&activeJob(job))await this.cancelJob(job.id,now);return structuredClone(value); }
   async enqueue(input: SourceJobInput) {
-    const origin=this.sources.get(input.sourceId);if(!origin||origin.state!=="active"||origin.automaticCollectionBlocked)throw new SourceContentError("Source must be active and unblocked to enqueue; Retry its failed job",409);
+    const origin=this.sources.get(input.sourceId);if(!origin||origin.state!=="active"||origin.automaticCollectionBlocked)throw new SourceContentError("Source must be active and unblocked to enqueue; Retry its failed job", "conflict");
     const purpose=input.purpose??"manual",values=[...this.jobs.values()].filter(item => item.sourceId===input.sourceId && activeJob(item)),existing=values.find(item=>item.purpose===purpose)??(purpose==="manual"?values[0]:undefined);
     if (existing) return structuredClone(existing);
     const value: SourceCollectionJob = { id:input.id,sourceId:input.sourceId,from:input.from,to:input.to,pageSize:input.pageSize,maxPages:input.maxPages,status:"queued",pagesCommitted:0,recordsProcessed:0,recordsInserted:0,recordsUpdated:0,requestCount:0,requestDurationMs:0,failureKind:null,purpose:input.purpose??"manual",parentJobId:input.parentJobId??null,refreshIds:input.refreshIds??[],checkpoint:null,coverage:"unknown",exhausted:false,attempts:0,error:null,nextRunAt:input.now,createdAt:input.now,finishedAt:null };
@@ -148,7 +148,7 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
   }
   private matchesObservation(obs:PublicContent["observations"][number],query:ContentQuery){return (!query.sourceId||obs.sourceId===query.sourceId)&&(!query.provider||obs.provider===query.provider)&&(!query.sourceGroup||this.sources.get(obs.sourceId)?.group===query.sourceGroup);}
   async listContent(query: ContentQuery) {
-    const coverage=this.coverageFor(query);if(hasPublicSearch(query)&&coverage.unindexed)throw new SourceContentError("Public search coverage is incomplete; run the explicit bounded public-index backfill before searching",503);
+    const coverage=this.coverageFor(query);if(hasPublicSearch(query)&&coverage.unindexed)throw new SourceContentError("Public search coverage is incomplete; run the explicit bounded public-index backfill before searching", "unavailable");
     const cursor=decodeContentCursor(query), limit=query.limit ?? 25;
     const direction=query.sort==="published_asc"?1:-1;
     const rows=this.filtered(query).sort((a,b)=>direction*((a.publishedAt ?? a.firstFetchedAt).localeCompare(b.publishedAt ?? b.firstFetchedAt)||a.id.localeCompare(b.id)))
@@ -161,7 +161,7 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
   async findContentByIdentity(platform:PublicContent["platform"],kind:PublicContent["kind"],externalId:string){return structuredClone([...this.contents.values()].find(item=>item.platform===platform&&item.kind===kind&&item.externalId===externalId)??null);}
   async relatedChildren(content:PublicContent,limit:number){return structuredClone([...this.contents.values()].filter(item=>item.id!==content.id&&item.platform===content.platform&&item.references.some(reference=>["reply_to","thread_root"].includes(reference.relation)&&reference.kind===content.kind&&reference.externalId===content.externalId)).sort((a,b)=>(b.publishedAt??b.firstFetchedAt).localeCompare(a.publishedAt??a.firstFetchedAt)||b.id.localeCompare(a.id)).slice(0,limit));}
   async contentStats(query: ContentQuery) {
-    const coverage=this.coverageFor(query);if(hasPublicSearch(query)&&coverage.unindexed)throw new SourceContentError("Public search coverage is incomplete; run the explicit bounded public-index backfill before searching",503);
+    const coverage=this.coverageFor(query);if(hasPublicSearch(query)&&coverage.unindexed)throw new SourceContentError("Public search coverage is incomplete; run the explicit bounded public-index backfill before searching", "unavailable");
     const rows=this.filtered(query), kinds=new Map<PublicContent["kind"],number>(), days=new Map<string,number>(); let unknownPublishedAtCount=0;
     for (const item of rows) { kinds.set(item.kind,(kinds.get(item.kind)??0)+1); if (item.publishedAt) { const day=item.publishedAt.slice(0,10); days.set(day,(days.get(day)??0)+1); } else unknownPublishedAtCount++; }
     return { total:rows.length,byKind:[...kinds].map(([kind,count])=>({kind,count})),daily:[...days].sort().map(([day,count])=>({day,count})),scope:"collected_content" as const,unknownPublishedAtCount,searchCoverage:coverage };
@@ -169,7 +169,7 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
   private coverageFor(query:ContentQuery){const rows=this.filtered(query,false);return searchCoverage(rows.length,rows.map(item=>this.searchDocuments.get(item.id)).filter((item):item is PublicSearchDocument=>Boolean(item)));}
   async searchCoverage(contentIds:readonly string[]){const rows=[...new Set(contentIds)].filter(id=>this.contents.has(id));return searchCoverage(rows.length,rows.map(id=>this.searchDocuments.get(id)).filter((item):item is PublicSearchDocument=>Boolean(item)));}
   private researchScope(query:ContentQuery){
-    const coverage=this.coverageFor(query);if(hasPublicSearch(query)&&coverage.unindexed)throw new SourceContentError("Public search coverage is incomplete; run the explicit bounded public-index backfill before searching",503);
+    const coverage=this.coverageFor(query);if(hasPublicSearch(query)&&coverage.unindexed)throw new SourceContentError("Public search coverage is incomplete; run the explicit bounded public-index backfill before searching", "unavailable");
     const rows=this.filtered(query),sourceIds=new Set(rows.flatMap(item=>item.observations.filter(obs=>this.matchesObservation(obs,query)).map(obs=>obs.sourceId)));
     return {rows,sources:[...this.sources.values()].filter(source=>sourceIds.has(source.id))};
   }

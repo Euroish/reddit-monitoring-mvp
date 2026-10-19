@@ -2,7 +2,7 @@
 
 ## 安装与开发
 
-使用 Node.js 22+ 与 npm；Linux 可用 Bash，Windows 可用 PowerShell。下列 npm 命令从仓库根目录执行；Windows 管理工具与 Linux systemd 部署是不同入口。当前实现与验证缺口见 [状态](status.md)。
+开发基线使用 Node.js 22 LTS 与 npm，现有 CI 使用 Node.js 24；PostgreSQL 兼容基线保留 14，现有 CI 使用 16。本轮实际验证 Node 22.23.3 / PG14.24，不因 CI 版本差别升级业务库，也不把历史部署记录当作当前版本已在全部组合上通过。Linux 可用 Bash，Windows 可用 PowerShell。下列 npm 命令从仓库根目录执行；Windows 管理工具与 Linux systemd 部署是不同入口。当前实现与验证缺口见 [状态](status.md)。
 
 ```powershell
 npm ci
@@ -47,7 +47,7 @@ npm --prefix apps/web run dev
 
 开始任务先检查 `git status --short`、当前分支、远端和 diff。使用个人分支/独立 worktree，保留已有修改；共享对象库时串行 fetch/建分支/提交，不修改他人工作区或共享凭证。具体目录由当前机器决定，不把 Windows 开发路径或 Linux 集成目录写成全局前提。
 
-逐路径暂存并核对 cached diff，不用 reset/clean/stash 覆盖工作。push/合并按用户当前授权执行：获准推送 main 时先 fetch 核对远端，仅快进推送；远端有新提交则整合并重新验证，不 force push。历史日志的“不 push”只表示当时边界。token 不写入仓库或 remote URL。
+owner 当前在 `dev/root` 开发、提交并推送，再通过 `dev/root → main` PR 审阅合并；组员已交付的分支标识为 `dev/hikariverse/arctic-shift-content-query`，后续从最新 main 建任务分支。旧 root 独有提交保留于 `archive/root-before-main-sync`，远程 `shared-dev` 已删除；遗留工作区不自动切换或删除。逐路径暂存并核对 cached diff，不用 reset/clean/stash 覆盖工作。push/合并按用户当前授权执行：获准推送 main 时先 fetch 核对远端，仅快进推送；远端有新提交则整合并重新验证，不 force push。历史日志的“不 push”只表示当时边界。token 不写入仓库或 remote URL。
 
 ## 任务编排
 
@@ -114,7 +114,7 @@ npm test
 
 `npm run test:offline` 明确排除 native SQL 文件，并要求零 fail/零 skip；`npm run test:postgres` 自动发现全部 `*-postgres.test.ts`，缺少合法独立 `TEST_SOURCE_DATABASE_URL` 时直接失败。`.github/workflows/verify.yml` 运行清洁依赖、docs/lint/typecheck/离线/build/compiled、独立 PostgreSQL 与合成 E2E；本机通过不等于云端已执行。`npm test` 保留原回归入口及 SQL 默认 skip 行为，不能作为 SQL 已通过证据；数据库或网络验证另行执行并记录环境。compiled smoke 或 provider 的 `--config-only` 通过，只证明构建/配置，不能证明真实采集。存在已知失败时见 [当前状态](status.md)，比较基线与新增失败，不能将失败测试禁用后宣称完成。
 
-新增的 PostgreSQL 集成测试默认跳过，必须提供独立 loopback `source_validation_*` 测试库的 `TEST_SOURCE_DATABASE_URL`，测试会执行迁移和写入合成记录，不得指向业务库：
+新增的 PostgreSQL 集成测试默认跳过，必须提供使用 UTF8 编码的独立 loopback `source_validation_*` 测试库的 `TEST_SOURCE_DATABASE_URL`（新集群 initdb 显式使用 `--encoding=UTF8`，SQL_ASCII 不支持 Unicode normalize），测试会执行迁移和写入合成记录，不得指向业务库：
 
 ```powershell
 # 先创建隔离测试库，再配置它的 TEST_SOURCE_DATABASE_URL

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { CollectionSource, SourceCollectionJob } from "../../packages/contracts/src/source-content";
-import { SourceContentError, SourceContentService } from "../../src/application/services/source-content.service";
+import { SourceContentError } from "../../src/domain/source-content-error";
+import { SourceContentService } from "../../src/application/services/source-content.service";
 import { DemoContentProvider } from "../../src/connectors/demo/demo-content.connector";
 import { ArcticShiftContentConnector } from "../../src/connectors/reddit/arctic-shift-content.connector";
 import type { CollectedPage } from "../../src/connectors/shared/content-provider.interface";
@@ -33,7 +34,7 @@ export const schedulerReliabilityCases:{name:string;run:(repo:SourceContentRepos
     await service.updateSource(item.id,{schedule:{enabled:true,initialLookbackHours:6,maxCatchupHours:6,cadenceSeconds:60,recheckLookbackHours:0,pageSize:100}});
     assert.equal(await repo.scheduleDue(clock,[],20),1);assert.equal((await repo.listJobs({sourceId:item.id})).filter(task=>["queued","running"].includes(task.status)).length,2);
     assert.equal((await service.enqueue(item.id,{...window,pageSize:2,maxPages:20})).id,manual.id);
-    await assert.rejects(service.enqueue(item.id,{...window,pageSize:3,maxPages:20}),(error:unknown)=>error instanceof SourceContentError&&error.status===409);
+    await assert.rejects(service.enqueue(item.id,{...window,pageSize:3,maxPages:20}),(error:unknown)=>error instanceof SourceContentError&&error.kind === "conflict");
     const concurrent=await Promise.all([repo.claim(clock),repo.claim(clock)]),claimed=concurrent.find(Boolean)!;assert.equal(concurrent.filter(Boolean).length,1);assert.equal(claimed.job.purpose,"scheduled");
     await repo.commitPage(claimed,empty,clock);
     const history=await repo.claim(clock);assert.ok(history);assert.equal(history.job.id,manual.id);await repo.commitPage(history,{...empty,exhausted:false,nextCheckpoint:{offset:2}},clock);

@@ -1,6 +1,6 @@
 # 当前状态与下一步
 
-核对日期：2026-10-19。当前审查基线为 `main` 的 `15baa9c`，应用代码沿用 `6bd18ad`，应用版本 0.9.1；PR #2 已于 `6bd18ad` 合并，后续 `d8b481b` 增加研究材料，`3e2d760`/`15baa9c` 整理文档与配套清单。本次仅整理 Markdown 文档，不实现新 provider，也不更新正在运行的部署。历史阶段验收见 [交接](history/handoff.md) 和 [开发日志](history/development-log.md)。
+核对日期：2026-10-19。本轮从 `main` 的 `008f676` 在 `dev/root` 推进 E0 首批工程整理，应用版本仍为 0.9.1。PR #2 的功能交付已合入 main；本轮修复类型基线、迁移公共检索纯规则与来源错误、分离内容读取路由，不新增 provider、不执行真实采集或更新部署。历史阶段验收见 [交接](history/handoff.md) 和 [开发日志](history/development-log.md)。
 
 ## 当前实现
 
@@ -23,7 +23,7 @@
 | --- | --- | --- |
 | 0.9.1 收口快照 | 511 离线、41 原生 SQL 零失败零跳过；类型/构建、合成浏览器和账户/内容/研究闭环通过 | 详情保留在历史交接，不能覆盖后续提交的新检查结果 |
 | 2026-10-16 / `6bd18ad` Linux 部署 | API/Web 构建、compiled smoke、638 文件发布清单、515 离线测试通过；数据库升级至 41 迁移；API/worker/Nginx 启动与健康检查通过 | 本机回环访问验收，非公网 HTTPS 或持续负载验收 |
-| 同次部署类型检查 | `tests/integration/public-content-search-postgres.test.ts:25` 的动态 import 触发 TS2835（缺 .js 后缀） | 生产构建通过不等于全仓 typecheck 通过；后续 E0 先修此基线问题 |
+| 同次部署类型检查 | `tests/integration/public-content-search-postgres.test.ts:25` 的动态 import 曾触发 TS2835 | 本轮改为静态导入 SQL writer 后全仓 typecheck 通过；历史部署产物未更新 |
 | 2026-10-16 / Arctic Shift 真实请求 | `technology` 最近 24 小时首次请求 422 Timeout；缩至 1 小时后帖子/评论各取回并落库 5 条，正文、观测、检索投影均存在；API 读取成功；帖子重放新增 0 条 | 单页预算，覆盖为 partial、窗口未耗尽；没有证明全量、关键词能力或 12 小时新鲜度 |
 
 该次部署为 `/opt/reddit-monitoring-releases/6bd18ad816ad`，入口 `/opt/reddit-monitoring`，旧版本和数据库备份保留。一次性验证仅在该进程启用网络，结束暂停两个测试来源；常驻配置保持 `SOURCE_NETWORK_ENABLED=false`。无需新增交互账号。报告位于该服务器 `/root/deployments/reddit-6bd18ad816ad/output/validation/live-source-20261016/result.json`，原始样本和报告不随仓库发布。
@@ -34,6 +34,8 @@
 
 ## 工程审查与下一步
 
-2026-10-19 核对发现：API 组合根集中多类业务；SourceContentService 同时承担管理、读取和页执行；应用服务引用存储层规范化函数，SQL 仓储反向引用应用服务错误。已有共享契约、页事务、迁移和发布工具可以保留，不需要整体重写。
+E0 首批已将公共检索规范化、匹配、指纹与覆盖计算迁到 `src/domain/public-content-search.ts`，存储文件只保留 SQL writer。`SourceContentError` 改为领域失败类别，由 API 一处映射回既有 400/404/409/503；SQL/内存仓储和游标不再引用应用 service。`content-read-routes.ts` 独立处理内容列表、统计、详情与 JSON/CSV 导出，沿用共同认证、权限与错误入口。没有修改 SQL、检索语义、checkpoint、API 路径或响应契约，也没有保留旧入口转发。
 
-[全项目工程路线](plans/source-expansion.md) 已将后续工作扩展为 E0 边界/基线、E1 来源验证、E2 项目与领域模块、E3 数据分析及旧链路退役、E4 运行与交付演进。架构中的模块表、项目模型和新处理器均为目标设计，尚未重构实现。本次只更新文档；现有 TS2835 仍待 E0 修复。
+本轮本机 Node 22.23.3 / PostgreSQL 14.24：515 项既有离线测试及新增边界专项通过；完整 41 项隔离 SQL 零失败零跳过；typecheck、API/Web 构建、compiled smoke、Web lint 与文档检查通过。首次 SQL 为 40/41，原因是新临时集群使用 SQL_ASCII，不支持 Unicode normalize；明确 UTF8 重建后 41/41，未修改测试断言。证据保存于忽略的 `output/validation/e0-boundaries/`；前端依赖按锁文件安装，npm 报告 11 项安全告警，未做依赖升级。没有进行浏览器视觉复验、真实 provider 或部署验收，云 CI 以推送后的运行记录为准。
+
+后续仍按 [全项目工程路线](plans/source-expansion.md) 推进。API 组合根的其他旧业务路由和 SourceContentService 的管理/读取/执行职责尚未整体拆分；项目模型、新处理器、来源验证和旧链路退役仍是后续设计。本轮只交付 E0 首批，不宣称 E0–E4 全部完成。

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { SourceContentError } from "../application/services/source-content.service";
+import { SourceContentError } from "../domain/source-content-error";
 export function personalScope(userId:string,kind:string,favorite?:boolean){return createHash("sha256").update(JSON.stringify([userId,kind,favorite??null])).digest("hex").slice(0,24);}
 export function personalCursor(scope:string,at:string,id:string){return Buffer.from(JSON.stringify({scope,at,id})).toString("base64url");}
 export function readPersonalCursor(scope:string,cursor?:string):{at:string;id:string}|null{if(!cursor)return null;try{if(!/^[a-zA-Z0-9_-]{1,512}$/.test(cursor))throw new Error();const value=JSON.parse(Buffer.from(cursor,"base64url").toString("utf8"));if(value.scope!==scope||typeof value.at!=="string"||!Number.isFinite(Date.parse(value.at))||typeof value.id!=="string"||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value.id))throw new Error();return {at:new Date(value.at).toISOString(),id:value.id};}catch{throw new SourceContentError("Invalid personal cursor or changed account/filter");}}

@@ -4,7 +4,7 @@ import { chromium, type Download } from 'playwright';
 import type { CollectionSource, PublicContent, SourceCapability, SavedContentQuery } from '../packages/contracts/src/source-content.js';
 import type { ResearchExportManifest, ResearchExportPageResponse, ResearchExportView } from '../packages/contracts/src/research-export.js';
 import { contentQueryFromParams, contentQueryParams } from '../apps/web/src/features/content/queryState.js';
-import { matchesPublicSearch, publicSearchDocument, searchCoverage } from '../src/storage/public-content-search.js';
+import { matchesPublicSearch, publicSearchDocument, searchCoverage } from '../src/domain/public-content-search.js';
 import { researchExportCsv } from '../src/application/services/research-export.service.js';
 
 // Offline stateful browser fixture: block all non-loopback hosts; no provider, database or credentials.
