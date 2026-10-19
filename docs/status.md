@@ -1,6 +1,6 @@
 # 当前状态与下一步
 
-核对日期：2026-10-19。本轮从 `main` 的 `008f676` 在 `dev/root` 推进 E0 首批工程整理，应用版本仍为 0.9.1。PR #2 的功能交付已合入 main；本轮修复类型基线、迁移公共检索纯规则与来源错误、分离内容读取路由，不新增 provider、不执行真实采集或更新部署。历史阶段验收见 [交接](history/handoff.md) 和 [开发日志](history/development-log.md)。
+核对日期：2026-10-19。本轮从 `main` 的 `008f676` 在 `dev/root` 推进 E0 首批工程整理，应用版本仍为 0.9.1。PR #2 的功能交付已合入 main；本轮修复类型基线、迁移公共检索纯规则与来源错误，分两批拆出内容读取和保存工作台视图路由、收紧浏览器冒烟筛选同步；不新增 provider、不执行真实采集或更新部署。历史阶段验收见 [交接](history/handoff.md) 和 [开发日志](history/development-log.md)。
 
 ## 当前实现
 
@@ -36,6 +36,10 @@
 
 E0 首批已将公共检索规范化、匹配、指纹与覆盖计算迁到 `src/domain/public-content-search.ts`，存储文件只保留 SQL writer。`SourceContentError` 改为领域失败类别，由 API 一处映射回既有 400/404/409/503；SQL/内存仓储和游标不再引用应用 service。`content-read-routes.ts` 独立处理内容列表、统计、详情与 JSON/CSV 导出，沿用共同认证、权限与错误入口。没有修改 SQL、检索语义、checkpoint、API 路径或响应契约，也没有保留旧入口转发。
 
-本轮本机 Node 22.23.3 / PostgreSQL 14.24：515 项既有离线测试及新增边界专项通过；完整 41 项隔离 SQL 零失败零跳过；typecheck、API/Web 构建、compiled smoke、Web lint 与文档检查通过。首次 SQL 为 40/41，原因是新临时集群使用 SQL_ASCII，不支持 Unicode normalize；明确 UTF8 重建后 41/41，未修改测试断言。证据保存于忽略的 `output/validation/e0-boundaries/`；前端依赖按锁文件安装，npm 报告 11 项安全告警，未做依赖升级。没有进行浏览器视觉复验、真实 provider 或部署验收，云 CI 以推送后的运行记录为准。
+首批本机 Node 22.23.3 / PostgreSQL 14.24：515 项既有离线及新增 4 项边界测试通过；41 项隔离 SQL 零失败零跳过；typecheck、API/Web 构建、compiled smoke、Web lint 与文档检查通过。首次 SQL 为 40/41，原因是临时集群使用 SQL_ASCII；明确 UTF8 重建后 41/41，未修改测试断言。证据在忽略的 `output/validation/e0-boundaries/`。首批 `5da1ee9` 云 CI（run 39256596412，Node24/PG16）离线、SQL、账户/内容/研究三条浏览器闭环通过，但最后 ci-demo 在 X 卡片等待处超时，整体失败，不能记作全绿。
 
-后续仍按 [全项目工程路线](plans/source-expansion.md) 推进。API 组合根的其他旧业务路由和 SourceContentService 的管理/读取/执行职责尚未整体拆分；项目模型、新处理器、来源验证和旧链路退役仍是后续设计。本轮只交付 E0 首批，不宣称 E0–E4 全部完成。
+第二批把保存工作台视图的列表/创建、字段校验和 DTO 映射迁至 `saved-workbench-view-routes.ts`；共用比较指标解析迁至 API validation，原组合根不保留重复实现。会话解析、Origin、请求体上限和审计仍共用原入口，viewer 权限、用户隔离、机器身份拒绝、501/400/404 及错误码保持。521 项完整离线、17 项最终定向回归、typecheck、API 构建、compiled smoke 与文档检查通过。存储/迁移未变化，第二批未重复完整 SQL 测试。
+
+ci-demo 的冒烟脚本原先只等待任意成功 workbench 响应，可能被旧筛选的失效重取满足；现在同时等待目标 source/platform 的 URL、列表和统计响应，并检查返回成员，保留卡片、下载和零外部请求断言。独立源码副本、专用端口与临时 PG14 的真实浏览器→API/worker→SQL→JSON/CSV 闭环通过；不是业务部署。证据在 `output/validation/e0-second/`，首批云失败产物在 `output/validation/e0-cloud-5da1ee9/`；第二批云结果以对应提交运行记录为准。依赖复用，前端按锁文件安装时报告的 11 项安全告警未在本轮升级处理；没有真实 provider、生产部署或新的视觉设计验收。
+
+后续仍按 [全项目工程路线](plans/source-expansion.md) 推进。API 组合根剩余旧业务路由和 SourceContentService 的管理/读取/执行职责尚未整体拆分；项目模型、新处理器、来源验证和旧链路退役仍是后续设计。本轮只交付 E0 首批，不宣称 E0–E4 全部完成。

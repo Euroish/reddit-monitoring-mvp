@@ -161,7 +161,7 @@ Arctic Shift 重叠分页按边界已见 ID 数增加请求大小，最多 100 �
 - 抓取/回填/重算通过管理员写端点提交有限任务，返回 202 与 job ID，读取任务状态查看进度。网页刷新不会自动启动全平台抓取。
 - 列表返回观测、时间和实际指标，coverage 为 stored_sample；任务/来源只标 partial 或 unknown，不声称全量。统计与列表用相同过滤，总数覆盖匹配的全部已落库样本；UTC 日桶排除未知发布时间并返回 unknownPublishedAtCount。复杂 series 后续再定义版本/单位与范围。
 - UI 根据来源能力提供筛选和图表，保留来源筛选和原链接。不能因为服务健康检查成功就展示“实时数据正常”。权限继续在 API 边界验证，业务函数不重复实现另一套登录与角色判断。
-- `create-api-server.ts` 已约 3,800 行，新增公共功能时按 auth、collection、content/analysis、ops 分离路由处理函数，保留一个 composition root。每次只迁移要改的模块，不整库换框架。路由的 method/path/权限与 handler 就近声明，共用一次授权入口，避免新增端点忘记加入独立权限路径清单。
+- E0 第二批已从 `create-api-server.ts` 拆出 `saved-workbench-view-routes.ts`，保存视图的个人会话约束、校验和响应映射归该模块，共用比较指标解析放 `api-validation.ts`。Origin、body 限额和审计仍在组合根。组合根当前约 3,600 行；后续新增公共功能时按 auth、collection、content/analysis、ops 分离路由处理函数，保留一个 composition root。每次只迁移要改的模块，不整库换框架。路由的 method/path/权限与 handler 就近声明，共用一次授权入口，避免新增端点忘记加入独立权限路径清单。
 
 账户采用凭证版本 fencing，改密原子写新 hash/提升版本并撤销会话；机器身份禁止个人账户操作。owner/admin/viewer 政策覆盖角色、状态和邀请，最后 active owner 有事务锁保护。业务审计先保存 attempted，变更后保存脱敏结果；intent 失败拒绝变更，结果持久化失败返回 `audit_result_unknown`，不声称业务与审计原子，UI 先刷新确认。匿名登录/注册走安全日志和独立 IP 限流，不伪造审计 actor。配置 revision 仅配置变更提升，bulk 锁定全部目标验证后再写，来源页提交与暂停采用一致 source→job 锁序。
 
