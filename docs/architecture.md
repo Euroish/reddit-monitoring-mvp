@@ -1,4 +1,6 @@
-# 架构与数据边界
+# 项目架构与工程边界
+
+当前实现与目标设计分别标注。本文定义模块职责、依赖和数据规则；实施顺序见 [全项目工程路线](plans/source-expansion.md)，命令及交付流程见 [开发说明](development.md)。
 
 ## 当前代码结构
 
@@ -30,7 +32,44 @@
 
 以下是后续开发约束；当前已实现范围见上一节。保持模块化单体与 PostgreSQL，模块间优先直接调用明确的 TypeScript 接口。新增 provider 通常只增加请求/分页/映射和注册；新增监测项目通常增加配置、领域分析与读模型，复用现有采集任务、预算和存储能力。
 
-依赖方向为 **adapter → 规范内容/观测 → 应用服务 → 仓储 → 整理读模型 → API/模块**。adapter 负责上游差异，不写业务 SQL；业务模块通过仓储或读取接口使用规范数据，不解析供应商响应。这里是职责边界，不要求每一步再包装一层类、服务或网络调用。
+数据流为 **来源 → 规范内容/观测 → 页事务 → 整理读模型 → API/模块**；它不是源码 import 方向。
+
+目标依赖方向：HTTP/worker 入口调用应用用例；应用用例依赖领域规则和所需端口；provider/SQL 实现这些端口；runtime 注入实现。纯规则不依赖 HTTP、数据库或 runtime。DTO 放公共契约，领域错误不携带 HTTP 状态，HTTP 层负责映射；平台映射和数据库映射各在自己的边界做一次。这里不要求每个函数增加接口或类，只有外部替换点和模块公共能力需要明确接口。
+
+### 目标模块与数据所有权（待渐进实施）
+
+模块是代码与数据职责，不是独立部署单元。先在现有目录按业务划分公共入口，不立即拆 npm 包或搬迁整个仓库。
+
+| 模块 | 对外能力 | 拥有的写入规则与数据 |
+| --- | --- | --- |
+| 账户与访问 | actor、权限决策、会话和审计入口 | 用户、会话、角色、操作审计；其他模块传 actor，不另写认证 |
+| 来源与采集 | 来源配置、预算、排队、执行一页、取消/恢复 | collection_source、job、provider usage、checkpoint；adapter 只产出规范页 |
+| 内容与观测 | 页数据写入规则、按身份读取、查询与详情 | content、discovery、observation、公共检索投影；拥有版本顺序和去重规则 |
+| 研究与个人工作区 | 保存、注释、固定成员导出 | 个人查询/注释、research export；读取内容模块，不修改规范正文 |
+| 监测项目（新增时） | 目标集合、运行计划、项目视图 | project 与 source/目标关联；同一采集流可被多个项目复用 |
+| 分析/变化检测（按需求增加） | 从规范数据计算结果、重建派生数据 | 自己的日期桶、检测结果、规则/算法版本；不把派生结果回写成原始观测 |
+| 运维与组合根 | 启停、配置、连接池、健康、迁移、备份与发布 | 运行资源与装配；不成为任意业务逻辑的归宿 |
+
+每张表有一个写入规则归属模块；跨模块读取通过明确查询接口或命名读模型完成。需要联表时仍可在 PostgreSQL 执行一条 SQL，读模型集中维护，不为了模块化改成逐条 API 调用。采集页的内容、观测、检索投影与 checkpoint 必须继续共享同一个事务：由一个页提交入口协调，内部调用所属模块的写入函数，不拆成异步双写。
+
+项目共享来源只适用于相同目标、窗口策略和数据可见范围；采集预算在来源/provider 上计一次，项目显示归属和共享情况。现在的 source group 是标签，不直接改解释为项目或租户。出现真正多租户需求时再设计隔离与共享政策，不把个人 Saved 权限扩大为全库租户隔离。
+
+### 工程目录与扩展方式
+
+沿用 `apps/api`、`apps/web`、`src`、`workers`、`packages/contracts` 和集中迁移目录。后续将应用用例、领域规则按业务子目录归类，既有入口逐个迁移；只有独立使用/版本发布需求才提取 package。`shared` 只放已被多个模块使用的稳定基础函数，不收纳业务对象。
+
+- **新增 provider：** adapter + 字段映射 + 静态注册 + 代表夹具，复用来源任务与页提交；第三方响应不进入模块公共接口。
+- **新增监测项目：** 项目配置/来源关联 + 需要的领域结果和查询入口；内容类数据复用内容模块，独立时序测量使用自己的表。
+- **新增分析或通知：** 先用应用服务直接调用纯计算；耗时工作才提交持久任务。通知确有交付需求时，结果与待投递记录同事务写入，单独消费者投递；不提前建全局事件总线。
+- **新增页面：** `features/<业务>` 持有查询状态、请求和组件，page 只组合；公共 `api/client` 处理传输和认证，领域过滤仍由共享契约定义。保留现有 React/Vite、URL 查询状态和账户切换缓存边界。
+
+### 运行拓扑与容量演进
+
+基础拓扑仍为 Nginx/Web 静态资源、一个 API、一个后台 worker 和 PostgreSQL。HTTP 查询读取已存数据，采集/计算在后台执行。API 和 worker 可分别重启/扩容，但共享同一版本契约、迁移和发布产物，不按数据商或项目新增进程。
+
+先用现有租约/预算/公平调度保证任务进度。确有积压且 PostgreSQL/上游有余量后再增加 worker 并发，验证总连接数、来源互斥和预算竞争；耗 CPU 的新模块若阻塞 API/采集，则将该任务类型放到独立进程，共享代码而非复制业务服务。退出时停止领取、结束或取消当前有界工作、释放资源，未提交页由已有租约机制恢复。
+
+性能预算在功能交付时用代表负载确定：交互读 P95、每页处理耗时/吞吐、最老可运行任务等待时间、API/worker 峰值内存、数据库增长；同时记录样本规模/并发/冷热缓存。低延迟与持续低成本一起评估，不用单次暖缓存结果承诺容量。
 
 ### 从来源到数据库的一份契约
 
@@ -176,16 +215,15 @@ Arctic Shift 重叠分页按边界已见 ID 数增加请求大小，最多 100 �
 
 保证集中在外部输入、权限、数据唯一性/事务与工作量边界，不给每一层重复加校验/重试。新来源任务已实现租约、每 purpose 活动约束/单来源运行互斥与逐页 checkpoint 事务；上游临时错误每页最多三次自动尝试，授权错误直接失败。Arctic Shift 时间分页重读边界秒并去重，时间戳拥挤无法推进时停止并标 partial，不能静默跳过或声称覆盖完整。旧 Reddit 队列及自动周期调度不因此获得同样保证。
 
-## 外部项目核对及取舍（2026-10-11）
+## 成熟工程参考与本项目决策（2026-10-19）
 
-这些是设计参考，不是已安装依赖，也不代表已选定用户所说 AIHot 的具体数据接口。
+以下查阅了指定提交的源码/工程文档；链接固定到提交，观察与本项目取舍分开。借鉴边界和演进方式，不移植完整技术栈。外部架构说明也可能包含历史拓扑，因此这里不依赖其部署图推断当前运行结构。
 
-| 一手资料 | 核对到的做法 | 本仓库的取舍 |
+| 一手证据 | 实际观察 | 本项目采用的做法 |
 | --- | --- | --- |
-| [Arctic Shift API](https://github.com/ArthurHeitmann/arctic_shift/blob/master/api/README.md) | 归档检索有查询能力与可用性限制 | 将归档 provider 与实时指标分开，按窗口验收 |
-| [AIHOT 源契约](https://github.com/KKKKhazix/AIHOT/blob/main/packages/backend/src/sources/types.ts)、[数据库](https://github.com/KKKKhazix/AIHOT/blob/main/database/migrations/0001_core.sql) | 不同获取类型进入内容身份、发现和处理记录 | 采用身份/发现/观测分离的边界，暂不移植全套精选和模型链 |
-| [NewsNow 来源适配](https://github.com/newsnext/newsnow/blob/main/server/utils/source.ts)、[RSSHub 类型](https://github.com/DIYgod/RSSHub/blob/master/lib/types.ts) | 独立来源 handler 输出统一列表/Feed，能力和刷新策略独立 | 轻量 adapter 接入；列表热点不能当完整历史或互动序列 |
-| [Miniflux worker](https://github.com/miniflux/v2/blob/main/internal/worker/pool.go) | 有界 worker 处理后台工作，生命周期简单 | 初始一个采集 worker，按预算扩并发 |
-| [Airbyte 协议](https://github.com/airbytehq/airbyte/blob/master/docs/platform/understanding-airbyte/airbyte-protocol.md) | 数据记录与增量状态分离，state 用于恢复 | 保留逐页提交/stream checkpoint 语义，不部署完整 ETL 平台 |
+| [Miniflux worker pool](https://github.com/miniflux/v2/blob/71cfdb8b214cec94e5833fefce5ffcfd77b32813/internal/worker/pool.go) | 明确 worker 数，停止接收任务并等待当前 worker 结束 | 维持简单后台执行与清晰资源生命周期；继续使用本仓库已有 PostgreSQL 持久任务，不替换成它的进程内队列 |
+| [changedetection.io processors](https://github.com/dgtlmoon/changedetection.io/blob/804876fdd189f7d2aa8152f165e1965c56b77d51/changedetectionio/processors/README.md) | 文本/JSON 比较、补货检测按领域处理器区分；处理器配置可扩展 API schema | 将获取与领域处理分离，未来不同监测项目可有不同处理逻辑；先静态注册与显式配置，不照搬动态 schema 合并 |
+| [Immich architecture](https://github.com/immich-app/immich/blob/53618ff7496ee313d1cff7b3bcdf19c82b765cdf/docs/docs/developer/architecture.mdx) | 服务逻辑与技术实现仓储分离，客户端通过 API 契约协作，后台承担耗时任务 | 明确服务/端口/实现边界，统一客户端契约；沿用现有 Node/PostgreSQL，不为模仿引入 Nest、Redis 或 ML 服务 |
+| [Immich API compatibility workflow](https://github.com/immich-app/immich/blob/53618ff7496ee313d1cff7b3bcdf19c82b765cdf/.github/workflows/check-openapi.yml) | 用 OpenAPI 差异检查破坏性接口变化 | 现阶段检查共享契约与调用方一起变更；有外部客户端后再考虑 OpenAPI 和生成客户端，届时从一个定义生成，避免双维护 |
 
-上述资料提供模式，本文件的模型、进程预算和迁移顺序是基于本仓库的设计判断，需以实际来源、容量和查询验收校准。
+本项目判断：长期可扩展性首先取决于数据所有权、依赖方向、可恢复任务和可发布版本。继续采用模块化单体，先消除当前耦合；新中间件、独立服务或通用插件只在具体瓶颈/部署需求出现时评估。工程迁移和旧链路退役条件见全项目路线。

@@ -1,6 +1,6 @@
 # 当前状态与下一步
 
-核对日期：2026-10-18。源码基线为 `main` 的 `d8b481b`，应用版本 0.9.1；PR #2 已于 `6bd18ad` 合并，后续 `d8b481b` 增加研究材料。本次整理文档和配套检查，不实现新 provider，也不更新正在运行的部署。历史阶段验收见 [交接](history/handoff.md) 和 [开发日志](history/development-log.md)。
+核对日期：2026-10-19。当前审查基线为 `main` 的 `15baa9c`，应用代码沿用 `6bd18ad`，应用版本 0.9.1；PR #2 已于 `6bd18ad` 合并，后续 `d8b481b` 增加研究材料，`3e2d760`/`15baa9c` 整理文档与配套清单。本次仅整理 Markdown 文档，不实现新 provider，也不更新正在运行的部署。历史阶段验收见 [交接](history/handoff.md) 和 [开发日志](history/development-log.md)。
 
 ## 当前实现
 
@@ -10,7 +10,7 @@
 | X / TwitterAPI.io | 账号、搜索、ID adapter；媒体/引用/可空指标；默认禁用、独立预算 | 无真实凭证验收，不算稳定生产来源 |
 | 调度与落库 | 来源生命周期、逐页事务、幂等、checkpoint、高水位、公平领取、有限重试、阻塞/人工 Retry、预算与心跳 | 无跨 provider 自动路由；requests/resources 不是货币账单 |
 | 内容使用 | 统一查询/统计、公共检索投影、详情、个人保存/注释、有界导出、冻结研究成员 | 即时统计/分页不保证同一快照；旧榜单/热度仍用旧 Reddit 模型 |
-| 扩展基础 | ContentProvider + capability、统一身份/独立观测；类型含 reddit/x/instagram/web | runtime 仍显式注册；无声明式 adapter、Provider Lab；web/Instagram 无真实 adapter |
+| 扩展基础 | ContentProvider + capability、统一身份/独立观测；类型含 reddit/x/instagram/web | runtime 仍显式注册；web/Instagram 无真实 adapter；动态插件或独立测试台不作为当前目标 |
 | 运维 | 41 个 SQL 迁移、备份/恢复工具、发布完整性清单、systemd/Nginx 模板 | 真实持续负载、公共 HTTPS、多用户容量、自动数据保留尚未验收 |
 
 `965bff1` 已修复 Arctic Shift 小页重叠分页、无 checkpoint 的未耗尽页、未知源时间覆盖已知正文、无变化搜索投影重复写入及数据库暂态错误分类。遇到同秒饱和不会跳过边界；422 只有响应体含 timeout/slow down 才归为可重试，不是所有 422 都重试。自动分窗尚未实现。
@@ -23,15 +23,17 @@
 | --- | --- | --- |
 | 0.9.1 收口快照 | 511 离线、41 原生 SQL 零失败零跳过；类型/构建、合成浏览器和账户/内容/研究闭环通过 | 详情保留在历史交接，不能覆盖后续提交的新检查结果 |
 | 2026-10-16 / `6bd18ad` Linux 部署 | API/Web 构建、compiled smoke、638 文件发布清单、515 离线测试通过；数据库升级至 41 迁移；API/worker/Nginx 启动与健康检查通过 | 本机回环访问验收，非公网 HTTPS 或持续负载验收 |
-| 同次部署类型检查 | `tests/integration/public-content-search-postgres.test.ts:25` 的动态 import 触发 TS2835（缺 .js 后缀） | 生产构建通过不等于全仓 typecheck 通过；后续开发先修此基线问题 |
+| 同次部署类型检查 | `tests/integration/public-content-search-postgres.test.ts:25` 的动态 import 触发 TS2835（缺 .js 后缀） | 生产构建通过不等于全仓 typecheck 通过；后续 E0 先修此基线问题 |
 | 2026-10-16 / Arctic Shift 真实请求 | `technology` 最近 24 小时首次请求 422 Timeout；缩至 1 小时后帖子/评论各取回并落库 5 条，正文、观测、检索投影均存在；API 读取成功；帖子重放新增 0 条 | 单页预算，覆盖为 partial、窗口未耗尽；没有证明全量、关键词能力或 12 小时新鲜度 |
 
 该次部署为 `/opt/reddit-monitoring-releases/6bd18ad816ad`，入口 `/opt/reddit-monitoring`，旧版本和数据库备份保留。一次性验证仅在该进程启用网络，结束暂停两个测试来源；常驻配置保持 `SOURCE_NETWORK_ENABLED=false`。无需新增交互账号。报告位于该服务器 `/root/deployments/reddit-6bd18ad816ad/output/validation/live-source-20261016/result.json`，原始样本和报告不随仓库发布。
 
 ## 2026-10-18 首轮文档整理验证
 
-10 份文档及本地链接检查通过；嵌套目录的未批准文件和失效链接拒绝检查通过；release-package 专项通过，覆盖新路径收录、未批准文件排除和完整性校验。复用部署工作区依赖后重跑 typecheck，仍仅报上述 TS2835，已列入 D0，不把本次检查写成全绿。
+10 份文档及本地链接检查通过；嵌套目录的未批准文件和失效链接拒绝检查通过；release-package 专项通过，覆盖新路径收录、未批准文件排除和完整性校验。复用部署工作区依赖后重跑 typecheck，仍仅报上述 TS2835，已列入工程路线 E0，不把本次检查写成全绿。
 
-## 下一步
+## 工程审查与下一步
 
-执行顺序与完成定义见 [开发路线](plans/source-expansion.md)。先筛长期正常成本，修正基线后用现有链路完成小样本接入；按实际重复抽取适配辅助，按领域接口接入后续模块。自动分窗、完整测试台和自动路由不作为前置建设。字段/数据库/整理口径统一见架构。本次补充为设计约束，未新增运行时功能。
+2026-10-19 核对发现：API 组合根集中多类业务；SourceContentService 同时承担管理、读取和页执行；应用服务引用存储层规范化函数，SQL 仓储反向引用应用服务错误。已有共享契约、页事务、迁移和发布工具可以保留，不需要整体重写。
+
+[全项目工程路线](plans/source-expansion.md) 已将后续工作扩展为 E0 边界/基线、E1 来源验证、E2 项目与领域模块、E3 数据分析及旧链路退役、E4 运行与交付演进。架构中的模块表、项目模型和新处理器均为目标设计，尚未重构实现。本次只更新文档；现有 TS2835 仍待 E0 修复。
