@@ -4,9 +4,8 @@ import { ContentProviderError, type ContentProvider } from "../../connectors/sha
 import { SourceConfigurationConflictError,type SourceContentRepository } from "../../domain/repositories/source-content-repository";
 import { normalizePublicSearchText } from "../../domain/public-content-search";
 import { SourceContentError } from "../../domain/source-content-error";
+import { requireSourceId } from "../../domain/source-content-validation";
 
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export function requireSourceId(value: string): string { if (!uuid.test(value)) throw new SourceContentError("Invalid source/job identifier"); return value; }
 function date(value: unknown, fallback: string): string {
   if (value === undefined) return fallback;
   if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) throw new SourceContentError("Invalid date; use an ISO timestamp");
@@ -98,7 +97,6 @@ export class SourceContentService {
     if (query.from && query.to && query.from >= query.to) throw new SourceContentError("Invalid query window");
     return query;
   }
-  async contentDetail(id:string){const content=await this.repository.getContent(requireSourceId(id));if(!content)throw new SourceContentError("Content not found", "not_found");const relatedLimit=20,references=await Promise.all(content.references.slice(0,relatedLimit).map(async reference=>({reference,content:await this.repository.findContentByIdentity(content.platform,reference.kind,reference.externalId)}))),children=await this.repository.relatedChildren(content,relatedLimit+1),ids=new Set(content.observations.map(item=>item.sourceId)),sources=(await this.repository.listSources()).filter(item=>ids.has(item.id));return {content,sources,references,children:children.slice(0,relatedLimit),relatedLimit,relatedTruncated:content.references.length>relatedLimit||children.length>relatedLimit,scope:"stored_content" as const};}
   async getJob(id: string) { const job = await this.repository.getJob(requireSourceId(id)); if (!job) throw new SourceContentError("Job not found", "not_found"); return job; }
   async retryJob(id: string) { const previous=await this.getJob(id);await this.requireActiveSource(previous.sourceId);const job = await this.repository.retryJob(id, this.now()); if (!job) throw new SourceContentError("Only failed jobs with no active job for the same source and purpose can be retried", "conflict"); return job; }
   async continueJob(id: string) { const previous=await this.getJob(id);await this.requireActiveSource(previous.sourceId);const source=await this.repository.getSource(previous.sourceId);if(source?.automaticCollectionBlocked)throw new SourceContentError("Collection is blocked by a permanent failure; correct its cause and Retry the failed job", "conflict");const job = await this.repository.continueJob(id, randomUUID(), this.now()); if (!job) throw new SourceContentError("Only bounded completed jobs with a saved checkpoint and no conflicting active job can continue", "conflict"); return job; }

@@ -26,7 +26,7 @@
 
 当前流程：目标/来源设置 → 手动或持久化周期窗口入队 → provider 预算预留 → 有界取一页 → 公共内容和独立观测 → 小事务落库/checkpoint → 同范围唯一内容/UTC 日统计/按平台渠道汇总 → API → UI/JSON/CSV 导出。同来源不同 purpose 可并存排队、每来源一个 running，持久化四次领取中为 manual/refresh 保留一次优先机会；暂停/归档取消旧租约；重启回收租约并从已提交页继续。周期高水位只在耗尽窗口后推进，失败或页预算不足保留同窗口子任务；每页间让出 worker，不持有整段历史回填。免费/付费每日月度预算分开，重试/未知结果保守保留 requests/resources 预留；provider 计数因多发现可重叠。
 
-自动成熟刷新只支持 archive provider 的 initial 观测，snapshot 不套用 36 小时成熟规则。统一工作台的跨平台通用量是内容数，不把 Reddit score 与 X likes 相加；各指标使用 capability 的单位/符号与观测时间。内容读取/导出不会向provider联网；即时list/stats/export分页与统计不是冻结快照，研究导出另用同RR冻结。5A详情使用规范唯一身份查已存引用/children，各限20；作者按externalId/handle忽略大小写准确匹配，语言准确匹配，source group区分大小写。指标筛选取当前scope每来源最新观测，任一符合即可，null不按0；时间排序以身份打破平局，cursor绑定全部筛选。036个人保存查询/收藏注释表user FK、内容annotation FK与revision；仅用户session可读写自己的记录，机器不拥有个人空间，HTTP与落库沿同契约。API 不等待远端抓取完成；旧热度模型尚未迁移至 Arctic Shift，旧增长 v2 使用实际相邻观测，不将单个归档快照写成实时热度。
+自动成熟刷新只支持 archive provider 的 initial 观测，snapshot 不套用 36 小时成熟规则。统一工作台的跨平台通用量是内容数，不把 Reddit score 与 X likes 相加；各指标使用 capability 的单位/符号与观测时间。内容读取/导出不会向provider联网；即时list/stats/export分页与统计不是冻结快照，研究导出另用同RR冻结。内容详情由独立 `content-detail.service.ts` 按规范身份批量查已存引用、按关联 ID 查来源配置；Map 恢复引用顺序与重复关系，缺失保留 null，引用/children 各限20。PostgreSQL 成对匹配 kind/externalId 并复用既有身份唯一索引，避免逐引用往返和全量来源配置读取；作者按externalId/handle忽略大小写准确匹配，语言准确匹配，source group区分大小写。指标筛选取当前scope每来源最新观测，任一符合即可，null不按0；时间排序以身份打破平局，cursor绑定全部筛选。036个人保存查询/收藏注释表user FK、内容annotation FK与revision；仅用户session可读写自己的记录，机器不拥有个人空间，HTTP与落库沿同契约。API 不等待远端抓取完成；旧热度模型尚未迁移至 Arctic Shift，旧增长 v2 使用实际相邻观测，不将单个归档快照写成实时热度。
 
 ## 长期模块边界与数据对齐
 
@@ -34,7 +34,7 @@
 
 数据流为 **来源 → 规范内容/观测 → 页事务 → 整理读模型 → API/模块**；它不是源码 import 方向。
 
-目标依赖方向：HTTP/worker 入口调用应用用例；应用用例依赖领域规则和所需端口；provider/SQL 实现这些端口；runtime 注入实现。纯规则不依赖 HTTP、数据库或 runtime。DTO 放公共契约，领域错误不携带 HTTP 状态，HTTP 层负责映射（E0 首批已对 `SourceContentError` 实施，账户与研究等其他错误仍待按需整理）；平台映射和数据库映射各在自己的边界做一次。这里不要求每个函数增加接口或类，只有外部替换点和模块公共能力需要明确接口。
+目标依赖方向：HTTP/worker 入口调用应用用例；应用用例依赖领域规则和所需端口；provider/SQL 实现这些端口；runtime 注入实现。纯规则不依赖 HTTP、数据库或 runtime；公共 ID 校验放 domain，不为复用校验导入采集服务。DTO 放公共契约，领域错误不携带 HTTP 状态，HTTP 层负责映射（E0 首批已对 `SourceContentError` 实施，账户与研究等其他错误仍待按需整理）；平台映射和数据库映射各在自己的边界做一次。这里不要求每个函数增加接口或类，只有外部替换点和模块公共能力需要明确接口。
 
 ### 目标模块与数据所有权（待渐进实施）
 

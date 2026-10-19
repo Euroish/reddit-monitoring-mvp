@@ -26,7 +26,13 @@ const coverageSql=(terms:string[])=>`SELECT COUNT(*)::integer AS candidate_count
 
 export class PostgresSourceContentRepository implements SourceContentRepository {
   constructor(private readonly db: Pick<PostgresClient,"query"|"withTransaction">) {}
-  async listSources() { return (await this.db.query(`${sourceSelect} ORDER BY cs.created_at, cs.id`)).rows.map(source); }
+  async listSources(ids?: readonly string[]) {
+    if (ids?.length === 0) return [];
+    return (await this.db.query(
+      `${sourceSelect}${ids ? " WHERE cs.id=ANY($1::uuid[])" : ""} ORDER BY cs.created_at, cs.id`,
+      ids ? [ids] : [],
+    )).rows.map(source);
+  }
   async getSource(id: string) { const result = await this.db.query(`${sourceSelect} WHERE cs.id=$1`, [id]); return result.rows[0] ? source(result.rows[0]) : null; }
   async createSource(input: CreateCollectionSourceRequest & { id: string; label: string; createdAt: string }) {
     const result = await this.db.query(`INSERT INTO collection_source(id,platform_id,provider,label,target,content_kind,created_at,updated_at,next_recheck_at)
@@ -253,7 +259,15 @@ export class PostgresSourceContentRepository implements SourceContentRepository 
     return { items, nextCursor: allRows.length>limit && last ? encodeContentCursor(query,iso(last.sort_time)!,last.id) : null,searchCoverage:coverage };
   }
   async getContent(id:string){const result=await this.db.query(`${storedContentSelect} WHERE c.id=$1 AND c.platform_details IS NOT NULL`,[id]);return result.rows[0]?publicContent(result.rows[0]):null;}
-  async findContentByIdentity(platform:PublicContent["platform"],kind:PublicContent["kind"],externalId:string){const result=await this.db.query(`${storedContentSelect} WHERE p.code=$1 AND c.kind=$2 AND c.external_id=$3 AND c.platform_details IS NOT NULL`,[platform,kind,externalId]);return result.rows[0]?publicContent(result.rows[0]):null;}
+  async findContentsByIdentity(platform: PublicContent["platform"], identities: readonly Pick<PublicContent, "kind" | "externalId">[]) {
+    if (identities.length === 0) return [];
+    const result = await this.db.query(
+      `${storedContentSelect} WHERE p.code=$1 AND (c.kind,c.external_id) IN
+        (SELECT * FROM unnest($2::text[],$3::text[])) AND c.platform_details IS NOT NULL`,
+      [platform, identities.map(item => item.kind), identities.map(item => item.externalId)],
+    );
+    return result.rows.map(publicContent);
+  }
   async relatedChildren(content:PublicContent,limit:number){return (await this.db.query(`${storedContentSelect} WHERE p.code=$1 AND c.id<>$2 AND c.platform_details IS NOT NULL AND EXISTS(SELECT 1 FROM jsonb_array_elements(c.content_references) ref WHERE ref->>'externalId'=$3 AND ref->>'kind'=$4 AND ref->>'relation' IN('reply_to','thread_root')) ORDER BY COALESCE(c.created_at_source,c.first_seen_at) DESC,c.id DESC LIMIT $5`,[content.platform,content.id,content.externalId,content.kind,limit])).rows.map(publicContent);}
   async contentStats(query: ContentQuery): Promise<Omit<ContentStatsResponse,"ok"|"requestId">> {
     const { params, terms,baseTerms } = this.filters(query);

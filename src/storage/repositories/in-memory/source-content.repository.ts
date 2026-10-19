@@ -25,7 +25,11 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
   private searchDocuments=new Map<string,PublicSearchDocument>();
   /** Synchronous isolated read view for offline research snapshots. */
   snapshotForResearch(){const copy=new InMemorySourceContentRepository();copy.sources=structuredClone(this.sources);copy.contents=structuredClone(this.contents);copy.contentVersions=structuredClone(this.contentVersions);copy.searchDocuments=structuredClone(this.searchDocuments);return copy;}
-  async listSources() { return structuredClone([...this.sources.values()]); }
+  async listSources(ids?: readonly string[]) {
+    const selected = ids ? new Set(ids) : null;
+    const sources = [...this.sources.values()];
+    return structuredClone(selected ? sources.filter(source => selected.has(source.id)) : sources);
+  }
   async getSource(id: string) { return structuredClone(this.sources.get(id) ?? null); }
   async createSource(input: CreateCollectionSourceRequest & { id: string; label: string; createdAt: string }) {
     const existing = [...this.sources.values()].find(item => item.platform===input.platform && item.provider===input.provider && item.contentKind===input.contentKind && JSON.stringify(item.target)===JSON.stringify(input.target));
@@ -158,7 +162,19 @@ export class InMemorySourceContentRepository implements SourceContentRepository 
     return { items:structuredClone(items),nextCursor:rows.length>limit && last ? encodeContentCursor(query,last.publishedAt ?? last.firstFetchedAt,last.id) : null,searchCoverage:coverage };
   }
   async getContent(id:string){return structuredClone(this.contents.get(id)??null);}
-  async findContentByIdentity(platform:PublicContent["platform"],kind:PublicContent["kind"],externalId:string){return structuredClone([...this.contents.values()].find(item=>item.platform===platform&&item.kind===kind&&item.externalId===externalId)??null);}
+  async findContentsByIdentity(platform: PublicContent["platform"], identities: readonly Pick<PublicContent, "kind" | "externalId">[]) {
+    if (identities.length === 0) return [];
+    const wanted = new Map<PublicContent["kind"], Set<string>>();
+    for (const { kind, externalId } of identities) {
+      if (!wanted.has(kind)) wanted.set(kind, new Set());
+      wanted.get(kind)!.add(externalId);
+    }
+    const found: PublicContent[] = [];
+    for (const content of this.contents.values()) {
+      if (content.platform === platform && wanted.get(content.kind)?.delete(content.externalId)) found.push(content);
+    }
+    return structuredClone(found);
+  }
   async relatedChildren(content:PublicContent,limit:number){return structuredClone([...this.contents.values()].filter(item=>item.id!==content.id&&item.platform===content.platform&&item.references.some(reference=>["reply_to","thread_root"].includes(reference.relation)&&reference.kind===content.kind&&reference.externalId===content.externalId)).sort((a,b)=>(b.publishedAt??b.firstFetchedAt).localeCompare(a.publishedAt??a.firstFetchedAt)||b.id.localeCompare(a.id)).slice(0,limit));}
   async contentStats(query: ContentQuery) {
     const coverage=this.coverageFor(query);if(hasPublicSearch(query)&&coverage.unindexed)throw new SourceContentError("Public search coverage is incomplete; run the explicit bounded public-index backfill before searching", "unavailable");

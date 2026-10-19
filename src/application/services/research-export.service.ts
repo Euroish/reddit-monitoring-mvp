@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { CollectionSource, ContentQuery, MetricDefinition, PlatformDetails, PublicContent, SavedContentQuery } from "../../../packages/contracts/src/source-content";
 import type { CreateResearchExportRequest, ResearchExportManifest, ResearchExportPageResponse } from "../../../packages/contracts/src/research-export";
 import type { ResearchExportRepository, ResearchPageQuery, ResearchSnapshotContext } from "../../domain/repositories/research-export-repository";
-import { SourceContentService, requireSourceId } from "./source-content.service";
+import type { SourceContentService } from "./source-content.service";
+import { requireSourceId } from "../../domain/source-content-validation";
 import { ResearchExportError } from "../../storage/research-export-query";
 
 export const RESEARCH_EXPORT_MAX_ROWS = 20000;

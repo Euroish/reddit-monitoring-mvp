@@ -1,6 +1,6 @@
 # 当前状态与下一步
 
-核对日期：2026-10-19。本轮从 `main` 的 `008f676` 在 `dev/root` 推进 E0 首批工程整理，应用版本仍为 0.9.1。PR #2 的功能交付已合入 main；本轮修复类型基线、迁移公共检索纯规则与来源错误，分两批拆出内容读取和保存工作台视图路由、收紧浏览器冒烟筛选同步；不新增 provider、不执行真实采集或更新部署。历史阶段验收见 [交接](history/handoff.md) 和 [开发日志](history/development-log.md)。
+核对日期：2026-10-19。从 `main` 的 `008f676` 在 `dev/root` 持续推进 E0 工程整理，应用版本仍为 0.9.1。PR #2 的功能交付已合入 main；本轮修复类型基线、迁移公共检索纯规则与来源错误，拆出内容读取和保存工作台视图路由、修正浏览器冒烟筛选同步，并将内容详情改为独立的批量读取用例；不新增 provider、不执行真实采集或更新部署。历史阶段验收见 [交接](history/handoff.md) 和 [开发日志](history/development-log.md)。
 
 ## 当前实现
 
@@ -28,18 +28,14 @@
 
 该次部署为 `/opt/reddit-monitoring-releases/6bd18ad816ad`，入口 `/opt/reddit-monitoring`，旧版本和数据库备份保留。一次性验证仅在该进程启用网络，结束暂停两个测试来源；常驻配置保持 `SOURCE_NETWORK_ENABLED=false`。无需新增交互账号。报告位于该服务器 `/root/deployments/reddit-6bd18ad816ad/output/validation/live-source-20261016/result.json`，原始样本和报告不随仓库发布。
 
-## 2026-10-18 首轮文档整理验证
-
-10 份文档及本地链接检查通过；嵌套目录的未批准文件和失效链接拒绝检查通过；release-package 专项通过，覆盖新路径收录、未批准文件排除和完整性校验。复用部署工作区依赖后重跑 typecheck，仍仅报上述 TS2835，已列入工程路线 E0，不把本次检查写成全绿。
-
 ## 工程审查与下一步
 
-E0 首批已将公共检索规范化、匹配、指纹与覆盖计算迁到 `src/domain/public-content-search.ts`，存储文件只保留 SQL writer。`SourceContentError` 改为领域失败类别，由 API 一处映射回既有 400/404/409/503；SQL/内存仓储和游标不再引用应用 service。`content-read-routes.ts` 独立处理内容列表、统计、详情与 JSON/CSV 导出，沿用共同认证、权限与错误入口。没有修改 SQL、检索语义、checkpoint、API 路径或响应契约，也没有保留旧入口转发。
+E0 已建立可继续开发的类型与模块基线：公共检索纯规则和来源失败类别归 domain，SQL writer 留在 storage，HTTP 状态由 API 单点映射；内容读取和保存工作台视图路由已独立，共同认证、Origin、body 限额和审计保持。没有修改 API、数据身份、检索语义、checkpoint 或 SQL 迁移。
 
-首批本机 Node 22.23.3 / PostgreSQL 14.24：515 项既有离线及新增 4 项边界测试通过；41 项隔离 SQL 零失败零跳过；typecheck、API/Web 构建、compiled smoke、Web lint 与文档检查通过。首次 SQL 为 40/41，原因是临时集群使用 SQL_ASCII；明确 UTF8 重建后 41/41，未修改测试断言。证据在忽略的 `output/validation/e0-boundaries/`。首批 `5da1ee9` 云 CI（run 39256596412，Node24/PG16）离线、SQL、账户/内容/研究三条浏览器闭环通过，但最后 ci-demo 在 X 卡片等待处超时，整体失败，不能记作全绿。
+`d24d094` 云 CI [39259318466](https://github.com/Euroish/reddit-monitoring-mvp/actions/runs/39259318466)（Node24/PG16）离线、SQL、浏览器和 ci-demo **全部通过**。首批 `5da1ee9` 曾在 ci-demo 的 X 卡片等待失败；冒烟已改为等待目标筛选的 URL、列表与统计响应，不能再由旧筛选响应满足。此前本机 Node22/PG14 的 521 项离线、41 项 SQL、构建和合成闭环证据分别保存在忽略的 `output/validation/e0-boundaries/`、`e0-second/`；这些是指定快照结果，不表示每批重复全量验证。
 
-第二批把保存工作台视图的列表/创建、字段校验和 DTO 映射迁至 `saved-workbench-view-routes.ts`；共用比较指标解析迁至 API validation，原组合根不保留重复实现。会话解析、Origin、请求体上限和审计仍共用原入口，viewer 权限、用户隔离、机器身份拒绝、501/400/404 及错误码保持。521 项完整离线、17 项最终定向回归、typecheck、API 构建、compiled smoke 与文档检查通过。存储/迁移未变化，第二批未重复完整 SQL 测试。
+当前内容详情用例在 `content-detail.service.ts`，不再属于采集服务。引用按 platform + kind + externalId 一次批量查询，用 Map 恢复原始顺序、重复关系与缺失 null；引用/children 仍各最多 20。来源按关联 ID 读取并保持原排序，不再全量读取配置后过滤。内存实现一次扫描、去重匹配；PostgreSQL 使用成对身份半连接和既有唯一索引，不新增索引、缓存或永久内存索引。通用 ID 校验迁到 domain，个人/研究模块不再为此导入采集服务。
 
-ci-demo 的冒烟脚本原先只等待任意成功 workbench 响应，可能被旧筛选的失效重取满足；现在同时等待目标 source/platform 的 URL、列表和统计响应，并检查返回成员，保留卡片、下载和零外部请求断言。独立源码副本、专用端口与临时 PG14 的真实浏览器→API/worker→SQL→JSON/CSV 闭环通过；不是业务部署。证据在 `output/validation/e0-second/`，首批云失败产物在 `output/validation/e0-cloud-5da1ee9/`；第二批云结果以对应提交运行记录为准。依赖复用，前端按锁文件安装时报告的 11 项安全告警未在本轮升级处理；没有真实 provider、生产部署或新的视觉设计验收。
+本批本机 22 项受影响离线/API 回归、1 项原生 PG14 SQL 详情场景、类型、API 构建与 compiled smoke 通过；未新增测试文件，补强现有夹具中的异 kind、重复、缺失、顺序及 20 条边界。未重跑完整离线/SQL 集、Web 构建或浏览器，当前批云结果以提交记录为准。隔离合成对照：1,004 来源、1,029 内容、20 引用（含重复和缺失），暖缓存各 30 次，SQL 从 23 次降至 4 次、每次解码 JSON 从 901,752 降至 35,171 字节，中位耗时 121.4→38.9 ms、P95 179.3→51.6 ms；仅是本机指定数据量结果，不代表生产容量。EXPLAIN 确认批量身份与来源 ID 使用已有索引。证据在 `output/validation/e0-detail/`。没有真实 provider 请求或业务部署；前端原有 11 项依赖安全告警未在本批升级处理。
 
-后续仍按 [全项目工程路线](plans/source-expansion.md) 推进。API 组合根剩余旧业务路由和 SourceContentService 的管理/读取/执行职责尚未整体拆分；项目模型、新处理器、来源验证和旧链路退役仍是后续设计。本轮只交付 E0 首批，不宣称 E0–E4 全部完成。
+后续按 [全项目工程路线](plans/source-expansion.md) 推进。SourceContentService 仍包含配置、任务、页执行与查询规范化，其他旧 API 路由仍在组合根；后续按实际变更继续解耦，不把所有大类拆完作为 E1 的前置门槛。来源真实验证、项目模型与旧链路退役仍需分别交付。

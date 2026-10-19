@@ -1,5 +1,6 @@
 import type { ContentPlatform, ContentQuery, PublicContentKind } from "../../../packages/contracts/src/http";
 import type { SourceContentService } from "../../../src/application/services/source-content.service";
+import { contentDetail } from "../../../src/application/services/content-detail.service";
 import { contentWorkbench, contentExport, contentExportCsv } from "../../../src/application/services/content-workbench.service";
 import { SourceContentError } from "../../../src/domain/source-content-error";
 
@@ -27,7 +28,7 @@ export async function handleContentReadRoute(args: {
 }) {
   const { action, id, params, requestId, service } = args;
   if (action === "detail") {
-    return { statusCode: 200, body: { ok: true, requestId, ...await service.contentDetail(id) } };
+    return { statusCode: 200, body: { ok: true, requestId, ...await contentDetail(service.repository, id) } };
   }
   const query: ContentQuery = service.normalizeQuery({
     platform: (params.get("platform") ?? undefined) as ContentPlatform | undefined,
