@@ -1,6 +1,6 @@
 # 数据源研究与选型
 
-整理日期：2026-10-18；2026-10-20 更新 E1 与 Reddit 吞吐探测。来自 `d8b481b` 中的 `docs/数据源研究.md`（2026-10-16 至 18 日聊天导出），结合当前源码和已有 Linux 采集证据整理。价格表四家供应商于 10 月 18 日核对，10 月 19 日再次核对 TwitterAPIs/GetXAPI；其余名录保留为待验证线索，不承诺当前免费额度、版本、覆盖或稳定性。实施顺序见 [开发路线](../plans/source-expansion.md)。
+整理日期：2026-10-18；2026-10-20 更新 E1 与 Reddit 吞吐探测。来自 `d8b481b` 中的 `docs/数据源研究.md`（2026-10-16 至 18 日聊天导出），结合当前源码和已有 Linux 采集证据整理。价格表于 10 月 18 日初核，10 月 19 日复核 TwitterAPIs/GetXAPI，10 月 20 日复核 Redditapis/CiteRocket；其余名录保留为待验证线索，不承诺当前免费额度、版本、覆盖或稳定性。实施顺序见 [开发路线](../plans/source-expansion.md)。
 
 ## 证据与结论
 
@@ -28,6 +28,14 @@ Arctic Shift 上游说明关键词组合可能触发查询超时，建议缩小 
 
 下面的商业价格表只是正常按量报价线索，尚需按具体目标负载核算；不是已通过准入的来源清单。单位价达标也不能替代总月费判断。
 
+### 无需预付的当前候选
+
+用户当前排除需充值或固定付费的来源，下一步只验证持续免费路径，不采购商业额度。10 月 20 日重新读取 [Redditapis 价格页](https://www.redditapis.com/pricing)，其中明确标注“1,000 reads every month, on every account”，与一次性 $0.50 注册赠送不同；付费充值起点 $10 不能被误写成免费使用的必要条件。仍需在实际账号核对开通条件、适用端点和超额阻断，不能把网页自述当成已验收。其页面另称免费提供一个全站关键词的新帖子监测、webhook 投递、约每 60 秒检查；免费监测不支持指定 subreddit 或评论，不等于全量数据 API，也不是 SLA。
+
+按 30 天计算，5 个社区每 6 小时各读取一页约 600 次/月，余下 400 次才可用于续页、评论和重试；活跃社区可能超页漏采，须先量实际负载。免费档不要求自动充值，试验不充值、不绑定付费方案，额度不足即停；没有凭证或真实取数验收，本仓库尚未接入该 provider。
+
+如果必须长期免费且不依赖第三方赠额，可申请 [Reddit 官方 Data API](https://support.reddithelp.com/hc/en-us/articles/16160319875092-Reddit-Data-API-Wiki) 的符合条件访问，审批和免费资格不保证，商业用途另行确认。历史研究可下载 [Arctic Shift dumps](https://github.com/ArthurHeitmann/arctic_shift) 后本地检索，避开公共查询端点，但仍有磁盘/处理成本，不能满足近期 12 小时目标。非 Reddit 研究可优先已接入的 Bluesky 或 [HN 官方 API](https://github.com/HackerNews/API)，不能把它们当作 Reddit 内容备用。没有核实到同时满足无审批、持续免费、大流量、完整 Reddit 覆盖的可靠服务。
+
 ## 成本口径
 
 目标为 **$0.07 / 1,000 条有效独立内容及以下**。有效内容必须通过 schema/身份校验并成功落库；分别记录帖子、评论、去重后内容和更新观测，不能将重复刷新当成新帖子降低单价。
@@ -38,13 +46,13 @@ Arctic Shift 上游说明关键词组合可能触发查询超时，建议缩小 
 
 ### 低价商业候选（仅文档报价，未带凭证实测）
 
-| 来源 / 端点 | 2026-10-18 可见标价 | 达标所需有效独立条数/次 | 下一验证点 |
+| 来源 / 端点 | 核对的正常标价 | 达标所需有效独立条数/次 | 下一验证点 |
 | --- | --- | --- | --- |
 | [TwitterAPIs 标准读取](https://www.twitterapis.com/pricing) | $0.0008/次 | ≥12 | 账号与关键词分别统计；20 条满页等效 $0.04/千条，不能假定总是满页 |
 | [TwitterAPIs replies-complete](https://www.twitterapis.com/pricing) | $0.0024/次 | ≥35 | 继续游标、直接/嵌套回复边界、截断；不能套用标准端点价格 |
 | [GetXAPI 标准读取](https://www.getxapi.com/pricing) | $0.001/次 | ≥15 | 搜索/时间线具体端点价、空页和重试计费 |
-| [Redditapis 普通读取](https://www.redditapis.com/pricing) | $0.002/次 | ≥29 | 评论分页/树是否截断；深度搜索等特殊端点另价 |
-| [CiteRocket 标准读取](https://www.citerocket.com/pricing) | 一次性 $10/10,000 credits，标准调用 1 credit，等效 $0.001/次 | ≥15 | 套餐/端点 credits、真实页大小及回复展开费用 |
+| [Redditapis 普通读取](https://www.redditapis.com/pricing) | 10 月 20 日：$0.0015/次，付费充值从 $10 起；另有页面标称每月 1,000 次免费读取 | ≥22（付费部分） | 先核对持续免费档，不充值；评论分页/树截断、实际页收益与特殊端点另价仍需验证 |
+| [CiteRocket 标准读取](https://www.citerocket.com/pricing) | 10 月 20 日：公开订阅从 $19/月、25,000 credits 起；标准读取 1 credit | 按整月实际使用量算，不套满额单价 | 当前页面未复核到旧 $10/10,000 包价，不沿用；一次性免费 1,000 credits 不算持续免费来源，本轮不采购 |
 
 10 月 19 日补充：TwitterAPIs 价格页自述整体平均约 13 条/次、搜索约 8 条/次。搜索按正常价折算约 **$0.10/千条**，尚未计失败、重复与无效记录，不能按 20 条满页报价认定达标；下一步仅优先考察账号读取。TwitterAPIs/GetXAPI 的购买充值起点均为 $10，不等于少量调用费或采购授权。
 
@@ -59,7 +67,7 @@ Arctic Shift 上游说明关键词组合可能触发查询超时，建议缩小 
 | [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) | Reddit 帖子、评论、ID；现有 adapter | 保留主路径，先解决受限查询恢复；月度归档仅作历史补充，不能替代增量新鲜度 |
 | [PullPush](https://pullpush.io/) | Reddit 搜索线索，REST；当前暂停免费接入 | 本环境首次数据请求 429 且明确拒绝免费 agent 抓取；未重试、未绕过、未开发 adapter。若需商业授权，重新核对正常费用后再决定 |
 | TwitterAPIs / GetXAPI | X 账号、查询、回复；REST | 首批择一家实测，另一家作为对照；长期成本准入后再确定凭证与试验预算 |
-| Redditapis / CiteRocket | Reddit 商业补充；REST | 仅在正常月费与单位价均达标后试验，不因免费积分优先接入 |
+| Redditapis / CiteRocket | Reddit 补充候选；REST，未接入 | Redditapis 先核对页面标称的持续免费档；CiteRocket 仅一次性赠额，不作为免费主源。付费方案当前排除，上游独立性与商业使用权限均未验 |
 | [Bluesky AppView](https://docs.bsky.app/) | 首个新平台试点：公开账号帖子与作者回复已初步接入；搜索/讨论展开仍候选 | 原生 AT URI 身份、opaque cursor；排除 feed 中他人转发和置顶。两页真实闭环通过，未知指标时刻保持 null；未验持续运行与完整覆盖 |
 | [Steam 评论](https://partner.steamgames.com/doc/store/getreviews)、[Forem](https://developers.forem.com/api/v1) | 评价/文章评论候选 | 第二批用于检验 cursor 与嵌套评论差异；核对目标类型与指标单位 |
 | [HN Firebase](https://github.com/HackerNews/API)、[Algolia](https://hn.algolia.com/api) | 技术讨论与搜索候选 | 按节点读取的请求放大、父子关系和删除；两接口不算独立内容供应链 |
