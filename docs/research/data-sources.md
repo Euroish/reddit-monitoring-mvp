@@ -1,6 +1,6 @@
 # 数据源研究与选型
 
-整理日期：2026-10-18；2026-10-20 更新 E1 与 Reddit 吞吐探测。来自 `d8b481b` 中的 `docs/数据源研究.md`（2026-10-16 至 18 日聊天导出），结合当前源码和已有 Linux 采集证据整理。价格表于 10 月 18 日初核，10 月 19 日复核 TwitterAPIs/GetXAPI，10 月 20 日复核 Redditapis/CiteRocket；其余名录保留为待验证线索，不承诺当前免费额度、版本、覆盖或稳定性。实施顺序见 [开发路线](../plans/source-expansion.md)。
+整理日期：2026-10-18；2026-10-20 更新 E1 与 Reddit 吞吐探测，10 月 23 日复核用户评价与上游维护记录。来自 `d8b481b` 中的 `docs/数据源研究.md`（2026-10-16 至 18 日聊天导出），结合当前源码和已有 Linux 采集证据整理。价格表于 10 月 18 日初核，10 月 19 日复核 TwitterAPIs/GetXAPI，10 月 20 日复核 Redditapis/CiteRocket；其余名录保留为待验证线索，不承诺当前免费额度、版本、覆盖或稳定性。实施顺序见 [开发路线](../plans/source-expansion.md)。
 
 ## 证据与结论
 
@@ -36,6 +36,18 @@ Arctic Shift 上游说明关键词组合可能触发查询超时，建议缩小 
 
 如果必须长期免费且不依赖第三方赠额，可申请 [Reddit 官方 Data API](https://support.reddithelp.com/hc/en-us/articles/16160319875092-Reddit-Data-API-Wiki) 的符合条件访问，审批和免费资格不保证，商业用途另行确认。历史研究可下载 [Arctic Shift dumps](https://github.com/ArthurHeitmann/arctic_shift) 后本地检索，避开公共查询端点，但仍有磁盘/处理成本，不能满足近期 12 小时目标。非 Reddit 研究可优先已接入的 Bluesky 或 [HN 官方 API](https://github.com/HackerNews/API)，不能把它们当作 Reddit 内容备用。没有核实到同时满足无审批、持续免费、大流量、完整 Reddit 覆盖的可靠服务。
 
+### 评价、维护与运行证据（2026-10-23）
+
+不把供应商榜单、品牌总评分或进程成功当作 Reddit 数据质量。独立评价样本小、搜索摘要过时以及页面缓存口径不同均单独标明；本轮未运行收费 Actor、未注册或充值供应商账号，也未采集业务目标内容。
+
+- **Arctic Shift 的收录风险已有维护者证据。** [#82](https://github.com/ArthurHeitmann/arctic_shift/issues/82) 中用户 10 月 15 日报告接口可用但没有新数据；维护者承认 Reddit 改动引发中断，16 日表示已基本追上。[#53](https://github.com/ArthurHeitmann/arctic_shift/issues/53) 中维护者 10 月 17 日说明新评论 ID 上线后评论不会 100% 完整、采集可能延迟，21 日确认新 ID 已覆盖全部评论。此前 90%+、理想 95% 是维护者预期，不是本项目测得的覆盖率。这是独立于查询 422 的上游收录问题，不能推断所有 timeout 的原因，也不能继续把近期评论视为完整流。
+- **Redditapis 仍缺少长期口碑。** [Uneed](https://www.uneed.best/tool/redditapis/reviews) 只有 4 条评价；其中可见“当日测试两个线程”和“刚注册约一小时后首次取回评论树”的短期成功反馈，也有关于删除内容覆盖和每次返回量/计费的疑问。本次未找到独立的月度免费额度续期或长期可用性报告；免费档保留为待验对照，不提升为可靠主源。搜到的旧 $0.002/一次性赠额摘要不覆盖当前官网另写的持续免费声明，但官网声明也不能替代账号验证。
+- **较有实际使用量的新候选是 Apify 的 [fatihtahta/reddit-scraper-search-fast](https://apify.com/fatihtahta/reddit-scraper-search-fast/reviews)。** 页面约 4.1 分、二十余条评分、约 3,300 月活跃用户；[公开 Actor 元数据](https://api.apify.com/v2/acts/fatihtahta~reddit-scraper-search-fast) 显示 10 月 22 日仍有更新，近 30 天 228,795 次运行中 222,926 次成功，另有失败、超时和主动取消。页面成功率与全部运行比例口径不同；这些都是平台统计，不是独立覆盖/延迟验收，不能拿来承诺优于 Arctic Shift。
+- **只允许用 Apify 持续免费额度小试，不把它包装成低价大流量来源。** [平台 Free 计划](https://apify.com/pricing) 每月 $5，无需信用卡，用尽后暂停到下周期；该 Actor 元数据的 FREE 档为 $0.00149/结果，页头“from $1.19/千条”属于更高付费档，不能套给免费用户。每月账面上限约 3,300 条，其他费用/重复结果须留余量；超额正常价 $1.49/千条高于项目目标，故不充值、不升级，不作为大规模长期付费方案。没有凭证或内容样本，尚未验证本账号可用性。
+- **更便宜或更高分的 Actor 不自动入选。** [opportunity-biz](https://apify.com/opportunity-biz/reddit-scraper) 虽标 $0.05/千条，但只有 8 个累计用户、无评分，且同时收平台使用费；[automation-lab](https://apify.com/automation-lab/reddit-scraper) 明确将评论、深层树与投票指标列为 best-effort，部分未知指标会输出 0。因此不能仅按标题价、星级或“运行成功”替代有效独立内容/字段完整性比较。
+
+结论：现有证据不足以证明存在既免费大流量、又更稳定完整的 Reddit 主源；较值得比较的是有持续免费额度且有实际使用量的 Actor 与 Redditapis 免费档，前提仍是同目标/窗口的有界内容验收。Arctic Shift 保留历史补充和抽样用途，不依赖它保证近期全量评论。来源实施顺序仍只在开发路线维护。
+
 ## 成本口径
 
 目标为 **$0.07 / 1,000 条有效独立内容及以下**。有效内容必须通过 schema/身份校验并成功落库；分别记录帖子、评论、去重后内容和更新观测，不能将重复刷新当成新帖子降低单价。
@@ -64,10 +76,11 @@ Arctic Shift 上游说明关键词组合可能触发查询超时，建议缩小 
 
 | 来源 | 目标与接入类型 | 验证重点 / 取舍 |
 | --- | --- | --- |
-| [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) | Reddit 帖子、评论、ID；现有 adapter | 保留主路径，先解决受限查询恢复；月度归档仅作历史补充，不能替代增量新鲜度 |
+| [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) | Reddit 帖子、评论、ID；现有 adapter | 保留历史补充/抽样与受限查询恢复；维护者已说明新 ID 后近期评论不完整且可能延迟，不能保证增量新鲜度或全量覆盖 |
 | [PullPush](https://pullpush.io/) | Reddit 搜索线索，REST；当前暂停免费接入 | 本环境首次数据请求 429 且明确拒绝免费 agent 抓取；未重试、未绕过、未开发 adapter。若需商业授权，重新核对正常费用后再决定 |
 | TwitterAPIs / GetXAPI | X 账号、查询、回复；REST | 首批择一家实测，另一家作为对照；长期成本准入后再确定凭证与试验预算 |
 | Redditapis / CiteRocket | Reddit 补充候选；REST，未接入 | Redditapis 先核对页面标称的持续免费档；CiteRocket 仅一次性赠额，不作为免费主源。付费方案当前排除，上游独立性与商业使用权限均未验 |
+| [Apify / Fatih Reddit Actor](https://apify.com/fatihtahta/reddit-scraper-search-fast) | 搜索、社区、帖子/评论候选；未接入 | 仅比较每月 $5 免费额度内的小样本；FREE 档 $1.49/千结果，超额不符合单位成本目标，不充值、不按广告起步价外推 |
 | [Bluesky AppView](https://docs.bsky.app/) | 首个新平台试点：公开账号帖子与作者回复已初步接入；搜索/讨论展开仍候选 | 原生 AT URI 身份、opaque cursor；排除 feed 中他人转发和置顶。两页真实闭环通过，未知指标时刻保持 null；未验持续运行与完整覆盖 |
 | [Steam 评论](https://partner.steamgames.com/doc/store/getreviews)、[Forem](https://developers.forem.com/api/v1) | 评价/文章评论候选 | 第二批用于检验 cursor 与嵌套评论差异；核对目标类型与指标单位 |
 | [HN Firebase](https://github.com/HackerNews/API)、[Algolia](https://hn.algolia.com/api) | 技术讨论与搜索候选 | 按节点读取的请求放大、父子关系和删除；两接口不算独立内容供应链 |
