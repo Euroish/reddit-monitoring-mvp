@@ -27,7 +27,7 @@
 
 ## 工程演进方向
 
-整体采用模块化单体。先核对并整合已有开发分支成果，避免重做 E0 与 Bluesky；随后在用户本地 Chrome + OpenCLI 验证真实会话搜索，通过后接入现有内容写入与查询。浏览器留在可正常访问的平台和网络，Linux 服务器继续承载 API、worker 与 PostgreSQL。ego-lite 是后续可替换执行环境候选，不同时引入第二套浏览器管理。部署及数据契约见 [架构](architecture.md)，本地起步命令见 [开发说明](development.md#本地-reddit-浏览器验证)。
+整体采用模块化单体。先核对并整合已有开发分支成果，避免重做 E0 与 Bluesky；随后在用户本地 Chrome + OpenCLI 验证真实会话搜索，通过后接入现有内容写入与查询。浏览器留在可正常访问的平台和网络，Linux 服务器继续承载 API、worker 与 PostgreSQL。采集执行环境统一采用 Chrome/Chromium + OpenCLI；ego-lite 因缺少 Linux 支持排除。部署及数据契约见 [架构](architecture.md)，本地起步命令见 [开发说明](development.md#本地-reddit-浏览器验证)。
 
 来源、内容/观测、项目、研究、分析与运维各有明确职责；它们共享基础能力，但不共享任意写表权限。字段映射、数据整理、schema 演进、旧链路退役、前端组织与发布兼容纳入同一工程路线。DS 等模型按需参与查询建议与分析，采集步骤采用可复现脚本。
 

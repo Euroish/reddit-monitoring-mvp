@@ -10,7 +10,7 @@
 | X / TwitterAPI.io | 账号、搜索、ID adapter；媒体/引用/可空指标；默认禁用、独立预算 | 无真实凭证验收，不算稳定生产来源 |
 | 调度与落库 | 来源生命周期、逐页事务、幂等、checkpoint、高水位、公平领取、有限重试、预算与心跳 | 无外部浏览器执行端/导入入口或跨 provider 自动路由；请求登记不是账单 |
 | 内容使用 | 统一查询/统计、公共检索投影、详情、个人保存/注释、有界导出、冻结研究成员 | 只搜索已存内容；即时统计/分页不保证同一快照；旧榜单/热度仍用旧 Reddit 模型 |
-| 扩展基础 | ContentProvider + capability、统一身份/独立观测；类型含 reddit/x/instagram/web | web/Instagram 无真实 adapter；Bluesky 仅在开发分支；OpenCLI/ego-lite 均未接入 |
+| 扩展基础 | ContentProvider + capability、统一身份/独立观测；类型含 reddit/x/instagram/web | web/Instagram 无真实 adapter；Bluesky 仅在开发分支；OpenCLI 未接入；ego-lite 已排除 |
 | 运维 | 41 个 SQL 迁移（至 039）、备份/恢复工具、发布 manifest、systemd/Nginx 模板 | 公网 HTTPS、持续负载、多用户容量、自动保留尚未验收 |
 
 `965bff1` 已随 PR #2 合入：修复 Arctic Shift 小页重叠分页、未耗尽页缺 checkpoint、未知源时间覆盖已知正文、无变化投影重复写入及数据库暂态错误分类。同秒饱和停止并保留边界；422 只有正文含 timeout/slow down 才重试。自动分窗未实现。
@@ -54,7 +54,7 @@ E0 的 [7f8fa37 云 CI](https://github.com/Euroish/reddit-monitoring-mvp/actions
 
 ## 当前决定与开发入口
 
-优先 Reddit 全站范围关键词帖子监测与有界历史搜索，完整评论延后；官方申请与全站 dumps 不作为当前路径。先在用户本地 Chrome + OpenCLI 做真实搜索，ego-lite 暂留为执行环境候选。单账号容量、关键词数、会话可用时长与十二小时延迟目标都需实测，不能由并发或账号数推定。
+优先 Reddit 全站范围关键词帖子监测与有界历史搜索，完整评论延后；官方申请与全站 dumps 不作为当前路径。先在用户本地 Chrome + OpenCLI 做真实搜索；按用户决定，ego-lite 因缺少 Linux 支持排除。单账号容量、关键词数、会话可用时长与十二小时延迟目标都需实测，不能由并发或账号数推定。
 
 统一执行顺序在[工程路线](plans/source-expansion.md)：整合已有分支 → 本地验证 → 有界结果导入同一内容写入链路 → 持久化调度与 48–72 小时验收。浏览器端与服务器职责、分页和提交语义见[架构](architecture.md#浏览器采集部署与结果契约待实现)，命令见[开发说明](development.md#本地-reddit-浏览器验证)。现有全局网络开关不会注册 OpenCLI provider，CLI 返回结果也不会自动落库。
 

@@ -53,7 +53,7 @@ npm --prefix apps/web run dev
 
 ## 本地 Reddit 浏览器验证
 
-此阶段在用户本地执行，先不部署 Linux 浏览器、不接 ego-lite/Agent Reach，也不启用项目来源 worker。需要正常可访问 Reddit 的 Chrome/Chromium 和人工登录；OpenCLI 使用 Browser Bridge 扩展和本地 daemon，具体安装见[固定版本说明](https://github.com/jackwener/OpenCLI/blob/fe5f1d96aff01c32fd84f86b52af922bfe6ca93f/README.md)。CLI 需 Node.js ≥20.18.1，项目开发仍按 Node22+。
+此阶段在用户本地执行，先不部署 Linux 浏览器、不接 Agent Reach，也不启用项目来源 worker。需要正常可访问 Reddit 的 Chrome/Chromium 和人工登录；OpenCLI 使用 Browser Bridge 扩展和本地 daemon，具体安装见[固定版本说明](https://github.com/jackwener/OpenCLI/blob/fe5f1d96aff01c32fd84f86b52af922bfe6ca93f/README.md)。CLI 需 Node.js ≥20.18.1，项目开发仍按 Node22+。
 
 以下命令逐条运行，安装到本机工具环境，不加入项目运行依赖。2.0.2 是已审查版本号，不代表已经在用户设备验收；还需记录实际加载的 Reddit adapter 文件/提交或摘要、扩展版本及本地覆盖配置，版本号本身不足以确定执行代码。
 
@@ -165,7 +165,7 @@ node --import tsx --test tests/integration/source-content-postgres.test.ts
 
 Linux 已有一次回环部署验收，版本与范围见 [状态](status.md)。`deploy/` 包含 API、新来源 worker 和旧 Reddit 服务模板；部署前核对 Node 可执行路径、工作目录、环境、服务用户、数据库、真实 provider 与内存预算。不要把模板复制即视为可上线。
 
-浏览器采集的目标拓扑是本地执行、服务端接收和存储，尚未实现自动上传或远程领取。现有 Linux 模板不包含浏览器/会话管理；云服务器网络与真实登录必须另验。常开专用设备只在本地链路和持续负载验收后考虑。ego-lite 的 macOS/Windows 支持及 Linux 路线图见[研究快照](research/data-sources.md#jsonl-独立复核与-ego-lite-的位置)，不按 Linux 安装命令推断其可运行。
+浏览器采集的目标拓扑是本地执行、服务端接收和存储，尚未实现自动上传或远程领取。现有 Linux 模板不包含浏览器/会话管理；云服务器网络与真实登录必须另验。常开专用设备只在本地链路和持续负载验收后考虑。ego-lite 因缺少 Linux 支持已排除，不安装或适配；研究依据见[研究快照](research/data-sources.md#jsonl-独立复核与-ego-lite-的位置)。
 
 0.9.1模板同时限制/readyz与/api/readyz；公网smoke检查两条。Nginx登录/注册按$binary_remote_addr做20次/分钟、burst5边缘限流，不信任任意XFF；API仍有代理socket地址共用的默认认证总量桶，须按实际并发明确部署容量，不能把模板静态回归称为TLS/反代运行验收。注册/bootstrap/改密共用12–128字符新密码政策，旧短密码只保留登录兼容。
 

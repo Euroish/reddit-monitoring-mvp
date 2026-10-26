@@ -2,7 +2,7 @@
 
 2026-10-26 统一文档；原研究取数/价格证据日期保留在各段，未重新验证全部服务。来源为 `d8b481b` 的历史研究、10 月 19–23 日原始请求/源码及 JSONL 独立复核。本次仅重新读取 OpenCLI/ego-lite 关键源码，没有真实 Reddit 请求、付费调用或浏览器登录验收。main 实现和 dev/root 分支成果的区别见[状态](../status.md)。
 
-**当前判断：** 优先在用户本地 Chrome + OpenCLI 验证全站范围关键词帖子搜索；Arctic Shift 保留为定向/已知 ID 补充。完整评论延后；官方申请和全站 dumps 不作为当前实施路径。ego-lite 是可替换执行环境候选；Agent Reach 与热点聚合项目不构成独立 Reddit 上游。设计统一在[架构](../architecture.md#浏览器采集部署与结果契约待实现)，执行顺序只在[工程路线](../plans/source-expansion.md)维护。
+**当前判断：** 优先在用户本地 Chrome + OpenCLI 验证全站范围关键词帖子搜索；Arctic Shift 保留为定向/已知 ID 补充。完整评论延后；官方申请和全站 dumps 不作为当前实施路径。按用户 2026-10-26 决定，ego-lite 因缺少 Linux 支持排除，不再作为执行环境候选；Agent Reach 与热点聚合项目不构成独立 Reddit 上游。设计统一在[架构](../architecture.md#浏览器采集部署与结果契约待实现)，执行顺序只在[工程路线](../plans/source-expansion.md)维护。
 
 ## 证据与结论
 
@@ -153,7 +153,7 @@ Agent Reach 还把空列表归为上游失败，且统一 `text` 不读取 `self
 
 [ego-lite 固定提交 `d392204`](https://github.com/citrolabs/ego-lite/tree/d392204d1ea1a8027a591ab2b0129c2e11d85f26) 的 README、Node helper 源码与原生绑定文档表明：它提供本机已登录浏览器、TaskSpace 和 `page.evaluate`/`page.fetch` 等执行能力；当前 README 支持 macOS/Windows，Linux 仍在路线图。公开仓库是 helper/skill 等，浏览器原生绑定由单独下载的应用提供，不能因仓库 MIT 就推断可在 Linux 编译完整浏览器。本环境未发现 `ego-browser` 命令，未安装、未真实运行；宣传中的速度、低验证码率和免费不构成 Reddit 稳定性证据。
 
-OpenCLI 当前通过 daemon + Browser Bridge 扩展调用 Page，ego-lite 使用自己的原生桥；页面执行能力相近不证明完整 CLI 可直接切换。Agent Reach 也绑定自己的浏览器 profile。因此当前先验证 Chrome + OpenCLI，ego-lite 作为替代执行环境候选，不能同时叠加三套会话管理。模型生成查询和分析不提供新的原始数据权限。
+OpenCLI 当前通过 daemon + Browser Bridge 扩展调用 Page，ego-lite 使用自己的原生桥；页面执行能力相近不证明完整 CLI 可直接切换。Agent Reach 也绑定自己的浏览器 profile。当前采用 Chrome + OpenCLI；用户已因 Linux 支持要求排除 ego-lite，不再安排其执行环境试验或适配。模型生成查询和分析不提供新的原始数据权限。
 
 2026-10-26 重新读取 [OpenCLI aeaff2b](https://github.com/jackwener/OpenCLI/tree/aeaff2b796efabb7fd46654112418ab61fcae917) 的 package.json、search.js、web-search.js 与安装说明：版本仍写 2.0.2，上述 capped、补全和输出元数据缺口仍见于源码；这是源码审查，没有重新运行真实搜索或新增离线验收。固定 npm 版本之外还应记录实际 adapter/覆盖配置及扩展版本。ego-lite 默认分支仍为 d392204，平台与原生绑定结论未变。单账号吞吐、账号池增益和长期十二小时新鲜度均没有本项目可采信的实测结果。
 
