@@ -1,6 +1,6 @@
 # 当前状态与下一步
 
-核对日期：2026-10-26。本文区分 main、未合入开发分支与部署；本次只同步文档，不合并业务代码、不应用迁移、不部署或启用采集。main 的代码基线仍为 `008f676`（应用代码沿用 `6bd18ad`，版本 0.9.1）。`dev/root@eb2a80e` 含后续 E0、Bluesky 和研究工作，尚未合入 main。
+核对日期：2026-11-10。本文区分 main、未合入开发分支与部署；本次只同步文档，不合并业务代码、不应用迁移、不部署或启用采集。main 的代码基线仍为 `008f676`（应用代码沿用 `6bd18ad`，版本 0.9.1）。`dev/root@eb2a80e` 含后续 E0、Bluesky 和研究工作，尚未合入 main。
 
 ## main 当前实现
 
@@ -8,9 +8,9 @@
 | --- | --- | --- |
 | Reddit / Arctic Shift | 社区/账号帖子与评论、帖子评论、范围内关键词、ID 成熟刷新；真实小样本落库通过 | 不支持无范围全站关键词；持续新鲜度、完整覆盖、自动缩窗未验或未实现；13 位评论 ID 刷新校验缺陷仍在 |
 | X / TwitterAPI.io | 账号、搜索、ID adapter；媒体/引用/可空指标；默认禁用、独立预算 | 无真实凭证验收，不算稳定生产来源 |
-| 调度与落库 | 来源生命周期、逐页事务、幂等、checkpoint、高水位、公平领取、有限重试、预算与心跳 | 无外部浏览器执行端/导入入口或跨 provider 自动路由；请求登记不是账单 |
+| 调度与落库 | 来源生命周期、逐页事务、幂等、checkpoint、高水位、公平领取、有限重试、预算与心跳 | 无新商业 Reddit adapter、外部导入或跨 provider 自动路由；请求登记不是账单 |
 | 内容使用 | 统一查询/统计、公共检索投影、详情、个人保存/注释、有界导出、冻结研究成员 | 只搜索已存内容；即时统计/分页不保证同一快照；旧榜单/热度仍用旧 Reddit 模型 |
-| 扩展基础 | ContentProvider + capability、统一身份/独立观测；类型含 reddit/x/instagram/web | web/Instagram 无真实 adapter；Bluesky 仅在开发分支；OpenCLI 未接入；ego-lite 已排除 |
+| 扩展基础 | ContentProvider + capability、统一身份/独立观测；类型含 reddit/x/instagram/web | web/Instagram 无真实 adapter；Bluesky 仅在开发分支；OpenCLI 已独立安装但未接入项目；ego-lite 已排除 |
 | 运维 | 41 个 SQL 迁移（至 039）、备份/恢复工具、发布 manifest、systemd/Nginx 模板 | 公网 HTTPS、持续负载、多用户容量、自动保留尚未验收 |
 
 `965bff1` 已随 PR #2 合入：修复 Arctic Shift 小页重叠分页、未耗尽页缺 checkpoint、未知源时间覆盖已知正文、无变化投影重复写入及数据库暂态错误分类。同秒饱和停止并保留边界；422 只有正文含 timeout/slow down 才重试。自动分窗未实现。
@@ -42,7 +42,10 @@ E0 的 [7f8fa37 云 CI](https://github.com/Euroish/reddit-monitoring-mvp/actions
 | 离线 / 10-23 | 同一新 ID 的 refreshIds 在联网前被 2–12 位校验拒绝，retryable=false；独立复核再次复现 | 本地缺陷已确认，未修复；不能解释匿名 403，也未证明业务部署已受影响 |
 | 真实联网 / 10-23 | 本服务器匿名列表 JSON、网站搜索各一次，均为网络安全 403 | 不代表本地登录浏览器同样失败；未执行真实登录搜索 |
 | 离线 / 10-23 | OpenCLI 三个基础合成场景＋三个独立边界场景，外网请求为 0 | 未覆盖完整 CLI、扩展、账号、真实页面和持续负载 |
-| 源码审查 / 10-26 | OpenCLI 最新 aeaff2b 的 Reddit 搜索仍有数量上限不报告 capped、日志承载完整性信息、补全失败不返回已发现 ID 的边界；ego-lite 提供另一路页面执行环境 | 未安装或运行这两个工具；不能将接口相似写成可直接互换 |
+| 源码审查 / 10-26 | OpenCLI aeaff2b 的 Reddit 搜索存在数量上限不报告 capped、补全失败不返回已发现 ID 等边界；ego-lite 无 Linux 支持 | 当日未安装或运行；后续安装不等于修复这些边界 |
+| 部署检查 / 10-28 | OpenCLI 2.0.2、扩展 1.0.26 与 Linux Chromium 安装；doctor、HTTPS/noVNC/Bridge 链路通过 | Reddit 登录出现 network-security 阻断及验证码失败，未取得已登录搜索数据；连通性不是采集成功 |
+| 当前服务检查 / 11-10 | public-tunnel、desktop、chrome、bridge 四项 reddit-browser 服务均 inactive；保持关闭 | 不代表业务 API/worker 的当前部署状态 |
+| 公开文档复核 / 11-10 | 重读 Reddit/X 供应商价格、搜索文档及 X 开源方案；Nitter 原仓库已归档 | 无供应商带凭证数据请求、采购或 X 登录验收；不能给出已证实的质量冠军 |
 
 原始证据目录：`output/research/reddit-access-20261023/`、`reddit-direct-20261023/`、`aggregation-projects-20261023/`、`reddit-audit-20261023/`。原 JSONL 与响应仅保存在研究机器，不要求开发者持有这些本地文件才能阅读文档；机制、版本、必要结果与上游链接见[来源研究](research/data-sources.md)。
 
@@ -50,12 +53,14 @@ E0 的 [7f8fa37 云 CI](https://github.com/Euroish/reddit-monitoring-mvp/actions
 
 2026-10-16 / `6bd18ad` 的 Linux 部署：API/Web 构建、compiled smoke、638 文件清单与 515 离线测试通过；数据库 41 迁移，API/worker/Nginx 启动和回环健康检查通过。Arctic Shift 首次 24 小时窗口 422，缩至一小时后帖子/评论各 5 条落库、API 读取成功，帖子重放新增 0，覆盖 partial。全仓类型检查另有上述 TS2835，不能用生产构建替代。
 
-当时发布目录 `/opt/reddit-monitoring-releases/6bd18ad816ad`、入口 `/opt/reddit-monitoring`；验证结束暂停测试来源，常驻配置 `SOURCE_NETWORK_ENABLED=false`。报告在当时服务器的 `/root/deployments/reddit-6bd18ad816ad/output/validation/live-source-20261016/result.json`。这不是 10 月 26 日运行状态、公网 HTTPS 或十二小时新鲜度验收；本次未重新部署。更早的 0.9.1 阶段结果见[历史交接](history/handoff.md)。
+当时发布目录 `/opt/reddit-monitoring-releases/6bd18ad816ad`、入口 `/opt/reddit-monitoring`；验证结束暂停测试来源，常驻配置 `SOURCE_NETWORK_ENABLED=false`。报告在当时服务器的 `/root/deployments/reddit-6bd18ad816ad/output/validation/live-source-20261016/result.json`。这不是 11 月 10 日业务运行状态、公网 HTTPS 或十二小时新鲜度验收；本次未重新部署。更早的 0.9.1 阶段结果见[历史交接](history/handoff.md)。
 
 ## 当前决定与开发入口
 
-优先 Reddit 全站范围关键词帖子监测与有界历史搜索，完整评论延后；官方申请与全站 dumps 不作为当前路径。先在用户本地 Chrome + OpenCLI 做真实搜索；按用户决定，ego-lite 因缺少 Linux 支持排除。单账号容量、关键词数、会话可用时长与十二小时延迟目标都需实测，不能由并发或账号数推定。
+Reddit 改为付费 API 主线：CiteRocket 按量读取作为首测候选，Redditapis 同目标对照；按实际分页、缺失和成本选择一家接入。价格、最低充值与包月切换依据只在[来源研究](research/data-sources.md)维护。完整评论延后；官方申请与全站 dumps 不作为当前路径。Arctic Shift 留作定向/已知 ID 补充，13 位 ID 刷新缺陷仍需修复。
 
-统一执行顺序在[工程路线](plans/source-expansion.md)：整合已有分支 → 本地验证 → 有界结果导入同一内容写入链路 → 持久化调度与 48–72 小时验收。浏览器端与服务器职责、分页和提交语义见[架构](architecture.md#浏览器采集部署与结果契约待实现)，命令见[开发说明](development.md#本地-reddit-浏览器验证)。现有全局网络开关不会注册 OpenCLI provider，CLI 返回结果也不会自动落库。
+执行顺序见[工程路线](plans/source-expansion.md)：整合已有分支 → 两家各有界真实取数 → 胜出 adapter 接入共享落库/API/UI → 48–72 小时延迟与费用验收。设计见[架构](architecture.md#付费-reddit-provider-接入设计待实现)，配置边界见[开发说明](development.md#付费-api-验证与配置边界)。本轮没有新增 adapter、配置项、数据库迁移或导入接口；网络开关不会自动注册候选供应商。
 
-本次文档同步只执行文档/差异检查，结果以提交及交付说明为准；未重跑应用全量类型、SQL 或浏览器检查，不覆盖上述失败记录。
+X 的 OpenCLI/twscrape 会话方法尚未实测；Twikit 作为后备研究，Nitter 归档后不选作主源，FxEmbed 仅为已知链接补全候选。已停止的云端 Reddit 浏览器服务保持关闭，ego-lite 继续排除。单账号容量和十二小时目标都没有新验收结果。
+
+本轮只更新文档，执行 docs:check 与差异检查；没有重跑应用全量类型、SQL 或浏览器检查，不覆盖上述失败记录。公开页面快照与请求元数据位于忽略的 `output/research/paid-review-20261110/`；10 月 28 日工具部署记录位于当时工作区 `output/validation/opencli-linux-20261028/result.json`。它们不随发布分发，也不包含本轮付费数据验收。

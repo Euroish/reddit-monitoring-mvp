@@ -4,7 +4,7 @@
 
 使用 Node.js 22+ 与 npm；Linux 可用 Bash，Windows 可用 PowerShell。下列 npm 命令从仓库根目录执行；Windows 管理工具与 Linux systemd 部署是不同入口。当前实现与验证缺口见 [状态](status.md)。
 
-2026-10-26 本文的项目命令对应 main；dev/root 的 E0 与 Bluesky/040 尚待整合，不在 main 直接配置 Bluesky。浏览器验证是独立的本地工具流程，不等于项目 provider 已注册。
+2026-11-10 本文的项目命令对应 main；dev/root 的 E0 与 Bluesky/040 尚待整合，不在 main 直接配置 Bluesky。候选付费 Reddit API 和 X 会话工具均未注册为项目 provider。
 
 ```powershell
 npm ci
@@ -51,28 +51,27 @@ npm --prefix apps/web run dev
 
 逐路径暂存并核对 cached diff，不用 reset/clean/stash 覆盖工作。push/合并按用户当前授权执行：获准推送 main 时先 fetch 核对远端，仅快进推送；远端有新提交则整合并重新验证，不 force push。历史日志的“不 push”只表示当时边界。token 不写入仓库或 remote URL。
 
-## 本地 Reddit 浏览器验证
+## 付费 API 验证与配置边界
 
-此阶段在用户本地执行，先不部署 Linux 浏览器、不接 Agent Reach，也不启用项目来源 worker。需要正常可访问 Reddit 的 Chrome/Chromium 和人工登录；OpenCLI 使用 Browser Bridge 扩展和本地 daemon，具体安装见[固定版本说明](https://github.com/jackwener/OpenCLI/blob/fe5f1d96aff01c32fd84f86b52af922bfe6ca93f/README.md)。CLI 需 Node.js ≥20.18.1，项目开发仍按 Node22+。
+当前 main 没有 CiteRocket/Redditapis adapter、环境变量、测试命令或 UI 配置项。先按[路线 E1a](plans/source-expansion.md#e1a两家有界对照选定一家)确认凭证、普通端点和测试费用上限，真实响应存私有 `output/`；后续只为胜出供应商开发正式配置。不要把任意 key 填入 `TWITTERAPI_IO_API_KEY` 或仅开启 `SOURCE_NETWORK_ENABLED` 就当成 Reddit 已接入。原有生产来源保持当前开关，不为研究默认启动 worker。
 
-以下命令逐条运行，安装到本机工具环境，不加入项目运行依赖。2.0.2 是已审查版本号，不代表已经在用户设备验收；还需记录实际加载的 Reddit adapter 文件/提交或摘要、扩展版本及本地覆盖配置，版本号本身不足以确定执行代码。
+新供应商上线顺序是：隔离库应用新增迁移 → 私有环境配置凭证 → 配置检查 → 注册但 disabled/零预算 → 单来源有界手动验收 → 核对实际扣费 → 设置批准的日/月预算与周期参数。现有请求/资源预算不能展示为美元硬限额；按单次最高费用保守限制调用，并核对供应商余额/限额。Redditapis 月包耗尽会动用按量余额，应用必须主动阻断超预算调用。读取账号用量不需要在每次取页前另调一遍收费接口。
+
+报告分清公开文档、真实数据请求、离线/SQL 和部署检查。保存端点/脱敏参数、UTC 时间、返回与有效独立条数、cursor/结束原因、错误与扣费；密钥、响应内容及原始报告不进 Git。没有凭证的 config-only 或文档检查不算真实采集成功。当前套餐/成本依据只在[来源研究](research/data-sources.md)维护。
+
+## X 本地会话验证（可选，未验收）
+
+先在正常可访问 X 的设备验证，保持之前停止的 Linux Reddit 浏览器服务关闭。OpenCLI 已审查的新快照为 [9bc5f5c](https://github.com/jackwener/OpenCLI/tree/9bc5f5ca132ec4d4e48d7ee517d4303bf159e8e8)，上游准备 2.0.3/扩展 1.0.27；服务器实际安装仍为 2.0.2/1.0.26，未升级。源码支持不等于所装版本含有同一行为；首次记录 CLI/adapter 摘要、扩展版本及会话所在 profile。
+
+先查看实际版本帮助，再用其支持的参数做少量只读搜索；下面是固定新源码的命令形状，**尚未在真实 X 会话执行**：
 
 ```text
-node --version
-npm install -g @jackwener/opencli@2.0.2
 opencli --version
-opencli doctor
-opencli reddit whoami
-opencli reddit search --help
-opencli reddit search "postgresql" --sort new --time day --limit 5 -f json
-opencli reddit search "postgresql" --sort new --time week --limit 25 -f json
+opencli twitter search --help
+opencli twitter search "postgresql" --product live --limit 5 -f json
 ```
 
-先安装 [OpenCLI 扩展](https://chromewebstore.google.com/detail/opencli/ildkmabpimmkaediidaifkhjpohdnifk)，保持浏览器运行并在其中登录；多个 profile 时按工具提示显式选择，不能猜测会话。将示例词换成真实目标，与人工同条件搜索核对结果/下一页。保存 stdout、stderr、退出码、参数和 UTC 起止时刻到本机私有 `output/`，不保存或上传 cookie/token。`whoami` 的账户信息同样不进 Git。
-
-真实网页排序、JSON 补全和 DOM 详情读取分开验收。日志中的缺失/截断不可丢弃；-f json 的成功 envelope 只表明命令返回，须按实际版本解析，不能把整个 JSON 当帖子数组。OpenCLI 的数量上限/十页上限不代表能取满，更不代表搜索完整。出现 429 按上游提示冷却；挑战/访问拒绝暂停检查，不自动换身份重试。当前没有已证明的单账号安全请求频率。
-
-通过后按[工程路线 E1b](plans/source-expansion.md#e1b有界结果导入闭环)开发有界导入，再做服务端任务领取/提交。现阶段结果仅在终端/本地文件，不会自动出现在项目页面；`SOURCE_NETWORK_ENABLED=true` 不会增加 OpenCLI provider。Linux 上仍运行 API/worker/PostgreSQL，本地只运行浏览器采集端。实际服务连接、HTTPS、执行凭证和导入命令在实现后更新本节，不能照未来设计猜测不存在的接口。
+所装版本若没有 `--product`，按自身帮助使用 `--filter live`，不要为对齐示例自动升级或重启已停止服务。保存 stdout、stderr、退出码和 UTC 时间；登录 cookie 留在本机，输出中的缺失值/错误不得推成零或完整结果。OpenCLI 一条命令可能发多次内部请求，CLI 成功退出不证明翻页耗尽。twscrape 作为后续单会话脚本化候选，暂不安装、导出 cookie 或上传账号数据库；没有已证明的单账号持续容量。遇访问拒绝/挑战停止，按[架构](architecture.md#x-会话采集的可选试验边界待验证)决定后续接入方式；目前没有自动导入/远程领取入口。
 
 ## 任务编排
 
@@ -165,7 +164,7 @@ node --import tsx --test tests/integration/source-content-postgres.test.ts
 
 Linux 已有一次回环部署验收，版本与范围见 [状态](status.md)。`deploy/` 包含 API、新来源 worker 和旧 Reddit 服务模板；部署前核对 Node 可执行路径、工作目录、环境、服务用户、数据库、真实 provider 与内存预算。不要把模板复制即视为可上线。
 
-浏览器采集的目标拓扑是本地执行、服务端接收和存储，尚未实现自动上传或远程领取。现有 Linux 模板不包含浏览器/会话管理；云服务器网络与真实登录必须另验。常开专用设备只在本地链路和持续负载验收后考虑。ego-lite 因缺少 Linux 支持已排除，不安装或适配；研究依据见[研究快照](research/data-sources.md#jsonl-独立复核与-ego-lite-的位置)。
+Reddit 付费 API 的目标拓扑沿用 Linux API/worker/PostgreSQL，不需要浏览器或用户 Reddit 登录。10 月 28 日临时浏览器服务安装与 noVNC 连通已验证，但 Reddit 登录被阻断；用户要求关闭后，public-tunnel、desktop、chrome、bridge 四项服务保持 inactive，本轮未重启。X 本地会话仅为可选试验，尚无自动导入或远程领取。ego-lite 继续排除；证据见[来源研究](research/data-sources.md)。
 
 0.9.1模板同时限制/readyz与/api/readyz；公网smoke检查两条。Nginx登录/注册按$binary_remote_addr做20次/分钟、burst5边缘限流，不信任任意XFF；API仍有代理socket地址共用的默认认证总量桶，须按实际并发明确部署容量，不能把模板静态回归称为TLS/反代运行验收。注册/bootstrap/改密共用12–128字符新密码政策，旧短密码只保留登录兼容。
 

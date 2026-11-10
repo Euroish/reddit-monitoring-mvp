@@ -1,10 +1,73 @@
 # 数据源研究与选型
 
-2026-10-26 统一文档；原研究取数/价格证据日期保留在各段，未重新验证全部服务。来源为 `d8b481b` 的历史研究、10 月 19–23 日原始请求/源码及 JSONL 独立复核。本次仅重新读取 OpenCLI/ego-lite 关键源码，没有真实 Reddit 请求、付费调用或浏览器登录验收。main 实现和 dev/root 分支成果的区别见[状态](../status.md)。
+复核日期：**2026-11-10**。重读供应商公开价格/接口文档、X 开源项目 README、提交元数据及 OpenCLI X 搜索源码；没有供应商带凭证数据请求、充值、购买或真实 X 会话验收。历史运行结果保留原日期。公开页面快照、获取状态在忽略的 `output/research/paid-review-20261110/`；本机直接读取 CiteRocket 价格/搜索说明网页得到 403，相关页面本轮由联网检索工具读取；这不证明带凭证 API 同样被拒绝，首测必须核对 Linux 出口。页面内容不证明取数质量。main 与未合入分支见[状态](../status.md)。
 
-**当前判断：** 优先在用户本地 Chrome + OpenCLI 验证全站范围关键词帖子搜索；Arctic Shift 保留为定向/已知 ID 补充。完整评论延后；官方申请和全站 dumps 不作为当前实施路径。按用户 2026-10-26 决定，ego-lite 因缺少 Linux 支持排除，不再作为执行环境候选；Agent Reach 与热点聚合项目不构成独立 Reddit 上游。设计统一在[架构](../architecture.md#浏览器采集部署与结果契约待实现)，执行顺序只在[工程路线](../plans/source-expansion.md)维护。
+**当前选择：Reddit 走付费 API，先比较 CiteRocket 与 Redditapis，再只接入胜出一家。** 低用量首测 CiteRocket；稳定高调用量比较 Redditapis 月包。Arctic Shift 保留定向/已知 ID 补充，完整评论延后。X 的免付费 API 路径先验证正常账号会话，不依赖 Nitter 公共实例。官方申请、全站 dumps 前置和 ego-lite 继续排除。唯一实施顺序见[工程路线](../plans/source-expansion.md)，设计见[架构](../architecture.md#付费-reddit-provider-接入设计待实现)。
 
-## 证据与结论
+## Reddit 付费候选与正常价格
+
+以下均为供应商自报报价，美元、未含税/支付费用；不是本项目真实账单、覆盖或稳定性验收。按相同端点、相同负载和真实有效页收益比较，免费赠额只降低试验现金支出。
+
+| 候选 / 一手价格来源 | 普通读取正常费用与入门支出 | 当前取舍 |
+| --- | --- | --- |
+| [CiteRocket](https://www.citerocket.com/pricing) | $10/10,000 credits 一次包；普通读取 1 credit，即 $0.001/次。另有 $19/月、25,000 credits；注册赠 1,000 credits 是一次性 | **低用量首测**；修正旧文档“未复核到 $10 包”。不按最大 limit 假设每次取满 |
+| [Redditapis](https://www.redditapis.com/pricing) | 按量 $0.0015/普通读取，最小充值 $10；每月 1,000 免费读取与注册 $0.50 分开。月包 $19/30,000、$49/100,000 次读取，未用额度滚存一个月 | **并列实测对照、稳定用量候选**；普通按量比 CiteRocket 贵 50%，月包同价含量更多。月包用尽会扣按量余额，应用须设上限 |
+| [ScrapeCreators](https://scrapecreators.com/) | $47/25,000 credits，折合 $0.00188/credit；$497/500,000 为 $0.000994/credit。[Reddit 搜索](https://docs.scrapecreators.com/v1/reddit/search/) 为 1 credit/请求；缺 upvote_ratio，按需详情补全另计 | 多平台候补；当前入门预付与普通调用成本高于首选，不为低价大包预购 |
+| [SociaVault](https://sociavault.com/pricing) | $29/6,000 credits，约 $0.00483/credit；$399/200,000 约 $0.001995/credit；端点消耗另核 | 当前价格不占优，暂不接入 |
+| [Apify / Fatih Actor](https://apify.com/fatihtahta/reddit-scraper-search-fast) | 店面 from $1.19/千结果；11 月 10 日公开元数据再次确认 FREE 档为 $1.49/千结果、GOLD 及以上 $1.19，不能用起步价替代所选档位；平台/附加操作费用按实际计划核对 | REST 候选质量不合格时才试；真实取数未验，异步 run/dataset 还增加集成成本 |
+| [Bright Data 社交采集](https://brightdata.com/products/web-scraper/social-media-scrape) | 正常按量 $1.50/千条交付记录，$499/月含 384,000；页面列 Reddit 关键词发现/帖子/评论，并标称每月 5,000 免费记录 | 需要供应商支持/多平台交付时的候补；按记录价明显高于有正常页收益的按次方案，实际质量未验，不因品牌推定优胜 |
+
+CiteRocket [搜索文档](https://www.citerocket.com/docs/listings/search) 公开全站/限定社区 q、new 等排序、time 档、limit 1–100 和 after cursor。它证明接口形状，**不证明 100 条页收益或任意 [from,to) 历史完整召回**。Redditapis [文档](https://www.redditapis.com/docs) 的普通搜索和高级深搜/评论展开不能混价：价格页把深度评论搜索和扩展评论列为 $0.02/次。首期不用高级评论端点。
+
+### 页收益、质量与套餐选择
+
+Redditapis 价格页公布的 14 天样本截至 10 月 29 日：成功读取的帖子搜索中位返回约 **9 条/次**、社区帖子约 25 条/次。按量折算分别约 $0.167 / $0.06 每千条返回内容，尚未扣无效/重复。样本排除失败且由供应商自行选择/统计，中位数也不等于项目平均页收益；不能据此计算我们的月度账单或认定它比 CiteRocket 完整。CiteRocket 尚无可比的本项目页收益证据。
+
+按无赠额正常价，CiteRocket $19 月包相对本家 $0.001 按量在约 19,000 次/月持平；Redditapis $19 月包相对本家 $0.0015 在约 12,667 次持平。**跨商比较**时，若质量/页收益相同，Redditapis $19 月包要超过约 19,000 次/月才比 CiteRocket 小包按量有利；满用 30,000 次相当于 $0.000633/次。实际用量不足就按固定月费除以实际有效内容，不能套满额单价。免费档、滚存和更大档位在账号确认后单列计算。
+
+Redditapis 的监测订阅与读取月包是不同产品：免费一个全站关键词，$19/月 Starter 标称 15 个 monitors 但仅 **1 个全站关键词**，$49 Growth 仅 3 个全站关键词。不能把“15 monitors”写成 15 个全站词，也不能假设读取月包附送监测。少量词低频轮询先用 API，webhook 不作开发前置。
+
+没有新的独立长期数据质量证据足以授予“最稳定”结论。旧研究 10 月 23 日的 Redditapis 少量短评、Apify 平台运行成功率不证明覆盖/新鲜度。本次 Fatih 店面仍有二十余评分与数千月用户，仅提高候选优先级；廉价 [opportunity-biz Actor](https://apify.com/opportunity-biz/reddit-scraper) 的低样本使用量、无评分和平台费使 $0.05/千条标题不足以入选。域名或公司页面不同不证明上游独立；商业用途、留存/删除与可导出权限仍未核实，真实试验和生产分别记录。
+
+## X 不购买 API 的可行路径
+
+这里的“不用 API”解释为不购买官方/第三方 API。OpenCLI、twscrape、Twikit 实际仍调用 X 网页内部接口，不是完全不接触 API；开发者承担登录和接口维护。以下只有文档/源码核查，没有本环境 X 数据验收。
+
+| 方法 / 固定一手依据 | 能做什么、仍依赖什么 | 当前选择 |
+| --- | --- | --- |
+| [OpenCLI X search / 9bc5f5c](https://github.com/jackwener/OpenCLI/blob/9bc5f5ca132ec4d4e48d7ee517d4303bf159e8e8/clis/twitter/search.js)；11 月 7 日提交 | 读已登录 x.com cookie，在页面内请求 SearchTimeline；支持词、from、Latest/Top 与 cursor 内部翻页。需要正常浏览器/Bridge 会话 | **先试正常设备上的少量搜索**。源码在已有结果后遇错误可 break 并返回数组；最终 cursor/结束原因不外显，部分未知指标补零，不能直接当完整采集页 |
+| [twscrape / d26aac0](https://github.com/vladkens/twscrape/tree/d26aac09325b7873a62c3a6ec92e7dea3c277051)；11 月 6 日提交 | 搜索、账号时间线、详情/回复；自持已授权账号会话，SQLite 保存 session，支持 cookie。默认缺账号时可能等待，limit 是目标条数而非请求硬上限 | 需要脚本化时的候选；单会话先试，设置运行时限/实际请求上限。README 的账号池功能不作为扩容依据，未知用户占位字段不能当真实指标 |
+| [Twikit / c3b7220](https://github.com/d60/twikit/tree/c3b7220866f8582009fe2d1155b6fe92192a2711)；最新提交 3 月 10 日 | 无开发者 API key，文档示例仍需用户登录与 cookies；支持 Latest 搜索/时间线 | 后备研究；当前最新提交距今约八个月，未验登录可用性，不先同时维护第二套客户端 |
+| [Nitter / 145ca9e](https://github.com/zedeus/nitter/tree/145ca9eb68d195a74598ae39a4d6da002b252c38) | GitHub 明示 **10 月 9 日归档**；README 记载下架要求，RSS 由实例决定且常关闭。匿名读实例只是将上游获取交给实例运营者 | **不作主源、不部署新实例**。修正旧文档“Nitter 归档日期未核实”；本轮未试公共 RSS，不能宣称所有 fork/实例均不可用 |
+| [FxEmbed 官方文档](https://docs.fxembed.com/) / 已知链接预览 | 公开服务可补已知 post 链接的正文/媒体等；仍是依赖第三方上游的公共接口 | 仅为已知 ID 补全候选，缺少未知关键词发现，不作为全站搜索替代；本轮未请求内容端点 |
+
+如果严格不调用接口，只从可见 DOM 读取，仍需要先有正常登录网页，且必须另实现/验证滚动、字段和结束语义；当前 OpenCLI X 搜索不是这条 DOM 路径。搜索引擎已索引链接只能作线索，不能证明完整正文、近期召回或评论树。本项目没有证明单账号可支撑大规模 X 采集，也没有免账号、免费且持续完整的全站方案。
+
+### X 付费备选与成本转折点
+
+| 来源 / 一手报价 | 正常价格与门槛 | 适用判断 |
+| --- | --- | --- |
+| [TwitterAPI.io](https://twitterapi.io/pricing)；已有 adapter | $0.15/千条**返回**帖子；每请求最低 $0.00015，空页也收费，充值额度不失效 | 稀疏词和小负载优先验现有实现；不是每请求固定 $0.00015。重复内容仍计费 |
+| [TwitterAPIs](https://www.twitterapis.com/pricing)；不同服务 | 标准 $0.0008/次，页面充值选项从 $10；完整历史 $0.0024/次、完整线程 $0.004/次 | 密集有效页可能更便宜；其 10 月 22–28 日自报搜索均值 11.44 条/次、29.6% 搜索为空，约 $0.070/千返回条，未计去重/失败。修正旧 8 条均值与 replies-complete 混价 |
+| [GetXAPI](https://www.getxapi.com/pricing) | 标准扣余额 $0.001/次；Starter $5 仅一次、4,500 次/30 天；Pro $15/月，卡付 $30 额度即 30,000 次，额外 $10 为 crypto 奖励 | 稳定高量再比；不把带 crypto 赠额的 40,000 次标题套给卡付，不沿用旧“统一 $10 起充” |
+
+稀疏页比较必须逐请求计算：TwitterAPI.io 的帖子读取为 `max(返回条数, 1) × $0.00015`，TwitterAPIs 标准为每次 $0.0008。单次返回约 5 条以内前者更便宜；混合负载按全部请求求和，不能仅拿全局平均条数套 minimum。GetXAPI Pro 与 TwitterAPIs 标准按量在约 18,750 次/月持平（同等页收益、忽略赠额、仅普通端点），更低调用量月包可能浪费。两家未接入，不能只替换 TwitterAPI.io base URL。
+
+## 成本与验收口径
+
+原 $0.07/千条仍是比较目标；用户已改为允许付费方案研究，旧的“排除所有充值/套餐”“只试免费额度”“超目标直接删除候选”不再作为当前执行规则。超过目标须说明真实收益和月费后确定取舍；本轮没有确定采购金额或月度预算。正常费用、赠额后的现金支出、最低充值、固定套餐和余额分别报告。
+
+`有效成本/千条 = 窗口内全部可归属费用 ÷ 去重且成功落库的有效内容数 × 1000`。
+
+帖子/评论分开，新增内容与更新观测分开；空页、失败、重试、重复、补全和高级端点计入分子。分母为零报告不可计算。预测、请求估算与账单对账分别存证，服务器/存储/会话维护费用另列；跨 provider 新增边际覆盖另算。正常价达到旧目标所需有效独立条数约为 CiteRocket ≥15/次、Redditapis 按量 ≥22/次，不能直接用最大 limit 推定达标。免费试用不抵扣用于长期选型的正常费用。
+
+初始场景按 30 天、5 词、每两小时一轮一页约 1,800 次/月：正常按量消耗 CiteRocket $1.80、Redditapis $2.70，尚未含续页/失败/历史任务，也不是首次最低支出；先取实际样本再决定充值与套餐。详细实验、落库和持续验收只在[工程路线 E1](../plans/source-expansion.md#e1付费-reddit-搜索接入与持续验收)维护，不为每个候选同步开发 adapter。
+
+## 历史采集证据与机制复核
+
+以下取数/离线结果来自 10 月 16–26 日保存的原始响应、源码与 JSONL 独立复核；本轮未重新运行。10 月 28 日新增的真实事实是 OpenCLI/Chromium/noVNC 安装连通通过，随后 Reddit 登录被 network-security 阻断、验证码尝试失败，没有成功的登录搜索样本。浏览器服务已按用户要求关闭，11 月 10 日四项服务检查均 inactive。历史“未安装”只适用于其注明日期，不再表示当前机器没有 OpenCLI。
+
+### 已保存的直接证据
 
 | 证据 | 可得结论 | 不能推出 |
 | --- | --- | --- |
@@ -20,37 +83,9 @@ Arctic Shift 上游说明关键词组合可能触发查询超时，建议缩小 
 
 当前 connector 对帖子关键词发送 `query`、对评论发送 `body`；用户原文的 `title=help` 请求与应用参数不同，因此该 curl 的 422 不能直接当成应用关键词采集失败的复现。后续测试须保留实际端点、参数和响应错误正文。
 
-## 长期成本准入
+### 官方路线背景（10 月 23 日核对，非本轮重验）
 
-先筛价格，再花时间接入。赠送积分、限时免费和首月优惠不计入长期成本优势；按优惠结束后的正常单价、预计请求量、实际有效页大小和最低消费计算月度费用。免费额度须能持续覆盖目标负载，超额费用也纳入判断。
-
-- **优先：** 可持续免费且配额适用的来源，或正常计费仍满足 $0.07/千条目标、预计月费在预算内的低价来源。
-- **排除：** 试用后高价、强制高额订阅、必须大额预付才有低单价的方案；不作为默认备用接入。
-- **暂不投入：** 正常价格、长期额度或预计月费不明确的服务，先补足成本依据，不为试用奖励开发 adapter。
-
-下面的商业价格表只是正常按量报价线索，尚需按具体目标负载核算；不是已通过准入的来源清单。单位价达标也不能替代总月费判断。
-
-### 无需预付的当前候选
-
-用户当前排除需充值或固定付费的来源，当前优先浏览器自采；以下免费服务仅留作补充对照线索，不并行采购或接入。10 月 20 日重新读取 [Redditapis 价格页](https://www.redditapis.com/pricing)，其中明确标注“1,000 reads every month, on every account”，与一次性 $0.50 注册赠送不同；付费充值起点 $10 不能被误写成免费使用的必要条件。仍需在实际账号核对开通条件、适用端点和超额阻断，不能把网页自述当成已验收。其页面另称免费提供一个全站关键词的新帖子监测、webhook 投递、约每 60 秒检查；免费监测不支持指定 subreddit 或评论，不等于全量数据 API，也不是 SLA。
-
-按 30 天计算，5 个社区每 6 小时各读取一页约 600 次/月，余下 400 次才可用于续页、评论和重试；活跃社区可能超页漏采，须先量实际负载。免费档不要求自动充值，试验不充值、不绑定付费方案，额度不足即停；没有凭证或真实取数验收，本仓库尚未接入该 provider。
-
-不能再把申请传统免费 Data API 当作长期默认路线。[官方 10 月 8 日 changelog](https://support.reddithelp.com/hc/en-us/articles/54353370049684-Changelog-October-8-2026)（10 月 23 日通过公开 Help Center JSON API 读取全文）宣布：2026-10-31 停止接受新的 public API 访问申请，2027-01-12 开始移除未登记/未响应迁移联系者的访问，2027-03 结束剩余 public API 访问；Reddit RSS 于 2026-11-13 停止支持。这不等于所有商业授权数据服务一起关闭，也不能用旧 Data API Wiki 的免费额度推断未来可用性。Devvit、商业许可与学术项目分别核查，不能互换资格。
-
-历史研究的另一种交付是下载 [Arctic Shift dumps](https://github.com/ArthurHeitmann/arctic_shift) 后本地检索，避开公共查询端点，但仍有磁盘/处理成本，不能满足近期 12 小时目标。[Reddit for Researchers](https://support.reddithelp.com/hc/en-us/articles/49381918834964-Reddit-for-Researchers-Program) 对获批非商业学术项目免费，经 BigQuery Analytics Hub 提供最近五年历史、**延迟六个月、按月更新**的数据；需要高校归属、机构担保与伦理审查/豁免，不能供本产品近期监测或转供原始数据。Bluesky 或 [HN 官方 API](https://github.com/HackerNews/API) 不是 Reddit 内容备用。没有核实到同时满足无审批、持续免费、大流量、完整 Reddit 覆盖的可靠服务。
-
-### 评价、维护与运行证据（2026-10-23）
-
-不把供应商榜单、品牌总评分或进程成功当作 Reddit 数据质量。独立评价样本小、搜索摘要过时以及页面缓存口径不同均单独标明；本轮未运行收费 Actor、未注册或充值供应商账号，也未采集业务目标内容。
-
-- **Arctic Shift 的收录风险已有维护者证据。** [#82](https://github.com/ArthurHeitmann/arctic_shift/issues/82) 中用户 10 月 15 日报告接口可用但没有新数据；维护者承认 Reddit 改动引发中断，16 日表示已基本追上。[#53](https://github.com/ArthurHeitmann/arctic_shift/issues/53) 中维护者 10 月 17 日说明新评论 ID 上线后评论不会 100% 完整、采集可能延迟，21 日确认新 ID 已覆盖全部评论。此前 90%+、理想 95% 是维护者预期，不是本项目测得的覆盖率。这是独立于查询 422 的上游收录问题，不能推断所有 timeout 的原因，也不能继续把近期评论视为完整流。
-- **Redditapis 仍缺少长期口碑。** [Uneed](https://www.uneed.best/tool/redditapis/reviews) 只有 4 条评价；其中可见“当日测试两个线程”和“刚注册约一小时后首次取回评论树”的短期成功反馈，也有关于删除内容覆盖和每次返回量/计费的疑问。本次未找到独立的月度免费额度续期或长期可用性报告；免费档保留为待验对照，不提升为可靠主源。搜到的旧 $0.002/一次性赠额摘要不覆盖当前官网另写的持续免费声明，但官网声明也不能替代账号验证。
-- **较有实际使用量的新候选是 Apify 的 [fatihtahta/reddit-scraper-search-fast](https://apify.com/fatihtahta/reddit-scraper-search-fast/reviews)。** 页面约 4.1 分、二十余条评分、约 3,300 月活跃用户；[公开 Actor 元数据](https://api.apify.com/v2/acts/fatihtahta~reddit-scraper-search-fast) 显示 10 月 22 日仍有更新，近 30 天 228,795 次运行中 222,926 次成功，另有失败、超时和主动取消。页面成功率与全部运行比例口径不同；这些都是平台统计，不是独立覆盖/延迟验收，不能拿来承诺优于 Arctic Shift。
-- **Apify 仅保留免费额度内的对照可能，不作为当前主线。** [平台 Free 计划](https://apify.com/pricing) 每月 $5，无需信用卡，用尽后暂停到下周期；该 Actor 元数据的 FREE 档为 $0.00149/结果，页头“from $1.19/千条”属于更高付费档，不能套给免费用户。每月账面上限约 3,300 条，其他费用/重复结果须留余量；超额正常价 $1.49/千条高于项目目标，故不充值、不升级，不作为大规模长期付费方案。没有凭证或内容样本，尚未验证本账号可用性。
-- **更便宜或更高分的 Actor 不自动入选。** [opportunity-biz](https://apify.com/opportunity-biz/reddit-scraper) 虽标 $0.05/千条，但只有 8 个累计用户、无评分，且同时收平台使用费；[automation-lab](https://apify.com/automation-lab/reddit-scraper) 明确将评论、深层树与投票指标列为 best-effort，部分未知指标会输出 0。因此不能仅按标题价、星级或“运行成功”替代有效独立内容/字段完整性比较。
-
-结论：现有证据不足以证明存在既免费大流量、又更稳定完整的 Reddit 主源。下节的小样本说明 Arctic Shift 仍能返回新 ID 的近期评论，并发现本仓库成熟刷新存在本地校验缺陷；因此先区分本地适配、查询失败和上游漏收，再决定换商。持续免费 Actor 与 Redditapis 仍只是有界对照，不能替代同目标/窗口的内容验收；Arctic Shift 也不能据此升级为近期全量主源。来源实施顺序仍只在开发路线维护。
+原 JSONL 通过公开 Help Center JSON API 读取的[官方 10 月 8 日 changelog](https://support.reddithelp.com/hc/en-us/articles/54353370049684-Changelog-October-8-2026)记载 public API 迁移及 RSS 停止支持的日期；本轮没有重新核对公告变更，不能用供应商转载代替官方复核。官方申请当前按用户要求排除，不把历史免费 Data API 配额作为可用性前提。Arctic Shift dumps 适合历史离线检索但有磁盘/处理成本，也不满足近期十二小时目标，当前不要求下载全站数据。
 
 ### 从访问机制反推可行路线（2026-10-23）
 
@@ -64,7 +99,7 @@ Arctic Shift 上游说明关键词组合可能触发查询超时，建议缩小 
 | Devvit 社区合作与事件推送 | [Reddit API](https://developers.reddit.com/docs/capabilities/server/reddit-api) 面向安装社区；[事件目录](https://developers.reddit.com/docs/capabilities/server/trigger-events) 有帖子/评论创建、更新、删除事件；[发布说明](https://developers.reddit.com/docs/guides/launch/launch-guide) 明确由社区 moderator 安装 | 当前官方申请路线排除；仅作能力背景，不能进入实施队列。事件异步、可重复、部分字段可缺失；没有全站 firehose 或完整交付 SLA |
 | Devvit → 本项目数据库 | [HTTP Fetch](https://developers.reddit.com/docs/capabilities/http-fetch) 技术上支持服务端 POST | 外发须逐域名/逐应用审核；当前个人域名默认不批准，限定云服务需证明平台不支持的能力。[规则](https://developers.reddit.com/docs/devvit_rules) 限制数据使用/分享，外部分析或批量导出须明确获准；换云域名不自动获得转供权 |
 | Arctic Shift 定向增量 + 历史 dumps | 已有 adapter；API 与 dumps 是不同交付方式 | 近期只作为待验证补充样本流；本轮不要求下载历史全量。两者共用上游采集，不是独立备源；缓存/本地库只能提高已存数据的可读性 |
-| 正常浏览器会话读取可见页面 | 网页仍须给获准访问者呈现内容，DOM 在技术上是另一种交付格式 | 已进一步审查登录会话驱动站内搜索的开源实现（见下文），是本轮直接自采的主要待验证候选；没有用户会话，尚未真实验收。登录并不授予批量采集权，不把账号池、代理轮换、伪装官方客户端作为稳定性方案 |
+| 正常浏览器会话读取可见页面 | 网页仍须给获准访问者呈现内容，DOM 在技术上是另一种交付格式 | 已进一步审查登录会话驱动站内搜索的开源实现（见下文），是当时的自采待验证候选；10 月 28 日云端登录失败，当前不作为主路径。登录并不授予批量采集权，不把账号池、代理轮换、伪装官方客户端作为稳定性方案 |
 | 搜索索引、embeds、Reddit Pro、研究库 | 搜索可发现链接；embeds 可展示已知内容；Pro 可人工监测主题；研究库可历史分析 | 不提供本项目所需的完整近期正文/评论流。各自的访问、导出权和新鲜度单独判断，不能拼成无损全站数据源 |
 
 Devvit 的所谓“全局事件”目前是需要额外审批的 [app mention trigger](https://developers.reddit.com/docs/capabilities/server/global-triggers)，只在提及 app 用户名时触发，不是监听任意关键词/全站评论的出口。官方迁移方向使其值得研究，但不能先实现通用 Devvit 导出器再补权限。
@@ -110,13 +145,13 @@ Devvit 的所谓“全局事件”目前是需要额外审批的 [app mention tr
 
 几个候选都没有证明“仅添加 cookie 即可在所有环境恢复”。Redlib 的 [#582](https://github.com/redlib-org/redlib/issues/582)、[#597](https://github.com/redlib-org/redlib/issues/597)、[#598](https://github.com/redlib-org/redlib/issues/598) 分别记录 10 月认证、限流、帖子 JSON 解析失败，是反对“有开源工具就稳定”的近期证据，不证明所有实例均失败。
 
-下一项能改变结论的检查是在用户本人可正常访问的浏览器中：全站搜一个词，确认正文/日期和下一页，再检查普通页面驱动读取能否保留分页与结果身份；若测试会话内结构化读取，单独记录其实际状态，不从 UI 可用推断 `.json` 必然可用。仅做只读、有界验证，遇到限流/挑战停止，不公开 cookie/token。验证持续监测时用最新排序并重叠去重；临时历史搜索继承站内索引与分页边界，不承诺任意词的历史全部命中或无限回填。获得一次结果之后仍须验证会话失效、分页和持续负载，才能判断“够用”的实际边界。
+当时提出的浏览器验证条件为：全站搜一个词，确认正文/日期和下一页，再检查普通页面驱动读取能否保留分页与结果身份；若测试会话内结构化读取，单独记录其实际状态，不从 UI 可用推断 `.json` 必然可用。仅做只读、有界验证，遇到限流/挑战停止，不公开 cookie/token。验证持续监测时用最新排序并重叠去重；临时历史搜索继承站内索引与分页边界，不承诺任意词的历史全部命中或无限回填。获得一次结果之后仍须验证会话失效、分页和持续负载，才能判断“够用”的实际边界。
 
 本轮没有可用的用户登录会话，未完成上述关键检查，没有安装第三方代码、修改业务代码或部署。匿名响应及 GitHub 元数据在忽略的 `output/research/reddit-direct-20261023/`。
 
 #### 热点站、信息雷达与采集助手的源码复核
 
-以下固定项目快照于 2026-10-23 核查；不以未复查的后续版本推断当前能力。核查 GitHub 原仓库、固定提交与采集代码，而不是把搜索命中的 fork 或宣传中的“全网搜索”当作原始平台访问能力。结论：**优先验证 OpenCLI 的 Reddit 浏览器 adapter；Agent Reach 是可选的多平台会话/工具层；AIHOT、TrendRadar、BettaFish 不能直接替代 Reddit 获取入口。**
+以下固定项目快照于 2026-10-23 核查；不以未复查的后续版本推断当前能力。核查 GitHub 原仓库、固定提交与采集代码，而不是把搜索命中的 fork 或宣传中的“全网搜索”当作原始平台访问能力。当时优先验证 OpenCLI；10 月 28 日部署后的登录阻断使当前主线转为付费 API。项目依赖关系仍有参考价值：Agent Reach 是工具/会话层，AIHOT、TrendRadar、BettaFish 不能直接替代 Reddit 获取入口。
 
 | 项目 / 核查提交 | 实际数据入口 | 对当前项目的价值与限制 |
 | --- | --- | --- |
@@ -133,13 +168,13 @@ OpenCLI 的 [#2604](https://github.com/jackwener/OpenCLI/issues/2604) 有用户�
 
 Agent Reach 的 [#642](https://github.com/Panniantong/Agent-Reach/issues/642) 则针对旧 rdt-cli 后端，用户对不同 HTTP 客户端的成功/失败报告并不一致；不能套给当前 OpenCLI 后端，也不能得出只换 urllib/requests 就必定恢复。固定源码/安装版本与实际选中的 backend，才能比较实验结果。
 
-本轮对固定 OpenCLI `web-search.js` 做了 **3 个离线浏览器合成场景**：两页去重并按网页排序恢复乱序补全、429 单次终止、403 单次终止，均通过；仅复用现有 Playwright/Chromium，未安装第三方包，浏览器外网请求为 0。只验证纯搜索函数和最小响应 reader，不覆盖完整 CLI/扩展/账号/真实页面。源码、提交信息和结果在忽略的 `output/research/aggregation-projects-20261023/`。
+10 月 23 日对固定 OpenCLI `web-search.js` 做了 **3 个离线浏览器合成场景**：两页去重并按网页排序恢复乱序补全、429 单次终止、403 单次终止，均通过；仅复用现有 Playwright/Chromium，未安装第三方包，浏览器外网请求为 0。只验证纯搜索函数和最小响应 reader，不覆盖完整 CLI/扩展/账号/真实页面。源码、提交信息和结果在忽略的 `output/research/aggregation-projects-20261023/`。
 
-取舍：OpenCLI 提供最接近需求的获取代码，真实会话和分页/完整性契约仍需验收；Agent Reach 的会话层留到多平台明确需要时评估。其他项目优先借鉴过滤、事件归组、提醒与报告，不重复部署数据库/调度。不同许可证的复制、修改和发布义务在选定复用方式时核查；独立进程调用不自动豁免。具体实现与验收见[工程路线 E1](../plans/source-expansion.md#e1打通本地浏览器到现有工作台)。
+历史取舍：OpenCLI 提供接近需求的获取代码，真实会话和分页/完整性契约仍需验收；Agent Reach 的会话层留到多平台明确需要时评估。其他项目优先借鉴过滤、事件归组、提醒与报告，不重复部署数据库/调度。不同许可证的复制、修改和发布义务在选定复用方式时核查；独立进程调用不自动豁免。当前付费主线及可选 X 试验见[工程路线](../plans/source-expansion.md)。
 
 #### JSONL 独立复核与 ego-lite 的位置
 
-2026-10-23 复核原 JSONL 会话、保存的请求/响应及关键源码，而非采信会话总结。直接运行证据是：Arctic Shift 三次真实数据请求成功（社区小样本，非全站搜索），匿名 Reddit 两次请求被网络安全 403 拒绝，以及 OpenCLI 三个离线合成场景；GitHub 文件获取、维护者报告与官方公告属于源码/文档证据，不属于这些采集器的真实运行验收。最新内容距查询约五分钟不等于索引延迟或召回率。13 位评论 ID 刷新缺陷本次再次离线复现，网络调用为 0；它不解释匿名 403，也不决定当前优先的帖子搜索是否可用。
+2026-10-23 复核原 JSONL 会话、保存的请求/响应及关键源码，而非采信会话总结。直接运行证据是：Arctic Shift 三次真实数据请求成功（社区小样本，非全站搜索），匿名 Reddit 两次请求被网络安全 403 拒绝，以及 OpenCLI 三个离线合成场景；GitHub 文件获取、维护者报告与官方公告属于源码/文档证据，不属于这些采集器的真实运行验收。最新内容距查询约五分钟不等于索引延迟或召回率。13 位评论 ID 刷新缺陷在 10 月 23 日再次离线复现，网络调用为 0；它不解释匿名 403，也不决定当前优先的帖子搜索是否可用。
 
 对固定 OpenCLI 搜索函数另做三个离线边界复现，外网请求为 0，证据在忽略的 `output/research/reddit-audit-20261023/`：
 
@@ -151,54 +186,17 @@ Agent Reach 还把空列表归为上游失败，且统一 `text` 不读取 `self
 
 10 月 23 日从 GitHub 复核时，六个项目的最新提交与当时固定快照一致；OpenCLI 后续变化另见下文 10 月 26 日核查。NewsNow 已迁到 [newsnext/newsnow](https://github.com/newsnext/newsnow)，旧 GitHub 页面重定向，原提交仍可读。依赖判断不变：TrendRadar 默认依赖 NewsNow，NewsNow 的 AIHOT adapter 读取 AIHOT RSS，Agent Reach 的 Reddit 后端依赖 OpenCLI，不能按项目数量计算独立上游。
 
-[ego-lite 固定提交 `d392204`](https://github.com/citrolabs/ego-lite/tree/d392204d1ea1a8027a591ab2b0129c2e11d85f26) 的 README、Node helper 源码与原生绑定文档表明：它提供本机已登录浏览器、TaskSpace 和 `page.evaluate`/`page.fetch` 等执行能力；当前 README 支持 macOS/Windows，Linux 仍在路线图。公开仓库是 helper/skill 等，浏览器原生绑定由单独下载的应用提供，不能因仓库 MIT 就推断可在 Linux 编译完整浏览器。本环境未发现 `ego-browser` 命令，未安装、未真实运行；宣传中的速度、低验证码率和免费不构成 Reddit 稳定性证据。
+[ego-lite 固定提交 `d392204`](https://github.com/citrolabs/ego-lite/tree/d392204d1ea1a8027a591ab2b0129c2e11d85f26) 的 README、Node helper 源码与原生绑定文档表明：它提供本机已登录浏览器、TaskSpace 和 `page.evaluate`/`page.fetch` 等执行能力；该快照 README 支持 macOS/Windows，Linux 当时仍在路线图。公开仓库是 helper/skill 等，浏览器原生绑定由单独下载的应用提供，不能因仓库 MIT 就推断可在 Linux 编译完整浏览器。本环境未发现 `ego-browser` 命令，未安装、未真实运行；宣传中的速度、低验证码率和免费不构成 Reddit 稳定性证据。
 
-OpenCLI 当前通过 daemon + Browser Bridge 扩展调用 Page，ego-lite 使用自己的原生桥；页面执行能力相近不证明完整 CLI 可直接切换。Agent Reach 也绑定自己的浏览器 profile。当前采用 Chrome + OpenCLI；用户已因 Linux 支持要求排除 ego-lite，不再安排其执行环境试验或适配。模型生成查询和分析不提供新的原始数据权限。
+OpenCLI 当前通过 daemon + Browser Bridge 扩展调用 Page，ego-lite 使用自己的原生桥；页面执行能力相近不证明完整 CLI 可直接切换。Agent Reach 也绑定自己的浏览器 profile。当时拟采用 Chrome + OpenCLI；用户已因 Linux 支持要求排除 ego-lite，不再安排其执行环境试验或适配。模型生成查询和分析不提供新的原始数据权限。
 
 2026-10-26 重新读取 [OpenCLI aeaff2b](https://github.com/jackwener/OpenCLI/tree/aeaff2b796efabb7fd46654112418ab61fcae917) 的 package.json、search.js、web-search.js 与安装说明：版本仍写 2.0.2，上述 capped、补全和输出元数据缺口仍见于源码；这是源码审查，没有重新运行真实搜索或新增离线验收。固定 npm 版本之外还应记录实际 adapter/覆盖配置及扩展版本。ego-lite 默认分支仍为 d392204，平台与原生绑定结论未变。单账号吞吐、账号池增益和长期十二小时新鲜度均没有本项目可采信的实测结果。
 
-部署、规范页/导入回执、预算与恢复设计只维护在[架构](../architecture.md#浏览器采集部署与结果契约待实现)；起步命令在[开发说明](../development.md#本地-reddit-浏览器验证)。当前未实现有界导入、自动上传或远程任务领取，研究结论不等于开发交付。
+当前设计见[架构](../architecture.md#付费-reddit-provider-接入设计待实现)。上述快照不代表 11 月 10 日最新 Reddit adapter 已重新审查；本轮新审查的是 X 搜索代码。当前没有外部导入或远程任务领取接口。
 
-## 成本口径
+## 其他来源的当前处置
 
-目标为 **$0.07 / 1,000 条有效独立内容及以下**。有效内容必须通过 schema/身份校验并成功落库；分别记录帖子、评论、去重后内容和更新观测，不能将重复刷新当成新帖子降低单价。
-
-`有效成本/千条 = 全部可归属实际费用 ÷ 窗口内去重后的有效内容数 × 1000`。
-
-分母为 0 时报告不可计算，不能记 0 成本；还要报告请求成本和失败率。赠送额度不抵扣用于选型的正常费用，试用后费用超标直接排除。预测、实际请求估算、供应商账单分别存证；服务器/存储成本另列。跨 provider 的新增边际覆盖也单独统计，避免用同一批重复内容证明备用价值。
-
-### 低价商业候选（仅文档报价，未带凭证实测）
-
-| 来源 / 端点 | 核对的正常标价 | 达标所需有效独立条数/次 | 下一验证点 |
-| --- | --- | --- | --- |
-| [TwitterAPIs 标准读取](https://www.twitterapis.com/pricing) | $0.0008/次 | ≥12 | 账号与关键词分别统计；20 条满页等效 $0.04/千条，不能假定总是满页 |
-| [TwitterAPIs replies-complete](https://www.twitterapis.com/pricing) | $0.0024/次 | ≥35 | 继续游标、直接/嵌套回复边界、截断；不能套用标准端点价格 |
-| [GetXAPI 标准读取](https://www.getxapi.com/pricing) | $0.001/次 | ≥15 | 搜索/时间线具体端点价、空页和重试计费 |
-| [Redditapis 普通读取](https://www.redditapis.com/pricing) | 10 月 20 日：$0.0015/次，付费充值从 $10 起；另有页面标称每月 1,000 次免费读取 | ≥22（付费部分） | 先核对持续免费档，不充值；评论分页/树截断、实际页收益与特殊端点另价仍需验证 |
-| [CiteRocket 标准读取](https://www.citerocket.com/pricing) | 10 月 20 日：公开订阅从 $19/月、25,000 credits 起；标准读取 1 credit | 按整月实际使用量算，不套满额单价 | 当前页面未复核到旧 $10/10,000 包价，不沿用；一次性免费 1,000 credits 不算持续免费来源，本轮不采购 |
-
-10 月 19 日补充：TwitterAPIs 价格页自述整体平均约 13 条/次、搜索约 8 条/次。搜索按正常价折算约 **$0.10/千条**，尚未计失败、重复与无效记录，不能按 20 条满页报价认定达标；下一步仅优先考察账号读取。TwitterAPIs/GetXAPI 的购买充值起点均为 $10，不等于少量调用费或采购授权。
-
-阈值按 `ceil(1000 × 单次价格 / 0.07)` 计算，假设每次均按该价且不含额外费用。TwitterAPI.io 已有 adapter，仅保留实现作回归基线；原研究的 $0.15/千条报价高于目标，不列入计划采购或付费备用。X 官方、SocialData 同样不列入本轮低成本接入计划；后续仅在正常价格满足准入条件时重新评估。
-
-## 来源清单与当前处置
-
-下表保留已有实现与候选的处置依据，不另排实施顺序。Arctic Shift 在 main、Bluesky 在 dev/root 已有有界真实小样本闭环，其余候选未完成本仓库真实接入验收。
-
-| 来源 | 目标与接入类型 | 验证重点 / 取舍 |
-| --- | --- | --- |
-| [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) | Reddit 帖子、评论、ID；现有 adapter | 保留历史补充/抽样与受限查询恢复；维护者已说明新 ID 后近期评论不完整且可能延迟，不能保证增量新鲜度或全量覆盖 |
-| [PullPush](https://pullpush.io/) | Reddit 搜索线索，REST；当前暂停免费接入 | 本环境首次数据请求 429 且明确拒绝免费 agent 抓取；未重试、未绕过、未开发 adapter。若需商业授权，重新核对正常费用后再决定 |
-| TwitterAPIs / GetXAPI | X 账号、查询、回复；REST | Reddit 主线之后按正常长期成本择一；当前未授权凭证/付费，不并行实施 |
-| Redditapis / CiteRocket | Reddit 补充候选；REST，未接入 | Redditapis 先核对页面标称的持续免费档；CiteRocket 仅一次性赠额，不作为免费主源。付费方案当前排除，上游独立性与商业使用权限均未验 |
-| [Apify / Fatih Reddit Actor](https://apify.com/fatihtahta/reddit-scraper-search-fast) | 搜索、社区、帖子/评论候选；未接入 | 仅比较每月 $5 免费额度内的小样本；FREE 档 $1.49/千结果，超额不符合单位成本目标，不充值、不按广告起步价外推 |
-| [Bluesky AppView](https://docs.bsky.app/) | dev/root 首个新平台试点，未合入 main；公开账号帖子与作者回复已有有界闭环 | 原生 AT URI 身份、opaque cursor；排除 feed 中他人转发和置顶。两页真实闭环通过，未知指标时刻保持 null；未验持续运行与完整覆盖 |
-| [Steam 评论](https://partner.steamgames.com/doc/store/getreviews)、[Forem](https://developers.forem.com/api/v1) | 评价/文章评论候选 | 第二批用于检验 cursor 与嵌套评论差异；核对目标类型与指标单位 |
-| [HN Firebase](https://github.com/HackerNews/API)、[Algolia](https://hn.algolia.com/api) | 技术讨论与搜索候选 | 按节点读取的请求放大、父子关系和删除；两接口不算独立内容供应链 |
-| [YouTube 评论](https://developers.google.com/youtube/v3/docs/commentThreads/list) | 大规模评论候选，需项目/key/配额 | 视频发现与评论预算分开，顶层列表不等于完整回复；配额以接入时控制台/官方文档为准 |
-| [FxEmbed](https://github.com/FxEmbed/FxEmbed)、[vxTwitter](https://github.com/dylanpdx/BetterTwitFix) | X 已知 ID 补全线索 | 先验证具体公共实例和端点，不将 embed/镜像宣称为稳定搜索备份 |
-
-Bluesky 字段依据官方 [getAuthorFeed lexicon](https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/feed/getAuthorFeed.json) 与 [postView/feedViewPost](https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/feed/defs.json)，并以真实小样本核对。接口无需鉴权，不等于无限配额或 SLA。证据放忽略的 `output/validation/e1-pullpush/`、`e1-bluesky/`，不提交原始内容。
+Arctic Shift 已在 main，仅支持受限范围查询/已知 ID 补充；PullPush 首次请求明确拒绝本环境免费 agent 访问，保持暂停。Bluesky 公开账号 adapter 在 dev/root 已做两页真实闭环、尚未合入 main，不替代 Reddit 关键词目标。Steam/Forem/HN/YouTube 等仍为候选，具体实现与证据见[状态](../status.md)，不因本轮改为付费就全部实施。
 
 ## 后续候选池
 
@@ -216,10 +214,10 @@ Bluesky 字段依据官方 [getAuthorFeed lexicon](https://github.com/bluesky-so
 
 Neynar 原研究主要依据赠送 credits，尚无本项目负载下的长期低成本依据，移出候选池；其他仅有试用优势的来源同样处理。
 
-## 从原研究中修正的结论
+## 复核约束
 
-- 历史原文的 API/RSS 时间表最初未获证实；10 月 23 日已通过官方 Help Center JSON 全文核对并在上文替换。Nitter 归档日期、Jetstream v2 能力和未复核的平台配额仍不作为设计前提，不能把这两类证据混写。
-- 不以服务商 SLA、免费额度、最大页大小推断实际稳定性或成本；不把两家归档服务或多个镜像域名算成独立原始来源。
-- 不将“422 重试”写成待新增能力：当前已经有限重试；缺口是错误分类后的有界恢复和可观测性。
-- 不建设支持任意 URL/脚本的通用平台。浏览器读取先验证实际能力，再以共享身份、观测与写入规则接入；REST 和浏览器各保留自己的分页限制，不强套缺少结束语义的接口。
-- 原文聊天提示、UI 占位、整段原始响应和重复推荐已删除；原研究可在 Git `d8b481b` 查阅。具体许可不在此下结论，试验与生产用途分别记录核查状态。
+- 真实数据请求、离线验证、源码/文档与推测分别标记。供应商健康页、星级、成功率、SLA 和最大页大小不证明我们的新鲜度或有效成本。
+- 不把多个聚合项目当独立数据来源；TrendRadar→NewsNow、NewsNow→AIHOT、Agent Reach→OpenCLI 的依赖关系按固定源码判断。
+- 已有 422 有限重试不是待新增功能；本地 13 位评论 ID 刷新缺陷与上游漏收/网络 403 是不同问题。
+- 不建设任意 URL/脚本通用采集平台。不同来源保留各自分页/费用限制，共用内容身份、观测与写入；实际需要才扩展。
+- 原始聊天、数据、凭证与运行报告不提交；历史研究可在 Git `d8b481b` 查阅。许可与留存/删除要求不因页面能读或购买套餐自动通过。
