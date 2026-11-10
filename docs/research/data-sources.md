@@ -2,7 +2,7 @@
 
 复核日期：**2026-11-10**。重读供应商公开价格/接口文档、X 开源项目 README、提交元数据及 OpenCLI X 搜索源码；没有供应商带凭证数据请求、充值、购买或真实 X 会话验收。历史运行结果保留原日期。公开页面快照、获取状态在忽略的 `output/research/paid-review-20261110/`；本机直接读取 CiteRocket 价格/搜索说明网页得到 403，相关页面本轮由联网检索工具读取；这不证明带凭证 API 同样被拒绝，首测必须核对 Linux 出口。页面内容不证明取数质量。main 与未合入分支见[状态](../status.md)。
 
-**当前选择：Reddit 仅接入达到预算的付费 API，暂不采购。** 用户明确目标 $0.07/千条、硬上限 $0.10/千条，预期约 10 万条/月且总费用≤50元；同时约束，不能以数据收益豁免。CiteRocket/Redditapis 仅保留赠额内的页收益对照，目前都未证明满足此负载与预算。Arctic Shift 保留定向/已知 ID 补充，完整评论延后。X 的免付费 API 路径先验证正常账号会话，不依赖 Nitter 公共实例。官方申请、全站 dumps 前置和 ego-lite 继续排除。唯一实施顺序见[工程路线](../plans/source-expansion.md)，设计见[架构](../architecture.md#付费-reddit-provider-接入设计待实现)。
+**当前选择：并列研究低价 API 与新的自采实现，只有真实取数和预算验收通过才接入，暂不采购。** 用户明确目标 $0.07/千条、硬上限 $0.10/千条，预期约 10 万条/月且总费用≤50元；同时约束，不能以数据收益豁免。低价 API 优先核验 opportunity-biz Actor 的可用性与完整账单，CiteRocket/Redditapis 保留赠额内页收益对照；自采优先研究 Reddrix，Scrapling 为通用工具候选。目前都未证明满足此负载与预算。Arctic Shift 保留定向/已知 ID 补充，完整评论延后。X 的免付费 API 路径先验证正常账号会话，不依赖 Nitter 公共实例。官方申请、全站 dumps 前置和 ego-lite 继续排除。唯一实施顺序见[工程路线](../plans/source-expansion.md)，设计见[架构](../architecture.md#付费-reddit-provider-接入设计待实现)。
 
 ## Reddit 付费候选与正常价格
 
@@ -27,7 +27,40 @@ Redditapis 价格页公布的 14 天样本截至 10 月 29 日：成功读取的
 
 Redditapis 的监测订阅与读取月包是不同产品：免费一个全站关键词，$19/月 Starter 标称 15 个 monitors 但仅 **1 个全站关键词**，$49 Growth 仅 3 个全站关键词。不能把“15 monitors”写成 15 个全站词，也不能假设读取月包附送监测。少量词低频轮询先用 API，webhook 不作开发前置。
 
-当前方案没有证明既满足 10 万条/月与预算、又满足数据质量的商业主源。没有新的独立长期数据质量证据足以授予“最稳定”结论。旧研究 10 月 23 日的 Redditapis 少量短评、Apify 平台运行成功率不证明覆盖/新鲜度。本次 Fatih 店面仍有二十余评分与数千月用户，仅作历史运行规模参考，不能绕过成本准入；廉价 [opportunity-biz Actor](https://apify.com/opportunity-biz/reddit-scraper) 的低样本使用量、无评分和平台费使 $0.05/千条标题不足以入选。域名或公司页面不同不证明上游独立；商业用途、留存/删除与可导出权限仍未核实，真实试验和生产分别记录。
+当前方案没有证明既满足 10 万条/月与预算、又满足数据质量的商业主源。没有新的独立长期数据质量证据足以授予“最稳定”结论。旧研究 10 月 23 日的 Redditapis 少量短评、Apify 平台运行成功率不证明覆盖/新鲜度。本次 Fatih 店面仍有二十余评分与数千月用户，仅作历史运行规模参考，不能绕过成本准入；[opportunity-biz Actor](https://apify.com/opportunity-biz/reddit-scraper) 已核对公开计费元数据，提升为低价待测候选，细节见下节；低使用量不证明不可用，也不证明质量。域名或公司页面不同不证明上游独立；商业用途、留存/删除与可导出权限仍未核实，真实试验和生产分别记录。
+
+## Reddit 新增低价与开源路径复核
+
+11 月 10 日按用户要求重新寻找自采路径。以下区分真实联网、源码审查和供应商自报；没有安装/运行 Reddrix、Scrapling 或新增浏览器扩展，也没有运行付费 Actor。当前服务器测试不代表正常个人设备的访问结果。
+
+### 低价 API：opportunity-biz 值得先试，但尚未通过准入
+
+[店面](https://apify.com/opportunity-biz/reddit-scraper) 标价 $0.05/千结果；本服务器直接读取的[公开元数据](https://api.apify.com/v2/acts/opportunity-biz~reddit-scraper) 为 200，最新已生效 pricingInfos（2026-06-10 起）确认 `apify-default-dataset-item=$0.00005`、`apify-actor-start=$0.0001`。旧 $0.01/千条是历史促销，不能使用。启动事件按每 GB、至少一次；默认内存 1GB。10 万条结果的结果费为 **$5**；若每轮 1GB、共 1,800 次启动，再加约 $0.18，合计 $5.18 **仅为这两个事件费用**。去重后有效收益、数据集读取/留存、另收平台用量、支付费用与现金门槛尚未确认，不能当作总账单。
+
+[Apify 官方计费说明](https://docs.apify.com/actors/running/actors-in-store) 指出多数 PPE 已包含运行平台用量，部分单独计费，结束后数据集操作另计；不能像先前那样无条件认定必须叠加一套 compute/proxy 费，须核对具体运行账单。正常批次与常驻 Standby/MCP 不能混价。此处只研究普通批次，不部署常驻 MCP。
+
+公开元数据的修改日期为 7 月 7 日，8 个累计用户、近 30 日用户数 0、无评分、lastRunStartedAt 为 10 月 6 日；同时滚动运行统计有 1 次 succeeded，字段时间口径存在不一致。这些统计不证明当前搜索/续页可用。README 自称新鲜、可靠、无需登录均未独立验证。**当前 API 首测候选**：有可用赠额时先检验跨社区关键词首/续页、已知帖子正文、近期发布时间、重复与收费事件；若返回空集、旧归档或仅社区搜索，不继续集成。没有账号凭证/赠额，本轮未执行。
+
+新查的 [FetchLayer](https://fetchlayer.dev/pricing) 正常按量 $1.99/千页（每页一 credit，多页分别扣），至少平均 20 条有效独立内容/收费页才到 $0.10/千条、29 条才到 $0.07；正常页收益未验，价格不优于既有按次候选。[ChatterAPI](https://chatterapi.com/pricing) 最小 $19/月、25,000 credits，普通 Reddit 读取 2 credits/页，固定月费超过当前预算，不入选。
+
+### GitHub 项目按实际获取机制比较
+
+| 项目 / 核查版本 | 已读到的实现或限制 | 当前取舍 |
+| --- | --- | --- |
+| [Reddrix / 55815c5](https://github.com/Coding-Doctor-Omar/reddrix/tree/55815c54c6c9c8a0cbe7bd0239342cb5f5af9297)，11 月 6 日 v1.2.19 | [源码](https://github.com/Coding-Doctor-Omar/reddrix/blob/55815c54c6c9c8a0cbe7bd0239342cb5f5af9297/reddrix/reddrix.py) 以 Camoufox 初始化匿名会话，读取新 Reddit HTML/internal endpoints，解析 shreddit/faceplate 续页；不是只包一层 `.json`。Linux 有平台分支。关键词模式固定 relevance，忽略传入 new；每个搜索命中另取详情，首屏不是正文终态。内部默认并发 10、初始化最多 5 次，无应用级持久 checkpoint/费用上限 | **最值得继续验证的新自采候选**，不是已跑通方案。先固定版本、限定 1 并发/总请求/时长/5 条，禁评论展开；拒绝/挑战即结束，不沿默认反复刷新、代理轮换或共享账号继续。relevance 不能直接用于 new 增量水位 |
+| [Scrapling v0.5.1 / 3a4bb5b](https://github.com/D4Vinci/Scrapling/releases/tag/v0.5.1)，11 月 4 日 | 更新新增 RemoteSession/AsyncRemoteSession，可选复用已登录 Chromium context；远程连接有破坏性 API 变更。是通用获取/解析框架，未提供已验收的 Reddit 搜索 provider。维护者在 [#402](https://github.com/D4Vinci/Scrapling/issues/402#issuecomment-5232610398) 说明匿名 JSON 被 Reddit 拒绝；issue 报告 HTML 可读是他人的环境结果 | 通用工具备选。旧 bridge 的 sessionKey 不是持久登录；升级库或远程 CDP 不会凭空产生可用登录会话。本次没有 Scrapling runtime 验收 |
+| [reddit-universal-scraper / 6ff956b](https://github.com/ksanjeev284/reddit-universal-scraper/tree/6ff956bb009f769204c31b9978ee9c6bee28114b) | Python 主路径明确依赖 approved OAuth；另有开源 Browser Collector Companion，捕获本人浏览器已加载的帖子/评论并导出 JSON/CSV，cookies 留浏览器。不自动获取全部历史或展开未加载评论 | 正常个人设备可访问时的低费用备选；云端登录仍被拒绝时不能解决。现有仓库没有该导入能力，不照搬对方后台 |
+| [BigIdeasDB reddit-mcp-server](https://github.com/bigideas-db/reddit-mcp-server) | README 明示仓库只放文档，服务闭源托管，需 Pro、Clipper 扩展和本人已登录 Chrome；作者自报 11 月 2 日 185/185 页成功，单账号/单浏览器/单次测试 | 说明“个人浏览器取数、服务器存储”机制有实际报告；不是免费开源服务端替代，不采纳“唯一可用”的自我宣传，未独立复验 |
+| [eliasbiondo/reddit-mcp-server](https://github.com/eliasbiondo/reddit-mcp-server) → [redd / 57fc9f2](https://github.com/eliasbiondo/redd/tree/57fc9f2acdeeda3d446ba48c1b0fe6ebb4931643) | MCP 依赖 redd，后者 `_client.py` 与 requests HTTP adapter 仍走 reddit.com JSON listing；MCP 包装不提供新的获取通道 | 当前服务器的匿名 JSON 路径已受阻，不优先再部署包装层 |
+| [logiover/reddit-search-scraper](https://github.com/logiover/reddit-search-scraper) | 仓库仅说明托管 Actor；README 明示必须限定社区，每搜索约 25 条、无续页、score/numComments 等为 null，读取 public feed | 不满足跨社区关键词与持久续采需求；不能因为标题 no-login 就视为全站搜索 |
+
+Redlib 的新 [#612](https://github.com/redlib-org/redlib/issues/612)（11 月 3 日）报告直接被阻断，与旧认证/解析问题一并说明仍依赖 Reddit 上游；不是所有实例不可用的证明。不部署镜像集群来替代来源验收。Crawlee、Crawl4AI、Playwright 等通用框架也不能单凭更换框架证明 Reddit 可读。
+
+### 本服务器真实 HTML 探测与下一步
+
+11 月 10 日 06:34 UTC，使用现有 Chromium、全新临时 context，无登录、代理或 stealth，串行访问 `https://www.reddit.com/r/technology/new/` 与 `https://www.reddit.com/search/?q=postgresql&type=posts&sort=new` 各一次。每次仅观察到 1 个浏览器网络请求，均 **403**，正文为 network-security 阻断，shreddit-post 和帖子链接均 0；浏览器已退出，没有启动或恢复先前关闭的 systemd/noVNC 服务。报告在忽略的 `output/research/reddit-crawlers-20261110/html-probe.json`。这证明当前普通匿名浏览器 HTML 路径失败，**不等于已实际运行 Reddrix、Camoufox 或 Scrapling**，也不证明拒绝原因仅由 IP 决定。
+
+执行优先级：①可用赠额内验证 opportunity-biz 的真实数据和账单；②Reddrix 作为一次有界、独立试验，先解决初始化与五条真实命中，再决定是否值得补 new 排序/页契约；③若服务器仍拒绝，而用户正常个人设备可访问，才考虑本地浏览器采集后上传到 Linux。第三条需要可用设备会话和新增导入用例，尚未实现。不会自动恢复 OpenCLI 登录服务、购买代理或搭账号池。预算/质量均通过才进入业务开发，没有来源通过则全站关键词目标仍未交付。
 
 ## X 不购买 API 的可行路径
 

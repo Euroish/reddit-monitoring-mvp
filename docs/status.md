@@ -45,6 +45,7 @@ E0 的 [7f8fa37 云 CI](https://github.com/Euroish/reddit-monitoring-mvp/actions
 | 源码审查 / 10-26 | OpenCLI aeaff2b 的 Reddit 搜索存在数量上限不报告 capped、补全失败不返回已发现 ID 等边界；ego-lite 无 Linux 支持 | 当日未安装或运行；后续安装不等于修复这些边界 |
 | 部署检查 / 10-28 | OpenCLI 2.0.2、扩展 1.0.26 与 Linux Chromium 安装；doctor、HTTPS/noVNC/Bridge 链路通过 | Reddit 登录出现 network-security 阻断及验证码失败，未取得已登录搜索数据；连通性不是采集成功 |
 | 当前服务检查 / 11-10 | public-tunnel、desktop、chrome、bridge 四项 reddit-browser 服务均 inactive；保持关闭 | 不代表业务 API/worker 的当前部署状态 |
+| 真实联网 / 11-10 | 临时独立 Chromium 匿名访问社区 HTML 与全站搜索 HTML 各一次，均 403，0 帖子；结束退出 | 非 Reddrix/Camoufox/Scrapling 运行验收；未恢复已关闭服务 |
 | 公开文档复核 / 11-10 | 重读 Reddit/X 供应商价格、搜索文档及 X 开源方案；Nitter 原仓库已归档 | 无供应商带凭证数据请求、采购或 X 登录验收；不能给出已证实的质量冠军 |
 
 原始证据目录：`output/research/reddit-access-20261023/`、`reddit-direct-20261023/`、`aggregation-projects-20261023/`、`reddit-audit-20261023/`。原 JSONL 与响应仅保存在研究机器，不要求开发者持有这些本地文件才能阅读文档；机制、版本、必要结果与上游链接见[来源研究](research/data-sources.md)。
@@ -57,10 +58,10 @@ E0 的 [7f8fa37 云 CI](https://github.com/Euroish/reddit-monitoring-mvp/actions
 
 ## 当前决定与开发入口
 
-Reddit 付费来源须满足目标 $0.07/千条、硬上限 $0.10/千条；预期约 10 万条/月，采集月度总费用≤50元，两个上限同时执行。目前没有已证明达标的商业主源；CiteRocket/Redditapis 只保留赠额内对照，不采购月包或充值。价格与准入依据见[来源研究](research/data-sources.md)。完整评论延后；官方申请与全站 dumps 不作为当前路径。Arctic Shift 留作定向/已知 ID 补充，13 位 ID 刷新缺陷仍需修复。
+Reddit 付费来源须满足目标 $0.07/千条、硬上限 $0.10/千条；预期约 10 万条/月，采集月度总费用≤50元，两个上限同时执行。目前没有已证明达标的商业主源；opportunity-biz 公开元数据确认 $0.05/千结果另加启动事件，提升为赠额内优先候选；CiteRocket/Redditapis 保留对照，不采购月包或充值。Reddrix 11 月 6 日 v1.2.19 与 Scrapling 11 月 4 日 v0.5.1 已审查，均未运行；重新开放有界自采研究，不把当前匿名 HTML 403 推断为所有工具均失败。价格与准入依据见[来源研究](research/data-sources.md)。完整评论延后；官方申请与全站 dumps 不作为当前路径。Arctic Shift 留作定向/已知 ID 补充，13 位 ID 刷新缺陷仍需修复。
 
 执行顺序见[工程路线](plans/source-expansion.md)：整合已有分支 → 赠额内真实取数与成本准入 → 预算合格 adapter 接入共享落库/API/UI → 48–72 小时延迟与费用验收。设计见[架构](architecture.md#付费-reddit-provider-接入设计待实现)，配置边界见[开发说明](development.md#付费-api-验证与配置边界)。若均未通过预算，停止商业接入，不以更贵来源自动替代；全站关键词目标继续标记未交付。本轮没有新增 adapter、配置项、数据库迁移或导入接口；网络开关不会自动注册候选供应商。
 
 X 的 OpenCLI/twscrape 会话方法尚未实测；Twikit 作为后备研究，Nitter 归档后不选作主源，FxEmbed 仅为已知链接补全候选。已停止的云端 Reddit 浏览器服务保持关闭，ego-lite 继续排除。单账号容量和十二小时目标都没有新验收结果。
 
-本轮只更新文档，执行 docs:check 与差异检查；没有重跑应用全量类型、SQL 或浏览器检查，不覆盖上述失败记录。公开页面快照与请求元数据位于忽略的 `output/research/paid-review-20261110/`；10 月 28 日工具部署记录位于当时工作区 `output/validation/opencli-linux-20261028/result.json`。它们不随发布分发，也不包含本轮付费数据验收。
+本轮更新文档、审查公开源码/报价并执行两次匿名 HTML 浏览器探测、docs:check 与差异检查；没有重跑应用全量类型、SQL 或浏览器检查，不覆盖上述失败记录。公开页面快照、源码与请求元数据位于忽略的 `output/research/paid-review-20261110/`、`output/research/reddit-crawlers-20261110/`；10 月 28 日工具部署记录位于当时工作区 `output/validation/opencli-linux-20261028/result.json`。它们不随发布分发，也不包含本轮付费数据验收。

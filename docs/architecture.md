@@ -73,7 +73,7 @@ main 尚无浏览器 provider、外部采集结果导入或远程执行端。Blu
 
 ### 付费 Reddit provider 接入设计（待实现）
 
-2026-11-10 的主路径是 Linux 上现有 worker → 数据商 HTTPS API → 同一 PostgreSQL → API/UI。CiteRocket 与 Redditapis 先用可用赠额做有界对照，通过[成本准入](research/data-sources.md#成本与验收口径)后才实现一家薄 adapter；目前没有已通过的商业来源。不增加浏览器、桌面上传、独立采集后台或供应商专用数据库。密钥只在服务端私有环境配置，不传给 Web，不要求用户提供 Reddit 密码/cookie。已有 `ContentProvider`、页事务、租约、预算与规范内容继续使用。
+2026-11-10 的主路径是 Linux 上现有 worker → 数据商 HTTPS API → 同一 PostgreSQL → API/UI。opportunity-biz Actor、CiteRocket 与 Redditapis 先用可用赠额做有界对照，通过[成本准入](research/data-sources.md#成本与验收口径)后才实现一家薄 adapter；目前没有已通过的商业来源。以下为 REST 来源通过准入后的接入设计，不在验证前增加浏览器、桌面上传、独立采集后台或供应商专用数据库。Reddrix 自采与 Apify 批次是新开放的候选研究，尚未验收；若胜出，再按实测交付方式细化最小页契约，不直接套用同步 REST 假设。密钥只在服务端私有环境配置，不传给 Web，不要求用户提供 Reddit 密码/cookie。已有 `ContentProvider`、页事务、租约、预算与规范内容继续使用。
 
 | 边界 | 实施要求 |
 | --- | --- |

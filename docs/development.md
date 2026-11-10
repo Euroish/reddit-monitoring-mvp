@@ -53,7 +53,7 @@ npm --prefix apps/web run dev
 
 ## 付费 API 验证与配置边界
 
-当前 main 没有 CiteRocket/Redditapis adapter、环境变量、测试命令或 UI 配置项。先按[路线 E1a](plans/source-expansion.md#e1a两家有界对照选定一家)确认可用赠额、凭证与普通端点，试验不充值、赠额耗尽即停，真实响应存私有 `output/`；后续只为胜出供应商开发正式配置。不要把任意 key 填入 `TWITTERAPI_IO_API_KEY` 或仅开启 `SOURCE_NETWORK_ENABLED` 就当成 Reddit 已接入。原有生产来源保持当前开关，不为研究默认启动 worker。
+当前 main 没有 opportunity-biz、CiteRocket/Redditapis 或 Reddrix adapter、环境变量、测试命令或 UI 配置项。Scrapling v0.5.1 未安装/运行，旧 bridge 不等于新会话接入。先按[路线 E1a](plans/source-expansion.md#e1a候选有界验证与准入)确认可用赠额、凭证与普通端点，试验不充值、赠额耗尽即停，真实响应存私有 `output/`；后续只为胜出供应商开发正式配置。不要把任意 key 填入 `TWITTERAPI_IO_API_KEY` 或仅开启 `SOURCE_NETWORK_ENABLED` 就当成 Reddit 已接入。原有生产来源保持当前开关，不为研究默认启动 worker。
 
 预算准入先按[产品约束](README.md#产品约束)同时核对单位价和50元/月总额；未通过时不新增商业 adapter，不购买月包或充值。未来通过准入的新供应商上线顺序是：隔离库应用新增迁移 → 私有环境配置凭证 → 配置检查 → 注册但 disabled/零预算 → 单来源有界手动验收 → 核对实际扣费 → 设置批准的日/月预算与周期参数。现有请求/资源预算不能展示为美元硬限额；按单次最高费用保守限制调用，并核对供应商余额/限额。Redditapis 月包耗尽会动用按量余额，应用必须主动阻断超预算调用。读取账号用量不需要在每次取页前另调一遍收费接口。
 
