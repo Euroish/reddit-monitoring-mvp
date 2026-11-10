@@ -57,9 +57,9 @@ E0 的 [7f8fa37 云 CI](https://github.com/Euroish/reddit-monitoring-mvp/actions
 
 ## 当前决定与开发入口
 
-Reddit 改为付费 API 主线：CiteRocket 按量读取作为首测候选，Redditapis 同目标对照；按实际分页、缺失和成本选择一家接入。价格、最低充值与包月切换依据只在[来源研究](research/data-sources.md)维护。完整评论延后；官方申请与全站 dumps 不作为当前路径。Arctic Shift 留作定向/已知 ID 补充，13 位 ID 刷新缺陷仍需修复。
+Reddit 付费来源须满足目标 $0.07/千条、硬上限 $0.10/千条；预期约 10 万条/月，采集月度总费用≤50元，两个上限同时执行。目前没有已证明达标的商业主源；CiteRocket/Redditapis 只保留赠额内对照，不采购月包或充值。价格与准入依据见[来源研究](research/data-sources.md)。完整评论延后；官方申请与全站 dumps 不作为当前路径。Arctic Shift 留作定向/已知 ID 补充，13 位 ID 刷新缺陷仍需修复。
 
-执行顺序见[工程路线](plans/source-expansion.md)：整合已有分支 → 两家各有界真实取数 → 胜出 adapter 接入共享落库/API/UI → 48–72 小时延迟与费用验收。设计见[架构](architecture.md#付费-reddit-provider-接入设计待实现)，配置边界见[开发说明](development.md#付费-api-验证与配置边界)。本轮没有新增 adapter、配置项、数据库迁移或导入接口；网络开关不会自动注册候选供应商。
+执行顺序见[工程路线](plans/source-expansion.md)：整合已有分支 → 赠额内真实取数与成本准入 → 预算合格 adapter 接入共享落库/API/UI → 48–72 小时延迟与费用验收。设计见[架构](architecture.md#付费-reddit-provider-接入设计待实现)，配置边界见[开发说明](development.md#付费-api-验证与配置边界)。若均未通过预算，停止商业接入，不以更贵来源自动替代；全站关键词目标继续标记未交付。本轮没有新增 adapter、配置项、数据库迁移或导入接口；网络开关不会自动注册候选供应商。
 
 X 的 OpenCLI/twscrape 会话方法尚未实测；Twikit 作为后备研究，Nitter 归档后不选作主源，FxEmbed 仅为已知链接补全候选。已停止的云端 Reddit 浏览器服务保持关闭，ego-lite 继续排除。单账号容量和十二小时目标都没有新验收结果。
 
