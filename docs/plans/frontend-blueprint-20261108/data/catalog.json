@@ -1,0 +1,3260 @@
+{
+  "version": "frontend-blueprint-v1",
+  "date": "2026-11-08",
+  "sourceRevision": "34b156c3fa148d40de9fee3b9242df01936e114c",
+  "sourceDirty": true,
+  "scope": "current local branch + proposed P0-P2; no production implementation",
+  "features": [
+    {
+      "id": "F01",
+      "name": {
+        "zh": "工作台外壳、主题与中英文",
+        "en": "Workspace, theme and bilingual UI"
+      },
+      "priority": "P0",
+      "status": "partial",
+      "page": "overview",
+      "apis": [
+        "UI01"
+      ],
+      "service": "Client preferences",
+      "tables": [
+        "localStorage"
+      ],
+      "dependencies": [],
+      "note": "Current app has bilingual text; new themes/layouts are design-only."
+    },
+    {
+      "id": "F02",
+      "name": {
+        "zh": "登录、邀请注册与账户状态",
+        "en": "Sign-in, invited registration and account state"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "account",
+      "apis": [
+        "A01",
+        "A02",
+        "A03",
+        "A04"
+      ],
+      "service": "Auth use cases / session token service",
+      "tables": [
+        "app_user",
+        "app_session",
+        "app_invite"
+      ],
+      "dependencies": [],
+      "note": ""
+    },
+    {
+      "id": "F03",
+      "name": {
+        "zh": "密码、会话与撤销",
+        "en": "Password and session security"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "account",
+      "apis": [
+        "A10",
+        "A11",
+        "A12",
+        "A13"
+      ],
+      "service": "AccountSecurityService",
+      "tables": [
+        "app_user",
+        "app_session"
+      ],
+      "dependencies": [
+        "F02"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F04",
+      "name": {
+        "zh": "已存内容检索、筛选与分页",
+        "en": "Stored-content search, filters and cursor paging"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "explore",
+      "apis": [
+        "C01"
+      ],
+      "service": "SourceContentService / repository query",
+      "tables": [
+        "content",
+        "public_content_search_document"
+      ],
+      "dependencies": [
+        "F02"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F05",
+      "name": {
+        "zh": "同口径统计、趋势与优质推荐",
+        "en": "Scoped statistics, trends and smart recommendations"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "overview",
+      "apis": [
+        "C02",
+        "C03",
+        "N30"
+      ],
+      "service": "contentWorkbench / contentStats / recommendation scorer",
+      "tables": [
+        "content",
+        "content_observation",
+        "public_content_search_document"
+      ],
+      "dependencies": [
+        "F04"
+      ],
+      "note": "Combines implemented C02/C03 stats with proposed N30 explainable content recommendation & Agent digest preview."
+    },
+    {
+      "id": "F06",
+      "name": {
+        "zh": "详情、作者、正文与媒体",
+        "en": "Content, author, text and media detail"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "explore",
+      "apis": [
+        "C04"
+      ],
+      "service": "contentDetail",
+      "tables": [
+        "content",
+        "content_discovery",
+        "collection_source"
+      ],
+      "dependencies": [
+        "F04"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F07",
+      "name": {
+        "zh": "已存父链与有界回复",
+        "en": "Stored references and bounded replies"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "explore",
+      "apis": [
+        "C04"
+      ],
+      "service": "identity lookup / relatedChildren",
+      "tables": [
+        "content"
+      ],
+      "dependencies": [
+        "F06"
+      ],
+      "note": "Each reference/reply list capped at 20; missing nodes never fetched on read."
+    },
+    {
+      "id": "F08",
+      "name": {
+        "zh": "跨渠道身份合并与独立观测",
+        "en": "Cross-provider identity and observations"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "observations",
+      "apis": [
+        "C04"
+      ],
+      "service": "writeCollectedContent / canonical selection",
+      "tables": [
+        "content",
+        "content_discovery",
+        "content_observation"
+      ],
+      "dependencies": [
+        "F06"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F09",
+      "name": {
+        "zh": "个人保存查询及版本冲突",
+        "en": "Personal saved queries and revision conflicts"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "research",
+      "apis": [
+        "P01",
+        "P02",
+        "P03",
+        "P04"
+      ],
+      "service": "ContentPersonalService",
+      "tables": [
+        "content_saved_query"
+      ],
+      "dependencies": [
+        "F02",
+        "F04"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F10",
+      "name": {
+        "zh": "个人收藏、注释与隔离",
+        "en": "Personal favorites, notes and isolation"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "research",
+      "apis": [
+        "P05",
+        "P06",
+        "P07",
+        "P08"
+      ],
+      "service": "ContentPersonalService",
+      "tables": [
+        "content_annotation"
+      ],
+      "dependencies": [
+        "F02",
+        "F06"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F11",
+      "name": {
+        "zh": "即时有界导出与续页",
+        "en": "Bounded live exports and continuation"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "explore",
+      "apis": [
+        "C05"
+      ],
+      "service": "contentExport / contentExportCsv",
+      "tables": [
+        "content",
+        "content_observation"
+      ],
+      "dependencies": [
+        "F04"
+      ],
+      "note": "Max 2000 per file; not a frozen multi-page snapshot."
+    },
+    {
+      "id": "F12",
+      "name": {
+        "zh": "冻结研究样本、manifest及分段",
+        "en": "Frozen research, manifest and segments"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "research",
+      "apis": [
+        "R01",
+        "R02",
+        "R03",
+        "R04",
+        "R05",
+        "R06"
+      ],
+      "service": "ResearchExportService / RR snapshot",
+      "tables": [
+        "research_export",
+        "research_export_member"
+      ],
+      "dependencies": [
+        "F04",
+        "F02"
+      ],
+      "note": "Max 20000 rows/32MiB; each segment <=100. Personal sessions only."
+    },
+    {
+      "id": "F13",
+      "name": {
+        "zh": "来源注册、配置与能力",
+        "en": "Source identity, configuration and capability"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "sources",
+      "apis": [
+        "S01",
+        "S02",
+        "S03"
+      ],
+      "service": "SourceContentService / provider registry",
+      "tables": [
+        "collection_source"
+      ],
+      "dependencies": [
+        "F02"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F14",
+      "name": {
+        "zh": "来源生命周期、计划与成熟刷新",
+        "en": "Lifecycle, schedule and maturity refresh"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "sources",
+      "apis": [
+        "S03",
+        "S04",
+        "S05",
+        "S06"
+      ],
+      "service": "SourceContentService / scheduler",
+      "tables": [
+        "collection_source",
+        "source_collection_job"
+      ],
+      "dependencies": [
+        "F13"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F15",
+      "name": {
+        "zh": "有界采集、预算与租约",
+        "en": "Bounded collection, budget and lease"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "tasks",
+      "apis": [
+        "J01",
+        "J02",
+        "J03"
+      ],
+      "service": "workOnce / connector / page transaction",
+      "tables": [
+        "source_collection_job",
+        "source_provider_usage",
+        "content"
+      ],
+      "dependencies": [
+        "F13",
+        "F14"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F16",
+      "name": {
+        "zh": "任务取消、重试与继续",
+        "en": "Cancel, retry and continue tasks"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "tasks",
+      "apis": [
+        "J04",
+        "J05",
+        "J06"
+      ],
+      "service": "SourceContentService / fenced repository",
+      "tables": [
+        "source_collection_job"
+      ],
+      "dependencies": [
+        "F15"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F17",
+      "name": {
+        "zh": "Worker、队列与独立provider预算",
+        "en": "Workers, queue and provider budgets"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "tasks",
+      "apis": [
+        "J07",
+        "J08"
+      ],
+      "service": "sourceOps / reserveUsage / heartbeat",
+      "tables": [
+        "source_worker_heartbeat",
+        "source_provider_budget",
+        "source_provider_usage"
+      ],
+      "dependencies": [
+        "F15"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F18",
+      "name": {
+        "zh": "离线抽样与归档导入回执",
+        "en": "Offline sampling and archive receipts"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "datasets",
+      "apis": [
+        "CLI01"
+      ],
+      "service": "preflightArchive / PostgresArchiveImportRepository",
+      "tables": [
+        "archive_import_run",
+        "archive_import_batch",
+        "content"
+      ],
+      "dependencies": [
+        "F08"
+      ],
+      "note": "CLI exists; browser upload/preview APIs are proposed separately."
+    },
+    {
+      "id": "F19",
+      "name": {
+        "zh": "用户角色、启用与Owner保护",
+        "en": "User access, activation and owner safeguards"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "admin",
+      "apis": [
+        "A05",
+        "A07",
+        "A08",
+        "A09"
+      ],
+      "service": "AccountSecurityService / updateAccess",
+      "tables": [
+        "app_user",
+        "app_session"
+      ],
+      "dependencies": [
+        "F02"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F20",
+      "name": {
+        "zh": "邀请码与待激活注册",
+        "en": "Invitations and pending registration"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "admin",
+      "apis": [
+        "A06",
+        "A04"
+      ],
+      "service": "create invite / register use cases",
+      "tables": [
+        "app_invite",
+        "app_user"
+      ],
+      "dependencies": [
+        "F19"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F21",
+      "name": {
+        "zh": "操作审计",
+        "en": "Operation audit"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "admin",
+      "apis": [
+        "O01"
+      ],
+      "service": "audit repository",
+      "tables": [
+        "app_audit"
+      ],
+      "dependencies": [
+        "F19"
+      ],
+      "note": "Owner/admin session required; machine denied."
+    },
+    {
+      "id": "F22",
+      "name": {
+        "zh": "健康、就绪与存储诊断",
+        "en": "Health, readiness and storage diagnostics"
+      },
+      "priority": "current",
+      "status": "implemented",
+      "page": "admin",
+      "apis": [
+        "O02",
+        "O03",
+        "O04",
+        "O05"
+      ],
+      "service": "readiness / storage policy",
+      "tables": [
+        "operational measurements"
+      ],
+      "dependencies": [
+        "F19"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F23",
+      "name": {
+        "zh": "保留预览与有界清理",
+        "en": "Retention preview and bounded prune"
+      },
+      "priority": "current",
+      "status": "legacy",
+      "page": "admin",
+      "apis": [
+        "L20",
+        "L21",
+        "L22",
+        "L23"
+      ],
+      "service": "legacy retention use cases",
+      "tables": [
+        "raw_event",
+        "metrics_snapshot",
+        "post_engagement_window"
+      ],
+      "dependencies": [
+        "F22"
+      ],
+      "note": "Legacy tables only; no public-content retention contract yet."
+    },
+    {
+      "id": "F24",
+      "name": {
+        "zh": "旧市场、榜单与目标详情",
+        "en": "Legacy markets, boards and targets"
+      },
+      "priority": "current",
+      "status": "legacy",
+      "page": "legacy",
+      "apis": [
+        "L01",
+        "L02",
+        "L03",
+        "L04",
+        "L24",
+        "L25",
+        "L26",
+        "L27"
+      ],
+      "service": "legacy trend read models",
+      "tables": [
+        "legacy trend tables"
+      ],
+      "dependencies": [
+        "F02"
+      ],
+      "note": "Not backed by imported public content."
+    },
+    {
+      "id": "F25",
+      "name": {
+        "zh": "旧关键词会话与Phase1运行",
+        "en": "Legacy keyword sessions and Phase 1"
+      },
+      "priority": "current",
+      "status": "legacy",
+      "page": "legacy",
+      "apis": [
+        "L09",
+        "L10",
+        "L11",
+        "L12"
+      ],
+      "service": "legacy keyword/session/run use cases",
+      "tables": [
+        "keyword_query_session",
+        "legacy trend tables"
+      ],
+      "dependencies": [
+        "F24"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F26",
+      "name": {
+        "zh": "旧对比与保存视图",
+        "en": "Legacy compare and saved views"
+      },
+      "priority": "current",
+      "status": "legacy",
+      "page": "legacy",
+      "apis": [
+        "L05",
+        "L06",
+        "L07"
+      ],
+      "service": "saved-view and compare routes",
+      "tables": [
+        "workbench_saved_view"
+      ],
+      "dependencies": [
+        "F24"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F27",
+      "name": {
+        "zh": "旧目标批量管理与调度设置",
+        "en": "Legacy target management and collection settings"
+      },
+      "priority": "current",
+      "status": "legacy",
+      "page": "legacy",
+      "apis": [
+        "L13",
+        "L14",
+        "L15",
+        "L16",
+        "L17",
+        "L18",
+        "L19"
+      ],
+      "service": "legacy target / collection settings",
+      "tables": [
+        "subreddit_target",
+        "collection_settings"
+      ],
+      "dependencies": [
+        "F24"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F28",
+      "name": {
+        "zh": "来源分页检索及精简选项",
+        "en": "Paged source directory and lean options"
+      },
+      "priority": "P0",
+      "status": "proposed",
+      "page": "sources",
+      "apis": [
+        "N01",
+        "N02"
+      ],
+      "service": "Proposed source directory query",
+      "tables": [
+        "collection_source"
+      ],
+      "dependencies": [
+        "F13"
+      ],
+      "note": "Existing GET sources is unpaged; these new routes are proposals."
+    },
+    {
+      "id": "F29",
+      "name": {
+        "zh": "详情关联来源批量读取",
+        "en": "Batch related-source detail reads"
+      },
+      "priority": "P0",
+      "status": "branch-ready",
+      "page": "explore",
+      "apis": [
+        "C04"
+      ],
+      "service": "Reuse dev/root E0 detail use case",
+      "tables": [
+        "content",
+        "content_discovery",
+        "collection_source"
+      ],
+      "dependencies": [
+        "F06"
+      ],
+      "note": "Contract unchanged; E0 exists on unmerged branch. Review and integrate, do not rebuild."
+    },
+    {
+      "id": "F30",
+      "name": {
+        "zh": "明确刷新、错误、分母和交互层次",
+        "en": "Explicit refresh, errors, denominator and hierarchy"
+      },
+      "priority": "P0",
+      "status": "proposed",
+      "page": "explore",
+      "apis": [
+        "C01",
+        "C03",
+        "UI01"
+      ],
+      "service": "Client query lifecycle / accessible states",
+      "tables": [
+        "none"
+      ],
+      "dependencies": [
+        "F04",
+        "F05"
+      ],
+      "note": "Do not present stale totals as newly applied filters."
+    },
+    {
+      "id": "F31",
+      "name": {
+        "zh": "数据集、批次、成员与导入预览",
+        "en": "Datasets, batches, membership and import preview"
+      },
+      "priority": "P1",
+      "status": "proposed",
+      "page": "datasets",
+      "apis": [
+        "N03",
+        "N04",
+        "N05",
+        "N06",
+        "N07",
+        "N08",
+        "N09",
+        "N10",
+        "N11"
+      ],
+      "service": "Proposed dataset and registered-file import use cases",
+      "tables": [
+        "dataset",
+        "dataset_version",
+        "dataset_member",
+        "archive_import_run"
+      ],
+      "dependencies": [
+        "F18",
+        "F12"
+      ],
+      "note": "Dataset tables and browser APIs do not exist; source group is not member classification."
+    },
+    {
+      "id": "F32",
+      "name": {
+        "zh": "社区日期聚合、品牌痛点与Agent简报",
+        "en": "Community/time aggregation, brand dimensions and Agent digest"
+      },
+      "priority": "P1",
+      "status": "proposed",
+      "page": "analysis",
+      "apis": [
+        "N12",
+        "N32"
+      ],
+      "service": "Proposed bounded aggregation & Agent structured digest read model",
+      "tables": [
+        "content",
+        "content_observation",
+        "dataset_member"
+      ],
+      "dependencies": [
+        "F31",
+        "F05"
+      ],
+      "note": "Preserve denominator, unknowns and provider overlaps; provides structured Agent JSON/Markdown digest with traceable evidence IDs."
+    },
+    {
+      "id": "F33",
+      "name": {
+        "zh": "观测时间线、差异及冲突提示",
+        "en": "Observation timeline, differences and conflicts"
+      },
+      "priority": "P1",
+      "status": "proposed",
+      "page": "observations",
+      "apis": [
+        "N13",
+        "N14"
+      ],
+      "service": "Proposed observation history / comparison",
+      "tables": [
+        "content_observation",
+        "content"
+      ],
+      "dependencies": [
+        "F08"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F34",
+      "name": {
+        "zh": "研究标签与批量归类",
+        "en": "Research labels and batch coding"
+      },
+      "priority": "P1",
+      "status": "proposed",
+      "page": "labels",
+      "apis": [
+        "N15",
+        "N16",
+        "N17"
+      ],
+      "service": "Proposed personal label service",
+      "tables": [
+        "research_label",
+        "content_label"
+      ],
+      "dependencies": [
+        "F10",
+        "F31"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F35",
+      "name": {
+        "zh": "长文阅读与移动高级筛选",
+        "en": "Long-form reading and mobile filter hierarchy"
+      },
+      "priority": "P1",
+      "status": "proposed",
+      "page": "explore",
+      "apis": [
+        "C04",
+        "UI01"
+      ],
+      "service": "Client reading layout",
+      "tables": [
+        "none"
+      ],
+      "dependencies": [
+        "F06",
+        "F30"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F36",
+      "name": {
+        "zh": "多品牌维度对比矩阵与结果集A/B对比",
+        "en": "Multi-brand dimension matrix & result-set A/B comparison"
+      },
+      "priority": "P2",
+      "status": "proposed",
+      "page": "compare",
+      "apis": [
+        "N18",
+        "N19",
+        "N31"
+      ],
+      "service": "Proposed brand-dimension evidence matrix & scope comparison service",
+      "tables": [
+        "research_comparison",
+        "dataset_version",
+        "research_export_member"
+      ],
+      "dependencies": [
+        "F12",
+        "F31",
+        "F32"
+      ],
+      "note": ""
+    },
+    {
+      "id": "F37",
+      "name": {
+        "zh": "诊断、缩窗计划与有界恢复",
+        "en": "Diagnostics, split plans and bounded recovery"
+      },
+      "priority": "P2",
+      "status": "proposed",
+      "page": "tasks",
+      "apis": [
+        "N20",
+        "N21"
+      ],
+      "service": "Proposed recovery planner; reuse queue/lease/budget",
+      "tables": [
+        "source_collection_job",
+        "recovery_plan"
+      ],
+      "dependencies": [
+        "F15",
+        "F16",
+        "F17"
+      ],
+      "note": "Plan first; preserve incomplete coverage and checkpoint. Never unlimited retries."
+    },
+    {
+      "id": "F38",
+      "name": {
+        "zh": "项目、数据集共享与权限",
+        "en": "Projects, dataset sharing and permissions"
+      },
+      "priority": "P2",
+      "status": "proposed",
+      "page": "projects",
+      "apis": [
+        "N22",
+        "N23",
+        "N24",
+        "N25",
+        "N26"
+      ],
+      "service": "Proposed project membership service",
+      "tables": [
+        "project",
+        "project_member",
+        "project_dataset"
+      ],
+      "dependencies": [
+        "F19",
+        "F31"
+      ],
+      "note": "Project reader/editor/manager are proposed project roles, not current global roles."
+    },
+    {
+      "id": "F39",
+      "name": {
+        "zh": "代码本、多人与复核分歧",
+        "en": "Codebooks, review assignments and disagreements"
+      },
+      "priority": "P2",
+      "status": "proposed",
+      "page": "projects",
+      "apis": [
+        "N27",
+        "N28",
+        "N29"
+      ],
+      "service": "Proposed review/codebook service",
+      "tables": [
+        "codebook",
+        "review",
+        "review_annotation"
+      ],
+      "dependencies": [
+        "F34",
+        "F38"
+      ],
+      "note": "Optional research workflow; no human gold or agreement score claimed."
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "C01",
+      "method": "GET",
+      "path": "/v1/content",
+      "status": "implemented",
+      "access": "authenticated",
+      "request": "ContentQuery",
+      "response": "ContentListResponse",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 21,
+        "excerpt": "{ method: \"GET\", path: /^\\/v1\\/content$/, action: \"content\", write: false },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F04",
+        "F30"
+      ]
+    },
+    {
+      "id": "C02",
+      "method": "GET",
+      "path": "/v1/content/stats",
+      "status": "implemented",
+      "access": "authenticated",
+      "request": "ContentQuery",
+      "response": "ContentStatsResponse",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 22,
+        "excerpt": "{ method: \"GET\", path: /^\\/v1\\/content\\/stats$/, action: \"stats\", write: false },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F05"
+      ]
+    },
+    {
+      "id": "C03",
+      "method": "GET",
+      "path": "/v1/content/workbench",
+      "status": "implemented",
+      "access": "authenticated",
+      "request": "ContentQuery",
+      "response": "ContentWorkbenchResponse",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 23,
+        "excerpt": "{ method: \"GET\", path: /^\\/v1\\/content\\/workbench$/, action: \"workbench\", write: false },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F05",
+        "F30"
+      ]
+    },
+    {
+      "id": "C04",
+      "method": "GET",
+      "path": "/v1/content/:id",
+      "status": "implemented",
+      "access": "authenticated",
+      "request": "id",
+      "response": "ContentDetailResponse",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 25,
+        "excerpt": "{ method:\"GET\",path:/^\\/v1\\/content\\/([^/]+)$/,action:\"detail\",write:false },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F06",
+        "F07",
+        "F08",
+        "F29",
+        "F35"
+      ]
+    },
+    {
+      "id": "C05",
+      "method": "GET",
+      "path": "/v1/content/export",
+      "status": "implemented",
+      "access": "authenticated",
+      "request": "ContentQuery + format + maxItems(1..2000)",
+      "response": "ContentExportResponse | CSV metadata + rows",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 24,
+        "excerpt": "{ method: \"GET\", path: /^\\/v1\\/content\\/export$/, action: \"export\", write: false },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F11"
+      ]
+    },
+    {
+      "id": "S01",
+      "method": "GET",
+      "path": "/v1/sources",
+      "status": "implemented",
+      "access": "authenticated",
+      "request": "none; no current pagination",
+      "response": "SourceListResponse",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 7,
+        "excerpt": "{ method: \"GET\", path: /^\\/v1\\/sources$/, action: \"sources\", write: false },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F13"
+      ]
+    },
+    {
+      "id": "S02",
+      "method": "POST",
+      "path": "/v1/sources",
+      "status": "implemented",
+      "access": "ops-write",
+      "request": "CreateCollectionSourceRequest",
+      "response": "CollectionSourceResponse (201)",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 8,
+        "excerpt": "{ method: \"POST\", path: /^\\/v1\\/sources$/, action: \"create\", write: true },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F13"
+      ]
+    },
+    {
+      "id": "S03",
+      "method": "PATCH",
+      "path": "/v1/sources/:id",
+      "status": "implemented",
+      "access": "ops-write",
+      "request": "UpdateCollectionSourceRequest",
+      "response": "CollectionSourceResponse",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 9,
+        "excerpt": "{ method: \"PATCH\", path: /^\\/v1\\/sources\\/([^/]+)$/, action: \"update\", write: true },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F13",
+        "F14"
+      ]
+    },
+    {
+      "id": "S04",
+      "method": "POST",
+      "path": "/v1/sources/:id/pause",
+      "status": "implemented",
+      "access": "ops-write",
+      "request": "expectedRevision?",
+      "response": "CollectionSourceResponse",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 10,
+        "excerpt": "{ method: \"POST\", path: /^\\/v1\\/sources\\/([^/]+)\\/pause$/, action: \"pause\", write: true },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F14"
+      ]
+    },
+    {
+      "id": "S05",
+      "method": "POST",
+      "path": "/v1/sources/:id/resume",
+      "status": "implemented",
+      "access": "ops-write",
+      "request": "expectedRevision?",
+      "response": "CollectionSourceResponse",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 11,
+        "excerpt": "{ method: \"POST\", path: /^\\/v1\\/sources\\/([^/]+)\\/resume$/, action: \"resume\", write: true },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F14"
+      ]
+    },
+    {
+      "id": "S06",
+      "method": "POST",
+      "path": "/v1/sources/:id/archive",
+      "status": "implemented",
+      "access": "ops-write",
+      "request": "expectedRevision?",
+      "response": "CollectionSourceResponse",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 12,
+        "excerpt": "{ method: \"POST\", path: /^\\/v1\\/sources\\/([^/]+)\\/archive$/, action: \"archive\", write: true },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F14"
+      ]
+    },
+    {
+      "id": "J01",
+      "method": "POST",
+      "path": "/v1/sources/:id/collect",
+      "status": "implemented",
+      "access": "ops-write",
+      "request": "StartSourceCollectionRequest",
+      "response": "SourceJobResponse (202)",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 13,
+        "excerpt": "{ method: \"POST\", path: /^\\/v1\\/sources\\/([^/]+)\\/collect$/, action: \"collect\", write: true },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F15"
+      ]
+    },
+    {
+      "id": "J02",
+      "method": "GET",
+      "path": "/v1/source-jobs",
+      "status": "implemented",
+      "access": "authenticated",
+      "request": "sourceId? status? limit<=50",
+      "response": "SourceJobsResponse",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 14,
+        "excerpt": "{ method: \"GET\", path: /^\\/v1\\/source-jobs$/, action: \"jobs\", write: false },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F15"
+      ]
+    },
+    {
+      "id": "J03",
+      "method": "GET",
+      "path": "/v1/source-jobs/:id",
+      "status": "implemented",
+      "access": "authenticated",
+      "request": "id",
+      "response": "SourceJobResponse",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 15,
+        "excerpt": "{ method: \"GET\", path: /^\\/v1\\/source-jobs\\/([^/]+)$/, action: \"job\", write: false },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F15"
+      ]
+    },
+    {
+      "id": "J04",
+      "method": "POST",
+      "path": "/v1/source-jobs/:id/retry",
+      "status": "implemented",
+      "access": "ops-write",
+      "request": "id",
+      "response": "SourceJobResponse (202)",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 16,
+        "excerpt": "{ method: \"POST\", path: /^\\/v1\\/source-jobs\\/([^/]+)\\/retry$/, action: \"retry\", write: true },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F16"
+      ]
+    },
+    {
+      "id": "J05",
+      "method": "POST",
+      "path": "/v1/source-jobs/:id/continue",
+      "status": "implemented",
+      "access": "ops-write",
+      "request": "id",
+      "response": "SourceJobResponse (202)",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 17,
+        "excerpt": "{ method: \"POST\", path: /^\\/v1\\/source-jobs\\/([^/]+)\\/continue$/, action: \"continue\", write: true },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F16"
+      ]
+    },
+    {
+      "id": "J06",
+      "method": "POST",
+      "path": "/v1/source-jobs/:id/cancel",
+      "status": "implemented",
+      "access": "ops-write",
+      "request": "id",
+      "response": "SourceJobResponse",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 18,
+        "excerpt": "{ method: \"POST\", path: /^\\/v1\\/source-jobs\\/([^/]+)\\/cancel$/, action: \"cancel\", write: true },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F16"
+      ]
+    },
+    {
+      "id": "J07",
+      "method": "GET",
+      "path": "/v1/source-ops",
+      "status": "implemented",
+      "access": "authenticated",
+      "request": "none",
+      "response": "SourceOpsResponse",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 19,
+        "excerpt": "{ method: \"GET\", path: /^\\/v1\\/source-ops$/, action: \"ops\", write: false },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F17"
+      ]
+    },
+    {
+      "id": "J08",
+      "method": "PUT",
+      "path": "/v1/source-provider-budgets/:provider",
+      "status": "implemented",
+      "access": "ops-write",
+      "request": "SourceProviderBudgetRequest",
+      "response": "ok/requestId/budget",
+      "evidence": {
+        "file": "apps/api/src/source-content-routes.ts",
+        "line": 20,
+        "excerpt": "{ method: \"PUT\", path: /^\\/v1\\/source-provider-budgets\\/([^/]+)$/, action: \"budget\", write: true },",
+        "sha256": "cbeabd7eaeb1e8ccd96c8c4b42b1903e481ae0426be7bf6359e3314975d7d12a"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F17"
+      ]
+    },
+    {
+      "id": "P01",
+      "method": "GET",
+      "path": "/v1/content-saved-queries",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "limit/cursor",
+      "response": "ContentSavedQueryListResponse",
+      "evidence": {
+        "file": "apps/api/src/content-personal-routes.ts",
+        "line": 6,
+        "excerpt": "{method:\"GET\",path:/^\\/v1\\/content-saved-queries$/,action:\"queries\",write:false,personal:true},",
+        "sha256": "7fef6b1796f61fe23774fa9bc12d1c393ee721f3e53a7eb3fb8d9a05280a71fd"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F09"
+      ]
+    },
+    {
+      "id": "P02",
+      "method": "POST",
+      "path": "/v1/content-saved-queries",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "SaveContentQueryRequest expectedRevision=0",
+      "response": "SaveContentQueryResponse (201)",
+      "evidence": {
+        "file": "apps/api/src/content-personal-routes.ts",
+        "line": 7,
+        "excerpt": "{method:\"POST\",path:/^\\/v1\\/content-saved-queries$/,action:\"createQuery\",write:true,personal:true},",
+        "sha256": "7fef6b1796f61fe23774fa9bc12d1c393ee721f3e53a7eb3fb8d9a05280a71fd"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F09"
+      ]
+    },
+    {
+      "id": "P03",
+      "method": "PATCH",
+      "path": "/v1/content-saved-queries/:id",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "SaveContentQueryRequest current revision",
+      "response": "SaveContentQueryResponse",
+      "evidence": {
+        "file": "apps/api/src/content-personal-routes.ts",
+        "line": 8,
+        "excerpt": "{method:\"PATCH\",path:/^\\/v1\\/content-saved-queries\\/([^/]+)$/,action:\"updateQuery\",write:true,personal:true},",
+        "sha256": "7fef6b1796f61fe23774fa9bc12d1c393ee721f3e53a7eb3fb8d9a05280a71fd"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F09"
+      ]
+    },
+    {
+      "id": "P04",
+      "method": "DELETE",
+      "path": "/v1/content-saved-queries/:id",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "{expectedRevision}",
+      "response": "{deleted:true}",
+      "evidence": {
+        "file": "apps/api/src/content-personal-routes.ts",
+        "line": 9,
+        "excerpt": "{method:\"DELETE\",path:/^\\/v1\\/content-saved-queries\\/([^/]+)$/,action:\"deleteQuery\",write:true,personal:true},",
+        "sha256": "7fef6b1796f61fe23774fa9bc12d1c393ee721f3e53a7eb3fb8d9a05280a71fd"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F09"
+      ]
+    },
+    {
+      "id": "P05",
+      "method": "GET",
+      "path": "/v1/content-annotations",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "favoriteOnly? limit/cursor",
+      "response": "ContentAnnotationListResponse",
+      "evidence": {
+        "file": "apps/api/src/content-personal-routes.ts",
+        "line": 10,
+        "excerpt": "{method:\"GET\",path:/^\\/v1\\/content-annotations$/,action:\"annotations\",write:false,personal:true},",
+        "sha256": "7fef6b1796f61fe23774fa9bc12d1c393ee721f3e53a7eb3fb8d9a05280a71fd"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F10"
+      ]
+    },
+    {
+      "id": "P06",
+      "method": "GET",
+      "path": "/v1/content/:id/annotation",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "id",
+      "response": "ContentAnnotationResponse",
+      "evidence": {
+        "file": "apps/api/src/content-personal-routes.ts",
+        "line": 11,
+        "excerpt": "{method:\"GET\",path:/^\\/v1\\/content\\/([^/]+)\\/annotation$/,action:\"annotation\",write:false,personal:true},",
+        "sha256": "7fef6b1796f61fe23774fa9bc12d1c393ee721f3e53a7eb3fb8d9a05280a71fd"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F10"
+      ]
+    },
+    {
+      "id": "P07",
+      "method": "PUT",
+      "path": "/v1/content/:id/annotation",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "UpdateContentAnnotationRequest",
+      "response": "ContentAnnotationResponse",
+      "evidence": {
+        "file": "apps/api/src/content-personal-routes.ts",
+        "line": 12,
+        "excerpt": "{method:\"PUT\",path:/^\\/v1\\/content\\/([^/]+)\\/annotation$/,action:\"saveAnnotation\",write:true,personal:true},",
+        "sha256": "7fef6b1796f61fe23774fa9bc12d1c393ee721f3e53a7eb3fb8d9a05280a71fd"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F10"
+      ]
+    },
+    {
+      "id": "P08",
+      "method": "DELETE",
+      "path": "/v1/content/:id/annotation",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "{expectedRevision}",
+      "response": "{deleted:true}",
+      "evidence": {
+        "file": "apps/api/src/content-personal-routes.ts",
+        "line": 13,
+        "excerpt": "{method:\"DELETE\",path:/^\\/v1\\/content\\/([^/]+)\\/annotation$/,action:\"deleteAnnotation\",write:true,personal:true},",
+        "sha256": "7fef6b1796f61fe23774fa9bc12d1c393ee721f3e53a7eb3fb8d9a05280a71fd"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F10"
+      ]
+    },
+    {
+      "id": "R01",
+      "method": "GET",
+      "path": "/v1/research-exports",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "limit/cursor",
+      "response": "ResearchExportListResponse",
+      "evidence": {
+        "file": "apps/api/src/research-export-routes.ts",
+        "line": 8,
+        "excerpt": "{ method: \"GET\", path: /^\\/v1\\/research-exports$/, action: \"list\", write: false, personal: true },",
+        "sha256": "99f2692bf24791ae246987d238e20f9089de61c10e6f4cfbf7851e8a03231ca2"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F12"
+      ]
+    },
+    {
+      "id": "R02",
+      "method": "POST",
+      "path": "/v1/research-exports",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "CreateResearchExportRequest maxRows<=20000",
+      "response": "ResearchExportResponse (201)",
+      "evidence": {
+        "file": "apps/api/src/research-export-routes.ts",
+        "line": 9,
+        "excerpt": "{ method: \"POST\", path: /^\\/v1\\/research-exports$/, action: \"create\", write: true, personal: true },",
+        "sha256": "99f2692bf24791ae246987d238e20f9089de61c10e6f4cfbf7851e8a03231ca2"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F12"
+      ]
+    },
+    {
+      "id": "R03",
+      "method": "GET",
+      "path": "/v1/research-exports/:id",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "id",
+      "response": "ResearchExportResponse",
+      "evidence": {
+        "file": "apps/api/src/research-export-routes.ts",
+        "line": 10,
+        "excerpt": "{ method: \"GET\", path: /^\\/v1\\/research-exports\\/([^/]+)$/, action: \"get\", write: false, personal: true },",
+        "sha256": "99f2692bf24791ae246987d238e20f9089de61c10e6f4cfbf7851e8a03231ca2"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F12"
+      ]
+    },
+    {
+      "id": "R04",
+      "method": "DELETE",
+      "path": "/v1/research-exports/:id",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "id",
+      "response": "{deleted:true}",
+      "evidence": {
+        "file": "apps/api/src/research-export-routes.ts",
+        "line": 11,
+        "excerpt": "{ method: \"DELETE\", path: /^\\/v1\\/research-exports\\/([^/]+)$/, action: \"delete\", write: true, personal: true },",
+        "sha256": "99f2692bf24791ae246987d238e20f9089de61c10e6f4cfbf7851e8a03231ca2"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F12"
+      ]
+    },
+    {
+      "id": "R05",
+      "method": "GET",
+      "path": "/v1/research-exports/:id/content",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "limit<=100/cursor",
+      "response": "ResearchExportPageResponse",
+      "evidence": {
+        "file": "apps/api/src/research-export-routes.ts",
+        "line": 12,
+        "excerpt": "{ method: \"GET\", path: /^\\/v1\\/research-exports\\/([^/]+)\\/content$/, action: \"content\", write: false, personal: true },",
+        "sha256": "99f2692bf24791ae246987d238e20f9089de61c10e6f4cfbf7851e8a03231ca2"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F12"
+      ]
+    },
+    {
+      "id": "R06",
+      "method": "GET",
+      "path": "/v1/research-exports/:id/export",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "format=json|csv limit<=100/cursor",
+      "response": "ResearchExportPageResponse | CSV",
+      "evidence": {
+        "file": "apps/api/src/research-export-routes.ts",
+        "line": 13,
+        "excerpt": "{ method: \"GET\", path: /^\\/v1\\/research-exports\\/([^/]+)\\/export$/, action: \"export\", write: false, personal: true },",
+        "sha256": "99f2692bf24791ae246987d238e20f9089de61c10e6f4cfbf7851e8a03231ca2"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F12"
+      ]
+    },
+    {
+      "id": "A01",
+      "method": "POST",
+      "path": "/auth/login",
+      "status": "implemented",
+      "access": "public",
+      "request": "email/password",
+      "response": "AuthLoginResponse + session cookie",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 1354,
+        "excerpt": "if (authRateLimiter && req.method === \"POST\" && (pathname === \"/auth/login\" || pathname === \"/auth/register\")) {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F02"
+      ]
+    },
+    {
+      "id": "A02",
+      "method": "POST",
+      "path": "/auth/logout",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "none",
+      "response": "AuthLogoutResponse + clear cookie",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 1492,
+        "excerpt": "if (req.method === \"POST\" && pathname === \"/auth/logout\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F02"
+      ]
+    },
+    {
+      "id": "A03",
+      "method": "GET",
+      "path": "/auth/me",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "session",
+      "response": "AuthMeResponse",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 1722,
+        "excerpt": "if (req.method === \"GET\" && pathname === \"/auth/me\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F02"
+      ]
+    },
+    {
+      "id": "A04",
+      "method": "POST",
+      "path": "/auth/register",
+      "status": "implemented",
+      "access": "public",
+      "request": "email/password/displayName/inviteCode",
+      "response": "RegisterAppUserResponse; pending activation",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 1354,
+        "excerpt": "if (authRateLimiter && req.method === \"POST\" && (pathname === \"/auth/login\" || pathname === \"/auth/register\")) {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F02",
+        "F20"
+      ]
+    },
+    {
+      "id": "A05",
+      "method": "GET",
+      "path": "/auth/users",
+      "status": "implemented",
+      "access": "auth-admin",
+      "request": "none",
+      "response": "ListAppUsersResponse",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 1604,
+        "excerpt": "if (req.method === \"GET\" && pathname === \"/auth/users\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F19"
+      ]
+    },
+    {
+      "id": "A06",
+      "method": "POST",
+      "path": "/auth/invites",
+      "status": "implemented",
+      "access": "auth-admin",
+      "request": "roleOnAccept/maxUses/expiresAt",
+      "response": "CreateInviteResponse",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 1631,
+        "excerpt": "if (req.method === \"POST\" && pathname === \"/auth/invites\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F20"
+      ]
+    },
+    {
+      "id": "A07",
+      "method": "POST",
+      "path": "/auth/users/:id/role",
+      "status": "implemented",
+      "access": "owner-guarded",
+      "request": "role",
+      "response": "UpdateAppUserRoleResponse",
+      "evidence": {
+        "file": "apps/api/src/auth-account-routes.ts",
+        "line": 75,
+        "excerpt": "const user = match[2] === \"role\" ? await service.changeRole(accessActor, userId, body.role as AppUser[\"role\"]) : await service.changeStatus(accessActor, userId, match[2] === \"activate\" ? \"active\" : body.status as AppUser[\"status\"]);",
+        "sha256": "9c649b46454216e43e0e4a1d678655abb6642165f95d2c2edeea155ee992b405"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F19"
+      ]
+    },
+    {
+      "id": "A08",
+      "method": "POST",
+      "path": "/auth/users/:id/status",
+      "status": "implemented",
+      "access": "owner-guarded",
+      "request": "status:pending|active|disabled",
+      "response": "UpdateAppUserStatusResponse",
+      "evidence": {
+        "file": "apps/api/src/auth-account-routes.ts",
+        "line": 75,
+        "excerpt": "const user = match[2] === \"role\" ? await service.changeRole(accessActor, userId, body.role as AppUser[\"role\"]) : await service.changeStatus(accessActor, userId, match[2] === \"activate\" ? \"active\" : body.status as AppUser[\"status\"]);",
+        "sha256": "9c649b46454216e43e0e4a1d678655abb6642165f95d2c2edeea155ee992b405"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F19"
+      ]
+    },
+    {
+      "id": "A09",
+      "method": "POST",
+      "path": "/auth/users/:id/activate",
+      "status": "implemented",
+      "access": "owner-guarded",
+      "request": "none",
+      "response": "UpdateAppUserStatusResponse",
+      "evidence": {
+        "file": "apps/api/src/auth-account-routes.ts",
+        "line": 75,
+        "excerpt": "const user = match[2] === \"role\" ? await service.changeRole(accessActor, userId, body.role as AppUser[\"role\"]) : await service.changeStatus(accessActor, userId, match[2] === \"activate\" ? \"active\" : body.status as AppUser[\"status\"]);",
+        "sha256": "9c649b46454216e43e0e4a1d678655abb6642165f95d2c2edeea155ee992b405"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F19"
+      ]
+    },
+    {
+      "id": "A10",
+      "method": "POST",
+      "path": "/auth/password",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "currentPassword/newPassword",
+      "response": "AuthPasswordChangeResponse reauthenticate=true",
+      "evidence": {
+        "file": "apps/api/src/auth-account-routes.ts",
+        "line": 51,
+        "excerpt": "await service.changePassword(actor.userId, { currentPassword: body.currentPassword as string, newPassword: body.newPassword as string });",
+        "sha256": "9c649b46454216e43e0e4a1d678655abb6642165f95d2c2edeea155ee992b405"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F03"
+      ]
+    },
+    {
+      "id": "A11",
+      "method": "GET",
+      "path": "/auth/sessions",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "none",
+      "response": "AuthSessionsResponse",
+      "evidence": {
+        "file": "apps/api/src/auth-account-routes.ts",
+        "line": 56,
+        "excerpt": "const payload: AuthSessionsResponse = { ok: true, requestId, sessions: await service.listSessions(actor.userId, input.currentSessionId) };",
+        "sha256": "9c649b46454216e43e0e4a1d678655abb6642165f95d2c2edeea155ee992b405"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F03"
+      ]
+    },
+    {
+      "id": "A12",
+      "method": "DELETE",
+      "path": "/auth/sessions/:id",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "id",
+      "response": "AuthSessionRevokeResponse",
+      "evidence": {
+        "file": "apps/api/src/auth-account-routes.ts",
+        "line": 66,
+        "excerpt": "if (!await service.revokeSession(actor.userId, id)) return fail(404, \"session_not_found\", \"Session not found\");",
+        "sha256": "9c649b46454216e43e0e4a1d678655abb6642165f95d2c2edeea155ee992b405"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F03"
+      ]
+    },
+    {
+      "id": "A13",
+      "method": "POST",
+      "path": "/auth/sessions/revoke-all",
+      "status": "implemented",
+      "access": "personal-session",
+      "request": "none",
+      "response": "AuthSessionRevokeResponse currentSessionRevoked=true",
+      "evidence": {
+        "file": "apps/api/src/auth-account-routes.ts",
+        "line": 60,
+        "excerpt": "await service.revokeAllSessions(actor.userId);",
+        "sha256": "9c649b46454216e43e0e4a1d678655abb6642165f95d2c2edeea155ee992b405"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F03"
+      ]
+    },
+    {
+      "id": "O01",
+      "method": "GET",
+      "path": "/v1/ops/audit",
+      "status": "implemented",
+      "access": "admin-session",
+      "request": "limit/cursor/actorId/action/outcome",
+      "response": "ListAppAuditResponse",
+      "evidence": {
+        "file": "apps/api/src/auth-account-routes.ts",
+        "line": 29,
+        "excerpt": "if (url.pathname === \"/v1/ops/audit\") {",
+        "sha256": "9c649b46454216e43e0e4a1d678655abb6642165f95d2c2edeea155ee992b405"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F21"
+      ]
+    },
+    {
+      "id": "O02",
+      "method": "GET",
+      "path": "/healthz",
+      "status": "implemented",
+      "access": "public",
+      "request": "none",
+      "response": "ok/status",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 1393,
+        "excerpt": "if (req.method === \"GET\" && pathname === \"/healthz\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F22"
+      ]
+    },
+    {
+      "id": "O03",
+      "method": "GET",
+      "path": "/readyz",
+      "status": "implemented",
+      "access": "public",
+      "request": "none",
+      "response": "readiness; 503 when not ready",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 1770,
+        "excerpt": "if (req.method === \"GET\" && (pathname === \"/readyz\" || pathname === \"/v1/ops/readyz\")) {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F22"
+      ]
+    },
+    {
+      "id": "O04",
+      "method": "GET",
+      "path": "/v1/ops/readyz",
+      "status": "implemented",
+      "access": "admin-session",
+      "request": "none",
+      "response": "readiness/observability; diagnostic HTTP200 possible when not ready",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 1219,
+        "excerpt": "pathname === \"/v1/ops/readyz\" ||",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F22"
+      ]
+    },
+    {
+      "id": "O05",
+      "method": "GET",
+      "path": "/v1/ops/storage",
+      "status": "implemented",
+      "access": "admin-session",
+      "request": "none",
+      "response": "storage measurements/retention estimates",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 1836,
+        "excerpt": "if (req.method === \"GET\" && pathname === \"/v1/ops/storage\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F22"
+      ]
+    },
+    {
+      "id": "L01",
+      "method": "GET",
+      "path": "/v1/workbench/market",
+      "status": "legacy",
+      "access": "authenticated",
+      "request": "windowHours/bucket/limit",
+      "response": "legacy market view",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 2971,
+        "excerpt": "if (req.method === \"GET\" && pathname === \"/v1/workbench/market\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F24"
+      ]
+    },
+    {
+      "id": "L02",
+      "method": "GET",
+      "path": "/v1/trends/market",
+      "status": "legacy",
+      "access": "authenticated",
+      "request": "windowHours/bucket/limit",
+      "response": "legacy market trend",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 3631,
+        "excerpt": "if (req.method === \"GET\" && pathname === \"/v1/trends/market\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F24"
+      ]
+    },
+    {
+      "id": "L03",
+      "method": "GET",
+      "path": "/v1/workbench/target/:subreddit",
+      "status": "legacy",
+      "access": "authenticated",
+      "request": "windowHours",
+      "response": "legacy target view",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 3010,
+        "excerpt": "if (req.method === \"GET\" && pathname.startsWith(\"/v1/workbench/target/\")) {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F24"
+      ]
+    },
+    {
+      "id": "L04",
+      "method": "GET",
+      "path": "/v1/trends/subreddit/:subreddit",
+      "status": "legacy",
+      "access": "authenticated",
+      "request": "windowHours/bucket",
+      "response": "legacy target trend",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 3535,
+        "excerpt": "if (req.method === \"GET\" && pathname.startsWith(\"/v1/trends/subreddit/\")) {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F24"
+      ]
+    },
+    {
+      "id": "L05",
+      "method": "GET",
+      "path": "/v1/workbench/compare",
+      "status": "legacy",
+      "access": "authenticated",
+      "request": "targets/windowHours",
+      "response": "legacy compare data",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 2934,
+        "excerpt": "if (req.method === \"GET\" && pathname === \"/v1/workbench/compare\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F26"
+      ]
+    },
+    {
+      "id": "L06",
+      "method": "GET",
+      "path": "/v1/workbench/saved-views",
+      "status": "legacy",
+      "access": "personal-session",
+      "request": "none",
+      "response": "saved legacy views",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 2827,
+        "excerpt": "if (pathname === \"/v1/workbench/saved-views\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F26"
+      ]
+    },
+    {
+      "id": "L07",
+      "method": "POST",
+      "path": "/v1/workbench/saved-views",
+      "status": "legacy",
+      "access": "personal-session",
+      "request": "name/kind/state",
+      "response": "saved legacy view",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 2827,
+        "excerpt": "if (pathname === \"/v1/workbench/saved-views\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F26"
+      ]
+    },
+    {
+      "id": "L09",
+      "method": "POST",
+      "path": "/v1/keyword-queries",
+      "status": "legacy",
+      "access": "ops-write",
+      "request": "query/scope",
+      "response": "legacy query session",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 2617,
+        "excerpt": "if (req.method === \"POST\" && pathname === \"/v1/keyword-queries\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F25"
+      ]
+    },
+    {
+      "id": "L10",
+      "method": "GET",
+      "path": "/v1/keyword-queries/:id",
+      "status": "legacy",
+      "access": "authenticated",
+      "request": "id",
+      "response": "legacy query results",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 2691,
+        "excerpt": "if (req.method === \"GET\" && pathname.startsWith(\"/v1/keyword-queries/\")) {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F25"
+      ]
+    },
+    {
+      "id": "L11",
+      "method": "GET",
+      "path": "/v1/trends/keywords/:query/daily",
+      "status": "legacy",
+      "access": "authenticated",
+      "request": "id/window",
+      "response": "legacy keyword trend",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 2756,
+        "excerpt": "pathname.startsWith(\"/v1/trends/keywords/\") &&",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F25"
+      ]
+    },
+    {
+      "id": "L12",
+      "method": "POST",
+      "path": "/v1/runs/reddit-phase1",
+      "status": "legacy",
+      "access": "ops-write",
+      "request": "bounded run options",
+      "response": "legacy run report",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 2408,
+        "excerpt": "if (req.method === \"POST\" && pathname === \"/v1/runs/reddit-phase1\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F25"
+      ]
+    },
+    {
+      "id": "L13",
+      "method": "GET",
+      "path": "/v1/targets/subreddit",
+      "status": "legacy",
+      "access": "admin-session",
+      "request": "none",
+      "response": "target list",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 1924,
+        "excerpt": "if (req.method === \"GET\" && pathname === \"/v1/targets/subreddit\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F27"
+      ]
+    },
+    {
+      "id": "L14",
+      "method": "POST",
+      "path": "/v1/targets/subreddit",
+      "status": "legacy",
+      "access": "ops-write",
+      "request": "target settings",
+      "response": "created target",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 1878,
+        "excerpt": "if (req.method === \"POST\" && pathname === \"/v1/targets/subreddit\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F27"
+      ]
+    },
+    {
+      "id": "L15",
+      "method": "PATCH",
+      "path": "/v1/targets/subreddit/:id",
+      "status": "legacy",
+      "access": "ops-write",
+      "request": "changes/expectedRevision",
+      "response": "updated target",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 1982,
+        "excerpt": "if (req.method === \"PATCH\" && pathname.startsWith(\"/v1/targets/subreddit/\")) {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F27"
+      ]
+    },
+    {
+      "id": "L16",
+      "method": "POST",
+      "path": "/v1/targets/subreddit/bulk-update",
+      "status": "legacy",
+      "access": "ops-write",
+      "request": "ids/changes",
+      "response": "bulk result",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 2039,
+        "excerpt": "if (req.method === \"POST\" && pathname === \"/v1/targets/subreddit/bulk-update\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F27"
+      ]
+    },
+    {
+      "id": "L17",
+      "method": "GET",
+      "path": "/v1/ops/collection/settings",
+      "status": "legacy",
+      "access": "admin-session",
+      "request": "none",
+      "response": "legacy collection settings",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 2111,
+        "excerpt": "if (req.method === \"GET\" && pathname === \"/v1/ops/collection/settings\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F27"
+      ]
+    },
+    {
+      "id": "L18",
+      "method": "PATCH",
+      "path": "/v1/ops/collection/settings",
+      "status": "legacy",
+      "access": "ops-write",
+      "request": "settings/expectedRevision",
+      "response": "updated settings",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 2140,
+        "excerpt": "if (req.method === \"PATCH\" && pathname === \"/v1/ops/collection/settings\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F27"
+      ]
+    },
+    {
+      "id": "L19",
+      "method": "POST",
+      "path": "/v1/ops/collection/run-now",
+      "status": "legacy",
+      "access": "ops-write",
+      "request": "bounded window",
+      "response": "run summary",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 2178,
+        "excerpt": "if (req.method === \"POST\" && pathname === \"/v1/ops/collection/run-now\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F27"
+      ]
+    },
+    {
+      "id": "L20",
+      "method": "GET",
+      "path": "/v1/ops/maintenance/preview",
+      "status": "legacy",
+      "access": "admin-session",
+      "request": "retentionDays",
+      "response": "prune preview",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 2268,
+        "excerpt": "if (req.method === \"GET\" && pathname === \"/v1/ops/maintenance/preview\") {",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F23"
+      ]
+    },
+    {
+      "id": "L21",
+      "method": "POST",
+      "path": "/v1/ops/maintenance/prune/raw-events",
+      "status": "legacy",
+      "access": "ops-write",
+      "request": "retentionDays/limit",
+      "response": "bounded deletion counts",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 771,
+        "excerpt": "pathname === \"/v1/ops/maintenance/prune/raw-events\" ||",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F23"
+      ]
+    },
+    {
+      "id": "L22",
+      "method": "POST",
+      "path": "/v1/ops/maintenance/prune/metrics-snapshots",
+      "status": "legacy",
+      "access": "ops-write",
+      "request": "retentionDays/limit",
+      "response": "bounded deletion counts",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 772,
+        "excerpt": "pathname === \"/v1/ops/maintenance/prune/metrics-snapshots\" ||",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F23"
+      ]
+    },
+    {
+      "id": "L23",
+      "method": "POST",
+      "path": "/v1/ops/maintenance/prune/post-engagement-windows",
+      "status": "legacy",
+      "access": "ops-write",
+      "request": "retentionDays/limit",
+      "response": "bounded deletion counts",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 773,
+        "excerpt": "pathname === \"/v1/ops/maintenance/prune/post-engagement-windows\" ||",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F23"
+      ]
+    },
+    {
+      "id": "L24",
+      "method": "GET",
+      "path": "/v1/trends/subreddit/:subreddit/daily",
+      "status": "legacy",
+      "access": "authenticated",
+      "request": "window/range; see original handler",
+      "response": "legacy daily series",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 2757,
+        "excerpt": "pathname.endsWith(\"/daily\")",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F24"
+      ]
+    },
+    {
+      "id": "L25",
+      "method": "GET",
+      "path": "/v1/trends/subreddit/:subreddit/drivers",
+      "status": "legacy",
+      "access": "authenticated",
+      "request": "window/range; see original handler",
+      "response": "legacy driver breakdown",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 3248,
+        "excerpt": "pathname.endsWith(\"/drivers\")",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F24"
+      ]
+    },
+    {
+      "id": "L26",
+      "method": "GET",
+      "path": "/v1/trends/subreddit/:subreddit/anomalies",
+      "status": "legacy",
+      "access": "authenticated",
+      "request": "window/range; see original handler",
+      "response": "legacy anomalies",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 3169,
+        "excerpt": "pathname.endsWith(\"/anomalies\")",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F24"
+      ]
+    },
+    {
+      "id": "L27",
+      "method": "GET",
+      "path": "/v1/trends/subreddit/:subreddit/anomalies/incidents",
+      "status": "legacy",
+      "access": "authenticated",
+      "request": "window/range; see original handler",
+      "response": "legacy incident lifecycle",
+      "evidence": {
+        "file": "apps/api/src/create-api-server.ts",
+        "line": 3090,
+        "excerpt": "pathname.endsWith(\"/anomalies/incidents\")",
+        "sha256": "41c0dcd310d93068947677494adf4c54ce9d251b2239163436f8812d03c6a2ac"
+      },
+      "feature": null,
+      "notes": "Old Reddit model; not a public-content analysis substitute.",
+      "features": [
+        "F24"
+      ]
+    },
+    {
+      "id": "N01",
+      "method": "GET",
+      "path": "/v1/source-options",
+      "status": "proposed",
+      "access": "authenticated",
+      "request": "query/platform/provider/limit<=50/cursor",
+      "response": "{items:[{id,label,platform,provider,state}],nextCursor,totalEstimate}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F28"
+      ]
+    },
+    {
+      "id": "N02",
+      "method": "GET",
+      "path": "/v1/sources/search",
+      "status": "proposed",
+      "access": "authenticated",
+      "request": "query/state/provider/limit<=50/cursor",
+      "response": "{sources,capabilities,nextCursor,total}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F28"
+      ]
+    },
+    {
+      "id": "N03",
+      "method": "GET",
+      "path": "/v1/datasets",
+      "status": "proposed",
+      "access": "authenticated",
+      "request": "query/limit/cursor",
+      "response": "{datasets,nextCursor}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F31"
+      ]
+    },
+    {
+      "id": "N04",
+      "method": "POST",
+      "path": "/v1/datasets",
+      "status": "proposed",
+      "access": "personal-session",
+      "request": "name/description/query or immutable memberIds/version",
+      "response": "{dataset:{id,name,version,total,scope,revision}}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F31"
+      ]
+    },
+    {
+      "id": "N05",
+      "method": "GET",
+      "path": "/v1/datasets/:id",
+      "status": "proposed",
+      "access": "authenticated",
+      "request": "id/version; access-checked",
+      "response": "{dataset,lineage,purposeCounts,coverage}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F31"
+      ]
+    },
+    {
+      "id": "N06",
+      "method": "GET",
+      "path": "/v1/datasets/:id/members",
+      "status": "proposed",
+      "access": "authenticated",
+      "request": "version/purpose/query/limit/cursor",
+      "response": "{items,total,nextCursor,denominator,datasetVersion}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F31"
+      ]
+    },
+    {
+      "id": "N07",
+      "method": "POST",
+      "path": "/v1/datasets/:id/versions",
+      "status": "proposed",
+      "access": "personal-session",
+      "request": "memberIds/purpose/reason/expectedRevision",
+      "response": "{version,total,excluded,sha256}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F31"
+      ]
+    },
+    {
+      "id": "N08",
+      "method": "GET",
+      "path": "/v1/import-runs",
+      "status": "proposed",
+      "access": "ops-write",
+      "request": "state/limit/cursor",
+      "response": "{runs,nextCursor}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F31"
+      ]
+    },
+    {
+      "id": "N09",
+      "method": "GET",
+      "path": "/v1/import-runs/:id",
+      "status": "proposed",
+      "access": "ops-write",
+      "request": "id",
+      "response": "{run,batches,provenance,checks,recovery}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F31"
+      ]
+    },
+    {
+      "id": "N10",
+      "method": "POST",
+      "path": "/v1/import-previews",
+      "status": "proposed",
+      "access": "ops-write",
+      "request": "registered selectedFileId + SHA256 + kind/window/cap",
+      "response": "{previewId,valid,counts,diagnostics,expiresAt}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F31"
+      ]
+    },
+    {
+      "id": "N11",
+      "method": "POST",
+      "path": "/v1/import-previews/:id/apply",
+      "status": "proposed",
+      "access": "ops-write",
+      "request": "previewId/expectedSha256/confirmEvaluationScope",
+      "response": "{jobId,state:queued} (202); never arbitrary local paths",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F31"
+      ]
+    },
+    {
+      "id": "N12",
+      "method": "POST",
+      "path": "/v1/content/aggregate",
+      "status": "proposed",
+      "access": "authenticated",
+      "request": "query/datasetVersion/dimensions/metric/bins/unknownPolicy",
+      "response": "{denominator,groups,missing,overlap,queryFingerprint,asOf}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F32"
+      ]
+    },
+    {
+      "id": "N13",
+      "method": "GET",
+      "path": "/v1/content/:id/observations",
+      "status": "proposed",
+      "access": "authenticated",
+      "request": "sourceId?/limit/cursor",
+      "response": "{observations,nextCursor,canonicalSelection,conflicts}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F33"
+      ]
+    },
+    {
+      "id": "N14",
+      "method": "POST",
+      "path": "/v1/observation-comparisons",
+      "status": "proposed",
+      "access": "authenticated",
+      "request": "contentIds/metric/sourceTimeBounds/comparability",
+      "response": "{pairs,excludedReasons,units,notRealTimeGrowth}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F33"
+      ]
+    },
+    {
+      "id": "N15",
+      "method": "GET",
+      "path": "/v1/research-labels",
+      "status": "proposed",
+      "access": "personal-session",
+      "request": "projectId?/limit",
+      "response": "{labels,assignments,revisions,codebookVersion}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F34"
+      ]
+    },
+    {
+      "id": "N16",
+      "method": "POST",
+      "path": "/v1/research-labels",
+      "status": "proposed",
+      "access": "personal-session",
+      "request": "name/color/definition",
+      "response": "{label,revision}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F34"
+      ]
+    },
+    {
+      "id": "N17",
+      "method": "POST",
+      "path": "/v1/content-labels/batch",
+      "status": "proposed",
+      "access": "personal-session",
+      "request": "contentIds/add/remove/expectedRevisions",
+      "response": "{updated,conflicts,rejected,revisions}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F34"
+      ]
+    },
+    {
+      "id": "N18",
+      "method": "POST",
+      "path": "/v1/research-comparisons",
+      "status": "proposed",
+      "access": "personal-session",
+      "request": "left/right frozen-or-versioned scope/operation",
+      "response": "{comparisonId,denominators,intersection,union,leftOnly,rightOnly,warnings}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F36"
+      ]
+    },
+    {
+      "id": "N19",
+      "method": "GET",
+      "path": "/v1/research-comparisons/:id",
+      "status": "proposed",
+      "access": "personal-session",
+      "request": "id",
+      "response": "{comparison,groups,asOf,coverage}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F36"
+      ]
+    },
+    {
+      "id": "N20",
+      "method": "POST",
+      "path": "/v1/source-jobs/:id/recovery-preview",
+      "status": "proposed",
+      "access": "ops-write",
+      "request": "minWindowSeconds/maxRequests/maxDepth",
+      "response": "{plan,children,requestUpperBound,willAdvanceWatermark:false}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F37"
+      ]
+    },
+    {
+      "id": "N21",
+      "method": "POST",
+      "path": "/v1/source-jobs/:id/recovery-apply",
+      "status": "proposed",
+      "access": "ops-write",
+      "request": "planId/expectedRevision/confirmBudget",
+      "response": "{job,children,coverage:partial} (202)",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F37"
+      ]
+    },
+    {
+      "id": "N22",
+      "method": "GET",
+      "path": "/v1/projects",
+      "status": "proposed",
+      "access": "personal-session",
+      "request": "limit/cursor",
+      "response": "{projects,nextCursor}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F38"
+      ]
+    },
+    {
+      "id": "N23",
+      "method": "POST",
+      "path": "/v1/projects",
+      "status": "proposed",
+      "access": "personal-session",
+      "request": "name/description",
+      "response": "{project,role:manager}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F38"
+      ]
+    },
+    {
+      "id": "N24",
+      "method": "GET",
+      "path": "/v1/projects/:id",
+      "status": "proposed",
+      "access": "personal-session",
+      "request": "membership required",
+      "response": "{project,datasets,members,permissionSummary}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F38"
+      ]
+    },
+    {
+      "id": "N25",
+      "method": "PUT",
+      "path": "/v1/projects/:id/members/:userId",
+      "status": "proposed",
+      "access": "project-manager",
+      "request": "role:reader|editor|manager/expectedRevision",
+      "response": "{member,revision,auditId}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F38"
+      ]
+    },
+    {
+      "id": "N26",
+      "method": "POST",
+      "path": "/v1/projects/:id/datasets",
+      "status": "proposed",
+      "access": "project-editor",
+      "request": "datasetId/version/expectedRevision",
+      "response": "{attachment,revision}; explicit visibility check",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F38"
+      ]
+    },
+    {
+      "id": "N27",
+      "method": "GET",
+      "path": "/v1/projects/:id/codebooks",
+      "status": "proposed",
+      "access": "personal-session",
+      "request": "project membership",
+      "response": "{codebooks,versions}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F39"
+      ]
+    },
+    {
+      "id": "N28",
+      "method": "POST",
+      "path": "/v1/projects/:id/reviews",
+      "status": "proposed",
+      "access": "project-editor",
+      "request": "datasetVersion/codebookVersion/reviewerAssignments",
+      "response": "{review,revision,state}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F39"
+      ]
+    },
+    {
+      "id": "N29",
+      "method": "PATCH",
+      "path": "/v1/reviews/:id",
+      "status": "proposed",
+      "access": "project-editor",
+      "request": "contentId/label/note/expectedRevision",
+      "response": "{review,conflicts,revision}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F39"
+      ]
+    },
+    {
+      "id": "N30",
+      "method": "POST",
+      "path": "/v1/content/recommendations",
+      "status": "proposed",
+      "access": "authenticated",
+      "request": "query/datasetId?/brands?/dimensions?/limit<=20",
+      "response": "{items:[{content,recommendationScore,reasons,matchedBrands,matchedDimensions}],denominator,formulaVersion}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F05"
+      ]
+    },
+    {
+      "id": "N31",
+      "method": "POST",
+      "path": "/v1/brands/matrix-compare",
+      "status": "proposed",
+      "access": "authenticated",
+      "request": "datasetId?/brands/dimensions/metric",
+      "response": "{brands,dimensions,matrix,topEvidenceByCell,denominator,warnings}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F36"
+      ]
+    },
+    {
+      "id": "N32",
+      "method": "POST",
+      "path": "/v1/agent/digest",
+      "status": "proposed",
+      "access": "authenticated",
+      "request": "datasetId?/brands/window/maxEvidence<=10/format",
+      "response": "{digestId,generatedAt,summaryMetrics,brandSignals,topRecommendations,markdownBrief,jsonPayload,evidenceLinks}",
+      "evidence": null,
+      "feature": null,
+      "notes": "Design contract only. Not registered in current API; simulate locally.",
+      "features": [
+        "F32"
+      ]
+    },
+    {
+      "id": "CLI01",
+      "method": "CLI",
+      "path": "archive:import",
+      "status": "implemented",
+      "access": "local-operator",
+      "request": "immutable JSONL/manifest + explicit evaluation DB + --apply",
+      "response": "dry-run/applied/pending/failed + SHA256 + receipts",
+      "evidence": {
+        "file": "scripts/import-reddit-archive.ts",
+        "line": 18,
+        "excerpt": "async function main(){",
+        "sha256": "71a7d52be0d5edcf82c366a613635eece6ce8bc34c4e3df137961dd9aeda31e1"
+      },
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F18"
+      ]
+    },
+    {
+      "id": "UI01",
+      "method": "LOCAL",
+      "path": "theme/language/layout",
+      "status": "design",
+      "access": "client",
+      "request": "theme/language/density/layout",
+      "response": "persisted prototype preferences; no server API",
+      "evidence": null,
+      "feature": null,
+      "notes": "",
+      "features": [
+        "F01",
+        "F30",
+        "F35"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "id": "overview",
+      "name": {
+        "zh": "情报总览与推荐",
+        "en": "Intelligence & recommendations"
+      }
+    },
+    {
+      "id": "explore",
+      "name": {
+        "zh": "探索与证据库",
+        "en": "Explore & evidence"
+      }
+    },
+    {
+      "id": "datasets",
+      "name": {
+        "zh": "数据集与归档",
+        "en": "Datasets & archives"
+      }
+    },
+    {
+      "id": "analysis",
+      "name": {
+        "zh": "趋势与Agent雷达",
+        "en": "Trends & Agent radar"
+      }
+    },
+    {
+      "id": "observations",
+      "name": {
+        "zh": "观测与快照变化",
+        "en": "Observations & changes"
+      }
+    },
+    {
+      "id": "compare",
+      "name": {
+        "zh": "竞品多维对比",
+        "en": "Brand & scope compare"
+      }
+    },
+    {
+      "id": "labels",
+      "name": {
+        "zh": "痛点与意图编码",
+        "en": "Pain-point & intent coding"
+      }
+    },
+    {
+      "id": "research",
+      "name": {
+        "zh": "个人研究与冻结",
+        "en": "Saved & frozen assets"
+      }
+    },
+    {
+      "id": "sources",
+      "name": {
+        "zh": "来源目录",
+        "en": "Sources"
+      }
+    },
+    {
+      "id": "tasks",
+      "name": {
+        "zh": "采集与运行",
+        "en": "Collection & runs"
+      }
+    },
+    {
+      "id": "projects",
+      "name": {
+        "zh": "项目协作",
+        "en": "Projects"
+      }
+    },
+    {
+      "id": "admin",
+      "name": {
+        "zh": "系统管理",
+        "en": "Administration"
+      }
+    },
+    {
+      "id": "account",
+      "name": {
+        "zh": "账户与会话",
+        "en": "Account & sessions"
+      }
+    },
+    {
+      "id": "legacy",
+      "name": {
+        "zh": "旧版研究入口",
+        "en": "Legacy workspace"
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "normal",
+      "name": {
+        "zh": "正常结果",
+        "en": "Successful results"
+      }
+    },
+    {
+      "id": "loading",
+      "name": {
+        "zh": "加载与刷新",
+        "en": "Loading & refresh"
+      }
+    },
+    {
+      "id": "empty",
+      "name": {
+        "zh": "空数据库",
+        "en": "Empty database"
+      }
+    },
+    {
+      "id": "no-results",
+      "name": {
+        "zh": "零命中",
+        "en": "No matches"
+      }
+    },
+    {
+      "id": "error",
+      "name": {
+        "zh": "服务不可用503",
+        "en": "Service unavailable 503"
+      }
+    },
+    {
+      "id": "timeout",
+      "name": {
+        "zh": "上游超时422",
+        "en": "Upstream timeout 422"
+      }
+    },
+    {
+      "id": "rate-limit",
+      "name": {
+        "zh": "限流429",
+        "en": "Rate limit 429"
+      }
+    },
+    {
+      "id": "conflict",
+      "name": {
+        "zh": "版本冲突409",
+        "en": "Revision conflict 409"
+      }
+    },
+    {
+      "id": "partial",
+      "name": {
+        "zh": "覆盖不完整",
+        "en": "Partial coverage"
+      }
+    },
+    {
+      "id": "unindexed",
+      "name": {
+        "zh": "索引不完整",
+        "en": "Partial search index"
+      }
+    },
+    {
+      "id": "network-off",
+      "name": {
+        "zh": "采集网络关闭",
+        "en": "Collection network off"
+      }
+    },
+    {
+      "id": "capped",
+      "name": {
+        "zh": "导出超限413",
+        "en": "Export limit 413"
+      }
+    },
+    {
+      "id": "missing",
+      "name": {
+        "zh": "删除/缺失内容",
+        "en": "Removed/missing content"
+      }
+    },
+    {
+      "id": "expired",
+      "name": {
+        "zh": "会话过期401",
+        "en": "Expired session 401"
+      }
+    },
+    {
+      "id": "offline",
+      "name": {
+        "zh": "离线检索/采集分离",
+        "en": "Offline reads vs collection"
+      }
+    }
+  ],
+  "roles": [
+    "owner",
+    "admin",
+    "viewer",
+    "machine",
+    "anonymous"
+  ],
+  "accountStates": [
+    "active",
+    "pending",
+    "disabled"
+  ],
+  "projectRoles": [
+    "reader",
+    "editor",
+    "manager"
+  ],
+  "baselineReference": {
+    "date": "2026-11-08",
+    "content": 128177,
+    "observations": 128182,
+    "sources": 37028,
+    "note": "Historical measured local context, never a live prototype count."
+  }
+}

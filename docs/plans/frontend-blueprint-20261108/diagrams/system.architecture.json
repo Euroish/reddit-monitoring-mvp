@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "信息工作台：当前链路与P0–P2扩展边界",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1344,
+      1060
+    ]
+  },
+  "components": [
+    {
+      "id": "frontend",
+      "type": "frontend",
+      "label": "研究工作台",
+      "sublabel": "检索 · 来源 · 研究 · 运维",
+      "pos": [
+        80.0,
+        140
+      ],
+      "size": [
+        232.0,
+        125
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "HTTP API",
+      "sublabel": "认证 · 查询解析 · 权限",
+      "pos": [
+        408.0,
+        140
+      ],
+      "size": [
+        232.0,
+        125
+      ]
+    },
+    {
+      "id": "read",
+      "type": "backend",
+      "label": "读取与研究用例",
+      "sublabel": "列表 · 详情 · 冻结",
+      "pos": [
+        1016.0,
+        140
+      ],
+      "size": [
+        232.0,
+        125
+      ]
+    },
+    {
+      "id": "worker",
+      "type": "backend",
+      "label": "采集与后台执行",
+      "sublabel": "租约 · 预算 · checkpoint",
+      "pos": [
+        408.0,
+        470
+      ],
+      "size": [
+        232.0,
+        125
+      ]
+    },
+    {
+      "id": "write",
+      "type": "backend",
+      "label": "共享内容写入",
+      "sublabel": "身份合并 · 独立观测",
+      "pos": [
+        736.0,
+        470
+      ],
+      "size": [
+        232.0,
+        125
+      ]
+    },
+    {
+      "id": "provider",
+      "type": "external",
+      "label": "API / 有界归档",
+      "sublabel": "真实请求或不可变样本",
+      "pos": [
+        80.0,
+        470
+      ],
+      "size": [
+        232.0,
+        125
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "规范内容 · 观测 · 研究",
+      "pos": [
+        1016.0,
+        800
+      ],
+      "size": [
+        232.0,
+        125
+      ]
+    },
+    {
+      "id": "future",
+      "type": "backend",
+      "label": "P0–P2 扩展边界",
+      "sublabel": "批次 · 聚合 · 对比 · 协作",
+      "pos": [
+        408.0,
+        800
+      ],
+      "size": [
+        232.0,
+        125
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "frontend",
+      "to": "api",
+      "label": "HTTP / session"
+    },
+    {
+      "from": "api",
+      "to": "read",
+      "label": "有界读取 / 用户隔离"
+    },
+    {
+      "from": "read",
+      "to": "db",
+      "label": "SQL / RR冻结",
+      "labelDy": 80
+    },
+    {
+      "from": "api",
+      "to": "worker",
+      "label": "202 / 任务入队",
+      "labelDy": 80
+    },
+    {
+      "from": "provider",
+      "to": "worker",
+      "label": "规范页 / 取回时间"
+    },
+    {
+      "from": "worker",
+      "to": "write",
+      "label": "租约校验 / 页事务"
+    },
+    {
+      "from": "write",
+      "to": "db",
+      "label": "原子写入 / 幂等"
+    },
+    {
+      "from": "future",
+      "to": "db",
+      "label": "拟新增读模型 / 成员表",
+      "variant": "dashed"
+    }
+  ]
+}
