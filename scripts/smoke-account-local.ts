@@ -72,15 +72,28 @@ async function main() {
     await ready(`${webBase}/login`);
     browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}) });
     const context = await browser.newContext({ viewport: { width: 1280, height: 850 } }), page = await context.newPage();
+    let releaseInitialAuth!: () => void;
+    const initialAuth = new Promise<void>(resolve => { releaseInitialAuth = resolve; });
+    let checkInitialAuth = true;
     await context.route("**/*", async route => {
       const requestUrl = new URL(route.request().url());
       if (![webBase, apiBase].includes(requestUrl.origin) && !["data:", "blob:"].includes(requestUrl.protocol)) { externalRequests++; await route.abort(); }
-      else await route.continue();
+      else {
+        if (requestUrl.pathname === "/api/auth/me") await initialAuth;
+        await route.continue();
+      }
     });
     page.on("pageerror", error => pageErrors.push(error.message));
     page.on("response", response => { const u = new URL(response.url()); if (u.pathname.startsWith("/api/")) requests.push({ path: u.pathname, status: response.status() }); });
     const login = async (email: string, secret: string) => {
-      await page.goto(`${webBase}/login`); await page.locator("#login-email").fill(email); await page.locator("#login-password").fill(secret);
+      await page.goto(`${webBase}/login`);
+      if (checkInitialAuth) {
+        await page.getByRole("status").waitFor();
+        assert.equal(await page.locator("#login-email").count(), 0);
+        releaseInitialAuth();
+        checkInitialAuth = false;
+      }
+      await page.locator("#login-email").fill(email); await page.locator("#login-password").fill(secret);
       await page.locator("form button[type=submit]").click(); await page.waitForURL(u => !u.pathname.startsWith("/login"));
     };
     await login(a.email, password);
