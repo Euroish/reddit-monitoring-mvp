@@ -56,7 +56,10 @@ md=['# 接口核对与设计目录','', '本文件由 build.py 从 data/catalog.
 for x in CAT['endpoints']:
     md += [f"## {x['id']} · {x['method']} {x['path']}",'',f"- 状态：`{x['status']}`；权限：`{x['access']}`；功能：{', '.join(x['features'])}。",f"- 请求：`{x['request']}`。",f"- 返回：`{x['response']}`。"]
     ev=x.get('evidence')
-    if ev:md += [f"- 源码：[定位]({Path('../../..',ev['file']).as_posix()}#L{ev['line']})；核对行 {ev['line']}；SHA256 `{ev['sha256']}`。",'','```text',ev['excerpt'],'```']
+    if ev:
+        source=BASE.parent.parent.parent/ev['file']
+        locator=f"[定位]({Path('../../..',ev['file']).as_posix()}#L{ev['line']})" if source.exists() else f"`{ev['file']}`（历史快照文件，当前源码不存在）"
+        md += [f"- 源码：{locator}；核对行 {ev['line']}；SHA256 `{ev['sha256']}`。",'', '```text',ev['excerpt'],'```']
     else:md += ['- 设计契约：尚无正式路由；实施前补 DTO、迁移、权限、索引及集成验证。']
     if x.get('notes'):md += ['',x['notes']]
     md += ['']

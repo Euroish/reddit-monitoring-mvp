@@ -1204,7 +1204,7 @@ Design contract only. Not registered in current API; simulate locally.
 - 状态：`implemented`；权限：`local-operator`；功能：F18。
 - 请求：`immutable JSONL/manifest + explicit evaluation DB + --apply`。
 - 返回：`dry-run/applied/pending/failed + SHA256 + receipts`。
-- 源码：[定位](../../../scripts/import-reddit-archive.ts#L18)；核对行 18；SHA256 `71a7d52be0d5edcf82c366a613635eece6ce8bc34c4e3df137961dd9aeda31e1`。
+- 源码：`scripts/import-reddit-archive.ts`（历史快照文件，当前源码不存在）；核对行 18；SHA256 `71a7d52be0d5edcf82c366a613635eece6ce8bc34c4e3df137961dd9aeda31e1`。
 
 ```text
 async function main(){

@@ -6,8 +6,8 @@
   "files": [
     {
       "path": "ACCEPTANCE.md",
-      "bytes": 5810,
-      "sha256": "220b6d09349b74410ec21ac1593677eb728a3d130e2d6ffcaf086f741a77124f"
+      "bytes": 6009,
+      "sha256": "70889dab88aaaffe7db7f20d410710baa6bc63cf352f7d1b64c45565b84bf2cf"
     },
     {
       "path": "DESIGN.md",
@@ -16,28 +16,28 @@
     },
     {
       "path": "INTERFACES.md",
-      "bytes": 50536,
-      "sha256": "6e662f3d808da7888b90aebc5c03324db55103d7dbea697183b264c4b78dbd42"
+      "bytes": 50563,
+      "sha256": "f8df2f1c0b70b240041ea54ac111b4184a06f91b13780a2c72895c38031ef915"
     },
     {
       "path": "README.md",
-      "bytes": 14127,
-      "sha256": "be1f440c5caef24e691461e97ca1d459f6216ea056bed6b4df534fd4fcfbb8fb"
+      "bytes": 14414,
+      "sha256": "16998363049fb8d67b8d24646a650f455870899b740b51eb48921af5b2b82ff2"
     },
     {
       "path": "build.py",
-      "bytes": 16172,
-      "sha256": "b7c0bedd86e5f707f1a30906df7d075d4404363608630ebf37ec3f30b4be4f8d"
+      "bytes": 16277,
+      "sha256": "d77c57f7434e02f2f3aecf5968401e14931e056544a2853c60a51ef4786acced"
     },
     {
       "path": "build_catalog.py",
-      "bytes": 30212,
-      "sha256": "5a9befe59b146cee765e6c4aa8f8bebb894a297a951ca11a560c5cb2526345f2"
+      "bytes": 30056,
+      "sha256": "3ce502f68fba42cfb2bd602b853f3c56a57c5735994be95e9290f044811cfd23"
     },
     {
       "path": "data/catalog.json",
-      "bytes": 95098,
-      "sha256": "35033db378b9d3222083e9e7df24cebe7d6823bf3f3f26210a51f02cc29b6b2c"
+      "bytes": 91838,
+      "sha256": "7109cd451be0a0f770996f79632c41ce33e25aa3deccb822adeff1e12831ea0b"
     },
     {
       "path": "diagrams/access-control.svg",
@@ -261,8 +261,8 @@
     },
     {
       "path": "diagrams/system.architecture.json",
-      "bytes": 3301,
-      "sha256": "51292e17b140e4779b02f90f2a3a759e7feed9a54089f29fc8bbe2ff764ea593"
+      "bytes": 3130,
+      "sha256": "aa0db57bce738e6da13927cb1885c672e7cf949a9df34604a867852d305dee4a"
     },
     {
       "path": "diagrams/system.html",
@@ -291,13 +291,13 @@
     },
     {
       "path": "prototype/mock-api.js",
-      "bytes": 55690,
-      "sha256": "a624119a2f1bd7bfacf1177d0a0e875ac9b49ac328248c80cc31715f545ca9f4"
+      "bytes": 55493,
+      "sha256": "1038b33a288953a6626e3996822a0f88290458358339ce84b1dc8d6ec02b60ed"
     },
     {
       "path": "prototype/operations-pages.js",
-      "bytes": 28655,
-      "sha256": "ced821ce11c4b78eed8b444b724c1eba399c7d181d9a46728f518b4132b66967"
+      "bytes": 28615,
+      "sha256": "82ff013d6bb0273675946127a13a91178fc63d12c2e7b5071304541f57ee0507"
     },
     {
       "path": "prototype/pages.css",
@@ -316,8 +316,8 @@
     },
     {
       "path": "verify.cjs",
-      "bytes": 11087,
-      "sha256": "3a49b519e020a972d14ecd23e7c078c85c1abd85135296916167ba55b4b3c98e"
+      "bytes": 11039,
+      "sha256": "17c675fd642a3fb51ea3fc9277e308d2dd77e80d6fed5b2185087f04cd100e24"
     }
   ]
 }
