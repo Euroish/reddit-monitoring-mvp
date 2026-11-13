@@ -156,7 +156,9 @@ node --import tsx --test tests/integration/source-content-postgres.test.ts
 
 ## 部署边界
 
-Linux 已有一次回环部署验收，版本与范围见 [状态](status.md)。`deploy/` 包含 API、新来源 worker 和旧 Reddit 服务模板；部署前核对 Node 可执行路径、工作目录、环境、服务用户、数据库、真实 provider 与内存预算。不要把模板复制即视为可上线。
+Linux 已有回环部署及用户指定的 HTTP/IP 验收部署，版本与范围见 [状态](status.md)。`deploy/` 包含 API、新来源 worker 和旧 Reddit 服务模板；部署前核对 Node 可执行路径、工作目录、环境、服务用户、数据库、真实 provider 与内存预算。不要把模板复制即视为可上线。
+
+当前 HTTP 验收沿用 `reddit-api.service` 与 Nginx：`/opt/reddit-monitoring` 指向不可变发布目录，Nginx 对外监听 8080，`/api/` 转发至本机 3000。私有 `/etc/reddit-monitoring/api.env` 设置精确 HTTP origin，并仅为该用户指定的 HTTP 验收显式启用 insecure session cookie 例外；真实网络开关保持 false。现有数据库先备份再迁移，凭证不入仓库；切换版本前确认发布文件对服务账号/Nginx 可读。从回环监听改为 wildcard 8080 时重启 Nginx，避免 reload 与旧绑定冲突。
 
 0.9.1模板同时限制/readyz与/api/readyz；公网smoke检查两条。Nginx登录/注册按$binary_remote_addr做20次/分钟、burst5边缘限流，不信任任意XFF；API仍有代理socket地址共用的默认认证总量桶，须按实际并发明确部署容量，不能把模板静态回归称为TLS/反代运行验收。注册/bootstrap/改密共用12–128字符新密码政策，旧短密码只保留登录兼容。
 
