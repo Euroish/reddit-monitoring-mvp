@@ -4,7 +4,7 @@
 
 2026-11-13 实现补充：kaix 已接入现有工作台，默认关闭，覆盖始终 partial，无持久化续页；此前独立收费试验与后续业务接入分别记录。配置与重放保护见[开发说明](../development.md#reddit-kaix--apify)，接入和部署证据见[状态](../status.md)。其余候选仍按下述研究与成本准入判断。
 
-**当前选择：并列研究低价 API 与新的自采实现，只有真实取数和预算验收通过才接入，暂不采购。** 用户明确目标 $0.07/千条、硬上限 $0.10/千条，预期约 10 万条/月且总费用≤50元；同时约束，不能以数据收益豁免。低价 API 优先核验 opportunity-biz Actor 的可用性与完整账单，CiteRocket/Redditapis 保留赠额内页收益对照；自采优先研究 Reddrix，Scrapling 为通用工具候选。目前都未证明满足此负载与预算。Arctic Shift 保留定向/已知 ID 补充，完整评论延后。X 的免付费 API 路径先验证正常账号会话，不依赖 Nitter 公共实例。官方申请、全站 dumps 前置和 ego-lite 继续排除。唯一实施顺序见[工程路线](../plans/source-expansion.md)，设计见[架构](../architecture.md#付费-reddit-provider-接入设计待实现)。
+**11 月 10 日研究选择（后续 kaix 接入见上段）：并列研究低价 API 与新的自采实现，真实取数和预算验收后再决定启用，暂不采购。** 用户明确目标 $0.07/千条、硬上限 $0.10/千条，预期约 10 万条/月且总费用≤50元；同时约束，不能以数据收益豁免。低价 API 优先核验 opportunity-biz Actor 的可用性与完整账单，CiteRocket/Redditapis 保留赠额内页收益对照；自采优先研究 Reddrix，Scrapling 为通用工具候选。目前都未证明满足此负载与预算。Arctic Shift 保留定向/已知 ID 补充，完整评论延后。X 的免付费 API 路径先验证正常账号会话，不依赖 Nitter 公共实例。官方申请、全站 dumps 前置和 ego-lite 继续排除。唯一实施顺序见[工程路线](../plans/source-expansion.md)，设计见[架构](../architecture.md#付费-reddit-provider-接入设计待实现)。
 
 ## Reddit 付费候选与正常价格
 
