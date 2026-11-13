@@ -1,6 +1,6 @@
 # 项目架构与工程边界
 
-2026-11-10 更新。当前实现默认指 main 的应用基线 `008f676`；dev/root 的 E0 与 Bluesky 成果尚未合入，具体提交/证据见[状态](status.md)。本文定义模块职责、依赖和数据规则；实施顺序见 [全项目工程路线](plans/source-expansion.md)，命令及交付流程见 [开发说明](development.md)。
+2026-11-13 整合更新。当前实现包含 E0、Bluesky/040 和 kaix；具体提交、验证与部署证据见[状态](status.md)。本文定义模块职责、依赖和数据规则；实施顺序见 [全项目工程路线](plans/source-expansion.md)，命令及交付流程见 [开发说明](development.md)。
 
 ## 当前代码结构
 
@@ -12,7 +12,7 @@
 | `apps/web/src/` | 工作台、图表、查询、管理页面 |
 | `packages/contracts/src/http.ts`、`source-content.ts` | 共同 HTTP 入口与多平台来源/内容/观测契约 |
 | `src/application/` | 用例编排、读取模型、应用服务 |
-| `src/domain/` | 实体、仓储接口、评分与业务语义 |
+| `src/domain/` | 实体、仓储接口、评分与业务语义；公共检索纯规则、来源失败类别 |
 | `src/connectors/` | 来源请求、响应适配与原始记录 |
 | `src/runtime/` | 环境解析、依赖组装与 provider 路由 |
 | `src/storage/` | PostgreSQL 仓储与 SQL 迁移 |
@@ -22,13 +22,13 @@
 
 ## 目标设计及实施状态
 
-当前已实现 Arctic Shift 的公共契约、来源配置/生命周期、任务、逐页事务、周期调度、成熟归档 ID 刷新、查询统计与 UI。X 的 TwitterAPI.io 账号/搜索/ID adapter 已实现，默认禁用并保留真实验收；Instagram/web 仍为字段设计和合成存储验证。保持模块化单体、一个 PostgreSQL 和一个 API；`workers/source-content-worker.ts` 统一消费公共来源任务，现有旧 scheduler 暂保留，不按每个平台增加服务。
+当前已实现 Arctic Shift 的公共契约、来源配置/生命周期、任务、逐页事务、周期调度、成熟归档 ID 刷新、查询统计与 UI。X 的 TwitterAPI.io 账号/搜索/ID adapter 已实现，默认禁用并保留真实验收；Bluesky AppView 账号读取已有真实有界闭环，搜索/线程/持续运行未验；Instagram/web 仍为字段设计和合成存储验证。保持模块化单体、一个 PostgreSQL 和一个 API；`workers/source-content-worker.ts` 统一消费公共来源任务，现有旧 scheduler 暂保留，不按每个平台增加服务。
 
-main 尚无浏览器 provider、外部采集结果导入或远程执行端。Bluesky AppView、详情批量读取、domain 搜索规则/失败类别及独立内容读取路由在开发分支已有实现；后续整合这些成果，不按本文的 main 差距重复开发。
+main 尚无浏览器 provider、外部采集结果导入或远程执行端。Bluesky AppView、详情批量读取、domain 搜索规则/失败类别及独立内容读取路由已整合，后续复用现有实现。
 
 当前流程：目标/来源设置 → 手动或持久化周期窗口入队 → provider 预算预留 → 有界取一页 → 公共内容和独立观测 → 小事务落库/checkpoint → 同范围唯一内容/UTC 日统计/按平台渠道汇总 → API → UI/JSON/CSV 导出。同来源不同 purpose 可并存排队、每来源一个 running，持久化四次领取中为 manual/refresh 保留一次优先机会；暂停/归档取消旧租约；重启回收租约并从已提交页继续。周期高水位只在耗尽窗口后推进，失败或页预算不足保留同窗口子任务；每页间让出 worker，不持有整段历史回填。免费/付费每日月度预算分开，重试/未知结果保守保留 requests/resources 预留；provider 计数因多发现可重叠。
 
-自动成熟刷新只支持 archive provider 的 initial 观测，snapshot 不套用 36 小时成熟规则。统一工作台的跨平台通用量是内容数，不把 Reddit score 与 X likes 相加；各指标使用 capability 的单位/符号与观测时间。内容读取/导出不会向provider联网；即时list/stats/export分页与统计不是冻结快照，研究导出另用同RR冻结。5A详情使用规范唯一身份查已存引用/children，各限20；作者按externalId/handle忽略大小写准确匹配，语言准确匹配，source group区分大小写。指标筛选取当前scope每来源最新观测，任一符合即可，null不按0；时间排序以身份打破平局，cursor绑定全部筛选。036个人保存查询/收藏注释表user FK、内容annotation FK与revision；仅用户session可读写自己的记录，机器不拥有个人空间，HTTP与落库沿同契约。API 不等待远端抓取完成；旧热度模型尚未迁移至 Arctic Shift，旧增长 v2 使用实际相邻观测，不将单个归档快照写成实时热度。
+自动成熟刷新只支持 archive provider 的 initial 观测，snapshot 不套用 36 小时成熟规则。统一工作台的跨平台通用量是内容数，不把 Reddit score 与 X likes 相加；各指标使用 capability 的单位/符号与观测时间。内容读取/导出不会向provider联网；即时list/stats/export分页与统计不是冻结快照，研究导出另用同RR冻结。内容详情由独立 `content-detail.service.ts` 按规范身份批量查已存引用、按关联 ID 查来源配置；Map 恢复引用顺序与重复关系，缺失保留 null，引用/children 各限20。PostgreSQL 成对匹配 kind/externalId 并复用既有身份唯一索引，避免逐引用往返和全量来源配置读取；作者按externalId/handle忽略大小写准确匹配，语言准确匹配，source group区分大小写。指标筛选取当前scope每来源最新观测，任一符合即可，null不按0；时间排序以身份打破平局，cursor绑定全部筛选。036个人保存查询/收藏注释表user FK、内容annotation FK与revision；仅用户session可读写自己的记录，机器不拥有个人空间，HTTP与落库沿同契约。API 不等待远端抓取完成；旧热度模型尚未迁移至 Arctic Shift，旧增长 v2 使用实际相邻观测，不将单个归档快照写成实时热度。
 
 ## 长期模块边界与数据对齐
 
@@ -36,7 +36,7 @@ main 尚无浏览器 provider、外部采集结果导入或远程执行端。Blu
 
 数据流为 **来源 → 规范内容/观测 → 页事务 → 整理读模型 → API/模块**；它不是源码 import 方向。
 
-目标依赖方向：HTTP/worker 入口调用应用用例；应用用例依赖领域规则和所需端口；provider/SQL 实现这些端口；runtime 注入实现。纯规则不依赖 HTTP、数据库或 runtime。DTO 放公共契约，领域错误不携带 HTTP 状态，HTTP 层负责映射；平台映射和数据库映射各在自己的边界做一次。这里不要求每个函数增加接口或类，只有外部替换点和模块公共能力需要明确接口。
+目标依赖方向：HTTP/worker 入口调用应用用例；应用用例依赖领域规则和所需端口；provider/SQL 实现这些端口；runtime 注入实现。纯规则不依赖 HTTP、数据库或 runtime；公共 ID 校验放 domain，不为复用校验导入采集服务。DTO 放公共契约，领域错误不携带 HTTP 状态，HTTP 层负责映射（E0 首批已对 `SourceContentError` 实施，账户与研究等其他错误仍待按需整理）；平台映射和数据库映射各在自己的边界做一次。这里不要求每个函数增加接口或类，只有外部替换点和模块公共能力需要明确接口。
 
 ### 目标模块与数据所有权（待渐进实施）
 
@@ -144,11 +144,13 @@ Arctic Shift 文档说明新内容初始指标可能为 1/0，约 36 小时后�
 
 Arctic Shift 重叠分页按边界已见 ID 数增加请求大小，最多 100 条，每次保守预留 100 个资源；小 pageSize 不再被重叠记录占满。同秒达到上游上限仍不能前进时，任务失败并保留原窗口/checkpoint，需人工处理后 Retry，不跳秒或记作耗尽。其他 provider 未耗尽却无 next checkpoint 时有限重试，保留上一页。
 
+kaix 是 Reddit 的独立付费 snapshot provider，复用规范内容身份、独立观测、任务和读模型；一个 adapter 操作为一次有界 Actor run 加 dataset 读取。没有 upstream cursor，只完成部分覆盖样本，不以任务结束证明完整时间覆盖。`automaticRequestReplay=false` 使用已有持久启动计数阻止失败/租约恢复时重复启动收费任务，未知结果先停并要求显式 Retry；不新增跨服务事务或第二套队列。限额、过滤和时间语义见 [开发说明](development.md#reddit-kaix--apify)。
+
 能力不足返回明确的 unsupported 或 partial；网络失败与有效空结果区分。默认不切到另一个语义不同的来源补零。0.9.1 将任务失败记录为 transient/permanent；明确的数据库死锁、序列化冲突和临时连接错误按原有三次页尝试上限延后，不阻塞来源；非 retryable 错误使当前任务失败并阻塞该来源的自动调度、领取和新增/续采。配置修正后显式 Retry 原子解除来源阻塞并保留原检查点，resume 或配置保存不会解除；后台进度不提升配置revision。临时错误与429同一任务页/刷新轮次最多三次保守请求启动尝试，预算/间隔拒绝不增加或重置，崩溃后的租约恢复仍检查持久上限。首次刷新请求前在source→job事务中记录轮次和冷却，进程若在记账后请求前崩溃也保守占用；成功提交不重复计数，不能把计数当账单。自动轮次耗尽后停止；手动 Retry 明确授权额外一轮，仍受provider预算/间隔限制。取消后的旧租约不能登记新尝试或提交页；已发上游请求不能保证撤回。
 
 ## 统一存储：共享身份，独立证据
 
-现有 `source` 继续承载平台注册。[029 迁移](../src/storage/schema/029_source_content_collection.sql) 复用 `content`，增加关联/观测/任务，没有复制整套内容表。当前源码共 41 个 SQL 迁移；039 增加失败策略，对缺少失败类别的历史 failed 保守归为 permanent，并阻塞最新任务仍失败的来源，修正后需显式 Retry。只新增迁移，不修改已应用 SQL。各环境应用与部署结果见 [状态](status.md)，历史阶段结果见 [交接](history/handoff.md)。
+现有 `source` 继续承载平台注册。[029 迁移](../src/storage/schema/029_source_content_collection.sql) 复用 `content`，增加关联/观测/任务，没有复制整套内容表。当前源码共 42 个 SQL 迁移，040 注册 Bluesky 平台；039 增加失败策略，对缺少失败类别的历史 failed 保守归为 permanent，并阻塞最新任务仍失败的来源，修正后需显式 Retry。只新增迁移，不修改已应用 SQL。各环境应用与部署结果见 [状态](status.md)，历史阶段结果见 [交接](history/handoff.md)。
 
 | 逻辑对象 | 最小信息与去重 | 存储原则 |
 | --- | --- | --- |
@@ -173,6 +175,7 @@ Arctic Shift 重叠分页按边界已见 ID 数增加请求大小，最多 100 �
 | --- | --- | --- |
 | Reddit | community、flair、nsfw | 帖子/评论身份和父关系不同，score 可负，Arctic Shift 指标为归档观测 |
 | X（可配置 adapter 已实现，真实验收待授权） | conversationId、isReply/isRepost/isQuote、sensitive | 大整数 ID、无标题正文、引用/转发；likes/replies/reposts/quotes/views/bookmarks 可空，缺指标不补零 |
+| Bluesky（账号读取试点） | AT URI 身份、CID 版本、DID/handle 作者，作者回复仍为 post | sourceObservedAt 未知；indexedAt 不冒充指标时刻；feed 转发/置顶排除，原生 cursor 绑定采集范围，不提前按日期记作耗尽 |
 | Instagram（设计） | mediaProduct、caption、carouselIds | feed/story/reel 与轮播不同；播放/触达可能不可得，不能与点赞等价 |
 | web（设计） | publisher、canonicalUrl、feedUrl | 可能缺作者/发布时间，rank 有方向，RSS 不保证历史互动 |
 
@@ -182,13 +185,13 @@ Arctic Shift 重叠分页按边界已见 ID 数增加请求大小，最多 100 �
 
 ## API 与前端契约
 
-沿用 `packages/contracts/src/http.ts` 作为共同入口，前后端不维护另一份内容模型。已实现来源列表/创建/设置/生命周期/有限采集、任务筛选/cancel/retry/continue、provider 预算与 sourceOps；内容列表/stats/workbench/即时CSV/JSON、详情、个人查询/注释与冻结研究export，准确方法及路径见 [开发说明](development.md)。`source-content-routes.ts` 独立处理新路由，method/path/write 权限就近声明；composition root 统一认证，读取要求 session/bearer，来源/运维写入限admin/owner/machine；个人保存/注释与研究export只允许拥有资源的session，viewer可管理自己的记录，机器无个人空间。
+沿用 `packages/contracts/src/http.ts` 作为共同入口，前后端不维护另一份内容模型。已实现来源列表/创建/设置/生命周期/有限采集、任务筛选/cancel/retry/continue、provider 预算与 sourceOps；内容列表/stats/workbench/即时CSV/JSON、详情、个人查询/注释与冻结研究export，准确方法及路径见 [开发说明](development.md)。`source-content-routes.ts` 处理来源/任务/预算并分派到独立的 `content-read-routes.ts` 内容读取路由，method/path/write 权限就近声明；composition root 统一认证，读取要求 session/bearer，来源/运维写入限admin/owner/machine；个人保存/注释与研究export只允许拥有资源的session，viewer可管理自己的记录，机器无个人空间。
 
 - 读取仅查已落库数据，支持 platform/provider/sourceId/kind、标题/正文关键词、发布时间 `[from,to)`、limit/cursor。5B公共索引覆盖完整已存title/text；NFKC+Unicode lowercase+空白归一，literal/phrase连续匹配、terms空白term全AND字面子串，exclusions对指定title/text/title_text排除；中文/%不当SQL通配符，不stemming或兼容旧OR词界语义。候选覆盖基于非文本筛选scope，正文present仅指索引已知的存储字符串（包括已知空串）；未索引和null分开计数。排序为 `(COALESCE(publishedAt,firstFetchedAt),id)`，cursor 绑定过滤条件；采集 checkpoint 与产品分页分开。
 - 抓取/回填/重算通过管理员写端点提交有限任务，返回 202 与 job ID，读取任务状态查看进度。网页刷新不会自动启动全平台抓取。
 - 列表返回观测、时间和实际指标，coverage 为 stored_sample；任务/来源只标 partial 或 unknown，不声称全量。统计与列表用相同过滤，总数覆盖匹配的全部已落库样本；UTC 日桶排除未知发布时间并返回 unknownPublishedAtCount。复杂 series 后续再定义版本/单位与范围。
 - UI 根据来源能力提供筛选和图表，保留来源筛选和原链接。不能因为服务健康检查成功就展示“实时数据正常”。权限继续在 API 边界验证，业务函数不重复实现另一套登录与角色判断。
-- `create-api-server.ts` 已约 3,800 行，新增公共功能时按 auth、collection、content/analysis、ops 分离路由处理函数，保留一个 composition root。每次只迁移要改的模块，不整库换框架。路由的 method/path/权限与 handler 就近声明，共用一次授权入口，避免新增端点忘记加入独立权限路径清单。
+- E0 第二批已从 `create-api-server.ts` 拆出 `saved-workbench-view-routes.ts`，保存视图的个人会话约束、校验和响应映射归该模块，共用比较指标解析放 `api-validation.ts`。Origin、body 限额和审计仍在组合根。组合根当前约 3,600 行；后续新增公共功能时按 auth、collection、content/analysis、ops 分离路由处理函数，保留一个 composition root。每次只迁移要改的模块，不整库换框架。路由的 method/path/权限与 handler 就近声明，共用一次授权入口，避免新增端点忘记加入独立权限路径清单。
 
 账户采用凭证版本 fencing，改密原子写新 hash/提升版本并撤销会话；机器身份禁止个人账户操作。owner/admin/viewer 政策覆盖角色、状态和邀请，最后 active owner 有事务锁保护。业务审计先保存 attempted，变更后保存脱敏结果；intent 失败拒绝变更，结果持久化失败返回 `audit_result_unknown`，不声称业务与审计原子，UI 先刷新确认。匿名登录/注册走安全日志和独立 IP 限流，不伪造审计 actor。配置 revision 仅配置变更提升，bulk 锁定全部目标验证后再写，来源页提交与暂停采用一致 source→job 锁序。
 

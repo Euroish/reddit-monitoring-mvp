@@ -4,8 +4,9 @@ import { AuthProvider } from './auth/AuthContext';
 import { RequireAuth, RoleGuard } from './auth/RequireAuth';
 import { Layout } from './app/Layout';
 import { LanguageProvider, useLanguage } from './i18n/LanguageContext';
+import { Login } from './pages/Login';
+import { Button, Card } from './components/ui';
 
-const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })));
 const Register = lazy(() => import('./pages/Register').then((module) => ({ default: module.Register })));
 const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
 const MarketBoard = lazy(() => import('./pages/MarketBoard').then((module) => ({ default: module.MarketBoard })));
@@ -99,7 +100,19 @@ function AppRoutes() {
   );
 }
 
-const router = createBrowserRouter([{ path: '*', element: <AppRoutes /> }]);
+function RouteLoadError() {
+  const { language } = useLanguage();
+  const zh = language === 'zh-CN';
+  return <main style={{ padding: '2rem' }}>
+    <Card style={{ maxWidth: '720px', margin: '0 auto' }}>
+      <h1>{zh ? '页面暂时无法加载' : 'This page could not load'}</h1>
+      <p>{zh ? '请检查网络连接，然后重新加载页面。' : 'Check your connection, then reload the page.'}</p>
+      <Button type="button" variant="primary" onClick={() => window.location.reload()}>{zh ? '重新加载页面' : 'Reload page'}</Button>
+    </Card>
+  </main>;
+}
+
+const router = createBrowserRouter([{ path: '*', element: <AppRoutes />, errorElement: <RouteLoadError /> }]);
 
 export default function App() {
   return <LanguageProvider><AuthProvider><RouterProvider router={router} /></AuthProvider></LanguageProvider>;

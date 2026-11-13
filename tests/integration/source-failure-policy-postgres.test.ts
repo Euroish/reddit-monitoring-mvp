@@ -51,7 +51,7 @@ test("PostgreSQL failure-policy upgrade conservatively fences unresolved legacy 
       [succeededId, recovered.id, "succeeded", "2026-10-12T11:00:00.000Z"],
     ]) await db.query(`INSERT INTO source_collection_job(id,collection_source_id,status,from_at,to_at,page_size,max_pages,next_run_at,created_at,finished_at,checkpoint,pages_committed,request_count,error)
       VALUES($1,$2,$3,'2026-10-11T00:00:00Z','2026-10-12T00:00:00Z',25,5,$4,$4,$4,'{"offset":25}'::jsonb,1,3,'Legacy failure history')`, [id, sourceId, status, createdAt]);
-    assert.deepEqual(await runMigrations({ db }), ["039_source_failure_policy.sql"]);
+    assert.deepEqual(await runMigrations({ db }), ["039_source_failure_policy.sql", "040_bluesky_platform.sql"]);
     assert.deepEqual(await runMigrations({ db }), []);
     assert.equal((await repo.getSource(unresolved.id))!.automaticCollectionBlocked, true);
     assert.equal((await repo.getSource(recovered.id))!.automaticCollectionBlocked, false, "A later success is not retroactively blocked");

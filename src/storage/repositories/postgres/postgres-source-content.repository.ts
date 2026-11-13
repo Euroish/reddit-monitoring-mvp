@@ -6,8 +6,9 @@ import type { CollectedPage } from "../../../connectors/shared/content-provider.
 import type { PostgresClient } from "../../postgres/postgres-client";
 import { decodeContentCursor, encodeContentCursor } from "../../source-content-query";
 import { defaultProviderBudget, nextUsageDay, scheduledWindow, recheckWindow } from "../../source-lifecycle";
-import { writePublicSearchDocument,hasPublicSearch,publicSearchTerms,normalizePublicSearchText } from "../../public-content-search";
-import { SourceContentError } from "../../../application/services/source-content.service";
+import { writePublicSearchDocument } from "../../public-content-search";
+import { hasPublicSearch, publicSearchTerms, normalizePublicSearchText } from "../../../domain/public-content-search";
+import { SourceContentError } from "../../../domain/source-content-error";
 type Row = QueryResultRow;
 const iso = (value: Date | string | null): string | null => value === null ? null : new Date(value).toISOString();
 function source(row: Row): CollectionSource { return { id: row.id, platform: row.platform, provider: row.provider, label: row.label, target: row.target, contentKind: row.content_kind, createdAt: iso(row.created_at)!, lastSuccessAt: iso(row.last_success_at), latestPublishedAt: iso(row.latest_published_at), coverage: row.coverage,state:row.state,group:row.source_group,updatedAt:iso(row.updated_at)!,schedule:row.schedule,refresh:row.refresh,nextDueAt:iso(row.next_due_at),incrementalTo:iso(row.incremental_to),nextRecheckAt:iso(row.next_recheck_at),revision:row.revision,automaticCollectionBlocked:row.automatic_collection_blocked }; }
@@ -25,7 +26,13 @@ const coverageSql=(terms:string[])=>`SELECT COUNT(*)::integer AS candidate_count
 
 export class PostgresSourceContentRepository implements SourceContentRepository {
   constructor(private readonly db: Pick<PostgresClient,"query"|"withTransaction">) {}
-  async listSources() { return (await this.db.query(`${sourceSelect} ORDER BY cs.created_at, cs.id`)).rows.map(source); }
+  async listSources(ids?: readonly string[]) {
+    if (ids?.length === 0) return [];
+    return (await this.db.query(
+      `${sourceSelect}${ids ? " WHERE cs.id=ANY($1::uuid[])" : ""} ORDER BY cs.created_at, cs.id`,
+      ids ? [ids] : [],
+    )).rows.map(source);
+  }
   async getSource(id: string) { const result = await this.db.query(`${sourceSelect} WHERE cs.id=$1`, [id]); return result.rows[0] ? source(result.rows[0]) : null; }
   async createSource(input: CreateCollectionSourceRequest & { id: string; label: string; createdAt: string }) {
     const result = await this.db.query(`INSERT INTO collection_source(id,platform_id,provider,label,target,content_kind,created_at,updated_at,next_recheck_at)
@@ -39,7 +46,7 @@ export class PostgresSourceContentRepository implements SourceContentRepository 
   async enqueue(input: SourceJobInput) {
     return this.db.withTransaction(async client=>{
     const sourceRow=(await client.query("SELECT state,automatic_collection_blocked FROM collection_source WHERE id=$1 FOR UPDATE",[input.sourceId])).rows[0];
-    if(!sourceRow||sourceRow.state!=="active"||sourceRow.automatic_collection_blocked)throw new SourceContentError("Source must be active and unblocked to enqueue; Retry its failed job",409);
+    if(!sourceRow||sourceRow.state!=="active"||sourceRow.automatic_collection_blocked)throw new SourceContentError("Source must be active and unblocked to enqueue; Retry its failed job", "conflict");
     if(!input.purpose||input.purpose==="manual"){const active=await client.query(`SELECT * FROM source_collection_job WHERE collection_source_id=$1 AND status IN ('queued','running','retrying') ORDER BY CASE WHEN purpose='manual' THEN 0 ELSE 1 END,created_at,id LIMIT 1`,[input.sourceId]);if(active.rows[0])return job(active.rows[0]);}
     const result = await client.query(`INSERT INTO source_collection_job(id,collection_source_id,status,from_at,to_at,page_size,max_pages,next_run_at,created_at,purpose,parent_job_id,refresh_ids)
       SELECT $1,$2,'queued',$3,$4,$5,$6,$7,$7,$8,$9,$10::jsonb FROM collection_source WHERE id=$2 AND state='active'
@@ -252,7 +259,15 @@ export class PostgresSourceContentRepository implements SourceContentRepository 
     return { items, nextCursor: allRows.length>limit && last ? encodeContentCursor(query,iso(last.sort_time)!,last.id) : null,searchCoverage:coverage };
   }
   async getContent(id:string){const result=await this.db.query(`${storedContentSelect} WHERE c.id=$1 AND c.platform_details IS NOT NULL`,[id]);return result.rows[0]?publicContent(result.rows[0]):null;}
-  async findContentByIdentity(platform:PublicContent["platform"],kind:PublicContent["kind"],externalId:string){const result=await this.db.query(`${storedContentSelect} WHERE p.code=$1 AND c.kind=$2 AND c.external_id=$3 AND c.platform_details IS NOT NULL`,[platform,kind,externalId]);return result.rows[0]?publicContent(result.rows[0]):null;}
+  async findContentsByIdentity(platform: PublicContent["platform"], identities: readonly Pick<PublicContent, "kind" | "externalId">[]) {
+    if (identities.length === 0) return [];
+    const result = await this.db.query(
+      `${storedContentSelect} WHERE p.code=$1 AND (c.kind,c.external_id) IN
+        (SELECT * FROM unnest($2::text[],$3::text[])) AND c.platform_details IS NOT NULL`,
+      [platform, identities.map(item => item.kind), identities.map(item => item.externalId)],
+    );
+    return result.rows.map(publicContent);
+  }
   async relatedChildren(content:PublicContent,limit:number){return (await this.db.query(`${storedContentSelect} WHERE p.code=$1 AND c.id<>$2 AND c.platform_details IS NOT NULL AND EXISTS(SELECT 1 FROM jsonb_array_elements(c.content_references) ref WHERE ref->>'externalId'=$3 AND ref->>'kind'=$4 AND ref->>'relation' IN('reply_to','thread_root')) ORDER BY COALESCE(c.created_at_source,c.first_seen_at) DESC,c.id DESC LIMIT $5`,[content.platform,content.id,content.externalId,content.kind,limit])).rows.map(publicContent);}
   async contentStats(query: ContentQuery): Promise<Omit<ContentStatsResponse,"ok"|"requestId">> {
     const { params, terms,baseTerms } = this.filters(query);
@@ -262,8 +277,8 @@ export class PostgresSourceContentRepository implements SourceContentRepository 
     for (const row of result.rows[0].counts) { total+=row.count; byKind.set(row.kind,(byKind.get(row.kind)??0)+row.count); if (row.day===null) unknownPublishedAtCount+=row.count; else { const day=String(row.day); daily.set(day,(daily.get(day)??0)+row.count); } }
     return { total,byKind:[...byKind].map(([kind,count])=>({kind,count})),daily:[...daily].map(([day,count])=>({day,count})),scope:"collected_content",unknownPublishedAtCount,searchCoverage:coverage };
   }
-  private async querySearch(sql:string,params:unknown[]){try{return await this.db.query(sql,params);}catch(error){if((error as {code?:string}).code==="42P01")throw new SourceContentError("Public search projection storage is unavailable; apply the project migrations",503);throw error;}}
-  private requireSearchCoverage(query:ContentQuery,coverage:PublicContentSearchCoverage){if(hasPublicSearch(query)&&coverage.unindexed)throw new SourceContentError("Public search coverage is incomplete; run the explicit bounded public-index backfill before searching",503);}
+  private async querySearch(sql:string,params:unknown[]){try{return await this.db.query(sql,params);}catch(error){if((error as {code?:string}).code==="42P01")throw new SourceContentError("Public search projection storage is unavailable; apply the project migrations", "unavailable");throw error;}}
+  private requireSearchCoverage(query:ContentQuery,coverage:PublicContentSearchCoverage){if(hasPublicSearch(query)&&coverage.unindexed)throw new SourceContentError("Public search coverage is incomplete; run the explicit bounded public-index backfill before searching", "unavailable");}
   async searchCoverage(contentIds:readonly string[]){const result=await this.querySearch(coverageSql(["c.platform_details IS NOT NULL","c.id=ANY($1::uuid[])"]),[[...new Set(contentIds)]]);return coverageRow(result.rows[0]);}
   async researchPayloadPreflight(query:ContentQuery){
     const {params,terms,baseTerms,sourceTerms,observationScope}=this.filters(query);

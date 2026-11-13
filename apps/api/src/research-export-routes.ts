@@ -2,7 +2,8 @@ import type { CreateResearchExportRequest } from "../../../packages/contracts/sr
 import type { ApiActor } from "./auth-guard";
 import { ResearchExportService, researchExportCsv } from "../../../src/application/services/research-export.service";
 import { ResearchExportError } from "../../../src/storage/research-export-query";
-import { SourceContentError } from "../../../src/application/services/source-content.service";
+import { SourceContentError } from "../../../src/domain/source-content-error";
+import { sourceContentErrorStatus } from "./source-content-error";
 
 const routes = [
   { method: "GET", path: /^\/v1\/research-exports$/, action: "list", write: false, personal: true },
@@ -33,7 +34,10 @@ export async function handleResearchExportRoute(input: { method: string; url: UR
     return { statusCode: 200, headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="frozen-research-${id}.csv"`, "Cache-Control": "private, no-store", "X-Export-Total-Matching": String(result.total), "X-Export-Count": String(result.items.length), "X-Export-Next-Cursor": result.nextCursor ?? "", "X-Export-Scope": "frozen_members", "X-Request-Id": requestId }, rawBody: researchExportCsv(result) };
   } catch (error) {
     if (error instanceof ResearchExportError) return fail(error.status, error.code, error.message);
-    if (error instanceof SourceContentError) return fail(error.status, error.status === 503 ? "research_export_unavailable" : "invalid_research_export_request", error.message);
+    if (error instanceof SourceContentError) {
+      const statusCode = sourceContentErrorStatus(error);
+      return fail(statusCode, statusCode === 503 ? "research_export_unavailable" : "invalid_research_export_request", error.message);
+    }
     if (error instanceof URIError) return fail(400, "invalid_research_export_request", "Invalid research export ID");
     throw error;
   }

@@ -2,9 +2,9 @@
 
 ## 安装与开发
 
-使用 Node.js 22+ 与 npm；Linux 可用 Bash，Windows 可用 PowerShell。下列 npm 命令从仓库根目录执行；Windows 管理工具与 Linux systemd 部署是不同入口。当前实现与验证缺口见 [状态](status.md)。
+开发基线使用 Node.js 22 LTS 与 npm，现有 CI 使用 Node.js 24；PostgreSQL 兼容基线保留 14，现有 CI 使用 16。本轮实际验证 Node 22.23.3 / PG14.24，不因 CI 版本差别升级业务库，也不把历史部署记录当作当前版本已在全部组合上通过。Linux 可用 Bash，Windows 可用 PowerShell。下列 npm 命令从仓库根目录执行；Windows 管理工具与 Linux systemd 部署是不同入口。当前实现与验证缺口见 [状态](status.md)。
 
-2026-11-10 本文的项目命令对应 main；dev/root 的 E0 与 Bluesky/040 尚待整合，不在 main 直接配置 Bluesky。候选付费 Reddit API 和 X 会话工具均未注册为项目 provider。
+2026-11-13 整合更新：本文命令覆盖 E0、Bluesky/040 与 kaix。kaix 默认关闭；其余候选付费 Reddit API 和 X 会话工具未注册为项目 provider。
 
 ```powershell
 npm ci
@@ -49,7 +49,7 @@ npm --prefix apps/web run dev
 
 开始任务先检查 `git status --short`、当前分支、远端和 diff。使用个人分支/独立 worktree，保留已有修改；共享对象库时串行 fetch/建分支/提交，不修改他人工作区或共享凭证。具体目录由当前机器决定，不把 Windows 开发路径或 Linux 集成目录写成全局前提。
 
-逐路径暂存并核对 cached diff，不用 reset/clean/stash 覆盖工作。push/合并按用户当前授权执行：获准推送 main 时先 fetch 核对远端，仅快进推送；远端有新提交则整合并重新验证，不 force push。历史日志的“不 push”只表示当时边界。token 不写入仓库或 remote URL。
+后续从最新 main 建任务分支，通过 PR 整合；任务交付合并后删除远端任务分支，避免长期分叉。旧 root 独有文档提交保留于 `archive/root-before-main-sync-20261113` tag；旧协作工作目录由使用者按实际需要迁移，不修改他人工作区。逐路径暂存并核对 cached diff，不用 reset/clean/stash 覆盖工作。push/合并按用户当前授权执行：获准推送 main 时先 fetch 核对远端，仅快进推送；远端有新提交则整合并重新验证，不 force push。历史日志的“不 push”只表示当时边界。token 不写入仓库或 remote URL。
 
 ## 付费 API 验证与配置边界
 
@@ -81,7 +81,7 @@ opencli twitter search "postgresql" --product live --limit 5 -f json
 
 ## Arctic Shift 来源与查询
 
-应用全部当前 SQL 迁移（41 个，含 039）后进入 `/content`（“来源内容”）。管理工具创建 `demo_reddit/demo_x` 合成来源；真实 Arctic Shift 不需供应商 key，但需要 live/network 配置与有界任务。live条件满足后管理员创建来源：平台为Reddit、provider为`arctic_shift`；社区或账号可采帖子/评论，帖子 ID 仅采评论。可保存范围内关键词；上游限制较活跃目标的关键词检索，不支持无范围全站搜索。查询页的关键词是已保存标题/正文的字面匹配，支持中文，与上游检索范围分开。
+应用全部当前 SQL 迁移（42 个，含 040）后进入 `/content`（“来源内容”）。管理工具创建 `demo_reddit/demo_x` 合成来源；真实 Arctic Shift 不需供应商 key，但需要 live/network 配置与有界任务。live条件满足后管理员创建来源：平台为Reddit、provider为`arctic_shift`；社区或账号可采帖子/评论，帖子 ID 仅采评论。可保存范围内关键词；上游限制较活跃目标的关键词检索，不支持无范围全站搜索。查询页的关键词是已保存标题/正文的字面匹配，支持中文，与上游检索范围分开。
 
 设置查询时间窗后点击对应来源的采集按钮；日期为空默认最近 24 小时。HTTP 只入队，worker 另行启动。每页 1–100 条、每任务 1–20 页，默认 25 条/5 页，当前 UI 使用默认值；`worker:sources:once` 只处理一页，不代表完整任务结束。达到预算但仍有 checkpoint 的任务可继续；失败任务可重试。仓储允许每purpose一条活动队列，单来源同时仅一个running。当前手动collect入口先检查任何active：相同manual参数复用，不同窗口/预算或非manual活动任务返回409；不能承诺任意入队顺序都可立即追加manual。后台scheduler可与已有manual按purpose排队，已验证公平机会与互斥。
 
@@ -119,6 +119,24 @@ opencli twitter search "postgresql" --product live --limit 5 -f json
 
 032 增加已登记 provider 调用数和取页/解析累计耗时；预算拒绝与预先取消不计请求。正常/错误/刷新均登记，但取消/租约丢失会拒绝晚到登记，因此请求数可能低于实际尝试，不能作为账单；原预留不退。旧 PostgreSQL upsert 遇到已有公共规范内容时保留规范标题/正文/URL/发布时间，只维护旧目标关联与取回时间，不能绕过观测顺序保护。
 
+### Bluesky AppView 账号试点
+
+040 注册 `bluesky` 平台，provider 为 `bluesky_appview`。账号 target 支持 handle（如 `bsky.app`）或 DID；长期跟踪同一主体优先 DID，handle 跟随当前解析。仅 post（含作者回复），不接受 source query；仅读取公开 AppView，固定服务端点，无 key，不接受任意 URL。feed 的转发/置顶排除；正文原生 AT URI 作为 externalId，CID 作为版本字段，图片/链接/视频按可得字段映射。来源指标 `bluesky.likes/replies/reposts/quotes` 可为 null，`indexedAt` 不作为指标观测时间。
+
+先迁移，再在明确授权的开发配置中设置 `SOURCE_RUN_MODE=live`、`SOURCE_NETWORK_ENABLED=true`；这仍是全局真实网络开关，不自动批准其他来源。新 provider 沿用默认禁用/0 预算，管理员须通过现有 provider budget 接口/UI 明确设置请求、资源上限和间隔；例如有界试验可设日/月请求各 3、资源各 15、pageSize=5，包含重试，结束暂停/归档。demo 始终禁用真实 AppView，正常网页查询只读已存数据。
+
+opaque cursor 随页事务保存，绑定来源、账号和窗口；相同页面重放沿共享身份/观测规则去重。不根据最旧发布时间提前结束账号历史：日期只过滤当前页，页预算耗尽但仍有 cursor 时继续标记 partial。因而该试点不是高效持续增量、全历史或 12 小时新鲜度承诺；没有搜索、自动线程展开、成熟刷新或删除追踪。前端沿用能力驱动的来源配置、平台筛选、详情和导出，不新增专用页面。
+
+### Reddit kaix / Apify
+
+`kaix` 接入现有来源、worker、公共内容/观测、查询统计、详情和导出，不需要新增 SQL 迁移或专用页面。私有运行环境配置 `APIFY_API_TOKEN`、`SOURCE_RUN_MODE=live`、`SOURCE_NETWORK_ENABLED=true`；demo 即使存在 token 仍禁用外部请求。token 只通过 Authorization header 发送给固定 Apify API，不在 UI、目标配置、URL 或日志中保存。provider 预算默认 disabled/0，管理员必须另行设置。
+
+在 `/content` 的来源创建器选择 Reddit / `kaix`。全站 search、community、account 可采帖子；account 与 post ID 可采评论，不支持社区/全站评论检索。关键词由上游召回，再对已取回标题/正文做 NFKC、大小写和空白归一的字面匹配；发布时间本地按 `[from,to)` 过滤。上游不提供可持久化续页，`new` 可能回退 relevance，因此一次任务只取一个有界样本，最多 100 条目标内容（帖子评论详情额外返回一个根帖），即使 maxPages 更大也只启动一次 Actor，完成后不提供 Continue。`exhausted=true` 只表示该次样本操作结束，coverage 始终 partial，不证明历史窗口或新增内容全覆盖。启用现有周期调度也只代表反复抽样，高水位不能解释为完整覆盖。
+
+固定 Actor `kaix/reddit-scraper` build `0.2.25`、512 MiB、45 秒、关闭代理和平台自动重启；启动 POST 最多等待 60 秒（HTTP 超时 65 秒），再有界读取 dataset（20 秒、8 MiB）。每次操作保守预留 101 resources、1 个 adapter request，实际含一次 POST 和一次 dataset GET；预算 requests 是操作尝试数，不能当 HTTP 数或账单。例：一次小样本设日/月 requests 各 1、resources 各 101、minimumIntervalMs=5000，并保持 schedule.enabled=false。Actor 事件费上限每次 $0.01，另有平台计算、读写等费用，不是总美元硬上限；此前 $0.50 试验授权不等于批准长期收费调度。
+
+kaix 声明 `automaticRequestReplay=false`：已持久记录启动尝试后，网络/解析/落库失败、进程中断或租约恢复都不自动重新发收费 POST；来源进入阻塞状态，先检查 Apify console 的运行/数据集，再显式 Retry。Retry 会批准一次新运行，可能再次收费；未知 POST 结果不保证可找回 run ID，也不承诺外部 exactly-once。操作前记账而未实际发送也会保守停下。成功内容使用与 Arctic Shift 一致的 `t3_/t1_` 身份去重；评论支持长字符串 ID，指标保存独立 `provider_snapshot`，`sourceObservedAt=null`，不以 scrapedAt 冒充指标源观测时间。浏览普通查询页只读数据库。
+
 ## 验证
 
 ```powershell
@@ -138,7 +156,7 @@ npm test
 
 `npm run test:offline` 明确排除 native SQL 文件，并要求零 fail/零 skip；`npm run test:postgres` 自动发现全部 `*-postgres.test.ts`，缺少合法独立 `TEST_SOURCE_DATABASE_URL` 时直接失败。`.github/workflows/verify.yml` 运行清洁依赖、docs/lint/typecheck/离线/build/compiled、独立 PostgreSQL 与合成 E2E；本机通过不等于云端已执行。`npm test` 保留原回归入口及 SQL 默认 skip 行为，不能作为 SQL 已通过证据；数据库或网络验证另行执行并记录环境。compiled smoke 或 provider 的 `--config-only` 通过，只证明构建/配置，不能证明真实采集。存在已知失败时见 [当前状态](status.md)，比较基线与新增失败，不能将失败测试禁用后宣称完成。
 
-新增的 PostgreSQL 集成测试默认跳过，必须提供独立 loopback `source_validation_*` 测试库的 `TEST_SOURCE_DATABASE_URL`，测试会执行迁移和写入合成记录，不得指向业务库：
+新增的 PostgreSQL 集成测试默认跳过，必须提供使用 UTF8 编码的独立 loopback `source_validation_*` 测试库的 `TEST_SOURCE_DATABASE_URL`（新集群 initdb 显式使用 `--encoding=UTF8`，SQL_ASCII 不支持 Unicode normalize），测试会执行迁移和写入合成记录，不得指向业务库：
 
 ```powershell
 # 先创建隔离测试库，再配置它的 TEST_SOURCE_DATABASE_URL
@@ -162,7 +180,11 @@ node --import tsx --test tests/integration/source-content-postgres.test.ts
 
 ## 部署边界
 
-Linux 已有一次回环部署验收，版本与范围见 [状态](status.md)。`deploy/` 包含 API、新来源 worker 和旧 Reddit 服务模板；部署前核对 Node 可执行路径、工作目录、环境、服务用户、数据库、真实 provider 与内存预算。不要把模板复制即视为可上线。
+Linux 已有回环部署及用户指定的 HTTP/IP 验收部署，版本与范围见 [状态](status.md)。`deploy/` 包含 API、新来源 worker 和旧 Reddit 服务模板；部署前核对 Node 可执行路径、工作目录、环境、服务用户、数据库、真实 provider 与内存预算。不要把模板复制即视为可上线。
+
+当前 HTTP 验收沿用 `reddit-api.service` 与 Nginx：`/opt/reddit-monitoring` 指向不可变发布目录，Nginx 对外监听 8080，`/api/` 转发至本机 3000。私有 `/etc/reddit-monitoring/api.env` 设置精确 HTTP origin，并仅为该用户指定的 HTTP 验收显式启用 insecure session cookie 例外；真实网络开关保持 false。现有数据库先备份再迁移，凭证不入仓库；切换版本前确认发布文件对服务账号/Nginx 可读。从回环监听改为 wildcard 8080 时重启 Nginx，避免 reload 与旧绑定冲突。
+
+Web 登录页随入口加载；路由加载失败时提供整页重新加载入口。发布切换前，将新版本 `apps/web/dist/assets/` 的哈希文件追加到 `/opt/reddit-monitoring-static/assets/`，同名文件必须字节一致，保留旧哈希供已打开的标签页使用；目录/文件需可由 Nginx 读取。Nginx 的 `/assets/` 只读该目录，存在文件缓存一年并标 immutable，缺失文件返回 404，不回退 HTML；页面入口使用 no-cache，刷新时重新验证版本。数据库备份不包含此静态资源目录，部署时由已校验产物重建；不能只换 symlink 后立即删除旧资源。
 
 Reddit 付费 API 的目标拓扑沿用 Linux API/worker/PostgreSQL，不需要浏览器或用户 Reddit 登录。10 月 28 日临时浏览器服务安装与 noVNC 连通已验证，但 Reddit 登录被阻断；用户要求关闭后，public-tunnel、desktop、chrome、bridge 四项服务保持 inactive，本轮未重启。X 本地会话仅为可选试验，尚无自动导入或远程领取。ego-lite 继续排除；证据见[来源研究](research/data-sources.md)。
 

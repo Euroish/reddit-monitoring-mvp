@@ -1,5 +1,6 @@
 import type { ApiActor } from "./auth-guard";
-import { SourceContentError } from "../../../src/application/services/source-content.service";
+import { SourceContentError } from "../../../src/domain/source-content-error";
+import { sourceContentErrorStatus } from "./source-content-error";
 import type { ContentPersonalService } from "../../../src/application/services/content-personal.service";
 import type { SaveContentQueryRequest,UpdateContentAnnotationRequest } from "../../../packages/contracts/src/source-content";
 const routes=[
@@ -26,5 +27,5 @@ export async function handleContentPersonalRoute(input:{method:string;url:URL;bo
     if(route.action==="deleteAnnotation")return {statusCode:200,body:{ok:true,requestId,...await service.deleteAnnotation(userId,id,input.body as {expectedRevision?:number})}};
     if(params.has("favorite")&&!["true","false"].includes(params.get("favorite")!))throw new SourceContentError("favorite must be true or false");
     return {statusCode:200,body:{ok:true,requestId,...await service.listAnnotations(userId,{limit:params.has("limit")?Number(params.get("limit")):undefined,cursor:params.get("cursor")??undefined,favorite:params.has("favorite")?params.get("favorite")==="true":undefined})}};
-  }catch(error){if(error instanceof SourceContentError)return fail(error.status,error.message);throw error;}
+  }catch(error){if(error instanceof SourceContentError)return fail(sourceContentErrorStatus(error),error.message);throw error;}
 }

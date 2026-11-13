@@ -1,5 +1,6 @@
 import { floorToWindow } from "../../../src/shared/time/windowing";
-import type { CrawlMode, RunMode } from "../../../packages/contracts/src/http";
+import type { CrawlMode, RunMode, WorkbenchComparableSeriesId } from "../../../packages/contracts/src/http";
+import { COMPARABLE_WORKBENCH_SERIES_IDS } from "../../../src/application/services/target-comparison-workbench-read-model.service";
 import { normalizeQueryV2 } from "../../../src/application/services/query-normalization-v2.service";
 
 export class BadRequestError extends Error {
@@ -55,6 +56,30 @@ export function resolveCrawlMode(requested?: string): CrawlMode | null {
     return "backfill";
   }
   return null;
+}
+
+export function parseComparisonSeriesList(value: string | null): WorkbenchComparableSeriesId[] {
+  if (value == null || value.trim().length === 0) {
+    return ["heat_price"];
+  }
+  const allowed = new Set<string>(COMPARABLE_WORKBENCH_SERIES_IDS);
+  const seriesIds = Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0),
+    ),
+  );
+  if (seriesIds.length === 0) {
+    return ["heat_price"];
+  }
+  for (const seriesId of seriesIds) {
+    if (!allowed.has(seriesId)) {
+      throw new BadRequestError(`invalid comparison series: ${seriesId}`, "invalid_query_param");
+    }
+  }
+  return seriesIds as WorkbenchComparableSeriesId[];
 }
 
 function parseIsoParam(value: string | null, name: string): string | null {

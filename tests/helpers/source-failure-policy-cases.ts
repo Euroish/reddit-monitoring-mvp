@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { SourceContentRepository } from "../../src/domain/repositories/source-content-repository";
-import { SourceContentService, SourceContentError } from "../../src/application/services/source-content.service";
+import { SourceContentError } from "../../src/domain/source-content-error";
+import { SourceContentService } from "../../src/application/services/source-content.service";
 import { DemoContentProvider } from "../../src/connectors/demo/demo-content.connector";
 import { ContentProviderError, type ContentProvider } from "../../src/connectors/shared/content-provider.interface";
 import { FIXED_CONTENT_NOW } from "./source-content-fixtures";
@@ -33,7 +34,7 @@ export const sourceFailurePolicyCases: { name: string; run: (repository: SourceC
     assert.equal((await repository.getSource(source.id))!.revision, revision, "Operational fencing does not change configuration revision");
     assert.equal((await repository.getJob(failed.id))!.failureKind, "permanent");
     assert.equal((await service.ops()).sources.find(item => item.sourceId === source.id)!.oldestPendingAt, FIXED_CONTENT_NOW);
-    await assert.rejects(service.enqueue(source.id), (error: unknown) => error instanceof SourceContentError && error.status === 409);
+    await assert.rejects(service.enqueue(source.id), (error: unknown) => error instanceof SourceContentError && error.kind === "conflict");
     broken = false;
     const retried = await service.retryJob(failed.id);
     assert.equal(retried.id, failed.id);
@@ -138,9 +139,9 @@ export const sourceFailurePolicyCases: { name: string; run: (repository: SourceC
     await service.setSourceState(source.id, "active");
     await service.updateSource(source.id, { label: "Updated while blocked" });
     assert.equal((await repository.getSource(source.id))!.automaticCollectionBlocked, true);
-    await assert.rejects(service.continueJob(bounded.id), (error: unknown) => error instanceof SourceContentError && error.status === 409);
+    await assert.rejects(service.continueJob(bounded.id), (error: unknown) => error instanceof SourceContentError && error.kind === "conflict");
     assert.equal(await repository.continueJob(bounded.id, randomUUID(), now), null);
-    await assert.rejects(repository.enqueue({ id: randomUUID(), sourceId: source.id, now, from: "2026-10-09", to: now, pageSize: 25, maxPages: 1 }), (error: unknown) => error instanceof SourceContentError && error.status === 409);
+    await assert.rejects(repository.enqueue({ id: randomUUID(), sourceId: source.id, now, from: "2026-10-09", to: now, pageSize: 25, maxPages: 1 }), (error: unknown) => error instanceof SourceContentError && error.kind === "conflict");
     assert.equal(await service.workOnce(), false);
     broken = false; await service.retryJob(failed.id); await service.workOnce();
     assert.ok(await service.continueJob(bounded.id), "Explicit Retry releases the fence for retained bounded checkpoints");

@@ -12,7 +12,8 @@ export interface SourceJobInput extends Required<StartSourceCollectionRequest> {
 /** UTF-8 bytes of the selected transport rows, measured before fetching payloads. */
 export interface ResearchPayloadPreflight { total:number;contentBytes:number;sourceCount:number;sourceBytes:number }
 export interface SourceContentRepository {
-  listSources(): Promise<CollectionSource[]>;
+  /** Omit ids to list all sources; supplied ids select only those sources in the existing order. */
+  listSources(ids?: readonly string[]): Promise<CollectionSource[]>;
   createSource(source: CreateCollectionSourceRequest & { id: string; label: string; createdAt: string }): Promise<CollectionSource>;
   getSource(id: string): Promise<CollectionSource | null>;
   updateSource(id: string, changes: UpdateCollectionSourceRequest, now: string): Promise<CollectionSource | null>;
@@ -40,7 +41,8 @@ export interface SourceContentRepository {
   researchPayloadPreflight(query:ContentQuery):Promise<ResearchPayloadPreflight>;
   listSourcesForResearch(query:ContentQuery):Promise<CollectionSource[]>;
   getContent(id:string):Promise<PublicContent|null>;
-  findContentByIdentity(platform:PublicContent["platform"],kind:PublicContent["kind"],externalId:string):Promise<PublicContent|null>;
+  /** Unordered unique matches; missing identities are omitted. */
+  findContentsByIdentity(platform: PublicContent["platform"], identities: readonly Pick<PublicContent, "kind" | "externalId">[]): Promise<PublicContent[]>;
   relatedChildren(content:PublicContent,limit:number):Promise<PublicContent[]>;
   contentStats(query: ContentQuery): Promise<Omit<ContentStatsResponse, "ok" | "requestId">>;
 }
