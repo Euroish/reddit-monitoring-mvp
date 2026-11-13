@@ -160,6 +160,8 @@ Linux 已有回环部署及用户指定的 HTTP/IP 验收部署，版本与范�
 
 当前 HTTP 验收沿用 `reddit-api.service` 与 Nginx：`/opt/reddit-monitoring` 指向不可变发布目录，Nginx 对外监听 8080，`/api/` 转发至本机 3000。私有 `/etc/reddit-monitoring/api.env` 设置精确 HTTP origin，并仅为该用户指定的 HTTP 验收显式启用 insecure session cookie 例外；真实网络开关保持 false。现有数据库先备份再迁移，凭证不入仓库；切换版本前确认发布文件对服务账号/Nginx 可读。从回环监听改为 wildcard 8080 时重启 Nginx，避免 reload 与旧绑定冲突。
 
+Web 登录页随入口加载；路由加载失败时提供整页重新加载入口。发布切换前，将新版本 `apps/web/dist/assets/` 的哈希文件追加到 `/opt/reddit-monitoring-static/assets/`，同名文件必须字节一致，保留旧哈希供已打开的标签页使用；目录/文件需可由 Nginx 读取。Nginx 的 `/assets/` 只读该目录，存在文件缓存一年并标 immutable，缺失文件返回 404，不回退 HTML；页面入口使用 no-cache，刷新时重新验证版本。数据库备份不包含此静态资源目录，部署时由已校验产物重建；不能只换 symlink 后立即删除旧资源。
+
 0.9.1模板同时限制/readyz与/api/readyz；公网smoke检查两条。Nginx登录/注册按$binary_remote_addr做20次/分钟、burst5边缘限流，不信任任意XFF；API仍有代理socket地址共用的默认认证总量桶，须按实际并发明确部署容量，不能把模板静态回归称为TLS/反代运行验收。注册/bootstrap/改密共用12–128字符新密码政策，旧短密码只保留登录兼容。
 
 先构建不可变发布目录（含 `dist/`、`apps/web/dist/`、SQL和生产依赖lockfile，运行依赖另按manifest安装），备份数据库，再执行 `db:migrate:compiled`，新空库才运行 `auth:bootstrap-owner:compiled`。Nginx 应限制公开 `/readyz`，域名使用 HTTPS，启用安全 cookie 与明确的 CORS。真实 provider 验证和小规模采集通过后再启动调度；代码回滚不等于数据库回滚。
