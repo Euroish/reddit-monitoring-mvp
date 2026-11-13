@@ -1,5 +1,6 @@
 /** Shared content contract. Platform is the publisher; provider is the acquisition channel. */
-export type ContentPlatform = "reddit" | "x" | "instagram" | "web";
+export const CONTENT_PLATFORMS = ["reddit", "x", "instagram", "web", "bluesky"] as const;
+export type ContentPlatform = typeof CONTENT_PLATFORMS[number];
 export type PublicContentKind = "post" | "comment" | "article" | "image" | "video";
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 export type SourceTarget =
@@ -17,7 +18,8 @@ export type PlatformDetails =
   ( { platform: "reddit"; community: string; flair: string | null; nsfw: boolean | null }
   | { platform: "x"; conversationId: string | null; isReply: boolean | null; isRepost: boolean | null; isQuote: boolean | null; sensitive: boolean | null }
   | { platform: "instagram"; mediaProduct: "feed" | "story" | "reel" | "unknown"; caption: string | null; carouselIds: string[] }
-  | { platform: "web"; publisher: string | null; canonicalUrl: string | null; feedUrl: string | null } )
+  | { platform: "web"; publisher: string | null; canonicalUrl: string | null; feedUrl: string | null }
+  | { platform: "bluesky"; cid: string | null } )
   & { /** Allowlisted, namespaced extra fields; never an unfiltered upstream payload. */ extensions?: Record<string, JsonValue> };
 export interface MetricDefinition {
   key: string; label: string; unit: "count" | "ratio" | "rank"; cumulative: boolean; signed: boolean;
@@ -47,6 +49,8 @@ export interface SourceCapability {
   refreshByIds?: boolean;
   /** Provider may return/bill a fixed page even when a smaller page is requested. */
   requestResourceUpperBound?: number;
+  /** False for paid operations whose ambiguous outcome requires explicit human Retry. */
+  automaticRequestReplay?: boolean;
 }
 export interface SourceSchedule { enabled: boolean; cadenceSeconds: number; overlapSeconds: number; initialLookbackHours: number; maxCatchupHours: number; pageSize: number; maxPages: number; recheckLookbackHours?:number; recheckCadenceSeconds?:number }
 export interface SourceRefresh {

@@ -1,5 +1,8 @@
 import { SourceContentService } from "../application/services/source-content.service";
 import { ArcticShiftContentConnector } from "../connectors/reddit/arctic-shift-content.connector";
+import { KaixContentConnector } from "../connectors/reddit/kaix-content.connector";
+import { resolveKaixConfig } from "../connectors/reddit/kaix.config";
+import { BlueskyAppViewContentConnector } from "../connectors/bluesky/bluesky-appview-content.connector";
 import { DemoContentProvider } from "../connectors/demo/demo-content.connector";
 import { TwitterApiIoContentConnector } from "../connectors/x/twitterapi-io-content.connector";
 import { resolveTwitterApiIoConfig } from "../connectors/x/twitterapi-io.config";
@@ -17,6 +20,8 @@ export function createSourceContentService(db: PostgresClient) {
   const arctic = new ArcticShiftContentConnector();
   if (!networkEnabled) Object.defineProperty(arctic, "capability", { value: { ...arctic.capability, enabled: false, limitations: [...arctic.capability.limitations, "External requests disabled by local runtime configuration."] } });
   const x = new TwitterApiIoContentConnector({ ...resolveTwitterApiIoConfig(), networkEnabled });
-  const providers: ContentProvider[] = [...(mode === "demo" ? [new DemoContentProvider("reddit"), new DemoContentProvider("x")] : []), arctic, x];
+  const bluesky = new BlueskyAppViewContentConnector({ networkEnabled });
+  const kaix = new KaixContentConnector({ ...resolveKaixConfig(), networkEnabled });
+  const providers: ContentProvider[] = [...(mode === "demo" ? [new DemoContentProvider("reddit"), new DemoContentProvider("x")] : []), arctic, x, bluesky, kaix];
   return new SourceContentService(new PostgresSourceContentRepository(db),providers);
 }

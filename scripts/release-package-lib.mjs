@@ -19,11 +19,24 @@ async function digest(filename) {
 }
 const safeName = value => typeof value === 'string' && !path.posix.isAbsolute(value) && !value.includes('\\')
   && !value.split('/').some(part => !part || part === '.' || part === '..');
+const blueprintRoot = 'docs/plans/frontend-blueprint-20261108/';
+const blueprintArchive = 'docs/plans/frontend-blueprint-20261108.zip';
+const blueprintFiles = [
+  'README.md', 'INTERFACES.md', 'DESIGN.md', 'ACCEPTANCE.md', 'index.html',
+  'build.py', 'build_catalog.py', 'verify.cjs', 'package-manifest.json', 'data/catalog.json',
+  'diagrams/index.html', 'diagrams/system.html', 'diagrams/system.architecture.json',
+  'diagrams/search-freeze.svg', 'diagrams/collection-merge.svg', 'diagrams/access-control.svg', 'diagrams/job-lifecycle.svg',
+  'prototype/index.html', 'prototype/app.js', 'prototype/fixtures.js', 'prototype/mock-api.js',
+  'prototype/research-pages.js', 'prototype/operations-pages.js', 'prototype/styles.css', 'prototype/pages.css',
+  ...Array.from({ length: 39 }, (_, index) => `diagrams/features/F${String(index + 1).padStart(2, '0')}.svg`),
+].map(file => blueprintRoot + file);
 const allowed = file => !file.split('/').some(part => part.startsWith('.') || part === 'node_modules' || part === 'output') && (
   /^dist\/.*\.(js|map)$/.test(file)
   || /^apps\/web\/dist\/.*\.(html|js|css|map|svg|png|jpe?g|webp|ico|woff2?|ttf|webmanifest)$/.test(file)
   || /^src\/storage\/schema\/\d{3}_[a-z0-9_]+\.sql$/.test(file)
   || /^deploy\/.*\.(service|conf|example)$/.test(file)
+  || blueprintFiles.includes(file)
+  || file === blueprintArchive
   || ['package.json', 'package-lock.json', 'README.md', 'AGENTS.md', 'docs/README.md', 'docs/development.md', 'docs/architecture.md', 'docs/status.md', 'docs/handoff.md', 'docs/development-log.md', // Retain validation of existing release manifests.
     'docs/history/handoff.md', 'docs/history/development-log.md', 'docs/research/data-sources.md', 'docs/plans/source-expansion.md',
     'scripts/database-backup.mjs', 'scripts/database-backup-lib.mjs', 'scripts/verify-release.mjs', 'scripts/release-package-lib.mjs'].includes(file));

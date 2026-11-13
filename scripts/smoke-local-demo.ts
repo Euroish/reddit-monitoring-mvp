@@ -25,6 +25,25 @@ async function main() {
     assert.ok(response.ok(), `${method} ${endpoint} returned ${response.status()}: ${await response.text()}`);
     return response.json() as Promise<T>;
   };
+  const searchContent = async (expected: { sourceId?: string; platform?: string }) => {
+    const matches = (url: URL) => (url.searchParams.get("sourceId") ?? "") === (expected.sourceId ?? "")
+      && (url.searchParams.get("platform") ?? "") === (expected.platform ?? "");
+    // Search also invalidates the previous query. Only the newly applied filters prove this transition.
+    const listReady = page.waitForResponse(response => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/v1/content" && matches(url) && response.request().method() === "GET";
+    });
+    const statsReady = page.waitForResponse(response => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/v1/content/workbench" && matches(url) && response.request().method() === "GET";
+    });
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await page.waitForURL(url => url.pathname === "/content" && matches(url));
+    const [list, stats] = await Promise.all([listReady, statsReady]);
+    assert.equal(list.status(), 200, "Applied content filters must succeed");
+    assert.equal(stats.status(), 200, "Applied workbench filters must succeed");
+    return await list.json() as ContentListResponse;
+  };
   const waitJob = async (id: string) => {
     const deadline = Date.now() + 30000;
     while (Date.now() < deadline) {
@@ -92,16 +111,17 @@ async function main() {
     evidence.push("Pause/resume, persisted schedule, archive preserves content; exact workbench/export denominator");
     await page.reload();
     await page.locator("#content-source").selectOption(id);
-    const responseReady = page.waitForResponse(response => response.url().includes("/v1/content/workbench?") && response.ok());
-    await page.getByRole("button", { name: "Search", exact: true }).click();
-    await responseReady;
+    const selectedContent = await searchContent({ sourceId: id });
+    assert.equal(selectedContent.items.length, 4);
+    assert.ok(selectedContent.items.every(item => item.observations.some(obs => obs.sourceId === id)));
     await page.locator("article").filter({ hasText: "本地端到端" }).first().waitFor();
     assert.equal(await page.getByRole("alert").count(), 0);
     if (demoX) {
       await page.locator("#content-source").selectOption("");
       await page.locator("#content-platform").selectOption("x");
-      const xReady = page.waitForResponse(response => response.url().includes("/v1/content/workbench?") && response.ok());
-      await page.getByRole("button", { name: "Search", exact: true }).click(); await xReady;
+      const xContent = await searchContent({ platform: "x" });
+      assert.ok(xContent.items.length > 0 && xContent.items.every(item => item.platform === "x"
+        && item.observations.some(obs => obs.provider === "demo_x")));
       await page.locator("article").filter({ hasText: "demo_x" }).first().waitFor();
       await page.getByText("Export matching saved content", { exact: true }).click();
       await page.getByLabel("Export limit per file (1–2000)").fill("2");

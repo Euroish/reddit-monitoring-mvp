@@ -8,7 +8,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { loginReturnPath } from '../auth/internalReturnPath';
 
 export function Login() {
-  const { login } = useAuth();
+  const { login, isLoading } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
@@ -30,6 +30,10 @@ export function Login() {
       setError(err instanceof Error ? err.message : t('Login failed'));
     }
   };
+
+  if (isLoading) {
+    return <div role="status" className="auth-page">{t('Loading...')}</div>;
+  }
 
   return (
     <div className="auth-page">
