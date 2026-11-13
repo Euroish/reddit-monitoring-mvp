@@ -4,18 +4,21 @@ import { PostgresClient } from "../../src/storage/postgres/postgres-client";
 import { createSourceContentService } from "../../src/runtime/source-content-runtime";
 
 test("Runtime lists disabled real adapters by default and demo never enables external providers", async () => {
-  const keys = ["SOURCE_RUN_MODE", "SOURCE_NETWORK_ENABLED", "TWITTERAPI_IO_API_KEY", "TWITTERAPI_IO_TIMEOUT_MS"] as const;
+  const keys = ["SOURCE_RUN_MODE", "SOURCE_NETWORK_ENABLED", "TWITTERAPI_IO_API_KEY", "TWITTERAPI_IO_TIMEOUT_MS", "APIFY_API_TOKEN"] as const;
   const original = Object.fromEntries(keys.map(key => [key, process.env[key]]));
   const db = new PostgresClient({ connectionString: "postgresql://postgres@127.0.0.1:1/source_validation_config", connectionTimeoutMs: 100 });
   try {
     for (const key of keys) delete process.env[key];
     let caps = createSourceContentService(db).capabilities();
-    assert.deepEqual(caps.map(cap => [cap.provider, cap.enabled]), [["arctic_shift", false], ["twitterapi_io", false], ["bluesky_appview", false]]);
+    assert.deepEqual(caps.map(cap => [cap.provider, cap.enabled]), [["arctic_shift", false], ["twitterapi_io", false], ["bluesky_appview", false], ["kaix", false]]);
     process.env.SOURCE_NETWORK_ENABLED = "true";
     caps = createSourceContentService(db).capabilities();
     assert.equal(caps.find(row => row.provider === "arctic_shift")?.enabled, true);
     assert.equal(caps.find(row => row.provider === "twitterapi_io")?.enabled, false);
     assert.equal(caps.find(row => row.provider === "bluesky_appview")?.enabled, true);
+    assert.equal(caps.find(row => row.provider === "kaix")?.enabled, false);
+    process.env.APIFY_API_TOKEN = "synthetic-config-token";
+    assert.equal(createSourceContentService(db).capabilities().find(row => row.provider === "kaix")?.enabled, true);
     process.env.TWITTERAPI_IO_API_KEY = "synthetic-config-key";
     assert.equal(createSourceContentService(db).capabilities().find(row => row.provider === "twitterapi_io")?.enabled, true);
     process.env.SOURCE_RUN_MODE = "demo";

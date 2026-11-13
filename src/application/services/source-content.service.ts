@@ -123,12 +123,15 @@ export class SourceContentService {
     this.lastWorkedJobId=claimed.job.id;
     if(signal?.aborted){await this.repository.failJob(claimed,"Worker stopped before requesting a page",this.now(),this.now(),true);return true;}
     let pageRequestAttempts=0;
+    let automaticRequestReplay=true;
     try {
       if((claimed.pageRequestAttempts??0)>=3){await this.repository.beginRequestAttempt(claimed,this.now());return true;}
       const source = await this.repository.getSource(claimed.job.sourceId);
       if (!source) throw new ContentProviderError("Source no longer exists", false);
       const provider = this.providerFor(source.platform,source.provider);
       if (!provider) throw new ContentProviderError("Source provider is not enabled", false);
+      automaticRequestReplay=provider.capability.automaticRequestReplay!==false;
+      if(!automaticRequestReplay&&(claimed.pageRequestAttempts??0)>0)throw new ContentProviderError("Previous paid operation may have started; inspect provider console before explicit Retry",false);
       const reservedResources=claimed.job.purpose==="refresh"?claimed.job.refreshIds.length:Math.max(claimed.job.pageSize,provider.capability.requestResourceUpperBound??0);
       const budget=await this.repository.reserveUsage(source.provider,reservedResources,this.now());
     if(!budget.allowed){await this.repository.failJob(claimed,budget.reason==="interval"?"Provider request spacing; no upstream request was sent":"Provider budget disabled or exhausted; no upstream request was sent",budget.retryAt,this.now(),true);return true;}
@@ -142,11 +145,12 @@ export class SourceContentService {
     } catch (error) {
       const databaseTransient = error instanceof Error && "code" in error && ["40P01", "40001", "08000", "08003", "08006", "57P01", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT"].includes(String(error.code));
       const transient = databaseTransient || error instanceof ContentProviderError && error.retryable;
-      const retryable = signal?.aborted || transient && pageRequestAttempts < 3;
+      const replayBlocked=!automaticRequestReplay&&((claimed.pageRequestAttempts??0)>0||pageRequestAttempts>0);
+      const retryable = !replayBlocked&&(signal?.aborted || transient && pageRequestAttempts < 3);
       const wait = error instanceof ContentProviderError ? error.retryAfterSeconds : 30;
       const retryAt = retryable ? new Date(Date.parse(this.now()) + (signal?.aborted ? 0 : Math.max(5, wait) * 1000)).toISOString() : null;
-      const failureKind = signal?.aborted || transient ? "transient" : "permanent";
-      await this.repository.failJob(claimed, error instanceof Error ? error.message.slice(0, 400) : "Collection failed", retryAt, this.now(),signal?.aborted,failureKind);
+      const failureKind = !replayBlocked&&(signal?.aborted || transient) ? "transient" : "permanent";
+      await this.repository.failJob(claimed, error instanceof Error ? error.message.slice(0, 400) : "Collection failed", retryAt, this.now(),!replayBlocked&&signal?.aborted,failureKind);
     }
     return true;
   }

@@ -103,6 +103,16 @@ owner 当前在 `dev/root` 开发、提交并推送，再通过 `dev/root → ma
 
 opaque cursor 随页事务保存，绑定来源、账号和窗口；相同页面重放沿共享身份/观测规则去重。不根据最旧发布时间提前结束账号历史：日期只过滤当前页，页预算耗尽但仍有 cursor 时继续标记 partial。因而该试点不是高效持续增量、全历史或 12 小时新鲜度承诺；没有搜索、自动线程展开、成熟刷新或删除追踪。前端沿用能力驱动的来源配置、平台筛选、详情和导出，不新增专用页面。
 
+### Reddit kaix / Apify
+
+`kaix` 接入现有来源、worker、公共内容/观测、查询统计、详情和导出，不需要新增 SQL 迁移或专用页面。私有运行环境配置 `APIFY_API_TOKEN`、`SOURCE_RUN_MODE=live`、`SOURCE_NETWORK_ENABLED=true`；demo 即使存在 token 仍禁用外部请求。token 只通过 Authorization header 发送给固定 Apify API，不在 UI、目标配置、URL 或日志中保存。provider 预算默认 disabled/0，管理员必须另行设置。
+
+在 `/content` 的来源创建器选择 Reddit / `kaix`。全站 search、community、account 可采帖子；account 与 post ID 可采评论，不支持社区/全站评论检索。关键词由上游召回，再对已取回标题/正文做 NFKC、大小写和空白归一的字面匹配；发布时间本地按 `[from,to)` 过滤。上游不提供可持久化续页，`new` 可能回退 relevance，因此一次任务只取一个有界样本，最多 100 条目标内容（帖子评论详情额外返回一个根帖），即使 maxPages 更大也只启动一次 Actor，完成后不提供 Continue。`exhausted=true` 只表示该次样本操作结束，coverage 始终 partial，不证明历史窗口或新增内容全覆盖。启用现有周期调度也只代表反复抽样，高水位不能解释为完整覆盖。
+
+固定 Actor `kaix/reddit-scraper` build `0.2.25`、512 MiB、45 秒、关闭代理和平台自动重启；启动 POST 最多等待 60 秒（HTTP 超时 65 秒），再有界读取 dataset（20 秒、8 MiB）。每次操作保守预留 101 resources、1 个 adapter request，实际含一次 POST 和一次 dataset GET；预算 requests 是操作尝试数，不能当 HTTP 数或账单。例：一次小样本设日/月 requests 各 1、resources 各 101、minimumIntervalMs=5000，并保持 schedule.enabled=false。Actor 事件费上限每次 $0.01，另有平台计算、读写等费用，不是总美元硬上限；此前 $0.50 试验授权不等于批准长期收费调度。
+
+kaix 声明 `automaticRequestReplay=false`：已持久记录启动尝试后，网络/解析/落库失败、进程中断或租约恢复都不自动重新发收费 POST；来源进入阻塞状态，先检查 Apify console 的运行/数据集，再显式 Retry。Retry 会批准一次新运行，可能再次收费；未知 POST 结果不保证可找回 run ID，也不承诺外部 exactly-once。操作前记账而未实际发送也会保守停下。成功内容使用与 Arctic Shift 一致的 `t3_/t1_` 身份去重；评论支持长字符串 ID，指标保存独立 `provider_snapshot`，`sourceObservedAt=null`，不以 scrapedAt 冒充指标源观测时间。浏览普通查询页只读数据库。
+
 ## 验证
 
 ```powershell

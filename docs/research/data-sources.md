@@ -1,6 +1,6 @@
 # 数据源研究与选型
 
-整理日期：2026-10-18；2026-10-20 更新 E1 与 Reddit 吞吐探测，10 月 23 日复核用户评价与上游维护记录。来自 `d8b481b` 中的 `docs/数据源研究.md`（2026-10-16 至 18 日聊天导出），结合当前源码和已有 Linux 采集证据整理。价格表于 10 月 18 日初核，10 月 19 日复核 TwitterAPIs/GetXAPI，10 月 20 日复核 Redditapis/CiteRocket；其余名录保留为待验证线索，不承诺当前免费额度、版本、覆盖或稳定性。实施顺序见 [开发路线](../plans/source-expansion.md)。
+整理日期：2026-10-18；2026-10-20 更新 E1 与 Reddit 吞吐探测，10 月 23 日复核用户评价、上游维护记录与官方访问迁移政策，并完成 3 次 Arctic Shift 只读小样本请求。来自 `d8b481b` 中的 `docs/数据源研究.md`（2026-10-16 至 18 日聊天导出），结合当前源码和已有 Linux 采集证据整理。价格表于 10 月 18 日初核，10 月 19 日复核 TwitterAPIs/GetXAPI，10 月 20 日复核 Redditapis/CiteRocket；其余名录保留为待验证线索，不承诺当前免费额度、版本、覆盖或稳定性。实施顺序见 [开发路线](../plans/source-expansion.md)。
 
 ## 证据与结论
 
@@ -34,7 +34,9 @@ Arctic Shift 上游说明关键词组合可能触发查询超时，建议缩小 
 
 按 30 天计算，5 个社区每 6 小时各读取一页约 600 次/月，余下 400 次才可用于续页、评论和重试；活跃社区可能超页漏采，须先量实际负载。免费档不要求自动充值，试验不充值、不绑定付费方案，额度不足即停；没有凭证或真实取数验收，本仓库尚未接入该 provider。
 
-如果必须长期免费且不依赖第三方赠额，可申请 [Reddit 官方 Data API](https://support.reddithelp.com/hc/en-us/articles/16160319875092-Reddit-Data-API-Wiki) 的符合条件访问，审批和免费资格不保证，商业用途另行确认。历史研究可下载 [Arctic Shift dumps](https://github.com/ArthurHeitmann/arctic_shift) 后本地检索，避开公共查询端点，但仍有磁盘/处理成本，不能满足近期 12 小时目标。非 Reddit 研究可优先已接入的 Bluesky 或 [HN 官方 API](https://github.com/HackerNews/API)，不能把它们当作 Reddit 内容备用。没有核实到同时满足无审批、持续免费、大流量、完整 Reddit 覆盖的可靠服务。
+不能再把申请传统免费 Data API 当作长期默认路线。[官方 10 月 8 日 changelog](https://support.reddithelp.com/hc/en-us/articles/54353370049684-Changelog-October-8-2026)（10 月 23 日通过公开 Help Center JSON API 读取全文）宣布：2026-10-31 停止接受新的 public API 访问申请，2027-01-12 开始移除未登记/未响应迁移联系者的访问，2027-03 结束剩余 public API 访问；Reddit RSS 于 2026-11-13 停止支持。这不等于所有商业授权数据服务一起关闭，也不能用旧 Data API Wiki 的免费额度推断未来可用性。Devvit、商业许可与学术项目分别核查，不能互换资格。
+
+历史数据可下载 [Arctic Shift dumps](https://github.com/ArthurHeitmann/arctic_shift) 后本地检索，避开公共查询端点，但仍有磁盘/处理成本，不能满足近期 12 小时目标。[Reddit for Researchers](https://support.reddithelp.com/hc/en-us/articles/49381918834964-Reddit-for-Researchers-Program) 对获批非商业学术项目免费，经 BigQuery Analytics Hub 提供最近五年历史、**延迟六个月、按月更新**的数据；需要高校归属、机构担保与伦理审查/豁免，不能供本产品近期监测或转供原始数据。Bluesky 或 [HN 官方 API](https://github.com/HackerNews/API) 不是 Reddit 内容备用。没有核实到同时满足无审批、持续免费、大流量、完整 Reddit 覆盖的可靠服务。
 
 ### 评价、维护与运行证据（2026-10-23）
 
@@ -46,7 +48,114 @@ Arctic Shift 上游说明关键词组合可能触发查询超时，建议缩小 
 - **只允许用 Apify 持续免费额度小试，不把它包装成低价大流量来源。** [平台 Free 计划](https://apify.com/pricing) 每月 $5，无需信用卡，用尽后暂停到下周期；该 Actor 元数据的 FREE 档为 $0.00149/结果，页头“from $1.19/千条”属于更高付费档，不能套给免费用户。每月账面上限约 3,300 条，其他费用/重复结果须留余量；超额正常价 $1.49/千条高于项目目标，故不充值、不升级，不作为大规模长期付费方案。没有凭证或内容样本，尚未验证本账号可用性。
 - **更便宜或更高分的 Actor 不自动入选。** [opportunity-biz](https://apify.com/opportunity-biz/reddit-scraper) 虽标 $0.05/千条，但只有 8 个累计用户、无评分，且同时收平台使用费；[automation-lab](https://apify.com/automation-lab/reddit-scraper) 明确将评论、深层树与投票指标列为 best-effort，部分未知指标会输出 0。因此不能仅按标题价、星级或“运行成功”替代有效独立内容/字段完整性比较。
 
-结论：现有证据不足以证明存在既免费大流量、又更稳定完整的 Reddit 主源；较值得比较的是有持续免费额度且有实际使用量的 Actor 与 Redditapis 免费档，前提仍是同目标/窗口的有界内容验收。Arctic Shift 保留历史补充和抽样用途，不依赖它保证近期全量评论。来源实施顺序仍只在开发路线维护。
+结论：现有证据不足以证明存在既免费大流量、又更稳定完整的 Reddit 主源。下节的小样本说明 Arctic Shift 仍能返回新 ID 的近期评论，并发现本仓库成熟刷新存在本地校验缺陷；因此先区分本地适配、查询失败和上游漏收，再决定换商。持续免费 Actor 与 Redditapis 仍只是有界对照，不能替代同目标/窗口的内容验收；Arctic Shift 也不能据此升级为近期全量主源。来源实施顺序仍只在开发路线维护。
+
+### 从访问机制反推可行路线（2026-10-23）
+
+本轮用户明确排除所有需要官方申请的访问路线；必须同时支持全站关键词持续监测和临时历史搜索，完整评论可延后。以下保留官方能力的事实核查，但不将其作为本轮可选实施路径。定向社区采集不能替代全站关键词发现，全站 dumps 也不是本轮方案的前置条件。
+
+决定可行性的两个环节是 **发现未知内容 ID** 与 **读取已知 ID 的内容/更新**。新评论 ID 破坏的是原先顺序扫号的发现方式；关闭匿名入口限制的是读取权限。解决其中一个，不等于另一个也解决。维护者说有替代采集方式，证明仍有方法，不证明其方法公开、可复制、免费或无缺失。
+
+| 路径 | 技术依据与可取价值 | 本项目判断 |
+| --- | --- | --- |
+| 限定社区/账号的列表 + 已知帖子评论树 | 在获准接口中由列表发现 ID，再按目标帖子展开；不依赖连续 ID。仅轮询新帖子会漏掉老帖新评论 | 比全站扫号更适合有界监测，但必须先取得实际可用的读取权限；不是发现新匿名端点 |
+| Devvit 社区合作与事件推送 | [Reddit API](https://developers.reddit.com/docs/capabilities/server/reddit-api) 面向安装社区；[事件目录](https://developers.reddit.com/docs/capabilities/server/trigger-events) 有帖子/评论创建、更新、删除事件；[发布说明](https://developers.reddit.com/docs/guides/launch/launch-guide) 明确由社区 moderator 安装 | 有社区合作时值得申请，以社区实际功能为目的。事件异步、可重复、部分字段可缺失；没有全站 firehose 或完整交付 SLA |
+| Devvit → 本项目数据库 | [HTTP Fetch](https://developers.reddit.com/docs/capabilities/http-fetch) 技术上支持服务端 POST | 外发须逐域名/逐应用审核；当前个人域名默认不批准，限定云服务需证明平台不支持的能力。[规则](https://developers.reddit.com/docs/devvit_rules) 限制数据使用/分享，外部分析或批量导出须明确获准；换云域名不自动获得转供权 |
+| Arctic Shift 定向增量 + 历史 dumps | 已有 adapter；API 与 dumps 是不同交付方式 | 近期只作为待验证样本流，历史尽量本地检索。两者共用上游采集，不是独立备源；缓存/本地库只能提高已存数据的可读性 |
+| 正常浏览器会话读取可见页面 | 网页仍须给获准访问者呈现内容，DOM 在技术上是另一种交付格式 | 已进一步审查登录会话驱动站内搜索的开源实现（见下文），是本轮直接自采的主要待验证候选；没有用户会话，尚未真实验收。登录并不授予批量采集权，不把账号池、代理轮换、伪装官方客户端作为稳定性方案 |
+| 搜索索引、embeds、Reddit Pro、研究库 | 搜索可发现链接；embeds 可展示已知内容；Pro 可人工监测主题；研究库可历史分析 | 不提供本项目所需的完整近期正文/评论流。各自的访问、导出权和新鲜度单独判断，不能拼成无损全站数据源 |
+
+Devvit 的所谓“全局事件”目前是需要额外审批的 [app mention trigger](https://developers.reddit.com/docs/capabilities/server/global-triggers)，只在提及 app 用户名时触发，不是监听任意关键词/全站评论的出口。官方迁移方向使其值得研究，但不能先实现通用 Devvit 导出器再补权限。
+
+其他常见建议的决定性限制：
+
+- **Redlib/镜像不独立。** [README](https://github.com/redlib-org/redlib) 自述依赖模仿官方客户端的 token/headers；它仍回源 Reddit，而非独立生产内容的数据库。代码存在不等于当前可用、获准或稳定，本轮未部署或借用公共实例。
+- **搜索结果不是全文库。** 可以在获准搜索服务内做主题/帖子发现，但索引延迟、排序截断、正文摘要及评论展开没有完整性保证。搜索/LLM 回答只能作为线索，不能将模型生成内容或摘要还原成原始评论。
+- **oEmbed 只适合展示。** [Embeds Terms](https://redditinc.com/policies/embeds-terms) 将用途限定为显示用户内容，不能当作结构化采集授权或评论树枚举接口。
+- **Reddit Pro 不是免费导出 API。** [Trends 官方说明](https://support.reddithelp.com/hc/en-us/articles/47619216411284-Reddit-Pro-Feature-Trends) 允许监测关键词，但明确禁止手动或自动下载其他用户的帖子/评论及 Pro 展示的其他信息；自有内容指标导出不能外推为别人的内容导出。
+- [Responsible Builder Policy](https://support.reddithelp.com/hc/en-us/articles/42728983564564-Responsible-Builder-Policy) 要求 API 访问明确审批、如实说明用途、不绕过限额；[官方访问说明](https://support.reddithelp.com/hc/en-us/articles/14945211791892-Developer-Platform-Accessing-Reddit-Data) 对商业使用要求许可/合同，批量导出默认显著受限。技术可读与可持续使用权分开记录。
+
+#### 当前环境的有界验证
+
+基线 `eb2a80e`；2026-10-23 06:25–06:27 UTC；只对 `technology` 执行 **3 次** Arctic Shift 请求，无 key、代理、重试、并发、付费或数据库写入，结束不启动常驻采集。另通过公开 Help Center JSON API 读取 5 篇官方文章全文；网页正文抓取的 403 不作为文章不存在的证据。
+
+| 检查 | 实际结果 | 结论边界 |
+| --- | --- | --- |
+| 最新帖子，desc/limit=5，仅投影 ID/时间/社区 | 200，1.68 秒，5 条；最新发布时间距查询约 43.5 分钟 | 只证明当时可读到近期帖子，不是帖子覆盖率或上游延迟上界 |
+| 最新评论，相同轻量参数 | 200，1.49 秒，5 条；最新发布时间距查询约 5.1 分钟，ID 均为 13 位 base36 字符串 | 新 ID 不等于归档彻底停摆；不能外推全社区/全站收录 |
+| 实际 adapter，最近一小时/desc/limit=5，完整记录、无关键词 | 200，1.45 秒，5 条规范评论，checkpoint 存在、coverage=partial | 新 ID 首次采集解析可用；未做 worker→SQL 闭环或持续验收。样本 `retrieved_on-created_utc` 为 63–486 秒，是来源自报归档间隔，不是独立实测全链路延迟 |
+| 相同新 ID 的成熟刷新，离线 fetch stub | `t1_19riqx8r047lt` 被 `refreshIds()` 拒绝，`retryable=false`，fetch 调用 0 次 | [adapter](../../src/connectors/reddit/arctic-shift-content.connector.ts) 第 89 行仍限制 ID 为 2–12 位；初次 normalize 无该限制。服务将该错误归 permanent，启用成熟刷新后可能阻塞来源自动采集；本轮没有证明业务部署已发生此故障，也没有修改代码 |
+
+复现脚本、参数、响应与结果保存在忽略的 `output/research/reddit-access-20261023/`。投影探测不含正文；实际 adapter 结果只记录身份/时间摘要。首次采集支持新 ID，**不代表成熟刷新支持**；这项本地兼容问题应先修复并做定向回归，不能靠增加上游重试处理。
+
+此前建议的固定社区增量试验仅适合已知目标集合，不能满足用户后来明确的全站关键词要求。当前先验证下面的直接站内搜索路径；Arctic Shift 降为按目标/ID 的补充候选。未来若仍需其增量采集，应在预算内拆窗、保留分页边界，并按实测迟到情况回查；这些恢复措施不补回上游从未收录的内容。
+
+可证伪的验收方式：固定少量目标、连续 72 小时、明确总请求上限与结束时间；用另一个获准读取面/人工可见样本建立同窗口 ID 基准，分别记录帖子/评论的基准命中、首次落库延迟、失败/空页、重复、晚到和各来源的新增边际覆盖。缺少独立基准时只能报告样本新鲜度，不能报告绝对覆盖率；两个归档服务的并集也不是真值。12 小时目标须报告超过 12 小时的比例和截止时仍缺失的基准内容，不能只报 P95 或最近一条的年龄。当前没有执行该持续试验、自动拆窗或新的来源接入。
+
+#### 直接自采复核：登录会话与站内搜索
+
+2026-10-23 进一步读取本仓库原 HTTP connector、Scrapling bridge 及三个外部项目的源码，不把 README 中的“免费”“无速率问题”当成运行证据。站内搜索由 Reddit 的索引做筛选，本地只接收命中帖；这是直接从 Reddit 获取数据，不是本地建全站索引，也不是第三方归档转供。能否满足使用许可仍独立判断。
+
+- 本仓库 [HTTP connector](../../src/connectors/reddit/reddit-http.connector.ts) 默认读取 `www.reddit.com` 的社区列表/about/帖子评论 `.json`；配置 accessToken 后改为 OAuth。没有浏览器 cookie 会话管理，也没有全站 search 方法，不能简单重启旧 worker 就宣称支持当前需求。
+- [Scrapling bridge](../../scripts/scrapling_reddit_bridge.py) 的 dynamic/stealth 仍请求传入的同一 URL；当前 `sessionKey` 只是返回头标记，没有持久登录 profile 的实现。更换 fetch 库不等于补上读取权限或站内搜索，未运行 stealth、挑战解算或代理切换。
+- 本环境仅发 **2 次**无 cookie、无代理、无伪装/重试的只读请求：旧 `technology/new.json?limit=2` 和网站搜索 `search/?q=postgresql&type=posts&sort=new` 均返回 HTTP 403 HTML，含 “blocked by network security” 和登录提示。说明本环境的匿名直连被拒绝；不是 JSON schema 变化或请求太快的证据，也不能外推到用户自己的正常登录浏览器。
+
+| 源码候选 | 实际机制/缺口 | 可得结论 |
+| --- | --- | --- |
+| [jeffweisbein/redd](https://github.com/jeffweisbein/redd/blob/main/lib/api.js) | cookie 驱动 `old.reddit.com/search.json`，支持全站帖子 query/sort/time；search 只返回当前页数组，没有 after 入参/游标返回；最后 push 为 2026-02-19 | 是“会话 + HTTP”的代码实例，不是当前可用证明；不直接安装作为生产采集器 |
+| [agents-io/reddit-unofficial-api](https://github.com/agents-io/reddit-unofficial-api/blob/main/src/index.ts) | 在已登录 Chrome tab 中通过 CDP 执行带会话 fetch；全站 search 仍调用 `.json`，搜索工具没有 after 入参；最后 push 为 2026-09-13 | 不是新的无认证接口；README 的无限额/不可识别等说法无验收依据，且默认还暴露写入工具，不原样接入 |
+| [preaverage/reddit-mcp](https://github.com/preaverage/reddit-mcp/blob/main/internal/reddit/api.go) | 有 search/sort/time/after 实现；其 [HTTP client](https://github.com/preaverage/reddit-mcp/blob/main/internal/reddit/client.go) 依赖浏览器会话的 web token、额外 TLS/headers 模拟与刷新；最后 push 为 2026-09-11 | 比前两者更完整，但不能等同普通 fetch 或纯浏览器 DOM 采集；未运行、未复用伪装组件，也无本环境当前登录成功证据 |
+
+几个候选都没有证明“仅添加 cookie 即可在所有环境恢复”。Redlib 的 [#582](https://github.com/redlib-org/redlib/issues/582)、[#597](https://github.com/redlib-org/redlib/issues/597)、[#598](https://github.com/redlib-org/redlib/issues/598) 分别记录 10 月认证、限流、帖子 JSON 解析失败，是反对“有开源工具就稳定”的近期证据，不证明所有实例均失败。
+
+下一项能改变结论的检查是在用户本人可正常访问的浏览器中：全站搜一个词，确认正文/日期和下一页，再检查普通页面驱动读取能否保留分页与结果身份；若测试会话内结构化读取，单独记录其实际状态，不从 UI 可用推断 `.json` 必然可用。仅做只读、有界验证，遇到限流/挑战停止，不公开 cookie/token。验证持续监测时用最新排序并重叠去重；临时历史搜索继承站内索引与分页边界，不承诺任意词的历史全部命中或无限回填。获得一次结果之后仍须验证会话失效、分页和持续负载，才能判断“够用”的实际边界。
+
+本轮没有可用的用户登录会话，未完成上述关键检查，没有安装第三方代码、修改业务代码或部署。匿名响应及 GitHub 元数据在忽略的 `output/research/reddit-direct-20261023/`。
+
+#### 热点站、信息雷达与采集助手的源码复核
+
+2026-10-23 用户提出复用 AIHOT 等项目。核查 GitHub 原仓库、固定提交与采集代码，而不是把搜索命中的 fork 或宣传中的“全网搜索”当作原始平台访问能力。结论：**优先验证 OpenCLI 的 Reddit 浏览器 adapter；Agent Reach 是可选的多平台会话/工具层；AIHOT、TrendRadar、BettaFish 不能直接替代 Reddit 获取入口。**
+
+| 项目 / 核查提交 | 实际数据入口 | 对当前项目的价值与限制 |
+| --- | --- | --- |
+| [AIHOT](https://github.com/KKKKhazix/AIHOT/tree/b3998dc6fc138eb9659f33f55eb38c1c716f0d57)，MIT | [collect.ts](https://github.com/KKKKhazix/AIHOT/blob/b3998dc6fc138eb9659f33f55eb38c1c716f0d57/packages/backend/src/sources/collect.ts) 分派 RSS/网页列表/JSON；X 经 SocialData，公众号经 Dajiala，部分网页经 Jina；也接受外部脚本推送 | 本快照没有专用 Reddit 搜索采集器。公开仓库只含示范信源，生产信源名单/运营数据未公开。适合借鉴筛选、事件归组、信源调度，不把它整体再部署成第二套本项目 |
+| [TrendRadar](https://github.com/SANSAN0/TrendRadar/tree/68c8916c450f8c8dd36cb88a189f7c2e46681ab5)，GPL-3.0 | [fetcher.py](https://github.com/SANSAN0/TrendRadar/blob/68c8916c450f8c8dd36cb88a189f7c2e46681ab5/trendradar/crawler/fetcher.py) 默认请求 NewsNow `/api/s`，另读 RSS；MCP search 搜已积累的热榜/RSS | 热榜样本的关键词过滤不是 Reddit 全站历史搜索。可借鉴提醒/分析；要新增热榜来源时直接评估 NewsNow，避免多绕一层 |
+| [NewsNow](https://github.com/ourongxing/newsnow/tree/0560c993b226cd2fd07d8a79875d50551f52c584)，MIT | 各站专用 HTTP/RSS adapter；[AIHOT adapter](https://github.com/ourongxing/newsnow/blob/0560c993b226cd2fd07d8a79875d50551f52c584/server/sources/aihot.ts) 本身也是读 AIHOT RSS | 是上游聚合器，不是每站的完整搜索接口。本快照 `server/sources` 未见 Reddit adapter；NewsNow→AIHOT→原信源不能重复算独立来源 |
+| [BettaFish](https://github.com/666ghj/BettaFish/tree/b67928ff1ce515dd7672408221fb1e9500d0972d)，GPL-2.0 | [QueryEngine](https://github.com/666ghj/BettaFish/blob/b67928ff1ce515dd7672408221fb1e9500d0972d/QueryEngine/tools/search.py) 用 Tavily，MediaEngine 用 Bocha，InsightEngine 读数据库；MindSpider 调 MediaCrawler | 本快照爬虫支持 xhs/dy/ks/bili/wb/tieba/zhihu，不含 Reddit。多 Agent 报告不能证明自采解决，搜索服务和模型也可能产生费用 |
+| [Agent Reach](https://github.com/Panniantong/Agent-Reach/tree/beabda7486e9a666360b18cdb5c0e759c2c4d20f)，MIT | [reddit.py](https://github.com/Panniantong/Agent-Reach/blob/beabda7486e9a666360b18cdb5c0e759c2c4d20f/agent_reach/channels/reddit.py) 的站内动作实际调用 OpenCLI，共享管理浏览器会话，统一 JSON/错误输出；另可走公开网页搜索 | 是有用的工具/会话层，不是独立 Reddit 数据库。当前 search 包装只暴露 query/limit，没有 sort/time/续页参数；正文映射不读取 OpenCLI 的 selftext，不能直接当完整采集契约 |
+| [OpenCLI](https://github.com/jackwener/OpenCLI/tree/fe5f1d96aff01c32fd84f86b52af922bfe6ca93f)，Apache-2.0 | [search.js](https://github.com/jackwener/OpenCLI/blob/fe5f1d96aff01c32fd84f86b52af922bfe6ca93f/clis/reddit/search.js) 在浏览器会话内执行；[web-search.js](https://github.com/jackwener/OpenCLI/blob/fe5f1d96aff01c32fd84f86b52af922bfe6ca93f/clis/reddit/web-search.js) 取网站搜索排序/ID、跟随网页 cursor，再经 by_id 批量补帖子字段 | 是最贴近全站帖子搜索与定时监测的候选。支持 query/subreddit/sort/time，命令上限 1,000 条、内部最多 10 页，不代表能取满或完整；CLI 不暴露可持久化的下一页 checkpoint。读取阶段仍有 JSON 依赖，没有消除访问限制 |
+
+另核查 RSSHub 的 `a630023ed0c0398f9610f7aeea36ec2dea7e126e` 完整树：未找到以 Reddit 命名的专用路由，不作为已验证的 Reddit 接入路径；它作为其他平台 RSS 转换器的价值，仍需逐路由验收。
+
+OpenCLI 的 [#2604](https://github.com/jackwener/OpenCLI/issues/2604) 有用户报告：同一登录会话中传统 search.json 多词排序差，网站搜索结果更相关，局部补丁曾取得 25 条唯一且字段齐全的结果；维护者 10 月 17 日确认合入网页排序/补全实现，同时明确没有独立重新验收真实登录排序。它比“README 写支持 Reddit”更有证据，但仍不是本环境或持续负载验收。[#2697](https://github.com/jackwener/OpenCLI/issues/2697) 还记录可读初始评论但可选展开返回 403 的差异，不把读帖成功外推为全部接口可用。
+
+Agent Reach 的 [#642](https://github.com/Panniantong/Agent-Reach/issues/642) 则针对旧 rdt-cli 后端，用户对不同 HTTP 客户端的成功/失败报告并不一致；不能套给当前 OpenCLI 后端，也不能得出只换 urllib/requests 就必定恢复。固定源码/安装版本与实际选中的 backend，才能比较实验结果。
+
+本轮对固定 OpenCLI `web-search.js` 做了 **3 个离线浏览器合成场景**：两页去重并按网页排序恢复乱序补全、429 单次终止、403 单次终止，均通过；仅复用现有 Playwright/Chromium，未安装第三方包，浏览器外网请求为 0。只验证纯搜索函数和最小响应 reader，不覆盖完整 CLI/扩展/账号/真实页面。源码、提交信息和结果在忽略的 `output/research/aggregation-projects-20261023/`。
+
+接入判断：优先复用固定版本 OpenCLI 的 Reddit 搜索实现；完整 CLI 是否适用由真实会话和分页契约验收决定，不能只加进程调用便视为可接入。复用现有 `search` target、任务/预算/落库/API/UI；多平台浏览器确有需求时再选 Agent Reach 管理会话，不同时造两套浏览器管理。模型可生成查询和分析结果，不必逐页控制点击。原站限流/验证时停止，不换账号继续；只允许读取命令，不把 OpenCLI 自带的发帖/投票等动作暴露给采集任务。
+
+正式接入前还需解决窗口与 partial 语义：OpenCLI 的 time 是站内时间档，不等同现有任意 from/to；达到页数/数量上限不能记作窗口耗尽或推进完整高水位，内部翻页不等于跨任务可续采。缺失补全警告必须保留，不能吞掉当成功完整页；其指标映射有缺失填 0 的行为，未经区分不能当作真实零值观测。先实测一个查询的搜索→补全→落库，再测会话重用、热门词截断和新内容延迟；全站历史完整性、大规模持续容量和许可仍未验收。不同许可证的复制/修改/发布义务应在选定接入方式后核查，不因独立进程调用就默认豁免。
+
+#### JSONL 独立复核与 ego-lite 的位置
+
+2026-10-23 复核原 JSONL 会话、保存的请求/响应及关键源码，而非采信会话总结。直接运行证据是：Arctic Shift 三次真实数据请求成功（社区小样本，非全站搜索），匿名 Reddit 两次请求被网络安全 403 拒绝，以及 OpenCLI 三个离线合成场景；GitHub 文件获取、维护者报告与官方公告属于源码/文档证据，不属于这些采集器的真实运行验收。最新内容距查询约五分钟不等于索引延迟或召回率。13 位评论 ID 刷新缺陷本次再次离线复现，网络调用为 0；它不解释匿名 403，也不决定当前优先的帖子搜索是否可用。
+
+对固定 OpenCLI 搜索函数另做三个离线边界复现，外网请求为 0，证据在忽略的 `output/research/reddit-audit-20261023/`：
+
+- 页面有后续 cursor、已达到 `limit` 时，函数先清空 `next`，返回 `capped=false`。没有截断警告也不能判定完整；原三个场景没有断言这个边界。
+- 补全只返回部分帖子时，函数有 `missing`，但 CLI 只输出剩余行并把缺失写成日志；`capped` 同样未进入结果数组。接入需要结构化保留这些状态，不能只读取 stdout JSON 数组。
+- 搜索页成功但 `by_id` 返回 403 时，函数直接返回登录墙结果，不返回已发现 ID。页面读取和 JSON 补全是两个独立访问条件，应分别验收。补全不可用时可另验收从可见结果/详情 DOM 提取必要字段；这是待开发替代，不是 OpenCLI 现有成功能力。
+
+Agent Reach 还把空列表归为上游失败，且统一 `text` 不读取 `selftext`（原字段仍留在 raw）；用于后台监测前须区分正常零命中，并明确正文映射。当前 worker 在提交前拒绝 `exhausted=false && nextCheckpoint=null`，所以“CLI 返回数组→薄 adapter”尚缺可恢复分页契约，伪造 exhausted 会误推进高水位。一次 CLI 命令内部包含多次搜索/补全 HTTP，命令次数不能当实际请求次数。
+
+本次从 GitHub 复核六个项目的最新提交与原固定快照一致；NewsNow 已迁到 [newsnext/newsnow](https://github.com/newsnext/newsnow)，旧 GitHub 页面重定向，原提交仍可读。依赖判断不变：TrendRadar 默认依赖 NewsNow，NewsNow 的 AIHOT adapter 读取 AIHOT RSS，Agent Reach 的 Reddit 后端依赖 OpenCLI，不能按项目数量计算独立上游。
+
+[ego-lite 固定提交 `d392204`](https://github.com/citrolabs/ego-lite/tree/d392204d1ea1a8027a591ab2b0129c2e11d85f26) 的 README、Node helper 源码与原生绑定文档表明：它提供本机已登录浏览器、TaskSpace 和 `page.evaluate`/`page.fetch` 等执行能力；当前 README 支持 macOS/Windows，Linux 仍在路线图。公开仓库是 helper/skill 等，浏览器原生绑定由单独下载的应用提供，不能因仓库 MIT 就推断可在 Linux 编译完整浏览器。本环境未发现 `ego-browser` 命令，未安装、未真实运行；宣传中的速度、低验证码率和免费不构成 Reddit 稳定性证据。
+
+OpenCLI 当前通过 daemon + Browser Bridge 扩展调用 Page，ego-lite 使用自己的原生桥。两者都有页面执行接口，支持复用纯页面搜索逻辑的技术判断，但没有证据证明完整 CLI 可直接切换到 ego-lite；Agent Reach 当前也绑定自己的浏览器 profile。采用 ego-lite 时优先验证“用户桌面 ego-lite 执行固定只读搜索逻辑→有界结果文件/认证导入→现有 PostgreSQL/API/UI”，再决定是否值得开发持久任务领取；这条桌面执行路径是设计建议，当前仓库没有通用外部采集结果导入入口。无需把 cookie 上传服务器，也无需同时部署 Agent Reach。
+
+先以同一登录会话比较人工搜索第一页/下一页、脚本提取 ID/日期、JSON 补全，必要时验收 DOM 详情读取。记录限额、后续页、缺失字段与原始错误；随后对少量明确关键词持续运行 48–72 小时，记录人工对照样本的召回、首次发现延迟、会话中断和重复读取开销。该持续试验尚未执行；调度间隔不能替代十二小时新鲜度验收。站内历史搜索提供有界结果集，任意历史时间分片及完整召回仍需验证；本地只存命中内容与观测，不要求下载全站 dumps。DS 等模型只参与查询建议、聚类与分析，稳定采集步骤用确定脚本，模型费用与浏览器/存储费用另计。
 
 ## 成本口径
 

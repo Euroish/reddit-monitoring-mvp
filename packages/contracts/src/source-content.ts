@@ -49,6 +49,8 @@ export interface SourceCapability {
   refreshByIds?: boolean;
   /** Provider may return/bill a fixed page even when a smaller page is requested. */
   requestResourceUpperBound?: number;
+  /** False for paid operations whose ambiguous outcome requires explicit human Retry. */
+  automaticRequestReplay?: boolean;
 }
 export interface SourceSchedule { enabled: boolean; cadenceSeconds: number; overlapSeconds: number; initialLookbackHours: number; maxCatchupHours: number; pageSize: number; maxPages: number; recheckLookbackHours?:number; recheckCadenceSeconds?:number }
 export interface SourceRefresh {
