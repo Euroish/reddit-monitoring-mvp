@@ -1,95 +1,106 @@
-# 重建与删除计划
+# R1–R4 主线重建与实删计划
 
-状态：待开发。本文替代旧三人/周数/来源采购排期；只表达依赖、删改边界和验收。产品 PRD/MET/ENG、架构 ARC/MOD、数据 DAT/COL/QRY/IMP/EXP/SEC、交互 UX 是唯一规则来源。
+状态：尚未实施。目标见[产品](../README.md)、[架构](../architecture.md)、[契约](../contracts.md)、[交互](../design.md)；[审查落实索引](../research/architecture_audit_and_rebuild_spec.md)将问题映射到以下验收。R1–R3只做在线主线，R4外挂不阻塞它们。
 
-## 1. 重建策略
+## 1. 切换原则
 
-采用**新组合根 + 按模块替换 + 一次默认入口切换 + 删除旧链路**。允许重建 API/表/页面，不要求长期兼容废弃产品；不整库重写账户，不平行开发 Python 在线系统。
+- PLAN-01：允许删业务表/API/页面；不能顺带丢账户、来源证据或个人研究资产。先盘点备份/迁出，再删；危险生产操作另需用户授权。
+- PLAN-02：新入口必须能不加载旧Phase1 runtime独立启动；开发用隔离测试库，不让两个writer并行写生产。暂存旧代码仅用于对照/切换，R3必须实删，不长期双链兼容。
+- PLAN-03：每阶段是一条可用的前后端任务链，不按“先全部仓储、再所有服务、最后UI”堆模块。UI和HTTP共享相同schema/权限/过滤。
+- PLAN-04：只有monitor_project与monitor_project_source两张新表；新增列/索引/约束有明确owner，已应用迁移不可改。七张归档表若根本不存在就不造再删，实库以盘点结果为准。
 
-- MIG-01：以当前 main 的实码与数据库盘点作为搬迁基线；`3551900` 只是本次审查快照，不覆盖后续合入的有效修复。
-- MIG-02：新模块可在任务分支/隔离库完成；生产只进行明确的切换，不长期双写旧/新事实、不保留通配 legacy fallback。
-- MIG-03：保留有价值的内容与研究资产不等于保留旧接口/算法。放弃的功能可直接删除，不必重新实现后才能删。
-- MIG-04：本轮只交付规范；实施时按下面的纵向切片开发。不能把某阶段的表/路由空壳当完成。
+## 2. 资产盘点与最小表变更
 
-## 2. 保留、改造、删除矩阵
-
-| 范围 / 当前路径 | 处理 | 删除前的必要出口 |
-| --- | --- | --- |
-| `account-security.service.ts`、账户/会话/邀请/审计代码与表 | 保留业务规则，迁入 access | 登录/撤销/权限/个人隔离继续成立；无需重写密码系统 |
-| `arctic-shift-content.connector.ts`、`kaix-content.connector.ts`、X/Bluesky 公共 adapter | 保留并收敛映射 | 通过 DAT/COL 对照；修复长 ID，不恢复旧抓取路由 |
-| `SourceContentService`、`PostgresSourceContentRepository` | 按 collection/content 拆职责，保留核心任务语义 | 一页集合写入、可重放、租约拒绝、过滤单点；不是只格式化 |
-| `content`、discovery、observation、公共搜索、个人/研究表 | 优先复用；必要时新表搬迁 | 身份、来源证据、正文与冻结载荷/所有权一致 |
-| `apps/api/src/create-api-server.ts`、旧 HTTP validation/handler | Fastify 路由逐模块替代后删除 | 新 API 不导入旧 runtime；未采用端点直接退役 |
-| `src/runtime/reddit-phase1-runtime.ts`、旧 fetch execution/routing/health/promotion | 删除 | 账户、公共采集与 ops 装配已经独立；必须保留的维护职责已迁移 |
-| `workers/reddit-phase1-*`、`workers/keyword-query-live-refresh-scheduler.ts` | 删除 | 停止旧写入，单一 worker 调度；不为废弃表保留维护 scheduler |
-| `src/connectors/reddit/` 中旧 http/scrapling/mock/circuit-breaker/create-reddit-connector 链 | 删除未被新主链使用的旧路径 | 先查实际 import，保留公共 adapter 确实共用的工具，不按目录一刀切 |
-| 旧 tier/heat/growth/driver/anomaly/shadow/promotion/query planner 算法与旧 read models | 删除 | 项目概览使用新事实；不移植旧热度模型作新默认指标 |
-| `MarketBoard/Queries/Compare/RunPhase1/TargetDetail/Dashboard` 旧页面与 workbench 特有组件 | 删除或以新 feature 完全替换 | PRD-03/06 用户流程可用，旧 API client/query keys/导航同时退出 |
-| `scripts/*phase1*`、shadow/promotion、旧 reddit 导出/索引/维护 CLI | 删除退役链路专用入口 | 当前数据搬迁/备份确有用途的脚本完成后再退役，不按通配符直接 rm |
-| `deploy/systemd/reddit-phase1-scheduler.service`、`reddit-keyword-refresh.service`、scheduler env | 删除 | 实际服务停止并退出默认部署；文档不再提示启动 |
-| `packages/contracts` 中旧 target/market/run/workbench DTO | 删除无消费者的定义 | API/Web/CLI/测试均已移除对应调用，公共契约不被顺带误删 |
-| 旧专用单测、in-memory 仓储、mock runtime、fixtures、旧 npm scripts/CI/环境开关 | 随功能一起删除 | 保留仍验证共享账户/事务/身份的有效断言，不为旧测试保留旧产品 |
-| 旧 HTML/SVG 原型与 ZIP | 本次从工作树删除，Git 历史可查 | 新设计文档覆盖当前范围；不继续维护 39 功能并行规范 |
-
-表中短文件名按当前仓库定位；实施 PR 必须列出实删路径和残留引用。不得把本文当自动删除脚本。
-
-## 3. 数据搬迁与切换
-
-### 必须保存
-
-- `app_user`、密码摘要、角色、有效邀请及审计；会话可在切换时明确失效并要求重新登录。
-- 有价值的规范内容、正文状态、原生 ID、discovery/observation；公共全文投影可重建。
-- `content_saved_query`、`content_annotation`、`research_export/member` 的用户归属与必要冻结载荷。
-- 来源配置、任务 checkpoint/uncertain 状态与实际用量。已完成任务可只读保留，不为重新运行未明收费操作而清零状态。
-
-### 选择性迁移
-
-旧 `monitor_target/collection_job/metrics_snapshot/raw_reddit_event`、旧 post engagement/growth、keyword/subreddit/anomaly 派生表不进入新产品默认读写。旧内容若尚无公共 discovery，先用专门搬迁身份和旧来源证据登记；无法可靠映射的记录列出数量/原因，不伪造 provider/观测时间。
-
-旧 saved_workbench_view 若能等价映射到新 filter 则转换；无法等价的保留只读归档/导出，报告未迁数量，不继续保留整个旧工作台来解释它们。
-
-### 切换步骤
-
-1. 盘点表/规模/外键、当前构建、迁移账本、文件与仍运行的服务；明确搬迁脚本和过滤语义变化。
-2. 在隔离库执行迁移/搬迁与重放，核对总量、身份重复、来源时间、个人所有权、研究样本；记录不能映射的资产。
-3. 备份并实际恢复验证；确认数据库、引用文件和回退构建成套可用。
-4. 停领任务并停止旧写入；完成最终增量搬迁，切 API/Web/worker。MAY 使用短维护窗，不为零停机引入长期双写。
-5. 验证登录、来源/内容、项目/导出、静态资源及任务恢复；仅明确开启的来源恢复网络。
-6. 代码主链删除后旧表先只读；确认无引用/需保留资产且备份有效，再用新 DROP 迁移删除。数据库回退不靠回退 JS 自动完成。
-
-42 个既有 SQL 迁移保留完整文件名/checksum；不得改已应用 SQL 或补造旧讨论稿的 041。新迁移编号按实施时实际账本分配。全新精简基线只能在所有受支持旧库都有明确升级路径后替换安装入口，不与已部署账本混用。
-
-## 4. 依赖切片与出口
-
-| 切片 | 开发内容 | 完成证据 | 后续依赖 |
-| --- | --- | --- | --- |
-| R0 基线/保留清单 | 核对实码、运行资产、有效修复；冻结首批项目/数据样例 | 保留/删除矩阵与真实资产映射，无未解释的破坏性迁移 | R1 |
-| R1 新骨架/单写入链 | Fastify+独立 runtime；迁账户/内容/来源；集合页提交；修长 ID | API 无旧 runtime 依赖；页失败/重放/取消正确；登录和已存内容可用 | R2/R3/R4 |
-| R2 项目闭环 | 项目/来源关联、共享 filter、概览/内容/详情、个人保存/导出、两项目对比 | 两项目共享流只采一次；同帖多 provider 不重计；图表钻取与导出同范围 | R5 |
-| R3 归档闭环 | 最小生产 CLI、包 schema、staging/COPY、原子发布、有限证据检索 | 一真实有界包→发布→图表→证据→固定导出；补月/替换/重放正确 | R5 |
-| R4 来源接通 | Reddit/X 各一条路径；NewsNow 少量 getter；RSS/Atom + 限定 RSSHub | 每条实际入口有身份/时间/分页/重放报告；不合格明确阻塞 | R5 |
-| R5 删旧/上线 | 删旧装配/读写/测试/配置；负载/恢复/浏览器检查；同构建发布 | 一套默认主链、资产迁移对账、P0 流程、性能与恢复结果可查 | 本次重建完成 |
-
-R3 和 R4 可在接口稳定后并行进行，但不是两套产品。X 凭证、历史包未就绪不阻塞 R1/R2；也不能把夹具结果记作 R3/R4 真实交付。无固定团队角色/周数，交付按依赖和证据推进。
-
-## 5. 相称的验证
-
-优先少量、高信息量的集成场景，直接验证真实 PostgreSQL 和 API，不重复测试框架本身。
-
-| 必须证明的风险 | 最小有效验证 |
+| 对象 | 实施动作 / 保护条件 |
 | --- | --- |
-| 页提交一致性 | 同页中途失败无部分写入/checkpoint；同页重放、两 provider 同帖、旧租约拒绝；检查接受正文与投影一致 |
-| 任务恢复/收费 | 取消/暂停与提交竞争、过期租约、可续 cap、无 cursor partial、uncertain 操作不自动重发 |
-| 范围/数字正确 | 项目共享来源不重复；列表/概览/导出同 filter；未知/零/缺口；不兼容归档过滤明确拒绝 |
-| 归档发布 | 同包重放；损坏文件不发布；9月后补4–8月；同分区替换不累加；发布失败旧版可读；固定证据不随在线更新改变 |
-| 账户与研究 | 未授权拒绝、用户 A/B 个人资产隔离、撤销会话；冻结成员/载荷不变 |
-| 产品闭环 | UX-07 一条连贯浏览器流程 + 历史/对比分支；必要失败/窄屏场景 |
-| 性能/部署 | ARC 验证负载与一次真实备份恢复；干净构建、迁移、关键读写和静态资源 |
+| app_user/password/session/invite/audit | 保留ID、口令/会话摘要与角色边界；app_session增加机器key类型/权限/来源范围/label，不另建token表 |
+| source、collection_source、source_collection_job | 保留来源身份/任务证据；加deliveryMode、必要条件请求元数据、push回执键/hash/结果；修改相关purpose/window/active-job约束 |
+| content/discovery/observation | 保留身份/关系/时间；加接受版本evidenceKey、versionFetchedAt与明确正文状态；旧数据回填不伪造观测 |
+| public_content_search_document | 新增迁移为单search_text/title_length，回填并校验完整性，再删除038失效触发器/旧字段/旧读逻辑 |
+| monitor_project、monitor_project_source | 新增，仅保存项目filter/revision与来源关联；不复制内容 |
+| content_saved_query、content_annotation | 保留userId归属、revision、收藏/笔记；显式转换废弃查询字段并报告不支持的条件 |
+| research_export/member及引用文件 | 先按原owner列清单/校验数量、导出CSV/JSON文件并验证可读与授权交付；确认完成后删除服务/表/成员，不静默并入公共资产 |
+| saved_workbench_view、keyword_query_session等旧资产 | 可转换的个人查询迁入content_saved_query；不可等价转换的保留离线文件/转换报告待确认，不塞进新库通用JSON表 |
+| dataset/import_batch/dataset_partition_revision/dataset_release/dataset_release_partition/dataset_content/archive_activity_day | 从主线设计删除；若环境曾私下落表，先备份/确认依赖再退役，不直接DROP不明资产 |
 
-新测试仅在暴露具体失败模式时增加。删除旧功能时同时删除仅服务该功能的测试；不能因为测试多就保留旧链路，也不能删掉共享不变量的断言掩盖缺陷。日常 CI 不请求付费或不稳定上游；真实来源验证单独记录。
+新旧条目记录数、身份去重数、关系数、时间未知数、每用户个人资产清单、失败转换数必须对账。报告放output/，不提交实际用户数据。
 
-## 6. 完成定义
+## 3. R1：薄内核与数据闭环
 
-重建完成 MUST 同时满足：PRD-01–08 用户任务可用；保留资产有搬迁对账；ARC-01–14 与核心契约落地；默认入口不导入/运行旧链；废弃代码、契约、脚本、测试与部署入口一起退出；新文档与源码一致。
+**用户结果：** 受邀用户能登录，创建/读取来源，一页采集或一批推流进入内容库并可下载；不依赖项目、归档或旧runtime。
 
-只完成 Fastify、只换导航、只跑离线测试、只有漂亮图表、或只减少文件行数，都不构成完成。真实来源/归档条件未满足时明确标记未完成，不扩大候选清单来替代交付。
+- Fastify5/TypeBox/openapi/auth hook与五模块最小边界；access复用已有身份规则，登录/邀请/会话列入精确公开例外。
+- 保留既有ContentProvider，优先迁移Arctic Shift；修长ID、确定性版本/缺字段、四组集合SQL、同事务投影/discovery/observation/checkpoint。
+- 实现标准push、现有job幂等回执/源绑定key；已有pool/事务函数直接用，禁止为切换另造Repository或InMemory。
+- 内容列表/详情同filter函数，NULL游标、单投影索引；去逐页coverage COUNT。加入流式CSV/JSON，不再累积2k条数组。
+- Web交付登录→来源→内容→下载薄闭环，错误/无权限/空/部分状态同步完成。
+
+**出口断言：** 真实PG16 + HTTP验证长ID、页内重复、逆序到达、同观测时刻evidenceKey平局、null字段、删除防复活、整页回滚/旧租约拒绝；push鉴权/越界/413/同key重放和不同payload409；有/无发布时间跨页不漏不重；列表不额外COUNT。新增层不导入旧runtime/插件。
+
+## 4. R2：项目化产品与来源闭环
+
+**用户结果：** 创建监测→查看概览→钻取原文→批注/保存查询→下载，在一个连续上下文完成；agent用同HTTP完成。
+
+- 只加两张项目表；创建复用/关联来源不触发网络，项目filter和召回target分离。共享来源修改提示影响。
+- GROUPING SETS概览、同范围钻取/对比、单平台互动兼容判定；删除按platform/provider循环contentStats，批注读改JOIN。
+- 把已有Reddit/X/Bluesky有效能力迁到新边界；接精选NewsNow getter与通用feed/受控RSSHub。只按实际授权请求，不把类型/fixture通过当真实接通。
+- my research只留保存查询、收藏/批注；agent能力发现/schema、key生成/撤销、错误nextAction与Web操作对齐。
+- Web只保留五导航；覆盖源失败/304/样本partial、revision冲突、未知时间和导出断开；无顶层数据集/冻结页。
+
+**出口断言：** 一条真实PG HTTP E2E证明项目创建到文件终结；相同resolvedFilter在概览/列表/导出ID集一致；source多重发现不放大总数，provider分布明确重叠；跨平台engagement422而单平台可用；viewer个人资产隔离/key来源越权阻断；1440/768/390真实渲染和键盘任务流通过。
+
+每个计划上线的provider至少一条真实有界采集链：目标/授权→稳定身份/时点→重复写入→API/UI/文件。缺X key或受控feed服务时该来源仍为未验收，须用户明确接受功能缺口才能发布，不能宣布PRD-02全部完成。
+
+## 5. R3：实删、单机发布与性能证据
+
+**用户结果：** 远端单服务器按简单方式持续运行；重启、请求故障与数据恢复可解释，不再加载废弃代码。
+
+### 实删矩阵
+
+| 删除对象 | 替代 / 删除前必须证明 |
+| --- | --- |
+| src/domain/repositories/*、src/storage/repositories/in-memory/* | 命名SQL/真实PG E2E；现有in-memory目录14个TS文件全部退出主线，不新建InMemory类填坑 |
+| 当前巨型create-api-server及新主线不需要的service pass-through | 五模块routes/sql，api只装配/start；不把原3600行换名搬家 |
+| createPostgresPhase1Runtime、旧runtime-factory、重复scheduler/worker | 单应用有界scheduler/PG租约；冷启动不触达旧runtime |
+| 旧Phase1/heat/growth、旧搜索/coverage热路径及仅服务其的jobs/read models | 新content/project SQL；先迁好账户/内容/研究，不为旧热度算法保留依赖 |
+| ResearchExportService/Repository、InMemoryResearchExport、冻结API/UI、research_export/member | 每owner旧资产已交付文件/确认；新工作区与流式下载验收通过 |
+| dataset/release/importer目标骨架、顶层数据集入口 | 外挂仅标准HTTP推流；没有不存在的“兼容导入模式” |
+| 旧前端markets/board/run/queries等Phase1路由 | 五页连续流程；个人旧查询完成转换后才删 |
+| 配套旧专用tests/scripts/fixtures/文档入口 | 删除仅覆盖已删功能的用例；保留可复用的纯函数/权限/边界断言，必要时改写到新E2E |
+| 废弃依赖与systemd默认部署材料 | Compose最小发布链；旧配置只保留离线迁出包/历史记录，不长期维护双部署 |
+
+不要先整体删除src/connectors、全部测试、已应用SQL或历史数据；按引用图和资产归属逐路径处理。审查的“50k/35k行”只是基线估算，不设以删断言、压行或排除业务文件换通过的硬指标。
+
+### 维护窗口切换
+
+1. 在隔离副本完成迁移、回填、资产对账和恢复演练，构建不可变镜像；确认域名/TLS/容量/保留策略。
+2. 经授权停止旧采集/写入口，做可恢复备份；执行新迁移及最终个人资产迁出/核对。
+3. 新版本在维护模式完成账户、列表、项目、一次推流/采集和流式文件smoke；检查来源/租约/投影后才开放写入。
+4. 失败时恢复匹配的数据库快照和旧构建；破坏性迁移后不能仅回滚镜像。开放新写入后回退需另行处理新增数据，不能覆盖。
+5. 保留备份/离线旧资产直到确认；不承诺单机Compose零停机，不未经授权自动上线。
+
+### 安全和性能门槛
+
+必须用实际检查证明SAFE-01–06：公网无PG端口、精确代理/Origin/登录限流、scope越权、超时后连接归还、退出不截断提交；仅三个必需应用secret的首次空库引导可用。
+
+用架构第4节负载测cold/warm P95、页SQL次数、并发调度、GIN计划、JOIN无放大、背压导出内存/断开清理。指标不达标先定位索引/扫描/往返/分配，不用降低阈值或引入缓存平台掩盖。现有量不足100万时记录夹具规模，不能宣称完成容量验收。
+
+**出口：** 旧runtime/imports/仓储镜像/冻结端点/归档依赖为0；新关键契约断言全部通过；真实provider与生产部署验证分别记录。未做部署时R3部署部分仍未完成。
+
+## 6. R4：独立归档外挂（后续授权）
+
+主线完成后再按实际材料决定是否启动。未来`plugins/zst-archive/`可在独立Python环境流式解析.zst、DuckDB/Parquet做中间层、选出与项目相关的有限内容，再分批推送ING-01。主线不加依赖/表/路由。
+
+- .zst单次顺序解压，不保证任意压缩偏移恢复；DuckDB扫描Parquet的谓词裁剪不能倒推为原始.zst可跳读。
+- 续传、补月、本地release/manifest都属于外挂内部；不恢复主线七表或server COPY/staging importer。
+- 分类器是外挂可选研究：fastText是训练流程，不是假装存在的通用预训练finance/music/tech主题模型。必须核对具体模型许可/标签/语言，并用独立标注集测precision/recall；不达标保留用户关键词，不用AI标签扩大主线范围。
+- 先有限夹具验证拒绝行、完整性、稳定ID/时间/evidenceKey、checkpoint/相同key重放；实际全档/容量要等文件清单/资源/权限，不把旧74GB描述当当前已验证材料。
+
+**出口：** 外挂只用HTTPS且无生产DB凭证；安装/失败/卸载不影响核心镜像/测试/迁移；推入内容可在同项目搜索/批注/导出，不冒充全档统计覆盖。
+
+## 7. 最小验证组合
+
+- 纯函数单测：ID/URL、filter、Unicode/LIKE转义、版本比较、CSV安全等有真实输入域的规则。
+- 一套真实PG16+HTTP E2E：权限、事务/租约、重放、查询/概览/文件闭环；不InMemory双跑，不启动付费网络。
+- 少量真实provider与浏览器任务smoke；安全/性能/部署检查按上文风险补充，不为每层重复建测试套。
+- 结果区分离线、真实来源、部署、全档。运行命令与实际状态回填[development](../development.md)和[status](../status.md)原段落，不添加第二套交接文档。

@@ -32,16 +32,24 @@ const blueprintFiles = [
   'prototype/research-pages.js', 'prototype/operations-pages.js', 'prototype/styles.css', 'prototype/pages.css',
   ...Array.from({ length: 39 }, (_, index) => `diagrams/features/F${String(index + 1).padStart(2, '0')}.svg`),
 ].map(file => blueprintRoot + file);
-const allowed = file => !file.split('/').some(part => part.startsWith('.') || part === 'node_modules' || part === 'output') && (
+const allowed = file => !file.split('/').some(part => part.startsWith('.') || part === 'node_modules' || part === 'output')
+  && !/^(?:dist\/)?plugins\//.test(file) && (
   /^dist\/.*\.(js|map)$/.test(file)
   || /^apps\/web\/dist\/.*\.(html|js|css|map|svg|png|jpe?g|webp|ico|woff2?|ttf|webmanifest)$/.test(file)
   || /^src\/storage\/schema\/\d{3}_[a-z0-9_]+\.sql$/.test(file)
   || /^deploy\/.*\.(service|conf|example)$/.test(file)
   || blueprintFiles.includes(file)
   || file === blueprintArchive
-  || ['package.json', 'package-lock.json', 'README.md', 'AGENTS.md', 'docs/README.md', 'docs/development.md', 'docs/architecture.md', 'docs/status.md', 'docs/handoff.md', 'docs/development-log.md', // Retain validation of existing release manifests.
-    'docs/history/handoff.md', 'docs/history/development-log.md', 'docs/research/data-sources.md', 'docs/plans/source-expansion.md', 'docs/contracts.md', 'docs/design.md',
-    'scripts/database-backup.mjs', 'scripts/database-backup-lib.mjs', 'scripts/verify-release.mjs', 'scripts/release-package-lib.mjs'].includes(file));
+  || [
+    'package.json', 'package-lock.json', 'README.md', 'AGENTS.md',
+    'docs/README.md', 'docs/development.md', 'docs/architecture.md', 'docs/status.md',
+    'docs/handoff.md', 'docs/development-log.md', // Retain validation of existing release manifests.
+    'docs/history/handoff.md', 'docs/history/development-log.md', 'docs/research/data-sources.md',
+    'docs/research/architecture_audit_and_rebuild_spec.md',
+    'docs/plans/source-expansion.md', 'docs/contracts.md', 'docs/design.md',
+    'scripts/database-backup.mjs', 'scripts/database-backup-lib.mjs',
+    'scripts/verify-release.mjs', 'scripts/release-package-lib.mjs',
+  ].includes(file));
 
 export async function packRelease({ root = process.cwd(), destination }) {
   root = path.resolve(root); destination = path.resolve(destination);

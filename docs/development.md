@@ -1,6 +1,6 @@
 # 当前开发与部署说明
 
-本文只记录**当前源码已有入口**。Fastify、项目、NewsNow/RSSHub、归档生产/导入/release 和新目录均未实现，不能按目标规范猜测命令。设计见[架构](architecture.md)，实施见[重建计划](plans/source-expansion.md)。
+第1–5节只记录**当前源码已有入口**。Fastify、项目、标准推流、机器scope key、真正流式导出、NewsNow/feed和Compose均未实现，不能按目标规范猜测命令。归档生产/发布已移出主线，不再列为核心待办。目标开发/运维基线见第6节；实施见[重建计划](plans/source-expansion.md)。
 
 ## 1. 安装与启动
 
@@ -66,7 +66,7 @@ npm run local:stop
 - Continue 只适用于有可续 checkpoint 的已结束有界任务。页/checkpoint 同事务，覆盖未知不标全量。
 - 临时错误/429 每页最多三次请求启动尝试，跨重启持久化；spacing/限额拒绝不计请求尝试。
 - requests/resources 按 UTC 日/月保守预留，包含重试/未知结果；不是货币账单。旧产品固定费用约束已移除，运行限额机制仍存在。
-- 当前同源页后有 5 秒 nextRunAt，worker 成功睡 1.5 秒、空领 3 秒；性能测量区分调度等待与 SQL。目标设计将清理非必要固定等待。
+- 当前同源页后有 5 秒 nextRunAt，worker 成功睡 1.5 秒、空领 3 秒；性能测量区分调度等待与 SQL。目标RUN-02改为provider spacing与空队列有界等待，不保留非必要固定续页延迟。
 
 ### kaix 特有行为
 
@@ -78,7 +78,7 @@ npm run local:stop
 
 ## 3. 当前 API 与产品入口
 
-默认 `/content`，详情 `/content/:id`，个人工作区 `/saved`、账户 `/account`。项目/数据集新页面未实现；旧 Markets/Queries/Compare/Run/Target 尚可访问，按重建计划退役，不继续扩展。
+默认 `/content`，详情 `/content/:id`，个人工作区 `/saved`、账户 `/account`。项目与五导航未实现；数据集页面已从目标删除。旧 Markets/Queries/Compare/Run/Target 尚可访问，按重建计划退役，不继续扩展。
 
 | API 族 | 当前用途 |
 | --- | --- |
@@ -87,9 +87,9 @@ npm run local:stop
 | `/v1/source-ops`、`/v1/source-provider-budgets/:provider` | worker/来源状态、调用与资源限额 |
 | `/v1/content`、stats/workbench/detail/export | 已存内容、统计、详情与 JSON/CSV |
 | `/v1/content-saved-queries`、`/v1/content-annotations` | 个人查询/收藏/注释 |
-| `/v1/research-exports` 及成员/导出 | 同 RR 事务冻结样本/载荷，分页读取与删除 |
+| `/v1/research-exports` 及成员/导出 | 当前仍有RR冻结；R3迁出个人资产后退役，不再扩展 |
 
-精确方法与字段以 `packages/contracts/src/source-content.ts`、`research-export.ts` 及路由为准。目标路由见[契约](contracts.md#6-目标-http-表面)，不能认为当前已有项目/导入接口。
+精确方法与字段以 `packages/contracts/src/source-content.ts`、`research-export.ts` 及路由为准。目标路由见[契约](contracts.md#6-目标-http-表面)，不能认为当前已有项目/标准推流/新key接口。
 
 读取需 session/bearer；来源/任务写限 admin/owner/machine；个人/研究只限所属 session，machine 无个人空间。个人创建 expectedRevision=0，更新/删除带当前 revision；409 保留草稿。
 
@@ -108,7 +108,7 @@ npm run test:offline
 npm run test:postgres     # 必须有独立 TEST_SOURCE_DATABASE_URL
 ```
 
-纯文档跑 docs 与 diff；发布清单变更再跑 `tests/unit/release-package.test.ts`。业务改动跑相关风险场景，跨层里程碑再跑完整门禁；不为每个文档字句重跑全套业务。
+纯文档跑 docs（含本地锚点、根README行数）与diff；发布清单变更再跑 `npx tsx --test tests/unit/release-package.test.ts`。业务改动跑相关风险场景，跨层里程碑再跑完整门禁；不为每个文档字句重跑全套业务。
 
 `npm test` 有 SQL 无配置 skip 的历史行为，不能作为数据库验收。offline 要求零 fail/skip，postgres 缺合法库即失败；使用 UTF8、loopback、`source_validation_*` 独立库，绝不指向业务库。
 
@@ -147,7 +147,17 @@ npm run release:verify -- output/releases/目录
 
 public-tunnel/desktop/chrome/bridge 四项研究服务保持关闭；不为重构恢复它们。来源覆盖、内容新鲜度与系统 ready 是不同信号。
 
-## 6. 修改与交付纪律
+## 6. 重建目标开发与部署基线（尚无命令）
+
+- Node24/PG16/Fastify5/TypeBox；五模块默认routes/sql，SQL接收Pool/PoolClient，只有ContentProvider多实现。不建立仓储镜像/通用DI；数据库语义走真实PG HTTP E2E，纯规则保留单测。
+- 一次schema校验/统一filter编译、四组集合写入、投影同事务、GROUPING SETS概览、cursor/backpressure导出。不要把现有2000条数组导出或RR冻结称为目标实现。
+- Compose proxy/app/db是目标唯一默认部署链；进程内scheduler并发2、共享pool10。当前仓库没有该Compose文件，不能执行虚构的docker compose命令；R3新增并实际验证后在本文替换旧启动/部署段落。
+- 目标必需应用secret为DATABASE_URL、SESSION_SECRET、ADMIN_BOOTSTRAP_PASSWORD；初次引导后移除引导密码。当前API_BEARER_TOKEN/BOOTSTRAP_OWNER_*不能被这些未实现变量替代。来源凭证按启用需要，域名/TLS另配置。
+- 生产按SAFE-01–06验证默认拒绝、Origin/代理/限流、DB私网、超时和15s有界关闭；maintenance连接可用显式独立预算，不为迁移放宽全体请求超时。维护窗口切换，不能仅回退镜像撤销SQL。
+- 未来外挂独立plugins/zst-archive/，不进核心build/typecheck/test/runtime/release；本轮不安装Python/DuckDB或预建插件目录，标准HTTPS即可操作。
+- 开发按[UX-A–D](design.md#5-前后端连续性验收)证明创建→证据→留档；用相同scope的HTTP请求证明agent可独立完成，不为agent另搭后台或让其连接DB。
+
+## 7. 修改与交付纪律
 
 修改前检查分支/远端/status/diff，保留他人工作；独立任务目录/分支，逐路径暂存。不要 reset/clean/stash 覆盖未提交修改；共享对象库的 ref 修改串行进行。推送/合并/部署按当前授权执行，不强推。
 

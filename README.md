@@ -1,12 +1,27 @@
-# 多源数据监测工作台
+# 多源信息监测工作台
 
-面向研究、运营与竞品观察，整合 Reddit、X 和选定开源聚合出口的内容、趋势与可视化。在线采集与历史归档共同服务项目化研究；目标采用单机模块化单体，重建并退役旧 Reddit 主链。目标规范与当前实现分别维护。
+面向研究、运营与竞品观察：连接Reddit、X和精选资讯来源，按项目看变化、读证据、保存判断并下载结果。
 
-- [文档入口与产品方向](docs/README.md)
-- [当前实现与验证状态](docs/status.md)
-- [来源选择与研究证据](docs/research/data-sources.md)
-- [重建与删除计划](docs/plans/source-expansion.md)
-- [架构](docs/architecture.md) · [数据与接口契约](docs/contracts.md) · [交互设计](docs/design.md)
-- [开发、验证与部署](docs/development.md)
+目标是单服务器Fastify/PostgreSQL/React产品，支持Web与agent使用同一HTTP API。历史加工是未来独立外挂，只经鉴权推流；核心不依赖Python/DuckDB/原档。
 
-运行要求 Node.js 22+、npm、PostgreSQL。Agent 从 [AGENTS.md](AGENTS.md) 开始。
+## 当前开发
+
+当前仍为node:http旧实现，**Fastify、项目、推流与Compose尚未实现**。开发需Node22+、npm、PostgreSQL；CI为Node24/PG16。
+
+```sh
+npm ci
+npm --prefix apps/web ci
+npm run docs:check && npm run typecheck
+```
+
+按[开发说明](docs/development.md#1-安装与启动)配置独立开发库/当前凭证、迁移，再分别启动API、来源worker和Web；默认不开真实网络，不触发费用。
+
+## 文档入口
+
+- [产品范围与文档导航](docs/README.md) · [当前状态](docs/status.md)
+- [架构](docs/architecture.md) · [契约与agent操作](docs/contracts.md) · [交互](docs/design.md)
+- [重建/迁移/实删计划](docs/plans/source-expansion.md)
+- [审查落实索引](docs/research/architecture_audit_and_rebuild_spec.md) · [来源证据](docs/research/data-sources.md)
+- [开发、验证与当前部署](docs/development.md)；Agent先读[AGENTS.md](AGENTS.md)。
+
+文档目标不代表已上线功能；Git推送不会自动部署。

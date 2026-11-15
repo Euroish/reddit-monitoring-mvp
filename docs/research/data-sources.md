@@ -4,7 +4,7 @@
 
 ## 1. 决定
 
-**在线原平台：保留 Reddit / X 的已有可用设计；聚合项目：选 NewsNow + RSSHub；历史：离线归档生产后导入同一产品。** 不把多个完整项目的账户、数据库和任务系统拼起来。
+**在线原平台：保留 Reddit / X 的已有可用设计；聚合项目：选 NewsNow + RSSHub；历史：后续独立外挂，只经标准HTTPS推流。** 主线不依赖Python/DuckDB/原档，不导入归档发布包；不把多个完整项目的账户、数据库和任务系统拼起来。
 
 | 候选 | 固定提交 / 许可 | 结论与决定性证据 |
 | --- | --- | --- |
@@ -46,7 +46,7 @@
 
 | 路径 | 本仓库事实 | 重建取舍 |
 | --- | --- | --- |
-| Reddit / Arctic Shift | 社区/账号/帖子评论、范围内关键词、已知 ID；历史真实有界落库 | 继续作为定向/历史补充。不是全站关键词入口；先修 13 位评论刷新 ID 本地校验 |
+| Reddit / Arctic Shift | 社区/账号/帖子评论、范围内关键词、已知 ID；历史真实有界落库 | 继续作为定向/历史补充。不是全站关键词入口；先将 Reddit ID 本地校验统一为2–32位base36，修13位评论刷新 |
 | Reddit / kaix Apify | 已有跨社区 search 等 adapter；无持久 cursor，始终 partial；未知收费启动不自动重发 | 保留能力/语义，不承诺完整持续覆盖；真实采样与授权后再决定是否主用 |
 | X / TwitterAPI.io | 已有账号/搜索/ID adapter、可空指标/媒体/引用，未真实验收 | 最少变更的首条验证路径。旧“单价超限禁用”理由已废止，但凭证/使用授权/实际质量仍待验证 |
 | X / twscrape、OpenCLI | 历史只有会话/源码研究，非本产品正式 provider | 现有路径不足才研究；不为重构同时维护会话池、远程浏览器和多家供应商 |
@@ -56,30 +56,28 @@
 
 首个真实来源验收要有：目标/时间窗、首/续页或无 cursor 声明、稳定身份、时间/指标缺失、重放计数、落库/API/导出证据，以及正常请求耗时/用量。持续可用性需连续运行记录，不用一次成功或轮询配置替代。
 
-## 5. 归档分支：吸收契约，不合并第二个产品
+## 5. 归档研究降为独立外挂
 
-只读核对分支：`codex/frontend-blueprint-20261108@723596e392fee93684af62cc21519384b9204d84`。四份讨论稿位于该提交 `docs/architecture/`：
+只读参考`codex/frontend-blueprint-20261108@723596e392fee93684af62cc21519384b9204d84`的四份稿件：
 
-| 原文件 | 保留的结论 | 不继承的要求 |
-| --- | --- | --- |
-| [分析能力与计算存储架构设计-v0.1](https://github.com/Euroish/reddit-monitoring-mvp/blob/723596e392fee93684af62cc21519384b9204d84/docs/architecture/分析能力与计算存储架构设计-v0.1.md) | 新原档单次顺序解压、列式中间层、稀疏关系、质量/规则版本、后补月份、汇总与证据分离 | 一次实现 38+30 项分析、固定主题树、GPU 路线、特定本机磁盘假设 |
-| [在线平台技术栈与部署决策-v0.1](https://github.com/Euroish/reddit-monitoring-mvp/blob/723596e392fee93684af62cc21519384b9204d84/docs/architecture/在线平台技术栈与部署决策-v0.1.md) | 本地生产、在线独立；PG + 私有文件；单重任务；文件/DB 一起备份 | FastAPI/SQLAlchemy/Alembic、Caddy/Compose 第二套在线运行栈 |
-| [服务端数据模型与查询方案-v0.1](https://github.com/Euroish/reddit-monitoring-mvp/blob/723596e392fee93684af62cc21519384b9204d84/docs/architecture/服务端数据模型与查询方案-v0.1.md) | batch/revision/release、类型化汇总、精选证据与完整保留范围区分、COPY/staging/原子发布 | 全量目录/视图注册平台、每个分析族预建表、另造 content_identity 平行身份库 |
-| [完整实现范围与验收契约-v0.1](https://github.com/Euroish/reddit-monitoring-mvp/blob/723596e392fee93684af62cc21519384b9204d84/docs/architecture/完整实现范围与验收契约-v0.1.md) | 小夹具验证恢复与补月、真实首包闭环、资源测量 | “68项必须同一次交付”、旧机器依赖可用即当前环境可用 |
+| 稿件（该提交docs/architecture/） | 仅供外挂研究 |
+| --- | --- |
+| [分析能力与计算存储架构设计-v0.1](https://github.com/Euroish/reddit-monitoring-mvp/blob/723596e392fee93684af62cc21519384b9204d84/docs/architecture/分析能力与计算存储架构设计-v0.1.md) | 顺序解压、列式复用、质量/规则与证据范围；不继承68项分析/固定主题/GPU |
+| [在线平台技术栈与部署决策-v0.1](https://github.com/Euroish/reddit-monitoring-mvp/blob/723596e392fee93684af62cc21519384b9204d84/docs/architecture/在线平台技术栈与部署决策-v0.1.md) | 离线与在线隔离；不继承第二在线后端或旧部署选择。主线Compose决定来自当前审查，不来自旧分支 |
+| [服务端数据模型与查询方案-v0.1](https://github.com/Euroish/reddit-monitoring-mvp/blob/723596e392fee93684af62cc21519384b9204d84/docs/architecture/服务端数据模型与查询方案-v0.1.md) | 外挂自身可重复加工/版本/精选材料，不能恢复主线七张发布表或COPY/staging importer |
+| [完整实现范围与验收契约-v0.1](https://github.com/Euroish/reddit-monitoring-mvp/blob/723596e392fee93684af62cc21519384b9204d84/docs/architecture/完整实现范围与验收契约-v0.1.md) | 有限夹具与真实材料测量；旧CLI/041不是当前实现 |
 
-该分支记载 9 月 RS/RC 原档存在、约 74.36GB 压缩输入，未扫描；这是当时机器事实，本轮没有检查原档，也没有发现当前 main 的归档 importer。其 CLI/041 设想不是已交付功能。
+该分支约74.36GB压缩输入仅是当时机器记录，本轮未检查文件。当前主线不落实IMP包协议，只有[ING-01/02标准推流](../contracts.md#2-在线任务与推流)。未来`plugins/zst-archive/`按[R4](../plans/source-expansion.md#6-r4独立归档外挂后续授权)独立依赖/加工/恢复，选中的内容进入同一内容库；未推入的历史统计不是在线范围。
 
-首批只落实[包协议 IMP-01–07](../contracts.md#5-归档生产与包协议)及内容量/分布/有限可检索证据；新分析必须单独定义输入、分母、支持过滤与证据范围。API 消耗减少来自复用历史材料，不能宣称归档覆盖未下载时期、当前实时内容或不存在的全文证据。
+### 原档证据与未验证假设
 
-### Arctic Shift 原档格式的一手核对
+固定[`11bbf2e6`](https://github.com/ArthurHeitmann/arctic_shift/tree/11bbf2e62db1dd1d699e1280724916a079815ec8)的[格式说明](https://github.com/ArthurHeitmann/arctic_shift/blob/11bbf2e62db1dd1d699e1280724916a079815ec8/file_content_explanations.md)与[流读取示例](https://github.com/ArthurHeitmann/arctic_shift/blob/11bbf2e62db1dd1d699e1280724916a079815ec8/scripts/fileStreams.py)说明UTF-8 JSON对象流、2024-04起仅.zst，以及字段可能来自不同取回时间。不能把合并对象当同一时点完整快照。
 
-固定 [`11bbf2e6`](https://github.com/ArthurHeitmann/arctic_shift/tree/11bbf2e62db1dd1d699e1280724916a079815ec8) 的[内容说明](https://github.com/ArthurHeitmann/arctic_shift/blob/11bbf2e62db1dd1d699e1280724916a079815ec8/file_content_explanations.md)、[流读取示例](https://github.com/ArthurHeitmann/arctic_shift/blob/11bbf2e62db1dd1d699e1280724916a079815ec8/scripts/fileStreams.py)：2024-04 起仅 `.zst`；UTF-8、每对象为帖子/评论，retrieved_on 与部分字段二次取回时间分开。源对象可能是合并观测，不能误作单一时点完整快照。
-
-只借鉴流式读取，不直接复制其示例的宽松异常吞掉行为；生产包必须可说明拒绝行与完成性。正常 `.zst` 的任意偏移恢复没有由此源码证明，按 IMP-02 设计。
+解码器允许大window不证明每个包实际2GiB/单帧；普通.zst不能假设任意偏移恢复。Parquet裁剪/Bloom/排序可研究，但体积、速度、转换内存须实测，不保留原审查的毫秒级/固定倍数承诺，也不因转换成功自动删原档。具体模型标签/训练与误差同样留待验证，不接入主线依赖。
 
 ## 6. 历史证据与停止线
 
 - `3551900` 及历史日志保留 Arctic Shift、Bluesky、kaix 与浏览器研究原结论；本轮不重新认证旧价格或上游状态。
 - 旧匿名 Reddit 403、云端登录失败只证明当时环境；不自动转成全平台永久不可用，也不以换爬虫库解释所有故障。
 - 每个新入口先明确身份、观测时间、召回/分页、正文状态、使用权限，再沿 adapter→事务→查询→UI 打通；不先搭动态插件市场、Provider Lab 或万能爬虫 DSL。
-- 本轮第三方固定源码/树与归档稿副本放忽略的 `output/research/`；不提交原始数据、凭证或第三方整仓。后续研究只有能改变一个真实决定时才继续扩展候选。
+- 前轮第三方固定源码/树与归档稿副本仅在相应研究工作目录的忽略output/research/，本轮未重新获取，不随Git分发。原始数据、凭证、第三方整仓不提交；只有能改变实际决定时才继续扩展研究。

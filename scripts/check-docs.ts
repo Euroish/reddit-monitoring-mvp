@@ -28,6 +28,30 @@ const files = new Set(
 );
 const errors: string[] = [];
 
+function headingAnchors(content: string): Set<string> {
+  const anchors = new Set<string>();
+  let fence = "";
+  for (const line of content.split("\n")) {
+    const marker = line.match(/^\s*(`{3,}|~{3,})/)?.[1];
+    if (marker) {
+      if (!fence) fence = marker[0];
+      else if (fence === marker[0]) fence = "";
+      continue;
+    }
+    if (fence) continue;
+    const heading = line.match(/^#{1,6}\s+(.+?)(?:\s+#+)?\s*$/)?.[1];
+    if (!heading) continue;
+    const slug = heading.toLowerCase()
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/[^\p{L}\p{M}\p{N}_\-\s]/gu, "")
+      .replace(/\s/g, "-");
+    let anchor = slug;
+    for (let suffix = 1; anchors.has(anchor); suffix++) anchor = `${slug}-${suffix}`;
+    anchors.add(anchor);
+  }
+  return anchors;
+}
+
 for (const file of files) {
   if (/\.(md|mdc|markdown)$/i.test(file) && !documents.includes(file)) {
     errors.push(`Unexpected documentation: ${file}. Update an existing document instead.`);
@@ -56,15 +80,21 @@ for (const document of documents) {
     continue;
   }
   const content = readFileSync(fullPath, "utf8");
+  if (document === "README.md" && content.trimEnd().split("\n").length > 60) {
+    errors.push("Root README must stay within 60 lines; put details in docs/.");
+  }
   for (const match of content.matchAll(/\[[^\]]*\]\(([^\s)]+)\)/g)) {
     const target = match[1];
-    if (/^(https?:|mailto:|#)/.test(target)) continue;
-    const link = decodeURIComponent(target.split("#")[0]);
-    const resolved = path.resolve(path.dirname(fullPath), link);
+    if (/^(https?:|mailto:)/.test(target)) continue;
+    const [link, fragment] = target.split("#").map(decodeURIComponent);
+    const resolved = link ? path.resolve(path.dirname(fullPath), link) : fullPath;
     const relative = path.relative(root, resolved);
     if (relative === ".." || relative.startsWith(`..${path.sep}`)
         || path.isAbsolute(relative) || !existsSync(resolved)) {
       errors.push(`Invalid repository link in ${document}: ${target}`);
+    } else if (fragment && /\.md$/i.test(resolved)
+        && !headingAnchors(readFileSync(resolved, "utf8")).has(fragment)) {
+      errors.push(`Invalid Markdown anchor in ${document}: ${target}`);
     }
   }
 }
@@ -73,5 +103,5 @@ if (errors.length > 0) {
   console.error(errors.join("\n"));
   process.exitCode = 1;
 } else {
-  console.log(`Documentation check passed: ${documents.length} documents, all local links resolve.`);
+  console.log(`Documentation check passed: ${documents.length} documents, local links/anchors and README size valid.`);
 }
