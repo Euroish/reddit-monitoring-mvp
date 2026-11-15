@@ -19,6 +19,8 @@ async function digest(filename) {
 }
 const safeName = value => typeof value === 'string' && !path.posix.isAbsolute(value) && !value.includes('\\')
   && !value.split('/').some(part => !part || part === '.' || part === '..');
+// Retain legacy paths so existing immutable releases remain verifiable.
+// Retired assets are absent from the source tree, not required release inputs.
 const blueprintRoot = 'docs/plans/frontend-blueprint-20261108/';
 const blueprintArchive = 'docs/plans/frontend-blueprint-20261108.zip';
 const blueprintFiles = [
@@ -38,7 +40,7 @@ const allowed = file => !file.split('/').some(part => part.startsWith('.') || pa
   || blueprintFiles.includes(file)
   || file === blueprintArchive
   || ['package.json', 'package-lock.json', 'README.md', 'AGENTS.md', 'docs/README.md', 'docs/development.md', 'docs/architecture.md', 'docs/status.md', 'docs/handoff.md', 'docs/development-log.md', // Retain validation of existing release manifests.
-    'docs/history/handoff.md', 'docs/history/development-log.md', 'docs/research/data-sources.md', 'docs/plans/source-expansion.md',
+    'docs/history/handoff.md', 'docs/history/development-log.md', 'docs/research/data-sources.md', 'docs/plans/source-expansion.md', 'docs/contracts.md', 'docs/design.md',
     'scripts/database-backup.mjs', 'scripts/database-backup-lib.mjs', 'scripts/verify-release.mjs', 'scripts/release-package-lib.mjs'].includes(file));
 
 export async function packRelease({ root = process.cwd(), destination }) {

@@ -1,131 +1,164 @@
-# 项目架构与重构边界
+# 单机架构规范
 
-基线：`main@3551900`，2026-11-13。**当前实现**见[状态](status.md)；本文明确目标设计，实施与删改顺序见[开发安排](plans/source-expansion.md)。
+状态：目标设计。当前源码基线 `main@3551900`；本轮只整理规范，不实施重建。产品规则见[产品规范](README.md)，字段与事务细节见[契约](contracts.md)。
 
-## 1. 架构决策
+## 1. 技术决定
 
-采用 **TypeScript 模块化单体 + Fastify 5 + node-postgres（pg）+ PostgreSQL**。前端保留 React/Vite。主产品只部署 Web 静态资源、API、worker 和一个数据库，不改写 Python/Java 后端，不按平台拆服务。
-
-| 部分 | 决定 | 解决的具体问题 |
+| ID | 决定 | 依据 / 被替代的复杂度 |
 | --- | --- | --- |
-| HTTP | 从手写 `node:http` 路由迁到 Fastify 5 稳定版；审查参照 v5.12.8，实施时锁定兼容补丁 | 用路由注册、hooks、错误处理和 inject 替代 3,606 行组合根中的重复 HTTP 编排 |
-| DB 访问 | 保留 `pg`、参数化 SQL、现有连接池与事务；模块内集中查询 | 已有关键 SQL/迁移可直接复用；性能问题是逐条往返，不是缺 ORM |
-| 后台任务 | 保留 `source_collection_job`、预算、租约和页事务；移除旧两条 scheduler 主链 | 一套采集状态，避免换队列时重做 checkpoint、取消与收费重放保护 |
-| 数据库版本 | 新环境以 PG16 为统一目标；旧 PG14 在独立备份/恢复演练后升级 | 收敛环境差异，不让升级与业务重构捆绑上线 |
-| 运行时 | 目标收敛 Node24（现有 CI 已用）；迁移前当前 Node22 命令继续有效 | 不长期维护两套默认开发配置；升级单独验证 |
-| 契约 | 保留 `packages/contracts`；新增/迁移 HTTP schema 用 TypeBox 推导类型 | 逐端点替换旧手写 DTO/结构校验，同一路径不永久保留两份模型 |
+| ARC-01 | 在线后端使用 TypeScript + Fastify 5 稳定版 | 保留现有 TS 能力；删除手写 HTTP 路由、解析和重复装配。不建设第二套 FastAPI 在线后端 |
+| ARC-02 | 保留 pg + 参数化 SQL + PostgreSQL 16 目标基线 | 有明确批量/分析查询需求；当前问题是逐条 SQL 与职责混合，不是缺 ORM。PG14 升级单独演练 |
+| ARC-03 | 保留 React/Vite、React Router、TanStack Query | 已有依赖足够；按 feature 重组，不复制旧页面，不增加 SSR 或另一个状态框架 |
+| ARC-04 | Node 24 为重建目标运行时，Fastify 采用核对过的 5.x 稳定版本 | 当前开发 Node22、CI Node24；版本升级与业务切换分开验证，不使用默认分支 alpha |
+| ARC-05 | TypeBox schema 推导 HTTP 类型并生成 OpenAPI | 一份结构契约供校验/类型/文档；纯业务函数不依赖 HTTP schema，不保留另一份手写 DTO |
+| ARC-06 | PostgreSQL 持久化领域任务；沿用并收敛现有来源任务 | 不外套 BullMQ/pg-boss；保留页提交、来源互斥和收费重放语义，不开发通用工作流引擎 |
+| ARC-07 | Python + DuckDB + Parquet 只用于离线归档生产 | 列式扫描/聚合独立运行；通过数据包接在线端，不共享数据库连接和在线业务代码 |
+| ARC-08 | Nginx + systemd 作为唯一默认上线方式 | 复用现有 Linux 发布、服务与静态资源资产；不同时建设 Compose/Caddy 第二套生产流程 |
 
-不选整库 NestJS：当前不需要其 DI/装饰器与多模块装配成本。暂不加 Prisma/Drizzle/Kysely：先消除旧查询与逐条写入；今后若新模块查询的类型维护成为主要成本，再用一个实际查询验证收益。暂不引入 pg-boss：它能替代通用任务机制，不能直接替代本项目来源级互斥、预算、checkpoint 和 paid replay 语义；现在套在原队列外只会增加一层。Redis/BullMQ、Kafka、ClickHouse、Elasticsearch/向量库均不进入本轮。
+暂不引入 NestJS、Redis、消息总线、独立搜索/向量库、ClickHouse、微服务、Kubernetes、单机对象存储服务。新增组件 MUST 说明哪个已确认瓶颈或具体机制被替代，并给出测量；“现代化”本身不是理由。
 
-Fastify 默认分支已是 6 alpha，本项目只采用已发布 5.x 稳定版。选型依据是减少自建 HTTP 机制，不引用框架跑分承诺业务吞吐。
+图表默认复用当前封装；重建页需要分布/矩阵图时 MAY 统一改用 ECharts 按需模块，但 MUST 同批删除被替代的图表依赖，不能长期双栈。
 
-## 2. 当前复杂度的实际来源
-
-| 已读源码 | 事实与处理 |
-| --- | --- |
-| [create-api-server.ts](../apps/api/src/create-api-server.ts)、[server.ts](../apps/api/src/server.ts) | 组合根 3,606 行；新内容接口仍随 `createPostgresPhase1Runtime()` 启动旧 runtime。先切断装配依赖，再迁路由，不能只拆文件 |
-| [SourceContentService](../src/application/services/source-content.service.ts) | 约 20.7KB，只有 157 行但混有配置、查询校验、预算、任务和执行。先格式化，再按真实职责拆分；行数不是复杂度指标 |
-| [PG 来源仓储](../src/storage/repositories/postgres/postgres-source-content.repository.ts) | 约 50.9KB；`commitPage()` 逐 item 执行正文、投影、discovery、observation SQL，并非真正集合批量写入 |
-| [旧 scheduler](../workers/reddit-phase1-scheduler.ts)、[关键词刷新](../workers/keyword-query-live-refresh-scheduler.ts) | 与公共来源 worker 并存；旧热度、查询与新公共检索语义不同，不能长期双写维护 |
-| [Web 路由](../apps/web/src/App.tsx)、[http.ts](../packages/contracts/src/http.ts) | 旧 Markets/Queries/Run/Target 与新 Content 并列，共同契约混合旧 DTO；按首版替代关系删除，而非全部复制进新模块 |
-
-## 3. 目标模块与目录
-
-保留现有根目录，不新建一套 npm workspace。应用用例归入 `src/application/<模块>/`，SQL 归入 `src/storage/<模块>/`，API 归入 `apps/api/src/routes/`；`src/domain/` 只保留确有业务规则的类型/纯函数。一个简单用例允许直接调用模块查询函数，不强制 service → repository → DAO 三层接口。
-
-| 模块 | 对外能力 / 数据所有权 |
-| --- | --- |
-| access | 用户、会话、角色、邀请、审计；复用现有实现，不重新开发账户系统 |
-| collection | 来源配置、provider 注册、预算、任务、worker；adapter 只获取/映射，不写业务表 |
-| content | 规范正文、发现关系、独立观测、检索、详情；页提交入口拥有一致性规则 |
-| projects / insights | 项目与来源关联、过滤、概览/对比；后续事件与通知结果，不能改写原始内容 |
-| workspace | 个人保存、注释、研究冻结与导出；读取 content，不反向依赖采集执行 |
-
-ops 是运行入口与读模型，不另造领域平台。`runtime` 只组装配置、连接池和模块；HTTP/worker 调用用例，用例调用规则/SQL，纯规则不导入 HTTP、storage 或 runtime。只对可替换外部依赖和实际跨模块能力定义接口。
-
-Web 按 `features/projects|content|sources|workspace|ops` 组织，page 只组合。传输/认证集中 `api/client`，筛选保存在 URL，沿用账户切换缓存边界。新页面不依赖旧 target read model。
-
-## 4. 运行与 HTTP 迁移
+## 2. 拓扑与执行边界
 
 ```text
-React/Vite → Nginx → Fastify API → 用例/读取 SQL → PostgreSQL
-                              ↑
-provider / 聚合出口 → adapter → worker → 页事务
+浏览器 / 授权机器客户端
+          │ HTTPS
+       Nginx ── Web 静态资源
+          │
+      Fastify API ───────────── PostgreSQL
+                                      ▲
+Reddit / X ── adapter ── 在线 worker ───┤
+NewsNow 选定 getter ───────┘            │
+受控 RSSHub / 原生 feed ───┘           │
+                                      │
+历史 .zst → 离线 Python/DuckDB → 数据包 → 导入 CLI
+                                               └─ 私有文件目录
 ```
 
-网络请求在事务外，页面查询不触发采集/模型。初始一个采集 worker、并发 1；先测写入和排队，再增加并发。若使用自托管 NewsNow，它是一个可选外部 provider 服务，有单独资源/版本记录，不复制本产品的用户、任务和分析数据库；AIHOT 首期只读 RSS/API，不部署整套框架。
+- 在线系统 MUST 只有一个 API、一套采集 worker 代码和一个数据库；导入 CLI 是同产品的一次性执行入口，不是第二个后端。
+- 初始一个 worker 进程、采集并发 1。任务页无需吞吐等待时不固定睡眠；按最早 due time 等待，并服从 provider 限流。
+- 导入/大导出初始只允许一个重任务，与采集共享整机资源预算。离线全档加工 SHOULD 在原档所在机器执行；在线产品不依赖该机器常开。
+- NewsNow 仅移植白名单 MIT getter 与必要工具，保留许可和固定来源版本；不运行其 UI/缓存/API 服务。RSSHub 通过 HTTP 消费，需自托管时可作为同机可选旁路进程；不复制其框架进主仓库。
+- 网络请求、解压和文件传输 MUST 在业务事务之外；数据库领取/页提交/发布事务保持短小。
 
-Fastify 按 access、collection、content、projects、workspace、ops 注册路由。共同 hooks 处理 actor、Origin/CORS、body 限额、限流、requestId 和审计；各路由就近声明权限。账户的凭证 fencing、最后 owner 保护、个人数据隔离，以及已有 audit attempted/result 行为保持不变。
+## 3. 模块所有权
 
-迁移先做最小骨架与 content 读取，随后迁来源/账户/工作区/必要 ops。过渡期可按明确路径由 Nginx 分流到旧 API；同一 method/path 只有一个处理者，不设吞掉所有未匹配请求的长期 legacy fallback。保留现有 `/v1/content*`、`/v1/sources*`、登录与 Saved 契约；新增项目接口示意为 `/v1/projects`、`/:id/content`、`/:id/overview`，实施时再正式定义 schema。
+目标按业务模块纵向组织；现有目录只作搬迁输入，不维持两套分层结构。
 
-新增 schema 放共享契约并推导 TS 类型；已有端点未迁时保留原定义，迁到新 schema 的端点删除旧结构校验。日期/指标可比性等业务规则仍调用现有纯函数，不在 schema、handler、service 重复实现。一个事务始终使用同一个 pg client。
+```text
+apps/api/src/          app、server、HTTP hooks、模块路由注册
+apps/web/src/          app、api、features、共享 ui
+src/modules/
+  access/              accounts、sessions、invites、audit
+  collection/          sources、providers、jobs、worker、采集状态
+  content/             规范内容、观测、发现、查询、详情、写入
+  projects/            项目规则、范围解析、概览、对比
+  datasets/            历史包校验、导入、发布、汇总读取
+  workspace/           个人查询、注释、固定研究、导出
+src/connectors/        Reddit、X、newsnow、feed 的外部获取与映射
+src/storage/           pg pool、事务、既有迁移与新迁移
+src/runtime/           配置与依赖装配，无业务逻辑
+packages/contracts/   HTTP schema、页/数据包版本契约
+workers/              在线执行入口
+scripts/              一次性维护与导入入口
+```
 
-## 5. 数据模型：保留核心，只加产品所需表
+| ID | 所有者 | 写入权与公开能力 |
+| --- | --- | --- |
+| MOD-01 | access | 独占账户/会话/个人身份与审计写入；提供 actor/权限检查 |
+| MOD-02 | collection | 独占来源配置、调度、租约、限额与 checkpoint；只通过 content 的页写入入口提交内容 |
+| MOD-03 | content | 独占规范正文、搜索投影、discovery、observation；提供批量写入、过滤、详情读取 |
+| MOD-04 | projects | 独占项目/关联/规则；解析项目范围，调用 content/datasets 读取，不复制正文 |
+| MOD-05 | datasets | 独占数据包、分区修订、release 与历史汇总；导入文本调用 content 的写入能力 |
+| MOD-06 | workspace | 独占用户保存、注释、研究快照与导出产物；读取公共内容，不触发采集 |
 
-### 已有表继续作为权威数据
+ops 是上述模块的状态读模型，不另建运维领域。adapter MUST NOT 访问业务库。HTTP MUST NOT 编写跨模块写表 SQL。纯规则不得导入 runtime/HTTP。
 
-| 表 | 身份与用途 |
+模块可以有 `service.ts`、`queries.ts`、`writer.ts` 等真实职责文件；简单用例可直接调用本模块 SQL。MUST NOT 强制 controller→service→repository→DAO、逐用例 class、全局 DI 容器、事件总线或每张表一个接口。只有外部 I/O 与真实跨模块能力需要稳定边界。跨模块读模型 MAY 使用明确的只读 SQL 联表，不为一次概览增加多个进程内搬运层。
+
+## 4. 一次实际采集的链路
+
+1. `POST /v1/sources/:id/collect` 经身份/结构校验后，只登记有界任务并返回 202。
+2. worker 短事务领取来源任务，提交后调用 adapter。外部返回结构只在 adapter 边界解析一次。
+3. adapter 返回规范页；collection 开启页事务并验证租约，传入同一个 pg client 调用 content 的集合写入函数，再更新自己拥有的 checkpoint。content 不反向导入 collection，也不另开事务。
+4. 项目读取经范围解析为同一规范过滤 SQL，列表/概览/导出都使用它。
+5. UI 显示已存结果和实际覆盖；采集失败不使已存数据失效。
+
+ARC-09：来源互斥、租约 fencing、重放规则 MUST 保留。首次处理与重试具有相同内容幂等键；不宣称 exactly-once。暂停/取消与提交遵循相同锁顺序。付费操作结果未知时不自动重发。
+
+当前对应入口为 `server.ts → createPostgresPhase1Runtime → SourceContentService`、`source-content-worker.ts → workOnce → collectPage → commitPage`。这条路径说明真正需要切断的是新功能对旧 runtime 的依赖，而不只是把 3,606 行文件拆小。
+
+## 5. 在线数据与历史数据
+
+### 5.1 优先保留的模型
+
+现有 `collection_source`、`source_collection_job`、`content`、`content_discovery`、`content_observation`、`public_content_search_document` 具有可复用语义。MUST 先验证再复用其约束；允许重建物理表，但不能丢掉身份/版本/观测含义。
+
+最少新增实体：
+
+| 实体 | 唯一职责 |
 | --- | --- |
-| `source` | 平台注册；不是某个采集渠道 |
-| `collection_source` | 平台/provider/kind/规范 target 的采集流；持有周期与状态 |
-| `source_collection_job` | 有界窗口、checkpoint、预算、租约与执行结果 |
-| `content` | `(source_id, kind, external_id)` 唯一；`source_id` 指平台，external ID 始终 string |
-| `content_discovery` | 内容与采集流多对多，保留首次/最近发现 |
-| `content_observation` | 同内容、来源、evidence key 幂等；不同 provider 的指标证据互不覆盖 |
-| `public_content_search_document` | 已存完整 title/text 的检索投影；不是外网搜索索引 |
-| 个人/研究/账户表 | 保留当前所有权、revision、冻结样本和审计规则 |
+| `monitor_project` | 名称、描述、规范 filter、revision |
+| `monitor_project_source` | 项目关联采集流，不复制流与调度 |
+| `monitor_project_dataset` | 项目关联历史 dataset；默认读当前 release，固定研究另行钉住 release |
+| `dataset` | 历史来源范围、producer 与覆盖政策 |
+| `import_batch` | 包身份、校验/加载状态、失败信息 |
+| `dataset_partition_revision` | 不可变逻辑分区、摘要、规则版本与行数 |
+| `dataset_release` / `dataset_release_partition` | 可见版本及其完整分区清单 |
+| `dataset_content` | 分区修订与入选 content 的关系，保留该包的证据载荷或不可变版本引用；允许只有汇总、没有在线证据 |
+| `archive_activity_day` | 首批日期×平台×社区×kind 的计数；绑定分区修订 |
 
-### 首版新增（计划，尚无迁移）
+`dataset.current_release_id` 是发布指针。不存在通用 EAV 指标大表、每项目正文副本、每张图一份事实，也不默认建 `project_content` 全量命中表。后续新增标签/指标须有明确产品用途与契约，不从旧研究目录一次性生成几十张表。
 
-- `monitor_project`：id、名称、描述、规范过滤配置、revision、创建/更新时间。
-- `monitor_project_source`：project_id + collection_source_id 复合唯一。一个来源可被多个项目复用，关联不复制内容或重复收费。
+### 5.2 为什么需要 release
 
-项目内容先通过 source 关联 + discovery + 统一过滤 SQL 读取，用 EXISTS/去重保证一个内容只计一次；不先建每项目一份正文或 `project_content` 事实表。项目过滤复用现有 `ContentQuery` 支持的字段子集，不能放任意 SQL。首版所有有读取权限的团队用户可见全部项目；个人收藏/注释不因此共享。
+实时采集按内容身份更新；历史包是不可变事实。两者不能仅靠一个 `imported_at` 混在一起。
 
-采集 target/query 决定上游召回，项目 filter 决定已存样本中的命中，两者不能互相替代。同一采集流只有一份周期设置，项目关联不能静默改它；设置冲突由管理员在来源页明确调整。取消项目关联不自动停止仍被其他项目使用的来源。规则变更按当前规则重查全部已存历史，不宣称历史版本回放。
+ARC-10：历史统计 MUST 绑定完整 release 清单；同一分区替换不是再次累加。相同旧分区可被新 release 复用，不复制全量事实。逻辑分区修订不是 PG 物理分区，初期普通表加 revision_id 即可。
 
-事件分组进入 P1 时才增加 event/member；只有概览聚合实测不达标时才增加带规则版本的日桶。当前 42 个迁移按完整文件名/checksum 保留，新增文件从实际账本之后分配，不改写历史 SQL、不补造蓝本中的 041。
+ARC-11：历史证据 MUST 固定该次发布的保留文本/状态。在线正文随后更新，不能改变旧 release 的搜索命中或导出；可复用已有冻结载荷方式，不要求全库内容 event sourcing。没有变化的正文 MAY 按内容摘要复用。
 
-## 6. 采集、清洗与聚合契约
+历史预计算只支持其维度；任意关键词在精选文本中检索，不能据此改算全量归档趋势。在线内容和历史证据可共用详情组件与身份，但历史事实与在线事实默认分面，遵循 MET-03/08。
 
-延续 **provider → CollectedPage → 页事务 → 内容/观测 → 项目读模型 → API/UI**。
+## 6. 写入、查询与性能
 
-1. adapter 校验外部数据一次，规范 ID、正文、时间、媒体、引用和 capability；供应商分页留在 adapter。
-2. 一页的正文、检索投影、discovery、observation、checkpoint 同事务提交；取消/旧租约不能提交。
-3. 正文版本沿用已知源观测时间优先规则；未知时间不覆盖已知版本。真实 0 保留，缺失 null；重复归档快照不伪装成新增互动。
-4. `publishedAt`、`sourceObservedAt`、`fetchedAt` 分开。没有发布时间的榜单条目可以展示，但不进入按发布时间统计的趋势，另列未知时间数。
-5. 新闻 URL/GUID 用 publisher/feed namespace + kind 生成 web 身份；采用已有 `webContentIdentity`。不按猜测的站点 ID 冒充 Reddit/X 内容，不把摘要补成原始正文。
-6. NewsNow 的缓存时间/HTTP 返回时间不等于原平台观测时间；无可信快照时刻则 `sourceObservedAt=null`。榜单 rank 只在同榜比较，P0 可不采指标；采 rank 时先扩展统一 capability/契约，不硬塞 `reddit.score`。
-7. AIHOT 文章/事件可能是整理后的二手产物，保留其链接与渠道；不将其一篇事件综述当多条独立原帖。来源链去重规则见[来源研究](research/data-sources.md)。
+### 写入
 
-临时错误沿用每页最多三次尝试；收费操作未知结果保持现有人工 Retry，禁止借框架重试再次收费。没有持久 cursor 的来源可定期取重叠样本，但只能标 partial；不能据“任务成功”推进声称完整覆盖的高水位。
+- ARC-12：在线一页先按内容身份去重，再集合 upsert 正文，批量写投影/discovery/observation，最后推进任务；页内数据库往返数 MUST 不随条目数线性增加。
+- 正文采用已有单调版本守卫；投影从真正接受的正文生成，而非过期输入。缺失字段不冲掉已知版本。具体比较规则见 DAT-04。
+- 批量归档用 `COPY FROM STDIN → staging → 校验/去重 → 发布`；服务器不替用户读取任意文件路径，不能把整个包塞进 JSON HTTP body。
+- PostgreSQL 事务只使用同一个 client。保留 FK/唯一约束，不为加速关闭持久化或完整性保护。
 
-## 7. 查询与性能
+### 查询
 
-第一优先级是少往返、少搬 JSON，而不是增加缓存/中间件。
+- ARC-13：filter 编译在一处；project scope 是参数，不另造项目查询语言。关联来源用 EXISTS，跨 provider/项目 join 不放大内容数。
+- 默认 keyset 分页与有界结果；列表只选必要列，不为每行载入所有历史 JSON。详情按关联类型批量读取，禁止 N+1。
+- 字面检索保留当前 NFKC/大小写/空白语义；首选评估 `pg_trgm` GIN 加速规范文本匹配。短词/符号/中文子串仍需范围和耗时限制，不能假设 trigram 对所有查询都走有效索引。英文词项检索以后作为显式新模式，不静默替代。
+- 历史汇总在 SQL 归并小事实表；全文只查已声明 retained corpus。前端不拉全量数据计算图表。
+- 先 EXPLAIN (ANALYZE, BUFFERS) 与 SQL 次数，再补索引/日桶/缓存。若引入缓存，key MUST 包含 scope、规则、release 和权限；不先加第二份数据库或 Redis。
 
-- 将 `commitPage` 改为集合写入：页内去重 → 一次规范内容 upsert RETURNING → 批量投影/discovery/observation → 更新任务。保留单调版本守卫，投影使用实际 RETURNING 的正文，不用过期输入覆盖。原子性、幂等与计数需用 PG 场景对照。
-- 项目列表/概览共用过滤构造；按稳定时间+id 游标。先在请求范围内 SQL 聚合，不在 Node 拉全历史算图表。列表与即时统计允许并发变化；固定研究结果继续走 RR 冻结。
-- 优先复用现有索引；实际 EXPLAIN 后增加 project_source 反向索引或合适检索索引。现有字面/中文子串语义不能无声改成英文全文检索；短词扫描单独测量。
-- 派生桶只在扫描成本成为瓶颈时引入；迟到/修改内容重算受影响桶，不假装只加计数即可。含过滤的查询不能错误复用无过滤的预聚合。
+### 验证负载
 
-目标验收负载：PG16、4 vCPU/8GiB、100 万内容/300 万观测、20 个来源、5 个并发读取用户。初始目标为列表/详情 P95 ≤400ms、90 天概览 P95 ≤1s、100 条/页纯落库 ≥200 条/秒（不含网络），记录冷/暖缓存、更新比例、内存与 SQL 次数。**这是 M5 验收目标，不是已测性能或上游容量**；不达标先定位查询/写入，不能靠缩小样本宣称通过。硬件不同另报结果。
+目标验证起点：4 vCPU / 8 GiB / SSD，100 万内容、300 万观测、20 个采集流、5 个并发读取；列表/详情 P95 ≤400ms、90 天概览 ≤1s、100 条页纯应用落库 ≥200 条/秒。归档另外测加载时长、证据索引、WAL/临时磁盘和查询共存。
 
-## 8. 删除边界与数据生命周期
+这些是待验证工程目标，不是当前容量。先确认可用硬件/数据样本；报告必须区分冷暖缓存、网络、数据库、调度等待和更新比例。不能通过减少断言或偷偷缩小负载宣布达标。
 
-旧 Markets/Compare/Queries/Run/Target 的价值由项目概览、明细、项目对比替代；旧 tier/heat/driver/shadow-promotion 不移植到新主链。先列对应关系、切默认入口/停旧写入，再删旧路由、算法、runtime、connector、CLI 和专用测试。**不再要求为已放弃的旧功能重新实现一份替代品才可删除**；保留有产品价值的用户流程即可。具体路径见开发安排。
+## 7. 发布与最小运维
 
-停旧 scheduler 前盘点其额外职责：若还承担必须保留的维护任务，迁成有界维护命令/worker tick；废弃数据的维护随链路退役。历史表先只读保留，最终 DROP 另开迁移并核对引用和备份，不把删代码变成删业务数据。第三方冻结蓝本保留为历史，不按其 39 个功能逐项开发。
+- ARC-14：API/worker MUST 使用同一不可变构建；入口 HTML 不缓存，哈希 assets 保留供旧标签使用。数据库与私有文件不进入构建产物。
+- 数据库迁移不修改已应用 SQL；重建采用新库/新表与显式搬迁映射。现有账户/个人资产保留稳定 ID，必要时维护临时 ID 映射。
+- 当前 systemd/Nginx 模板保留必要入口；重建上线后删除旧 scheduler/桥接服务模板。生产配置只表达实际能力，不保留几十个退役开关。
+- 最小观测：requestId/耗时、慢 SQL、任务积压/错误、实际最近观测、导入进度、磁盘/WAL/内存、构建/迁移版本。结构化日志与管理页足够，不默认部署监控集群。
+- 备份 MUST 覆盖数据库及被 release/研究引用的文件，且有离机副本；恢复验证后才能承诺可回退。留存策略确认前不自动删正文/原档。
 
-保留期提案：内容 90 天、观测 30 天、完成任务/请求摘要 30 天、日聚合 365 天；M0 确认后才实现清理。当前没有覆盖新表的自动删除执行器。本轮不批准删除正文或研究样本；源删除/撤回政策需同时处理投影、派生结果与冻结导出，个人收藏不能自动获得无限保留权。
+## 8. 工程参考与采用边界
 
-## 9. 一手工程依据
+| 固定依据 | 本项目采用 | 不照搬 |
+| --- | --- | --- |
+| [Fastify 5.12.8 Plugins](https://github.com/fastify/fastify/blob/0c7413a8332a7892e12dcc351c27a190fefc0053/docs/Reference/Plugins.md)、[Testing](https://github.com/fastify/fastify/blob/0c7413a8332a7892e12dcc351c27a190fefc0053/docs/Guides/Testing.md) | 静态模块注册、作用域 hooks、inject 测试；复用 HTTP 机制 | 动态业务插件平台、框架跑分作为业务吞吐 |
+| [Miniflux handler](https://github.com/miniflux/v2/blob/fb043227ef6ad98569c848e8cdade0d237dab87e/internal/reader/handler/handler.go)、[worker pool](https://github.com/miniflux/v2/blob/fb043227ef6ad98569c848e8cdade0d237dab87e/internal/worker/pool.go) | 条件请求、feed 解析/存储分离、小规模 worker | Go 重写、阅读器账户与订阅系统 |
+| [PostgreSQL 16 COPY/ANALYZE](https://www.postgresql.org/docs/16/populate.html)、[SKIP LOCKED](https://www.postgresql.org/docs/16/sql-select.html)、[pg_trgm](https://www.postgresql.org/docs/16/pgtrgm.html) | 批量加载、短事务领取、实测索引 | 关约束/关 WAL 作为生产默认；把行锁当 exactly-once |
+| [DuckDB 工作负载](https://duckdb.org/docs/stable/guides/performance/how_to_tune_workloads) | 离线列裁剪/批量聚合、显式内存/临时目录 | 每个在线请求扫描原档、第二个高并发 OLTP 数据库 |
 
-| 固定源码 | 采用与不采用 |
-| --- | --- |
-| [Fastify 5.12.8 Plugins](https://github.com/fastify/fastify/blob/0c7413a8332a7892e12dcc351c27a190fefc0053/docs/Reference/Plugins.md)、[Testing](https://github.com/fastify/fastify/blob/0c7413a8332a7892e12dcc351c27a190fefc0053/docs/Guides/Testing.md) | 静态注册、作用域 hooks、inject；不是动态业务插件平台 |
-| [AIHOT app](https://github.com/KKKKhazix/AIHOT/blob/e3857943ddb53b1d2ea13d346be2e06709b2be19/apps/api/src/app.ts)、[queue](https://github.com/KKKKhazix/AIHOT/blob/e3857943ddb53b1d2ea13d346be2e06709b2be19/packages/backend/src/jobs/queue.ts)、[db](https://github.com/KKKKhazix/AIHOT/blob/e3857943ddb53b1d2ea13d346be2e06709b2be19/packages/backend/src/db.ts) | 可见 API/worker/SQL 分工与事务内入队；本项目保留自己的领域任务，不整库迁入其模块系统/模型流水线 |
-| [NewsNow API](https://github.com/newsnext/newsnow/blob/5da836c49c327f2c352216c5cbb4dea1abd9fcd3/server/api/s/index.ts) | 作为有界榜单 provider；不拿其缓存表充当本产品持久内容库 |
-
-本次只做源码/文档核查，不安装业务框架、不执行第三方采集、不变更业务库或部署。来源和许可证证据集中维护在研究文档。
+来源采集源码与许可统一见[来源研究](research/data-sources.md)。这些证据支持机制选择，不证明本项目已完成迁移或达到性能目标。

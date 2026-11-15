@@ -1,123 +1,85 @@
-# 数据源与开源项目选型
+# 来源选择与研究证据
 
-本轮核查：2026-11-13，读取当前项目及 AIHOT、TrendRadar、NewsNow、Fastify 的固定源码和许可证。**没有执行第三方采集、供应商带凭证请求或模型调用**。价格与 Reddit/X 历史运行证据保留其原核对日期，不因本文重写变成最新验收。
+核对：2026-11-15。结论基于本仓库与 GitHub 固定源码/许可；本轮未执行第三方采集、登录会话、付费请求或全档加工。源码存在证明可研究，不证明本服务器实时可用。
 
-结论：**Reddit/X 是原平台采集线；NewsNow 是首个热榜聚合入口，AIHOT RSS/API 是可选第二入口。TrendRadar 作为产品参考，不再增加为独立数据源。** 一个薄 adapter 接入本产品内容库，不把几个完整项目及其数据库/任务系统拼起来。
+## 1. 决定
 
-## 1. 开源项目：已读源码，而非按 star 选择
+**在线原平台：保留 Reddit / X 的已有可用设计；聚合项目：选 NewsNow + RSSHub；历史：离线归档生产后导入同一产品。** 不把多个完整项目的账户、数据库和任务系统拼起来。
 
-| 项目 / 固定版本 | 关键源码与观察 | 本项目决定 |
+| 候选 | 固定提交 / 许可 | 结论与决定性证据 |
 | --- | --- | --- |
-| [AIHOT e385794](https://github.com/KKKKhazix/AIHOT/tree/e3857943ddb53b1d2ea13d346be2e06709b2be19) | [collect.ts](https://github.com/KKKKhazix/AIHOT/blob/e3857943ddb53b1d2ea13d346be2e06709b2be19/packages/backend/src/sources/collect.ts) 分派 RSS/网页/JSON/X；[x.ts](https://github.com/KKKKhazix/AIHOT/blob/e3857943ddb53b1d2ea13d346be2e06709b2be19/packages/backend/src/sources/x.ts) 使用 SocialData，不是免费 X 采集器；[queue.ts](https://github.com/KKKKhazix/AIHOT/blob/e3857943ddb53b1d2ea13d346be2e06709b2be19/packages/backend/src/jobs/queue.ts) 是 pg-boss；[v1.ts](https://github.com/KKKKhazix/AIHOT/blob/e3857943ddb53b1d2ea13d346be2e06709b2be19/apps/api/src/routes/v1.ts) 提供 items/stories/报告等公开读取 | 先读 RSS/API，不 fork 整套站。公开库只有示范信源，不含线上信源名单/运营数据；不能靠安装获得同等数据覆盖 |
-| [NewsNow 5da836c](https://github.com/newsnext/newsnow/tree/5da836c49c327f2c352216c5cbb4dea1abd9fcd3) | [getters.ts](https://github.com/newsnext/newsnow/blob/5da836c49c327f2c352216c5cbb4dea1abd9fcd3/server/getters.ts) 注册各站 getter；[API](https://github.com/newsnext/newsnow/blob/5da836c49c327f2c352216c5cbb4dea1abd9fcd3/server/api/s/index.ts) 每次最多返回 30 条且可回退缓存；[aihot.ts](https://github.com/newsnext/newsnow/blob/5da836c49c327f2c352216c5cbb4dea1abd9fcd3/server/sources/aihot.ts) 读取 AIHOT RSS | 主选热榜入口；只接 2–3 个实际有价值榜单，不宣称全历史/全文。原 ourongxing/newsnow URL 当前重定向 newsnext/newsnow |
-| [TrendRadar 8a31662](https://github.com/sansan0/TrendRadar/tree/8a316628215c53ad34b7200ecb0fba76de3ef6c7) | [fetcher.py](https://github.com/sansan0/TrendRadar/blob/8a316628215c53ad34b7200ecb0fba76de3ef6c7/trendradar/crawler/fetcher.py) 默认请求 `newsnow.busiyi.world/api/s`，接受 success/cache；另有 RSS、关键词/AI 分析、通知和 SQLite 存储 | 可参考提醒/过滤流程；不作为第三个独立上游，不引入其 Python+SQLite 运行链，不复制本轮未处理许可义务的代码 |
-| [Fastify v5.12.8](https://github.com/fastify/fastify/tree/0c7413a8332a7892e12dcc351c27a190fefc0053) | 官方 Plugins/Testing 文档与实现提供路由注册、作用域与 inject；默认分支本轮是 6.0.0-alpha.6 | 只采用 5.x 稳定版替代手写 HTTP，目标与迁移边界见[架构](../architecture.md)；上游性能宣传不当本项目验收 |
+| [NewsNow](https://github.com/newsnext/newsnow/tree/5da836c49c327f2c352216c5cbb4dea1abd9fcd3) | `5da836c4`，MIT | 选用少量 getter。TS 采集器易裁剪，适合榜单/资讯快照；不部署其前端/API/缓存库 |
+| [RSSHub](https://github.com/DIYgod/RSSHub/tree/2340a032022c4382b2f5a165a2e3d3665ec06d89) | `2340a032`，AGPL-3.0 | 选用 HTTP feed 路由，为热榜之外补垂直订阅。主产品通用 RSS/Atom adapter；不复制其框架 |
+| [DailyHotApi](https://github.com/imsyy/DailyHotApi/tree/36c77e3bd891c11642d314cfb229bf31646704de) | `36c77e3b`，MIT | 热榜后备。与 NewsNow 价值重叠；已读请求缓存仅以 URL 为 key，GET params/POST body 未入 key，不原样移植其缓存工具 |
+| [TrendRadar](https://github.com/sansan0/TrendRadar/tree/8a316628215c53ad34b7200ecb0fba76de3ef6c7) | `8a316628`，GPL-3.0 | 参考关键词呈现/推送，不接作独立源。其主榜单 fetcher 请求 NewsNow `/api/s`，增加项目名不会增加上游独立性 |
+| [AIHOT](https://github.com/KKKKhazix/AIHOT/tree/76e3b6ea52ac45ed3e2f30272514c83f1845b989) | `76e3b6ea`，MIT | 不作为首批第二聚合项目；偏精选/整理/模型流水线。已有 RSS 可作为普通 feed 后续按需读取，不引入整个系统 |
 
-AIHOT 的 [hot.ts](https://github.com/KKKKhazix/AIHOT/blob/e3857943ddb53b1d2ea13d346be2e06709b2be19/packages/backend/src/events/hot.ts) 实现 48 小时窗口、24 小时半衰期、每个独立参与者一次贡献，并区分来源滞后/不可比。这值得借鉴“独立证据 + 时间衰减”的思想；不复制其依赖 site 配置/归组状态的整个 SQL 模型。当前产品先交付内容量，事件分组进入 P1 后才定义本项目分母和来源独立性。
+选择依据是互补内容、可控集成边界和源码能力，不是星数或“全网”营销。没有一个项目提供全网完整内容库。代码许可不等于上游内容再分发许可；移植 MIT 文件保留版权/许可，自托管/修改 RSSHub 按实际使用方式履行 AGPL 等义务，HTTP 隔离不自动消除义务。
 
-### 许可证与数据使用
+## 2. NewsNow：裁剪 getter，不裁剪语义
 
-- AIHOT [MIT](https://github.com/KKKKhazix/AIHOT/blob/e3857943ddb53b1d2ea13d346be2e06709b2be19/LICENSE)、NewsNow [MIT](https://github.com/newsnext/newsnow/blob/5da836c49c327f2c352216c5cbb4dea1abd9fcd3/LICENSE)：若复制/改写实质代码，保留版权和许可；AIHOT 品牌/Logo 不随框架使用。
-- TrendRadar [GPL-3.0](https://github.com/sansan0/TrendRadar/blob/8a316628215c53ad34b7200ecb0fba76de3ef6c7/LICENSE)：分发其修改/衍生版本须按对应义务处理；调用数据不等于自动污染本项目，也不能靠“独立进程”断言豁免。
-- 代码许可不授予聚合站内容、原文、账户会话和数据转售权限。上线前核对实际出口的条款、署名、缓存/留存和可导出范围；本轮没有完成内容商业使用授权。
+已读：[榜单 API](https://github.com/newsnext/newsnow/blob/5da836c49c327f2c352216c5cbb4dea1abd9fcd3/server/api/s/index.ts)、[类型](https://github.com/newsnext/newsnow/blob/5da836c49c327f2c352216c5cbb4dea1abd9fcd3/shared/types.ts)、[HN getter](https://github.com/newsnext/newsnow/blob/5da836c49c327f2c352216c5cbb4dea1abd9fcd3/server/sources/hackernews.ts)、[IT之家 getter](https://github.com/newsnext/newsnow/blob/5da836c49c327f2c352216c5cbb4dea1abd9fcd3/server/sources/ithome.ts)、[AIHOT channel](https://github.com/newsnext/newsnow/blob/5da836c49c327f2c352216c5cbb4dea1abd9fcd3/server/sources/aihot.ts)。
 
-## 2. 聚合入口如何接入
+- API 最多取 30 条，无历史 cursor；interval 内即便读缓存也可能 `status=success, updatedTime=now`。失败可返回旧 cache。公开 API 状态不能推定上游实际新鲜度。
+- HN getter 先读 HTML，失败回退 hnrss；二者字段与时间来源不同。不得默默把回退当独立 source 或同口径完整快照。
+- IT之家 getter 返回列表标题、URL、相对日期解析；不是文章全文。CSS/相对时间解析需要实际样本验证，不假设长期稳定。
+- pubDate 可缺；extra.info 是展示字段，不是统一互动指标。索引顺序仅在明确榜单中作 rank。
 
-### NewsNow：首个入口
+**实现选择：** 把首批 2–3 个选定 getter 改写到 `newsnow` adapter，复用本项目 HTTP 限额/错误/观测机制；只移植必要代码和许可，不模拟 `defineSource/myFetch` 整套框架。每个移植文件记录原路径与 commit，后续按 getter 更新，不同步整仓。
 
-先白名单 2–3 个榜单；通过一个受控实例的 `/api/s?id=...` 获取，或只移植所需 MIT getter（二选一，连通试验后锁定）。不将公开演示域名当 SLA。若自托管，仅作为 provider 服务维护其版本与资源，不移入它的账户系统/缓存库作为本产品数据层。
+首个结构验证可用 IT之家列表；其余榜单按实际项目对象选择。所有快照 coverage=partial；无发布时间仍可展示，时间轴遵循 DAT-08。公开演示实例只作人工样本比对，不作为生产依赖或 SLA。
 
-已知源码限制必须进入 adapter/UI：
+## 3. RSSHub：受控路由 → 通用 feed adapter
 
-- 响应 `status=success` 也可能直接来自 interval 内缓存；该分支 `updatedTime=now`，因此不能当原平台新观测时刻。
-- `latest` 不保证绕过缓存，失败可能返回旧 cache；应保留 cache/取回证据，不把读取成功等同来源新鲜。
-- 返回最多 30 个条目，没有本产品可续历史 cursor；每次只是榜单快照，覆盖 partial。
-- [NewsItem](https://github.com/newsnext/newsnow/blob/5da836c49c327f2c352216c5cbb4dea1abd9fcd3/shared/types.ts) 的 pubDate 可缺，extra 非统一互动指标；未知时间/正文/指标保持 null，不能把榜单顺序当平台热度值。
+已读：[cache middleware](https://github.com/DIYgod/RSSHub/blob/2340a032022c4382b2f5a165a2e3d3665ec06d89/lib/middleware/cache.ts)、[feed template](https://github.com/DIYgod/RSSHub/blob/2340a032022c4382b2f5a165a2e3d3665ec06d89/lib/middleware/template.tsx)、[HN 路由](https://github.com/DIYgod/RSSHub/blob/2340a032022c4382b2f5a165a2e3d3665ec06d89/lib/routes/hackernews/index.ts)、[GitHub trending](https://github.com/DIYgod/RSSHub/blob/2340a032022c4382b2f5a165a2e3d3665ec06d89/lib/routes/github/trending.tsx)、[package.json](https://github.com/DIYgod/RSSHub/blob/2340a032022c4382b2f5a165a2e3d3665ec06d89/package.json)。
 
-原发布者、原文链接和中间聚合渠道分别映射。统一以 web 内容进入；有可靠原平台 ID 的专用映射以后再加，不能仅从 URL 猜身份。没有发布时间的条目仍可浏览，按“榜单被采到的时间”展示时必须明确那不是发布时间。
+- 支持 RSS/Atom/JSON 等出口；本项目先只维护 RSS/Atom 通用入口，不为每个路由写一套正文落库。
+- cache middleware 保存 lastBuildDate，template 也可生成当前构建时间；feed-level updated/lastBuildDate 不等于每条内容的发布时间或平台指标观测。
+- 路由能力不同：HN 无需 Puppeteer，GitHub trending 在此 commit 需要 GITHUB_ACCESS_TOKEN 和 GraphQL，不可因“开源免费”推定免凭证。评论展开路由不进入首批。
+- 当前 package 的 Node engines 为 `^24.15.0 || ^26.13.0`；自托管必须单独锁定兼容版本/运行时，不假定本仓库任意 Node24 即兼容。
 
-### AIHOT：可选第二入口
+**实现选择：** 只读取管理员白名单的受控 endpoint；HTTP 缓存/条件请求、ID、日期、summary/full、HTML 清理全部沿统一契约。首个结构样本可用 `/hackernews/newest/sources`，只在不与已启 NewsNow getter 重复时计作新信息覆盖。生产路由按研究对象选取，不默认启全目录、浏览器、Redis 或额外全文补抓。
 
-优先 RSS `/feed/all.xml`，需要特定查询/结构时才使用公开 `/api/v1/items`；首期不同时维护两个等价出口。文章是精选/整理产物，不是其全部原始采集库。若扩到 stories，只当事件综述，不能凭引用数量生成多条原帖或补齐缺失原文。
+自托管可在单服务器运行一个受限 RSSHub 进程；是否有足够内存/路由依赖由实际部署测量。若无受控服务或能力不合格，保持“未接通”，先交付 NewsNow，不能退回公共演示站冒充稳定服务。
 
-直接 AIHOT 与 NewsNow 的 AIHOT channel 默认只开一个。其余相同原文跨渠道出现时按稳定 URL/GUID 与 namespace 去重；不能确认共同身份时保留关联线索，不强合并。
+## 4. Reddit / X：复用能力，移除历史采购锁定
 
-```text
-TrendRadar → NewsNow → AIHOT → 原发布者
-本产品    → NewsNow 的选定非 AIHOT 榜单
-本产品    → AIHOT RSS（可选）
-```
-
-项目数量不是独立上游数量，provider 数量也不是独立媒体数。首版宁可显示“独立发布者未知”，不制造独立性评分。
-
-## 3. Reddit：已有能力与缺口
-
-| 路径 | 当前事实 | 取舍 |
+| 路径 | 本仓库事实 | 重建取舍 |
 | --- | --- | --- |
-| Arctic Shift | 已接入社区/账号/评论/已知 ID；真实有界落库成功。关键词是限定范围，不是全站入口；近期覆盖与持续稳定未验 | 保留定向/历史补充；修复本地 13 位评论刷新校验后才启成熟刷新 |
-| kaix / Apify | 已接入跨社区 search、社区/账号帖子、账号/帖子评论；无持久续页，始终 partial；收费未知结果不自动重放 | 先核对现有实现的质量/正常费用；未证明可支撑全站持续完整监测，不默认启用 |
-| 匿名 JSON/HTML / 旧 Scrapling | 本服务器多次 403，10 月 28 日云端登录也未成功；旧 bridge 未实现持久登录 profile | 不重启已关闭服务，不把换爬虫库当修复 |
-| OpenCLI / 浏览器 | 源码有搜索/内部翻页，但 CLI 不外显可靠 cursor/完整性；有离线 capped/补全边界复现 | 不直接把 JSON 数组包装成完整采集页；不是现成生产来源 |
-| 新商业/自采候选 | 只有价格、源码与维护者描述，缺本项目真实首/续页和长期账单 | 当前链路不够时再验一家，不并行建设多个 adapter |
+| Reddit / Arctic Shift | 社区/账号/帖子评论、范围内关键词、已知 ID；历史真实有界落库 | 继续作为定向/历史补充。不是全站关键词入口；先修 13 位评论刷新 ID 本地校验 |
+| Reddit / kaix Apify | 已有跨社区 search 等 adapter；无持久 cursor，始终 partial；未知收费启动不自动重发 | 保留能力/语义，不承诺完整持续覆盖；真实采样与授权后再决定是否主用 |
+| X / TwitterAPI.io | 已有账号/搜索/ID adapter、可空指标/媒体/引用，未真实验收 | 最少变更的首条验证路径。旧“单价超限禁用”理由已废止，但凭证/使用授权/实际质量仍待验证 |
+| X / twscrape、OpenCLI | 历史只有会话/源码研究，非本产品正式 provider | 现有路径不足才研究；不为重构同时维护会话池、远程浏览器和多家供应商 |
+| Bluesky | 已有 AppView 账号 adapter、小样本落库 | 保留不扩展；不是 Reddit/X 替代。web/Instagram 类型不证明有正式 adapter |
 
-### 正常价格研究（2026-11-10，未在本轮重验）
+原来固定采集费、赠额试跑顺序、官方申请路线排除和云端浏览器前置均不是当前产品约束。当前没有新增采购、自动开网络或恢复浏览器服务的授权。接入选择由可用数据/质量/权限和维护成本决定；不把仅改 base URL 当 provider 兼容。
 
-| 候选 / 一手链接 | 当时公开信息 | 决定 |
+首个真实来源验收要有：目标/时间窗、首/续页或无 cursor 声明、稳定身份、时间/指标缺失、重放计数、落库/API/导出证据，以及正常请求耗时/用量。持续可用性需连续运行记录，不用一次成功或轮询配置替代。
+
+## 5. 归档分支：吸收契约，不合并第二个产品
+
+只读核对分支：`codex/frontend-blueprint-20261108@723596e392fee93684af62cc21519384b9204d84`。四份讨论稿位于该提交 `docs/architecture/`：
+
+| 原文件 | 保留的结论 | 不继承的要求 |
 | --- | --- | --- |
-| [opportunity-biz Actor](https://apify.com/opportunity-biz/reddit-scraper) / [元数据](https://api.apify.com/v2/acts/opportunity-biz~reddit-scraper) | 结果事件 $0.05/千条，启动 $0.0001/GB、至少一次；平台/数据集/有效去重收益仍需核账 | 新候选中先做赠额内小样本，不把两项事件费当总账单 |
-| [CiteRocket](https://www.citerocket.com/pricing) / [搜索](https://www.citerocket.com/docs/listings/search) | $10/10,000 credits，普通读取 1 credit；赠 1,000；搜索文档列 limit 1–100/after | 仅赠额验证；到 $0.10/千条需平均≥10条有效内容/全部收费尝试，到 $0.07 需≥15；最大 limit 不等于页收益 |
-| [Redditapis](https://www.redditapis.com/pricing) | 普通读取 $0.0015/次，最小充值 $10；另有免费读取/$19 月包；高级评论 $0.02/次 | 仅可用赠额对照，不采购月包；达两档单位价需≥15/≥22条有效内容/次 |
-| [Fatih Actor](https://apify.com/fatihtahta/reddit-scraper-search-fast)、[Bright Data](https://brightdata.com/products/web-scraper/social-media-scrape) | 正常约 $1.19–1.49/千结果、$1.50/千记录 | 超单位价硬上限，不作自动备源 |
+| [分析能力与计算存储架构设计-v0.1](https://github.com/Euroish/reddit-monitoring-mvp/blob/723596e392fee93684af62cc21519384b9204d84/docs/architecture/分析能力与计算存储架构设计-v0.1.md) | 新原档单次顺序解压、列式中间层、稀疏关系、质量/规则版本、后补月份、汇总与证据分离 | 一次实现 38+30 项分析、固定主题树、GPU 路线、特定本机磁盘假设 |
+| [在线平台技术栈与部署决策-v0.1](https://github.com/Euroish/reddit-monitoring-mvp/blob/723596e392fee93684af62cc21519384b9204d84/docs/architecture/在线平台技术栈与部署决策-v0.1.md) | 本地生产、在线独立；PG + 私有文件；单重任务；文件/DB 一起备份 | FastAPI/SQLAlchemy/Alembic、Caddy/Compose 第二套在线运行栈 |
+| [服务端数据模型与查询方案-v0.1](https://github.com/Euroish/reddit-monitoring-mvp/blob/723596e392fee93684af62cc21519384b9204d84/docs/architecture/服务端数据模型与查询方案-v0.1.md) | batch/revision/release、类型化汇总、精选证据与完整保留范围区分、COPY/staging/原子发布 | 全量目录/视图注册平台、每个分析族预建表、另造 content_identity 平行身份库 |
+| [完整实现范围与验收契约-v0.1](https://github.com/Euroish/reddit-monitoring-mvp/blob/723596e392fee93684af62cc21519384b9204d84/docs/architecture/完整实现范围与验收契约-v0.1.md) | 小夹具验证恢复与补月、真实首包闭环、资源测量 | “68项必须同一次交付”、旧机器依赖可用即当前环境可用 |
 
-Redditapis 自报帖子搜索中位约 9 条/次，既非项目平均页收益，也未计失败/去重，不能据此批准采购。kaix 固定 build/上限与费用边界在[配置](../development.md#reddit-kaix--apify)；曾有独立试验授权不等于长期收费调度授权。
+该分支记载 9 月 RS/RC 原档存在、约 74.36GB 压缩输入，未扫描；这是当时机器事实，本轮没有检查原档，也没有发现当前 main 的归档 importer。其 CLI/041 设想不是已交付功能。
 
-[Reddrix 55815c5](https://github.com/Coding-Doctor-Omar/reddrix/tree/55815c54c6c9c8a0cbe7bd0239342cb5f5af9297) 是未运行的自采后备：Camoufox/HTML/internal endpoints、固定 relevance、逐命中补详情、默认并发/初始化重试较多；不直接接入增量高水位。Scrapling v0.5.1 是通用获取工具，未提供本项目已验收的 Reddit 搜索源。暂不因重构安装/扩展这些路径。
+首批只落实[包协议 IMP-01–07](../contracts.md#5-归档生产与包协议)及内容量/分布/有限可检索证据；新分析必须单独定义输入、分母、支持过滤与证据范围。API 消耗减少来自复用历史材料，不能宣称归档覆盖未下载时期、当前实时内容或不存在的全文证据。
 
-## 4. X：先证明一条路径可用
+### Arctic Shift 原档格式的一手核对
 
-| 路径 / 固定研究依据 | 能力与缺口 | 本轮安排 |
-| --- | --- | --- |
-| [OpenCLI X search 9bc5f5c](https://github.com/jackwener/OpenCLI/blob/9bc5f5ca132ec4d4e48d7ee517d4303bf159e8e8/clis/twitter/search.js) | 已登录 x.com 会话内 SearchTimeline；结果后出错可返回部分数组，缺少对外续页/终止元数据，部分未知指标补零 | 正常设备先做只读五条试验；不原样接入公共页事务 |
-| [twscrape d26aac0](https://github.com/vladkens/twscrape/tree/d26aac09325b7873a62c3a6ec92e7dea3c277051) | 账号会话/SQLite，支持搜索/时间线；limit 不是请求硬上限，没账号可能等待 | 若需脚本化则与 OpenCLI 二选一，单会话有界验证；不搭账号池 |
-| [TwitterAPI.io](https://twitterapi.io/pricing) | 已有账号/搜索/ID adapter；11-10 报价 $0.15/千返回帖子、每请求最低 $0.00015 | 超当前单位价上限，保留默认关闭，不直接付费启用 |
-| [TwitterAPIs](https://www.twitterapis.com/pricing) / [GetXAPI](https://www.getxapi.com/pricing) | 11-10 研究分别标准 $0.0008/次、按余额 $0.001/次；套餐/端点差异需再核对 | 只是备选，不是采购计划；不能只替换现有 adapter 的 base URL |
+固定 [`11bbf2e6`](https://github.com/ArthurHeitmann/arctic_shift/tree/11bbf2e62db1dd1d699e1280724916a079815ec8) 的[内容说明](https://github.com/ArthurHeitmann/arctic_shift/blob/11bbf2e62db1dd1d699e1280724916a079815ec8/file_content_explanations.md)、[流读取示例](https://github.com/ArthurHeitmann/arctic_shift/blob/11bbf2e62db1dd1d699e1280724916a079815ec8/scripts/fileStreams.py)：2024-04 起仅 `.zst`；UTF-8、每对象为帖子/评论，retrieved_on 与部分字段二次取回时间分开。源对象可能是合并观测，不能误作单一时点完整快照。
 
-上述 X 会话研究最后核对为 11-10，本轮未运行真实会话；免费开源客户端仍依赖正常会话和上游内部接口，不等于免费/免账号的稳定数据服务。[Nitter 原仓库](https://github.com/zedeus/nitter) 已归档，不作为主源；FxEmbed 仅为已知链接补全，不能发现未知关键词内容。
+只借鉴流式读取，不直接复制其示例的宽松异常吞掉行为；生产包必须可说明拒绝行与完成性。正常 `.zst` 的任意偏移恢复没有由此源码证明，按 IMP-02 设计。
 
-## 5. 成本和准入
+## 6. 历史证据与停止线
 
-沿用[产品预算](../README.md#产品约束)，采集总额在 Reddit/X/聚合来源间分配。正常成本包含空页、失败、重试、重复、补全、启动、平台和支付费用；帖子/评论、新内容/刷新分别列账。
-
-`有效成本/千条 = 窗口内全部可归属费用 ÷ 去重且成功落库的有效内容数 × 1000`；分母为零报告不可计算。
-
-10 万条按 $0.07/千条需 $7、按 $0.10 需 $10，不能直接视为通过 50 元总预算。实际汇率 r 元/美元、其他采集费用 F 元时，10 万条的美元单位价上限为 `min(0.10, (50-F)/(100*r))`。最低充值现金支出与月度消耗分开；没有授权不充值，赠额不抵扣长期选型成本。
-
-首测限少量目标、页数/请求/时长/费用，保存响应、cursor、UTC、有效独立条数、缺失和扣费到私有 `output/`。来源准入和 48–72h 持续验收只在[开发安排 M3](../plans/source-expansion.md#m3来源准入与持续验收)维护。没有合格来源就缩减规模或重新确定预算，不通过自动重试/代理/另一包装项目掩盖不可用。
-
-## 6. 历史证据索引
-
-本节是历史事实摘要；原参数、响应和更长调查可在 Git `3551900:docs/research/data-sources.md` 及相应提交查阅。原始数据不要求进入 Git。
-
-| 时间 / 基线 | 可确认结果 | 证据边界 |
-| --- | --- | --- |
-| 10-16 / `6bd18ad` | Arctic Shift 一小时社区帖子/评论各5条落库、API读回、帖子重放新增0 | 非全站关键词、完整覆盖或持续验收 |
-| 10-20 / `c805ca1` | Arctic Shift 5次真实请求：2次帖子成功各7条，3次422 Timeout；隔离合成测得逐条页落库约128条/秒 | 上游不稳定；合成 SQL/调度吞吐不是生产上限 |
-| 10-23 / `eb2a80e` | 3次 Arctic Shift 请求各5条；首次解析支持13位评论 ID，`refreshIds()` 离线拒绝同一 ID、网络0次 | 已确认本地刷新缺陷，非归档完全停摆或网络403解释 |
-| 10-23 | 匿名列表 JSON/搜索 HTML 各一次均403；OpenCLI 3个基础及3个独立离线边界场景 | 未有真实登录搜索；capped/部分补全状态不能丢失 |
-| E1 / `c805ca1` 系列 | Bluesky 两页筛出6条作者内容，重放新增0，PG/API/UI/导出通过 | 现在已在 main，非 Reddit 备用、持续新鲜度或全历史验收 |
-| 10-28 | Chromium/OpenCLI/noVNC/Bridge 连通，但 Reddit 登录被阻断；随后按要求停服务 | 安装/连通不等于取数成功 |
-| 11-10 | 四项旧浏览器服务 inactive；新临时匿名 HTML 两次403、0帖子、结束退出 | 未验收 Reddrix/Camoufox/Scrapling，也没有恢复常驻服务 |
-
-历史报告位于各研究机器的 `output/research/reddit-access-20261023/`、`reddit-direct-20261023/`、`aggregation-projects-20261023/`、`reddit-audit-20261023/`、`paid-review-20261110/`；本轮源码副本在 `output/research/product-rebuild/`。这些是本地证据位置，不是仓库自带数据集。
-
-### JSONL 独立复核与 ego-lite 的位置
-
-历史复核发现 OpenCLI 达 limit 会丢 capped、补全部分失败只输出剩余数组、by_id 403不返回已发现 ID。公共 worker 拒绝 `exhausted=false && nextCheckpoint=null`，所以直接包装 CLI 数组仍缺恢复契约，不能伪造 exhausted 推进高水位。Agent Reach 的 Reddit 后端当时仍调用 OpenCLI，不是独立数据源。
-
-ego-lite 按既有决定排除；Linux 支持/原生绑定限制属于历史研究，不再安排安装或适配。官方 API/Devvit 申请、全站 dumps 前置和重启旧云端浏览器均不进入当前计划。
-
-## 7. 其余候选
-
-Bluesky 保留已有账号 adapter；PullPush 当时明确拒绝本环境免费 agent 请求，保持暂停。RSSHub、HN、GitHub、V2EX、Forem、YouTube、Steam、联邦平台等留作后续线索，不同时实施；Instagram/web 类型声明不证明存在真实 adapter。BettaFish 的报告/多 Agent、搜索引擎线索都不替代原平台采集。
-
-新来源的最小准入是明确 platform/provider/target、稳定身份、时间与指标能力、费用/权限，然后沿 connector→落库→查询→UI 闭环。动态脚本、通用抓取 DSL、独立 Provider Lab 不是接入前提。
+- `3551900` 及历史日志保留 Arctic Shift、Bluesky、kaix 与浏览器研究原结论；本轮不重新认证旧价格或上游状态。
+- 旧匿名 Reddit 403、云端登录失败只证明当时环境；不自动转成全平台永久不可用，也不以换爬虫库解释所有故障。
+- 每个新入口先明确身份、观测时间、召回/分页、正文状态、使用权限，再沿 adapter→事务→查询→UI 打通；不先搭动态插件市场、Provider Lab 或万能爬虫 DSL。
+- 本轮第三方固定源码/树与归档稿副本放忽略的 `output/research/`；不提交原始数据、凭证或第三方整仓。后续研究只有能改变一个真实决定时才继续扩展候选。

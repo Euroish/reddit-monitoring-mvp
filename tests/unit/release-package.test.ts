@@ -15,6 +15,7 @@ test("release packaging allowlist excludes credentials/data and verification det
     ["package.json", JSON.stringify({ name: "synthetic", version: "0.7.0" })], ["package-lock.json", "{}"],
     ["docs/history/handoff.md", "historical delivery"], ["docs/history/development-log.md", "historical log"],
     ["docs/research/data-sources.md", "candidate evidence"], ["docs/plans/source-expansion.md", "future design"],
+    ["docs/contracts.md", "data contracts"], ["docs/design.md", "interaction design"],
     ["docs/private-notes.md", "unapproved notes"],
     [".env.local", "secret=must-not-package"], ["dist/.env", "secret=must-not-package"],
     ["deploy/env/sources.env.example", "SOURCE_NETWORK_ENABLED=false"], ["deploy/env/private.env", "secret=must-not-package"],
@@ -23,7 +24,7 @@ test("release packaging allowlist excludes credentials/data and verification det
   const manifest = await packRelease({ root, destination });
   assert.ok(manifest.files.some(file => file.path === "dist/workers/source-content-worker.js"));
   assert.ok(!manifest.files.some(file => file.path.endsWith(".env") || file.path.includes(".env.local")));
-  for (const file of ["docs/history/handoff.md", "docs/history/development-log.md", "docs/research/data-sources.md", "docs/plans/source-expansion.md"])
+  for (const file of ["docs/history/handoff.md", "docs/history/development-log.md", "docs/research/data-sources.md", "docs/plans/source-expansion.md", "docs/contracts.md", "docs/design.md"])
     assert.ok(manifest.files.some(entry => entry.path === file), `Missing moved/new documentation: ${file}`);
   assert.ok(!manifest.files.some(file => file.path === "docs/private-notes.md"));
   assert.equal((await verifyRelease(destination)).verified, true);

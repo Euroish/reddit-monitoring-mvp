@@ -1,6 +1,6 @@
 # Agent 开发入口
 
-开始任务先读 [文档入口](docs/README.md)、[当前状态](docs/status.md)；涉及代码再读 [架构](docs/architecture.md) 和 [开发说明](docs/development.md)。正式项目文档只放在 `docs/`，根目录 README 仅作入口。
+开始任务先读 [文档入口](docs/README.md)、[当前状态](docs/status.md)；涉及代码再读 [架构](docs/architecture.md)、[数据与接口契约](docs/contracts.md) 和 [开发说明](docs/development.md)；涉及界面再读 [交互设计](docs/design.md)。正式项目文档只放在 `docs/`，根目录 README 仅作入口。
 
 - 用户当前明确指令优先。`docs/README.md` 记录产品决策，`docs/status.md` 记录实现状态；源码、数据库迁移、实际检查结果证明当前行为。
 - 文档与代码不一致时，指出差异并在本次任务范围内修正。计划不能当成已实现功能；历史 Git 内容不能当成当前要求。
