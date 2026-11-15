@@ -15,6 +15,7 @@ const documents = [
   "docs/history/development-log.md",
   "docs/history/handoff.md",
   "docs/research/data-sources.md",
+  "docs/research/architecture_audit_and_rebuild_spec.md",
   "docs/plans/source-expansion.md",
 ];
 const documentationEntries = new Set(documents);

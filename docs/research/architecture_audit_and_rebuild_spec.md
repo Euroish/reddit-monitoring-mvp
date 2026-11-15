@@ -1,8 +1,13 @@
-# `reddit-monitoring-mvp` (`main@7045185`) 深度文档审查、源码尸检与单机极简高性能重构蓝图
+# `reddit-monitoring-mvp` 深度代码审查、终版单服务器产品化架构与外挂插件解耦蓝图
 
 > [!IMPORTANT]
-> **核心结论（Verdict First）**：`main@7045185` 的 8 份新规范文档（[docs/README.md](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/docs/README.md)、[docs/architecture.md](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/docs/architecture.md)、[docs/contracts.md](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/docs/contracts.md) 等）已经正确完成了**产品定位收敛**（从“Reddit 单平台爬虫+热榜打分大杂烩”转向“类 Semrush 项目化多源信息监测 + 离线历史归档工作台”），并识别了旧 `Phase1 / Markets / TargetWorkbench` 的表层肥胖。
-> **但实码交叉审计（`code-map` + `arch-audit`）暴露了一个致命盲区**：文档在 [docs/plans/source-expansion.md](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/docs/plans/source-expansion.md#L18-L21) 中计划“优先复用 / 保留并收敛”的**新公共链路（`SourceContent` / `ResearchExport` / `ContentPersonal`）本身同样深陷“伪精简压行、双轨 In-Memory 仓储、隐藏 N+1/全表重扫、多层防御性深拷贝”四重泥潭**。若不连同新公共层的实现模式一并做减法重构，仅删掉旧 Phase1 并换上 Fastify，系统在 100 万级内容（`ARC-13` 验证目标）下仍会出现页列表超时、概览 12 次全表扫描、研究快照撑爆 Node 内存的问题。
+> **四大顶层架构决策已锁定（Finalized Decisions）**：
+> 1. **主线与外挂彻底物理隔离（Mainline Core vs. External Plugin）**：
+>    - **主线核心（Mainline Core）**：聚焦于**远端单服务器 7×24 安全稳定运行的在线多平台信息监测产品**（Fastify 5 + PostgreSQL 16 + 在线采集 Connectors + React 工作台）。主线容器镜像、数据库与日常运维**零 Python / DuckDB / `.zst` 依赖**，完全砍掉原规划的 7 张归档发布表（`dataset`、`import_batch`、`dataset_partition_revision`、`dataset_release`、`dataset_release_partition`、`dataset_content`、`archive_activity_day`）与顶层“数据集”页面。
+>    - **历史归档外挂（External Plugin `plugins/zst-archive/`）**：作为完全独立的**外挂扩展工具**（后续单独深入研究迭代）。主线只需在 `collection` 模块预留一个**带鉴权的标准批量内容推流接口（`POST /v1/sources/:id/ingest`）**，未来无论外挂是跑在本地电脑还是云对象存储上，都只作为普通 API 客户端把命中的标准 JSON 推入主线接口，**对主线代码与数据库侵入度为 0**。
+> 2. **砍掉全部 `*Repository` 单实现接口与 14 个 `InMemory*Repository`（-106 KB）**：仅保留一对多的外部采集契约 `ContentProvider`；业务模块内部直接编写接收 `Pool | PoolClient` 的参数化 SQL 函数。
+> 3. **研究快照采用方案 B（砍掉 `research_export` / `research_export_member` 表）**：个人工作区仅保留 `content_saved_query`（保存筛选）+ `content_annotation`（收藏/批注）+ **流式下载 CSV/JSON 文件**，彻底消除 32 MiB 库内 JSONB 复制与三重全表扫描；全系统重构**仅需新增 `monitor_project` 与 `monitor_project_source` 2 张表**。
+> 4. **对远端生产产品负责（Anti-Slop & Human-in-the-Loop）**：拒绝 AI 式的“10,000 行计划外过度设计”、“压行面条代码”、“密密麻麻的 UI 说明文字”、“啰嗦八股文 README”和“自欺欺人的 InMemory 假单元测试”；用**极简可读代码 + 远端公网边界防护 + 真实 PG 端到端系统测试**保障长期可维护性。
 
 ---
 
@@ -12,54 +17,59 @@
 
 | 分类 | 文件数 | 行数 (LOC) | 字节数 (Bytes) | 核心诊断与减法处置 |
 | :--- | ---: | ---: | ---: | :--- |
-| **旧产品链生产代码 (`DELETE_LEGACY_PROD`)** | 91 | 21,335 | 767,318 | [create-api-server.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/apps/api/src/create-api-server.ts) (3,606 LOC)、[collect-subreddit-new-posts.job.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/jobs/collect-subreddit-new-posts.job.ts) (1,996 LOC)、[reddit-phase1.worker.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/workers/reddit-phase1.worker.ts) (1,587 LOC)、旧 `opossum` 熔断器、Scrapling 桥、热度/异常/脉冲打分、27 个单实现 Repository 接口。**全部删除**。 |
-| **旧链路与冗余测试 (`DELETE_BLOAT_TEST`)** | 36 | 15,001 | 511,720 | [api-server-trends.test.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/tests/integration/api-server-trends.test.ts) (2,124 LOC)、[api-server-readyz.test.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/tests/integration/api-server-readyz.test.ts) (2,081 LOC)、[collect-subreddit-new-posts-p0.test.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/tests/integration/collect-subreddit-new-posts-p0.test.ts) (2,052 LOC) 等。**随旧业务一并删除**。 |
+| **旧产品链生产代码 (`DELETE_LEGACY_PROD`)** | 91 | 21,335 | 767,318 | [create-api-server.ts](../../apps/api/src/create-api-server.ts) (3,606 LOC)、[collect-subreddit-new-posts.job.ts](../../src/jobs/collect-subreddit-new-posts.job.ts) (1,996 LOC)、[reddit-phase1.worker.ts](../../src/workers/reddit-phase1.worker.ts) (1,587 LOC)、旧 `opossum` 熔断器、Scrapling 桥、热度/异常/脉冲打分、27 个单实现 Repository 接口。**全部删除**。 |
+| **旧链路与冗余测试 (`DELETE_BLOAT_TEST`)** | 36 | 15,001 | 511,720 | [api-server-trends.test.ts](../../tests/integration/api-server-trends.test.ts) (2,124 LOC)、[api-server-readyz.test.ts](../../tests/integration/api-server-readyz.test.ts) (2,081 LOC)、[collect-subreddit-new-posts-p0.test.ts](../../tests/integration/collect-subreddit-new-posts-p0.test.ts) (2,052 LOC) 等。**随旧业务一并删除**。 |
 | **旧维护/实验脚本 (`DELETE_LEGACY_SCRIPTS`)** | 18 | 4,628 | 169,425 | `*phase1*`、`shadow-compare`、`controlled-promotion`、`prewarm-keyword-query` 等（含 25 处 `NPlusOneAwaitInLoop`）。**全部删除**。 |
 | **前端废弃页面 (`WEB_DELETE_LEGACY`)** | 11 | 2,819 | 121,642 | `MarketBoard`、`TargetDetail` (800 LOC)、`Compare`、`Dashboard`、`Queries`、`Phase1RunCard`。**全部删除**。 |
-| **拟保留公共核心 (`KEEP_CORE_PROD`)** | 139 | 14,060 | 652,066 | **存在严重“压行伪装”与双轨冗余**：含 14 个 `src/storage/repositories/in-memory/*` (2,185 LOC / **106 KB**) 及压行文件 [postgres-source-content.repository.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/storage/repositories/postgres/postgres-source-content.repository.ts) (**305 行却高达 50,868 字节**，单行塞入 8~12 条语句)。**需砍掉 In-Memory 双轨并重写为直白 SQL 模块**。 |
-| **拟保留核心测试 (`KEEP_CORE_TEST`)** | 116 | 9,045 | 594,311 | 含 `tests/helpers/*-cases.ts` (58 KB)，将同一套用例在 JS `Map` 与 PG 上重复跑两遍。**砍掉 In-Memory 双跑，仅保留纯函数单测 + 真实 PG 契约集成测试**。 |
+| **拟保留公共核心 (`KEEP_CORE_PROD`)** | 139 | 14,060 | 652,066 | **存在严重“压行伪装”与双轨冗余**：含 14 个 `src/storage/repositories/in-memory/*` (2,185 LOC / **106 KB**) 及压行文件 [postgres-source-content.repository.ts](../../src/storage/repositories/postgres/postgres-source-content.repository.ts) (**305 行却高达 50,868 字节**，单行塞入 8~12 条语句)。**需砍掉 In-Memory 双轨与 `research_export` 表，重写为排版清晰的直白 SQL 模块**。 |
+| **拟保留核心测试 (`KEEP_CORE_TEST`)** | 116 | 9,045 | 594,311 | 含 `tests/helpers/*-cases.ts` (58 KB)，将同一套用例在 JS `Map` 与 PG 上重复跑两遍。**砍掉 In-Memory 双跑，收敛为纯函数单测 + 真实 PG 端到端系统测试**。 |
 
 ```mermaid
 flowchart TD
-  subgraph Legacy["待彻底切除的旧系统 (~43,783 LOC / 1.57 MB)"]
+  subgraph Legacy["待彻底切除的旧系统与过度设计 (~46,000+ LOC)"]
     L1["create-api-server.ts (3,606 LOC)\n手写路由 + readyz-observability (793 LOC)"]
     L2["reddit-phase1-runtime.ts (442 LOC)\n+ provider-routing-policy (622 LOC)"]
     L3["reddit-phase1.worker (1,587 LOC)\n+ collect-subreddit-new-posts (1,996 LOC)"]
     L4["旧派生表与算法\ntrend / heat / anomaly / pulse / workbench"]
-    L5["InMemory*Repository (14 文件, 106 KB)\n+ 双轨重复测试套件"]
+    L5["InMemory*Repository (14 文件, 106 KB)\n+ ResearchExport 冻结表 + 双轨重复测试"]
   end
 
-  subgraph Target["重构后单机极简架构 (~9,500 LOC 目标上限)"]
-    T1["Fastify 5 + TypeBox 契约路由\napps/api/src/ (≤ 600 LOC)"]
-    T2["6 个纵向业务模块 (src/modules/*)\naccess | collection | content | projects | datasets | workspace\n直接調用参数化 SQL，零接口空壳、零 InMemory 镜像"]
+  subgraph Target["重构后远端单机主线核心 (~7,500 LOC 目标上限)"]
+    T1["Fastify 5 + TypeBox 契约 + 边界安全防护\napps/api/src/ (≤ 450 LOC)"]
+    T2["5 个纵向业务模块 (src/modules/*)\naccess | collection | content | projects | workspace\n直接调用参数化 SQL，零接口空壳、零 InMemory 镜像"]
     T3["统一外部 Adapters (src/connectors/*)\narctic_shift | kaix | twitterapi_io | newsnow | feed"]
-    T4["单一 PostgreSQL 16 + 单一在线 Worker\n+ 独立 Python/DuckDB 离线归档 CLI"]
+    T4["单一 PostgreSQL 16 + 进程内有界调度器"]
   end
 
-  Legacy -. "R1-R5 整块切除\n不留兼容层" .-> Target
+  subgraph Plugin["外挂扩展 (不进主线运行时，按需独立迭代)"]
+    P1["plugins/zst-archive/\nDuckDB .zst -> 自索引排序 Parquet\n通过 POST /v1/sources/:id/ingest 推流"]
+  end
+
+  Legacy -. "R1-R4 整块切除\n不留兼容层" .-> Target
+  Plugin -. "HTTPS Bearer API Key\n零代码耦合" .-> T1
 ```
 
 ---
 
-## 2. 现有“新公共代码”中的 7 个隐蔽架构/性能缺陷（文档未充分揭示）
+## 2. 现有“新公共代码”（`029`–`040`）中的 7 个隐蔽架构/性能缺陷
 
-即便只看 `029`–`040` 迁移之后的公共内容与研究模块，实码中也存在以下违背“最低复杂度、最高性能、不过度防御”原则的问题，必须在 R1/R2 重构时一并根治：
+即便只看 `029`–`040` 迁移之后的公共内容与研究模块，实码中也存在以下违背“最低复杂度、最高性能、不过度防御”原则的问题，必须在重构时一并根治：
 
 ### 2.1 双轨 `InMemory*Repository` 是最大的工程税（106 KB 纯冗余）
-- **证据**：[in-memory/source-content.repository.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/storage/repositories/in-memory/source-content.repository.ts#L11-L200) 用 29,122 字节的压缩 TS 代码在内存 `Map` 中手工模拟 PostgreSQL 的事务、租约、唯一索引冲突（`23505`）、`SKIP LOCKED`、全文检索和 `REPEATABLE READ` 快照（每次调用都执行 `structuredClone`）。
+- **证据**：[source-content.repository.ts](../../src/storage/repositories/in-memory/source-content.repository.ts#L11-L200) 用 29,122 字节的压缩 TS 代码在内存 `Map` 中手工模拟 PostgreSQL 的事务、租约、唯一索引冲突（`23505`）、`SKIP LOCKED`、全文检索和 `REPEATABLE READ` 快照（每次调用都执行 `structuredClone`）。
 - **危害**：每改一个 SQL 过滤条件或字段，都要在 JS `Map` 里重写一遍模拟逻辑；而且 JS `Map` 根本测不出 PG 锁顺序死锁、索引失效或类型转换错误。
-- **修正（补入 `ARC-02 / ENG-04 / ENG-05`）**：**彻底废除 `SourceContentRepository` / `ContentPersonalRepository` / `ResearchExportRepository` 接口与全部 `src/storage/repositories/in-memory/*` 实现**。模块内部直接暴露接收 `Queryable` (`Pool | PoolClient`) 的 SQL 函数；纯业务规则（如 URL 规范化、版本比较、游标编解码、过滤条件校验）抽成纯函数单测，数据库行为只测真实 PostgreSQL。
+- **修正**：**彻底废除全部 `*Repository` 接口与 `src/storage/repositories/in-memory/*` 实现**。模块内部直接暴露接收 `Queryable` (`Pool | PoolClient`) 的 SQL 函数；纯业务规则（如 URL 规范化、版本比较、游标编解码、过滤条件校验）抽成纯函数单测，数据库与业务主链只测真实 PostgreSQL。
 
 ### 2.2 压行代码（Code Golfing）伪装成“精简代码”
 - **证据**：
-  - [postgres-source-content.repository.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/storage/repositories/postgres/postgres-source-content.repository.ts#L14-L45)：305 行文件塞了 **50,868 字节**（平均每行 167 字节，多行超 600 字节）。
-  - [content-personal.service.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/application/services/content-personal.service.ts#L15-L21)：22 行文件塞了 **6,129 字节**（`saveQuery` 单行 820 字符、`saveAnnotation` 单行 890 字符）。
-  - [Content.tsx](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/apps/web/src/pages/Content.tsx)：211 行塞了 **39,048 字节**。
-- **危害**：将 10 条语句、多层三元表达式硬压成一行，不仅破坏 Git diff 与报错栈定位，还掩盖了重复校验和 N+1 查询。
-- **修正**：重构必须减掉**真正的 AST 复杂度与字节数**，禁止通过删换行符压缩行数；统一使用标准格式化与扁平早返回（Guard Clauses）。
+  - [postgres-source-content.repository.ts](../../src/storage/repositories/postgres/postgres-source-content.repository.ts#L14-L45)：305 行文件塞了 **50,868 字节**（平均每行 167 字节，多行超 600 字节）。
+  - [content-personal.service.ts](../../src/application/services/content-personal.service.ts#L15-L21)：22 行文件塞了 **6,129 字节**（`saveQuery` 单行 820 字符、`saveAnnotation` 单行 890 字符）。
+  - [Content.tsx](../../apps/web/src/pages/Content.tsx)：211 行塞了 **39,048 字节**。
+- **危害**：将 10 条语句、多层三元表达式硬压成一行，不仅破坏 Git diff 与报错栈定位，还掩盖了重复校验和 N+1 查询，让人类开发者无法阅读与审查。
+- **修正**：减掉**真正的 AST 复杂度与字节数**，严禁通过删换行符压缩行数；每个业务模块仅由排版清晰的 `routes.ts` + `sql.ts` 组成，单文件控制在 `100 ~ 250 行`。
 
 ### 2.3 每次列表分页与统计都强制全表扫描 `public_content_search_document`
-- **证据**：[postgres-source-content.repository.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/storage/repositories/postgres/postgres-source-content.repository.ts#L25-L255) 在 `listContent()`（哪怕只查第 1 页 25 条且没有传 `query` 关键词！）中总是先执行：
+- **证据**：[postgres-source-content.repository.ts](../../src/storage/repositories/postgres/postgres-source-content.repository.ts#L25-L255) 在 `listContent()`（哪怕只查第 1 页 25 条且没有传 `query` 关键词）中总是先执行：
   ```sql
   WITH coverage AS (
     SELECT COUNT(*)::integer AS candidate_count,
@@ -69,279 +79,348 @@ flowchart TD
     WHERE ...
   )
   ```
-- **危害**：当 `content` 达到 `ARC-13` 目标的 **100 万行**时，每次翻页（`limit=25`）都要先对 100 万行做一次 `LEFT JOIN + COUNT(*)`，导致简单翻页从 `<5ms` 退化到 `>500ms`，直接击穿 `P95 ≤ 400ms` 目标。
+- **危害**：当 `content` 达到 **100 万行**时，每次翻页（`limit=25`）都要先对 100 万行做一次 `LEFT JOIN + COUNT(*)`，导致简单翻页从 `<5ms` 退化到 `>500ms`，直接击穿 `P95 ≤ 400ms` 目标。
 - **修正**：
-  1. 在线页写入（`commitPage`）与归档导入都在同一事务内同步写入检索投影，**“有正文即有投影”是写入不变量**。
-  2. 移除 [038_public_content_search_document.sql](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/storage/schema/038_public_content_search_document.sql#L9-L17) 中每次 `UPDATE content` 先 `DELETE` 投影再 immediately `INSERT` 投影的触发器（改为写入路径统一 `UPSERT` 投影，消除无谓的 MVCC 死元组膨胀）。
+  1. 批量页写入（`commitContentBatch`）在同一事务内同步 `UPSERT` 检索投影，**“有正文即有投影”是写入不变量**。
+  2. 移除 [038_public_content_search_document.sql](../../src/storage/schema/038_public_content_search_document.sql#L9-L17) 中每次 `UPDATE content` 先 `DELETE` 投影再 `INSERT` 投影的触发器（消除无谓的 MVCC 死元组膨胀）。
   3. `listContent` 只做 keyset 索引扫描取 `limit + 1` 行，**绝不在分页热路径上跑全表 `COUNT(*)`**。
 
-### 2.4 工作台概览 (`contentWorkbench`) 存在 8~15 次串并联全表重扫，个人注释列表 (`listAnnotations`) 存在 N+1 查询
-- **证据 1**：[content-workbench.service.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/application/services/content-workbench.service.ts#L9-L13) 先调 1 次 `contentStats(query)`，再对 5 个 `platform` 循环调用 `contentStats({ ...query, platform })`，再对每个 `provider` 循环调用 `contentStats({ ...query, provider })`。打开一次页面触发 **10+ 次全表聚合查询**。
-- **证据 2**：[content-personal.service.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/application/services/content-personal.service.ts#L21) 在 `listAnnotations()` 中 `for (const annotation of page.annotations) { const content = await this.content.repository.getContent(annotation.contentId); ... }`，每页触发 **1 + N 次 SQL 往返**。
+### 2.4 工作台概览 (`contentWorkbench`) 存在 8~15 次全表重扫，个人注释列表 (`listAnnotations`) 存在 N+1 查询
+- **证据 1**：[content-workbench.service.ts](../../src/application/services/content-workbench.service.ts#L9-L13) 先调 1 次 `contentStats(query)`，再对 5 个 `platform` 循环调用 `contentStats({ ...query, platform })`，再对每个 `provider` 循环调用 `contentStats({ ...query, provider })`。打开一次页面触发 **10+ 次全表聚合查询**。
+- **证据 2**：[content-personal.service.ts](../../src/application/services/content-personal.service.ts#L21) 在 `listAnnotations()` 中 `for (const annotation of page.annotations) { const content = await this.content.repository.getContent(annotation.contentId); ... }`，每页触发 **1 + N 次 SQL 往返**。
 - **修正**：
-  - 项目概览（`GET /v1/projects/:id/overview`）用单条 CTE + `GROUPING SETS ((day), (platform), (kind))` 一次性算出总量、未知时间数、日趋势和平台分布（1 次 SQL）。
+  - 项目概览（`GET /v1/projects/:id/overview`）用单条 CTE + `GROUPING SETS ((), (pub_day), (source_id), (kind))` 一次性算出总量、未知时间数、日趋势和平台分布（1 次 SQL）。
   - 个人注释列表直接在 SQL 中 `JOIN content c ON c.id = ca.content_id`（1 次 SQL）。
 
-### 2.5 研究快照冻结 (`ResearchExportService.capture`) 三重全扫 + Node 内存 32MiB 全量缓冲 + 内部 SQL 正则自检
-- **证据**：[research-export.service.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/application/services/research-export.service.ts#L63-L98) 与 [postgres-research-export.repository.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/storage/repositories/postgres/postgres-research-export.repository.ts#L16-L31)：
-  1. 先跑 `contentStats(query)` 扫第一遍；
-  2. 再跑 `researchPayloadPreflight(query)` 在 PG 里把所有匹配行转成 `to_jsonb::text` 算字节数，扫第二遍；
-  3. 再用 `limit: 100` 循环 200 次把最多 20,000 行拉到 Node 进程内存里，逐行跑 `canonicalContent()`（`pick` + `structuredClone`），再 `JSON.stringify({ manifest, items })` 算总字节，最后再循环 200 次分批 `INSERT INTO research_export_member`；
-  4. [postgres-research-export.repository.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/storage/repositories/postgres/postgres-research-export.repository.ts#L18) 甚至给自己傳入的 repository 包了一层正则检查 `if (!/^\s*(SELECT|WITH)\b/i.test(sql)...)` 防自己写错 SQL！
-- **修正**：这就是典型的**过度防御 + 极低性能**。在 PostgreSQL `REPEATABLE READ` 事务内，直接用 **1 条 `INSERT INTO research_export_member ... SELECT ... FROM matched_content LIMIT 20001`** 在数据库内部完成快照写入与行数/字节校验，数据根本不需要拉到 Node 内存里走一圈再写回 PG！
+### 2.5 研究快照冻结 (`ResearchExportService.capture`) 三重全扫 + Node 内存 32MiB 缓冲 + 内部 SQL 正则自检
+- **证据**：[research-export.service.ts](../../src/application/services/research-export.service.ts#L63-L98) 与 [postgres-research-export.repository.ts](../../src/storage/repositories/postgres/postgres-research-export.repository.ts#L16-L31) 先扫两遍全表，再循环 200 次把 20,000 行拉到 Node 内存跑 `structuredClone`，再循环 200 次写回 `research_export_member`，甚至对内部传入的 SQL 跑正则 `if (!/^\s*(SELECT|WITH)\b/i.test(sql)...)` 防自己写错 SQL。
+- **修正（方案 B 已锁定）**：**彻底砍掉 `research_export`、`research_export_member` 表及 `ResearchExportService`**。个人工作区只保留 `content_saved_query`（保存筛选条件）与 `content_annotation`（收藏和批注）；需要离线留档时，直接通过 `GET /v1/content/export?format=csv|json` 流式下载文件（Node 内存恒定 `< 2 MiB`）。
 
 ### 2.6 `commitPage()` 页内逐条执行 400+ 次 SQL，且 `DAT-04` 版本比较逻辑有漏洞
-- **证据**：[postgres-source-content.repository.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/storage/repositories/postgres/postgres-source-content.repository.ts#L102-L127)：
-  1. `for (const item of ...)` 循环内逐条 `await client.query` 执行：`INSERT INTO content` $\to$ `writePublicSearchDocument` $\to$ `INSERT INTO content_discovery` $\to$ `INSERT INTO content_observation`。100 条/页 = **404 次 SQL 往返**。
-  2. `INSERT INTO content ... ON CONFLICT DO UPDATE` 中将一段 180 字符的 `CASE WHEN` 粘贴了 9 遍，且：
-     - **缺少 `DAT-04` 要求的 `evidenceKey` 平局决胜（tie-breaker）**：当两条观测的 `sourceObservedAt` 相同时，`>=` 会随到达顺序非确定性覆盖；
-     - **违反 `DAT-04`“未知/省略字段不清空已知字段”**：当较新观测未返回 `title` 或 `body_text`（为 `null`）且 `availability = 'available'` 时，当前 SQL 直接用 `EXCLUDED.title` (`NULL`) 覆盖掉已有的 `content.title`。
+- **证据**：[postgres-source-content.repository.ts](../../src/storage/repositories/postgres/postgres-source-content.repository.ts#L102-L127)：
+  1. `for (const item of ...)` 循环内逐条 `await client.query` 执行 4 条 SQL，100 条/页 = **404 次 SQL 往返**。
+  2. `INSERT INTO content ... ON CONFLICT DO UPDATE` 缺少 `DAT-04` 要求的 `evidenceKey` 平局决胜（tie-breaker），且当较新观测未返回 `title` 或 `body_text`（为 `null`）且 `availability = 'available'` 时，会错误地用 `NULL` 清空已有的 `content.title / body_text`。
+- **修正**：改为 PostgreSQL `UNNEST` 集合批量提交（每页固定 4 条 SQL），并在 `content` 表补齐 `content_evidence_key` 列，执行确定性复合元组比较。
 
-### 2.7 `listContent()` 偷用 `first_seen_at` 冒充 `publishedAt` 排序，直接违反 `MET-04` 与 `QRY-05`
-- **证据**：[postgres-source-content.repository.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/storage/repositories/postgres/postgres-source-content.repository.ts#L250-L255) 使用 `COALESCE(c.created_at_source, c.first_seen_at) AS sort_time` 进行排序和生成 cursor。
-- **冲突**：[docs/README.md](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/docs/README.md#L67) (`MET-04`) 明确规定“发布时间、来源观测时间、抓取时间 MUST 分开；缺失为 null，不能拿导入/抓取时间充当发布时间”；[docs/contracts.md](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/docs/contracts.md#L63) (`QRY-05`) 规定“默认 `publishedAt DESC NULLS LAST, id DESC`，null 分支的 cursor 顺序必须显式定义”。
-
----
-
-## 3. 文档规范（`docs/`）深度审查：8 处需要完善与补充的设计缺口
-
-你最新推送到 `main@7045185` 的 8 份文档结构清晰、边界克制，但在进入 R1–R4 编码前，以下 **8 个具体技术细节**需要在契约与架构文档中补齐，以防实现时产生歧义或性能返工：
-
-| 编号 | 所在文档与章节 | 当前文档表述或空白 | 具体问题 / 潜在故障场景 | 建议完善与补充的标准定义 |
-| :--- | :--- | :--- | :--- | :--- |
-| **GAP-01** | [contracts.md §2 `DAT-04`](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/docs/contracts.md#L31) | “已知 `sourceObservedAt` 优先于未知；两个已知取较新者；均未知时用 `fetchedAt`，平局用稳定 `evidenceKey`。” | 当前 `content` 表只有 `content_observed_at` 和 `last_seen_at`，**没有存储赢得当前正文的 `content_evidence_key`**，无法在 SQL `ON CONFLICT` 中执行确定性平局决胜；且“省略字段 vs 明确删除”的 SQL 规则未固化。 | `content` 表新增 `content_evidence_key TEXT NOT NULL`。在 PG 中使用复合元组比较：`(EXCLUDED.content_observed_at IS NOT NULL, COALESCE(EXCLUDED.content_observed_at, EXCLUDED.last_seen_at), EXCLUDED.content_evidence_key) > (content.content_observed_at IS NOT NULL, COALESCE(content.content_observed_at, content.last_seen_at), content.content_evidence_key)`。当 `EXCLUDED.availability IN ('deleted','removed')` 时允许将正文置 `NULL`，否则使用 `COALESCE(EXCLUDED.body_text, content.body_text)` 保留已知正文。 |
-| **GAP-02** | [contracts.md §4 `QRY-05`](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/docs/contracts.md#L63) | “默认 `publishedAt DESC NULLS LAST, id DESC`，null 分支的 cursor 顺序必须显式定义。” | 文档要求显式定义 null 分支 cursor，但未给出 SQL 谓词与索引定式；实码错误地用了 `COALESCE(created_at_source, first_seen_at)`。 | Cursor 结构定义为 `{ publishedAt: string \| null, id: UUID, filterHash: string }`。配合索引 ` ON content (created_at_source DESC NULLS LAST, id DESC)`：<br>• 当 `cursor.publishedAt !== null`：`(c.created_at_source < $t OR (c.created_at_source = $t AND c.id < $id) OR c.created_at_source IS NULL)`<br>• 当 `cursor.publishedAt === null`：`(c.created_at_source IS NULL AND c.id < $id)`。 |
-| **GAP-03** | [architecture.md §5.1](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/docs/architecture.md#L109) & [contracts.md §4 `QRY-06/07`](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/docs/contracts.md#L64-L65) | `dataset_content`“保留该包的证据载荷或不可变版本引用”；`ARC-11`“在线正文随后更新，不能改变旧 release 的搜索命中或导出”。 | 若 `dataset_content` 仅指向可变 `content.id` 并共用 `public_content_search_document`，一旦在线采集更新了同一帖子的 `title/body_text`，旧 release 的保留文本检索结果就会被篡改（违反 `ARC-11`）。 | **极简不可变设计**：`dataset_partition_revision` 中的精选证据直接存储在 `dataset_evidence_item (partition_revision_id, content_id, platform, kind, external_id, published_at, frozen_payload JSONB, search_text TEXT)`，并在 `search_text` 上建 `pg_trgm` GIN 索引。由于历史精选证据是不可变且有界的（非全量数亿行），与在线可变 `content` 物理隔离最简单，还能按 `partition_revision_id` 零成本挂载/卸载！ |
-| **GAP-04** | [architecture.md §6 查询](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/docs/architecture.md#L137) | “首选评估 `pg_trgm` GIN 加速规范文本匹配。短词/符号/中文子串仍需范围和耗时限制”。 | 默认 `pg_trgm` 对 **1~2 个汉字（如“华为”、“原神”、“AI”）或 1~2 字母短词** 无法生成 3-gram，在 `LIKE '%华为%'` 时会退化为全表 Bitmap Heap Scan 或 Seq Scan！ | 明确检索执行策略：<br>1. `normalized_title \|\| ' ' \|\| normalized_text` 合并为单列 `search_text` 建 `gin_trgm_ops` 索引（省一半 GIN 索引体积与维护成本）；<br>2. 对 ASCII 长度 $\ge 3$ 或 CJK 长度 $\ge 3$ 的词项走 `search_text LIKE '%term%'`（利用 `pg_trgm` GIN）；<br>3. 对 `<3` 字符短词，SQL 优化器结合项目 `sourceIds` + `created_at_source` 时间窗 B-tree 索引做 Index Filter，且查询会话设置 `SET LOCAL statement_timeout = '3000ms'` 防慢查询拖垮单机。 |
-| **GAP-05** | [contracts.md §1 `DAT-02/03`](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/docs/contracts.md#L20-L21) & [research/data-sources.md §2](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/docs/research/data-sources.md#L27) | NewsNow 榜单“无可靠身份的榜单条目只保留快照证据或跳过并计数，不能造稳定 ID”。 | NewsNow 采集到的条目大多有稳定 URL（如 HN item URL、IT之家文章 URL），同时带有榜单瞬时排名 `rank`。若每次抓取都当无身份快照跳过，则点不进原文；若写进 `content_observation`，`evidenceKey` 如何构造？ | 明确规则：<br>1. 凡具备规范 URL 或上游原生 ID（如 HN `item?id=123`、IT之家文章 URL）的 NewsNow 条目，正常生成 `(platform='web', kind='article', externalId=canonicalUrl)` 的 `content`；<br>2. 每次榜单抓取生成一条 `content_observation`，其 `metrics` 为 `{"web.rank": rank}`，`evidenceKey = sha256(boardId + ":" + externalId + ":" + snapshotBucket)`（按采集任务或上游 `updatedTime` 分桶幂等）。 |
-| **GAP-06** | [contracts.md §6.1 项目比较](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/docs/contracts.md#L168) | `POST /v1/project-comparisons` `{leftProjectId, rightProjectId, from, to, mode, metricProfile}`。 | 未说明 `mode` 在对比接口中的允许枚举值，以及当左项目关联在线源、右项目关联历史数据集时如何裁决。 | 显式定义：`mode: 'online' \| 'archive_aggregate'`。两边必须在同一 `mode` 下比较；若请求 `metricProfile: 'engagement'`，两边 `ContentFilter` 解析出的有效 `platforms` 必须收敛为同一单一平台（如均为 `reddit` 或均为 `x`），否则直接返回 `422 Unprocessable Entity`。 |
-| **GAP-07** | [contracts.md §7 `EXP-01`](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/docs/contracts.md#L190) | “小型即时导出可沿当前 cursor 分段；大导出固定 scope 后后台生成并流式写文件，不在内存积累全量。” | 当前 `research_export_member` 把最多 20,000 条 JSONB 存在 PG 表里（32 MiB 上限），而 `EXP-01` 又提到“流式写文件”，存在“存 PG 表 vs 写磁盘私有目录”的双重机制模糊。 | **单机最简统一方案**：既然冻结上限是 20,000 条 / 32 MiB，直接在 PG 内部用 `INSERT INTO research_export_member ... SELECT ...` 冻结成员（无需后台文件队列），下载时用 PG Cursor / 分批流式输出 CSV/JSON 响应流（Node 内存占用恒定 `< 2 MiB`）。只有未来需要 $>10$ 万条导出时才引入磁盘文件产物，标记 `// shortcut: <=20k rows frozen in PG table, move to zstd file artifact if limit > 50k`。 |
-| **GAP-08** | [architecture.md §2 Worker 调度](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/docs/architecture.md#L40) | “任务页无需吞吐等待时不固定睡眠；按最早 due time 等待，并服从 provider 限流。” | 当前实码有两处硬编码睡眠：<br>1. `commitPage` 硬编码 `next_run_at = now + 5000ms`（[postgres-source-content.repository.ts:L130](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/storage/repositories/postgres/postgres-source-content.repository.ts#L130)）；<br>2. `source-content-worker.ts` 每页固定 `delay(1500)`。 | 1. `commitPage` 续页时将 `next_run_at` 设为 `now`（由 `reserveUsage` 中的 `source_provider_budget.minimum_interval_ms` 统一控制 provider 最小请求间隔，不在 job 层硬编码 5 秒）；<br>2. Worker 在 `workOnce() === true` 时 `setImmediate` 立即领下一页；仅当无任务可领时，查询 `MIN(next_run_at)` 并 `sleep(clamp(nextDue - now, 500ms, 5000ms))`（或监听 PG `LISTEN/NOTIFY` 唤醒）。 |
+### 2.7 `listContent()` 偷用 `first_seen_at` 冒充 `publishedAt` 排序，且 Arctic Shift 限制 12 位 ID
+- **证据 1**：[postgres-source-content.repository.ts](../../src/storage/repositories/postgres/postgres-source-content.repository.ts#L250-L255) 使用 `COALESCE(c.created_at_source, c.first_seen_at) AS sort_time` 进行排序和生成 cursor，违反 [docs/README.md](../README.md#L67) (`MET-04`) 与 [docs/contracts.md](../contracts.md#L63) (`QRY-05`)。
+- **证据 2**：[arctic-shift-content.connector.ts](../../src/connectors/reddit/arctic-shift-content.connector.ts#L45) 使用 `/^[a-z0-9]{2,12}$/i` 校验 Reddit ID，导致 13 位评论 ID 刷新直接失败（见 [docs/status.md](../status.md#L48)），需放宽为 `/^[a-z0-9]{2,32}$/i`。
 
 ---
 
-## 4. 借鉴 GitHub 成熟开源项目与工程实践的 6 项核心模块改造设计
+## 3. 对远端生产环境负责：主线安全、稳定与反过度设计基线
 
-基于你“不能过度解释、过度防御、过度冗余测试，各个模块最低复杂度最高性能，单服务器”的要求，我们结合对 `fastify`、`typebox`、`miniflux/v2`、`newsnext/newsnow`、`DIYgod/RSSHub`、`ArthurHeitmann/arctic_shift` 及 PostgreSQL 16 / DuckDB 源码级实践的研究，给出 6 个核心模块的**最简高性能定式**：
-
-### 4.1 边界层：Fastify 5 + TypeBox 单点契约（替代 3,606 行手写路由与多层重复校验）
-- **参考标杆**：`fastify/fastify@v5.x` + `@fastify/type-provider-typebox`（编译期 TypeScript 类型推导 + 运行时 `ajv` JIT 预编译校验合一）。
-- **砍掉的旧复杂度**：
-  - 删除 `apps/api/src/create-api-server.ts`（3,606 行）、`apps/api/src/api-validation.ts`、`src/domain/source-content-validation.ts` 以及各个 `Service` 内部手写的 `if (typeof x !== "string" || ...)` 重复校验。
-- **极简架构定式**：
-  1. `packages/contracts/src/` 中用 `Type.Object(...)` 定义 Schema（同时 `Static<typeof Schema>` 导出给前端 `apps/web` 和后端模块复用，**全栈唯一类型源**）。
-  2. Fastify 路由挂载 Schema 后，请求进入 handler 时**已经是完成边界校验与类型收窄的合法数据**。内部业务函数与 SQL 函数直接信任强类型参数，**零 `typeof` / `Array.isArray` / `structuredClone` 防御噪音**。
-  3. 全局注册一个 `setErrorHandler`：将 `AppError(code, status, message, details)` 统一序列化为 `{ error: { code, message, requestId, details } }`，删除各路由分散的 `try/catch` 包装。
-
-### 4.2 写入热路径：PostgreSQL 16 `UNNEST` 集合页提交 + 复合元组 `DAT-04` 版本守卫
-- **参考标杆**：PostgreSQL 16 Bulk Loading (`UNNEST` columnar array binding) —— 将 100 条/页的写入从 **404 次 SQL 往返**压缩为 **单事务 4 条 SQL**（无论一页是 10 条还是 100 条，数据库往返恒为常数 $O(1)$）。
-- **核心 SQL 蓝图（直接替换 `commitPage` 中的 `for` 循环）**：
-  ```sql
-  -- 单条 CTE 完成整页 100 条正文的幂等 Upsert、DAT-04 版本比较与全文检索投影同步
-  WITH input_rows AS (
-    SELECT *
-    FROM unnest(
-      $1::uuid[],        -- id
-      $2::uuid[],        -- source_id (platform_id)
-      $3::text[],        -- kind
-      $4::text[],        -- external_id
-      $5::text[],        -- title
-      $6::text[],        -- body_text
-      $7::text[],        -- url
-      $8::timestamptz[], -- created_at_source (publishedAt)
-      $9::timestamptz[], -- fetched_at
-      $10::jsonb[],      -- content_author
-      $11::jsonb[],      -- content_media
-      $12::jsonb[],      -- content_references
-      $13::jsonb[],      -- platform_details
-      $14::text[],       -- language
-      $15::text[],       -- availability
-      $16::timestamptz[],-- content_observed_at (sourceObservedAt)
-      $17::text[],       -- content_evidence_key
-      $18::text[]        -- normalized_search_text
-    ) AS t(
-      id, source_id, kind, external_id, title, body_text, url,
-      created_at_source, fetched_at, content_author, content_media,
-      content_references, platform_details, language, availability,
-      content_observed_at, content_evidence_key, search_text
-    )
-  ),
-  upserted_content AS (
-    INSERT INTO content (
-      id, source_id, kind, external_id, title, body_text, url, permalink,
-      created_at_source, first_seen_at, last_seen_at,
-      content_author, content_media, content_references, platform_details,
-      language, availability, content_observed_at, content_evidence_key
-    )
-    SELECT
-      id, source_id, kind, external_id, title, body_text, url, url,
-      created_at_source, fetched_at, fetched_at,
-      content_author, content_media, content_references, platform_details,
-      language, availability, content_observed_at, content_evidence_key
-    FROM input_rows
-    ON CONFLICT (source_id, kind, external_id) DO UPDATE SET
-      -- DAT-04 复合元组比较：已知观测时间 > 未知；同为已知比 sourceObservedAt；同为未知比 fetchedAt；平局比 evidenceKey
-      title = CASE
-        WHEN (EXCLUDED.content_observed_at IS NOT NULL, COALESCE(EXCLUDED.content_observed_at, EXCLUDED.last_seen_at), EXCLUDED.content_evidence_key)
-           > (content.content_observed_at IS NOT NULL, COALESCE(content.content_observed_at, content.last_seen_at), content.content_evidence_key)
-        THEN CASE WHEN EXCLUDED.availability IN ('deleted', 'removed') THEN EXCLUDED.title ELSE COALESCE(EXCLUDED.title, content.title) END
-        ELSE COALESCE(content.title, EXCLUDED.title)
-      END,
-      body_text = CASE
-        WHEN (EXCLUDED.content_observed_at IS NOT NULL, COALESCE(EXCLUDED.content_observed_at, EXCLUDED.last_seen_at), EXCLUDED.content_evidence_key)
-           > (content.content_observed_at IS NOT NULL, COALESCE(content.content_observed_at, content.last_seen_at), content.content_evidence_key)
-        THEN CASE WHEN EXCLUDED.availability IN ('deleted', 'removed') THEN EXCLUDED.body_text ELSE COALESCE(EXCLUDED.body_text, content.body_text) END
-        ELSE COALESCE(content.body_text, EXCLUDED.body_text)
-      END,
-      availability = CASE
-        WHEN (EXCLUDED.content_observed_at IS NOT NULL, COALESCE(EXCLUDED.content_observed_at, EXCLUDED.last_seen_at), EXCLUDED.content_evidence_key)
-           > (content.content_observed_at IS NOT NULL, COALESCE(content.content_observed_at, content.last_seen_at), content.content_evidence_key)
-        THEN EXCLUDED.availability
-        ELSE content.availability
-      END,
-      content_observed_at = CASE
-        WHEN (EXCLUDED.content_observed_at IS NOT NULL, COALESCE(EXCLUDED.content_observed_at, EXCLUDED.last_seen_at), EXCLUDED.content_evidence_key)
-           > (content.content_observed_at IS NOT NULL, COALESCE(content.content_observed_at, content.last_seen_at), content.content_evidence_key)
-        THEN EXCLUDED.content_observed_at
-        ELSE content.content_observed_at
-      END,
-      content_evidence_key = CASE
-        WHEN (EXCLUDED.content_observed_at IS NOT NULL, COALESCE(EXCLUDED.content_observed_at, EXCLUDED.last_seen_at), EXCLUDED.content_evidence_key)
-           > (content.content_observed_at IS NOT NULL, COALESCE(content.content_observed_at, content.last_seen_at), content.content_evidence_key)
-        THEN EXCLUDED.content_evidence_key
-        ELSE content.content_evidence_key
-      END,
-      created_at_source = COALESCE(content.created_at_source, EXCLUDED.created_at_source),
-      first_seen_at = LEAST(content.first_seen_at, EXCLUDED.first_seen_at),
-      last_seen_at = GREATEST(content.last_seen_at, EXCLUDED.last_seen_at)
-    RETURNING id, kind, external_id, title, body_text, (xmax = 0) AS inserted
-  )
-  SELECT * FROM upserted_content;
-  ```
-- **性能收益**：100 条/页的纯数据库写入耗时从 `~780ms`（404 次往返）降至 `~12–25ms`（4 次批量往返），单机吞吐轻松突破 **2,000+ 条/秒**（远超 `ARC-13` 的 200 条/秒目标）。
-
-### 4.3 查询与项目概览层：单点 Filter 编译器 + `GROUPING SETS` 单次扫描
-- **参考标杆**：单点 SQL AST/Fragment 编译，拒绝 Repository/Service 层层拼装。
-- **极简架构定式**：
-  - 将 `compileContentFilter(scope, filter)` 实现为唯一纯函数，输入 `ProjectScope` (`sourceIds`, `datasetIds`) 与 `ContentFilter`，输出 `{ whereSql, params }`。
-  - **列表查询 (`GET /v1/projects/:id/content` / `GET /v1/content`)**：只查 `limit + 1` 条，使用 `LATERAL` 子查询仅取这 `25` 条内容的最新 `observations`，绝不扫全表算 `coverage`。
-  - **项目概览 (`GET /v1/projects/:id/overview`)**：用 **1 条 SQL** 完成全部统计（替代原来 `contentWorkbench` 的 10+ 次全表查询）：
-    ```sql
-    WITH matched AS (
-      SELECT c.id, c.source_id, c.kind,
-             to_char(c.created_at_source AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS pub_day
-      FROM content c
-      WHERE /* compileContentFilter(projectScope, filter) */
-    ),
-    facets AS (
-      SELECT
-        GROUPING(pub_day, source_id, kind) AS grp,
-        pub_day, source_id, kind,
-        COUNT(*)::int AS cnt
-      FROM matched
-      GROUP BY GROUPING SETS (
-        (),             -- 总数 (contentCount)
-        (pub_day),      -- 日趋势 + unknownTimeCount (pub_day IS NULL)
-        (source_id),    -- byPlatform
-        (kind)          -- byKind
-      )
-    ),
-    providers AS (
-      SELECT cs.provider, COUNT(DISTINCT m.id)::int AS cnt
-      FROM matched m
-      JOIN content_discovery d ON d.content_id = m.id
-      JOIN collection_source cs ON cs.id = d.collection_source_id
-      WHERE d.collection_source_id = ANY($project_source_ids::uuid[])
-      GROUP BY cs.provider
-    )
-    SELECT
-      (SELECT jsonb_agg(facets) FROM facets) AS facets,
-      (SELECT jsonb_agg(providers) FROM providers) AS providers;
-    ```
-
-### 4.4 在线采集与聚合源（NewsNow + RSSHub + Miniflux 模式）
-- **参考源码**：
-  - `miniflux/v2` (`internal/reader/handler/handler.go` & `internal/worker/pool.go`)：HTTP 条件请求（`ETag` / `If-Modified-Since` $\to$ `304 Not Modified` 只更新 `last_checked_at` 而不产生新观测或空事务）与有界 Worker 池。
-  - `newsnext/newsnow` (`server/sources/ithome.ts`, `hackernews.ts`)：每个榜单源本质上只是一个 **25~50 行的纯函数 `fetchGetter(fetcher, signal) -> RawBoardItem[]`**。
-  - `DIYgod/RSSHub` (`lib/middleware/cache.ts`, `template.tsx`)：理解其 `lastBuildDate` 是构建/缓存时间而非文章 `pubDate`，只把受控 RSSHub 路由当作标准 RSS/Atom XML 消费。
-- **极简落地定式**：
-  1. `collection_source` 新增轻量列 `http_etag TEXT, http_last_modified TEXT, last_checked_at TIMESTAMPTZ`。收到 `304` 时 1 条 `UPDATE collection_source SET last_checked_at = $2` 即结束，不写假快照（落实 `COL-07`）。
-  2. `src/connectors/newsnow/` 只放一个文件 `newsnow-getters.ts`（内置 2~3 个白名单纯函数 getter，如 `ithome`, `hackernews`）+ `newsnow.connector.ts`。**不引入 `cheerio` 若简单正则/DOM 即可解析，或仅在需要 HTML 选择器时复用单一轻量解析器；绝不移植 NewsNow 的 `myFetch` / Nitro / Unstorage 框架**。
-  3. `src/connectors/feed/feed.connector.ts`：一个 120 行以内的标准 RSS 2.0 / Atom 1.0 XML 解析器（禁用外部实体 XXE，仅解析 `<item>` / `<entry>` 的 `guid/id`, `link`, `title`, `pubDate/published`, `description/content`），同时服务原生 RSS 与白名单 RSSHub 路由。
-
-### 4.5 离线历史归档流水线（`ArthurHeitmann/arctic_shift` + `DuckDB` + PG `COPY`）
-- **参考源码**：`ArthurHeitmann/arctic_shift@11bbf2e6:scripts/fileStreams.py` + DuckDB Streaming Parquet Export + PostgreSQL `COPY ... FROM STDIN`。
-- **关键工程洞察**：
-  - Arctic Shift 的 `fileStreams.py` 使用 `zstandard.ZstdDecompressor(max_window_size=2**31).stream_reader(f)` 流式解压，但原脚本直接 `except json.JSONDecodeError: continue` 吞掉坏行（违反 `IMP-01`）。
-  - DuckDB 原生支持直接流式读取 `.zst` 压缩的 NDJSON（`read_json_auto('RS_2025-09.zst', compression='zstd', ignore_errors=false, maximum_object_size=33554432)`）并在 C++ 向量化引擎内完成过滤、日桶聚合和 Parquet 导出，比纯 Python 逐行 `json.loads` 快 **8~15 倍**且内存严格受 `SET memory_limit = '4GB'; SET temp_directory = '...';` 约束！
-- **极简两阶段架构（~250 行 Python + ~180 行 TS 导入器）**：
-  1. **离线生产 CLI (`scripts/archive_producer.py`，约 250 行独立脚本)**：
-     - 第一步：用 `zstandard` + `orjson` 流式扫描 `.zst` 一遍（或 DuckDB 流式扫描），精确统计 `raw_rows / accepted_rows / rejected_rows / duplicate_rows` 与输入文件 `sha256`（满足 `IMP-01` 可审计性），同时写出紧凑列式 `posts.parquet`；
-     - 第二步：用 DuckDB 对 `posts.parquet` 一条 SQL 生成 `activity_day.parquet`（或 `.csv`）与入选主题的 `retained_evidence.jsonl` + `manifest.json`。
-  2. **在线包导入 CLI (`scripts/import-dataset-package.ts`，约 180 行)**：
-     - 校验 `manifest.json` 与文件 `sha256`；
-     - 用 `pg-copy-streams`（或 PG 原生 `COPY ... FROM STDIN`）将汇总与证据直接流式灌入 `archive_activity_day` 和 `dataset_evidence_item`（绑定新的 `partition_revision_id`）；
-     - 短事务内校验行数一致后，构造新的 `dataset_release` + `dataset_release_partition` 清单，并原子更新 `dataset.current_release_id`（满足 `ARC-10 / IMP-05 / IMP-06`）。
+由于主线系统长年运行在你的远端服务器上，我们需要用**真实的公网边界防护与资源熔断**替代无意义的内部 `typeof` 防御，并建立防止 AI 代码腐化的工程护栏：
 
 ```mermaid
-sequenceDiagram
-  autonumber
-  participant ZST as "Arctic Shift .zst 原档"
-  participant PY as "离线 Producer (Python + DuckDB)"
-  participant PKG as "不可变数据包 (目录 + manifest.json)"
-  participant CLI as "在线导入 CLI (TS + COPY)"
-  participant PG as "PostgreSQL 16 (单机)"
+flowchart LR
+  subgraph Edge["公网边界层 (Caddy / Nginx TLS)"]
+    HTTPS["HTTPS :443"]
+  end
 
-  ZST->>PY: 顺序流式解压 + 规范校验 (1 pass)
-  PY->>PKG: 写出 activity.csv + evidence.jsonl + manifest.json (含 sha256/行数)
-  PKG->>CLI: validate → load → publish
-  CLI->>PG: 1. 登记 import_batch (幂等校验 packageId + sha256)
-  CLI->>PG: 2. COPY FROM STDIN 批量写入 revision 分区表 (无逐条 INSERT)
-  CLI->>PG: 3. 校验行数 & ANALYZE
-  CLI->>PG: 4. 短事务创建 dataset_release 并原子切换 dataset.current_release_id
+  subgraph Core["远端单机主线核心 (Node.js 22 + Fastify 5 单容器)"]
+    Guard["边界防护层\n• 默认拒绝 Session/Bearer 鉴权\n• 登录与写入 Rate Limit\n• TypeBox Schema 强校验"]
+    API["5 个扁平业务模块 (~3,500 LOC)\naccess / collection / content / projects / workspace"]
+    Worker["进程内有界调度器\n• PG SKIP LOCKED 防重入\n• 单流 15s 超时 + 304 缓存\n• 最大并发 = 2"]
+  end
+
+  subgraph DB["内网隔离存储 (127.0.0.1:5432)"]
+    PG[("PostgreSQL 16\n• statement_timeout = 10s\n• UNNEST 批量页写入\n• GROUPING SETS 单次聚合")]
+  end
+
+  subgraph Plugin["未来外挂扩展 (不进主线容器，零耦合)"]
+    ZST["plugins/zst-archive/\n本地 .zst -> 自索引排序 Parquet\n按需毫秒级检索"]
+  end
+
+  HTTPS --> Guard --> API --> PG
+  Worker --> PG
+  ZST -.->|"仅调用标准 HTTPS 接口\nPOST /v1/sources/:id/ingest\n(Bearer API Key)"| Guard
 ```
 
-### 4.6 前端架构 (`apps/web`)：URL 单一状态源 + TanStack Query（零手写缓存）
-- **砍掉的旧复杂度**：
-  - 删除 `MarketBoard.tsx`、`TargetDetail.tsx` (800 LOC)、`Compare.tsx`、`Dashboard.tsx`、`Queries.tsx`、`Ops.tsx`、`OpsAudit.tsx`、`Phase1RunCard.tsx`、`LegacyAnalysisNotice.tsx`。
-  - 压缩 `Content.tsx`（当前 39 KB 巨型单文件组件）为职责清晰的 feature 模块。
-- **极简架构定式**：
-  - **URL SearchParams 是 `ContentFilter` 的唯一状态源**（`useSearchParams` $\leftrightarrow$ `ContentFilter` 纯函数互转）。
-  - **TanStack Query 是唯一远端状态缓存**，queryKey 固定为 `['project', projectId, 'overview', filter]` 等；删除一切手写 `useEffect + fetch + useState` 状态同步。
-  - **图表库收敛**：当前 `package.json` 装的是金融 K 线库 `lightweight-charts`（只适合单一时间序列，画多平台堆叠柱状图/分布图极度别扭）。若需柱状/分组对比图，按 `ARC-01` 直接用原生 SVG 轻量组件（日趋势柱/线图 + 横向分布条仅需 `<120` 行 React SVG，零第三方图表包体积！）或按需引入 ECharts Core 并同批卸载 `lightweight-charts`。**推荐优先采用 120 行零依赖语义化 SVG + 数据表切换**，彻底省掉 500KB 图表运行时且原生支持键盘无障碍（`UX-05 / §5`）！
+### 3.1 远端服务器“安全与稳定”六条硬基线
+
+| 真实风险面 | 常见 AI 错误做法（假安全/真臃肿） | 我们的单服务器生产级做法（真安全/极简） |
+| :--- | :--- | :--- |
+| **1. 公网暴露与未授权访问** | 在业务函数里写满 `if (typeof x === 'string')`，但 API 端口裸奔或漏鉴权 | **默认拒绝（Default-Deny）全局 Hook**：除 `GET /healthz` 与 `POST /v1/auth/login` 外，所有 `/v1/*` 强制校验 `HttpOnly Secure SameSite=Lax` 会话 Cookie 或外挂专用 `Authorization: Bearer <API_KEY>`。 |
+| **2. 暴力破解与接口刷爆** | 自己手写几百行内存滑动窗口计数器 | 直接挂载 `@fastify/rate-limit`：登录接口限制 `5 次/分钟/IP`，全站 API 限制 `120 次/分钟/IP`。PostgreSQL 严格绑定内网 `127.0.0.1:5432`（绝不向公网暴露数据库端口）。 |
+| **3. 慢查询拖垮整台 VPS** | 每个请求跑 10 次 `COUNT(*)`，不设数据库超时，一卡全站挂死 | 在 `src/storage/db.ts` 初始化 `pg.Pool` 时统一锁死：**`max: 10`、`statement_timeout: 10_000`（10 秒硬中断慢 SQL）、`lock_timeout: 3_000`、`idle_in_transaction_session_timeout: 10_000`**。任何异常查询 10 秒自动熔断，绝不拖死主进程。 |
+| **4. 外部上游 API 卡死或限流** | 采集循环无限等待，或用 `sleep(5000)` 阻塞线程 | 每个 `ContentProvider.fetchPage` 强制传入 `AbortSignal.timeout(15_000)`；Worker 最大并发锁定为 `2`，通过 `FOR UPDATE SKIP LOCKED` 领任务；上游 429/5xx 走指数退避并记录到 `source_collection_job.error_message`。 |
+| **5. 远端更新重启丢数据** | 直接 `kill -9` 或无视未完成事务 | `server.ts` 监听 `SIGTERM / SIGINT`：先停止接收新 HTTP 请求并中断在途采集 `AbortController`，等待活跃事务完成后 `await pool.end()`（5 秒优雅退出），配合 `docker compose up -d` 零脏数据滚动重启。 |
+| **6. “配置配半年”痛点** | 30 多个必填环境变量，缺一个就启动失败或行为诡异 | **零废话启动配置**：全系统只需 **3 个必填环境变量**（`DATABASE_URL`、`SESSION_SECRET`、`ADMIN_BOOTSTRAP_PASSWORD`），其余全部具备合理的单机生产默认值，1 条 `docker compose up -d` 即可跑通完整产品。 |
+
+### 3.2 反 AI 过度设计四条工程准则（Human-in-the-Loop）
+
+1. **人类可读文件尺度（拒绝压缩面条代码）**：每个模块仅由 **`routes.ts`（HTTP 路由与 TypeBox Schema）+ `sql.ts`（排版清晰的命名 SQL 查询）** 组成，单文件控制在 `100 ~ 250 行`，打开任意文件 2 分钟内即可完全看懂并亲手修改。
+2. **最小侵入扩展原则（只留 1 个标准口，不提前造通用框架）**：主线只提供 **`POST /v1/sources/:id/ingest`**（接收 `NormalizedContentItem[]`，直接调用主线采集共用的 `commitContentBatch(pool, sourceId, items)`）。平时它是手动/Webhook 导入入口；未来 `.zst` 归档外挂直接调这个接口推流，主线连 `.zst` 这个词都不需要知道。
+3. **测试审计（用真实端到端系统测试替代 90 个假单元测试）**：砍掉 14 个 `InMemory*Repository` 和 80+ 个测假内存 Map 的单元测试文件；只保留 **1 套真实 PostgreSQL + Fastify HTTP 端到端测试（`tests/e2e/`）**，模拟真实用户流程（登录 $\to$ 创建来源与批量推流 $\to$ 项目概览与下钻对比 $\to$ 搜索、批注与流式导出）。
+4. **UI 与 README 去 AI 味**：删掉前端页面上所有解释内部概念的灰色说明框、协议代号（`DAT-04`、`coverage`、`search_document`）；`README.md` 控制在 60 行以内，直给安装命令、环境变量表与效果说明，拒绝“是什么/不是什么”的啰嗦说教。
 
 ---
 
-## 5. 四层极简架构蓝图（4-Layer Blueprint）与目录收敛对照
+## 4. 主线核心模块的极简技术定式与 SQL 蓝图
 
-### 5.1 四层架构约束表
+### 4.1 6 项核心契约修补（`GAP-01` 至 `GAP-06`）
 
-| 层级 | 核心设计裁决 | 反膨胀铁律 (Anti-Bloat Rule) |
+| 编号 | 所在文档与章节 | 具体问题 / 潜在故障场景 | 定稿标准定义 |
+| :--- | :--- | :--- | :--- |
+| **GAP-01** | [contracts.md §2 `DAT-04`](../contracts.md#L31) | `content` 表缺少 `content_evidence_key` 列，无法执行平局决胜；且较新观测省略正文时会用 `NULL` 覆盖已知正文。 | `content` 表新增 `content_evidence_key TEXT NOT NULL`。在 `ON CONFLICT` 中执行复合元组比较：`(EXCLUDED.content_observed_at IS NOT NULL, COALESCE(EXCLUDED.content_observed_at, EXCLUDED.last_seen_at), EXCLUDED.content_evidence_key) > (content.content_observed_at IS NOT NULL, COALESCE(content.content_observed_at, content.last_seen_at), content.content_evidence_key)`。非删除状态下使用 `COALESCE(EXCLUDED.body_text, content.body_text)` 保留已知正文。 |
+| **GAP-02** | [contracts.md §4 `QRY-05`](../contracts.md#L63) | 实码错误使用 `COALESCE(created_at_source, first_seen_at)` 排序，违反 `MET-04`。 | 配合索引 `ON content (created_at_source DESC NULLS LAST, id DESC)`：<br>• 当 `cursor.publishedAt !== null`：`(c.created_at_source < $t OR (c.created_at_source = $t AND c.id < $id) OR c.created_at_source IS NULL)`<br>• 当 `cursor.publishedAt === null`：`(c.created_at_source IS NULL AND c.id < $id)`。 |
+| **GAP-03** | [architecture.md §6 查询](../architecture.md#L137) | 双列 `normalized_title` / `normalized_text` 维护两份索引成本高，且 1~2 字短词在 `pg_trgm` 下退化为全表扫。 | 合并为单列 `search_text` 建 `gin_trgm_ops` 索引，移除 DELETE 触发器；短词结合 `source_id` + `created_at_source` B-tree 索引过滤，并由会话级 `statement_timeout = 10000` 兜底。 |
+| **GAP-04** | [contracts.md §1 `DAT-02/03`](../contracts.md#L20-L21) | NewsNow 榜单条目的 `content` 身份与排名快照 `evidenceKey` 规则未固化。 | 具备规范 URL 或原生 ID 的条目生成 `(platform='web', kind='article', externalId=canonicalUrl)` 的 `content`；每次抓取生成 `metrics={"web.rank": rank}` 的 `content_observation`，`evidenceKey = sha256(boardId + ":" + externalId + ":" + snapshotBucket)`。 |
+| **GAP-05** | [contracts.md §6.1 项目比较](../contracts.md#L168) | 原先混合在线与归档 dataset 导致模式复杂。 | 主线与外挂统一写入 `content` 表后，项目对比统一在已存 `content` 上按同时间窗计算；请求 `metricProfile: 'engagement'` 时，两边有效 `platforms` 必须为同一单一平台，否则返回 `422`。 |
+| **GAP-06** | [architecture.md §2 Worker 调度](../architecture.md#L40) | `commitPage` 硬编码 `next_run_at = now + 5000ms`，`source-content-worker.ts` 固定 `delay(1500)`。 | 续页时 `next_run_at = now`，由 `source_provider_budget.minimum_interval_ms` 统一控制限流间隔；Worker 有任务时立即续领，无任务时按 `clamp(nextDue - now, 500ms, 5000ms)` 休眠。 |
+
+### 4.2 写入热路径：PostgreSQL 16 `UNNEST` 集合批量提交（在线采集与外挂推流共用）
+
+将 100 条/页的写入从 **404 次 SQL 往返**压缩为 **单事务 4 条 SQL**（数据库往返恒为常数 $O(1)$，单机吞吐 `> 2,000 条/秒`）：
+
+```sql
+-- 单条 CTE 完成整批正文的幂等 Upsert 與 DAT-04 复合元组版本比较
+WITH input_rows AS (
+  SELECT *
+  FROM unnest(
+    $1::uuid[], $2::uuid[], $3::text[], $4::text[], $5::text[], $6::text[],
+    $7::text[], $8::timestamptz[], $9::timestamptz[], $10::jsonb[], $11::jsonb[],
+    $12::jsonb[], $13::jsonb[], $14::text[], $15::text[], $16::timestamptz[],
+    $17::text[], $18::text[]
+  ) AS t(
+    id, source_id, kind, external_id, title, body_text, url,
+    created_at_source, fetched_at, content_author, content_media,
+    content_references, platform_details, language, availability,
+    content_observed_at, content_evidence_key, search_text
+  )
+),
+upserted_content AS (
+  INSERT INTO content (
+    id, source_id, kind, external_id, title, body_text, url, permalink,
+    created_at_source, first_seen_at, last_seen_at,
+    content_author, content_media, content_references, platform_details,
+    language, availability, content_observed_at, content_evidence_key
+  )
+  SELECT
+    id, source_id, kind, external_id, title, body_text, url, url,
+    created_at_source, fetched_at, fetched_at,
+    content_author, content_media, content_references, platform_details,
+    language, availability, content_observed_at, content_evidence_key
+  FROM input_rows
+  ON CONFLICT (source_id, kind, external_id) DO UPDATE SET
+    title = CASE
+      WHEN (EXCLUDED.content_observed_at IS NOT NULL, COALESCE(EXCLUDED.content_observed_at, EXCLUDED.last_seen_at), EXCLUDED.content_evidence_key)
+         > (content.content_observed_at IS NOT NULL, COALESCE(content.content_observed_at, content.last_seen_at), content.content_evidence_key)
+      THEN CASE WHEN EXCLUDED.availability IN ('deleted', 'removed') THEN EXCLUDED.title ELSE COALESCE(EXCLUDED.title, content.title) END
+      ELSE COALESCE(content.title, EXCLUDED.title)
+    END,
+    body_text = CASE
+      WHEN (EXCLUDED.content_observed_at IS NOT NULL, COALESCE(EXCLUDED.content_observed_at, EXCLUDED.last_seen_at), EXCLUDED.content_evidence_key)
+         > (content.content_observed_at IS NOT NULL, COALESCE(content.content_observed_at, content.last_seen_at), content.content_evidence_key)
+      THEN CASE WHEN EXCLUDED.availability IN ('deleted', 'removed') THEN EXCLUDED.body_text ELSE COALESCE(EXCLUDED.body_text, content.body_text) END
+      ELSE COALESCE(content.body_text, EXCLUDED.body_text)
+    END,
+    availability = CASE
+      WHEN (EXCLUDED.content_observed_at IS NOT NULL, COALESCE(EXCLUDED.content_observed_at, EXCLUDED.last_seen_at), EXCLUDED.content_evidence_key)
+         > (content.content_observed_at IS NOT NULL, COALESCE(content.content_observed_at, content.last_seen_at), content.content_evidence_key)
+      THEN EXCLUDED.availability
+      ELSE content.availability
+    END,
+    content_observed_at = CASE
+      WHEN (EXCLUDED.content_observed_at IS NOT NULL, COALESCE(EXCLUDED.content_observed_at, EXCLUDED.last_seen_at), EXCLUDED.content_evidence_key)
+         > (content.content_observed_at IS NOT NULL, COALESCE(content.content_observed_at, content.last_seen_at), content.content_evidence_key)
+      THEN EXCLUDED.content_observed_at
+      ELSE content.content_observed_at
+    END,
+    content_evidence_key = CASE
+      WHEN (EXCLUDED.content_observed_at IS NOT NULL, COALESCE(EXCLUDED.content_observed_at, EXCLUDED.last_seen_at), EXCLUDED.content_evidence_key)
+         > (content.content_observed_at IS NOT NULL, COALESCE(content.content_observed_at, content.last_seen_at), content.content_evidence_key)
+      THEN EXCLUDED.content_evidence_key
+      ELSE content.content_evidence_key
+    END,
+    created_at_source = COALESCE(content.created_at_source, EXCLUDED.created_at_source),
+    first_seen_at = LEAST(content.first_seen_at, EXCLUDED.first_seen_at),
+    last_seen_at = GREATEST(content.last_seen_at, EXCLUDED.last_seen_at)
+  RETURNING id, kind, external_id, title, body_text, (xmax = 0) AS inserted
+)
+SELECT * FROM upserted_content;
+```
+
+### 4.3 查询与项目概览层：单点 Filter 编译器 + `GROUPING SETS` 单次扫描
+
+将 `compileContentFilter(scope, filter)` 实现为唯一纯函数，项目概览（`GET /v1/projects/:id/overview`）用 **1 条 SQL** 完成全部统计（替代原来 `contentWorkbench` 的 10+ 次全表查询）：
+
+```sql
+WITH matched AS (
+  SELECT c.id, c.source_id, c.kind,
+         to_char(c.created_at_source AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS pub_day
+  FROM content c
+  WHERE /* compileContentFilter(projectScope, filter) */
+),
+facets AS (
+  SELECT
+    GROUPING(pub_day, source_id, kind) AS grp,
+    pub_day, source_id, kind,
+    COUNT(*)::int AS cnt
+  FROM matched
+  GROUP BY GROUPING SETS (
+    (),             -- 总数 (contentCount)
+    (pub_day),      -- 日趋势 + unknownTimeCount (pub_day IS NULL)
+    (source_id),    -- byPlatform
+    (kind)          -- byKind
+  )
+),
+providers AS (
+  SELECT cs.provider, COUNT(DISTINCT m.id)::int AS cnt
+  FROM matched m
+  JOIN content_discovery d ON d.content_id = m.id
+  JOIN collection_source cs ON cs.id = d.collection_source_id
+  WHERE d.collection_source_id = ANY($project_source_ids::uuid[])
+  GROUP BY cs.provider
+)
+SELECT
+  (SELECT jsonb_agg(facets) FROM facets) AS facets,
+  (SELECT jsonb_agg(providers) FROM providers) AS providers;
+```
+
+---
+
+## 5. 主线系统的最终极简结构（5 模块 × 5 页面 × 仅新增 2 张表）
+
+### 5.1 数据库模型（主线零归档表、零导出冻结表）
+
+| 模块 | 唯一负责的数据库表 | 核心职责与减法说明 |
 | :--- | :--- | :--- |
-| **1. Scale & Invariants (规模与不变量)** | • 单机 4 vCPU / 8 GiB / PG16，承载 100 万内容、300 万观测、20 采集流。<br>• 内容唯一身份 `(platform, kind, external_id)`；观测幂等键 `(content_id, collection_source_id, evidence_key)`。<br>• 历史统计绑定不可变 `release_id`，在线更新绝不污染已发布 release 或已冻结 `research_export`。 | 标记已知单机捷径：<br>`// shortcut: single-worker PG SKIP LOCKED up to ~50 active sources` |
-| **2. State Ownership (单一状态所有权)** | • `access` 独占账户/会话/邀请/审计<br>• `collection` 独占采集源/调度/租约/预算<br>• `content` 独占规范内容/发现/观测/全文投影<br>• `projects` 独占监测项目与关联关系<br>• `datasets` 独占归档批次/分区修订/发布版本/汇总与固定证据<br>• `workspace` 独占保存查询/注释/研究冻结快照 | **禁止双写与派生同步**：不建 `project_content` 关系表（通过 `EXISTS` 关联实时解析）；移除 `InMemory*Repository` 镜像；移除 `public_content_search_document` 的 DELETE 触发器。 |
-| **3. Trust & Failure Boundaries (信任与故障边界)** | • 外部 API/Feed 响应仅在 `src/connectors/*` 边界解析与消毒一次。<br>• HTTP 请求仅在 Fastify TypeBox Schema 边界校验一次。<br>• 网络请求/文件解压严禁在 PG 事务内执行；页提交与 release 发布均为毫秒级短事务。 | 内部模块间传递已校验的 TypeScript 类型，**删除所有内部重复的 `typeof` / 正则 SQL 检查 / `structuredClone`**。 |
-| **4. Narrow Contracts & Flow (窄契约与单向依赖)** | `apps/api` (Fastify routes) $\to$ `src/modules/*` (业务与 SQL) $\to$ `src/storage/db.ts` (`Pool`/`withTransaction`)。<br>`workers/source-worker.ts` $\to$ `src/modules/collection` + `src/connectors/*` $\to$ `src/modules/content`。 | **零空壳分层**：禁止 `Controller -> Service -> Repository Interface -> PostgresRepository -> RowMapper` 五层转发。每个模块仅 2~3 个文件（如 `routes.ts`, `service.ts`, `sql.ts`）。 |
+| **`access`** | `app_user`, `app_user_password`, `app_session`, `app_invite`, `app_audit_log` | 维持现有 `039` 表结构；提供 Cookie 会话与外挂 API Key 鉴权；砍掉 `AppUserRepository` 接口层。 |
+| **`collection`** | `source`, `collection_source`, `source_collection_job`, `source_provider_budget`, `source_provider_usage`, `source_worker_heartbeat` | 管理在线采集流（Reddit Arctic Shift / X / NewsNow / RSSHub）；补齐 `http_etag / http_last_modified` 条件请求；提供标准批量写入入口 `POST /v1/sources/:id/ingest` 供外挂调用。 |
+| **`content`** | `content`, `content_discovery`, `content_observation`, `public_content_search_document` | • `content` 补齐 `content_evidence_key TEXT`；<br>• 搜索投影收敛为 `search_text` 单列 + `pg_trgm` GIN 索引；<br>• 页写入采用 **PostgreSQL `UNNEST` 集合批量提交（每页仅 4 条 SQL）**；<br>• 修复游标分页为 `created_at_source DESC NULLS LAST, id DESC`。 |
+| **`projects`** | **`monitor_project`**, **`monitor_project_source`** *(全系统唯一新增的 2 张表)* | 保存项目的 `filter JSONB` 与关联的 `collection_source_id`；通过单条 `GROUPING SETS` SQL 实时计算项目概览与双项目对比。 |
+| **`workspace`** | `content_saved_query`, `content_annotation` | 保存个人常用筛选条件、收藏与批注；1 条 `JOIN content` SQL 消除 N+1；流式导出 CSV/JSON。 |
 
-### 5.2 重构前后代码量对比预算（Subtraction Budget）
+### 5.2 后端与外挂目录结构及代码量预算
+
+```text
+apps/api/src/
+  app.ts                  # Fastify 5 实例、全局 Auth Guard、RateLimit、ErrorHandler
+  server.ts               # 启动入口与 SIGTERM 优雅退出 (≤ 60 LOC)
+src/modules/
+  access/                 # routes.ts + sql.ts (登录、会话、API Key、邀请、审计)
+  collection/             # routes.ts + worker.ts + sql.ts (来源管理、有界调度器、POST /v1/sources/:id/ingest 插件推流口)
+  content/                # routes.ts + sql.ts + search.ts (UNNEST 批量入库、单点 Filter 编译器、详情、流式 CSV/JSON 导出)
+  projects/               # routes.ts + sql.ts (项目 CRUD、GROUPING SETS 单次概览、双项目对比)
+  workspace/              # routes.ts + sql.ts (保存筛选、收藏与批注 JOIN 查询)
+src/connectors/           # 唯一保留 ContentProvider 多实现接口的边界层
+  arctic-shift.ts         # Reddit Arctic Shift API (修复 {2,32} ID 校验与无延迟翻页)
+  kaix.ts                 # Reddit Apify kaix (保持 automaticRequestReplay=false)
+  twitterapi-io.ts        # X TwitterAPI.io
+  newsnow.ts              # 2-3 个精选 MIT 榜单纯函数采集器 (如 hackernews, ithome)
+  feed.ts                 # 通用 RSS/Atom 解析器 (支持原生 RSS 与自建 RSSHub 路由)
+src/storage/
+  db.ts                   # pg Pool (含 statement_timeout=10s / lock_timeout=3s) 与事务助手
+  schema/                 # 001..040 历史迁移 + 041_projects_and_core_fixes.sql
+packages/contracts/       # TypeBox Schema (API 契约与前后端共享类型唯一真源)
+plugins/                  # 【外挂扩展目录：独立于主线服务，按需单独运行】
+  zst-archive/            # 后续独立迭代：DuckDB .zst -> 自索引排序 Parquet + 按需检索并推流至 POST /v1/sources/:id/ingest
+```
 
 | 模块 / 目录 | 当前规模 (`main@7045185`) | 重构后目标规模 | 削减比例 | 关键减法动作 |
 | :--- | ---: | ---: | ---: | :--- |
-| `apps/api/src/` | 16 文件 / 5,120 LOC (203 KB) | 4 文件 / **~450 LOC** | **-91%** | Fastify 5 + TypeBox 替代 `create-api-server.ts` (3,606 LOC) 与 `readyz-observability.ts` (793 LOC) |
-| `src/` (后端核心) | 186 文件 / 27,236 LOC (1.11 MB) | ~28 文件 / **~3,200 LOC** | **-88%** | 切除全部 Phase1/趋势/异常/Scrapling/InMemory 仓储/单实现接口；收敛为 6 个纵向模块 + 5 个轻量 connector |
-| `apps/web/src/` | 49 文件 / 6,508 LOC (376 KB) | ~22 文件 / **~2,400 LOC** | **-63%** | 删除 6 个旧页面；拆解压缩的 `Content.tsx`；用原生 SVG 图表替代 `lightweight-charts` |
-| `scripts/` + `workers/` | 54 文件 / 10,624 LOC (512 KB) | ~10 文件 / **~1,200 LOC** | **-89%** | 仅保留单一 `source-worker.ts`、归档生产/导入 CLI、迁移、备份恢复与打包脚本 |
-| `tests/` | 152 文件 / 24,046 LOC (1.10 MB) | ~20 文件 / **~2,200 LOC** | **-91%** | 删除旧业务测试与 InMemory 双跑 helper；每个高风险契约保留 **1 个高信噪比真实 PG 集成测试** |
-| **全仓合计** | **457 源码文件 / ~73,534 LOC** | **~84 文件 / ~9,450 LOC** | **-87%** | **彻底消除历史包袱，实现单机最低复杂度与最高吞吐** |
+| `apps/api/src/` | 16 文件 / 5,120 LOC (203 KB) | 4 文件 / **~400 LOC** | **-92%** | Fastify 5 + TypeBox 替代 `create-api-server.ts` (3,606 LOC) 与 `readyz-observability.ts` (793 LOC) |
+| `src/` (后端核心) | 186 文件 / 27,236 LOC (1.11 MB) | ~22 文件 / **~2,800 LOC** | **-90%** | 切除全部 Phase1/趋势/异常/Scrapling/InMemory 仓储/单实现接口/ResearchExport；收敛为 5 个模块 + 5 个 connector |
+| `apps/web/src/` | 49 文件 / 6,508 LOC (376 KB) | ~18 文件 / **~2,000 LOC** | **-69%** | 删除 6 个旧页面；拆解压缩的 `Content.tsx`；收敛为 5 个直观一级页面（项目、内容库、来源、我的研究、设置） |
+| `scripts/` + `workers/` | 54 文件 / 10,624 LOC (512 KB) | ~6 文件 / **~600 LOC** | **-94%** | 切除全部旧维护脚本，仅保留数据库迁移、备份恢复与构建检查脚本 |
+| `tests/` | 152 文件 / 24,046 LOC (1.10 MB) | ~10 文件 / **~1,200 LOC** | **-95%** | 删除旧业务测试与 InMemory 双跑 helper；保留纯函数单测 + 1 套真实 PG 端到端系统测试 (`tests/e2e/`) |
+| **全仓主线合计** | **457 源码文件 / ~73,534 LOC** | **~60 文件 / ~7,000 LOC** | **-90%** | **主线极度精干、可读可控、远端单机长期稳态运行** |
 
 ---
 
-## 6. 建议立即执行的推进路线（对齐 R0 $\to$ R5 并优化落地顺序）
+## 6. 外挂扩展深度研究备案：`plugins/zst-archive/`（脱离主线，后续按需独立迭代）
 
-1. **Step 0（文档微调收口，半天内完成）**：将上述 **GAP-01 至 GAP-08**（`DAT-04` 元组版本比较与 `content_evidence_key`、`QRY-05` `NULLS LAST` 真实游标、移除每次分页的全表 `coverageSql` 扫描、`dataset_evidence_item` 物理隔离、`pg_trgm` 单列 `search_text` + `statement_timeout`、SQL 内置 `REPEATABLE READ` 快照冻结、移除 5s/1.5s 硬编码睡眠）直接修订进 `docs/architecture.md` 与 `docs/contracts.md`，确保文档即精确施工图。
-2. **Step 1（R0 + R1 垂直切片：砍掉 InMemory 与旧 Runtime，打通 Fastify + `UNNEST` 页提交）**：
-   - 安装 `fastify` 与 `@sinclair/typebox`（同时卸载不再使用的 `opossum`）；
-   - 新增迁移 `041_rebuild_core_projects_and_datasets.sql`（补齐 `content_evidence_key`、`search_text` `pg_trgm` 索引、`monitor_project*`、`dataset*` 表）；
-   - 实现 `content` 模块的 `UNNEST` 批量页写入（100 条/页 4 次 SQL）与 `QRY-05` 标准分页，顺手修复 [arctic-shift-content.connector.ts](file:///e:/vibe%20coding/reddit-monitoring-mvp-local/src/connectors/reddit/arctic-shift-content.connector.ts#L45) 的 `{2,12}` $\to$ `{2,32}` 13 位 ID 缺陷。
-3. **Step 2（R2 项目与工作区闭环）**：用单条 `GROUPING SETS` SQL 实现项目概览、项目对比、SQL 内置 `INSERT ... SELECT` 研究快照冻结，以及新版 React 6 大主导航界面。
-4. **Step 3（R3 归档闭环 + R4 聚合源接入 + R5 一次性大删除）**：落地 250 行 Python+DuckDB 归档生产 CLI 与 PG `COPY` 导入 CLI，接入 NewsNow 白名单 getter 与通用 RSS/Atom adapter，最后一次性 `git rm` 切除全部 43,000+ 行旧 Phase1/InMemory/冗余测试代码。
+将历史 `.zst` 归档模块剥离为**外挂扩展**后，主线无需承载任何离线大数据复杂度；同时外挂本身采用 **“DuckDB 单次转 12 列聚簇排序自索引 Parquet + 按需提取调用 `POST /v1/sources/:id/ingest`”** 方案，彻底解决 `.zst` 无坐标索引痛点。
+
+### 6.1 物理根因：为什么不能直接给原始 `.zst` 建“行号 $\to$ 字节偏移量”索引？
+- **2 GiB 连续滑动字典窗口（`windowLogMax = 31`）**：Arctic Shift 月度包（如 `RS_YYYY-MM.zst`）是使用 Zstandard `level=22`、**2 GiB 跨行共享滑动窗口**压缩成的**单一连续比特流**。第 1,000 万行 JSON 的压缩字节依赖前 2 GiB 内出现过的字符串字典，直接 `seek()` 到中间偏移量解压会立刻报错 `ZstdError: unknown frame descriptor`。
+- **`ArthurHeitmann/zst_blocks_format` 的废弃实证**：Arctic Shift 作者曾尝试每 256 行切一个独立块并配 SQLite 偏移索引，但在 **2024 年 4 月宣布废弃**——因为切碎块破坏了跨行字典压缩（体积暴涨 30%+），且扫关键词比流式扫原档还慢 5~10 倍。
+
+### 6.2 最优外挂架构：1 条 DuckDB SQL 转为 **“带三级物理坐标索引的排序 Parquet”**
+1. **砍掉 80+ 个无用 JSON 噪音字段，体积比 `.zst` 缩小 3 倍**：
+   只保留 12 个核心列（`id, subreddit_lower, subreddit, author, title, selftext, created_utc, retrieved_on, score, num_comments, upvote_ratio, url`）并按 `ORDER BY subreddit_lower, created_utc` 聚簇排序写出 Zstd Parquet 后：
+   - 原本 **~15 GB** 的月度帖子包（`RS_YYYY-MM.zst`，约 3,500 万条帖子）缩小为 **~4.8 GB**（转换后即可删掉原 `.zst`，省下 65% 磁盘空间）。
+2. **Parquet Footer 内置三级物理坐标索引（零外部数据库依赖）**：
+   - **Row Group 字节偏移 + Min/Max Zonemap 极值坐标**：每 100,000 行一个独立压缩块，Footer 记录精确字节坐标 `file_offset` 与 `subreddit_lower / created_utc` 的 `[min, max]`。查单个 Subreddit 时直接跳过 99.7% 数据块，**15~35 毫秒**取出整月全部帖子。
+   - **内置二进制 Bloom Filter**：按 `id` 或 `author` 查找时 $O(1)$ 跳过无关块。
+   - **列式物理分离（全站跨社区搜关键词提速 30 倍）**：全站搜某个关键词时，DuckDB 16 核并行**只解压 `title` 和 `selftext` 两列**（跳过其余 10 列，且无需解析 JSON 语法），3,500 万条全站帖子仅需 **0.5 ~ 1.2 秒** 即可扫完。
+
+| 维度 | 原始 `.zst` 逐行流式扫 | 自建 `.zst` 块偏移索引 (`zst_blocks`) | **外挂方案：12 列排序自索引 Parquet** |
+| :--- | :--- | :--- | :--- |
+| **磁盘占用（单月 RS 3,500 万帖）** | 14.8 GB | 21.0 GB（含 SQLite 索引） | **4.8 GB（转换后可删原 `.zst`）** |
+| **首次转换耗时** | 0 | ~40 分钟（Python 单线程） | **3.5 ~ 5 分钟（DuckDB 多核并行）** |
+| **取单个 Subreddit 整月帖子** | 25 ~ 35 分钟 | 1 ~ 3 秒 | **15 ~ 35 毫秒（Zonemap 坐标直跳）** |
+| **全站任意关键词检索（跨全部社区）** | 25 ~ 35 分钟 | 40 ~ 60 分钟 | **0.5 ~ 1.2 秒（仅扫 `title/selftext` 列）** |
+| **对远端主线服务器的侵入度** | 需上传几十 GB 原档 | 需部署专用解压服务 | **0 侵入！只把命中的几千条 JSON 推入标准 `/ingest` 接口** |
+
+### 6.3 外挂原型脚本备案（`plugins/zst-archive/archive.py`）
+
+```python
+#!/usr/bin/env python3
+"""
+独立外挂：Reddit .zst 历史归档转自索引排序 Parquet & 按需推流主线 API
+用法:
+  1. 单次转表建坐标索引: python plugins/zst-archive/archive.py index RS_2026-09.zst data/archive/RS_2026-09.parquet
+  2. 本地毫秒级检索并推流远端主线:
+     python plugins/zst-archive/archive.py push "data/archive/*.parquet" \
+       --subreddits localllama --keyword "deepseek" \
+       --api-url https://your-server.com/v1/sources/<source_id>/ingest --api-key <key>
+"""
+import os, duckdb
+
+def build_parquet_index(zst_path: str, out_parquet: str, memory: str = "16GB", threads: int = 12):
+    os.makedirs(os.path.dirname(os.path.abspath(out_parquet)), exist_ok=True)
+    con = duckdb.connect()
+    con.execute(f"SET memory_limit='{memory}'; SET threads={threads}; SET preserve_insertion_order=false;")
+    con.execute(f"""
+    COPY (
+      SELECT
+        id,
+        lower(subreddit) AS subreddit_lower,
+        subreddit,
+        author,
+        title,
+        coalesce(selftext, '') AS selftext,
+        created_utc::BIGINT AS created_utc,
+        coalesce(retrieved_on, created_utc)::BIGINT AS retrieved_on,
+        score::INTEGER AS score,
+        num_comments::INTEGER AS num_comments,
+        upvote_ratio::DOUBLE AS upvote_ratio,
+        coalesce(permalink, '') AS permalink,
+        coalesce(url, '') AS url
+      FROM read_json('{zst_path}',
+        format='newline_delimited', compression='zstd', auto_detect=false, maximum_object_size=33554432,
+        columns={{
+          id:'VARCHAR', subreddit:'VARCHAR', author:'VARCHAR', title:'VARCHAR', selftext:'VARCHAR',
+          created_utc:'BIGINT', retrieved_on:'BIGINT', score:'BIGINT', num_comments:'BIGINT',
+          upvote_ratio:'DOUBLE', permalink:'VARCHAR', url:'VARCHAR'
+        }}
+      )
+      WHERE id IS NOT NULL AND subreddit IS NOT NULL AND created_utc IS NOT NULL
+      ORDER BY subreddit_lower, created_utc
+    ) TO '{out_parquet}' (
+      FORMAT PARQUET, COMPRESSION ZSTD, COMPRESSION_LEVEL 6,
+      ROW_GROUP_SIZE 100000, WRITE_BLOOM_FILTER true
+    );
+    """)
+```
+
+---
+
+## 7. 仓库正式文档同步修订清单与实施路线（R1 $\to$ R4）
+
+### 7.1 正式文档（`docs/` & `README.md`）同步清单
+1. **[README.md](../../README.md)**：删掉啰嗦套话，精简为 60 行以内的用户向快速上手指南（1 句话定位、核心功能表、3 步启动命令、3 个必填环境变量、文档入口）。
+2. **[AGENTS.md](../../AGENTS.md)**：写入“最小侵入原则、禁止单实现 Repository/InMemory 抽象、禁止压缩单行面条代码、用真实 PG E2E 测试替代假单元测试、主线与外挂严格分离”的工程铁律。
+3. **[docs/README.md](../README.md)**：明确主线聚焦远端单机在线多源监测产品；历史 `.zst` 归档索引定义为**外挂扩展（External Plugin）**；研究快照采用保存查询 + 收藏/批注 + 流式 CSV/JSON 导出。
+4. **[docs/architecture.md](../architecture.md)**：收敛为 **5 个扁平主线模块**（`access`, `collection`, `content`, `projects`, `workspace`）+ 外挂边界；废除全部 `*Repository` / `InMemory*`；新增表减至 **2 张**（`monitor_project`, `monitor_project_source`）；补入远端生产安全与稳定性六条硬基线。
+5. **[docs/contracts.md](../contracts.md)**：移除 7 张归档表、`/v1/datasets*`、`/v1/import-batches`、`/v1/research-exports`；新增 `POST /v1/sources/:id/ingest` 标准批量导入契约；修正 `DAT-04`、`QRY-05` 与 `UNNEST` 批量写入契约。
+6. **[docs/design.md](../design.md)**、**[docs/development.md](../development.md)**、**[docs/status.md](../status.md)**、**[docs/plans/source-expansion.md](../plans/source-expansion.md)**：导航精简为 5 项（项目、内容库、来源、我的研究、设置），更新去 AI Slop 界面准则、真实 PG E2E 测试策略与代码删除矩阵。
+
+### 7.2 四步落地切片（R1 $\to$ R4）
+- **R1（核心地基与减法重构）**：接入 Fastify 5 + TypeBox + 远端安全防护（Auth Guard / Rate Limit / PG 10s Timeout）；新增迁移 `041_projects_and_core_fixes.sql`；落地 `UNNEST` 批量页写入、`POST /v1/sources/:id/ingest` 与 `QRY-05` 游标分页；修复 Arctic Shift 13 位 ID 校验；一次性删除 14 个 `InMemory*Repository`、`ResearchExport` 与旧 `create-api-server.ts` / `Phase1` 主链。
+- **R2（项目工作台与流式导出）**：落地 `projects` 模块（`GROUPING SETS` 单次概览聚合、双项目同口径对比）、`workspace` 模块（JOIN 批注查询、流式 CSV/JSON 导出）及干净的 5 页面 React 前端。
+- **R3（在线聚合源接入与端到端验收）**：接入 NewsNow 白名单纯函数采集器与通用 RSS/Atom 解析器（含 `304 Not Modified` 条件请求），完成 `tests/e2e/` 真实 PostgreSQL 端到端测试套件与远端 Docker Compose 一键部署验收。
+- **R4（独立外挂演进，不阻塞主线）**：在 `plugins/zst-archive/` 下独立开发 `.zst` $\to$ 自索引排序 Parquet 转换与按需推流工具。

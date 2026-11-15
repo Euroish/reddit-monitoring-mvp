@@ -18,6 +18,7 @@
 | [交互设计](design.md) | 页面结构、流程、组件、图表与状态表达 |
 | [重建计划](plans/source-expansion.md) | 保留/删除边界、数据搬迁、依赖顺序与验收 |
 | [来源研究](research/data-sources.md) | 固定源码、来源选择、能力限制、归档研究取舍 |
+| [架构审查与减法蓝图](research/architecture_audit_and_rebuild_spec.md) | 实码尸检、主线与外挂解耦决策、远端单机安全稳定基线与重构蓝图 |
 | [开发说明](development.md) | 当前可执行命令、配置、验证与部署 |
 | [当前状态](status.md) | 当前源码事实、历史验证证据与未交付项 |
 
