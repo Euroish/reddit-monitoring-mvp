@@ -18,8 +18,20 @@ async function digest(filename) {
   const hash = createHash('sha256'); for await (const chunk of fs.createReadStream(filename)) hash.update(chunk); return hash.digest('hex');
 }
 export const DOCUMENTATION_FILES = Object.freeze([
-  'AGENTS.md', 'README.md', 'docs/README.md', 'docs/contracts.md', 'docs/development.md', 'docs/status.md',
+  'AGENTS.md',
+  'README.md',
+  'docs/README.md',
+  'docs/architecture.md',
+  'docs/contracts.md',
+  'docs/design.md',
+  'docs/development.md',
+  'docs/status.md',
+  'docs/history/development-log.md',
+  'docs/history/handoff.md',
+  'docs/research/data-sources.md',
+  'docs/research/architecture_audit_and_rebuild_spec.md',
   'docs/research/source_replacement_and_twitterapi_io_removal_spec.md',
+  'docs/plans/source-expansion.md',
 ]);
 const safeName = value => typeof value === 'string' && !path.posix.isAbsolute(value) && !value.includes('\\')
   && !value.split('/').some(part => !part || part === '.' || part === '..');
