@@ -18,6 +18,7 @@ test("release packaging allowlist excludes credentials/data and verification det
     ["docs/history/handoff.md", "historical delivery"], ["docs/history/development-log.md", "historical log"],
     ["docs/research/data-sources.md", "candidate evidence"], ["docs/plans/source-expansion.md", "future design"],
     ["docs/contracts.md", "data contracts"], ["docs/design.md", "interaction design"],
+    ["docs/research/source_replacement_and_twitterapi_io_removal_spec.md", "source removal and replacement spec"],
     ["docs/research/architecture_audit_and_rebuild_spec.md", "audit decisions"],
     ["dist/plugins/zst-archive/archive.js", "throw new Error('external plugin');"],
     ["plugins/zst-archive/archive.py", "raise RuntimeError('external plugin')"],
@@ -31,7 +32,7 @@ test("release packaging allowlist excludes credentials/data and verification det
   assert.ok(!manifest.files.some(file => file.path.endsWith(".env") || file.path.includes(".env.local")));
   for (const file of [
     "docs/history/handoff.md", "docs/history/development-log.md", "docs/research/data-sources.md",
-    "docs/research/architecture_audit_and_rebuild_spec.md", "docs/plans/source-expansion.md",
+    "docs/research/architecture_audit_and_rebuild_spec.md", "docs/research/source_replacement_and_twitterapi_io_removal_spec.md", "docs/plans/source-expansion.md",
     "docs/contracts.md", "docs/design.md",
   ]) assert.ok(manifest.files.some(entry => entry.path === file), `Missing moved/new documentation: ${file}`);
   assert.ok(!manifest.files.some(file => file.path === "docs/private-notes.md"));

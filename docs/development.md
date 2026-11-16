@@ -50,9 +50,9 @@ npm run local:stop
 
 | provider | 已有能力 | 配置/当前边界 |
 | --- | --- | --- |
-| arctic_shift | Reddit 社区/账号帖子评论、帖子评论、范围内关键词/已知 ID | 无 key；非全站关键词；13 位评论刷新校验缺陷待修 |
-| kaix | Reddit 跨社区 search、社区/账号帖子、账号/帖子评论 | `APIFY_API_TOKEN`；无 cursor，始终 partial；未知收费启动不自动重发 |
-| twitterapi_io | X 账号/关键词/ID 帖子 | `TWITTERAPI_IO_API_KEY`；未真实验收；timeout 默认 20000ms，允许100–120000 |
+| arctic_shift | Reddit 社区/账号帖子评论、帖子评论、范围内关键词/已知 ID | 无 key；非全站关键词；**已列入主线退役实删计划** |
+| kaix | Reddit 跨社区 search、社区/账号帖子、账号/帖子评论 | `APIFY_API_TOKEN`；无 cursor，始终 partial；未知收费启动不自动重发；计划解封伴随评论并新增 `red_crawler` Apify 备源 |
+| twitterapi_io | X 账号/关键词/ID 帖子 | `TWITTERAPI_IO_API_KEY`；未真实验收；timeout 默认 20000ms，允许100–120000；**已决定废弃并列入全量实删与替换计划（将切换为 `TwitterAPIs` + `ScrapeBadger`）**，见[替换规格](research/source_replacement_and_twitterapi_io_removal_spec.md) |
 | bluesky_appview | 公开账号作者帖子/回复 | 无 key；handle/DID；无关键词/完整历史/删除检测 |
 | demo_reddit / demo_x | 明确标记的合成数据 | 只验证流程，不算真实来源 |
 

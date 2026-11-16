@@ -67,6 +67,7 @@
 | [交互设计](design.md) | 五页面、主流程、文案、状态与可访问性 |
 | [重建计划](plans/source-expansion.md) | R1–R4、实删矩阵、资产迁移与验证出口 |
 | [来源证据](research/data-sources.md) | 固定源码与接入选择；外挂研究线索，不定义主线接口 |
+| [来源替换与清理规格](research/source_replacement_and_twitterapi_io_removal_spec.md) | `twitterapi_io` 全量实删计划、X 低价双源（`TwitterAPIs` + `ScrapeBadger`）与 Apify 低价 Reddit 契约 |
 | [审查落实索引](research/architecture_audit_and_rebuild_spec.md) | 原审查证据、七项问题/GAP 与本版规则/验收的逐项映射 |
 | [开发说明](development.md) | 当前可执行命令与目标部署的区别 |
 | [当前状态](status.md) | 已实现/未实现、实际检查、部署记录 |

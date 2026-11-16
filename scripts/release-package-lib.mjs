@@ -45,6 +45,7 @@ const allowed = file => !file.split('/').some(part => part.startsWith('.') || pa
     'docs/README.md', 'docs/development.md', 'docs/architecture.md', 'docs/status.md',
     'docs/handoff.md', 'docs/development-log.md', // Retain validation of existing release manifests.
     'docs/history/handoff.md', 'docs/history/development-log.md', 'docs/research/data-sources.md',
+    'docs/research/source_replacement_and_twitterapi_io_removal_spec.md',
     'docs/research/architecture_audit_and_rebuild_spec.md',
     'docs/plans/source-expansion.md', 'docs/contracts.md', 'docs/design.md',
     'scripts/database-backup.mjs', 'scripts/database-backup-lib.mjs',

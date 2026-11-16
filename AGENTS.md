@@ -4,7 +4,7 @@
 
 - 用户当前明确指令优先。`docs/README.md` 记录产品决策，`docs/status.md` 记录实现状态；源码、数据库迁移、实际检查结果证明当前行为。
 - 文档与代码不一致时，指出差异并在本次任务范围内修正。计划不能当成已实现功能；历史 Git 内容不能当成当前要求。
-- 当前方向是多平台信息获取、聚合与可视化；Reddit 已接入 Arctic Shift，后续来源按研究与开发路线逐项验证。不要恢复旧的 Reddit-only 范围锁定或默认爬取绕过方案。
+- 当前方向是多平台信息获取、聚合与可视化；主线来源已决定清理退役旧 `Arctic Shift` 与高价 `TwitterAPI.io`，切换为 Apify 低价 Reddit 组合（`kaix` + `red_crawler`）与低价 X 双源（`TwitterAPIs` + `ScrapeBadger`），具体实删计划与验证门禁见 [docs/research/source_replacement_and_twitterapi_io_removal_spec.md](docs/research/source_replacement_and_twitterapi_io_removal_spec.md) 与 [docs/plans/source-expansion.md](docs/plans/source-expansion.md)。不要恢复旧的 Reddit-only 范围锁定或默认爬取绕过方案。
 - 本仓库不要求默认 skill，也不引用历史 prompt；工具与 skill 按用户当前任务和运行环境的明确要求使用。
 - 修改前检查 `git status`、相关代码和测试，保留其他人的工作。只实现本次需求，不因路线图存在而自动实现全部平台。
 - 使用当前环境中的独立工作目录/分支，先检查分支、远端和已有修改；共享对象库时串行修改 refs，不改他人 worktree、身份或凭证。逐路径提交，不用 reset/clean/stash 覆盖工作。远端写入按用户当前授权执行，不强制推送；历史 Windows 路径或任务限制不作为跨环境规则。

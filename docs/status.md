@@ -8,9 +8,9 @@
 | --- | --- | --- |
 | API / Web | TS 手写 node:http、React/Vite、账户/邀请/审计、内容/个人研究 | Fastify、项目/五导航、鉴权OpenAPI/capabilities、来源scope key未实现；数据集页已取消 |
 | 公共采集 | 生命周期、有界任务、checkpoint、页事务、租约、重试/阻塞、调用限额与心跳 | 仍与旧 scheduler/读模型并存；不是一套完全收敛的主链 |
-| Reddit Arctic Shift | 社区/账号/帖子评论、范围内关键词与 ID 刷新；真实小样本落库 | 非全站关键词；13 位评论 ID 刷新校验缺陷待修；持续覆盖/新鲜度未验 |
-| Reddit kaix | 跨社区 search 等能力、独立观测、未知收费操作不自动重放 | 默认关闭/零限额；无 cursor、始终 partial；长期质量未验 |
-| X TwitterAPI.io | 账号/关键词/ID adapter、媒体/引用/可空指标 | 默认关闭；无真实凭证验收。旧“超单位价禁用”是已撤销产品假设，不是代码能力缺陷 |
+| Reddit Arctic Shift | 社区/账号/帖子评论、范围内关键词与 ID 刷新；真实小样本落库 | 非全站关键词且在线实测高超时/强限流；**已决策退役，列入待实删清单** |
+| Reddit kaix | 跨社区 search 等能力、独立观测、未知收费操作不自动重放 | 默认关闭/零限额；待解封伴随评论/批量`postUrls`/布尔过滤；计划配 `red_crawler` 作 Apify 低价备源 |
+| X TwitterAPI.io | 账号/关键词/ID adapter、媒体/引用/可空指标 | 默认关闭；**因`$0.15/1k`超预算已决定废弃，列入待全量实删与迁移清单**（计划切换为 `TwitterAPIs` + `ScrapeBadger`，见[替换规格](research/source_replacement_and_twitterapi_io_removal_spec.md)） |
 | Bluesky | AppView 公开账号作者帖子/回复、AT URI/CID、opaque cursor；两页小样本 | 无搜索/完整历史/删除检测；保留不扩展 |
 | 内容/研究 | 统一检索/详情/统计、全文投影、个人保存/注释、CSV/JSON、RR 冻结 | 目标流式导出未实现；RR冻结将先迁出再退役；旧热榜/增长仍读旧模型 |
 | NewsNow / RSSHub | 前轮固定源码选型，本轮对齐核心/外挂边界 | **没有正式 adapter、受控实例或真实闭环**；AIHOT/RSS 也未接入 |
@@ -59,9 +59,9 @@
 
 | 状态 | 内容 |
 | --- | --- |
-| 本轮规范完成 | 核心/外挂隔离、五模块/五页面/两新表、保存查询+流式文件；落实索引逐项映射AUD/GAP/安全/实删验收；人类与agent沿同任务链操作。旧原型在前轮已删除，不是本轮新删 |
-| 未开始 R1 | 隔离内核、资产盘点、Fastify/权限、长ID/版本/集合写入、标准推流、NULL分页/流式下载 |
-| 未开始 R2 | 项目创建/概览/对比→钻取/批注/保存/下载；来源与真实PG HTTP闭环；五导航与agent能力发现 |
+| 本轮规范完成 | 核心/外挂隔离、五模块/五页面/两新表、保存查询+流式文件；落实索引逐项映射AUD/GAP/安全/实删验收；人类与agent沿同任务链操作；已定稿 `twitterapi_io` 与 `arctic_shift` 实删计划及 `TwitterAPIs` + `ScrapeBadger` + Apify Reddit 替换规格 |
+| 未开始 R1 | 隔离内核、资产盘点、Fastify/权限、长ID/版本/集合写入、标准推流、NULL分页/流式下载；清理 `twitterapi_io` / `arctic_shift` 并迁移 `x-content-pipeline.test.ts` 与解封 `kaix` |
+| 未开始 R2 | 项目创建/概览/对比→钻取/批注/保存/下载；`TwitterAPIs` + `ScrapeBadger` + `red_crawler` 与真实PG HTTP闭环；五导航与agent能力发现 |
 | 未开始 R3 | 个人旧资产迁出、仓储/冻结/旧runtime实删，性能/安全/恢复、Compose与维护窗口切换 |
 | 后续独立 R4 | 原档清单/许可/资源明确后再研究外挂；不阻塞主线，不恢复归档表/包协议 |
 

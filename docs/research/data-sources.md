@@ -46,10 +46,12 @@
 
 | 路径 | 本仓库事实 | 重建取舍 |
 | --- | --- | --- |
-| Reddit / Arctic Shift | 社区/账号/帖子评论、范围内关键词、已知 ID；历史真实有界落库 | 继续作为定向/历史补充。不是全站关键词入口；先将 Reddit ID 本地校验统一为2–32位base36，修13位评论刷新 |
-| Reddit / kaix Apify | 已有跨社区 search 等 adapter；无持久 cursor，始终 partial；未知收费启动不自动重发 | 保留能力/语义，不承诺完整持续覆盖；真实采样与授权后再决定是否主用 |
-| X / TwitterAPI.io | 已有账号/搜索/ID adapter、可空指标/媒体/引用，未真实验收 | 最少变更的首条验证路径。旧“单价超限禁用”理由已废止，但凭证/使用授权/实际质量仍待验证 |
-| X / twscrape、OpenCLI | 历史只有会话/源码研究，非本产品正式 provider | 现有路径不足才研究；不为重构同时维护会话池、远程浏览器和多家供应商 |
+| Reddit / Arctic Shift | 已有定向/历史/ID adapter；实测关键词搜索 422 超时与强限流 | **主线在线 API 纳入退役实删清单**（不再修补 13 位正则维护在线口）；仅将历史 `.zst` 离线归档留作 R4 `plugins/zst-archive/` 按需外挂 |
+| Reddit / kaix Apify | 已有跨社区 search 等 adapter（build `0.2.25`，`$0.02/1k` + Compute）；当前默认关闭、锁死不拉评论与无 cursor | **保留为 Reddit 低价主力源**：解封层序伴随评论树、批量 `postUrls`、移除误杀布尔过滤与保留 `depth`/`isSubmitter` 后进入三阶信号漏斗 |
+| Reddit / red_crawler (Apify) | `red_crawler/reddit-search-v2` + `reddit-scrape-v2`（尚未编写代码） | **选为 Reddit 低价备源**：共用 `APIFY_API_TOKEN`，作者抽成 `FREE` 仅耗 Apify Compute，补齐全站评论关键词搜索与完整深度评论树 |
+| X / TwitterAPI.io | 已有账号/搜索/ID adapter、可空指标/媒体/引用，默认关闭且未真实验收 | **因成本超标正式淘汰，列入全量实删与迁移计划**：PAYG `$0.15/1k`（最高订阅地板仍达 `$0.0789/1k`）超出 `<$0.05/1k` 预算；实删前保留已存历史观测迁移兼容（见[替换与清理规格书](source_replacement_and_twitterapi_io_removal_spec.md)） |
+| X / TwitterAPIs + ScrapeBadger | 尚未编写代码；已完成 OpenAPI 与计费核验 | **选为 X 低价主备双源**：主力 **`TwitterAPIs`**（`$0.0008/call` 满页 $\approx$ `$0.04/1k`，无批量 ID 接口），异构备源 **`ScrapeBadger`**（`1 base + 1/item`、原生支持批量 `/v1/twitter/tweets/` 水合、`4xx/5xx` 零扣费） |
+| X / twscrape、OpenCLI | 历史只有会话/源码研究，非本产品正式 provider | 放弃恢复；不为重构同时维护会话池或远程浏览器 |
 | Bluesky | 已有 AppView 账号 adapter、小样本落库 | 保留不扩展；不是 Reddit/X 替代。web/Instagram 类型不证明有正式 adapter |
 
 原来固定采集费、赠额试跑顺序、官方申请路线排除和云端浏览器前置均不是当前产品约束。当前没有新增采购、自动开网络或恢复浏览器服务的授权。接入选择由可用数据/质量/权限和维护成本决定；不把仅改 base URL 当 provider 兼容。

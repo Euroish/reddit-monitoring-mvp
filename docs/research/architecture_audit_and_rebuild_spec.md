@@ -9,14 +9,15 @@
 1. **主线核心与离线归档外挂彻底物理隔离（Core vs. Plugin）**：
    - **远端单机在线主线（Mainline Core）**：聚焦于 7×24 安全稳定运行的在线多平台信息监测与研判产品——**Fastify 5 + TypeBox + PostgreSQL 16 + 在线 Connectors + React 五页工作台**。主线容器镜像、迁移、备份、测试与日常运维**零 Python / DuckDB / `.zst` 依赖**，彻底删除原规划的 7 张归档表（`dataset`、`import_batch`、`dataset_partition_revision`、`dataset_release`、`dataset_release_partition`、`dataset_content`、`archive_activity_day`）与顶层“数据集”页面。
    - **历史归档外挂（External Plugin `plugins/zst-archive/`）**：保留作为脱离主线的独立外挂插件在 `R4` 按需迭代开发。主线仅在 `collection` 模块暴露鉴权推流口 `POST /v1/sources/:id/ingest`（与在线采集共用 `commitContentBatch` 与幂等回执），主线无需感知 `.zst` 或 Parquet。
-2. **彻底退役并清理 `Arctic Shift` 在线 API（Retire Arctic Shift Online Connector）**：
-   - **2026-11-16 真实网络探测实证**：
+2. **彻底退役并清理 `Arctic Shift` 与 `TwitterAPI.io` 在线连接器（Retire Legacy Connectors）**：
+   - **Arctic Shift 实测破产证据（`2026-11-16`）**：
      - 大版块带关键词搜帖（哪怕缩小至 7 天窗口、`limit=25`）：`/api/posts/search?subreddit=MachineLearning&query=agent` 在 `1,831ms` 直接返回 **`HTTP 422 {"data":null,"error":"Timeout. Maybe slow down a bit"}`**；
      - 社区内关键词搜评论：`/api/comments/search?subreddit=LocalLLaMA&body=ollama` 在 `1,633ms` 直接 **`HTTP 422 Timeout`**；即使将时间窗缩至 24 小时，仍耗时 `3,971ms` 且仅返回 2 条；
      - 中小版块搜帖：`/api/posts/search?subreddit=LocalLLaMA&query=qwen&limit=10` 耗时高达 **`10,225ms`**；
      - 评论树端点：`/api/comments/tree?link_id=t3_7cff0b&limit=50` 耗时 `2,874ms` 仅返回 4 条顶层评论（其余被折叠进 `kind: "more"`），且响应头立即触发 `x-ratelimit-reset: 51` 强限流；
      - GitHub 上游仓库近期 Issue（`#66`、`#78`、`#82`、`#85`、`#89`）显示其长期存在 500 故障、422 超时及断更；同时 Reddit 官网匿名 `.json`/`.rss` 端点实测全部返回 **`HTTP 403`**。
-   - **清理决定**：彻底移除主线对 `Arctic Shift` 在线 API 的依赖（不再修补其 13 位 ID 正则或维护其连接器），将 [arctic-shift-content.connector.ts](../../src/connectors/reddit/arctic-shift-content.connector.ts) 与 [arctic-shift-content.connector.test.ts](../../tests/unit/arctic-shift-content.connector.test.ts) 纳入主线实删清单。
+   - **TwitterAPI.io 成本超限证伪（`2026-11-16` 核对 `/pricing.json`）**：PAYG 固定 **`$0.15/1k`**（空调用保底 `$0.00015`），最高 `$1,499/月` Business 满吃返点地板价仍为 **`$0.0789/1k`**，远超 `< $0.05/1k` 目标，且与 Apify `kaitoeasyapi` 同属一间公司。
+   - **清理决定**：彻底移除主线对 `Arctic Shift` 在线 API 与 `TwitterAPI.io` 的全部代码、环境配置与测试依赖（详见[清理与替换规格书](./source_replacement_and_twitterapi_io_removal_spec.md)），将 [arctic-shift-content.connector.ts](../../src/connectors/reddit/arctic-shift-content.connector.ts)、[twitterapi-io-content.connector.ts](../../src/connectors/x/twitterapi-io-content.connector.ts)、[twitterapi-io.config.ts](../../src/connectors/x/twitterapi-io.config.ts) 与对应单测纳入实删清单（集成测试迁往 `x-content-pipeline.test.ts` 保持零退化，已存历史 DB 观测仅通过迁移软归档 source 与禁用 budget 保留）。
 3. **产品化升级：双源防停摆矩阵 + 三阶信号漏斗 + 评论树深度利用**：
    - 放弃“全量离线归档喂服务器”和“对持续监控跑递归时间二分全量扫描”的伪需求，转为**“低价双源增量发现 $\to$ 确定性噪声门控 $\to$ 按需批量水合讨论树 $\to$ 联动证据展示”**的闭环产品形态。
    - 解除 `commitContentBatch`“单任务只能写入同一种 `contentKind`”的限制，彻底释放 `kaix/reddit-scraper`（build `0.2.25`，`$0.02/1k`）的**搜帖连带层序评论树**与**批量 `postUrls` 水合**能力，并构建 Reddit / X 双源热备与资讯源补充。
@@ -71,10 +72,9 @@
 | 平台 | 主/备角色 | 数据源 | 真实计费与稳定性边界 | 接入契约与防坑约束 |
 | :--- | :--- | :--- | :--- | :--- |
 | **Reddit** | **主力源** | **`kaix/reddit-scraper`** (build `0.2.25`, 仓库已有基础连接器) | `$0.02 / 1k` 结果（post/comment 同价）+ Apify Compute（开代理更稳；无代理易受限流） | **必须解除 4 项封印**（见 3.2 节）；无 `cursor`，永远标记 `coverage="partial"`；`automaticRequestReplay=false`；禁止默认自动全量捞评论 |
-| **Reddit** | **免费备源** | **`red_crawler/reddit-search-v2` + `reddit-scrape-v2`** | 作者费 `FREE`，仅耗 Apify Compute（含免费月度额度）；30 天成功率 `99.4%~99.8%` | 支持全站搜帖子与评论、逗号分隔多社区并行；搜索（`~500 posts / ~250 comments`）与全评论树（`mode="all", deep=true`）拆为两步 |
-| **Reddit** | **非 Apify 备源** | **`ScrapeBadger Reddit API`** | `8 credits/call`（搜索）、`15 credits/call`（评论树）；满 100 条/页合 `$0.008–$0.016/1k` | `query <= 256 UTF-8 bytes`（超长 422）；稀疏结果页按次计费单价会上升；游标 30 分钟过期 |
-| **X** | **低价巡检主源** | **`TwitterAPIs`** (`api.twitterapis.com`) | 标准端点 `$0.0008 / call`（满 20 条/页 $\approx$ **`$0.04/1k`**），点数永不过期 | **禁止对冷门词跑细时间片二分树**（空结果也扣 `$0.0008/call`）；回复树走 `/twitter/tweet/replies` 或 `conversation_id:`（避开 `$0.004/call` 且只向后的 `/tweet/thread`） |
-| **X** | **高稳备源 / 精查** | **`TwitterAPI.io`** (仓库已有实现 [twitterapi-io-content.connector.ts](../../src/connectors/x/twitterapi-io-content.connector.ts)) | PAYG `$0.15/1k`（20 QPS），充值永不过期 | 作异常熔断热备，以及重点推文 `/twitter/tweet/thread_context` 双向对话还原；只用 `since_time:`/`until_time:`（Unix 秒），禁用 `since:`/`until:`；稀疏冷词兜底可选空搜零扣费的 **`Xquik`** |
+| **Reddit** | **免费备源** | **`red_crawler/reddit-search-v2` + `reddit-scrape-v2`** | 作者费 `FREE`，仅耗 Apify Compute（含免费月度额度）；30 天成功率 `99.4%~99.8%` | 与 `kaix` 共用 `APIFY_API_TOKEN`；支持全站搜帖子与评论、逗号分隔多社区并行；搜索（`~500 posts / ~250 comments`）与全评论树（`mode="all", deep=true`）拆为两步 |
+| **X** | **低价巡检主源** | **`TwitterAPIs`** (`api.twitterapis.com`) | 标准端点 `$0.0008 / call`（满 20 条/页 $\approx$ **`$0.04/1k`**），点数永不过期 | `refreshByIds: false`（无批量 ID 端点）；**必须以 `tweets.length === 0` 停页**；**禁止对冷门词跑细时间片二分树**（空结果也扣 `$0.0008/call`）；回复树走 `/twitter/tweet/replies` 或 `conversation_id:`（避开 `$0.004/call` 且只向后的 `/tweet/thread`） |
+| **X** | **高稳异构备源** | **`ScrapeBadger`** (`scrapebadger.com/v1/twitter`，可选 Apify 兜底) | `1 base + 1 credit/item`（赠 `1,000` 试用，PAYG `$10`/`$20` 起永不过期；`4xx/5xx` 零扣费）；`X-Credits-Used` 响应头对账 | **`refreshByIds: true`**（原生支持批量 `GET /v1/twitter/tweets/` 补齐水合短板）；搜索无独立时间参数，须将 `since_time:`/`until_time:` 编入 `query`；限流 PAYG `60 req/min`（本地间隔 `>= 1000ms`） |
 | **资讯/订阅** | **基线补充** | **`NewsNow` 精选 getter + 通用 `feed` (受控 RSSHub)** | `$0`（MIT 裁剪函数 + 自托管/白名单 HTTP RSS/Atom） | 严格 `canonical URL` 去重、`web.rank` 只作名次不作互动、`ETag/Last-Modified` `304` 只刷新 `lastCheckedAt`；白名单防 SSRF |
 | **归档外挂** | **未来扩展 (`R4`)** | **`plugins/zst-archive/`** | 离线本地/对象存储运行，不占主线资源 | 仅当用户手动需要将历史 `.zst` 转为排序 Parquet 检索特定板块/专题时，通过 `POST /v1/sources/:id/ingest` 推入主线 |
 
@@ -109,7 +109,7 @@
         ▼ 仅对宽泛词中通过第 2 阶筛选的 Top 5%~10% 高价值主帖触发第 3 阶！
 【第 3 阶：按需批量水合与评论树证据利用（Comment Tree Hydration & Views）】
   ├─ 批量水合：攒一批筛出的 postIds -> 调 1 次 kaix mode="post" (postUrls[], maxCommentsPerPost=50, commentSort="top")
-  │            或 X 上针对高回复根帖查 conversation_id:<rootId> / /thread_context
+  │            或 X 上针对高回复根帖查 conversation_id:<rootId> / /tweet/replies（ScrapeBadger 支持批量 ID 查推文与 /replies）
   ├─ 主帖+评论联动检索（Thread-Aware Search）：
   │     • 即使主帖标题没提监控词，只要评论区命中监控词，内容列表直接把【所属主帖 + 命中评论摘录】关联呈现
   └─ 详情侧栏三视图可折叠评论树（依托 reply_to + depth + isSubmitter）：
@@ -262,23 +262,23 @@ src/modules/
   workspace/                  # routes.ts + sql.ts (保存查询、收藏与批注 JOIN 查询)
 src/connectors/               # 唯一保留 ContentProvider 多实现接口的边界层
   reddit/
-    kaix.ts                   # 主源：解锁层序评论树、批量 postUrls、time/sort、保留 depth/isSubmitter
-    red-crawler.ts            # 备源：FREE 作者费双 Actor 搜索与评论树（或 ScrapeBadger）
+    kaix-content.connector.ts          # 主源：解锁层序评论树、批量 postUrls、time/sort、保留 depth/isSubmitter（不再依赖 arctic_shift）
+    red-crawler-content.connector.ts   # 备源：FREE 作者费双 Actor (reddit-search-v2 + reddit-scrape-v2) 搜索与评论树
   x/
-    twitterapis.ts            # 低价巡检主源：$0.0008/call 增量水位线与 /tweet/replies
-    twitterapi-io.ts          # 高稳备源与 /thread_context 双向对话精查（复用现有实现）
+    twitterapis-content.connector.ts   # 低价巡检主源：$0.0008/call 增量水位线与 /tweet/replies
+    scrapebadger-x-content.connector.ts # 高稳异构备源：1 base + 1/item、批量 ID 水合 (/v1/twitter/tweets/) 与失败零扣费
   web/
     newsnow.ts                # 精选 2–3 个 MIT 榜单纯函数 getter（HN / IT之家等）
     feed.ts                   # 通用 RSS/Atom 解析器（白名单防 SSRF + ETag/304 条件请求）
 src/storage/
   db.ts                       # pg Pool (max=10, statement_timeout=10s, lock_timeout=3s) 与事务助手
-  schema/                     # 001..040 既有迁移（不可改）+ 新增 041+ 迁移（仅 2 张新表与表扩展/索引回填）
+  schema/                     # 001..040 既有迁移（不可改）+ 新增 041+ 迁移（含仅 2 张新表、表扩展/索引回填及 legacy provider 软归档）
 packages/contracts/           # TypeBox Schema 唯一结构真源（前后端与 OpenAPI 共享）
 plugins/                      # 【R4 外挂目录：独立运行与依赖，禁止进入核心 tsconfig / Docker 镜像 / 发布清单 / CI】
   zst-archive/                # 独立 DuckDB/Parquet 离线加工与按需推流客户端
 ```
 
-- **主线核心代码瘦身方向**：[create-api-server.ts](../../apps/api/src/create-api-server.ts)、[readyz-observability.ts](../../apps/api/src/readyz-observability.ts)、旧 Phase 1 `jobs/workers/read-models`、旧 `opossum` / `scrapling` 桥接、14 个 `InMemory*`、27 个单实现 `Repository` 接口、以及失效的 [arctic-shift-content.connector.ts](../../src/connectors/reddit/arctic-shift-content.connector.ts) 和 `ResearchExport` 体系在 R1–R3 按引用图分阶段实删，不做永久双轨兼容。
+- **主线核心代码瘦身方向**：[create-api-server.ts](../../apps/api/src/create-api-server.ts)、[readyz-observability.ts](../../apps/api/src/readyz-observability.ts)、旧 Phase 1 `jobs/workers/read-models`、旧 `opossum` / `scrapling` 桥接、14 个 `InMemory*`、27 个单实现 `Repository` 接口、失效的 [arctic-shift-content.connector.ts](../../src/connectors/reddit/arctic-shift-content.connector.ts)、废弃的超预算 [twitterapi-io-content.connector.ts](../../src/connectors/x/twitterapi-io-content.connector.ts)（含 [twitterapi-io.config.ts](../../src/connectors/x/twitterapi-io.config.ts) 与旧 env/单测）以及 `ResearchExport` 体系在 R1–R3 按引用图分阶段实删，不做永久双轨兼容。
 - **反过度设计纪律**：每个模块默认 `routes.ts + sql.ts`（有明确职责才加 `worker.ts` / `search.ts`），拒绝压行面条代码，拒绝在内部边界堆砌无意义 `typeof` 防御或假单元测试。
 
 ---
@@ -321,27 +321,27 @@ plugins/                      # 【R4 外挂目录：独立运行与依赖，禁
 
 | 目标文档 | 本轮之后需要对齐更新的关键内容 |
 | :--- | :--- |
-| [docs/README.md](../README.md) | 移除将 `Arctic Shift` 作为在线主力 Reddit 路径的假定；补入“三阶信号漏斗（发现 $\to$ 门控 $\to$ 评论树水合）”与 Agent-First 能力契约（`PRD-02` / `PRD-08`）。 |
-| [docs/research/data-sources.md](./data-sources.md) | 正式记录 `Arctic Shift` 在线 API 实测淘汰结论（422 超时 / 强限流）与官网匿名 403 实证；更新 Reddit 双源（`kaix` 解除封印 4 项能力 + `red_crawler` / `ScrapeBadger`）与 X 双源（`TwitterAPIs` + `TwitterAPI.io` / `Xquik`）选型矩阵。 |
+| [docs/README.md](../README.md) | 移除将 `Arctic Shift` 与 `TwitterAPI.io` 作为主线在线路径的假定；补入“三阶信号漏斗（发现 $\to$ 门控 $\to$ 评论树水合）”与 Agent-First 能力契约（`PRD-02` / `PRD-08`），并索引[替换规格](./source_replacement_and_twitterapi_io_removal_spec.md)。 |
+| [docs/research/data-sources.md](./data-sources.md) | 正式记录 `Arctic Shift` 在线 API 实测淘汰结论（422 超时 / 强限流）与官网匿名 403 实证，以及 `TwitterAPI.io` 因 `$0.15/1k` 超预算淘汰事实；锁定 Reddit Apify 低价双源（`kaix` 解除封印 + `red_crawler`）与 X 低价双源（`TwitterAPIs` + `ScrapeBadger`）。 |
 | [docs/contracts.md](../contracts.md) | 解除 `commitContentBatch` 单任务单一 `contentKind` 限制，明确同事务混合写入 `post` + 附属 `comment` 树节点规则；扩展 `ContentQuery` / 项目 `filter` 支持 `anyTerms` / `allTerms` / `exclusions` 词组与评论树联动检索、高评赞比筛选语义；补齐 `kaix` 长等待例外与评论 `depth`/`isSubmitter` 白名单字段。 |
-| [docs/architecture.md](../architecture.md) | 同步 `src/connectors/` 目标列表（移除 `arctic-shift`，加入 `red-crawler` / `twitterapis`）；对齐单任务多 `kind` 批量 `UNNEST` 写入、`kaix` 显式长等待上限与防重放语义。 |
+| [docs/architecture.md](../architecture.md) | 同步 `src/connectors/` 目标列表（移除 `arctic-shift` 与 `twitterapi-io`，加入 `red-crawler` / `twitterapis` / `scrapebadger`）；对齐单任务多 `kind` 批量 `UNNEST` 写入、`kaix` 显式长等待上限与防重放语义。 |
 | [docs/design.md](../design.md) | 更新项目工作台与详情侧栏设计：增加三阶信号快捷筛选胶囊（高讨论热度 / 争议痛点 / 二次发酵）、“主帖 + 命中评论摘录”联动卡片、以及侧栏评论树三视图（Top 高赞 / 命中词父链 / 楼主互动）与一键按需水合按钮。 |
-| [docs/plans/source-expansion.md](../plans/source-expansion.md) & [docs/status.md](../status.md) & [docs/development.md](../development.md) | 将 `arctic-shift-content.connector.ts` 及相关单测加入 R1–R3 实删矩阵；在 R1/R2 验证出口中补入“单任务主帖+评论混合批量写入”、“三视图评论树”、“Agent `/v1/capabilities` + `/v1/openapi.json` + 机器 Key 来源越权阻断”真实 PG + HTTP E2E 断言。 |
-| [AGENTS.md](../../AGENTS.md) & [README.md](../../README.md) | 更新主线方向描述（去掉“Reddit 已接入 Arctic Shift”旧前提，明确以 `kaix`/备源+X+资讯为主线，归档保留 `R4` 外挂），保持 `README.md <= 60` 行与文档白名单一致。 |
+| [docs/plans/source-expansion.md](../plans/source-expansion.md) & [docs/status.md](../status.md) & [docs/development.md](../development.md) | 将 `twitterapi-io-content.connector.ts` / `twitterapi-io.config.ts` / env / CI 与 `arctic-shift-content.connector.ts` 及相关单测加入 R1–R3 实删矩阵，保留 `x-content-pipeline.test.ts` 非回归迁移；在 R1/R2 验证出口中补入混合批量写、三视图评论树与 Agent `/v1/capabilities` + `/v1/openapi.json` E2E 断言。 |
+| [AGENTS.md](../../AGENTS.md) & [README.md](../../README.md) | 更新主线方向描述（清理旧 `Arctic Shift` 与 `TwitterAPI.io`，明确以 Apify 低价 Reddit + `TwitterAPIs`/`ScrapeBadger` + 资讯为主线，归档保留 `R4` 外挂），保持 `README.md <= 60` 行与文档白名单一致。 |
 
 ### 8.2 四步垂直交付切片（`R1 -> R4`）
 
 - **R1（薄内核重构、清理漂移与数据闭环）**：
   - 搭建 Fastify 5 + TypeBox + 边界安全防护（Default-Deny Cookie/Bearer、`@fastify/rate-limit`、`/v1/capabilities`、`/v1/openapi.json`、`pg.Pool` `10s` 语句熔断 + `15s` 优雅退出）；
-  - 执行数据库迁移（新增 `monitor_project` / `monitor_project_source`，扩展 `app_session` 机器 Key、`source_collection_job` 推流回执、`content` 版本时钟与证据键、单列 `search_text` + 回填并移除 `038` 触发器）；
+  - 执行数据库迁移（新增 `monitor_project` / `monitor_project_source`，扩展 `app_session` 机器 Key、`source_collection_job` 推流回执、`content` 版本时钟与证据键、单列 `search_text` + 回填并移除 `038` 触发器，软归档历史 `twitterapi_io` / `arctic_shift` 来源并禁用其预算）；
   - 落地 `commitContentBatch` 四组 `UNNEST` 集合写（支持同事务写入主帖与附属评论树）、标准 `POST /v1/sources/:id/ingest`、`QRY-05` 空时间双分支分页与有界流式 CSV/JSON 导出；
-  - **解封并重构 `kaix` 连接器**（`includeComments`、批量 `postUrls` 保留主帖、去掉 `literal()` 误杀、保留 `depth`/`isSubmitter`）并清理 `Arctic Shift` 在线连接器。
+  - **解封并重构 `kaix` 连接器**（`includeComments`、批量 `postUrls` 保留主帖、去掉 `literal()` 误杀、保留 `depth`/`isSubmitter`）并按[清理清单](./source_replacement_and_twitterapi_io_removal_spec.md)实删 `Arctic Shift` 与 `TwitterAPI.io` 代码（同步迁移 `x-content-pipeline.test.ts`）。
 - **R2（三阶信号漏斗、评论树前端与双源防停摆闭环）**：
   - 落地 `projects`（单 SQL `GROUPING SETS` 概览、双项目同口径对比、三段式词组 `anyTerms/allTerms/exclusions` 与高信号门控）和 `workspace`（`JOIN content` 消除 N+1）；
   - 交付 React 5 页干净界面（项目、内容库、来源、我的研究、设置），落地“主帖+命中评论”联动卡片、详情侧栏 3 层可折叠评论树三视图与按需批量水合动作；
-  - 补齐 Reddit 备源（`red_crawler`）、X 双源（`TwitterAPIs` + `TwitterAPI.io` 实跑验收）及 `NewsNow` 精选 getter / 通用 `feed`（304 条件请求）。
+  - 补齐 Apify Reddit 备源（`red_crawler/reddit-search-v2` + `reddit-scrape-v2`）、X 低价双源（`TwitterAPIs` 主力 + `ScrapeBadger` 备用与批量 ID 水合实跑验收）及 `NewsNow` 精选 getter / 通用 `feed`（304 条件请求）。
 - **R3（实删旧代码、安全性能压测与单机 Compose 上线）**：
-  - 迁出个人旧研究资产后，按实删矩阵彻底清除 `InMemory*`（14 文件）、单实现 `Repository`（27 接口）、`ResearchExport` 表/API/页面、`create-api-server.ts` 及旧 Phase 1/Markets/Trends/Scrapling/Arctic Shift 代码；
+  - 迁出个人旧研究资产后，按实删矩阵彻底清除 `InMemory*`（14 文件）、单实现 `Repository`（27 接口）、`ResearchExport` 表/API/页面、`create-api-server.ts` 及旧 Phase 1/Markets/Trends/Scrapling/Arctic Shift/TwitterAPI.io 残余引用；
   - 在真实 PostgreSQL 16 + HTTP E2E 测试集上完成权限、来源越权、并发租约、重放防重扣、13 位评论树混合写、游标分页、断流取消与 `1440/768/390` 浏览器流程验收，完成单机 Docker Compose 维护窗口上线。
 - **R4（独立外挂演进，不阻塞主线）**：
   - 在 `plugins/zst-archive/` 下独立开发本地 `.zst` $\to$ 排序自索引 Parquet 转换与按需推流 `POST /v1/sources/:id/ingest` 工具，经实测对账后再按需投用。

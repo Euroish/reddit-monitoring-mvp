@@ -30,12 +30,12 @@
 **用户结果：** 受邀用户能登录，创建/读取来源，一页采集或一批推流进入内容库并可下载；不依赖项目、归档或旧runtime。
 
 - Fastify5/TypeBox/openapi/auth hook与五模块最小边界；access复用已有身份规则，登录/邀请/会话列入精确公开例外。
-- 保留既有ContentProvider，优先迁移Arctic Shift；修长ID、确定性版本/缺字段、四组集合SQL、同事务投影/discovery/observation/checkpoint。
+- 保留既有[ContentProvider](../../src/connectors/shared/content-provider.interface.ts)契约，解除`kaix`伴随评论/批量`postUrls`/布尔过滤/层级元数据限制并推进`UNNEST`混合批量写入；按[替换与清理规格书](../research/source_replacement_and_twitterapi_io_removal_spec.md)纳入`twitterapi_io`与`arctic_shift`在线连接器迁移清理与软归档计划。
 - 实现标准push、现有job幂等回执/源绑定key；已有pool/事务函数直接用，禁止为切换另造Repository或InMemory。
 - 内容列表/详情同filter函数，NULL游标、单投影索引；去逐页coverage COUNT。加入流式CSV/JSON，不再累积2k条数组。
 - Web交付登录→来源→内容→下载薄闭环，错误/无权限/空/部分状态同步完成。
 
-**出口断言：** 真实PG16 + HTTP验证长ID、页内重复、逆序到达、同观测时刻evidenceKey平局、null字段、删除防复活、整页回滚/旧租约拒绝；push鉴权/越界/413/同key重放和不同payload409；有/无发布时间跨页不漏不重；列表不额外COUNT。新增层不导入旧runtime/插件。
+**出口断言：** 真实PG16 + HTTP验证长ID、页内重复、逆序到达、同观测时刻evidenceKey平局、null字段、删除防复活、整页回滚/旧租约拒绝；push鉴权/越界/413/同key重放和不同payload409；有/无发布时间跨页不漏不重；列表不额外COUNT；`x-content-pipeline.test.ts`迁移替代断言保持通过。新增层不导入旧runtime/插件。
 
 ## 4. R2：项目化产品与来源闭环
 
@@ -43,13 +43,13 @@
 
 - 只加两张项目表；创建复用/关联来源不触发网络，项目filter和召回target分离。共享来源修改提示影响。
 - GROUPING SETS概览、同范围钻取/对比、单平台互动兼容判定；删除按platform/provider循环contentStats，批注读改JOIN。
-- 把已有Reddit/X/Bluesky有效能力迁到新边界；接精选NewsNow getter与通用feed/受控RSSHub。只按实际授权请求，不把类型/fixture通过当真实接通。
+- 落地低成本多平台双源矩阵：Reddit采用Apify低价组合（解封`kaix` + `red_crawler`免费作者费双Actor），X切换为`TwitterAPIs`（`$0.04/1k`主力）+ `ScrapeBadger`（含批量ID水合与Apify备援），并接入精选NewsNow getter与通用feed/受控RSSHub；保留Bluesky既有能力。只按实际授权请求，不把类型/fixture通过当真实接通。
 - my research只留保存查询、收藏/批注；agent能力发现/schema、key生成/撤销、错误nextAction与Web操作对齐。
 - Web只保留五导航；覆盖源失败/304/样本partial、revision冲突、未知时间和导出断开；无顶层数据集/冻结页。
 
 **出口断言：** 一条真实PG HTTP E2E证明项目创建到文件终结；相同resolvedFilter在概览/列表/导出ID集一致；source多重发现不放大总数，provider分布明确重叠；跨平台engagement422而单平台可用；viewer个人资产隔离/key来源越权阻断；1440/768/390真实渲染和键盘任务流通过。
 
-每个计划上线的provider至少一条真实有界采集链：目标/授权→稳定身份/时点→重复写入→API/UI/文件。缺X key或受控feed服务时该来源仍为未验收，须用户明确接受功能缺口才能发布，不能宣布PRD-02全部完成。
+每个计划上线的provider至少一条真实有界采集链：目标/授权→稳定身份/时点→重复写入→API/UI/文件。缺`TWITTERAPIS_API_KEY`/`SCRAPEBADGER_API_KEY`或受控feed服务时对应来源仍为未验收，须用户明确接受功能缺口才能发布，不能宣布PRD-02全部完成。
 
 ## 5. R3：实删、单机发布与性能证据
 
@@ -59,6 +59,8 @@
 
 | 删除对象 | 替代 / 删除前必须证明 |
 | --- | --- |
+| `src/connectors/x/twitterapi-io*`、对应env/CI参数与`tests/unit/twitterapi-io*` | 切换为`TwitterAPIs`+`ScrapeBadger`（或先迁移`tests/integration/x-content-pipeline.test.ts`保住X预算与身份断言）；DB通过迁移软归档旧source并禁用budget，不物理删旧观测 |
+| `src/connectors/reddit/arctic-shift-content.connector.ts`及对应单测 | 切换为Apify低价`kaix`+`red_crawler`主备矩阵；历史`.zst`离线包留待R4独立外挂 |
 | src/domain/repositories/*、src/storage/repositories/in-memory/* | 命名SQL/真实PG E2E；现有in-memory目录14个TS文件全部退出主线，不新建InMemory类填坑 |
 | 当前巨型create-api-server及新主线不需要的service pass-through | 五模块routes/sql，api只装配/start；不把原3600行换名搬家 |
 | createPostgresPhase1Runtime、旧runtime-factory、重复scheduler/worker | 单应用有界scheduler/PG租约；冷启动不触达旧runtime |
