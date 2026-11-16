@@ -1,6 +1,6 @@
 # 当前开发与部署说明
 
-第1–5节只记录**当前源码已有入口**。Fastify、项目、标准推流、机器scope key、真正流式导出、NewsNow/feed和Compose均未实现，不能按目标规范猜测命令。归档生产/发布已移出主线，不再列为核心待办。目标开发/运维基线见第6节；实施见[重建计划](plans/source-expansion.md)。
+第1–5节只记录**当前源码已有入口**。新版[Master Spec](research/architecture_audit_and_rebuild_spec.md)要求的Fastify、项目、混合评论树/漏斗、主备切换、标准推流、机器scope key、流式导出和Compose均未实现，不能按目标规范猜测命令。归档生产/发布已移出主线，不再列为核心待办。目标开发/运维基线见第6节；实施见[重建计划](plans/source-expansion.md)。
 
 ## 1. 安装与启动
 
@@ -50,13 +50,13 @@ npm run local:stop
 
 | provider | 已有能力 | 配置/当前边界 |
 | --- | --- | --- |
-| arctic_shift | Reddit 社区/账号帖子评论、帖子评论、范围内关键词/已知 ID | 无 key；非全站关键词；13 位评论刷新校验缺陷待修 |
+| arctic_shift | 旧代码仍有社区/账号/帖子评论、范围关键词/ID入口 | 母本已决定退役，不新增启用/修ID/在线回退；R1新链不注册，R3实删 |
 | kaix | Reddit 跨社区 search、社区/账号帖子、账号/帖子评论 | `APIFY_API_TOKEN`；无 cursor，始终 partial；未知收费启动不自动重发 |
 | twitterapi_io | X 账号/关键词/ID 帖子 | `TWITTERAPI_IO_API_KEY`；未真实验收；timeout 默认 20000ms，允许100–120000 |
 | bluesky_appview | 公开账号作者帖子/回复 | 无 key；handle/DID；无关键词/完整历史/删除检测 |
 | demo_reddit / demo_x | 明确标记的合成数据 | 只验证流程，不算真实来源 |
 
-没有正式 NewsNow/RSSHub/RSS/归档 provider 或导入 CLI，也没有 X 会话自动上传/远程领取接口。Instagram/web 类型不代表接入。真实调用仍需本次范围内授权，旧试验授权不自动延续。
+没有正式red_crawler、TwitterAPIs、NewsNow/feed/标准ingest或归档CLI；当前TwitterAPI.io不等于新主源TwitterAPIs，也没有 X 会话自动上传/远程领取接口。Instagram/web 类型不代表接入。真实调用仍需本次范围内授权，旧试验授权不自动延续。
 
 ### 当前任务语义
 
@@ -70,11 +70,11 @@ npm run local:stop
 
 ### kaix 特有行为
 
-固定 Actor `kaix/reddit-scraper` build `0.2.25`，512MiB、45秒，禁代理/平台自动重启；POST 等待最多60秒（HTTP timeout65秒），dataset GET20秒/8MiB。每次最多100条目标内容，帖子评论可能附根帖。
+固定 Actor `kaix/reddit-scraper` build `0.2.25`，512MiB、45秒，禁代理/平台自动重启；POST 等待最多60秒（HTTP timeout65秒），dataset GET20秒/8MiB。每次最多100条目标内容，search强制不带评论；post模式上游可返回根帖但当前adapter会丢掉，未实现批量postUrls/混合树落库。
 
 每操作保守预留101 resources、1 adapter request，但实际含 POST+GET；不能当 HTTP 数或账单。Actor 事件费上限每操作 $0.01 不含全部平台费用，不能当总支出保证。无持久 cursor，不提供 Continue，周期任务也是重复抽样。
 
-`automaticRequestReplay=false`：登记启动后网络/解析/落库/租约恢复失败都不自动重发收费 POST；先查供应商 console，再显式 Retry，可能重复收费。与 Arctic Shift 共用 Reddit 内容身份，独立观测；scrapedAt 不冒充 sourceObservedAt。
+`automaticRequestReplay=false`：登记启动后网络/解析/落库/租约恢复失败都不自动重发收费 POST；先查供应商 console，再显式 Retry，可能重复收费。历史上与Arctic Shift共用Reddit身份，指标定义还import其capability；重建需抽离此依赖，不能因保留历史观测继续加载退役connector。当前scrapedAt不作为已证明sourceObservedAt。
 
 ## 3. 当前 API 与产品入口
 
@@ -150,12 +150,14 @@ public-tunnel/desktop/chrome/bridge 四项研究服务保持关闭；不为重�
 ## 6. 重建目标开发与部署基线（尚无命令）
 
 - Node24/PG16/Fastify5/TypeBox；五模块默认routes/sql，SQL接收Pool/PoolClient，只有ContentProvider多实现。不建立仓储镜像/通用DI；数据库语义走真实PG HTTP E2E，纯规则保留单测。
-- 一次schema校验/统一filter编译、四组集合写入、投影同事务、GROUPING SETS概览、cursor/backpressure导出。不要把现有2000条数组导出或RR冻结称为目标实现。
+- 一次schema校验、混合kind四组集合写/同事务投影；anyTerms/allTerms/exclusions+signal→可见根帖anchor→GROUPING SETS/列表/流式文件同口径。树用已有引用有界读取，不建树表/图服务。不要把旧2000条数组导出或RR冻结称为目标实现。
+- kaix主源四项改造与red_crawler备源、TwitterAPIs主源与TwitterAPI.io备源、NewsNow/feed按R1/R2接通；Arctic Shift在线链全部退役，不继续修补。在线单批2000条/16MiB与ingest100条/1MiB分开；不沿用旧limit+2、101资源/$0.01帽截断批量。
+- radar增量+重叠回看，不做时间二分抓全量；项目一次授权有界自动水合/单跳备源即可执行，不要求agent反复人工确认。未知收费任务阻断自动新调用/切备；已知runId只续读dataset，不重复启动Actor。
 - Compose proxy/app/db是目标唯一默认部署链；进程内scheduler并发2、共享pool10。当前仓库没有该Compose文件，不能执行虚构的docker compose命令；R3新增并实际验证后在本文替换旧启动/部署段落。
 - 目标必需应用secret为DATABASE_URL、SESSION_SECRET、ADMIN_BOOTSTRAP_PASSWORD；初次引导后移除引导密码。当前API_BEARER_TOKEN/BOOTSTRAP_OWNER_*不能被这些未实现变量替代。来源凭证按启用需要，域名/TLS另配置。
 - 生产按SAFE-01–06验证默认拒绝、Origin/代理/限流、DB私网、超时和15s有界关闭；maintenance连接可用显式独立预算，不为迁移放宽全体请求超时。维护窗口切换，不能仅回退镜像撤销SQL。
 - 未来外挂独立plugins/zst-archive/，不进核心build/typecheck/test/runtime/release；本轮不安装Python/DuckDB或预建插件目录，标准HTTPS即可操作。
-- 开发按[UX-A–D](design.md#5-前后端连续性验收)证明创建→证据→留档；用相同scope的HTTP请求证明agent可独立完成，不为agent另搭后台或让其连接DB。
+- 开发按[UX-A–D](design.md#5-前后端连续性验收)证明词组项目→巡检→门控→批量水合→三视图/父链→留档；真实PG HTTP E2E包括scope越权、主备重放、混合长ID、未知时间、threadAware统计/文件一致。浏览器用相同HTTP动作，不为agent另搭后台或DB旁路。
 
 ## 7. 修改与交付纪律
 

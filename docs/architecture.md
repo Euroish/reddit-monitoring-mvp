@@ -1,6 +1,6 @@
 # 主线架构规范
 
-目标设计；尚未实施。产品边界见[CORE-01–06](README.md#2-主线与外挂边界)，对外行为见[契约](contracts.md)。
+依据[Master Spec](research/architecture_audit_and_rebuild_spec.md)的目标设计；尚未实施。产品边界见[CORE-01–06](README.md#2-主线与外挂边界)，对外行为见[契约](contracts.md)。
 
 ## 1. 技术与拓扑
 
@@ -36,6 +36,9 @@ src/modules/
   projects/            routes.ts + sql.ts；项目/关联、概览/对比
   workspace/           routes.ts + sql.ts；个人查询/收藏/批注
 src/connectors/        ContentProvider 多实现、外部响应解析
+  reddit/              kaix + red-crawler；无Arctic Shift在线adapter
+  x/                   twitterapis + twitterapi-io
+  web/                 newsnow精选getter + feed
 src/storage/          db.ts、事务助手、schema 迁移
 packages/contracts/   TypeBox/schema 派生类型
 ```
@@ -43,9 +46,9 @@ packages/contracts/   TypeBox/schema 派生类型
 | ID | 模块 | 独占写入的状态 |
 | --- | --- | --- |
 | MOD-01 | access | app_user/password/session/invite/audit；API Key 复用 app_session 的摘要/撤销机制并扩展字段，不新增 token 表 |
-| MOD-02 | collection | source、collection_source、source_collection_job、provider预算/用量、worker心跳/现有dispatch状态 |
+| MOD-02 | collection | source、collection_source（含单跳fallback_source_id）、source_collection_job（operation/request_key/request_json/provider_state/派生job引用及推流回执扩展）、provider预算/用量、worker心跳/dispatch状态 |
 | MOD-03 | content | content、content_discovery、content_observation、public_content_search_document |
-| MOD-04 | projects | monitor_project、monitor_project_source（仅此两张新表） |
+| MOD-04 | projects | monitor_project（filter、revision、有界hydration策略）、monitor_project_source（仅此两张新表）；不新增signal/评论树/路由表 |
 | MOD-06 | workspace | content_saved_query、content_annotation；不持久化导出副本 |
 
 - ARC-05：模块内部直接用接收 `Pool | PoolClient` 的命名 SQL 函数；事务写函数必须接收 PoolClient，不能误用 pool 再开事务。删除全部单实现 Repository、InMemory 仓储和 pass-through service。ContentProvider 是唯一采集多实现契约；DTO/type 不等于额外运行层。
@@ -56,7 +59,7 @@ packages/contracts/   TypeBox/schema 派生类型
 
 `collection` 拥有调度/推流事务，`content` 提供 `commitContentBatch(client, source, items)`。在线页和标准推流调用同一函数，不复制一套 archive writer。
 
-1. 入口完成结构校验/权限或adapter外部解析；正文按`(platform,kind,externalId)`选确定性胜出版本，独立observation按证据键去重后全部保留，不能选正文时丢掉同内容的其他观测。
+1. 入口完成一次结构/权限校验或adapter外部解析。允许同批主帖+附属评论，逐条kind来自真实记录并属provider支持集合，禁止等于source.contentKind的锁死校验；平台/来源身份及引用仍一致。正文按`(platform,kind,externalId)`选确定性胜出版本，独立observation全部保留。
 2. collection 短事务按 **source → job → content identity 升序** 锁定；校验 active、交付类型和租约/推流幂等状态。
 3. content 批量提交正文、投影、discovery、observation；返回接受的正文/计数。
 4. collection 同事务推进 checkpoint 或保存推流回执，更新来源状态；提交后返回。网络/文件操作不在事务内。
@@ -78,12 +81,14 @@ packages/contracts/   TypeBox/schema 派生类型
 | --- | --- |
 | SQL-05 | `compileContentFilter(scope,filter)`是唯一纯过滤入口；scope显式包含actor允许来源与项目范围，返回参数化条件与参数，不接用户SQL。来源/discovery 用 EXISTS，不放大内容数。 |
 | SQL-06 | 列表 keyset 只取 limit+1，不预跑 coverage COUNT/total；totalMatching 默认 null。投影完整性检查放迁移/维护/写入，不在每页查全库。 |
-| SQL-07 | 概览一条 SQL：matched CTE（每内容一行）+ GROUPING SETS 计算总量/日/平台/kind；provider 按 matched ID 单独去重后聚合，不能与 facets 直接 join 放大。来源运行状态可另用一条有界查询，不按平台/provider循环重扫。 |
+| SQL-07 | 概览一条SQL：唯一filter得到证据→anchor映射（逐内容模式anchor=自身），GROUPING SETS各组COUNT DISTINCT anchor算总量/命中日/平台/证据kind；同讨论可跨日/类型出现，不能先仅留最新节点丢掉旧日命中。GROUPING位区分总计/未知日期；provider同范围独立聚合，不JOIN facets放大或循环重扫。来源状态另用一条有界查询。 |
 | SQL-08 | 批注列表一条 JOIN content 查询，关联观测采用有界子查询/批量读取，不逐条 getContent。详情禁止N+1。 |
 | SQL-09 | 搜索投影采用一个 `search_text` + GIN gin_trgm_ops；保存 `title_length` 作为字段边界，不再维护两个规范全文索引。规范标题和正文以 U+001F 分隔；输入禁止该控制符。title_length 用 PG char_length，不能用JS UTF-16长度。标题/正文 scope 先用组合索引候选，再按 substring 精确校验，短语不跨字段边界。 |
 | SQL-10 | 字面检索使用转义后的参数化 LIKE（包括转义 `%`、`_`、反斜杠）才能使用 trigram 候选，不能继续用 strpos 期待GIN生效。短词/符号需先限定来源/时间；范围过宽422，执行超时503，绝不返回假0。 |
 
-游标与空时间规则见 QRY-05。未知发布时间在选定日期窗外；概览与内容使用相同时间语义，不另设隐藏范围计算“未知数”。SQL计数使用 bigint，JSON只输出可安全表示的整数，不能 COUNT(*)::int 溢出。
+联动搜索、概览、对比和导出复用content模块的同一候选→anchor SQL片段；三段式词组和signal由唯一compileContentFilter编译，不在React或projects另实现门控。反查使用已有reply_to/thread_root与内容唯一索引；父链用有界递归查询，缺祖先返回partial，不新增树表/图服务或全树缓存。详情树懒加载，不逐节点await查库。
+
+游标与空时间规则见QRY-05/QRY-09；threadAware按最新匹配证据的真实发布时间生成排序matchedAt，日桶则各自去重，不改根帖发布时间。未知发布时间在选定日期窗外；概览与内容使用相同时间语义，不另设隐藏范围计算“未知数”。SQL计数使用 bigint，JSON只输出可安全表示的整数，不能 COUNT(*)::int 溢出。
 
 目标负载：4vCPU/8GiB/SSD、100万内容/300万观测/20来源、5个读取并发。列表/详情P95≤400ms，90天概览≤1s；100条页纯应用落库初始门槛≥200条/秒。记录冷暖缓存、SQL次数、更新比例、CPU/内存/WAL；审查稿的2,000条/秒等不是已测承诺。
 
@@ -91,8 +96,17 @@ packages/contracts/   TypeBox/schema 派生类型
 
 - RUN-01：进程内 scheduler 最大并发2、同来源一次执行；用现有PG租约/SKIP LOCKED领取，仍能抵御部署时短暂双实例。来源 due 不因轮询抖动重复建任务。
 - RUN-02：续页 next_run_at=now，provider minimum_interval_ms 统一限流；有可领取任务立即继续，无任务按 clamp(nextDue-now,500ms,5000ms) 等待并可被退出信号打断。未来到期的任务不占连接/并发槽，不忙轮询已耗尽预算的来源。
-- RUN-03：默认 provider 网络时限15s，传递取消信号；429/5xx有限退避，最多3次请求启动尝试。kaix既有收费操作需要更长上游等待时，必须显式provider级有界时限；不套15s后自动重发收费POST。未知操作结果人工核查，禁止自动回放。
+- RUN-03：默认外部读取15s，kaix等待Actor显式65s。非收费临时读取最多3次退避；kaix/TwitterAPIs等不可安全重放调用先持久化启动状态，保存已知runId/datasetId，未知结果永久阻断自动再发及同任务切备；已知run只读取结果，不重新POST Actor。不能以HTTP GET方法判断上游调用免费。
 - RUN-04：pull页/checkpoint原子；push回执/内容原子。暂停/取消后旧租约不能提交。无cursor的抽样始终partial；成功不是完整覆盖。304只更新检查状态，禁止更新源观测/新内容计数。
+
+### 发现、门控、水合的执行闭环
+
+- radar使用incrementalTo+有界重叠回看，partial来源也可记录已执行窗口，不冒充完整覆盖；触顶记录gap。没有cursor就不伪造Continue、不递归二分扫全量。
+- 精准词直接带15评论，宽泛词先取根帖→确定性门控→最多一笔派生hydrate（每批至多30根/每帖50）。项目JSON保存授权策略，job保存参数/revision快照、根帖列表与parent_job_id；无需新队列/规则引擎/中间表。
+- 自动派生的选择在入队和领取时检查可见范围、projectRevision、冷却期/已有任务、预算。幂等request_key去重；内容接受提交后再建派生job，重启可从既有job补建，不把网络/筛选塞进写事务。
+- collection_source至多指向一个同平台备源，不成链/环；只在明确不可用且已预授权时建有界备源job，写入归属真实备源而非冒名主源，保留fallback_of_job_id。空结果/partial不切；用户pause、全局限额关闭和未知收费状态不绕过。备源失败结束，不自动往返；主源恢复后下个窗口优先主源。
+- 主备使用静态provider注册和普通source/job，不建路由平台。kaix与red_crawler同属Apify，仅提供Actor级冗余；ScrapeBadger为独立基础设施候选。TwitterAPIs与TwitterAPI.io独立适配，不能只换base URL。
+- 在线接受批按COL-09的2000条/16MiB封顶，四组SQL仍覆盖根帖+回复原子写。Actor事件/compute/代理/时限预算随授权批量显式配置，不能让旧101资源或$0.01事件帽截断新批量；费用未知仍停发，不以重复调用弥补丢弃的结果。
 
 ## 6. 远端安全稳定基线
 

@@ -156,7 +156,7 @@
    & GET /v1/source-jobs/:id             ──► 轮询任务状态（仅返回安全状态与下一步白名单动作）
 4. GET /v1/projects/:id/overview         ──► 单 SQL 获取项目趋势、平台/类型分面、最新观测与缺口说明
 5. GET /v1/projects/:id/content?...      ──► 使用高信号过滤（如 minMetric / searchScope / threadAware）钻取样本
-   & GET /v1/content/:id                 ──► 读取原文与完整 3 层折叠评论树（含 depth / isSubmitter）
+   & GET /v1/content/:id                 ──► 读取原文与三视图有界评论树（保留真实 depth / isSubmitter，并非只保留3层）
 6. GET /v1/content/export?format=json|csv──► 有界流式带走结构化证据（含 truncated 与 nextCursor 分段标记）
 ```
 
@@ -211,6 +211,9 @@
 - 游标同时绑定 `filter/scope` 指纹与 `projectRevision`，范围或版本变更直接返回 `409 cursor_scope_changed`。
 
 #### (3) `projects` 概览单 SQL `GROUPING SETS`（替代 10+ 次 `contentStats` 循环扫描）
+
+下例展示逐内容模式。`threadAware=true`时，matched输入改为[QRY-09](../contracts.md#qry-09主帖与评论联动)的可见证据→anchor映射，各分组COUNT DISTINCT anchor；日期按命中节点发布时间，同讨论可跨日出现，日桶不可相加作期间总量。列表/文件按anchor去重，不能只拼主帖卡片而统计仍累加评论。父链仅作上下文，缺失不伪造；实现细则由契约维护。
+
 ```sql
 WITH matched AS (
   SELECT c.id, c.source_id, c.kind,
@@ -317,9 +320,11 @@ plugins/                      # 【R4 外挂目录：独立运行与依赖，禁
 
 ## 8. 文档同步对齐清单与 `R1 -> R4` 落地路线
 
-### 8.1 依据本 SPEC 后续需全方位对齐更新的仓库文档
+### 8.1 现行文档同步定位
 
-| 目标文档 | 本轮之后需要对齐更新的关键内容 |
+本版已将下列决定同步到各专项文档；实际代码/来源/部署完成情况仍以[status](../status.md)为准。母本定义锁定方向，字段/边界/验收在对应文档维护，不另造第二套框架。
+
+| 目标文档 | 已同步的规范范围（非已实现功能） |
 | :--- | :--- |
 | [docs/README.md](../README.md) | 移除将 `Arctic Shift` 作为在线主力 Reddit 路径的假定；补入“三阶信号漏斗（发现 $\to$ 门控 $\to$ 评论树水合）”与 Agent-First 能力契约（`PRD-02` / `PRD-08`）。 |
 | [docs/research/data-sources.md](./data-sources.md) | 正式记录 `Arctic Shift` 在线 API 实测淘汰结论（422 超时 / 强限流）与官网匿名 403 实证；更新 Reddit 双源（`kaix` 解除封印 4 项能力 + `red_crawler` / `ScrapeBadger`）与 X 双源（`TwitterAPIs` + `TwitterAPI.io` / `Xquik`）选型矩阵。 |

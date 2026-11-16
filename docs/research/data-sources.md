@@ -1,10 +1,10 @@
 # 来源选择与研究证据
 
-核对：2026-11-15。结论基于本仓库与 GitHub 固定源码/许可；本轮未执行第三方采集、登录会话、付费请求或全档加工。源码存在证明可研究，不证明本服务器实时可用。
+核对：2026-11-16。选型以[Master Spec](architecture_audit_and_rebuild_spec.md)为准；本轮核对现有connector、kaix店铺说明、TwitterAPIs价页及ScrapeBadger公开页，未启动Actor/收费采集或扫描归档。母本中的连通性测试单独注明归属，不冒充本轮重跑。
 
 ## 1. 决定
 
-**在线原平台：保留 Reddit / X 的已有可用设计；聚合项目：选 NewsNow + RSSHub；历史：后续独立外挂，只经标准HTTPS推流。** 主线不依赖Python/DuckDB/原档，不导入归档发布包；不把多个完整项目的账户、数据库和任务系统拼起来。
+**Reddit：kaix主源+red_crawler备源，退役Arctic Shift在线API；X：TwitterAPIs主源+TwitterAPI.io备源；资讯：NewsNow+feed/RSSHub；历史：R4独立外挂。** 主线不依赖Python/DuckDB/原档，不导入归档发布包；不把多个完整项目的账户、数据库和任务系统拼起来。
 
 | 候选 | 固定提交 / 许可 | 结论与决定性证据 |
 | --- | --- | --- |
@@ -42,19 +42,42 @@
 
 自托管可在单服务器运行一个受限 RSSHub 进程；是否有足够内存/路由依赖由实际部署测量。若无受控服务或能力不合格，保持“未接通”，先交付 NewsNow，不能退回公共演示站冒充稳定服务。
 
-## 4. Reddit / X：复用能力，移除历史采购锁定
+## 4. Reddit / X：主备与评论能力
 
-| 路径 | 本仓库事实 | 重建取舍 |
+| 平台/角色 | 选择与费用线索 | 实施边界 |
 | --- | --- | --- |
-| Reddit / Arctic Shift | 社区/账号/帖子评论、范围内关键词、已知 ID；历史真实有界落库 | 继续作为定向/历史补充。不是全站关键词入口；先将 Reddit ID 本地校验统一为2–32位base36，修13位评论刷新 |
-| Reddit / kaix Apify | 已有跨社区 search 等 adapter；无持久 cursor，始终 partial；未知收费启动不自动重发 | 保留能力/语义，不承诺完整持续覆盖；真实采样与授权后再决定是否主用 |
-| X / TwitterAPI.io | 已有账号/搜索/ID adapter、可空指标/媒体/引用，未真实验收 | 最少变更的首条验证路径。旧“单价超限禁用”理由已废止，但凭证/使用授权/实际质量仍待验证 |
-| X / twscrape、OpenCLI | 历史只有会话/源码研究，非本产品正式 provider | 现有路径不足才研究；不为重构同时维护会话池、远程浏览器和多家供应商 |
-| Bluesky | 已有 AppView 账号 adapter、小样本落库 | 保留不扩展；不是 Reddit/X 替代。web/Instagram 类型不证明有正式 adapter |
+| Reddit主源 | [kaix/reddit-scraper](https://apify.com/kaix/reddit-scraper)，锁build0.2.25；店铺标$0.02/千结果，另计平台compute/代理 | 解锁带评论搜索、批量postUrls、原生布尔query、树元数据；无cursor始终partial，未知收费启动不重放 |
+| Reddit首批备源 | [red_crawler/reddit-search-v2](https://apify.com/red_crawler/reddit-search-v2) + [reddit-scrape-v2](https://apify.com/red_crawler/reddit-scrape-v2) | 母本记录作者费FREE、仍有compute；搜索与树两步。所报30天99.4%–99.8%是母本选型证据，不是本产品SLA。仍与kaix共享Apify基础设施 |
+| Reddit独立备源候选 | [ScrapeBadger](https://scrapebadger.com/reddit-scraper) | 母本记录搜索8/树15 credits/call、query≤256 UTF8 bytes、cursor30min过期；公开页本轮确认按请求计费，但未独立确认全部细节。实际adapter前按API schema核对；不把满页推导的$0.008–0.016/千条当稀疏词实价 |
+| X主源 | [TwitterAPIs](https://www.twitterapis.com/pricing)，api.twitterapis.com | 标准$0.0008/call，满20条推算$0.04/千条；空页也收费。回复走/twitter/tweet/replies或conversation_id:；/tweet/thread较贵且方向不同，不作默认水合 |
+| X备源/精查 | [TwitterAPI.io](https://docs.twitterapi.io/)，母本记录PAYG $0.15/千条、20QPS | 复用现有adapter再验收；以since_time:/until_time: Unix秒表达窗口，不用since:/until:；/twitter/tweet/thread_context双向上下文仍需新增实测 |
+| X稀疏词候选 | Xquik | 母本记录空搜零扣费；非首批第三实现，只有真实稀疏命中/费用证据能证明必要才接 |
+| 资讯 | NewsNow/feed（前文固定源码） | 来源费用可为0，不等于服务器/维护成本为0；不替代社交主备 |
 
-原来固定采集费、赠额试跑顺序、官方申请路线排除和云端浏览器前置均不是当前产品约束。当前没有新增采购、自动开网络或恢复浏览器服务的授权。接入选择由可用数据/质量/权限和维护成本决定；不把仅改 base URL 当 provider 兼容。
+### Arctic Shift在线淘汰记录
 
-首个真实来源验收要有：目标/时间窗、首/续页或无 cursor 声明、稳定身份、时间/指标缺失、重放计数、落库/API/导出证据，以及正常请求耗时/用量。持续可用性需连续运行记录，不用一次成功或轮询配置替代。
+母本记录2026-11-16探测：MachineLearning搜帖1,831ms返回422 Timeout；LocalLLaMA搜评论1,633ms同错，缩24h仍3,971ms仅2条；较小社区搜帖10,225ms；树端点2,874ms仅4条顶层且出现more，x-ratelimit-reset=51；Reddit匿名.json/.rss均403。上游issue #66/#78/#82/#85/#89同列为该次判断依据。本轮未重发这些探测，结论是**本产品不再维护该在线依赖**，不是宣称上游永远不可用。
+
+删除connector/注册/配置/专用测试，不继续修其13位ID正则；通用Reddit长ID仍保留。旧来源归档停调度、保留历史内容/观测的真实provider标识；不改写为kaix。本地.zst格式研究保留为R4，与在线淘汰独立。
+
+### kaix四项改造与本轮一手核对
+
+当前代码确实写死includeComments=false、maxItems≤100，post目标丢弃主帖；literal.includes会误杀OR查询，且capability.metrics还import自Arctic Shift。必须一起改，不只开放表单：
+
+1. includeComments/maxCommentsPerPost/commentSort/time/sort可配置；精准词Top15，行业词先主帖，再按需Top50，不允许0无限抓。
+2. mode=post一次postUrls最多30个，保留根帖最新指标与评论；主线支持混合kind，dataset读取不再limit+2截断。
+3. 删除原生query整段字面复筛；上游召回与本地anyTerms/allTerms/exclusions分别负责，不伪造完整覆盖。
+4. 保留父子引用、depth/isSubmitter/collapsed/collapsedReasonCode；平台metric定义抽到共享Reddit规则，不依赖被删adapter。
+
+本轮公开店铺说明确认：post模式按postUrls决定数量、不使用maxItems；maxCommentsPerPost包含嵌套回复、父先于子且限额按层填充，0表示全树；用户评论流depth可null。proxyConfiguration默认启用Apify代理，关代理可能更慢，目标按授权显式配置，不沿用旧代码强制false。**公开当前说明不等于固定0.2.25已验收**；在该build验证输入/混合输出/计费后再启用，不静默切latest。
+
+### 费用与来源验收
+
+[TwitterAPIs本轮价页](https://www.twitterapis.com/pricing)确认按call计费、空页也扣。其自报2026-10-22–28搜索平均11.44条/call、29.6%空页，仅作风险线索；满页折算不是实际有效独立内容成本。kaix帖子/评论均计结果，重试、重复结果和compute也计实际消耗；不恢复旧固定总费用假设。
+
+每源按同一目标/窗口验证首续页、稳定ID、混合树、时间/指标缺失、幂等、正常耗时与实际用量；主备验证同窗去重、能力缺口和切换来源归属。TwitterAPIs不等于TwitterAPI.io，必须独立schema/分页/时限适配，禁止只换base URL或对冷词递归时间二分。
+
+Bluesky保留已有能力，不扩排期；twscrape/OpenCLI/浏览器池不复活。新采购、真实收费调用另按授权执行，日常研发不等待凭证即可用离线响应和真实PG闭环。
 
 ## 5. 归档研究降为独立外挂
 
