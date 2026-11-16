@@ -1,6 +1,6 @@
 # 开发入口
 
-- 开始先读[产品与架构](docs/README.md)、[状态](docs/status.md)；接口读[契约](docs/contracts.md)，执行读[开发说明](docs/development.md)。四份文档分别维护，另附唯一专项[来源替换与清理规格](docs/research/source_replacement_and_twitterapi_io_removal_spec.md)，不另建其他Master、设计、计划、审查或交接规范。
+- 开始先读[产品与架构](docs/README.md)、[状态](docs/status.md)；接口读[契约](docs/contracts.md)，执行读[开发说明](docs/development.md)。四份文档分别维护；[来源专项](docs/research/source_replacement_and_twitterapi_io_removal_spec.md)仅维护供应商HTTP字段、采购证据与清理定位，不构成第二套产品/任务规则。不另建Master、设计、计划、审查或交接规范。
 - 当前用户指令优先；目标规范不等于实现，源码/迁移/实际检查证明当前行为。
 - 修改前检查分支、远端、工作区；使用独立目录，保留他人修改。逐路径提交，不reset/clean/stash，不强推；推送与部署分别授权。
 - 按真实用户任务纵向交付；只做本次范围。重构必须删掉已替代的层/入口/测试，不把复杂度搬到新文件。

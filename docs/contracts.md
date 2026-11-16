@@ -19,6 +19,7 @@
 | SRC-01 | MUST | pull来源身份为platform + seedKind + 规范target，push来源另含客户端namespace；provider不参与逻辑身份。deliveryMode创建后不变，kind由每条真实记录决定。 | PG/HTTP |
 | SRC-02 | MUST | collection_source保存primaryProvider与可选fallbackProvider；任务固定实际provider，观测记录实际provider，项目/key只授权逻辑来源。现有provider字段迁为主渠道语义。 | 主备闭环 |
 | SRC-03 | MUST | 主备目标/operation兼容才可切一次；明确失败或限流可切，空结果/partial/未知收费结果不切。备源不独立定时轮询，不级联。 | provider夹具 |
+| SRC-04 | MUST | 按真实operation/refreshByIds能力选择渠道；不把批量ID补全当完整讨论树，不将批量请求暗拆成N次收费单条请求。 | 能力/预算 |
 | DATA-01 | MUST | ID始终为字符串；Reddit本体为2–32位ASCII base36、小写，post/comment分别带t3_/t1_。X回复仍为post。web优先canonical URL，否则feed namespace+GUID。 | 纯函数 |
 | DATA-02 | MUST | publishedAt、sourceObservedAt、fetchedAt分别记录发布、上游观测、本系统获取；未知为null，不相互冒充。 | PG/HTTP |
 | DATA-03 | MUST | 正文按下述版本元组决胜；省略/null不清空已知字段，明确删除清正文/投影，旧版本不得复活删除。独立发现/观测不因正文落后被丢弃。 | PG |
@@ -42,10 +43,12 @@ provider过滤与指标读取使用同一逻辑来源的实际观测，不能从
 | JOB-04 | MUST | collect/ingest使用Idempotency-Key；同来源+key+规范payload复用结果，不同payload409；回执至少7天。 | 重放/并发 |
 | JOB-05 | MUST | cursor绑定provider/目标/窗口；无cursor始终partial。incrementalTo只表示已执行窗口，可重叠回看，触顶标gap，失败不推进，不递归二分抓全量。 | provider夹具 |
 | JOB-06 | MUST | 自动补全使用已授权项目策略，每次radar至多派生一个hydrate；请求快照/parentJobId/选择结果保存在原job，重启可补建且不重复。 | 重启/PG |
+| JOB-07 | MUST | 翻页检查有效空页、显式结束标记与cursor重复；协议错误不当空页、不推进checkpoint，重复cursor停止并标partial及原因。 | provider夹具 |
+| JOB-08 | MUST | 新provider默认关闭/零额度，迁移不覆盖既有有效授权；每次收费调用前预留，真实积分按请求记入现有job/用量状态，不当内容指标或跨行相加。 | PG/用量 |
 
 收费阶段为`starting → running → reading → committed`，异常分为已确认失败与unknown。已知run读取可恢复；普通Retry、新key或新job不能绕过同来源未决收费状态。查明后显式确认可能再次收费才可新建操作。一次人工授权可持续执行正常巡检，不逐次弹确认。
 
-Apify使用异步创建后轮询，而不是同步等待结束就认定任务失败。单次网络读取默认15s；Apify等待兼容上限65s，任务等待由持久状态控制，不长期占连接/租约。非收费临时读取最多3次有界尝试；上游HTTP GET也可能收费。
+Apify使用异步创建后轮询，而不是同步等待结束就认定任务失败。普通网络读取默认15s，X专用超时初始20s；Apify等待兼容上限65s，任务等待由持久状态控制，不长期占连接/租约。非收费临时读取最多3次有界尝试；上游HTTP GET也可能收费，两个X新provider均automaticRequestReplay=false。
 
 | operation | 请求语义 | 初始预设 |
 | --- | --- | --- |
@@ -57,7 +60,22 @@ maxItems是主目标数，不是混合dataset总行数。在线接受批初始20
 
 自动策略初始关闭；启用即持续授权，初始10%/最多30根/每帖50/top/冷却6h，选择本平台过门控根帖，按讨论数、发布时间、ID排序。入队/领取检查revision、冷却、来源权限与预算；手选不受百分比限制。
 
-备源任务复用同一sourceId，固定实际provider与fallbackOfJobId；不复用另一provider的cursor。调度按provider spacing运行，空队列有界等待，不加固定逐页睡眠。
+备源任务复用同一sourceId，固定实际provider与fallbackOfJobId；不复用另一provider的cursor。调度按provider spacing与已知429等待头运行，不占连接/租约睡眠，也不加固定逐页等待。
+
+### 来源能力与调用边界
+
+| provider | 发现/精查 | 批量ID补全 | 初始调用边界 |
+| --- | --- | --- | --- |
+| twitterapis | 搜索、账号；按需回复/引用分页 | refreshByIds=false；单条detail不冒充批量 | 约20条/页、maxPages=5、spacing≥200ms；不用高价且仅同作者顺向的thread端点 |
+| scrapebadger | 搜索、账号；按需回复/引用分页 | refreshByIds=true，每批20–50个已授权ID | 搜索count≤100；未首充spacing≥12s，已确认PAYG可降至≥1s；遵从Retry-After/重置头 |
+| kaix | 搜索/账号/社区、批量postUrls与有界评论 | 已声明的根帖目标 | 沿用本节混合批与hydrate预算，不恢复100条或同步等待限制 |
+| red_crawler | 评论关键词、多社区搜索；按需帖子树 | 仅各Actor明确支持的目标 | 共享Apify凭证/故障域；可用all模式仍须先证明总条数有界，不接受无限整树 |
+
+ScrapeBadger批量ID是已授权的按需补全，不依赖主源先失败，也不启动第二套定时巡检。
+
+X搜索窗口以秒级since_time/until_time编入原生query，本地仍核对真实发布时间；不发送供应商未声明的日期参数。按规范响应字段解析列表：显式允许的null可作空页，缺失/非法列表是协议错误；非空cursor不证明还有数据。批量缺失ID不推断删除；conversation_id/reply/quote/repost及六项X指标分别保留，缺值为null。具体端点/认证/字段映射仅维护在[来源专项 §2](research/source_replacement_and_twitterapi_io_removal_spec.md#2-x-双源供应商http字段openapi资料)。
+
+ScrapeBadger的X-Credits-Used是请求级诊断，不复制成每条内容的费用；缺头记unknown，不按0结算。其已知HTTP失败不扣费的公开声明不构成网络结果未知时重放的授权。
 
 推流由服务端绑定platform/provider/sourceId/fetchedAt，客户端仅提交身份、正文/状态、发布时间、引用/白名单平台字段与观测。任一项无效整批400/413，暂停或错误交付类型409；成功首次201、重放200。回执保存原job，不加入pull领取队列。304只更新lastCheckedAt，不生成新观测。
 

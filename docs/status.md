@@ -1,6 +1,6 @@
 # 实现状态
 
-核对：2026-11-16。此次工作基线为main@90dbe9a；运行中服务仍为3551900旧构建，未部署本次源码。文档目标见[产品与架构](README.md)，当前行为以下表为准。
+核对：2026-11-16。此次文档对齐基线为main@9760006；已知部署仍为3551900旧构建，本轮未部署或重查现网。文档目标见[产品与架构](README.md)，当前行为以下表为准。
 
 ## 已有与缺口
 
@@ -15,17 +15,19 @@
 
 ## 本次完成
 
-- 现行核心文档收敛为四份；新增专项[来源替换与清理规格](research/source_replacement_and_twitterapi_io_removal_spec.md)固化`twitterapi_io`全量实删与`TwitterAPIs`+`ScrapeBadger`+Apify低价Reddit切换方案，原审查/研究/历史从Git固定快照追溯。
-- 采纳逻辑来源、稳定证据、异步run恢复、导出代理背压/局部idle预算；仍按R1–R3主线、R4外挂实施。
+- 四份核心文档吸收来源替换设计：TwitterAPIs主源、ScrapeBadger备源/批量ID补全、red_crawler补评论搜索/有界树；[来源专项](research/source_replacement_and_twitterapi_io_removal_spec.md)只保留供应商字段、采购证据与清理定位。
+- 契约补齐能力差异、付费GET不重放、空页/重复cursor止损、账户档位限流、请求级积分与新预算默认关闭；开发说明统一安全退役顺序，删除专项中可误取消在途任务的SQL范本。R1–R3/R4边界不变，未编写新adapter或执行退役。
 - lint限制文档/目标模块文件，检查规则编号、旧层依赖、空壳class及私有配置入Git；不是已实现五模块。
 - 源码移除kaix的$0.01事件帽、45s Actor超时、512MiB强制内存和禁代理；不改变单页/响应大小等现有处理上限。运行中旧构建未换版。
-- 本机kaix日/月requests/resources均设为当前接口最大100000000、spacing=0；未启动任务/worker，外部收费请求0。
-- 仓库外credentials.env已建，权限600，密钥仍为空。当前服务配置未检到Apify/TwitterAPIs key；TwitterAPIs key只能预留，不能当成已接通。
+- 前轮已将本机kaix日/月requests/resources设为100000000、spacing=0；本轮不改配额/数据库，不新增收费调用或后台采集。
+- 仓库外credentials.env中的Apify/TwitterAPIs凭证已由用户填写，权限600；两家上游小样本已通，不等于运行中服务已加载或TwitterAPIs adapter已实现。
 
 ## 验证
 
-lint（含Web ESLint）、typecheck通过；kaix/发布包/仓库规则专项9/9通过，规则夹具覆盖合法布局与10项独立违规；私有配置入口验证通过且未输出值。未执行新架构PG/浏览器/真实来源/部署验收。
+本轮lint（含Web ESLint）、typecheck、kaix/发布包/仓库规则专项9/9及diff检查通过；文档门禁覆盖7份允许文档、54条唯一规则及本地链接/锚点。未运行全量离线/PG/浏览器或部署检查。
 
-11-13既有部署为/opt/reddit-monitoring-releases/main-3551900-20261113T073415Z，私有配置在/etc/reddit-monitoring；本次读取配置存在性并更新kaix配额，不重启/部署。原工作区未提交修改保持不动。
+11-16按用户授权直连上游，以OpenAI搜索：kaix固定build0.2.25成功取20帖（1个Actor run），TwitterAPIs HTTP 200取20推文（1次搜索）；各20个独立ID，未抓评论/翻页/入业务库。报告留在原reddit-review-rules工作目录的output/validation/provider-smoke-2026-11-16T07-25-31-593Z/，原始数据和密钥不进Git。这只证明一次上游可用；ScrapeBadger/red_crawler、新架构PG/HTTP/浏览器、完整账单/持续覆盖与部署仍未验收。
+
+11-13既有部署为/opt/reddit-monitoring-releases/main-3551900-20261113T073415Z，私有配置在/etc/reddit-monitoring；本轮只改文档，不读出密钥、不重启/部署。原工作区未提交修改保持不动。
 
 历史来源、性能与发布证据见[90dbe9a快照](https://github.com/Euroish/reddit-monitoring-mvp/tree/90dbe9a/docs)。未测吞吐、上游报告和历史通过数不作为本版验收。

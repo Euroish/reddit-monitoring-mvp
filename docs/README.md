@@ -33,13 +33,15 @@
 
 | 平台 | 主源 | 备源/补充 |
 | --- | --- | --- |
-| Reddit | kaix/reddit-scraper | red_crawler搜索/树Actor（`FREE`作者费+Compute）；二者共享Apify基础设施 |
-| X | TwitterAPIs（`$0.0008/call`） | ScrapeBadger（`1 base + 1/item`、批量`/v1/twitter/tweets/`补ID、失败`0`扣费）；独立适配，不只替换base URL |
+| Reddit | kaix/reddit-scraper，发现与按需补评论 | red_crawler搜索/树Actor，补评论关键词搜索与多社区召回；二者共享Apify基础设施 |
+| X | TwitterAPIs，搜索/账号与按需回复、引用 | ScrapeBadger，独立供应商备源及批量ID补全；能力差异见契约 |
 | 资讯 | 精选NewsNow MIT getter、通用feed | 受控RSSHub，可选外部服务 |
 | Bluesky | 保留已有AppView能力 | 不扩展本轮范围 |
 | 历史材料 | R4独立外挂 | 只经鉴权HTTP推流 |
 
-Arctic Shift在线链路与超预算的`TwitterAPI.io`（`$0.15/1k`）均纳入R1–R3全量实删与迁移计划（见[来源替换与清理规格](research/source_replacement_and_twitterapi_io_removal_spec.md)）；历史内容与真实provider标识通过软归档保留。TwexAPI/Xquik经OpenAPI与成本核验暂不接入主线。来源价格、满页折算与上游宣传不是产品性能或成本承诺；真实验收记录目标、窗口、耗时、独立内容和实际账单。
+Arctic Shift与TwitterAPI.io在线链路按R1–R3退役：新链不注册、不调度，旧代码完成迁移后实删；历史来源、内容、观测与真实provider身份保留，不改名为新渠道。TwexAPI/Xquik/kaitoeasyapi不纳入当前实现。
+
+供应商HTTP字段、公开报价与清理定位见[来源专项](research/source_replacement_and_twitterapi_io_removal_spec.md)；产品行为以本文和契约为准。按call、按item、Compute/代理与赠额分开核算，空页也可能收费；满页折算不是有效独立内容成本，不恢复旧开发费用帽或全产品固定单价承诺。真实验收记录目标、窗口、耗时、独立内容和账单。
 
 ## 3. 架构与所有权
 

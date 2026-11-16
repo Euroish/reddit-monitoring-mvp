@@ -9,6 +9,8 @@
 - [开发与交付](docs/development.md)：私有密钥、命令、迁移与R1–R4。
 - [实现状态](docs/status.md)：已实现、缺口与检查证据。
 
+供应商参数与清理定位见[来源专项](docs/research/source_replacement_and_twitterapi_io_removal_spec.md)，不替代上述产品与契约。
+
 当前仍为0.9.1/node:http旧主链，新架构尚未实现。Git推送不部署服务。
 
 ```sh
