@@ -56,7 +56,9 @@
 
 ### 物理实删总矩阵
 
-| 待删除遗留对象 | 删除前必须具备的替代或保护门禁 |
+基于 `main@7045185`（**457 源码文件 / ~73,534 LOC $\to$ ~62 核心文件 / ~7,250 LOC**，约削减 **90%**：`apps/api/src` 5,120→~450 LOC `-91%`、`src/` 27,236→~3,000 LOC `-89%`、`apps/web/src` 6,508→~2,000 LOC `-69%`、`scripts/+workers/` 10,624→~600 LOC `-94%`、`tests/` 24,046→~1,200 LOC `-95%`）的逐路径淘汰清单：
+
+| 待删除遗留对象 | 替代或删除前必须具备的保护门禁 |
 | :--- | :--- |
 | `src/connectors/x/twitterapi-io*`、`arctic-shift-content.connector.ts`、旧 env/CI 键与相关废弃单测 | R1/R2 新双源与 `x-content-pipeline.test.ts` 验证通过；DB 通过向前迁移完成历史来源软归档与零额度禁用，绝不物理删除历史观测行 |
 | `src/domain/repositories/*`（除 `ContentProvider`）与 `src/storage/repositories/in-memory/*`（14 文件） | 5 模块命名 SQL 与真实 PG HTTP E2E 全量接管；严禁私造新 `InMemory` 替代品 |
