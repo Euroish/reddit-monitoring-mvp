@@ -24,10 +24,9 @@ export class KaixContentConnector implements ContentProvider {
       platform: "reddit", provider: "kaix", enabled: config.networkEnabled && Boolean(config.apiToken),
       contentKinds: ["post", "comment"], targetTypes: ["community", "account", "post", "search"], keywordSearch: "global",
       observationModel: "snapshot", metrics: ARCTIC_SHIFT_CAPABILITY.metrics,
-      // Post detail always emits the root post in addition to at most 100 comments.
       requestResourceUpperBound: 101,
       automaticRequestReplay: false,
-      limitations: [WARNING, "Paid Apify Actor 0.2.25; default budget disabled. Each operation includes a run POST and dataset GET. Event charge cap excludes platform usage.", "Source metric observation time is unknown. No automatic maturity refresh.", ...(!config.networkEnabled || !config.apiToken ? ["Requires live networking and private APIFY_API_TOKEN."] : [])],
+      limitations: [WARNING, "Apify Actor build 0.2.25.", "Source metric observation time is unknown. No automatic maturity refresh.", ...(!config.networkEnabled || !config.apiToken ? ["Requires live networking and private APIFY_API_TOKEN."] : [])],
     };
   }
 
@@ -58,14 +57,13 @@ export class KaixContentConnector implements ContentProvider {
     if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) throw new ContentProviderError("Invalid kaix collection window", false);
     const target = this.normalizeTarget(request.source.target, request.source.contentKind);
     request.signal?.throwIfAborted();
-    const input: Row = { sort: "new", time: "all", depth: "detailed", includeNsfw: true, includeComments: false, maxItems: request.limit, maxCommentsPerPost: 1, proxyConfiguration: { useApifyProxy: false } };
+    const input: Row = { sort: "new", time: "all", depth: "detailed", includeNsfw: true, includeComments: false, maxItems: request.limit, maxCommentsPerPost: 1 };
     if (target.type === "search") Object.assign(input, { mode: "search", keyword: target.query });
     else if (target.type === "community") Object.assign(input, target.query ? { mode: "search", subreddit: target.community, keyword: target.query } : { mode: "subreddit", subreddit: target.community });
     else if (target.type === "account") Object.assign(input, { mode: "user", username: target.account, userContent: request.source.contentKind === "comment" ? "comments" : "submitted" });
     else if (target.type === "post") Object.assign(input, { mode: "post", postUrls: [target.postId], maxItems: 1, includeComments: true, maxCommentsPerPost: request.limit, commentSort: "new" });
-    // Fixed build, memory and wall time bound platform usage independently of the Actor event cap.
     const start = new URL("https://api.apify.com/v2/acts/kaix~reddit-scraper/runs");
-    start.search = new URLSearchParams({ build: "0.2.25", memory: "512", timeout: "45", waitForFinish: "60", maxTotalChargeUsd: "0.01", restartOnError: "false" }).toString();
+    start.search = new URLSearchParams({ build: "0.2.25", waitForFinish: "60", restartOnError: "false" }).toString();
     const body = object(await this.json(start, { method: "POST", body: JSON.stringify(input) }, request.signal, 65_000));
     const run = object(body?.data), runId = text(run?.id);
     if (!runId || !/^[a-zA-Z0-9]{1,64}$/.test(runId)) throw new ContentProviderError("Invalid kaix run response; check Apify console before Retry", false);

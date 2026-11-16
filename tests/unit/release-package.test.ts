@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtemp, mkdir, writeFile, appendFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 test("release packaging allowlist excludes credentials/data and verification detects tampering or extra files", async () => {
@@ -17,7 +18,8 @@ test("release packaging allowlist excludes credentials/data and verification det
     ["package.json", JSON.stringify({ name: "synthetic", version: "0.7.0" })], ["package-lock.json", "{}"],
     ["docs/history/handoff.md", "historical delivery"], ["docs/history/development-log.md", "historical log"],
     ["docs/research/data-sources.md", "candidate evidence"], ["docs/plans/source-expansion.md", "future design"],
-    ["docs/contracts.md", "data contracts"], ["docs/design.md", "interaction design"],
+    ["docs/README.md", "product and architecture"], ["docs/development.md", "development"], ["docs/status.md", "status"],
+    ["docs/contracts.md", "data contracts"], ["docs/design.md", "retired design"],
     ["docs/research/architecture_audit_and_rebuild_spec.md", "audit decisions"],
     ["dist/plugins/zst-archive/archive.js", "throw new Error('external plugin');"],
     ["plugins/zst-archive/archive.py", "raise RuntimeError('external plugin')"],
@@ -29,14 +31,19 @@ test("release packaging allowlist excludes credentials/data and verification det
   const manifest = await packRelease({ root, destination });
   assert.ok(manifest.files.some(file => file.path === "dist/workers/source-content-worker.js"));
   assert.ok(!manifest.files.some(file => file.path.endsWith(".env") || file.path.includes(".env.local")));
-  for (const file of [
-    "docs/history/handoff.md", "docs/history/development-log.md", "docs/research/data-sources.md",
-    "docs/research/architecture_audit_and_rebuild_spec.md", "docs/plans/source-expansion.md",
-    "docs/contracts.md", "docs/design.md",
-  ]) assert.ok(manifest.files.some(entry => entry.path === file), `Missing moved/new documentation: ${file}`);
+  assert.deepEqual(manifest.files.filter(entry => entry.path.startsWith("docs/")).map(entry => entry.path).sort(),
+    ["docs/README.md", "docs/contracts.md", "docs/development.md", "docs/status.md"].sort());
   assert.ok(!manifest.files.some(file => file.path === "docs/private-notes.md"));
   assert.ok(!manifest.files.some(file => /^(?:dist\/)?plugins\//.test(file.path)));
   assert.equal((await verifyRelease(destination)).verified, true);
+  const legacyRoot = path.join(root, "output/release-legacy");
+  const legacyManifest = await packRelease({ root, destination: legacyRoot });
+  const legacyPath = "docs/history/handoff.md", legacyBody = "historical immutable release";
+  await mkdir(path.join(legacyRoot, "docs/history"), { recursive: true });
+  await writeFile(path.join(legacyRoot, legacyPath), legacyBody);
+  legacyManifest.files.push({ path: legacyPath, bytes: Buffer.byteLength(legacyBody), sha256: createHash("sha256").update(legacyBody).digest("hex") });
+  await writeFile(path.join(legacyRoot, "release-manifest.json"), JSON.stringify(legacyManifest));
+  assert.equal((await verifyRelease(legacyRoot)).verified, true);
   await assert.rejects(packRelease({ root, destination }), /already exists/);
   await appendFile(path.join(destination, "dist/apps/api/src/server.js"), "tampered");
   await assert.rejects(verifyRelease(destination), /integrity/);

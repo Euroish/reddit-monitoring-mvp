@@ -1,246 +1,126 @@
-# 主线数据与操作契约
+# 数据与API契约
 
-依据[Master Spec](research/architecture_audit_and_rebuild_spec.md)的目标契约；未实施接口见[状态](status.md)。实现时以共享 TypeBox schema 为唯一结构真源，本文定义不能由 schema 单独表达的语义。Web、agent 和外挂遵守同一规则。
+本文件定义目标行为。字段类型、默认值和请求示例在实施时由共享TypeBox schema生成；本文只规定语义与不可变条件。
 
-## 1. 身份与观测
+## 1. 领域与身份
 
-| 名称 | 含义 |
+| 名称 | 唯一含义 |
 | --- | --- |
-| platform / provider | 原内容平台 / 获取渠道；不互相替代 |
-| collection source | 平台、provider、主目标contentKind、规范target的采集流；deliveryMode为pull或push。contentKind不是每条结果的强制kind |
-| content | `(platform,kind,externalId)` 唯一；externalId始终string |
-| discovery | 内容被某采集流发现的关系，不是一份新内容 |
-| observation | provider对该内容的一次证据/指标快照 |
-| project | 已关联来源 + 库内filter，不是租户、数据库副本或离线数据集 |
+| Platform | 原内容平台；现有source表是平台注册表，content.source_id指向它 |
+| Provider | 实际获取渠道，例如kaix、TwitterAPIs |
+| CollectionSource | 逻辑监测目标；API的sourceId始终指collection_source.id |
+| Project | 关联逻辑来源与本地过滤，不复制内容 |
+| Content | 平台内独立内容，身份为(platform,kind,externalId) |
+| Discovery | 内容被哪个逻辑来源发现 |
+| Observation | 某逻辑来源经某provider取得的一份不可变证据 |
 
-- DAT-01：Reddit规范t3_/t1_，X保留字符串ID。Reddit ID本体支持2–32位ASCII base36，统一小写，不能转number。平台由来源绑定，kind来自每条记录的真实类型；不再修补已退役Arctic Shift的ID校验，通用身份校验及其他provider仍遵守此规则。
-- DAT-02：web优先canonical publisher URL；仅移除已知跟踪参数，不删除语义query。不具备可靠URL时用feed namespace + GUID；相似标题不得强合并。
-- DAT-03：NewsNow条目用canonical URL作为web/article身份；provider/board是发现证据，不进内容唯一键。`web.rank`为名次不是互动，evidenceKey为sha256(boardId + ':' + externalId + ':' + snapshotBucket)，bucket为UTC五分钟。任务开始时固定bucket，重试复用；同bucket保留首次快照，不用后续缓存覆盖。不得无条件把所有web内容都算新闻原文或把综述拆成多篇原帖。
+| 编号 | 等级 | 规则 | 验收 |
+| --- | --- | --- | --- |
+| SRC-01 | MUST | pull来源身份为platform + seedKind + 规范target，push来源另含客户端namespace；provider不参与逻辑身份。deliveryMode创建后不变，kind由每条真实记录决定。 | PG/HTTP |
+| SRC-02 | MUST | collection_source保存primaryProvider与可选fallbackProvider；任务固定实际provider，观测记录实际provider，项目/key只授权逻辑来源。现有provider字段迁为主渠道语义。 | 主备闭环 |
+| SRC-03 | MUST | 主备目标/operation兼容才可切一次；明确失败或限流可切，空结果/partial/未知收费结果不切。备源不独立定时轮询，不级联。 | provider夹具 |
+| DATA-01 | MUST | ID始终为字符串；Reddit本体为2–32位ASCII base36、小写，post/comment分别带t3_/t1_。X回复仍为post。web优先canonical URL，否则feed namespace+GUID。 | 纯函数 |
+| DATA-02 | MUST | publishedAt、sourceObservedAt、fetchedAt分别记录发布、上游观测、本系统获取；未知为null，不相互冒充。 | PG/HTTP |
+| DATA-03 | MUST | 正文按下述版本元组决胜；省略/null不清空已知字段，明确删除清正文/投影，旧版本不得复活删除。独立发现/观测不因正文落后被丢弃。 | PG |
+| DATA-04 | MUST | 观测身份为(contentId,collectionSourceId,provider,evidenceKey)；同键同证据重放不新增/不更新历史，冲突报错。 | 重放/PG |
+| DATA-05 | MUST | evidenceKey使用稳定operation/run身份与规范记录摘要，排除本次读取时钟；同dataset重读沿用已保存fetchedAt。新观测必须有新的证据身份。 | dataset重读 |
+| DATA-06 | MUST | 同批可含根帖/评论/父链；校验平台、operation支持的kind与引用，禁止item.kind==source.contentKind。缺父可存真实引用，已知跨根/环整批拒绝。 | 混合批/PG |
 
-### DAT-04：接受正文的确定性版本
+正文版本字典序为`(sourceObservedAt IS NOT NULL, COALESCE(sourceObservedAt, versionFetchedAt), evidenceKey)`，键用C字节排序；新增content_evidence_key/content_version_fetched_at。last_seen_at仅记最近发现，不参与决胜。同身份/版本的已知字段冲突拒绝该批。
 
-新增既有content表字段 `content_evidence_key TEXT NOT NULL`、`content_version_fetched_at TIMESTAMPTZ NOT NULL`；维护已有content_observed_at。按下列元组字典序较大者胜出，evidenceKey使用确定性字节排序（C collation）：
+Reddit保留reply_to、thread_root及depth/isSubmitter/collapsed/collapsedReasonCode，未知为null。NewsNow条目按canonical URL去重，rank只表示名次；快照键使用boardId+externalId+任务固定UTC五分钟桶，不以重试时刻重建。
 
-```text
-(sourceObservedAt IS NOT NULL,
- COALESCE(sourceObservedAt, versionFetchedAt),
- evidenceKey)
-```
+provider过滤与指标读取使用同一逻辑来源的实际观测，不能从当前primaryProvider推断历史渠道。discovery仅标发现关系，其最近渠道不替代观测历史。
 
-versionFetchedAt只在接受正文版本时更新；first_seen_at/last_seen_at独立记录接收范围，不能参与已接受版本的比较。相同观测时刻仅由evidenceKey决胜，不能让重试取回时刻改变已知观测排序。
+## 2. 任务、恢复与推流
 
-- 较新available版本中的省略/null表示未知，用COALESCE保留已知title/body；空字符串是明确的空正文。不要用默认空字符串消灭字段缺失信息。
-- 较新deleted/removed必须清除受影响正文和投影；落后available输入不能以“补空字段”为由恢复已删除正文。
-- 平局/落后输入仍可增加独立discovery/observation、更新last_seen_at，但不改正文版本。页内重复身份先按相同规则选正文胜者，独立observation全部保留；不能最后一个数组元素任意胜出或丢掉其他观测；同身份/同版本的已知字段互相冲突时拒绝该批，不任意选一项。
-- 投影从最终接受的正文生成，不信任客户端search_text；所有写路径共用此规则。旧行回填使用可追溯已有证据/时间，无法证明时使用固定legacy证据键并报告，不伪造上游观测。
+| 编号 | 等级 | 规则 | 验收 |
+| --- | --- | --- | --- |
+| JOB-01 | MUST | radar发现候选，hydrate按根帖列表补上下文，ingest接外部规范内容；复用source_collection_job，不增加任务平台。 | HTTP |
+| JOB-02 | MUST | 同逻辑来源一次执行；短事务按source→job→content身份排序锁定，校验租约/取消状态，内容与checkpoint/回执原子提交。 | 并发/PG |
+| JOB-03 | MUST | 外部创建前持久化starting；收到runId/datasetId立即保存，未完成则轮询已知run，不重新创建。创建结果未知则标unknown，停止自动重发/切备。 | 故障恢复 |
+| JOB-04 | MUST | collect/ingest使用Idempotency-Key；同来源+key+规范payload复用结果，不同payload409；回执至少7天。 | 重放/并发 |
+| JOB-05 | MUST | cursor绑定provider/目标/窗口；无cursor始终partial。incrementalTo只表示已执行窗口，可重叠回看，触顶标gap，失败不推进，不递归二分抓全量。 | provider夹具 |
+| JOB-06 | MUST | 自动补全使用已授权项目策略，每次radar至多派生一个hydrate；请求快照/parentJobId/选择结果保存在原job，重启可补建且不重复。 | 重启/PG |
 
-| ID | 时间/幂等规则 |
-| --- | --- |
-| DAT-05 | publishedAt为发布时间，sourceObservedAt为上游真实观测，fetchedAt为本系统取回/接收。未知为null；缓存时间/feed构建时间/接收时间不得冒充前两者。 |
-| DAT-06 | `(contentId,collectionSourceId,evidenceKey)`幂等；同键重放不新增观测，指标证据不可原地改写；如证据内容冲突则报409或adapter明确生成新键，不能默默更新metrics。 |
-| DAT-07 | 互动必须指定单平台metricKey、provider和观测timeBasis，缺失不补0。导入的归档合并字段按其真实字段时点标注，未知时不伪造完整单时点快照。 |
-| DAT-08 | 默认按publishedAt分析，未知时间单列；榜单详情另标capturedAt，不与发布时间趋势合并。正文标记full/summary/missing/truncated，详情/导出一致。 |
+收费阶段为`starting → running → reading → committed`，异常分为已确认失败与unknown。已知run读取可恢复；普通Retry、新key或新job不能绕过同来源未决收费状态。查明后显式确认可能再次收费才可新建操作。一次人工授权可持续执行正常巡检，不逐次弹确认。
 
-## 2. 在线任务与推流
+Apify使用异步创建后轮询，而不是同步等待结束就认定任务失败。单次网络读取默认15s；Apify等待兼容上限65s，任务等待由持久状态控制，不长期占连接/租约。非收费临时读取最多3次有界尝试；上游HTTP GET也可能收费。
 
-### COL-01–07：共享采集规则
-
-| ID | 契约 |
-| --- | --- |
-| COL-01 | radar请求明确target、`[from,to)`、结果/调用/时限上限；hydrate明确根帖列表及每帖评论上限，不套发现窗口。provider声明operations/targetTypes/contentKinds/参数上限/游标与重放语义；push不调度。 |
-| COL-02 | 一个来源一个执行者；source→job统一锁顺序，内容/投影/发现/观测/checkpoint同事务，旧租约/取消任务不提交。 |
-| COL-03 | nextCheckpoint只允许真实可续游标，绑定来源/窗口/排序；达到cap保留可续状态，不猜lastItem时间作cursor。 |
-| COL-04 | 无cursor的kaix快照始终partial。incrementalTo记录上次已执行的巡检窗口终点，不代表完整覆盖；成功后允许前进并保留重叠回看，触顶另标缺口，不递归二分补全。失败不推进；有真实cursor时只在该窗分页完成后推进。 |
-| COL-05 | 可安全重放的限流/临时读取最多3次有界尝试，跨重启保存；收费结果未知则按COL-09停止自动再发，显式Retry可能再收费。 |
-| COL-06 | 调用预算/spacing拒绝不是已发请求；请求单位不等于账单。启用来源/提高上限需显式确认。 |
-| COL-07 | ETag/Last-Modified按来源保存并条件请求；304不生成新内容/互动观测，只更新lastCheckedAt。实际观测/最近发布与检查成功分开。 |
-
-### COL-08：混合写入与树元数据
-
-同任务可含根帖与附属回复。只校验platform/source/provider一致、kind属于该provider本operation支持的contentKinds、引用身份合法；**禁止校验item.kind等于source.contentKind**。Reddit逐条读取row.type区分t3_/t1_；X回复仍是post，用reply_to/thread_root识别，不伪造comment类型。
-
-- Reddit评论保留reply_to（直接父节点）和thread_root（根帖），extensions白名单为`depth:int|null,isSubmitter:boolean|null,collapsed:boolean|null,collapsedReasonCode:string|null`；Actor输入depth="detailed"不等于输出整数depth。
-- 同批已知跨根引用、错误ID前缀或环拒绝整批；缺失父节点/根帖可以保存真实引用并标contextMissing，不制造正文、不伪称树完整。相应根帖/父节点存在时不依赖输入顺序。
-- radar只在主目标节点（根帖或独立评论）执行目标/发现日期限制，附属上下文不再过筛；不得用原生布尔query的整段字面includes过滤结果或丢掉伴随父链。hydrate保留根帖最新指标及所有接受的树节点，不按搜索词/旧发布时间再删根帖。
-- `commitContentBatch`仍以四组集合SQL原子提交整个接受批，包括根帖、回复、独立观测与投影；任何一组失败全回滚。
-
-### COL-09：巡检、水合与收费操作
-
-`POST /v1/sources/:id/collect`使用Idempotency-Key，request body为以下之一；共享TypeBox按operation区分，不另建水合服务：
-
-```text
-radar:   {operation:"radar", from,to,maxItems,maxPages,
-          includeComments,maxCommentsPerPost,commentSort,time,sort}
-hydrate: {operation:"hydrate", rootExternalIds:[...],maxCommentsPerPost,commentSort,
-          projectId?,expectedProjectRevision?}
-```
-
-- 精准词预设includeComments=true/每帖15/top；宽泛词false/100–300根帖。kaix支持time=hour/day/week/month/year/all与sort=new/top/relevance/comments；实际回退排序由adapter回显，不保证严格new。hydrate默认每帖50条、每批最多30根帖，可批10–30条，单条亦可；kaix映射到mode=post/postUrls，必须保留返回主帖。禁止maxItems=0或maxCommentsPerPost=0无限抓取。
-- radar.maxItems是主目标条数上限（帖子或独立评论），hydrate按根帖列表计数，都不是混合dataset总行数。在线批初始上限2000条、规范结果16MiB，包含根帖与全部父链节点；按最坏`根帖数×(1+每帖评论上限)`预留资源（includeComments=false时评论数为0），超限在调用前422。推流仍为100条/1MiB，不把旧100条页限制套给Actor整份dataset；下载需读完有界结果，不只取maxItems+2条。
-- hydrate根帖来自该来源已有可见根帖、可见评论的thread_root引用、已配置post目标，或已验证的备源任务种子；任一越界整笔拒绝。收费动作服从scope/剩余配额/已授权限额，无需交互式人工批准；预计根帖/评论/调用上限在入队响应回显。
-- 相同来源+key+规范payload至少7天复用同一job；不同payload409。请求先持久化operation/参数快照及调用开始状态，再发外部请求；任务保存已知runId/datasetId/请求标识，已知结果读取与新建收费操作分开。
-- kaix等待Actor显式上限65s、dataset读取有界；TwitterAPIs等按次收费调用也声明automaticRequestReplay=false。结果未知：failed/permanent、retryable=false、nextAction=inspect_provider_console；普通Retry/换key/新job不能绕过同来源未决收费状态。查明后，显式retry须带acknowledgePotentialCharge=true并保留原job线索；UI/SDK不得自动填此确认，新的操作可能再次收费。已知run只续读结果，不重新启动Actor。
-
-### COL-10：有界门控与主备切换
-
-项目可保存`hydration={enabled,samplePercent,maxRoots,maxCommentsPerPost,commentSort,cooldownSeconds}`；初始关闭自动触发，启用即为持续授权，初始10%/30根/50评论/top/6h。每次radar至多派生一笔hydrate：过门控根帖按本平台讨论数降序、发布时间/ID决胜，取`min(过门控数,ceil(发现根帖数×比例),maxRoots)`，跳过冷却期内已补全项。用户可手动选择，不受百分比限制但仍受单批/预算上限。无跨平台总分、LLM评分或循环加深。
-
-来源最多配置一个fallbackSourceId，备源不独立定时轮询。只有同平台/目标可表达、operation支持且已授权预算的备源才可切换；明确不可用/限流/已确认失败可创建或复用一笔同窗备源job并保留fallbackOfJobId。正常空结果、partial和结果未知收费操作不触发切换；禁止级联/往返重试。来源受限key必须同时获备源权限，不能借切换扩大可见范围。
-
-### ING-01：标准入口
-
-`POST /v1/sources/:id/ingest` 接收 `NormalizedContentItem[]`，不接ZIP、Parquet、文件路径、dataset/release或离线汇总。必须有匹配来源的`ingest`权限及`Idempotency-Key`头。push来源由管理员创建，provider为`external_ingest`，target仅含稳定客户端命名空间；不实现假fetchPage，不要求开全局外网开关。
-
-```text
-NormalizedContentItem = {
-  externalId: string, kind: ContentKind,
-  title?: string|null, text?: string|null, url?: string|null,
-  publishedAt: UTC|null, availability: available|deleted|removed|unknown,
-  textState: full|summary|missing|truncated, originalTextBytes?: integer,
-  author?: object|null, language?: string|null, media?: bounded array,
-  references?: bounded array, platformDetails?: bounded PlatformDetails,
-  provenance?: bounded object,
-  observation: {
-    sourceObservedAt: UTC|null, evidenceKey: string,
-    timeBasis: archive_initial|archive_refresh|provider_snapshot|unknown,
-    maturity: initial|refreshed|unknown,
-    metrics: Record<namespacedMetric, finite number|null>
-  }
-}
-```
-
-平台/provider/sourceId/fetchedAt/内部UUID由服务器赋值；kind属于该来源允许的contentKinds并遵守COL-08混合批规则，指标只能使用该平台声明的键。来源身份不可通过请求体改写；ingest接收的时间声明是外部客户端证据，不提升为服务器认证的上游事实。默认每批1–100项、解码body≤1MiB、title≤4KiB UTF8、text≤64KiB UTF8；其他数组/字段长度在共享schema中有界。超长正文客户端明确截断并带原长度/策略元数据，主线不静默截断。provenance只允许上游标识/文件摘要/变换说明等限定字段，不是任意JSON发布协议；同观测内metrics必须共享所声明时点/口径，不同字段时点用多项独立证据或保留unknown，不能强合并。
-
-### ING-02：原子性、回执和重试
-
-- 全批先校验，任一项无效整批400，details包含item index/field；大小超限413，不接受“前N项成功”。暂停/归档/pull来源拒绝新批409；权限仍有效的相同已提交请求可读取原回执。
-- source_collection_job复用为短生命周期推流回执：扩展purpose=ingest、ingest_key、payload_hash、result_summary；此purpose允许区间/页大小字段为null，不占pull活动任务索引/领取队列；不新增import/job表，不设置虚假区间/cursor。
-- 锁来源后检查`(sourceId,ingest_key)`唯一键；首次在同一事务提交内容和成功回执。失败全回滚；并发相同key只有一批生效。同key不同规范payload报409。
-- hash针对规范化后、按身份/版本稳定排序的客户端语义字段，不包含服务端接收时间。回执至少保留7天；过期后不承诺相同请求回执，但内容/观测幂等仍成立。
-- 首次成功201，重放200；返回`{data:{receiptId,received,inserted,updated,unchanged,observationsInserted,replayed},meta}`。inserted+updated+unchanged按批内去重身份计数，received是原始项数；不能把每次last_seen更新计为正文更新。
-- 网络断开/结果未知后，客户端使用**相同key与payload**重试；不能换key冒充新批次。429遵守Retry-After，413缩小批次，409先查冲突；普通写请求不由UI无限重试。
-
-receiptId/响应计数保存在现有job中；`GET /v1/source-jobs/:id`可查回执。外挂版本/原文件摘要可放限定长度的证据元数据，仅作来源线索，主线不执行其发布逻辑。
-
-## 3. 过滤、排序、概览与对比
-
-ContentFilter允许platforms、kinds、sourceIds、providers、deliveryModes、from/to、timeStatus、author、language、query、searchMode、searchScope、anyTerms、allTerms、exclusions、threadAware、signal，以及同平台metricKey/min/max。query≤200字符；anyTerms/allTerms各最多20项、exclusions最多10项，每词≤100字符；limit默认25最大100。数组用重复URL参数、signal用一个schema校验的JSON参数，时间ISO UTC；未知字段400，不接任意SQL/DSL。
-
-| ID | 规则 |
-| --- | --- |
-| QRY-01 | 有效范围=actor允许来源∩项目已关联来源∩项目filter∩页面filter；actor/project/source/provider/delivery约束在同一个来源EXISTS内求交，内容去重；不能用分别匹配不同来源的EXISTS绕过限制。全局内容库没有项目交集，页面不能覆盖项目/actor限制；此处筛选候选证据，联动上下文可见性按QRY-09。 |
-| QRY-02 | 同一匹配节点上：query规则 AND（anyTerms任一，空组为true）AND allTerms全部 AND NOT exclusions任一。各词为规范字面短语，不解释OR/正则。项目与页面的各组分别AND，不能合并两个anyTerms放宽范围。NFKC/小写/空白规范与LIKE转义不变，searchScope为title/text/title_text，短语不跨字段。 |
-| QRY-03 | 上游query决定召回，本地filter只查已存；项目关键词修改不会自动改变共享来源target或追补过去召回。 |
-| QRY-04 | UTC、`[from,to)`；有日期条件时未知时间不匹配。timeStatus=unknown要求无from/to，否则422；UI切到“时间未知”时明确清除日期。unknownTimeCount仅针对同一有效范围，日期过滤排除未知时显示说明，不谎称库里无未知项。 |
-| QRY-05 | `publishedAt DESC NULLS LAST,id DESC`；cursor非null时间时续取`published<t OR (published=t AND id<id0) OR published IS NULL`；cursor为null时仅`published IS NULL AND id<id0`。配套B-tree索引，不COALESCE first_seen_at。 |
-| QRY-06 | cursor带version、规范filter/scope指纹、排序、projectRevision、位置，签名或严格编码校验；范围/revision改变返回409 cursor_scope_changed，客户端回第一页。实时分页不是固定快照。 |
-| QRY-07 | 比较在同一已存内容模型上计算，无aggregate/evidence/release模式。engagement要求两侧有效platforms同为一个平台，metricKey/provider/timeBasis兼容，否则422；内容量可跨平台并列，provider数不可相加。 |
-
-项目初始deliveryModes默认pull；创建流程选择仅push来源时显式设置push并显示“导入材料”。添加push来源时用户选择是否纳入项目趋势；全局内容库默认两类都可查，列表显示来源类型。所有默认值解析后在meta/filter回显，不靠隐藏前端状态。
-
-projectId是可选查询上下文，不是可绕过项目约束的filter字段；全局export带相同projectId即可保持项目范围。V1排序仅published_desc；metricKey用于过滤/比较，不能暗中改为无已定义cursor的互动排序。
-
-标准列表 `{items,nextCursor,meta}` 不强求COUNT；nextCursor由limit+1决定，totalMatching未知为null。分析 `{data,meta}`。公共meta包含`requestId,queryFingerprint,resolvedFilter,projectRevision?,timeAxis,asOf,coverage:{status,limitations},unknownTimeExcluded`。asOf是生成时刻，不是历史版本。resolvedFilter保留`{project,request,options}`三部分（无项目时project=null），不把两组OR词扁平合并；scope指纹包含有效来源/revision。客户端以projectId+request重放，不能回传/改写服务端scope；文件保留这三部分便于核对。
-
-概览data：`contentCount,unknownTimeCount,daily[{date,count}],byPlatform,byKind,byDiscoveryProvider,sources`。只有GROUPING位为实际日维度的null桶代表未知时间，不能把grand total的null字段当未知桶。provider与source状态受相同actor/project来源范围约束；来源过滤后的facet不重新扩大到整个项目。
-
-### QRY-08：确定性信号
-
-signal仅为三个固定schema分支，无通用规则引擎：
-
-| type | 可解释条件 |
-| --- | --- |
-| discussion | Reddit num_comments≥10 / X replies≥5，或用户显式minReplies |
-| pain | 命中terms（初始alternative/switched/broken/坑）；或Reddit已知score且num_comments≥max(score,1)、同时达到minReplies（初始10）。负分本身不够，缺值不通过；X不借用reddit.score |
-| growing | 同provider/source/metricKey/timeBasis两次独立观测，间隔≥minIntervalSeconds且差值≥minDelta；二者显式设置，缺第二观测为unknown不通过 |
-
-数值信号针对讨论根帖的可见观测，评论可提供文本痛点证据；没有可见根帖时不能伪算数值门控。sourceObservedAt未知时可按同渠道实际fetchedAt比较采集快照，必须标comparisonTimeBasis=fetched_at；不称为平台实时增速，不跨主备拼对比。
-
-### QRY-09：主帖与评论联动
-
-项目默认threadAware=true，全局内容库默认false；这是页面可切换的呈现/计数选项，不放宽数据谓词，解析后在filter/meta回显。**先在可见节点上匹配，再提升到可见根帖**：
-
-1. 文本/日期/kinds/作者/来源条件匹配同一证据节点，signal按QRY-08处理；父链不必命中页面filter，但必须满足actor允许来源∩项目关联来源，不能借上下文越过key或项目授权。页面source/provider筛选证据，不删除已授权上下文。
-2. 已存可见根帖以根帖ID为anchor；否则用命中节点自身ID，标contextMissing/rootExternalId，不造根帖或读范围外正文。多命中归一根；缺根时limitations说明含未归并节点，不能声称精确讨论总数。
-3. 返回`{content,thread:{rootId,contextMissing,matchedAt,matchedEvidence:[...]}}`；列表只带少量摘录，其余懒加载。contentCount数独立anchor，matchedContentCount数命中节点，父链不加分母。byKind按命中证据类型、各组去重anchor，可能重叠；UI称“证据类型”，不是根帖类型。
-4. 列表排序按anchor下最新命中节点真实publishedAt生成matchedAt，使用`matchedAt DESC NULLS LAST,anchorId DESC`双分支seek，不补接收时间、不改根帖时间。daily按每个命中节点的UTC日计当日独立anchor；同讨论可多日出现，日桶不能相加作期间总数，缩窄到该日钻取的ID集必须一致。meta.timeAxis=matched_published_at；逐内容模式仍按自身publishedAt。
-5. 所有查询共用可见证据→anchor映射；列表/文件去重anchor，概览按相同映射COUNT DISTINCT anchor而非节点数。总量/日期/证据类型/provider遵循各自分组；未知日桶指涉及未知时间命中节点的anchor，分组可重叠，不能相加。
-
-### TREE-01：三视图只读评论树
-
-`GET /v1/content/:id/thread?view=top|matches|op`携带projectId/同一filter；仅查已存内容。top按平台内score（X用likes）排序，matches返回命中节点及至根父链，op返回isSubmitter=true节点及必要父链；缺楼主标记不当false，可用稳定作者ID确认，不能只猜同名handle。
-
-统一响应`{nodes,nextCursor,meta:{treePartial,contextMissing,...}}`，节点含真实content/reply_to/thread_root/depth与contextOnly。默认最多50个选中节点、总节点预算200（包含父链），超预算减少本页选中数并给续页；父链遍历最多32跳并检测环。三视图不是最多三层树，展开可继续读；缺祖先明确显示，不造文本占位记录。详情可先给根帖/树摘要，读取/展开永不隐式水合。
-
-### 项目最小操作
-
-```text
-Project = {id,name,description,filter,hydration,sourceIds,revision,createdAt,updatedAt}
-CreateProject = {name,description?,filter?,hydration?,sourceIds?,sources?,expectedRevision:0}
-PatchProject = {name?,description?,filter?,hydration?,expectedRevision}
-SetProjectSources = {sourceIds,expectedRevision}
-```
-
-名称1–100字符、描述≤2000；sourceIds是已有来源，sources是至多10个待规范化的来源定义。创建在一笔事务中复用相同规范身份来源、创建缺少的禁用调度来源并关联项目；不静默改已存在来源配置，不触发外网。返回完整Project与新增/复用来源结果。
-
-project写配置共用revision，整集合PUT原子替换；owner/admin可写，viewer可读。删除项目只删除关联，不删公共内容/共享来源；停止监测采用来源pause，必须提示受影响项目。
-
-来源身份(platform/provider/kind/规范target/deliveryMode)不可原地替换，改变搜索目标创建新来源；label/schedule/限额等配置带revision更新。pull来源状态与是否启用定时分开：创建不启动网络，collect在已授权范围内执行；fallbackSourceId为有界备源配置，push没有假调度。
-
-比较请求`{leftProjectId,rightProjectId,from,to,threadAware?,metricProfile,metricKey?,provider?,timeBasis?}`；threadAware默认true并统一两侧呈现/计数模式，不拿讨论数与逐内容数相减；响应左右scope/revision/数值与兼容的差值/增长率，0分母为null。不提供两项目边际汇总的去重并集承诺。
-
-## 4. 权限、人类与机器操作
-
-### SEC-01：身份与访问矩阵
-
-| actor | 可读 | 可写 |
+| operation | 请求语义 | 初始预设 |
 | --- | --- | --- |
-| owner/admin session | 公共项目/内容/来源、自己个人资产、授权管理 | 项目/来源/任务、自己个人资产；owner保留最后owner保护 |
-| viewer session | 公共项目/内容、来源只读状态、自己个人资产 | 仅自己保存查询/批注/下载 |
-| machine API Key | 由scope和allowedSourceIds限定的公共读取 | 明确授予的project/source/collect/ingest/export；不能使用个人工作区或账户管理 |
+| radar | from/to、maxItems/maxPages、includeComments、maxCommentsPerPost、commentSort/time/sort | 精准词带Top15；宽泛词100–300根、先不带评论 |
+| hydrate | rootExternalIds、maxCommentsPerPost、commentSort、projectId/revision | 10–30根或单根，每根50条 |
+| ingest | NormalizedContentItem[]、来源绑定key | 1–100项/1MiB；title≤4KiB、text≤64KiB |
 
-API Key复用app_session，增加client_kind、label、scopes、allowed_source_ids；只存SHA-256 token_hash，client_kind=browser|machine、scopes为白名单TEXT[]、allowed_source_ids为UUID[]；绑定签发用户和到期时间（默认30天、最长90天），停用/降权/撤销即时生效。管理员在设置或`POST /v1/access-tokens`生成，原文只返回一次；GET列摘要，DELETE撤销。机器操作审计复用app_audit_log，记录actor_type=machine/request_id，不记录秘密；无需新增表或OAuth/MCP平台。
+maxItems是主目标数，不是混合dataset总行数。在线接受批初始2000条/16MiB，按根帖×(1+评论上限)预留，不用maxItems+2截断；超限调用前422。无限抓取的0值禁止。hydrate目标来自可见根帖、可见评论的root引用或已配置post目标；不再按发现日期/关键词删根帖。上游原生布尔query不做整段literal复筛。
 
-scope为`read,projects:write,sources:write,collect,ingest,export`。ingest模板仅授read+ingest且必须绑定非空sourceIds；显式管理员批准的通用agent key可使用null表示全部来源，UI须显示此权限，默认不授予。来源受限key的详情/计数/导出及附属观测也经同一来源范围；不因猜到content UUID而越权。它只能修改全部关联均在许可内的项目，不能通过整集合PUT删掉不可见关联；创建新来源需显式全来源权限。共享内容仍只有一份规范正文，不提供租户私有版本。scope不能突破签发人当前角色。
+自动策略初始关闭；启用即持续授权，初始10%/最多30根/每帖50/top/冷却6h，选择本平台过门控根帖，按讨论数、发布时间、ID排序。入队/领取检查revision、冷却、来源权限与预算；手选不受百分比限制。
 
-### SEC-02：公网与不可信输入
+备源任务复用同一sourceId，固定实际provider与fallbackOfJobId；不复用另一provider的cursor。调度按provider spacing运行，空队列有界等待，不加固定逐页睡眠。
 
-除`GET /healthz`、`POST /v1/auth/login`、`GET /v1/auth/session`（只返回本人或未登录）、持有效邀请的`POST /v1/auth/register`外默认拒绝；例外方法/路径精确注册并限流。邀请注册不开放自由注册。机器走Bearer，浏览器走安全会话Cookie，Cookie写请求校验同源Origin，不以SameSite替代CSRF边界。
+推流由服务端绑定platform/provider/sourceId/fetchedAt，客户端仅提交身份、正文/状态、发布时间、引用/白名单平台字段与观测。任一项无效整批400/413，暂停或错误交付类型409；成功首次201、重放200。回执保存原job，不加入pull领取队列。304只更新lastCheckedAt，不生成新观测。
 
-feed目标为管理员白名单；阻断非授权内网/metadata地址与不可信跨源重定向，受控RSSHub内部地址需部署配置显式许可。HTML清理后渲染，XML禁外部实体；外部图片/原文链接只主动打开，不自动批量访问。SQL参数化；请求/错误/导出元数据都不能泄露token、密码或连接串。
+## 3. 查询、信号与讨论
 
-### OP-01：可发现、可解释、可恢复
+| 编号 | 等级 | 规则 | 验收 |
+| --- | --- | --- | --- |
+| QUERY-01 | MUST | 唯一compileContentFilter(scope,filter)编译参数化条件；候选范围=actor来源∩项目来源∩项目filter∩页面filter。来源/provider/delivery在同一来源关系中求交。 | 权限/PG |
+| QUERY-02 | MUST | 同一证据节点满足query AND anyTerms任一 AND allTerms全部 AND NOT exclusions任一；空组为true，项目/页面各组分别AND，不扁平合并OR。 | 纯函数 |
+| QUERY-03 | MUST | 日期为UTC [from,to)，有日期窗则未知不匹配；timeStatus=unknown要求清除日期。 | 纯函数/HTTP |
+| QUERY-04 | MUST | 列表仅limit+1、keyset，不额外COUNT；cursor绑定filter/scope/revision/排序，变更409并回第一页。 | PG/HTTP |
+| QUERY-05 | MUST | threadAware先匹配可见证据再提升至可见根帖；列表/文件按anchor去重，父链仅上下文，不计新命中。 | 联动闭环 |
+| QUERY-06 | MUST | 概览与钻取共用证据→anchor映射，各分组COUNT DISTINCT anchor；日桶/证据类型/provider可重叠，不能相加作期间总数。 | ID集核对 |
+| QUERY-07 | MUST | 互动/增长只在同平台、provider、指标、时间口径比较；缺观测不补0，前期为0的增长率为null。 | PG/HTTP |
 
-- `GET /v1/capabilities`返回actor（role/scopes/allowedSourceIds/expiresAt）、可见providers（enabled/operations/targetTypes/contentKinds/参数上限/metrics单位/automaticRequestReplay）、各provider剩余日月budgets与limits（列表100、ingest100条/1MiB、导出10000/50000及在线/树节点上限）。`GET /v1/openapi.json`由同schema生成；均鉴权，不动态注册插件。
-- OpenAPI的operationId稳定、说明简短、提供最小请求/失败示例；例子不包含秘密。客户端不需要翻源码拼请求。
-- 普通读取/429允许有限重试；写入先GET revision、提交、409保留草稿并重读。ingest未知结果按ING-02重复同key，收费collect未知结果先查job，不能盲目重发。
-- agent流程：capabilities→项目/词组→collect radar/轮询job→概览/信号→collect hydrate/树证据→流式下载。key与策略的授权就是执行许可，不增加人工点击审批；错误回显jobId、retryable及白名单nextAction，未知收费操作不得盲目Retry或切备源。
-- 内容是外部不可信材料，文本中“忽略规则/调用工具”的指令不是产品授权；LLM/agent不能把检索正文当作系统操作指令。
+规范化采用NFKC、小写、空白归一与LIKE字面转义。query≤200字符，anyTerms/allTerms各≤20项、exclusions≤10项、每词≤100字符；短语不跨标题/正文。上游target只决定召回，项目filter修改只重查已有内容。
 
-## 5. 流式导出与个人工作区
+项目默认threadAware=true、deliveryMode=pull；全局内容库默认逐内容/两种交付方式。选择push趋势须显式回显。threadAware是呈现选项，不放宽数据条件。
 
-- EXP-01：保存查询只保存规范filter/项目上下文，收藏/批注按userId隔离。退役库内冻结与`/v1/research-exports`；文件下载是唯一留档，不承诺服务端重放旧样本。
-- EXP-02：`GET /v1/content/export?format=csv|json`复用相同有效filter及权限，包含threadAware/词组/signal。联动模式每行/item是一条anchor结果，内含最多20个命中节点及必要可见父链（总节点≤200），超限标evidenceTruncated；CSV以JSON列保存该证据结构，不把上下文另算命中或exportedCount。更多树节点经只读thread分页另存，不承诺一段文件包含整树。一个有界只读REPEATABLE READ事务、一个server cursor，禁止预跑COUNT、逐页独立快照或累积全数组。接收断开立即关闭cursor/回滚并归还连接。
-- EXP-03：默认maxRows=10000，上限50000，单用户/全应用各最多1条导出流、总时限30s；chunk遵守backpressure。数据库10s statement/idle预算仍生效，慢客户端可能提前取消。无后台导出任务表/服务器文件存储。
-- EXP-04：JSON以`{meta,items:[...],result:{exportedCount,truncated,nextCursor,complete:true}}`结束；缺结束对象即不完整。CSV使用正常字段header和recordType列，内容行recordType=content，最后一行recordType=end携带相同结束元数据（header含exportedCount/truncated/nextCursor/complete列）；所有字符串有引号/转义/公式防护，数值ID按文本。
-- EXP-05：超出maxRows是显式分段，终结信息truncated=true且给nextCursor；UI显示“本段N条，可继续”，不能声称导出全部。续段会读取新快照，不保证多文件联合冻结；要固定结果由客户端保存原文件。
-- EXP-06：运行内存与总行数无关，只持有cursor批次/背压缓冲/当前行；额外缓冲目标≤2MiB须用明确记录大小实测，不能宣称进程RSS<2MiB或忽略单行巨大正文。流开始后出错不再尝试改HTTP状态，连接失败且不写成功终结；UI不得提示完成。
-
-## 6. 目标 HTTP 表面
-
-| 资源 | 最小接口 |
+| 信号 | 固定判定 |
 | --- | --- |
-| 账户/发现 | `/v1/auth/login,session,logout,register`；`/v1/capabilities`；`/v1/openapi.json`；`/v1/access-tokens` |
-| 项目 | `GET/POST /v1/projects`；`GET/PATCH/DELETE /v1/projects/:id`；`PUT /:id/sources`；`GET /:id/overview,content`（两个独立路径） |
-| 比较 | `POST /v1/project-comparisons`，只读有界，不启动任务 |
-| 来源 | `GET/POST /v1/sources`；`GET/PATCH /:id`；`POST /:id/pause,resume,archive,collect`（独立路径） |
-| 推流/任务 | `POST /v1/sources/:id/ingest`；`GET /v1/source-jobs`及`/:id`；`POST /:id/cancel,retry,continue` |
-| 内容/树/导出 | `GET /v1/content`、`/:id`、`/:id/thread`、`/export` |
-| 个人 | `/v1/content-saved-queries`、`/v1/content-annotations`及单资源更新/删除，所属session限定 |
-| 运维 | `/v1/source-ops`、provider限额、现有必要账户/审计能力，管理员权限 |
+| discussion | Reddit评论≥10 / X回复≥5，可改minReplies |
+| pain | 痛点词命中；或Reddit评论≥max(score,1)且≥minReplies，score必须已知 |
+| growing | 同source/provider/metric/timeBasis两次独立观测，间隔与差值达到显式阈值 |
 
-表中逗号是能力缩写，不是字面URL；正式schema必须注册每个method/path。当前旧`/auth/*`仅在搬迁时替换，不要求维护双接口。未实施的功能不挂空endpoint冒充可用。
+数值信号读取可见根帖观测，文本痛点可来自评论。缺根不伪算数值；未知上游时间只可按同渠道fetchedAt比较快照并标时间依据，不跨主备拼增长。
 
-错误统一`{error:{code,message,requestId,details?,retryable,nextAction?}}`；nextAction为白名单枚举（如inspect_provider_console/narrow_filter/reload/retry_later），资源ID放details；不是任意URL/脚本。400结构错，401未登录，403无权，404不可见，409revision/幂等/cursor冲突，413超限，422过滤/指标不兼容，429限流附Retry-After，503索引/数据库未就绪或查询超时。不存在release_expired错误或隐藏的archive模式。
+联动结果为`{content,thread:{rootId,contextMissing,matchedAt,matchedEvidence}}`。父链可不命中页面filter，但必须满足actor/项目来源授权；缺根用原节点作anchor并标未归并。contentCount数anchor，matchedContentCount数证据节点；byKind表示命中证据类型。
 
-旧IMP-01–07主线包协议停用；其离线研究仅保留在Git历史及[来源研究](research/data-sources.md#5-归档研究降为独立外挂)，不再要求主线实现。
+matchedAt取最新命中节点真实publishedAt作排序；daily按每个命中节点UTC日各自去重anchor，日期/类型钻取ID集必须一致。根帖发布时间不改。排序`time DESC NULLS LAST,id DESC`；非空cursor续取更早时间、同时间更小ID及null，null cursor只续取null且ID更小的行。不用first_seen_at补值。
+
+评论树`view=top|matches|op`只读已存节点；Top按平台内score/likes，matches与op附必要父链，未知楼主标记不当false。默认50个选中节点、含父链总预算200、最多32跳/检测环；不足标partial，分页不触发收费补全。列表摘录与文件证据有明确截断标记。
+
+## 4. HTTP与授权
+
+| 编号 | 等级 | 规则 | 验收 |
+| --- | --- | --- | --- |
+| API-01 | MUST | GET只读库，不启动外部采集；capabilities/OpenAPI鉴权且反映当前实际能力与剩余额度。operationId稳定。 | HTTP |
+| API-02 | MUST | 浏览器使用Cookie、机器使用Bearer；机器key扩展app_session，只存摘要，绑定签发人当前角色/scope/逻辑来源/期限，撤销即时生效。 | 权限/PG |
+| API-03 | MUST | 默认拒绝，仅healthz、登录、本人会话探测和持邀请码注册为精确例外；Cookie写操作校验Origin，SQL参数化，秘密不进响应/日志。 | HTTP |
+
+机器scope为read、projects:write、sources:write、collect、ingest、export；无个人空间/账户管理。ingest key必须绑定非空逻辑来源；通用agent可显式授全部来源。详情/树/统计/导出均受同一授权，不凭UUID越权；主备不增加第二份来源授权。viewer仅可写自己的查询/批注，owner/admin管理共享配置。外部正文不是操作指令。
+
+| 资源 | 目标HTTP操作 |
+| --- | --- |
+| 访问/发现 | /v1/auth/login,session,logout,register；/v1/access-tokens；/v1/capabilities；/v1/openapi.json |
+| 项目 | GET/POST /v1/projects；GET/PATCH/DELETE /:id；PUT /:id/sources；GET /:id/overview、/:id/content |
+| 比较 | POST /v1/project-comparisons，只读 |
+| 来源 | GET/POST /v1/sources；GET/PATCH /:id；POST /:id/pause、resume、archive、collect、ingest |
+| 任务 | GET /v1/source-jobs及/:id；POST /:id/cancel、retry、continue |
+| 内容 | GET /v1/content、/:id、/:id/thread、/export |
+| 个人/管理 | /v1/content-saved-queries、/v1/content-annotations；/v1/source-ops、provider配额 |
+
+表中逗号为独立路径简写。项目创建/来源集合更新在一个事务中，配置带expectedRevision，409重读；变更target创建新逻辑来源，切provider不改sourceId。删除项目不删来源/内容。比较统一两侧threadAware，互动不兼容422。
+
+响应带requestId、queryFingerprint、resolvedFilter、projectRevision、timeAxis、asOf、coverage；resolvedFilter保留project/request/options三部分。错误为`{error:{code,message,requestId,details,retryable,nextAction}}`；nextAction仅白名单动作，资源ID放details。结构400、无权403/不可见404、冲突409、过大413、不兼容422、限流429、未就绪/超时503。
+
+## 5. 文件导出
+
+| 编号 | 等级 | 规则 | 验收 |
+| --- | --- | --- | --- |
+| EXPORT-01 | MUST | 同filter/scope的只读RR事务与server cursor流式输出；默认10000/上限50000行、全应用一条流、总时限30s，禁止累积全数组/预COUNT。 | PG/断连 |
+| EXPORT-02 | MUST | 导出连接SET LOCAL独立idle预算35s，单次SQL仍10s；HTTP总时限优先，断连取消/关cursor/回滚/归还连接。代理关闭缓冲或返回X-Accel-Buffering:no。 | 代理/背压 |
+| EXPORT-03 | MUST | JSON/CSV都有终结标记、exportedCount/truncated/nextCursor；断流不写成功终结。CSV转义/防公式注入，ID按文本。 | HTTP/文件 |
+
+联动每行是一个anchor，附最多20个命中节点和必要父链，总节点≤200；超限标evidenceTruncated。续段是新快照，不承诺多段联合冻结；服务器不存冻结文件。更多树节点可经只读分页另存。

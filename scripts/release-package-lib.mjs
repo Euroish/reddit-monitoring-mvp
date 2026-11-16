@@ -17,6 +17,9 @@ async function entries(root, prefix = '') {
 async function digest(filename) {
   const hash = createHash('sha256'); for await (const chunk of fs.createReadStream(filename)) hash.update(chunk); return hash.digest('hex');
 }
+export const DOCUMENTATION_FILES = Object.freeze([
+  'AGENTS.md', 'README.md', 'docs/README.md', 'docs/contracts.md', 'docs/development.md', 'docs/status.md',
+]);
 const safeName = value => typeof value === 'string' && !path.posix.isAbsolute(value) && !value.includes('\\')
   && !value.split('/').some(part => !part || part === '.' || part === '..');
 // Retain legacy paths so existing immutable releases remain verifiable.
@@ -63,7 +66,7 @@ export async function packRelease({ root = process.cwd(), destination }) {
   for (const file of required) await fsp.access(path.join(root, file)).catch(() => { throw new Error(`Missing release input ${file}; run build and compiled smoke first`); });
   const inputs = [];
   for (const directory of ['dist', 'apps/web/dist', 'src/storage/schema', 'deploy', 'docs'])
-    if (fs.existsSync(path.join(root, directory))) inputs.push(...(await entries(path.join(root, directory))).map(file => `${directory}/${file}`).filter(allowed));
+    if (fs.existsSync(path.join(root, directory))) inputs.push(...(await entries(path.join(root, directory))).map(file => `${directory}/${file}`).filter(file => allowed(file) && (!file.startsWith('docs/') || DOCUMENTATION_FILES.includes(file))));
   for (const file of ['package.json', 'package-lock.json', 'README.md', 'AGENTS.md', 'scripts/database-backup.mjs', 'scripts/database-backup-lib.mjs', 'scripts/verify-release.mjs', 'scripts/release-package-lib.mjs'])
     if (fs.existsSync(path.join(root, file))) inputs.push(file);
   await fsp.mkdir(path.dirname(destination), { recursive: true }); await fsp.mkdir(destination);

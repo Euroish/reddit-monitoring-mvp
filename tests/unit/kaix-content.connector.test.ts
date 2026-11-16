@@ -12,13 +12,15 @@ const source = syntheticSource({ provider: "kaix", target: { type: "search", que
 const request = { source, from: "2026-11-13T00:00:00Z", to: KAIX_NOW, limit: 5, checkpoint: null };
 test("kaix flows through paid budgets, jobs, storage, statistics and export", async () => { await verifyKaixPipeline(new InMemorySourceContentRepository()); });
 
-test("kaix uses bounded pinned runs and filters irrelevant/out-of-window rows without claiming complete coverage", async () => {
+test("kaix uses a pinned build without application spend/resource overrides and retains sample filtering", async () => {
   const fixture = kaixFixture([kaixPost(), kaixPost({ id: "wrong1", fullName: "t3_wrong1", title: "Unrelated" }), kaixPost({ id: "old123", fullName: "t3_old123", createdUtc: 1 })]);
   const page = await fixture.connector.collectPage(request);
   assert.equal(page.items.length, 1); assert.equal(page.coverage, "partial"); assert.equal(page.exhausted, true);
   const { url, init } = fixture.requests[0], input = JSON.parse(String(init?.body));
-  assert.equal(url.searchParams.get("build"), "0.2.25"); assert.equal(url.searchParams.get("timeout"), "45"); assert.equal(url.searchParams.get("maxTotalChargeUsd"), "0.01");
-  assert.equal(input.maxItems, 5); assert.equal(input.includeComments, false); assert.equal(input.sort, "new"); assert.deepEqual(input.proxyConfiguration, { useApifyProxy: false });
+  assert.equal(url.searchParams.get("build"), "0.2.25");
+  for (const key of ["memory", "timeout", "maxTotalChargeUsd"]) assert.equal(url.searchParams.has(key), false, key);
+  assert.equal(url.searchParams.get("restartOnError"), "false");
+  assert.equal(input.maxItems, 5); assert.equal(input.includeComments, false); assert.equal(input.sort, "new"); assert.equal(input.proxyConfiguration, undefined);
   assert.match(page.warning!, /no continuation/);
 });
 
