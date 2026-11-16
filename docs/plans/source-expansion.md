@@ -1,6 +1,6 @@
 # R1–R4 主线重建与物理实删计划
 
-状态：尚未实施。目标定义见[产品与架构](../README.md)、[主线架构规范](../architecture.md)、[数据与 API 契约](../contracts.md)、[产品交互规范](../design.md)，问题溯源与 SQL 蓝图对照[唯一母本 Master Spec](../research/architecture_audit_and_rebuild_spec.md)，供应商清理坐标见[来源替换规格](../research/source_replacement_and_twitterapi_io_removal_spec.md)。`R1–R3` 仅实施远端在线主线，`R4` 历史外挂独立演进且不阻塞主线交付。
+状态：R1 新内核已接管，R3 代码实删提前执行；基础项目表已随 042 建立，完整 R2 漏斗尚未完成。实际范围与验证见[当前状态](../status.md)。目标定义见[产品与架构](../README.md)、[主线架构规范](../architecture.md)、[数据与 API 契约](../contracts.md)、[产品交互规范](../design.md)，问题溯源与 SQL 蓝图对照[唯一母本 Master Spec](../research/architecture_audit_and_rebuild_spec.md)，供应商清理坐标见[来源替换规格](../research/source_replacement_and_twitterapi_io_removal_spec.md)。`R1–R3` 仅实施远端在线主线，`R4` 历史外挂独立演进且不阻塞主线交付。
 
 ## 1. 切换与减法原则
 
@@ -27,7 +27,7 @@
 
 新旧数据总条数、身份去重数、发现/观测数、未知发布时间条数、分用户个人资产清单一律输出核对报告至 `output/`（严禁提交至 Git）。
 
-## 3. R1：薄内核重构与数据写读闭环（迁移 `041_core_and_provider_retirement.sql`）
+## 3. R1：薄内核重构与数据写读闭环（向前迁移 `041_content_batch.sql` 与 `043_kernel_cutover.sql`）
 
 **用户可感知目标**：受邀用户在全新独立启动的 Fastify 5 主链上登录 $\to$ 管理或连接来源 $\to$ 完成一次解封后 `kaix` 在线发现或标准 `POST /v1/sources/:id/ingest` 推流（含主帖与附属评论混合树） $\to$ 检索列表并流式下载 CSV/JSON（尚不依赖监测项目或旧 Phase 1 运行时）。
 

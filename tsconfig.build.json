@@ -9,10 +9,9 @@
   },
   "include": [
     "src/**/*.ts",
-    "apps/**/*.ts",
-    "workers/**/*.ts",
+    "apps/api/src/**/*.ts",
     "packages/**/*.ts",
-    "scripts/**/*.ts"
+    "scripts/export-legacy-assets.ts"
   ],
   "exclude": [
     "tests/**/*.ts",

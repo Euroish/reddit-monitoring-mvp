@@ -6,7 +6,7 @@
 
 ## 当前开发
 
-当前仍为 `0.9.1 / node:http` 旧主链，**Fastify、项目/三阶漏斗、混合评论树、主备切换、标准推流与 Compose 尚未实施**。开发需 Node 22+ / PostgreSQL；CI 为 Node 24 / PG 16。
+当前工作树为 `1.0.0-dev`：Fastify 五模块已接管，旧 runtime、Repository/InMemory、独立 worker 与旧页面已实删；可运行混合推流、统一检索、流式下载与基础项目。完整信号漏斗、双备源和 Compose 仍待完成。开发与 CI 使用 Node 24 / PostgreSQL 16；过去仅内部测试，当前不公开部署。
 
 ```sh
 npm ci
@@ -15,7 +15,7 @@ npm run lint
 npm run typecheck
 ```
 
-密钥仅放本机仓库外文件，按[开发与交付](docs/development.md#1-本机私有密钥与环境变量)配置开发库与凭证再启动 API、worker 与 Web；默认不开启真实收费网络。
+密钥仅放本机仓库外文件，按[开发与交付](docs/development.md#1-环境与私有配置)配置开发库与凭证再启动 API 与 Web（采集工作槽已在 API 进程内）；默认不开启真实收费网络。
 
 ## 文档导航
 

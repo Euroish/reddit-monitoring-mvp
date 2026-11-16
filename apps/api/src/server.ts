@@ -1,90 +1,70 @@
-import "../../../src/runtime/load-local-env";
-import {
-  createPostgresPhase1Runtime,
-} from "../../../src/runtime/reddit-phase1-runtime";
-import { parseBooleanFlag, parsePort, parsePositiveInt } from "../../../src/runtime/runtime-parsing";
-import { assertProductionLaunchConfig } from "./public-launch-config";
-import { createApiServer } from "./create-api-server";
-import { createSourceContentService } from "../../../src/runtime/source-content-runtime";
-import { ContentPersonalService } from "../../../src/application/services/content-personal.service";
-import { PostgresContentPersonalRepository } from "../../../src/storage/repositories/postgres/postgres-content-personal.repository";
-import { ResearchExportService } from "../../../src/application/services/research-export.service";
-import { PostgresResearchExportRepository } from "../../../src/storage/repositories/postgres/postgres-research-export.repository";
+import { createPool } from "../../../src/storage/db";
+import { bootstrapOwner } from "../../../src/modules/access/sql";
+import { startWorker } from "../../../src/modules/collection/worker";
+import { KaixContentConnector } from "../../../src/connectors/reddit/kaix-content.connector";
+import { resolveKaixConfig } from "../../../src/connectors/reddit/kaix.config";
+import { BlueskyAppViewContentConnector } from "../../../src/connectors/bluesky/bluesky-appview-content.connector";
+import { buildApp } from "./app";
 
-const port = parsePort(process.env.PORT, 3000);
-const apiBearerToken = process.env.API_BEARER_TOKEN?.trim();
-if (!apiBearerToken) {
-  throw new Error("API_BEARER_TOKEN is required");
+export async function main() {
+  const origin = process.env.APP_ORIGIN ?? "http://localhost:3000";
+  const localHttp =
+    process.env.ALLOW_HTTP_DEV === "true" &&
+    process.env.NODE_ENV !== "production";
+  if (new URL(origin).protocol !== "https:" && !localHttp)
+    throw new Error(
+      "HTTPS APP_ORIGIN required; local testing needs ALLOW_HTTP_DEV=true",
+    );
+  const pool = createPool();
+  const providers = [
+    new KaixContentConnector(resolveKaixConfig()),
+    new BlueskyAppViewContentConnector({
+      networkEnabled: process.env.SOURCE_NETWORK_ENABLED === "true",
+    }),
+  ];
+  try {
+    if (process.env.ADMIN_BOOTSTRAP_PASSWORD)
+      await bootstrapOwner(
+        pool,
+        process.env.ADMIN_BOOTSTRAP_PASSWORD,
+        process.env.ADMIN_BOOTSTRAP_EMAIL,
+      );
+    const app = await buildApp({
+      pool,
+      providers,
+      sessionSecret: process.env.SESSION_SECRET ?? "",
+      origin,
+      secureCookies: !localHttp,
+      logger: true,
+    });
+    await app.listen({
+      host: process.env.HOST ?? "127.0.0.1",
+      port: Number(process.env.PORT ?? 3000),
+    });
+    const worker = startWorker(pool, providers);
+    let stopping = false;
+    const stop = async () => {
+      if (stopping) return;
+      stopping = true;
+      const deadline = setTimeout(() => process.exit(1), 15000);
+      deadline.unref();
+      await Promise.all([app.close(), worker.stop()]);
+      await pool.end();
+      clearTimeout(deadline);
+    };
+    process.once("SIGTERM", () => {
+      void stop();
+    });
+    process.once("SIGINT", () => {
+      void stop();
+    });
+  } catch (error) {
+    await pool.end();
+    throw error;
+  }
 }
-
-const corsAllowOrigins = (process.env.API_CORS_ALLOW_ORIGINS ?? "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter((origin) => origin.length > 0);
-const corsMaxAgeSeconds = Number.parseInt(process.env.API_CORS_MAX_AGE_SECONDS ?? "300", 10);
-const sessionCookieSecure = parseBooleanFlag(
-  process.env.API_SESSION_COOKIE_SECURE,
-  process.env.NODE_ENV === "production",
-);
-const allowInsecureSessionCookieInProduction = parseBooleanFlag(
-  process.env.API_ALLOW_INSECURE_SESSION_COOKIE,
-  false,
-);
-const rateLimitEnabled = parseBooleanFlag(process.env.API_RATE_LIMIT_ENABLED, true);
-const rateLimitPoints = parsePositiveInt(process.env.API_RATE_LIMIT_POINTS, 60);
-const rateLimitDurationSeconds = parsePositiveInt(
-  process.env.API_RATE_LIMIT_DURATION_SECONDS,
-  60,
-);
-assertProductionLaunchConfig({
-  nodeEnv: process.env.NODE_ENV,
-  corsAllowOrigins: corsAllowOrigins,
-  sessionCookieSecure,
-  allowInsecureSessionCookieInProduction,
-});
-const runtime = createPostgresPhase1Runtime();
-const sourceContent = createSourceContentService(runtime.db);
-
-const server = createApiServer({
-  sourceContent,
-  contentPersonal: new ContentPersonalService(new PostgresContentPersonalRepository(runtime.db), sourceContent),
-  researchExports: new ResearchExportService(new PostgresResearchExportRepository(runtime.db), sourceContent),
-  repositories: runtime.repositories,
-  sqlDb: runtime.db,
-  createConnector: runtime.createConnector,
-  redditMapper: runtime.redditMapper,
-  auth: {
-    bearerToken: apiBearerToken,
-    sessionCookieSecure,
-  },
-  cors: {
-    allowedOrigins: corsAllowOrigins,
-    maxAgeSeconds: Number.isFinite(corsMaxAgeSeconds) ? corsMaxAgeSeconds : 300,
-  },
-  rateLimit: {
-    enabled: rateLimitEnabled,
-    points: rateLimitPoints,
-    durationSeconds: rateLimitDurationSeconds,
-  },
-});
-
-const host = process.env.API_HOST ?? "0.0.0.0";
-server.listen(port, host, () => {
-  // eslint-disable-next-line no-console
-  console.log(`API listening on http://${host}:${port}`);
-});
-
-async function closeGracefully(): Promise<void> {
-  await new Promise<void>((resolve) => {
-    server.close(() => resolve());
+if (require.main === module)
+  void main().catch((error) => {
+    console.error(error instanceof Error ? error.message : "Startup failed");
+    process.exitCode = 1;
   });
-  await runtime.close();
-}
-
-process.on("SIGINT", () => {
-  void closeGracefully().finally(() => process.exit(0));
-});
-
-process.on("SIGTERM", () => {
-  void closeGracefully().finally(() => process.exit(0));
-});

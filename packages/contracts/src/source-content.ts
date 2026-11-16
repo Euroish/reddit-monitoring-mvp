@@ -1,163 +1,381 @@
-/** Shared content contract. Platform is the publisher; provider is the acquisition channel. */
-export const CONTENT_PLATFORMS = ["reddit", "x", "instagram", "web", "bluesky"] as const;
-export type ContentPlatform = typeof CONTENT_PLATFORMS[number];
-export type PublicContentKind = "post" | "comment" | "article" | "image" | "video";
-export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-export type SourceTarget =
-  | { type: "community"; community: string; query?: string }
-  | { type: "account"; account: string; query?: string }
-  | { type: "post"; postId: string; query?: string }
-  | { type: "search"; query: string }
-  | { type: "feed"; url: string };
+import { Type, type Static } from "@sinclair/typebox";
 
-/** IDs remain strings, including X snowflakes. No mandatory title, author or published timestamp. */
-export interface ContentAuthor { externalId: string | null; handle: string | null; displayName: string | null; url: string | null }
-export interface ContentReference { kind: PublicContentKind; externalId: string; relation: "reply_to" | "thread_root" | "quote" | "repost" }
-export interface ContentMedia { type: "image" | "video" | "audio" | "link"; url: string; previewUrl: string | null; altText: string | null; durationSeconds: number | null }
-export type PlatformDetails =
-  ( { platform: "reddit"; community: string; flair: string | null; nsfw: boolean | null }
-  | { platform: "x"; conversationId: string | null; isReply: boolean | null; isRepost: boolean | null; isQuote: boolean | null; sensitive: boolean | null }
-  | { platform: "instagram"; mediaProduct: "feed" | "story" | "reel" | "unknown"; caption: string | null; carouselIds: string[] }
-  | { platform: "web"; publisher: string | null; canonicalUrl: string | null; feedUrl: string | null }
-  | { platform: "bluesky"; cid: string | null } )
-  & { /** Allowlisted, namespaced extra fields; never an unfiltered upstream payload. */ extensions?: Record<string, JsonValue> };
+export type JsonValue =
+  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+export const Id = Type.String({ format: "uuid" });
+export const DateTime = Type.String({ format: "date-time" });
+export const NullableText = Type.Union([Type.String(), Type.Null()]);
+export const Platform = Type.Union([
+  Type.Literal("reddit"),
+  Type.Literal("x"),
+  Type.Literal("bluesky"),
+  Type.Literal("web"),
+]);
+export const Kind = Type.Union([
+  Type.Literal("post"),
+  Type.Literal("comment"),
+  Type.Literal("article"),
+  Type.Literal("image"),
+  Type.Literal("video"),
+]);
+export const Target = Type.Union([
+  Type.Object(
+    {
+      type: Type.Literal("search"),
+      query: Type.String({ minLength: 1, maxLength: 200 }),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      type: Type.Literal("community"),
+      community: Type.String({ minLength: 1, maxLength: 100 }),
+      query: Type.Optional(Type.String({ maxLength: 200 })),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      type: Type.Literal("account"),
+      account: Type.String({ minLength: 1, maxLength: 253 }),
+      query: Type.Optional(Type.String({ maxLength: 200 })),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      type: Type.Literal("post"),
+      postId: Type.String({ minLength: 1, maxLength: 100 }),
+      query: Type.Optional(Type.String({ maxLength: 200 })),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      type: Type.Literal("feed"),
+      url: Type.String({ format: "uri", maxLength: 2000 }),
+    },
+    { additionalProperties: false },
+  ),
+]);
+export const Reference = Type.Object(
+  {
+    kind: Kind,
+    externalId: Type.String({ minLength: 1, maxLength: 1000 }),
+    relation: Type.Union([
+      Type.Literal("reply_to"),
+      Type.Literal("thread_root"),
+      Type.Literal("quote"),
+      Type.Literal("repost"),
+    ]),
+  },
+  { additionalProperties: false },
+);
+export const Author = Type.Object(
+  {
+    externalId: NullableText,
+    handle: NullableText,
+    displayName: NullableText,
+    url: NullableText,
+  },
+  { additionalProperties: false },
+);
+export const Media = Type.Object(
+  {
+    type: Type.Union([
+      Type.Literal("image"),
+      Type.Literal("video"),
+      Type.Literal("audio"),
+      Type.Literal("link"),
+    ]),
+    url: Type.String(),
+    previewUrl: NullableText,
+    altText: NullableText,
+    durationSeconds: Type.Union([Type.Number({ minimum: 0 }), Type.Null()]),
+  },
+  { additionalProperties: false },
+);
+const extensions = Type.Optional(Type.Record(Type.String(), Type.Any()));
+export const Details = Type.Union([
+  Type.Object(
+    {
+      platform: Type.Literal("reddit"),
+      community: Type.String(),
+      flair: NullableText,
+      nsfw: Type.Union([Type.Boolean(), Type.Null()]),
+      extensions,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      platform: Type.Literal("x"),
+      conversationId: NullableText,
+      isReply: Type.Union([Type.Boolean(), Type.Null()]),
+      isRepost: Type.Union([Type.Boolean(), Type.Null()]),
+      isQuote: Type.Union([Type.Boolean(), Type.Null()]),
+      sensitive: Type.Union([Type.Boolean(), Type.Null()]),
+      extensions,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      platform: Type.Literal("web"),
+      publisher: NullableText,
+      canonicalUrl: NullableText,
+      feedUrl: NullableText,
+      extensions,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { platform: Type.Literal("bluesky"), cid: NullableText, extensions },
+    { additionalProperties: false },
+  ),
+]);
+export const Observation = Type.Object(
+  {
+    sourceId: Id,
+    provider: Type.String({ minLength: 1, maxLength: 64 }),
+    sourceObservedAt: Type.Union([DateTime, Type.Null()]),
+    fetchedAt: DateTime,
+    timeBasis: Type.Union([
+      Type.Literal("archive_initial"),
+      Type.Literal("archive_refresh"),
+      Type.Literal("provider_snapshot"),
+      Type.Literal("unknown"),
+    ]),
+    maturity: Type.Union([
+      Type.Literal("initial"),
+      Type.Literal("refreshed"),
+      Type.Literal("unknown"),
+    ]),
+    metrics: Type.Record(
+      Type.String({ maxLength: 100 }),
+      Type.Union([Type.Number(), Type.Null()]),
+    ),
+    evidenceKey: Type.String({ minLength: 1, maxLength: 256 }),
+  },
+  { additionalProperties: false },
+);
+export const ContentItem = Type.Object(
+  {
+    id: Id,
+    platform: Platform,
+    kind: Kind,
+    externalId: Type.String({ minLength: 1, maxLength: 1000 }),
+    title: NullableText,
+    text: NullableText,
+    url: NullableText,
+    language: NullableText,
+    author: Type.Union([Author, Type.Null()]),
+    publishedAt: Type.Union([DateTime, Type.Null()]),
+    fetchedAt: DateTime,
+    availability: Type.Union([
+      Type.Literal("available"),
+      Type.Literal("removed"),
+      Type.Literal("deleted"),
+      Type.Literal("unknown"),
+    ]),
+    references: Type.Array(Reference, { maxItems: 20 }),
+    media: Type.Array(Media, { maxItems: 100 }),
+    platformDetails: Details,
+    observation: Observation,
+  },
+  { additionalProperties: false },
+);
+export const Content = Type.Composite([
+  Type.Omit(ContentItem, ["fetchedAt", "observation"]),
+  Type.Object({
+    firstFetchedAt: DateTime,
+    lastFetchedAt: DateTime,
+    observations: Type.Array(Observation),
+    textState: Type.Union([
+      Type.Literal("full"),
+      Type.Literal("missing"),
+      Type.Literal("summary"),
+      Type.Literal("truncated"),
+    ]),
+  }),
+]);
+export const SourceInput = Type.Object(
+  {
+    platform: Platform,
+    primaryProvider: Type.Union([
+      Type.Literal("kaix"),
+      Type.Literal("bluesky_appview"),
+      Type.Literal("external_ingest"),
+    ]),
+    label: Type.String({ minLength: 1, maxLength: 100 }),
+    target: Target,
+    contentKind: Kind,
+    deliveryMode: Type.Union([Type.Literal("pull"), Type.Literal("push")]),
+  },
+  { additionalProperties: false },
+);
+export const Source = Type.Composite([
+  Type.Omit(SourceInput, ["primaryProvider"]),
+  Type.Object({
+    id: Id,
+    state: Type.Union([
+      Type.Literal("active"),
+      Type.Literal("paused"),
+      Type.Literal("archived"),
+    ]),
+    createdAt: DateTime,
+    updatedAt: DateTime,
+    primaryProvider: Type.String({ minLength: 1, maxLength: 64 }),
+    fallbackProvider: NullableText,
+    revision: Type.Integer(),
+    coverage: Type.Union([Type.Literal("unknown"), Type.Literal("partial")]),
+  }),
+]);
+export const ContentFilter = Type.Object(
+  {
+    sourceId: Type.Optional(Id),
+    platform: Type.Optional(Platform),
+    kind: Type.Optional(Kind),
+    query: Type.Optional(
+      Type.String({
+        minLength: 1,
+        maxLength: 200,
+        pattern: "^[^\\u0000-\\u001f]*$",
+      }),
+    ),
+    anyTerms: Type.Optional(
+      Type.Array(Type.String({ minLength: 1, maxLength: 200 }), {
+        maxItems: 20,
+      }),
+    ),
+    allTerms: Type.Optional(
+      Type.Array(Type.String({ minLength: 1, maxLength: 200 }), {
+        maxItems: 20,
+      }),
+    ),
+    exclusions: Type.Optional(
+      Type.Array(Type.String({ minLength: 1, maxLength: 200 }), {
+        maxItems: 20,
+      }),
+    ),
+    from: Type.Optional(DateTime),
+    to: Type.Optional(DateTime),
+    searchScope: Type.Optional(
+      Type.Union([
+        Type.Literal("title"),
+        Type.Literal("text"),
+        Type.Literal("title_text"),
+      ]),
+    ),
+  },
+  { additionalProperties: false },
+);
+export const ListQuery = Type.Composite([
+  ContentFilter,
+  Type.Object({
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+    cursor: Type.Optional(Type.String({ maxLength: 4096 })),
+  }),
+]);
+export const ActorSchema = Type.Object({
+  userId: Id,
+  email: Type.String(),
+  role: Type.Union([
+    Type.Literal("owner"),
+    Type.Literal("admin"),
+    Type.Literal("viewer"),
+  ]),
+  clientKind: Type.Union([Type.Literal("browser"), Type.Literal("machine")]),
+  sessionId: Id,
+  scopes: Type.Array(Type.String()),
+  allowedSourceIds: Type.Union([Type.Array(Id), Type.Null()]),
+});
+export const Scopes = [
+  "sources:read",
+  "sources:write",
+  "content:read",
+  "content:export",
+  "content:ingest",
+  "collection:run",
+  "projects:read",
+  "projects:write",
+] as const;
+export const ParamsId = Type.Object({ id: Id });
+export const Login = Type.Object(
+  {
+    email: Type.String({ minLength: 3, maxLength: 254 }),
+    password: Type.String({ minLength: 1, maxLength: 128 }),
+  },
+  { additionalProperties: false },
+);
+export const MachineKeyInput = Type.Object(
+  {
+    label: Type.String({ minLength: 1, maxLength: 100 }),
+    scopes: Type.Array(Type.Union(Scopes.map((scope) => Type.Literal(scope))), {
+      minItems: 1,
+      uniqueItems: true,
+    }),
+    allowedSourceIds: Type.Array(Id, { maxItems: 1000 }),
+    expiresInDays: Type.Integer({ minimum: 1, maximum: 90 }),
+  },
+  { additionalProperties: false },
+);
+export const Ingest = Type.Object(
+  { items: Type.Array(ContentItem, { minItems: 1, maxItems: 100 }) },
+  { additionalProperties: false },
+);
+export const Collect = Type.Object(
+  {
+    from: DateTime,
+    to: DateTime,
+    limit: Type.Integer({ minimum: 1, maximum: 300 }),
+    includeComments: Type.Optional(Type.Boolean()),
+    maxCommentsPerPost: Type.Optional(
+      Type.Integer({ minimum: 1, maximum: 50 }),
+    ),
+  },
+  { additionalProperties: false },
+);
+export const ProjectInput = Type.Object(
+  {
+    name: Type.String({ minLength: 1, maxLength: 100 }),
+    sourceIds: Type.Array(Id, { minItems: 1, maxItems: 100 }),
+    filter: ContentFilter,
+  },
+  { additionalProperties: false },
+);
+export type ContentPlatform = Static<typeof Platform>;
+export type PublicContentKind = Static<typeof Kind>;
+export type SourceTarget = Static<typeof Target>;
+export type ContentReference = Static<typeof Reference>;
+export type ContentAuthor = Static<typeof Author>;
+export type ContentMedia = Static<typeof Media>;
+export type PlatformDetails = Static<typeof Details>;
+export type ContentObservation = Static<typeof Observation>;
+export type PublicContent = Static<typeof Content>;
+export type CollectionSource = Static<typeof Source>;
+export type Filter = Static<typeof ContentFilter>;
+export type Actor = Static<typeof ActorSchema>;
 export interface MetricDefinition {
-  key: string; label: string; unit: "count" | "ratio" | "rank"; cumulative: boolean; signed: boolean;
+  key: string;
+  label: string;
+  unit: "count" | "ratio" | "rank";
+  cumulative: boolean;
+  signed: boolean;
   contentKinds: PublicContentKind[];
   direction: "higher" | "lower" | "neutral";
 }
-export interface ContentObservation {
-  provider: string; sourceId: string; sourceObservedAt: string | null; fetchedAt: string;
-  timeBasis: "archive_initial" | "archive_refresh" | "provider_snapshot" | "unknown";
-  maturity: "initial" | "refreshed" | "unknown";
-  metrics: Record<string, number | null>;
-  evidenceKey: string;
-}
-export interface PublicContent {
-  id: string; platform: ContentPlatform; kind: PublicContentKind; externalId: string;
-  title: string | null; text: string | null; url: string | null; language: string | null;
-  author: ContentAuthor | null; publishedAt: string | null; firstFetchedAt: string; lastFetchedAt: string;
-  availability: "available" | "removed" | "deleted" | "unknown";
-  references: ContentReference[]; media: ContentMedia[]; platformDetails: PlatformDetails;
-  observations: ContentObservation[];
-}
 export interface SourceCapability {
-  platform: ContentPlatform; provider: string; enabled: boolean;
-  contentKinds: PublicContentKind[]; targetTypes: SourceTarget["type"][];
-  keywordSearch: "scoped" | "global" | "none"; metrics: MetricDefinition[];
-  observationModel: "archive" | "snapshot"; limitations: string[];
+  platform: ContentPlatform;
+  provider: string;
+  enabled: boolean;
+  contentKinds: PublicContentKind[];
+  targetTypes: SourceTarget["type"][];
+  keywordSearch: "scoped" | "global" | "none";
+  metrics: MetricDefinition[];
+  observationModel: "archive" | "snapshot";
+  limitations: string[];
   refreshByIds?: boolean;
-  /** Provider may return/bill a fixed page even when a smaller page is requested. */
   requestResourceUpperBound?: number;
-  /** False for paid operations whose ambiguous outcome requires explicit human Retry. */
   automaticRequestReplay?: boolean;
-}
-export interface SourceSchedule { enabled: boolean; cadenceSeconds: number; overlapSeconds: number; initialLookbackHours: number; maxCatchupHours: number; pageSize: number; maxPages: number; recheckLookbackHours?:number; recheckCadenceSeconds?:number }
-export interface SourceRefresh {
-  enabled: boolean; afterHours: number; minIntervalHours: number;
-  /** Maximum automatic rounds, including failed rounds. Each round permits at most three request-start attempts; explicit Retry authorizes another round. */
-  maxAttempts: number; batchSize: number;
-}
-export interface CollectionSource {
-  id: string; platform: ContentPlatform; provider: string; label: string; target: SourceTarget;
-  contentKind: PublicContentKind; createdAt: string; lastSuccessAt: string | null;
-  latestPublishedAt: string | null; coverage: "unknown" | "partial";
-  state: "active" | "paused" | "archived"; group: string | null; updatedAt: string;
-  schedule: SourceSchedule; refresh: SourceRefresh; nextDueAt: string | null; incrementalTo: string | null;
-  nextRecheckAt?:string|null;
-  /** Operational fence after a permanent collection failure; explicit failed-job Retry releases it. */
-  automaticCollectionBlocked?: boolean;
-  /** Configuration revision; worker progress and observations do not change it. */
-  revision?:number;
-}
-export interface CreateCollectionSourceRequest {
-  platform: ContentPlatform; provider: string; label?: string; target: SourceTarget; contentKind: PublicContentKind;
-}
-export interface StartSourceCollectionRequest { from?: string; to?: string; pageSize?: number; maxPages?: number }
-export interface UpdateCollectionSourceRequest { label?: string; group?: string | null; schedule?: Partial<SourceSchedule>; refresh?: Partial<SourceRefresh>; expectedRevision?:number }
-export interface SourceProviderBudget { provider: string; enabled: boolean; dailyRequests: number; monthlyRequests: number; dailyResources: number; monthlyResources: number; minimumIntervalMs?:number; revision?:number }
-export type SourceProviderBudgetRequest=Omit<SourceProviderBudget,"provider"|"revision">&{expectedRevision?:number};
-export interface SourceProviderUsage { provider: string; day: string; month: string; dailyRequests: number; monthlyRequests: number; dailyResources: number; monthlyResources: number; budget: SourceProviderBudget; lastReservationAt?:string|null }
-export interface SourceCollectionJob {
-  id: string; sourceId: string; status: "queued" | "running" | "retrying" | "succeeded" | "failed" | "cancelled";
-  from: string; to: string; pageSize: number; maxPages: number; pagesCommitted: number; recordsProcessed: number;
-  checkpoint: JsonValue | null; coverage: "unknown" | "partial"; exhausted: boolean;
-  attempts: number; error: string | null; nextRunAt: string; createdAt: string; finishedAt: string | null;
-  purpose: "manual" | "scheduled" | "refresh" | "recheck"; parentJobId: string | null; refreshIds: string[];
-  recordsInserted: number; recordsUpdated: number;
-  /** Registered adapter attempts; cancellation/lease loss may prevent a fenced write. Not a provider bill. */
-  requestCount?: number; requestDurationMs?: number;
-  /** Permanent failures require explicit Retry; transient failures retain automatic recovery. */
-  failureKind?: "transient" | "permanent" | null;
-}
-export interface SourceJobQuery { sourceId?: string; status?: SourceCollectionJob["status"]; limit?: number }
-export interface SourceWorkerHeartbeat { id: string; startedAt: string; lastHeartbeatAt: string; state: "active" | "draining" | "stopped"; lastJobId: string | null }
-export interface SourceOps {
-  checkedAt: string; workers: (SourceWorkerHeartbeat & { stale: boolean })[];
-  queue: { status: SourceCollectionJob["status"]; count: number }[]; oldestQueuedAt: string | null;
-  sources: { sourceId: string; state: CollectionSource["state"]; lastSuccessAgeHours: number | null; latestPublishedAgeHours: number | null; coverage: CollectionSource["coverage"]; nextDueAt: string | null; activeJobs: number; oldestPendingAt?: string | null }[];
-  providers: SourceProviderUsage[];
-  recentFailures?:{jobId:string;sourceId:string;error:string;finishedAt:string|null}[];
-  requests?:{registeredCount:number;totalDurationMs:number;scope:"retained_jobs"};
-}
-export interface ContentQuery {
-  platform?: ContentPlatform; provider?: string; sourceId?: string; kind?: PublicContentKind;
-  query?: string; from?: string; to?: string; limit?: number; cursor?: string;
-  author?: string; language?: string; sourceGroup?: string;
-  sort?: "published_desc" | "published_asc";
-  metricKey?: string; minMetric?: number; maxMetric?: number;
-  searchMode?:"literal"|"terms"|"phrase";searchScope?:"title"|"text"|"title_text";exclusions?:string[];
-}
-export interface PublicContentSearchCoverage {formatVersion:1;candidateCount:number;indexed:number;unindexed:number;textPresent:number;textMissing:number;state:"complete"|"partial";textBasis:"stored_title_text"}
-
-export interface ContentDetailResponse {
-  ok: true; requestId: string; content: PublicContent; sources: CollectionSource[];
-  references: { reference: ContentReference; content: PublicContent | null }[];
-  children: PublicContent[]; relatedLimit: number; relatedTruncated: boolean; scope: "stored_content";
-}
-export type SavedContentQuery = Omit<ContentQuery, "cursor" | "limit">;
-export interface ContentSavedQueryView {
-  id: string; name: string; query: SavedContentQuery; revision: number; createdAt: string; updatedAt: string;
-}
-export interface ContentSavedQueryListResponse { ok: true; requestId: string; queries: ContentSavedQueryView[]; nextCursor: string | null }
-export interface SaveContentQueryRequest { name: string; query: SavedContentQuery; expectedRevision?: number }
-export interface SaveContentQueryResponse { ok: true; requestId: string; savedQuery: ContentSavedQueryView }
-export interface ContentAnnotationView {
-  contentId: string; favorite: boolean; note: string; revision: number; createdAt: string; updatedAt: string;
-}
-export interface UpdateContentAnnotationRequest { favorite?: boolean; note?: string; expectedRevision?: number }
-export interface ContentAnnotationResponse { ok: true; requestId: string; annotation: ContentAnnotationView | null }
-export interface ContentAnnotationListResponse {
-  ok: true; requestId: string; items: { annotation: ContentAnnotationView; content: PublicContent }[]; nextCursor: string | null;
-}
-export interface ContentListResponse {
-  ok: true; requestId: string; items: PublicContent[]; nextCursor: string | null;
-  coverage: "stored_sample"; queryScope: "collected_content";
-  searchCoverage?:PublicContentSearchCoverage;
-}
-export interface ContentStatsResponse {
-  ok: true; requestId: string; total: number; byKind: { kind: PublicContentKind; count: number }[];
-  daily: { day: string; count: number }[]; scope: "collected_content";
-  /** Unknown publish dates count toward total but do not appear in published-day buckets. */
-  unknownPublishedAtCount: number;
-  searchCoverage?:PublicContentSearchCoverage;
-}
-export interface SourceListResponse { ok: true; requestId: string; sources: CollectionSource[]; capabilities: SourceCapability[]; providers?: SourceProviderUsage[] }
-export interface CollectionSourceResponse { ok: true; requestId: string; source: CollectionSource }
-export interface SourceJobResponse { ok: true; requestId: string; job: SourceCollectionJob }
-export interface SourceJobsResponse { ok: true; requestId: string; jobs: SourceCollectionJob[] }
-export interface SourceOpsResponse { ok: true; requestId: string; ops: SourceOps }
-export interface ContentWorkbenchResponse {
-  ok: true; requestId: string; generatedAt: string;
-  stats: Omit<ContentStatsResponse, "ok" | "requestId">;
-  byPlatform: { platform: ContentPlatform; count: number }[];
-  byProvider: { provider: string; count: number }[];
-  sources: CollectionSource[]; capabilities: SourceCapability[];
-  scope: "collected_content"; providerCountsMayOverlap: true; metricComparison: "platform_units_only";
-}
-export interface ContentExportResponse {
-  ok: true; requestId: string; exportedAt: string; scope: "collected_content"; coverage: "stored_sample";
-  filters: ContentQuery; totalMatching: number; exportedCount: number; maxItems: number;
-  truncated: boolean; nextCursor: string | null; items: PublicContent[];
-  searchCoverage?:PublicContentSearchCoverage;
 }

@@ -1,39 +1,63 @@
 # 当前实现与证据状态
 
-核对日期：`2026-11-16`。源码实际行为基于代码基线 `main@93ca276`；本轮恢复并统一全套 14 份正式产品、架构、契约、交互、重建计划与来源规格文档，未改动生产部署，也未新发起收费采集。目标设计与架构均**尚未实施**，以本文件记录的实码事实为准。
+核对日期：`2026-11-16`。本轮工作分支：`r1-content-batch`，基于当前主线文档开始重整。用户明确说明：过去的本机部署均为内部测试，从未公开运营；本轮不兼容旧测试服务、不执行部署，先整体清理与重建后再考虑开放。以下只记录当前源码及实际检查结果，目标规范的其余条目仍是待办。
 
-## 1. 实码事实与缺口盘点
+## 1. 当前主链
 
-| 领域范围 | 当前源码已有实现（`0.9.1`） | 目标规范待重构 / 实删缺口 |
-| :--- | :--- | :--- |
-| **API / Web 框架** | 手写 `node:http`（`create-api-server.ts` 3,606 行 + `readyz-observability.ts` 793 行）、React/Vite 旧页面（含 Phase1/Markets/TargetDetail 等 21 页） | 未建 Fastify 5 + TypeBox 五模块（`access`/`collection`/`content`/`projects`/`workspace`）、OpenAPI/`capabilities`、机器 API Key、`monitor_project*` 两新表与五导航干净工作台；旧入口与 `ResearchExport` UI 待 R3 实删 |
-| **存储与仓储层** | PostgreSQL（42 项迁移，末号 `040`）、30 个 PG 仓储、27 个单实现 `Repository` 接口、14 个 `InMemory*Repository`（2,185 行 / 106 KB） | 列表热路径仍跑全库 `coverage COUNT`；`038` 失效触发器仍在；`contentWorkbench` 反复全表 `contentStats`；`listAnnotations` `1+N`；`commitPage` 逐条 4 SQL/项；`listContent` 用 `first_seen_at` 补空排序；未加 `content_evidence_key`/`content_version_fetched_at` |
-| **Reddit (`kaix`)** | 跨社区 search、社区/账号/帖子评论、build `0.2.25`、未知收费结果停重放；已解除 `$0.01` 事件帽、45s 超时、512MiB 内存与禁代理限制 | 仍导入 `ARCTIC_SHIFT_CAPABILITY.metrics`；锁死 `includeComments=false`、1–100 条、`mode="post"` 丢主帖、`literal()` 误杀布尔式；同步 `waitForFinish=60` 遇到 `RUNNING` 直接报错且未持久化 `runId`/`datasetId`；落库锁死 `item.kind === source.contentKind` |
-| **Reddit / X 新与旧渠道** | `Arctic Shift` 在线代码仍在；`TwitterAPI.io` 在线代码仍在；`Bluesky` AppView 有两页小样本闭环；`defaultProviderBudget` 仍含 `arctic_shift` 免费回退 | `TwitterAPIs`、`ScrapeBadger`、`red_crawler`、`NewsNow`、通用 `feed` **均未编写代码**；`Arctic Shift` 与 `TwitterAPI.io` 按 R1–R3 解耦实删与软归档 |
-| **检索、漏斗与导出** | 已有单平台指标过滤、数组导出（上限 2,000）与 `research_export` RR 冻结（2 万行 / 32 MiB） | 三段词组 `anyTerms/allTerms/exclusions`、确定性信号、联动 `threadAware`、三视图评论树、单列 `search_text`、`REPEATABLE READ` + `SET LOCAL 35s` 游标流式导出均未落地；冻结资产待 R3 迁出后实删 |
-| **推流与外挂边界** | 已在 `scripts/release-package-lib.mjs`、`.ts` lint 与单测完成核心隔离规则 | `POST /v1/sources/:id/ingest` 标准推流未实现；R4 `plugins/zst-archive/` 未开始且不阻塞 R1–R3 |
-| **运维与部署** | `deploy/` 下 `systemd` + Nginx 模板，备份/恢复/发布包脚本 | 无 Docker Compose（`proxy`/`app`/`db`）文件，无进程内并发 2 调度器与 15s 优雅退出 |
+- 唯一 API 入口改为 `apps/api/src/server.ts` → `app.ts` → Fastify 5 五模块；已物理删除旧 `node:http` 巨型入口、`Phase1` runtime、单实现 Repository、全部 InMemory SQL 模拟器、独立 worker、旧趋势/市场/异常任务与对应旧业务脚本。
+- 保留 `access / collection / content / projects / workspace` 的函数式 SQL 与路由；新模块不导入旧层。全应用一个 `pg.Pool`，进程内两个工作槽；默认连接/SQL/锁/空闲事务均有上限。
+- 仅保留 `kaix` 与 Bluesky AppView 两个现有在线连接器，外加标准 `external_ingest`；`Arctic Shift`、`TwitterAPI.io` 在线源码、环境注册及 `opossum` / `rate-limiter-flexible` 依赖实删。历史观测的真实 provider 不改写。
+- Web 已替换为五导航“项目 / 内容库 / 来源 / 我的研究 / 设置”；旧 Phase1、Markets、Trends、Heat、Growth、冻结研究等页面实删。按页面职责保留五个组件，移除图表库及旧双语/说明墙。
+- 根脚本与 CI 已转向新入口和唯一 PG16 HTTP 套件；发布构建先清空生成目录，发布包不再要求独立 worker，也不打包残留旧 runtime。
 
-`main` 已合入 E0 详情 SQL 优化、Bluesky/`040`、`kaix` 去硬覆盖、静态资源与初始会话竞态修复，重建时禁止从过时分支重引旧代码；现存依赖中 `opossum` 与 `rate-limiter-flexible` 将随旧代码实删一并清理。
+## 2. 已编码行为与剩余差距
 
-## 2. 分层验证与公开资料核对证据
+| 范围 | 当前实际行为 | 尚待完成 |
+| --- | --- | --- |
+| 鉴权与安全 | Default-Deny、同源写校验、签名 HttpOnly Cookie、复用 app_session 的受限机器 Key、viewer 写限制、撤销/过期/credential_version、全局及登录限流、鉴权 OpenAPI/capabilities | 完整账户管理界面、代理/TLS 与生产 Compose 验证不在本轮部署范围 |
+| 混合写入 | 唯一 commitContentBatch；四条 UNNEST 集合写；事务外预合并；保留独立观测；长字符串 ID；按真实 kind 验证；父链环/跨根检查；确定性版本、空字段保持、删除防复活；观测同键冲突整批回滚 | 大规模并发写入/WAL/百万级容量报告 |
+| 搜索与读取 | 单 search_text + title_length + trigram GIN；LIKE 字面转义；统一 compileContentFilter 交集授权；NULL 双分支 keyset；每页 limit+1、无 coverage COUNT；详情不暴露其他授权来源观测 | threadAware 根帖联动、三视图评论树、完整聚合口径与信号门控 |
+| 推流与下载 | POST ingest：100 条/1MiB、source→receipt 锁序、同 key 同体重放、异体 409、内容与回执原子提交；JSON/CSV 游标下载，RR + 35s 空闲事务上限、背压、30s 总预算与断连销毁连接 | 下载面板的终结统计与分段续传交互；完整压力与恢复演练 |
+| kaix | 自有指标定义；保留原生布尔搜索；1–300 根帖、可带评论且总节点≤2000；帖子取评保留旧时间根帖；runId/datasetId 持久化；RUNNING 轮询续读不重发 POST；未知创建结果锁源停发 | 批量根帖 hydrate/自动门控派生、人工核查后的标准恢复接口、新版本受控真网样本 |
+| 调度与预算 | 两个有界槽，source→job 锁序，租约回收/过期拒写；默认关闭的额度；UTC 日/月请求和资源预留；预算/间隔拒发不发网络请求；安全读错误最多三次，预算等待不消耗请求重试次数；预算当前通过 API 编辑 | 自动到期 Radar、跨页继续、独立备源单跳与完整工作状态诊断；当前为显式单次采集，非持续监测完成版 |
+| 项目 | 两张项目表、创建/读取、三组词库内过滤、一次 GROUPING SETS 内容节点概览；不因保存项目自动采购 | 编辑/比较/钻取、threadAware 默认口径、确定性信号与自动 Hydrate；响应明确 threadAware=false，尚不能宣称目标项目漏斗完成 |
+| 个人研究 | 保存查询、单条 JOIN 批注列表、用户隔离与批注 revision 冲突；新 Web 无冻结功能 | 历史查询不兼容字段转换、旧资产实际迁出交付与最终旧表删除 |
+| 新渠道 | 尚未接入 | red_crawler、TwitterAPIs、ScrapeBadger、NewsNow、feed 属于后续 R2；不宣称已验收 |
 
-| 证据来源 | 可支持的结论 | 明确不能推出的结论 |
-| :--- | :--- | :--- |
-| **2026-11-16 文档系统补全与交叉核对** | 统一 `a078c9c` 代码尸检、7 项漂移修正、`fefdb8c`/`8ba0d65`/`90dbe9a`/`93ca276` 最新三阶漏斗与源选型定案（`TwitterAPIs`+`ScrapeBadger`、`kaix`+`red_crawler`），恢复全部 14 份权威文档并保证全仓规则 ID 零冲突、链接锚点与 `src/modules/` AST 检查对齐 | 不代表 Fastify/五模块/新连接器/迁移已编码或运行 |
-| **2026-11-16 公开页与实测连通性** | 核验 `kaix` build `0.2.25`、`red_crawler` FREE 计费、TwitterAPI.io `/pricing.json` 超限、TwitterAPIs `$0.0008/call` 及 ScrapeBadger OpenAPI 字段与 `X-Credits-Used`；用户授权直连 OpenAI 词搜索实测：`kaix` 成功 1 run 采 20 帖，`TwitterAPIs` HTTP 200 采 20 推文（报告留于 `output/` 未进 Git）；实测 `Arctic Shift` 在线 `422/10s` 超时限流及匿名 Reddit `403` | 不代表固定长期成功率、完整账单预算或新 adapter 闭环已通过 |
-| **历史本机与云 CI 检查** | `93ca276` 文档阶段 `npm run lint` / `typecheck` / 发布与策略单测 9/9 通过；历史快照 `cf05c12`（531 离线 / 43 PG14 SQL + 账户/内容/研究浏览器通过）、`413bb75`（530 离线 + kaix 长 ID 重放）、`3551900` [CI 43358775922](https://github.com/Euroish/reddit-monitoring-mvp/actions/runs/43358775922)、E0 1,029 条暖缓存详情 SQL 23→4（P95 179→51ms）、`c805ca1` 逐条写入约 128 条/秒、E1 Bluesky 两页 6 条小样本 | 均属于旧代码基线快照证据，不代替新主线实测与百万级容量验收 |
+## 3. 数据迁移与资产保全
 
-本机开发状态备忘：用户已在仓库外 `credentials.env`（`chmod 600`）填入 `APIFY_API_TOKEN` 与 `TWITTERAPIS_API_KEY`，并对本机旧库 `kaix` 配额做过开发期放宽；新环境仍受迁移默认关闭保护。
+`001..040` 全部保留原文与校验和；新增：
 
-## 3. 既有线上环境部署备忘（历史记录，未重探）
+- `041_content_batch.sql`：正文版本字段、观测唯一键纳入 provider、观测 payload_hash 与发布时间/引用索引。
+- `042_monitor_projects.sql`：仅新建 monitor_project 与 monitor_project_source 两张表。
+- `043_kernel_cutover.sql`：会话、逻辑来源与任务扩展；退役旧渠道预算与来源；全量回填并检查单列投影后删除旧失效触发器；旧测试队列取消。若存在 running 或已有请求尝试的未决旧任务，迁移拒绝执行，防止把本地取消误当作外部计费结束。
 
-保留原工作区记录（本轮未登录或重启远端服务）：
-- `11-13` 本机 HTTP/IP 验收服务运行在 `main@3551900` 干净构建（`/opt/reddit-monitoring-releases/main-3551900-20261113T073415Z`，配置位于 `/etc/reddit-monitoring/`），42 项迁移 checksum 一致，`SOURCE_NETWORK_ENABLED=false`、`Apify` 未启用、`public-tunnel`/`desktop`/`chrome`/`bridge` 保持 `inactive`。仅 Git 推送**绝不会**触发服务自动更新或重启。
+迁移只在全新隔离验证库执行；未连接或修改既有内部测试库。账户、正文、发现、观测、收藏、批注及历史冻结表没有被删除。旧业务表仍随历史迁移保留，不参与新运行时。
 
-## 4. 下一步实施队列（以[R1–R4 重建计划](plans/source-expansion.md)为准）
+`scripts/export-legacy-assets.ts` 在只读 RR 快照内按原 owner 导出冻结记录及成员、保存查询、批注与旧保存视图，生成行数与 SHA-256 清单；文件目录 700、文件 600、拒绝覆盖、零数据库写入。当前完成合成资产验证，**尚未对用户历史资产执行迁出或确认交付**；因此冻结旧表不执行 DROP。
 
-1. **R1（待启动）**：搭建 Fastify 5 + TypeBox 五模块内核与安全限流边界、`041` 核心迁移与旧来源安全退役、`commitContentBatch` 混合批 4 组 `UNNEST`、`kaix` 4 项解封与异步 `runId` 恢复、`POST /v1/sources/:id/ingest`、NULL 双分支分页、`REPEATABLE READ` + `SET LOCAL 35s` 游标导出与 `x-content-pipeline.test.ts` 迁移，同步打通薄 Web 闭环。
-2. **R2（待开始）**：`042` 建 `monitor_project*` 两张表，落地三段词组、信号门控、`GROUPING SETS`、三视图评论树、Agent `/v1/capabilities` + `/v1/openapi.json`、接通 `red_crawler` / `TwitterAPIs` / `ScrapeBadger` / `NewsNow` / `feed` 与五导航干净 UI。
-3. **R3（待开始）**：迁出并交付旧个人研究与冻结资产，物理实删仓储双轨/旧 runtime/旧前端与遗留驱动，完成真实负载与恢复演练，Docker Compose 维护窗口上线。
-4. **R4（后续独立研究）**：在线主线稳定后，按需单独验证并开发 `plugins/zst-archive/`。
+## 4. 验证证据与测试迁移
+
+新测试只采用纯函数/外部协议夹具 + 真实 PG16/HTTP + 真实浏览器，不再保留 SQL InMemory 双跑。旧趋势、市场、Phase1、冻结 API 的测试随退役业务删除；核心断言迁至：
+
+| 断言 | 当前测试 |
+| --- | --- |
+| 长 ID、混合帖评、预合并、版本平局/逆序、独立证据、环/跨根拒收、16MiB/2000 条边界 | content-batch.test.ts / kernel-postgres.test.ts |
+| 鉴权、CSRF、机器 Key 来源交集、枚举内容 404、viewer、撤销/过期/凭证变更、伪造转发头限流、个人资产隔离与 revision | kernel-postgres.test.ts |
+| 推流并发回执、异体 409、413、缺 key、原子回滚、四条 SQL、空值、删后防复活 | kernel-postgres.test.ts |
+| Apify Run 中断续读、unknown 停发、防再发、额度、取消/旧租约拒写 | kaix-content.connector.test.ts / collection-postgres.test.ts |
+| NULL 游标、微秒游标、字面转义、跨标题正文边界、同范围流式下载与断连清理 | search.test.ts / kernel-postgres.test.ts |
+| 迁移 DDL/ledger 原子回滚、checksum、防覆盖、原 owner 文件与冻结成员保全 | migration-assets-postgres.test.ts |
+| 文档与旧层防回流、发布白名单、R4 隔离与文件篡改 | repository-policy.test.ts / release-package.test.ts |
+| 浏览器登录→来源→混合样本导入→详情批注→保存查询→文件下载→创建项目/核对计数；五导航与三尺寸 | tests/browser/workbench.test.ts |
+
+本轮在 Node `24.22.3`、仓库外临时构建的 PostgreSQL `16.6` 独立 loopback 实例和真实 Chromium 下验证（不替换已有 PG14 实例），无第三方收费请求。最终通过：12 项单元测试、13 项 PG/HTTP 测试（含父测试）、1 条浏览器任务流，均零失败、零跳过；lint、根与 Web typecheck、API/Web build、编译入口冷加载及发布包完整性检查通过。PG 断连用例使用 1,000 条约 10MiB 内容，确认游标销毁后无遗留空闲事务或等待队列；浏览器覆盖五导航、登录、混合导入、批注、保存查询、创建项目并核对命中数与文件下载，并保存 1440/768/390 截图。报告与截图仅放被忽略的 `output/validation/kernel/`。
+
+历史 `0.9.1` 的 536 离线 / 44 PG 用例属于旧链证据，不作为新链验收。新旧首次迁移过程中出现的旧夹具 ID/重试假设差异不计为新链通过结果。
+
+## 5. 下一步
+
+1. 保持新内核边界与上述真实检查，旧层门禁禁止回流；基础项目概览继续明确使用内容节点口径。
+2. R2 继续讨论联动、信号、批量 Hydrate 与新的双渠道；先完成唯一过滤及授权口径，再接新增渠道。
+3. 按需对旧内部测试库盘点/备份并执行资产迁出，核对交付后再增加旧表删除迁移；生产 Compose、负载、安全与恢复证明完成前不开放。
+4. R4 独立外挂尚未开始，不预建空壳，也不进入主线依赖、镜像或 CI。

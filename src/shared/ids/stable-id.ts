@@ -1,14 +1,10 @@
 import { createHash } from "node:crypto";
 
 const ALLOWED_STABLE_ID_PREFIXES = [
-  "reddit:target:",
-  "reddit:account:",
   "reddit:content:",
   "x:content:",
   "bluesky:content:",
   "web:content:",
-  "job:",
-  "api-rate-limit:",
 ] as const;
 
 export function isAllowedStableIdInput(value: string): boolean {

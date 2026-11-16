@@ -1,80 +1,223 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { randomUUID } from "node:crypto";
 import { KaixContentConnector } from "../../src/connectors/reddit/kaix-content.connector";
 import { resolveKaixConfig } from "../../src/connectors/reddit/kaix.config";
-import { SourceContentService } from "../../src/application/services/source-content.service";
-import { ContentProviderError } from "../../src/connectors/shared/content-provider.interface";
-import { InMemorySourceContentRepository } from "../../src/storage/repositories/in-memory/source-content.repository";
-import { KAIX_NOW, kaixFixture, kaixPost, verifyKaixPipeline } from "../helpers/kaix-content-fixtures";
-import { syntheticSource } from "../helpers/source-content-fixtures";
+import type {
+  CollectionSource,
+  JsonValue,
+} from "../../packages/contracts/src/source-content";
 
-const source = syntheticSource({ provider: "kaix", target: { type: "search", query: "AI tool" } });
-const request = { source, from: "2026-11-13T00:00:00Z", to: KAIX_NOW, limit: 5, checkpoint: null };
-test("kaix flows through paid budgets, jobs, storage, statistics and export", async () => { await verifyKaixPipeline(new InMemorySourceContentRepository()); });
-
-test("kaix uses a pinned build without application spend/resource overrides and retains sample filtering", async () => {
-  const fixture = kaixFixture([kaixPost(), kaixPost({ id: "wrong1", fullName: "t3_wrong1", title: "Unrelated" }), kaixPost({ id: "old123", fullName: "t3_old123", createdUtc: 1 })]);
-  const page = await fixture.connector.collectPage(request);
-  assert.equal(page.items.length, 1); assert.equal(page.coverage, "partial"); assert.equal(page.exhausted, true);
-  const { url, init } = fixture.requests[0], input = JSON.parse(String(init?.body));
-  assert.equal(url.searchParams.get("build"), "0.2.25");
-  for (const key of ["memory", "timeout", "maxTotalChargeUsd"]) assert.equal(url.searchParams.has(key), false, key);
-  assert.equal(url.searchParams.get("restartOnError"), "false");
-  assert.equal(input.maxItems, 5); assert.equal(input.includeComments, false); assert.equal(input.sort, "new"); assert.equal(input.proxyConfiguration, undefined);
-  assert.match(page.warning!, /no continuation/);
+const now = "2026-11-16T12:00:00.000Z";
+export function sourceFixture(
+  overrides: Partial<CollectionSource> = {},
+): CollectionSource {
+  return {
+    id: randomUUID(),
+    platform: "reddit",
+    primaryProvider: "kaix",
+    fallbackProvider: null,
+    deliveryMode: "pull",
+    label: "Fixture",
+    target: { type: "search", query: "OpenAI OR Anthropic" },
+    contentKind: "post",
+    state: "active",
+    createdAt: now,
+    updatedAt: now,
+    revision: 1,
+    coverage: "partial",
+    ...overrides,
+  };
+}
+const root = {
+  type: "post",
+  id: "root123",
+  fullName: "t3_root123",
+  subreddit: "fixture",
+  title: "OpenAI research",
+  selftext: "A native OR match",
+  createdUtc: Date.parse("2026-11-15T00:00:00Z") / 1000,
+};
+const comment = {
+  type: "comment",
+  id: "19riqx8r047lt",
+  fullName: "t1_19riqx8r047lt",
+  parentId: "t3_root123",
+  linkId: "t3_root123",
+  subreddit: "fixture",
+  body: "[deleted]",
+  createdUtc: root.createdUtc,
+};
+function fixture(responses: unknown[]) {
+  const requests: { url: URL; input?: Record<string, unknown> }[] = [];
+  const connector = new KaixContentConnector(
+    { networkEnabled: true, apiToken: "synthetic-token" },
+    async (input, init) => {
+      requests.push({
+        url: new URL(String(input)),
+        input: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      assert.equal(
+        new Headers(init?.headers).get("authorization"),
+        "Bearer synthetic-token",
+      );
+      const response = responses.shift();
+      if (response instanceof Error) throw response;
+      return response instanceof Response ? response : Response.json(response);
+    },
+    () => now,
+  );
+  let state: JsonValue = { phase: "starting" };
+  const execution = () => ({
+    state,
+    saveState: async (value: JsonValue) => {
+      state = value;
+    },
+  });
+  return { connector, requests, execution };
+}
+const receipt = (status: string) => ({
+  data: { id: "fixtureRun", defaultDatasetId: "fixtureDataset", status },
 });
 
-test("kaix comments retain long string identities, parents and deletion markers", async () => {
-  const id = "19riqx8r047lt", row = { type: "comment", id, fullName: `t1_${id}`, parentId: "t1_parent123", linkId: "t3_abc123", subreddit: "testcommunity", createdUtc: kaixPost().createdUtc, body: "[deleted]", score: null };
-  const fixture = kaixFixture([kaixPost({ id: "abc123", fullName: "t3_abc123" }), row]);
-  const page = await fixture.connector.collectPage({ ...request, source: syntheticSource({ provider: "kaix", contentKind: "comment", target: { type: "post", postId: "abc123" } }), limit: 1 });
-  assert.equal(page.items.length, 1); assert.equal(page.items[0].externalId, `t1_${id}`); assert.equal(page.items[0].availability, "deleted"); assert.equal(page.items[0].text, null);
-  assert.deepEqual(page.items[0].references.map(ref => ref.relation), ["reply_to", "thread_root"]);
-  const input = JSON.parse(String(fixture.requests[0].init?.body)); assert.equal(input.maxCommentsPerPost, 1); assert.equal(input.maxItems, 1);
+test("paid kaix run persists identifiers, polls without another POST and keeps native OR matches", async () => {
+  const f = fixture([receipt("RUNNING"), receipt("SUCCEEDED"), [root]]);
+  const request = {
+    source: sourceFixture(),
+    from: "2026-11-14T00:00:00Z",
+    to: now,
+    limit: 300,
+    checkpoint: null,
+  };
+  assert.equal(
+    (await f.connector.collectPage({ ...request, execution: f.execution() }))
+      .pending,
+    true,
+  );
+  assert.deepEqual(f.execution().state, {
+    phase: "running",
+    runId: "fixtureRun",
+    datasetId: "fixtureDataset",
+  });
+  const page = await f.connector.collectPage({
+    ...request,
+    execution: f.execution(),
+  });
+  assert.equal(page.items.length, 1);
+  assert.equal(page.coverage, "partial");
+  assert.equal(f.requests.filter((item) => item.input).length, 1);
+  assert.equal(f.requests[0].input!.keyword, "OpenAI OR Anthropic");
+  assert.equal(f.requests[0].url.searchParams.get("build"), "0.2.25");
+  for (const field of ["memory", "timeout", "maxTotalChargeUsd"])
+    assert.equal(f.requests[0].url.searchParams.has(field), false);
+  assert.equal(f.requests[0].input!.maxItems, 300);
 });
 
-test("kaix rejects unsupported targets, missing credentials, checkpoints and invalid limits before network", async () => {
-  const fixture = kaixFixture();
-  assert.throws(() => fixture.connector.normalizeTarget({ type: "community", community: "testcommunity" }, "comment"), /community targets/);
-  assert.throws(() => fixture.connector.normalizeTarget({ type: "search", query: "x" }, "comment"), /posts only/);
-  assert.throws(() => fixture.connector.normalizeTarget({ type: "account", account: "https://localhost" }, "post"), /identifier/);
-  assert.throws(() => resolveKaixConfig({ APIFY_API_TOKEN: "bad\nvalue" }), /header/);
-  await assert.rejects(new KaixContentConnector({ networkEnabled: true }).collectPage(request), /disabled/);
-  await assert.rejects(fixture.connector.collectPage({ ...request, checkpoint: "cursor" }), /continuation/);
-  await assert.rejects(fixture.connector.collectPage({ ...request, limit: 0 }), /1–100/);
-  const controller = new AbortController(); controller.abort(); await assert.rejects(fixture.connector.collectPage({ ...request, signal: controller.signal }));
-  assert.equal(fixture.requests.length, 0);
+test("kaix root/comment hydration retains old context, long IDs and deletion markers", async () => {
+  const f = fixture([receipt("SUCCEEDED"), [root, comment]]);
+  const page = await f.connector.collectPage({
+    source: sourceFixture({
+      contentKind: "comment",
+      target: { type: "post", postId: "root123" },
+    }),
+    from: now,
+    to: "2026-11-17T00:00:00Z",
+    limit: 50,
+    checkpoint: null,
+    execution: f.execution(),
+  });
+  assert.equal(page.items.length, 2);
+  assert.equal(page.items[0].kind, "post");
+  assert.equal(page.items[1].externalId, "t1_19riqx8r047lt");
+  assert.equal(page.items[1].availability, "deleted");
+  assert.equal(page.items[1].text, null);
+  assert.deepEqual(
+    page.items[1].references.map((reference) => reference.relation),
+    ["reply_to", "thread_root"],
+  );
 });
 
-test("kaix never turns failed/ambiguous paid runs into automatic retries or empty successful pages", async () => {
-  for (const response of [new Response("secret-upstream-error", { status: 429 }), Response.json({ data: { id: "fixtureRun", status: "RUNNING" } }), Response.json({ data: { id: "fixtureRun", status: "FAILED" } }), new Response("not-json")]) {
-    const connector = new KaixContentConnector({ networkEnabled: true, apiToken: "synthetic-token" }, async () => response);
-    await assert.rejects(connector.collectPage(request), error => error instanceof ContentProviderError && !error.retryable && !error.message.includes("secret-upstream-error"));
+test("precise discovery can include comments; sparse dataset rereads retain stable evidence", async () => {
+  const f = fixture([receipt("SUCCEEDED"), [root, comment]]),
+    source = sourceFixture();
+  const request = {
+    source,
+    from: "2026-11-14T00:00:00Z",
+    to: now,
+    limit: 25,
+    checkpoint: null,
+    includeComments: true,
+    maxCommentsPerPost: 15,
+  };
+  const page = await f.connector.collectPage({
+    ...request,
+    execution: f.execution(),
+  });
+  assert.equal(page.items.length, 2);
+  assert.equal(f.requests[0].input!.includeComments, true);
+  const reread = fixture([
+    receipt("SUCCEEDED"),
+    [Object.fromEntries(Object.entries(root).reverse()), comment],
+  ]);
+  const again = await reread.connector.collectPage({
+    ...request,
+    execution: reread.execution(),
+  });
+  assert.equal(
+    page.items[0].observation.evidenceKey,
+    again.items[0].observation.evidenceKey,
+  );
+});
+
+test("ambiguous paid failures never retry and invalid bounds or missing durable state never start a run", async () => {
+  for (const response of [
+    new Error("interrupted"),
+    new Response("private upstream data", { status: 429 }),
+    receipt("FAILED"),
+  ]) {
+    const f = fixture([response]),
+      request = {
+        source: sourceFixture(),
+        from: "2026-11-14T00:00:00Z",
+        to: now,
+        limit: 25,
+        checkpoint: null,
+      };
+    await assert.rejects(
+      f.connector.collectPage({ ...request, execution: f.execution() }),
+    );
+    assert.equal(f.requests.length, 1);
   }
-});
-
-test("paid replay fence survives a worker interruption; explicit Retry permits a new operation", async () => {
-  const repository = new InMemorySourceContentRepository(), fixture = kaixFixture();
-  let now = KAIX_NOW;
-  const service = new SourceContentService(repository, fixture.connector, () => now);
-  const created = await service.createSource({ platform: "reddit", provider: "kaix", contentKind: "post", target: { type: "search", query: "AI tool" } });
-  await service.setProviderBudget("kaix", { enabled: true, dailyRequests: 3, monthlyRequests: 3, dailyResources: 303, monthlyResources: 303 });
-  const job = await service.enqueue(created.id, { from: request.from, to: request.to, pageSize: 5, maxPages: 1 });
-  const claim = (await repository.claim(now))!; await repository.beginRequestAttempt(claim, now);
-  now = "2026-11-13T12:03:00Z"; await service.workOnce();
-  assert.equal((await service.getJob(job.id)).status, "failed"); assert.equal(fixture.requests.length, 0);
-  assert.equal((await repository.getSource(created.id))?.automaticCollectionBlocked, true);
-  await service.retryJob(job.id); await service.workOnce(); assert.equal((await service.getJob(job.id)).status, "succeeded");
-  assert.equal(fixture.requests.length, 2);
-});
-
-test("shutdown after a paid POST blocks resubmission even when the worker signal is aborted", async () => {
-  const repository = new InMemorySourceContentRepository(), controller = new AbortController(); let calls = 0;
-  const connector = new KaixContentConnector({ networkEnabled: true, apiToken: "synthetic-token" }, async () => { calls++; controller.abort(); throw Error("synthetic network interruption"); });
-  const service = new SourceContentService(repository, connector, () => KAIX_NOW);
-  const created = await service.createSource({ platform: "reddit", provider: "kaix", contentKind: "post", target: { type: "search", query: "AI tool" } });
-  await service.setProviderBudget("kaix", { enabled: true, dailyRequests: 3, monthlyRequests: 3, dailyResources: 303, monthlyResources: 303 });
-  const job = await service.enqueue(created.id, { from: request.from, to: request.to, pageSize: 5, maxPages: 1 });
-  await service.workOnce(controller.signal); await service.workOnce();
-  assert.equal((await service.getJob(job.id)).status, "failed"); assert.equal((await service.getJob(job.id)).failureKind, "permanent"); assert.equal(calls, 1);
+  const f = fixture([]),
+    request = {
+      source: sourceFixture(),
+      from: "2026-11-14T00:00:00Z",
+      to: now,
+      limit: 25,
+      checkpoint: null,
+    };
+  await assert.rejects(f.connector.collectPage(request), /durable/);
+  await assert.rejects(
+    f.connector.collectPage({
+      ...request,
+      limit: 301,
+      execution: f.execution(),
+    }),
+    /1–300/,
+  );
+  await assert.rejects(
+    f.connector.collectPage({
+      ...request,
+      limit: 100,
+      includeComments: true,
+      maxCommentsPerPost: 50,
+      execution: f.execution(),
+    }),
+    /2000/,
+  );
+  assert.equal(f.requests.length, 0);
+  assert.throws(
+    () => resolveKaixConfig({ APIFY_API_TOKEN: "bad\nsecret" }),
+    /header/,
+  );
 });

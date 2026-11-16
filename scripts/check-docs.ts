@@ -40,6 +40,8 @@ function headingAnchors(content: string): Set<string> {
 }
 
 for (const file of files) {
+  if (/^(?:src\/(?:application|domain|runtime|jobs|workers|storage\/repositories)\/|workers\/)/.test(file)) errors.push(`Retired architecture path: ${file}`);
+  if (/^src\/connectors\/(?:reddit\/arctic-shift|x\/twitterapi-io)/.test(file)) errors.push(`Retired online connector: ${file}`);
   if (/\.(md|mdc|markdown)$/i.test(file) && !DOCUMENTATION_FILES.includes(file)) errors.push(`Unexpected documentation: ${file}. Update an existing document.`);
   if (/^(skills|prompts|context|obsidian-reddit专用|awesome-design-md-main)\//.test(file) || file === "00_START_HERE.md" || file === ".codex") errors.push(`Obsolete agent/reference material: ${file}`);
 }

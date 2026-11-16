@@ -1,136 +1,76 @@
 # 当前开发与交付
 
-第 1–5 节记录**当前仓库（`0.9.1 / node:http`）真实可执行入口**。新版[产品与架构](README.md)与[重建计划](plans/source-expansion.md)中的 Fastify 5、五模块、项目三阶漏斗、混合评论树、主备切换、标准推流、机器 Key、游标流式导出与 Docker Compose **均未落地**，切勿按目标规范猜测当前可调用命令。第 6 节总结重构期安全切换与目标环境基线；单机运行安全硬约束以[架构规范 OPS-01–04](architecture.md#7-发布维护与扩展边界)与[SAFE-01–06](architecture.md#6-远端单机公网安全与稳定运行基线)为唯一定义。
+当前工作树为 `1.0.0-dev` 新内核。旧 node:http / Phase1 / 独立 worker / 本机演示与维护脚本已经删除，不能继续使用历史交接中的启动命令。过去部署均是内部测试，本轮不更新任何既有测试服务。目标规则见[主线架构](architecture.md)，实际完成范围见[当前状态](status.md)。
 
-## 1. 本机私有密钥与环境变量
+## 1. 环境与私有配置
 
-密钥只存仓库外本机私有文件（例如 `/root/.config/reddit-monitoring/credentials.env`，目录 `700`、文件 `600`），严禁复制到仓库、对话日志、测试夹具或前端 `VITE_*` 变量中。配置模板见 `deploy/env/`。
+开发与 CI 使用 **Node 24 / PostgreSQL 16**；根目录与 Web 分别安装依赖。配置模板为 `deploy/env/app.env.example`。真实密码与第三方 Token 只存仓库外私有文件，或当前 shell；不写入 Git、对话日志或 VITE_*。
 
-```sh
-nano ~/.config/reddit-monitoring/credentials.env
-```
+应用读取进程环境，不隐式装载本地 env 文件。例如在可信 shell 中加载自己维护的私有文件后运行命令。必需配置：
 
-```dotenv
-NODE_ENV=development
-SOURCE_RUN_MODE=live
-SOURCE_NETWORK_ENABLED=true
-APIFY_API_TOKEN=
-TWITTERAPIS_API_KEY=
-SCRAPEBADGER_API_KEY=
-```
+- DATABASE_URL：独立开发库，严禁指向仍运行旧 writer 的库。
+- SESSION_SECRET：至少 32 字符的随机秘密。
+- 首次空库可设置 ADMIN_BOOTSTRAP_PASSWORD（12–128 字符）与 ADMIN_BOOTSTRAP_EMAIL（默认 owner@localhost）；已有用户不重新引导，完成后移除引导口令。
+- APP_ORIGIN：浏览器实际访问地址。Vite 本地开发通常为 http://localhost:5173，同时显式 ALLOW_HTTP_DEV=true；production 拒绝 HTTP 降级。
+- SOURCE_NETWORK_ENABLED=false 为默认；只有显式启用、提供 APIFY_API_TOKEN 并在来源预算中授权额度后才会采集。Bluesky 同样受网络开关与预算约束。当前新链不读取 Arctic Shift / TwitterAPI.io 凭证。
 
-| 变量 | 服务说明 | 当前源码消费情况 |
-| --- | --- | --- |
-| `APIFY_API_TOKEN` | Apify 账户令牌（供 `kaix` 与未来 `red_crawler` 共用） | 已有 `kaix` adapter 读取 |
-| `TWITTERAPIS_API_KEY` | `TwitterAPIs`（目标 X 主源） | 上游小样本直连已通；待 R2 写入新 adapter 后读取 |
-| `SCRAPEBADGER_API_KEY` | `ScrapeBadger`（目标 X 独立备源与批量 ID 补全） | 预留凭证名；待 R2 写入新 adapter 后读取 |
-
-API 与公共来源 worker 支持通过 `LOCAL_ENV_FILE` 指定环境变量文件（shell 显式变量优先；设 `LOCAL_ENV_FILE=none` 禁用）；检查配置结构（脱敏输出且零网络请求）：
-
-```sh
-LOCAL_ENV_FILE="$HOME/.config/reddit-monitoring/credentials.env" npm run config:check
-```
-
-`TWITTERAPIS_TIMEOUT_MS` / `SCRAPEBADGER_TIMEOUT_MS` 为待实现配置（默认 `20000ms`、允许 `100..120000ms`），认证头与响应细节见[来源替换规格](research/source_replacement_and_twitterapi_io_removal_spec.md#2-x-新双源连接器-openapi-字段映射)；请勿与待淘汰的 `TWITTERAPI_IO_*` 混用。此私有文件不会自动注入当前系统运行的 `systemd` 服务（现网服务仍读 `/etc/reddit-monitoring/*.env`）。
-
-## 2. 当前可执行启动入口（`0.9.1` 旧主链）
-
-当前开发基线 Node 22+（CI Node 24 / PostgreSQL 16，当前库兼容 PG 14+）；升级至 Node 24 / PG 16 时按迁移计划单独验证。第三方自托管 `RSSHub` 运行时单独管理，不混入主产品。
+## 2. 唯一启动链
 
 ```sh
 npm ci
 npm --prefix apps/web ci
-npm run lint
-npm run typecheck
-```
-
-配置独立开发 `DATABASE_URL`、`API_BEARER_TOKEN` 与允许源，本地明文 HTTP 调试设 `API_SESSION_COOKIE_SECURE=false`（默认 `SOURCE_NETWORK_ENABLED=false` 不连真网）：
-
-```sh
 npm run db:migrate
-npm run auth:bootstrap-owner   # 仅新空库执行，BOOTSTRAP_OWNER_* 由私有环境提供
-LOCAL_ENV_FILE="$HOME/.config/reddit-monitoring/credentials.env" npm run app:api
-# 另开终端，确需执行来源任务时再启动 worker：
-LOCAL_ENV_FILE="$HOME/.config/reddit-monitoring/credentials.env" npm run worker:sources
+npm run app:api
+# 另开终端：
 npm --prefix apps/web run dev
 ```
 
-API 当前仍通过 `createPostgresPhase1Runtime()` 装配新旧边界；公共内容开发只启动 `worker:sources`，切勿启动旧 Phase 1 调度器。Vite 默认通过代理转发 API（端口变更设 `VITE_API_PROXY_TARGET`；跨域才配 `API_CORS_ALLOW_ORIGINS`）。连接池每进程默认 `5`（可用 `PG_POOL_MAX` 调节），计算整机连接数时须合并 API、worker 与 CLI。
+API 默认监听 127.0.0.1:3000；Vite 的 /api 代理默认指向该端口，变更用 VITE_API_PROXY_TARGET。APP_ORIGIN 必须与浏览器地址完全相同，写操作必须携带同源 Origin。API 自带两个有界采集槽，**不再另起 worker**。新 API 不导入任何旧 runtime 或 Repository。
 
-### Windows 本地合成演示（现有工具）
+迁移 runner 对 001..040 核验原 checksum；后续新迁移与 ledger 同事务提交。043 遇到旧在途任务会拒绝切换：应先停止对应内部测试 worker 并核实供应商回执，不能通过修改 SQL 或清空状态绕过。
 
-需本机提供完整 PostgreSQL `bin`/`share`（不会覆盖已有 `.env.local`）；仅跑独立 loopback 库与合成来源，不连接外部 Reddit/X：
+## 3. 当前可用 HTTP 表面
 
-```powershell
-npm run local:setup -- --pg-bin 'C:\your-postgresql\bin'
-npm run local:start
-npm run local:status
-npm run local:account
-npm run local:stop
-```
+- 登录、会话、邀请码注册；创建/撤销机器 Key；管理员签发邀请。
+- 来源列表/创建/状态 revision、额度读取/更新、单次 collect 与任务读取。
+- 标准 POST /v1/sources/:id/ingest（push、Idempotency-Key、100 条/1MiB）。
+- 内容列表、详情、JSON/CSV 流式下载；统一来源授权与词组过滤。
+- 基础项目创建、概览与三组词；当前按内容节点计数，尚未开启 threadAware。
+- 个人查询、收藏与批注；机器 Key 不访问个人工作区。
+- 鉴权 GET /v1/capabilities 与 /v1/openapi.json。
 
-运行记录写入被忽略的 `output/local-dev/`；Linux 正式环境绝不复用 Windows 路径或进程管理方式。
+未接入渠道、持续调度与完整项目漏斗不能当作现有功能；具体差距以[状态表](status.md#2-已编码行为与剩余差距)为准。
 
-## 3. 当前来源与接口实现状态
-
-`SOURCE_RUN_MODE=demo|live`（`production` 拒绝 `demo`/`mock`）；即使在 `live` 模式下也需同时启用 `SOURCE_NETWORK_ENABLED=true`、相应凭证及管理员打开 provider 限额开关。
-
-| 当前注册 provider | 现有源码能力 | 当前约束与重建去向 |
-| --- | --- | --- |
-| `arctic_shift` | 社区/账号/帖子评论、范围词/ID 入口 | 实测高超时与限流，**主线决定退役**：不继续修补在线 ID 校验或回退逻辑；R1 新链不注册，R3 物理删代码并保留历史 DB 观测。 |
-| `kaix` | Reddit 跨社区 search、社区/账号帖、账号/帖评论 | `APIFY_API_TOKEN`；开发期事件帽/45s/512MiB/禁代理硬覆盖已移除，但仍锁死 `includeComments=false`、单页 `1..100`、`mode="post"` 丢主帖与 `literal()` 误杀、且依赖 `ArcticShift` 指标常量。R1 集中改造。 |
-| `twitterapi_io` | X 账号/关键词/ID 帖子 | `TWITTERAPI_IO_API_KEY`；单价超参考线且同源冗余，未真实验收；按 R1–R3 全量淘汰实删并迁出 X 集成用例至 `x-content-pipeline.test.ts`。 |
-| `bluesky_appview` | 公开账号作者帖/回复 | 无密钥；保留现有能力不扩展，不是 Reddit/X 替代源。 |
-| `demo_reddit` / `demo_x` | 明确标示的合成样本 | 仅用于离线联调，不算真实数据源。 |
-
-当前**尚无** `red_crawler`、`TwitterAPIs`、`ScrapeBadger`、`NewsNow`、通用 `feed`、`POST /v1/sources/:id/ingest` 或项目工作台接口。`kaix` 当前单次保守预留 101 resources / 1 request，依然采用阻塞式 `waitForFinish=60` 后要求 `SUCCEEDED`（未知状态不重发 `POST`，待 R1 改为 `runId`/`datasetId` 异步续读）。当前 Web 默认入口为 `/content`、`/content/:id`、`/saved`、`/account`（与旧 Phase 1 `/markets`、`/queries`、`/target` 等并存，按 R3 退役）。当前检索缺投影返回 `503`，即时导出上限 `2,000` 条，`research_export` RR 冻结上限 `20,000` 条 / `32 MiB`。
-
-## 4. 自动门禁与测试脚本
+## 4. 自动检查
 
 ```sh
-npm run lint             # 全仓文档/架构边界检查 (docs:check) + Web ESLint
-npm run docs:check       # 文档 allowlist、唯一规则编号、链接/锚点、src/modules AST 门禁
+npm run lint
 npm run typecheck
-npx tsx --test tests/unit/repository-policy.test.ts tests/unit/kaix-content.connector.test.ts tests/unit/release-package.test.ts
-npm run test:offline
-npm run test:postgres    # 必须提供独立 TEST_SOURCE_DATABASE_URL (UTF8/loopback)
-npm run verify:repo      # docs、typecheck、API/Web 构建与 compiled smoke
+npm run test:unit
+TEST_SOURCE_DATABASE_URL=postgres://user:password@127.0.0.1:5432/source_validation_dev npm run test:postgres
+TEST_SOURCE_DATABASE_URL=postgres://user:password@127.0.0.1:5432/source_validation_dev npm run test:browser
+npm run build
+git diff --check
 ```
 
-- `npm run docs:check` 目前同步校验：14 份注册文档完整、根目录 `README.md <= 60` 行、全仓库相对链接与标题锚点有效、规范表 ID 全局唯一且含规范关键词、`src/modules/` 新内核严格限制文件列表、禁止包装类/`*Repository` 接口、禁止导入旧 `application/services|domain/repositories|storage/repositories|runtime` 层、单条注释不超过 `300` 字符、以及无 `.env` / 私钥进入 Git 跟踪。
-- `npm test` 存在未设测试库即 skip 的历史行为，不能替代 `npm run test:postgres`；真实数据源验证绝不混入日常离线 CI，相关样本报告留存 `output/`。
-- 其他历史验证/性能脚本：`smoke:accounts:local`、`smoke:content:local`、`smoke:research:local`、`benchmark:sources -- --rows 20000 --repeats 20 --out output/validation/report.json`（Playwright 可通过 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已有浏览器）。
+PG/浏览器测试必须提供 loopback 的 source_validation_* PG16 管理连接，测试会创建并清理各自独立库。缺配置直接失败，不允许 skip 冒充验收。浏览器需 Playwright Chromium；可设置 PLAYWRIGHT_CHROMIUM_EXECUTABLE 指向已有浏览器，或执行 npx playwright install chromium。所有第三方请求均为有界外部协议夹具，不连接收费渠道。
 
-## 5. 数据维护、发布与来源安全退役顺序
+`docs:check` 检查正式文档白名单、链接与唯一规则、五模块文件清单、反类封装/旧层依赖，并禁止已实删旧架构目录和连接器回流。新增模块文件或正式文档必须同步登记对应唯一清单。
 
-现有可手工调用工具（**绝非授权自动执行**）：
+## 5. 数据保全与发布包
 
 ```sh
-npm run ops:backfill:public-search -- --limit=100 --dry-run
-npm run storage:plan -- --out output/validation/storage-preview.json
+npm run assets:export -- output/legacy-assets-唯一名称
 npm run db:backup -- --file output/backups/唯一名称.dump
 npm run db:restore -- --file output/backups/唯一名称.dump --target info_workbench_restore_唯一名称
 npm run release:pack
 npm run release:verify -- output/releases/目录
 ```
 
-- 备份恢复需版本匹配的完整 `PG_BIN`，严禁直接覆盖活跃库，必须恢复至新库核验迁移摘要与资产完整性后再评估切换。
-- 当前 Linux 运行环境沿用 `deploy/` 下的 `systemd` + `Nginx`（已知历史预览为 Nginx 8080 $\to$ API 3000、发布目录 `/opt/reddit-monitoring`、私有配置 `/etc/reddit-monitoring/`）；切公网必须启用 HTTPS、安全 Cookie、精确 `Origin` 与反向代理真实 IP 覆写，保持 `public-tunnel`/`desktop`/`chrome`/`bridge` 关闭。
+这些命令是手动工具说明，不代表本轮已执行用户库导出、恢复或部署。assets:export 按原 owner 流式迁出冻结成员与个人资产并校验行数/摘要，只读、不覆盖；manifest 的 delivered=false 明确表示尚待交付核对。现有旧表保留到实际资产迁出交付后，才另加 DROP 迁移。
+
+build:api 先清空仅含生成物的 dist，再仅编译 API、内核、契约与资产导出工具；不编译 Vite 开发配置或文档检查器，也不再接受已退役原型/旧文档位置的发布清单。发布包不包含原始数据、密钥、output、R4 外挂或已退役旧 runtime。打包、Git 推送都不触发服务更新；Compose/TLS/性能和恢复演练尚未验收，暂不公开部署。
 
 ### 来源退役顺序
 
-针对 `twitterapi_io` 与 `arctic_shift` 的下线迁移**必须严格按以下门禁推进**，严禁直接跑无状态检查的批量强删 SQL：
-
-1. **停领与云端状态盘点**：停止旧调度器领任务与外部新入队，盘点库内所有 `queued` / `running` / `retrying` 任务及云端 Run 回执。对于已有 `runId` 的任务先续读结果或确认已终止；对于收费状态 `unknown` 的记录先经人工查明，**严禁仅把本地 `job` 标成 `cancelled` 就当作云端计费已停止**。
-2. **迁移关闭旧预算与免费回退**：通过新迁移（按当时未占用版本号，不硬锁）对 `twitterapi_io` 与 `arctic_shift` 的 `source_provider_budget` 执行 `UPSERT` 禁用与零额度（`enabled = FALSE, daily_* = 0, monthly_* = 0`）并同步递增 `revision`；同步移除代码 `defaultProviderBudget` 中对 `"arctic_shift"` 的免费回退（避免空库回弹放行），禁止物理删 `budget` 或 `usage` 行。
-3. **软归档残留绑定来源**：确认无在途或未决付费任务后，清理残余本地可取消任务与租约，对仍绑定旧渠道的 `collection_source` 设 `state = 'archived'`、清调度时间并递增 `revision`（不推进高水位）。**已切换新主渠道的逻辑来源绝不因历史上曾有旧渠道观测而被误归档**。
-4. **历史数据保全**：完整保留所有既有 `content`、`content_discovery`、`content_observation` 与真实历史 `provider` 标识、用户批注与读取授权（不改造已应用 `031` 等历史 SQL）；仅在核实等价关系后才可把项目关联迁移到新逻辑来源。
-5. **预置新源默认关闭预算**：通过 `INSERT ... ON CONFLICT DO NOTHING` 预置 `twitterapis`、`scrapebadger`、`kaix`、`red_crawler` 默认关闭、零额度预算行（不覆盖开发/现网已有有效 `kaix` 配额）。
-6. **源码实删与防退化检验**：按[来源替换规格](research/source_replacement_and_twitterapi_io_removal_spec.md#3-twitterapi_io-与-arctic_shift-在线源码实删定位矩阵)解除 `kaix` 与 ~29 个公共夹具依赖，把 `twitterapi-io-content-pipeline.test.ts` 迁为 `x-content-pipeline.test.ts` 保住 X 集成断言，再物理删文件并执行真 PG、离线、构建、compiled smoke 与新旧观测可读性检验。
-
-## 6. 重建期目标部署与验收基线
-
-- **技术底座**：Node 24 / PG 16 / Fastify 5 / TypeBox，五模块 `routes.ts + sql.ts`，`commitContentBatch` 混合批四组 `UNNEST`、单列 `search_text` + `title_length`、`compileContentFilter` + 三段词组/信号 + `GROUPING SETS` + 有界流式导出；
-- **来源基线**：`kaix`（解封）+ `red_crawler`（Reddit），`TwitterAPIs` + `ScrapeBadger`（X），`NewsNow` + `feed`（资讯）；推流 `ING-01/02` 仅接规范 JSON；`plugins/zst-archive/` 保留为独立 R4 外挂，不进主线构建、发布包与测试；
-- **Compose 与极简密钥**：`R3` 新增并验证 Docker Compose（`proxy` / `app` / `db`）替换 `systemd` 默认交付后同步更新本节启动命令；生产启动应用仅强制 `DATABASE_URL`、`SESSION_SECRET`、`ADMIN_BOOTSTRAP_PASSWORD` 三项核心配置（引导后即移除），第三方来源凭据按需加载；
-- **交付纪律**：改动文档或脚本允许清单同步更新 `scripts/release-package-lib.mjs` / `scripts/check-docs.ts` 并通过 `npm run lint`、`npm run typecheck`、单测及 `git diff --check`。
+043 先拒绝未决在途任务，取消安全的旧内部测试队列，再将 Arctic Shift / TwitterAPI.io 预算设为禁用零额度并按当前主渠道软归档旧来源，保留全部正文、发现、观测与真实历史 provider。新渠道预算用 ON CONFLICT DO NOTHING 默认关闭，不覆盖已有 kaix 授权。未来对实际内部测试库切换前仍须先备份、核对云端回执与个人资产，不把本地取消等同于外部付费结果已终结。

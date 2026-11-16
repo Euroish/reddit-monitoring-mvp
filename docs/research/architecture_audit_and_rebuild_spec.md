@@ -31,11 +31,11 @@
 
 | 分类 | 文件数 | 行数 (LOC) | 字节数 (Bytes) | 核心诊断与减法处置 |
 | :--- | ---: | ---: | ---: | :--- |
-| **旧产品链生产代码 (`DELETE_LEGACY_PROD`)** | 91 | 21,335 | 767,318 | [create-api-server.ts](../../apps/api/src/create-api-server.ts) (3,606 LOC)、[collect-subreddit-new-posts.job.ts](../../src/jobs/collect-subreddit-new-posts.job.ts) (1,996 LOC)、[reddit-phase1.worker.ts](../../src/workers/reddit-phase1.worker.ts) (1,587 LOC)、[readyz-observability.ts](../../apps/api/src/readyz-observability.ts) (793 LOC)、旧 `opossum` 熔断器、`rate-limiter-flexible`、Scrapling 桥、热度/异常/脉冲打分、27 个单实现 Repository 接口（655 LOC）。**R1–R3 全部实删**。 |
-| **旧链路与冗余测试 (`DELETE_BLOAT_TEST`)** | 36 | 15,001 | 511,720 | [api-server-trends.test.ts](../../tests/integration/api-server-trends.test.ts) (2,124 LOC)、[api-server-readyz.test.ts](../../tests/integration/api-server-readyz.test.ts) (2,081 LOC)、[collect-subreddit-new-posts-p0.test.ts](../../tests/integration/collect-subreddit-new-posts-p0.test.ts) (2,052 LOC) 等。**随旧业务一并删除**。 |
+| **旧产品链生产代码 (`DELETE_LEGACY_PROD`)** | 91 | 21,335 | 767,318 | `create-api-server.ts`（基线历史路径，现已实删） (3,606 LOC)、`collect-subreddit-new-posts.job.ts`（基线历史路径，现已实删） (1,996 LOC)、`reddit-phase1.worker.ts`（基线历史路径，现已实删） (1,587 LOC)、`readyz-observability.ts`（基线历史路径，现已实删） (793 LOC)、旧 `opossum` 熔断器、`rate-limiter-flexible`、Scrapling 桥、热度/异常/脉冲打分、27 个单实现 Repository 接口（655 LOC）。**R1–R3 全部实删**。 |
+| **旧链路与冗余测试 (`DELETE_BLOAT_TEST`)** | 36 | 15,001 | 511,720 | `api-server-trends.test.ts`（基线历史路径，现已实删） (2,124 LOC)、`api-server-readyz.test.ts`（基线历史路径，现已实删） (2,081 LOC)、`collect-subreddit-new-posts-p0.test.ts`（基线历史路径，现已实删） (2,052 LOC) 等。**随旧业务一并删除**。 |
 | **旧维护/实验脚本 (`DELETE_LEGACY_SCRIPTS`)** | 18 | 4,628 | 169,425 | `*phase1*`、`shadow-compare`、`controlled-promotion`、`prewarm-keyword-query` 等（含 25 处 `NPlusOneAwaitInLoop`）。**全部删除**。 |
 | **前端废弃页面 (`WEB_DELETE_LEGACY`)** | 11 | 2,819 | 121,642 | `MarketBoard`、`TargetDetail` (800 LOC)、`Compare`、`Dashboard`、`Queries`、`Phase1RunCard` 及旧冻结视图。**全部删除**。 |
-| **拟保留公共核心 (`KEEP_CORE_PROD`)** | 139 | 14,060 | 652,066 | **存在严重“压行伪装”与双轨冗余**：含 14 个 [in-memory 仓储目录](../../src/storage/repositories/in-memory) (2,185 LOC / **106 KB**) 及压行文件 [postgres-source-content.repository.ts](../../src/storage/repositories/postgres/postgres-source-content.repository.ts) (**305 行却高达 50,868 字节**，单行塞入 8~12 条语句)。**砍掉 In-Memory 双轨、`research_export`、Arctic Shift 与 TwitterAPI.io，重写为排版清晰的直白 SQL 模块**。 |
+| **拟保留公共核心 (`KEEP_CORE_PROD`)** | 139 | 14,060 | 652,066 | **存在严重“压行伪装”与双轨冗余**：含 14 个 [in-memory 仓储目录](../../src/storage/repositories/in-memory) (2,185 LOC / **106 KB**) 及压行文件 `postgres-source-content.repository.ts`（基线历史路径，现已实删） (**305 行却高达 50,868 字节**，单行塞入 8~12 条语句)。**砍掉 In-Memory 双轨、`research_export`、Arctic Shift 与 TwitterAPI.io，重写为排版清晰的直白 SQL 模块**。 |
 | **拟保留核心测试 (`KEEP_CORE_TEST`)** | 116 | 9,045 | 594,311 | 含 `tests/helpers/*-cases.ts` (58 KB)，将同一套用例在 JS `Map` 与 PG 上重复跑两遍。**砍掉 In-Memory 双跑，收敛为纯函数单测 + 唯一真实 PG 16 HTTP E2E；公共夹具重构为独立 `StubContentConnector`**。 |
 
 ```mermaid
@@ -70,19 +70,19 @@ flowchart TD
 即便仅审视 `029`–`040` 迁移之后的公共内容与研究模块，实码中仍存在以下违背“最低复杂度、最高性能、不过度防御”的隐患，且早先工程草图与真实 Schema/运行时之间存在 9 处规格漂移——R1 必须同步根治。
 
 ### 2.1 `[AUD-01]` 双轨 `InMemory*Repository` 是最大的工程税（106 KB 纯冗余）
-- **证据**：[source-content.repository.ts](../../src/storage/repositories/in-memory/source-content.repository.ts#L11-L200) 用 29,122 字节的压缩 TS 代码在 JS `Map` 中手工模拟 PG 事务、租约、`23505` 冲突、`SKIP LOCKED`、全文检索与 `REPEATABLE READ` 快照（每次调用执行 `structuredClone`）；整个 [in-memory 目录](../../src/storage/repositories/in-memory) 达 14 文件 / 2,185 LOC / 106 KB。
+- **证据**：`source-content.repository.ts`（基线历史路径，现已实删） 用 29,122 字节的压缩 TS 代码在 JS `Map` 中手工模拟 PG 事务、租约、`23505` 冲突、`SKIP LOCKED`、全文检索与 `REPEATABLE READ` 快照（每次调用执行 `structuredClone`）；整个 [in-memory 目录](../../src/storage/repositories/in-memory) 达 14 文件 / 2,185 LOC / 106 KB。
 - **危害**：每增减一个字段或修改过滤规则都得双端重写，且内存模拟永远测不出 PostgreSQL 行锁死锁、索引失效、UTF-8 字符边界或事务隔离缺陷。
 - **修正**：**全删 27 个单实现 `Repository` 接口与 14 个 `InMemory*Repository`（只留外部 `ContentProvider`）**。内部直接暴露接收 `Pool | PoolClient` 的命名 SQL 函数；纯规则写单测，数据库行为只测真实 PG 16。
 
 ### 2.2 `[AUD-02]` 压行代码（Code Golfing）伪装成“精简代码”
 - **证据**：
-  - [postgres-source-content.repository.ts](../../src/storage/repositories/postgres/postgres-source-content.repository.ts#L14-L45)：305 行塞了 **50,868 字节**（多行超 600 字节）；
-  - [content-personal.service.ts](../../src/application/services/content-personal.service.ts#L15-L21)：22 行塞了 **6,129 字节**（`saveQuery` 单行 820 字符、`saveAnnotation` 单行 890 字符）；
-  - [Content.tsx](../../apps/web/src/pages/Content.tsx)：211 行塞了 **39,048 字节**，且前端充斥解释内部契约概念的大段说明框。
+  - `postgres-source-content.repository.ts`（基线历史路径，现已实删）：305 行塞了 **50,868 字节**（多行超 600 字节）；
+  - `content-personal.service.ts`（基线历史路径，现已实删）：22 行塞了 **6,129 字节**（`saveQuery` 单行 820 字符、`saveAnnotation` 单行 890 字符）；
+  - `Content.tsx`（基线历史路径，现已实删）：211 行塞了 **39,048 字节**，且前端充斥解释内部契约概念的大段说明框。
 - **修正**：减掉真正的 AST 复杂度与多余层，严禁靠删换行压行伪造“精简”；五模块采用清晰可审阅的 `routes.ts + sql.ts`，单条模块注释 `<= 300` 字符（由 `scripts/check-docs.ts` 强制检查）。
 
 ### 2.3 `[AUD-03]` 列表分页热路径全表扫描 `public_content_search_document` + `038` 失效触发器
-- **证据**：[postgres-source-content.repository.ts](../../src/storage/repositories/postgres/postgres-source-content.repository.ts#L25-L255) 在每次 `listContent()` 时先执行全库覆盖统计：
+- **证据**：`postgres-source-content.repository.ts`（基线历史路径，现已实删） 在每次 `listContent()` 时先执行全库覆盖统计：
   ```sql
   WITH coverage AS (
     SELECT COUNT(*)::integer AS candidate_count,
@@ -97,19 +97,19 @@ flowchart TD
 - **修正**：`commitContentBatch` 同事务保证“有正必有投影”；新增向前迁移完成单列投影回填与完整性验证后移除 `038` 失效触发器；`listContent` 仅做 keyset `limit + 1` 查询，**绝不在热路径跑 `coverage COUNT(*)`**。
 
 ### 2.4 `[AUD-04]` 概览 `contentWorkbench` 触发 10+ 次全扫，批注 `listAnnotations` 存在 `1+N`
-- **证据**：[content-workbench.service.ts](../../src/application/services/content-workbench.service.ts#L9-L13) 先调 1 次 `contentStats`，再按 `platform` 和 `provider` 循环分别重跑 `contentStats`；[content-personal.service.ts#L21](../../src/application/services/content-personal.service.ts#L21) 在 `for` 循环中逐条调用 `getContent(annotation.contentId)`。
+- **证据**：`content-workbench.service.ts`（基线历史路径，现已实删） 先调 1 次 `contentStats`，再按 `platform` 和 `provider` 循环分别重跑 `contentStats`；`content-personal.service.ts#L21`（基线历史路径，现已实删） 在 `for` 循环中逐条调用 `getContent(annotation.contentId)`。
 - **修正**：`projects` 概览使用单条 CTE + `GROUPING SETS` + 独立去重 `providers` 聚合；`workspace` 批注列表直接使用 `JOIN content` 单次查出。
 
 ### 2.5 `[AUD-05]` 研究快照冻结 `ResearchExportService.capture` 三重全扫 + 32 MiB 内存驻留
-- **证据**：[research-export.service.ts](../../src/application/services/research-export.service.ts#L63-L98) 与 [postgres-research-export.repository.ts](../../src/storage/repositories/postgres/postgres-research-export.repository.ts#L16-L31) 先全扫两次再拉 2 万行进入 Node `structuredClone` 并分 200 次写回 `research_export_member`，甚至对内部自拼 SQL 跑正则自检。
+- **证据**：`research-export.service.ts`（基线历史路径，现已实删） 与 `postgres-research-export.repository.ts`（基线历史路径，现已实删） 先全扫两次再拉 2 万行进入 Node `structuredClone` 并分 200 次写回 `research_export_member`，甚至对内部自拼 SQL 跑正则自检。
 - **修正（方案 B）**：R3 按原 owner 导出交付历史资产文件后，**实删 `research_export` / `research_export_member` 表、冻结 API 与 UI**；全面改用 `REPEATABLE READ` + server cursor 流式导出 CSV/JSON。
 
 ### 2.6 `[AUD-06]` `commitPage()` 页内 400+ 次往返、无稳态时钟、空字段清空正文与 `fetchedAt` 破坏幂等
-- **证据**：[postgres-source-content.repository.ts#L102-L127](../../src/storage/repositories/postgres/postgres-source-content.repository.ts#L102-L127) 页内 `for` 循环逐条发 4 条 SQL（100 条/页 = 404 次往返）；缺少 `content_evidence_key` 平局决胜；省略标题/正文时 `NULL` 会覆盖已有内容；且现有连接器将 `fetchedAt` 编入 `evidenceKey`，导致同一 Actor Dataset 重读破坏幂等并污染二次发酵判断。
+- **证据**：`postgres-source-content.repository.ts#L102-L127`（基线历史路径，现已实删） 页内 `for` 循环逐条发 4 条 SQL（100 条/页 = 404 次往返）；缺少 `content_evidence_key` 平局决胜；省略标题/正文时 `NULL` 会覆盖已有内容；且现有连接器将 `fetchedAt` 编入 `evidenceKey`，导致同一 Actor Dataset 重读破坏幂等并污染二次发酵判断。
 - **修正**：改为 4 组 `UNNEST` 集合写；`content` 表新增独立 `content_evidence_key TEXT NOT NULL`（`C` collation）与 `content_version_fetched_at TIMESTAMPTZ NOT NULL`；规定 `evidenceKey` 严禁包含本次读取 `fetchedAt`；观测唯一键升级为 `(contentId, collectionSourceId, provider, evidenceKey)`。
 
 ### 2.7 `[AUD-07]` `listContent()` 偷用 `first_seen_at` 排序 + 12 位 Reddit ID 截断 + `Arctic Shift` 退役
-- **证据**：[postgres-source-content.repository.ts#L250-L255](../../src/storage/repositories/postgres/postgres-source-content.repository.ts#L250-L255) 用 `COALESCE(c.created_at_source, c.first_seen_at)` 偷替未知发布时间；[arctic-shift-content.connector.ts#L45](../../src/connectors/reddit/arctic-shift-content.connector.ts#L45) 使用 `{2,12}` 正则破坏 13 位评论刷新。
+- **证据**：`postgres-source-content.repository.ts#L250-L255`（基线历史路径，现已实删） 用 `COALESCE(c.created_at_source, c.first_seen_at)` 偷替未知发布时间；`arctic-shift-content.connector.ts#L45`（基线历史路径，现已实删） 使用 `{2,12}` 正则破坏 13 位评论刷新。
 - **修正**：强制基于物理列 `c.created_at_source DESC NULLS LAST, c.id DESC` 双分支 seek；通用 Reddit ID 全仓锁定 2–32 位 base36 小写；退役 `arctic_shift` 在线代码，保留历史观测可读性。
 
 ### 2.8 `[AUD-08]` `kaix` 4 项人为封印与同步 `waitForFinish=60` 丢 Run 风险

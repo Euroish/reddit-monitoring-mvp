@@ -35,31 +35,15 @@ export const DOCUMENTATION_FILES = Object.freeze([
 ]);
 const safeName = value => typeof value === 'string' && !path.posix.isAbsolute(value) && !value.includes('\\')
   && !value.split('/').some(part => !part || part === '.' || part === '..');
-// Retain legacy paths so existing immutable releases remain verifiable.
-// Retired assets are absent from the source tree, not required release inputs.
-const blueprintRoot = 'docs/plans/frontend-blueprint-20261108/';
-const blueprintArchive = 'docs/plans/frontend-blueprint-20261108.zip';
-const blueprintFiles = [
-  'README.md', 'INTERFACES.md', 'DESIGN.md', 'ACCEPTANCE.md', 'index.html',
-  'build.py', 'build_catalog.py', 'verify.cjs', 'package-manifest.json', 'data/catalog.json',
-  'diagrams/index.html', 'diagrams/system.html', 'diagrams/system.architecture.json',
-  'diagrams/search-freeze.svg', 'diagrams/collection-merge.svg', 'diagrams/access-control.svg', 'diagrams/job-lifecycle.svg',
-  'prototype/index.html', 'prototype/app.js', 'prototype/fixtures.js', 'prototype/mock-api.js',
-  'prototype/research-pages.js', 'prototype/operations-pages.js', 'prototype/styles.css', 'prototype/pages.css',
-  ...Array.from({ length: 39 }, (_, index) => `diagrams/features/F${String(index + 1).padStart(2, '0')}.svg`),
-].map(file => blueprintRoot + file);
 const allowed = file => !file.split('/').some(part => part.startsWith('.') || part === 'node_modules' || part === 'output')
   && !/^(?:dist\/)?plugins\//.test(file) && (
   /^dist\/.*\.(js|map)$/.test(file)
   || /^apps\/web\/dist\/.*\.(html|js|css|map|svg|png|jpe?g|webp|ico|woff2?|ttf|webmanifest)$/.test(file)
   || /^src\/storage\/schema\/\d{3}_[a-z0-9_]+\.sql$/.test(file)
   || /^deploy\/.*\.(service|conf|example)$/.test(file)
-  || blueprintFiles.includes(file)
-  || file === blueprintArchive
   || [
     'package.json', 'package-lock.json', 'README.md', 'AGENTS.md',
     'docs/README.md', 'docs/development.md', 'docs/architecture.md', 'docs/status.md',
-    'docs/handoff.md', 'docs/development-log.md', // Retain validation of existing release manifests.
     'docs/history/handoff.md', 'docs/history/development-log.md', 'docs/research/data-sources.md',
     'docs/research/source_replacement_and_twitterapi_io_removal_spec.md',
     'docs/research/architecture_audit_and_rebuild_spec.md',
@@ -76,11 +60,11 @@ export async function packRelease({ root = process.cwd(), destination }) {
   let parent = path.dirname(destination); while (!fs.existsSync(parent)) parent = path.dirname(parent);
   const actualParent = fs.realpathSync(parent), actualRoot = fs.realpathSync(root);
   if (actualParent !== actualRoot && actualParent !== path.join(actualRoot, 'output') && !actualParent.startsWith(path.join(actualRoot, 'output') + path.sep)) throw new Error('Release output symlink escape refused');
-  const required = ['dist/apps/api/src/server.js', 'dist/workers/source-content-worker.js', 'apps/web/dist/index.html', 'package.json', 'package-lock.json'];
+  const required = ['dist/apps/api/src/server.js', 'apps/web/dist/index.html', 'package.json', 'package-lock.json'];
   for (const file of required) await fsp.access(path.join(root, file)).catch(() => { throw new Error(`Missing release input ${file}; run build and compiled smoke first`); });
   const inputs = [];
   for (const directory of ['dist', 'apps/web/dist', 'src/storage/schema', 'deploy', 'docs'])
-    if (fs.existsSync(path.join(root, directory))) inputs.push(...(await entries(path.join(root, directory))).map(file => `${directory}/${file}`).filter(file => allowed(file) && (!file.startsWith('docs/') || DOCUMENTATION_FILES.includes(file))));
+    if (fs.existsSync(path.join(root, directory))) inputs.push(...(await entries(path.join(root, directory))).map(file => `${directory}/${file}`).filter(file => allowed(file) && !/^dist\/(?:workers\/|src\/(?:runtime|application|domain|storage\/repositories)\/)/.test(file) && (!file.startsWith('docs/') || DOCUMENTATION_FILES.includes(file))));
   for (const file of ['package.json', 'package-lock.json', 'README.md', 'AGENTS.md', 'scripts/database-backup.mjs', 'scripts/database-backup-lib.mjs', 'scripts/verify-release.mjs', 'scripts/release-package-lib.mjs'])
     if (fs.existsSync(path.join(root, file))) inputs.push(file);
   await fsp.mkdir(path.dirname(destination), { recursive: true }); await fsp.mkdir(destination);
@@ -102,7 +86,7 @@ export async function packRelease({ root = process.cwd(), destination }) {
   } catch { /* inspectable fixture/artifact without Git provenance */ }
   const manifest = { formatVersion: 1, application: packageJson.name, version: packageJson.version,
     createdAt: new Date().toISOString(), sourceCommit, sourceTreeDirty: dirty, buildNode: process.versions.node,
-    nodeRequirement: '>=22', credentialsIncluded: false, databaseIncluded: false, signature: 'none_sha256_integrity_only',
+    nodeRequirement: '>=24', credentialsIncluded: false, databaseIncluded: false, signature: 'none_sha256_integrity_only',
     install: 'npm ci --omit=dev --ignore-scripts', files };
   await fsp.writeFile(path.join(destination, 'release-manifest.json'), JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx' });
   await verifyRelease(destination);

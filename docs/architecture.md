@@ -1,6 +1,6 @@
 # 主线架构规范
 
-目标架构；尚未实施。产品边界与度量口径见[产品与架构](README.md#2-主线与外挂边界)，接口语义与状态机见[数据与 API 契约](contracts.md)，改造细节溯源见[Master Spec](research/architecture_audit_and_rebuild_spec.md)。
+目标架构与主线约束；Fastify 五模块与数据闭环已开始接管，未完成部分以当前状态为准。产品边界与度量口径见[产品与架构](README.md#2-主线与外挂边界)，接口语义与状态机见[数据与 API 契约](contracts.md)，改造细节溯源见[Master Spec](research/architecture_audit_and_rebuild_spec.md)。
 
 ## 1. 技术栈与单机拓扑
 
@@ -17,7 +17,7 @@
 | ID | 等级 | 技术与部署架构约束 | 验收出口 |
 | --- | --- | --- | --- |
 | ARC-01 | MUST | 主线运行时锁定 Node 24（LTS）、TypeScript、Fastify 5、`@sinclair/typebox`、`pg`、`pg-query-stream`、PostgreSQL 16 与 React/Vite + Router + TanStack Query；精确版本以实施锁文件为准，禁止 alpha/beta 依赖。 | 构建 / `typecheck` |
-| ARC-02 | MUST | Docker Compose 三服务（`proxy` / `app` / `db`）为唯一目标默认部署；`app` 单进程同时承载 HTTP 服务与有界调度器并共用同一个 `pg.Pool`。现有 systemd 配置仅用于过渡搬迁，不维护第二套长期发布流程，也不承诺单机重启零停机。 | Compose 启动与关闭验证 |
+| ARC-02 | MUST | Docker Compose 三服务（`proxy` / `app` / `db`）为唯一目标默认部署；`app` 单进程同时承载 HTTP 服务与有界调度器并共用同一个 `pg.Pool`。旧 systemd 配置已删除，不维护第二套长期发布流程，也不承诺单机重启零停机。 | Compose 启动与关闭验证 |
 | ARC-03 | MUST | TypeBox 是请求/响应与 OpenAPI 生成的唯一结构真源，I/O 边界只解析一次；不变量与领域过滤由数据库约束及纯规则函数守护，严禁建立重复 DTO 映射层或内部防御性校验壳。 | OpenAPI 与边界单测 |
 | ARC-04 | MUST NOT | 引入 ORM（Prisma/Drizzle）、通用 DI 容器、Redis、BullMQ、Kafka、Elasticsearch、ClickHouse、在线 Python/DuckDB 或动态插件执行框架；任何新增依赖必须直接替代既有机制或解决已实测瓶颈。 | `package.json` 审查 |
 | ARC-05 | MUST | 模块内部直接调用接收 `Pool | PoolClient` 的命名参数化 SQL 函数（事务写入函数显式要求 `PoolClient` 防止误用 `Pool` 再开事务）；删除全部单实现 `*Repository` 接口、14 个 `InMemory*` 模拟与空壳 `service`。仅外部多实现采集边界保留 `ContentProvider`。 | AST lint / 真实 PG |
