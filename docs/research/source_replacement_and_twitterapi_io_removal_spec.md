@@ -1,6 +1,6 @@
 # `twitterapi_io` 全量清理下线、低价 X 双源替换与 Apify 低价 Reddit 规格书
 
-> **文档定位**：本规格书记录 `2026-11-16` 最终拍板的来源采购与代码实删方案，作为[重建总规范](architecture_audit_and_rebuild_spec.md)、[来源选择与研究证据](data-sources.md)及[主线重建与实删计划](../plans/source-expansion.md)在 X / Reddit 采购替换与清理边界上的权威补充细节。**当前阶段只完成方案定稿、审查与文档对齐；源码删除与新连接器编码按第 3–4 节清单分阶段执行。**
+> **文档定位**：本规格书记录 `2026-11-16` 最终拍板的来源采购与代码实删方案，作为[产品与架构](../README.md)、[契约](../contracts.md)、[开发与交付](../development.md)及[实现状态](../status.md)在 X / Reddit 采购替换与清理边界上的专项补充规格。**当前阶段只完成方案定稿、审查与文档对齐；源码删除与新连接器编码按第 3–4 节清单分阶段执行。**
 
 ---
 
@@ -142,18 +142,18 @@
 
 与本仓已有 [kaix-content.connector.ts](../../src/connectors/reddit/kaix-content.connector.ts)（共用 `APIFY_API_TOKEN`）保持一致：
 1. **主力 `kaix/reddit-scraper`（build `0.2.25`，`$0.02/1k + Compute`）解封改造**：
-   - 先解除对 `ARCTIC_SHIFT_CAPABILITY.metrics` 的导入耦合（内联/抽取 Reddit 指标常量），再按[重建总规范 §3.2](architecture_audit_and_rebuild_spec.md#32-解除-kaix-contentconnectorts-的-4-项人为封印)解除 `includeComments: false`、`maxItems<=100`、`mode="post"` 丢弃主帖、客户端 `literal()` 误杀布尔表达式 4 项限制，抽取 `depth`、`isSubmitter`、`collapsed` 白名单字段。
+   - 既已由主线先移除开发期`$0.01`事件帽、`45s`超时、`512MiB`内存与禁代理覆写；后续按[契约 §2](../contracts.md#2-任务恢复与推流)与[实现状态](../status.md)解除对 `ARCTIC_SHIFT_CAPABILITY.metrics` 的导入耦合，并解除 `includeComments: false`、`maxItems<=100`、`mode="post"` 丢弃主帖、客户端 `literal()` 误杀布尔表达式及异步 `runId`/`datasetId` 恢复限制，抽取 `depth`、`isSubmitter`、`collapsed` 白名单字段。
 2. **备源 `red_crawler/reddit-search-v2` + `red_crawler/reddit-scrape-v2`（作者费 `FREE + Compute`）**：
    - 无需额外注册账号，直接使用同一 `APIFY_API_TOKEN`；
    - `reddit-search-v2`：`search_type` 同时支持 `posts`（单 sort ~500）与 `comments`（单 sort ~250）、`search_subreddit` 支持逗号分隔多社区并发扇出；
    - `reddit-scrape-v2`：`endpoint: "post_comments"`, `post_comments_mode: "all"`, `post_comments_deep` 输出标准 `id`, `post_id`, `parent_id`, `depth`（`0` 为顶层），与本仓 `ContentReference`（`reply_to` / `thread_root`）无缝对接。
-   - **成本护栏**：两者均继承 Apify `automaticRequestReplay: false`、`waitForFinish=60`（HTTP timeout 显式 `65s`，不套用 `RUN-03` 普通 `15s` 重试规则）；且**只在第 2 阶确定性噪声门控筛选出高讨论度主帖后**，才批量触发评论树水合。
+   - **成本护栏**：两者均继承 Apify `automaticRequestReplay: false`、`waitForFinish=60`（兼容上限 `65s`，不套用普通 `15s` 重试规则）；且**只在筛选出高讨论度/信号根帖后**，按 `hydrate` 策略触发评论树水合。
 
 ---
 
 ## 5. 最小验证门禁与交接出口
 
 执行每一步代码实删与连接器替换时，必须满足以下可复现检查：
-1. **文档同步阶段（当前任务）**：`npm run docs:check`（覆盖 `check-docs.ts` 白名单、本地路径与 Markdown 锚点）、`npx tsx --test tests/unit/release-package.test.ts`、`npm run typecheck`、`git diff --check` 全部通过。
+1. **文档同步阶段（当前任务）**：`npm run docs:check`（校验 `DOCUMENTATION_FILES`、规则编号、本地路径/Markdown 锚点与模块边界）、`npx tsx --test tests/unit/repository-policy.test.ts tests/unit/release-package.test.ts tests/unit/kaix-content.connector.test.ts`、`npm run typecheck:core`（全仓含 `apps/web` 安装依赖后跑 `npm run typecheck`）、`git diff --check` 全部通过。
 2. **`twitterapi_io` & `arctic_shift` 实删阶段**：在 `src/`、`apps/`、`scripts/`、`tests/`、`deploy/`、`.github/` 范围内执行 `rg -i "twitterapi_io|twitterapi-io|TWITTERAPI_IO|arctic_shift|arctic-shift"`，仅允许在 `src/storage/schema/*`、`src/application/services/research-export.service.ts` 只读历史导出白名单（R3 前）及 R1/R3 迁移过渡说明（如在 R1 已同步更新 `LegacyAnalysisNotice.tsx` 与 `smoke-workbench-functional.ts`，则零前端残留）中出现；`npm run verify:repo`、`npm run test:offline`、`npm run test:postgres`（含新增退役迁移、解耦后的公共测试夹具与 `x-content-pipeline.test.ts`）零跳过全部通过。
-3. **新 X/Reddit 源验收阶段**：遵循[来源证据 §4](data-sources.md#4-reddit--x复用能力移除历史采购锁定)真实采样标准，分别对 `TwitterAPIs`、`ScrapeBadger`、`kaix`（解封后）与 `red_crawler` 记录一次有界真实请求样本、消耗积分/账单头（如 `X-Credits-Used`）、空结果边界及 PostgreSQL/HTTP/导出闭环证据（报告留存 `output/`，不进 Git）。
+3. **新 X/Reddit 源验收阶段**：遵循[产品与架构 §2](../README.md#2-来源选择)与[开发与交付](../development.md)真实采样标准，分别对 `TwitterAPIs`、`ScrapeBadger`、`kaix`（解封后）与 `red_crawler` 记录一次有界真实请求目标、窗口、耗时、消耗积分/账单头（如 `X-Credits-Used`）、独立内容、空结果边界及 PostgreSQL/HTTP/导出闭环证据（报告留存 `output/`，不进 Git）。

@@ -12,6 +12,7 @@
     "verify:repo": "npm run docs:check && npm run typecheck && npm run build && npm run smoke:compiled",
     "verify:launch:local": "npm run verify:repo && npx tsx --test tests/integration/api-server-readyz.test.ts tests/integration/smoke-public-launch.test.ts tests/unit/public-launch-config.test.ts tests/unit/production-build-config.test.ts && npm run smoke:linux-provider",
     "validate:scope": "tsx scripts/classify-validation-scope.ts",
+    "lint": "npm run docs:check && npm run lint:web",
     "lint:web": "npm --prefix apps/web run lint",
     "test": "tsx --test --test-concurrency=1 tests/**/*.test.ts",
     "test:unit": "tsx --test tests/unit/**/*.test.ts",
