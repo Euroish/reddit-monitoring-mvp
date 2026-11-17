@@ -1,6 +1,8 @@
 # 当前开发与交付
 
-第 1–5 节记录**当前仓库（`0.9.1 / node:http`）真实可执行入口**。新版[产品与架构](README.md)与[重建计划](plans/source-expansion.md)中的 Fastify 5、五模块、项目三阶漏斗、混合评论树、主备切换、标准推流、机器 Key、游标流式导出与 Docker Compose **均未落地**，切勿按目标规范猜测当前可调用命令。第 6 节总结重构期安全切换与目标环境基线；单机运行安全硬约束以[架构规范 OPS-01–04](architecture.md#7-发布维护与扩展边界)与[SAFE-01–06](architecture.md#6-远端单机公网安全与稳定运行基线)为唯一定义。
+本文件按当前检出分支的源码记录可执行命令；两个开发分支的实现及验证分别见[主线协调记录](status.md#0-主线与开发分支的唯一协调记录)。
+
+第 1–5 节记录**当前 main 仓库（`0.9.1 / node:http`）真实可执行入口**。新版[产品与架构](README.md)与[重建计划](plans/source-expansion.md)中的 Fastify 5、五模块、项目三阶漏斗、混合评论树、主备切换、标准推流、机器 Key、游标流式导出与 Docker Compose **均未合入 main**，切勿按目标规范猜测当前可调用命令。第 6 节总结重构期安全切换与目标环境基线；单机运行安全硬约束以[架构规范 OPS-01–04](architecture.md#7-发布维护与扩展边界)与[SAFE-01–06](architecture.md#6-远端单机公网安全与稳定运行基线)为唯一定义。
 
 ## 1. 本机私有密钥与环境变量
 
@@ -134,3 +136,12 @@ npm run release:verify -- output/releases/目录
 - **来源基线**：`kaix`（解封）+ `red_crawler`（Reddit），`TwitterAPIs` + `ScrapeBadger`（X），`NewsNow` + `feed`（资讯）；推流 `ING-01/02` 仅接规范 JSON；`plugins/zst-archive/` 保留为独立 R4 外挂，不进主线构建、发布包与测试；
 - **Compose 与极简密钥**：`R3` 新增并验证 Docker Compose（`proxy` / `app` / `db`）替换 `systemd` 默认交付后同步更新本节启动命令；生产启动应用仅强制 `DATABASE_URL`、`SESSION_SECRET`、`ADMIN_BOOTSTRAP_PASSWORD` 三项核心配置（引导后即移除），第三方来源凭据按需加载；
 - **交付纪律**：改动文档或脚本允许清单同步更新 `scripts/release-package-lib.mjs` / `scripts/check-docs.ts` 并通过 `npm run lint`、`npm run typecheck`、单测及 `git diff --check`。
+
+### 分支与规范收敛
+
+- `main` 的 14 份正式文档共同定义唯一合并规范；`status.md` 记录各分支的真实完成情况。分支状态可随代码更新，产品目标、接口语义与迁移决策须先回到 main 的对应唯一文档，禁止复制第二套规格或用 WIP 状态覆盖主线现状。
+- 只保留 `main`、整体重整 `r1-content-batch` 和另一 agent 的 `feat/r1-core-and-r2-wip` 三个活跃远端分支。后续复用这两个开发分支及各自 PR，不再创建重复 R1、R2 或整合分支；先同步 main 的文档提交，再继续开发。
+- 整体重整通过已有分支 PR 上传审查；保留原提交与 main 同步记录，不强推、不将未经整合的 R2 整支覆盖上去。合并完成才删除已交付开发分支；新的产品行为只有经源码与对应真实检查证明后才能写入 main 的实现状态。
+- 两个候选的 `041+` 仅在隔离验证库使用，不能组合应用。`001..040` 保持原 checksum；合入前选定唯一字段/迁移链，对已应用分歧迁移的开发库单独备份、重建或制定向前转换，禁止编辑已应用 SQL 或改 ledger 假装兼容。
+- 已完全并入 main 的旧远端分支可删除；含独有历史提交的蓝本先保留归档标签 `archive/frontend-blueprint-20261108` 再移除分支。归档内容不恢复为现行文档。`dev/dev-a` 与 `shared-dev` 由其他本地 worktree 占用且尚有独有记录，保持原样，不恢复已删除的远端 `shared-dev`。
+- 本轮 Git 上传只更新代码与文档，不执行部署或迁移既有测试库；GitHub 检查结果与分支本机检查分开记载。

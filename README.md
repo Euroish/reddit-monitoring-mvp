@@ -6,7 +6,7 @@
 
 ## 当前开发
 
-当前仍为 `0.9.1 / node:http` 旧主链，**Fastify、项目/三阶漏斗、混合评论树、主备切换、标准推流与 Compose 尚未实施**。开发需 Node 22+ / PostgreSQL；CI 为 Node 24 / PG 16。
+`main` 运行代码仍为 `0.9.1 / node:http`；整体重整与 R1/R2 WIP 分别在两个开发分支，尚未合入主线。分支职责、验证边界与迁移冲突统一见[实现状态](docs/status.md#0-主线与开发分支的唯一协调记录)。开发需 Node 22+ / PostgreSQL；CI 为 Node 24 / PG 16。
 
 ```sh
 npm ci
