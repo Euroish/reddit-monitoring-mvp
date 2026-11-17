@@ -1,22 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, mkdir, writeFile, appendFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, appendFile, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-test("release packaging allowlist excludes credentials/data and verification detects tampering or extra files", async () => {
+test("release packaging allowlist excludes credentials/data and verification detects tampering or extra files", async (t) => {
   const { DOCUMENTATION_FILES, packRelease, verifyRelease } = await import("../../scripts/release-package-lib.mjs");
   await mkdir("output/validation", { recursive: true });
   const root = await mkdtemp(path.resolve("output/validation/release-fixture-"));
+  t.after(async () => rm(root, { recursive: true, force: true }));
   for (const folder of [
     "dist/apps/api/src", "dist/workers", "dist/plugins/zst-archive", "plugins/zst-archive",
-    "apps/web/dist", "src/storage/schema", "deploy/env", "docs/history", "docs/research", "docs/plans",
+    "apps/web/dist", "src/storage/schema", "deploy/env", "docs/research", "docs/plans",
   ]) await mkdir(path.join(root, folder), { recursive: true });
   for (const [file, content] of [
     ["dist/apps/api/src/server.js", "console.log('synthetic-api');"], ["dist/workers/source-content-worker.js", "console.log('synthetic-worker');"],
     ["apps/web/dist/index.html", "<html lang='en'>synthetic</html>"], ["src/storage/schema/001_fixture.sql", "SELECT 1;"],
     ["package.json", JSON.stringify({ name: "synthetic", version: "0.7.0" })], ["package-lock.json", "{}"],
-    ["docs/history/handoff.md", "historical delivery"], ["docs/history/development-log.md", "historical log"],
     ["docs/research/data-sources.md", "candidate evidence"], ["docs/plans/source-expansion.md", "future design"],
     ["docs/research/source_replacement_and_twitterapi_io_removal_spec.md", "source removal and replacement spec"],
     ["docs/README.md", "product and architecture"], ["docs/architecture.md", "architecture"],
@@ -42,9 +42,14 @@ test("release packaging allowlist excludes credentials/data and verification det
   assert.equal((await verifyRelease(destination)).verified, true);
   const legacyRoot = path.join(root, "output/release-legacy");
   const legacyManifest = await packRelease({ root, destination: legacyRoot });
-  const legacyPath = "docs/handoff.md", legacyBody = "historical immutable release";
-  await writeFile(path.join(legacyRoot, legacyPath), legacyBody);
-  legacyManifest.files.push({ path: legacyPath, bytes: Buffer.byteLength(legacyBody), sha256: createHash("sha256").update(legacyBody).digest("hex") });
+  for (const [legacyPath, legacyBody] of [
+    ["docs/handoff.md", "historical immutable release"],
+    ["docs/history/development-log.md", "historical immutable log"],
+  ]) {
+    await mkdir(path.dirname(path.join(legacyRoot, legacyPath)), { recursive: true });
+    await writeFile(path.join(legacyRoot, legacyPath), legacyBody);
+    legacyManifest.files.push({ path: legacyPath, bytes: Buffer.byteLength(legacyBody), sha256: createHash("sha256").update(legacyBody).digest("hex") });
+  }
   await writeFile(path.join(legacyRoot, "release-manifest.json"), JSON.stringify(legacyManifest));
   assert.equal((await verifyRelease(legacyRoot)).verified, true);
   await assert.rejects(packRelease({ root, destination }), /already exists/);

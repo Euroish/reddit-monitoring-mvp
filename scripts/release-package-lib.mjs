@@ -26,8 +26,6 @@ export const DOCUMENTATION_FILES = Object.freeze([
   'docs/design.md',
   'docs/development.md',
   'docs/status.md',
-  'docs/history/development-log.md',
-  'docs/history/handoff.md',
   'docs/research/data-sources.md',
   'docs/research/architecture_audit_and_rebuild_spec.md',
   'docs/research/source_replacement_and_twitterapi_io_removal_spec.md',
