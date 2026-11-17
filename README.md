@@ -6,6 +6,8 @@
 
 ## 当前开发
 
+本分支为整体重整候选；main 的统一规范与两个开发分支的整合边界见[主线协调记录](https://github.com/Euroish/reddit-monitoring-mvp/blob/main/docs/status.md#0-主线与开发分支的唯一协调记录)。
+
 当前工作树为 `1.0.0-dev`：Fastify 五模块已接管，旧 runtime、Repository/InMemory、独立 worker 与旧页面已实删；可运行混合推流、统一检索、流式下载与基础项目。完整信号漏斗、双备源和 Compose 仍待完成。开发与 CI 使用 Node 24 / PostgreSQL 16；过去仅内部测试，当前不公开部署。
 
 ```sh

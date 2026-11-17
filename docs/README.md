@@ -76,6 +76,6 @@
 | [唯一母本 Master Spec](research/architecture_audit_and_rebuild_spec.md) | `a078c9c` 基线代码尸检、7 项隐患与 `GAP` 溯源、三阶漏斗与 Agent-First 总纲、核心零漂移 SQL 蓝图与目录瘦身预算 |
 | [来源选择与开源证据](research/data-sources.md) | 固定源码提交与开源许可分析（`NewsNow` / `RSSHub` 等）、Reddit/X 平台路线比较及 R4 `.zst` 离线证据边界 |
 | [来源替换与清理规格](research/source_replacement_and_twitterapi_io_removal_spec.md) | `TwitterAPI.io` 淘汰商业证据、`TwitterAPIs` / `ScrapeBadger` OpenAPI 字段映射、逐文件实删定位点阵与测试迁移方案 |
-| [开发与交付](development.md) | 本机私有密钥配置、当前新内核可执行命令、自动门禁、安全来源退役操作顺序与数据备份恢复工具 |
-| [当前实现状态](status.md) | 当前源码与设计目标的真实差距清单、分层验证证据记录与本轮重整状态 |
+| [开发与交付](development.md) | 本机私有密钥配置、按检出分支核对的可执行命令、自动门禁、安全来源退役操作顺序与数据备份恢复工具 |
+| [当前实现状态](status.md) | 当前源码与设计目标的真实差距清单、分层验证证据记录与分支协调与内部测试状态 |
 | [历史记录与交接](history/development-log.md) | 前期阶段日志（与[交接摘要](history/handoff.md)共同仅作历史追溯，不构成本版规范） |

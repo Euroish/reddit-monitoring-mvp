@@ -1,6 +1,6 @@
 # R1–R4 主线重建与物理实删计划
 
-状态：R1 新内核已接管，R3 代码实删提前执行；基础项目表已随 042 建立，完整 R2 漏斗尚未完成。实际范围与验证见[当前状态](../status.md)。目标定义见[产品与架构](../README.md)、[主线架构规范](../architecture.md)、[数据与 API 契约](../contracts.md)、[产品交互规范](../design.md)，问题溯源与 SQL 蓝图对照[唯一母本 Master Spec](../research/architecture_audit_and_rebuild_spec.md)，供应商清理坐标见[来源替换规格](../research/source_replacement_and_twitterapi_io_removal_spec.md)。`R1–R3` 仅实施远端在线主线，`R4` 历史外挂独立演进且不阻塞主线交付。
+状态：main 尚未合入新内核；两个开发分支分别承载整体重整与 R1/R2 WIP，真实进度与冲突以[主线协调记录](../status.md#0-主线与开发分支的唯一协调记录)为准。用户已授权 R3 代码实删提前开展，暂不部署或兼容过去内部测试服务。目标定义见[产品与架构](../README.md)、[主线架构规范](../architecture.md)、[数据与 API 契约](../contracts.md)、[产品交互规范](../design.md)，问题溯源与 SQL 蓝图对照[唯一母本 Master Spec](../research/architecture_audit_and_rebuild_spec.md)，供应商清理坐标见[来源替换规格](../research/source_replacement_and_twitterapi_io_removal_spec.md)。`R1–R3` 仅实施远端在线主线，`R4` 历史外挂独立演进且不阻塞主线交付。
 
 ## 1. 切换与减法原则
 
@@ -27,7 +27,7 @@
 
 新旧数据总条数、身份去重数、发现/观测数、未知发布时间条数、分用户个人资产清单一律输出核对报告至 `output/`（严禁提交至 Git）。
 
-## 3. R1：薄内核重构与数据写读闭环（向前迁移 `041_content_batch.sql` 与 `043_kernel_cutover.sql`）
+## 3. R1：薄内核重构与数据写读闭环（迁移 `041_core_and_provider_retirement.sql`）
 
 **用户可感知目标**：受邀用户在全新独立启动的 Fastify 5 主链上登录 $\to$ 管理或连接来源 $\to$ 完成一次解封后 `kaix` 在线发现或标准 `POST /v1/sources/:id/ingest` 推流（含主帖与附属评论混合树） $\to$ 检索列表并流式下载 CSV/JSON（尚不依赖监测项目或旧 Phase 1 运行时）。
 
@@ -78,9 +78,12 @@
 ## 6. R4：独立归档外挂扩展（后续按需授权启动）
 
 仅在在线主线稳定运行后按需单独授权启动 `plugins/zst-archive/`（完全独立 Python / DuckDB 环境、依赖与测试，不碰主线数据库、镜像与 CI）：
-- `.zst` 单遍流式顺序解压（不假定任意压缩偏移跳读恢复）$\to$ 写出自索引精简核心列 Parquet（建议约定核心列 `id, subreddit_lower, subreddit, author, title, selftext, created_utc, retrieved_on, score, num_comments, upvote_ratio, url`，按 **`ORDER BY subreddit_lower, created_utc`** 聚簇、`ROW_GROUP_SIZE 100000`、`COMPRESSION ZSTD` 与按需实测 Bloom Filter）；
-- 续传清单、拒绝行统计、本地分类器研究（如有，须独立核对训练集/许可/准确率，不将标签冒充全网范围）均属外挂内部职责，绝不在未完成行数、时间与备份核对前删除原始 `.zst` 档案；
-- 最终仅将命中项目需求的小批筛选记录规范为 `NormalizedContentItem[]`（带真实 `timeBasis` 与 `Idempotency-Key`）经 `POST /v1/sources/:id/ingest` 推流进入主线。
+- **上游成品归档包直挂（候选方案，尚未实施或验收）**：仅在上游格式与封包完整性核验完成后，上游已完成 `open-corpus-v1` 月份封包时，插件经环境变量 `ARCHIVE_PACKAGES_ROOT` **只读扫描存在完整 `manifest.json` 的月份目录**（仅将已完成封包的月份如 `2026-09`、`2026-10` 纳入目录清单，天然隔离仍在抽取中的半成品目录）：
+  - 直接挂载 `corpus/posts.parquet`、`corpus/comments.parquet`、`base/population_ledger.parquet` 与 4 分片倒排 `index/fts_{0..3}.sqlite`（`detail=none`）；
+  - 查询采用两段策略：4 分片 FTS5 并行召回 `doc_id` 交集 $\to$ DuckDB `READ_ONLY` 回表按 NFKC 与词界逻辑复筛并组装评论树；
+  - `population_ledger.parquet` 全量社区分母仅在插件本地侧只读统计展示，**严禁写入主线 PG 或混入主线项目趋势图**；
+- **原始 `.zst` 兜底转码模式（无成品包时）**：`.zst` 单遍流式顺序解压（不假定任意压缩偏移跳读恢复）$\to$ 写出自索引精简核心列 Parquet（建议精简核心列 `id, subreddit_lower, subreddit, author, title, selftext, created_utc, retrieved_on, score, num_comments, upvote_ratio, url`；`ORDER BY subreddit_lower, created_utc`、`ROW_GROUP_SIZE 100000`、`COMPRESSION ZSTD`，按需实测 Bloom Filter）；续传清单、拒绝行统计与本地分类器研究属外挂内部职责，分类器须独立核对训练集/许可/准确率，不将标签冒充全网范围；绝不在未完成行数、时间与备份核对前删除原始 `.zst` 档案；
+- **统一标准化推流出口**：按需筛选的小批记录严格映射为 `NormalizedContentItem[]`（`reddit:post:<b36>`/`reddit:comment:<b36>` $\to$ `t3_`/`t1_`、脱敏 `author_key` 仅填 `author.externalId`、未知上游观测时间保持 `sourceObservedAt=null`、`is_truncated` $\to$ `textState="truncated"`、保留真实 `reply_to`/`thread_root` 与不含读取时钟的确定性 `evidenceKey`/`Idempotency-Key`），受控限额后经 `POST /v1/sources/:id/ingest`（`<= 100` 项 / `<= 1 MiB` 批次）推流进入主线。
 
 ## 7. 最小高价值验证组合
 

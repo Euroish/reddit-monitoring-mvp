@@ -1,6 +1,6 @@
 # 主线架构规范
 
-目标架构与主线约束；Fastify 五模块与数据闭环已开始接管，未完成部分以当前状态为准。产品边界与度量口径见[产品与架构](README.md#2-主线与外挂边界)，接口语义与状态机见[数据与 API 契约](contracts.md)，改造细节溯源见[Master Spec](research/architecture_audit_and_rebuild_spec.md)。
+本文定义统一目标架构；main 与开发分支的实际实现分别见[协调记录](status.md#0-主线与开发分支的唯一协调记录)，不将分支代码视为主线已实现。产品边界与度量口径见[产品与架构](README.md#2-主线与外挂边界)，接口语义与状态机见[数据与 API 契约](contracts.md)，改造细节溯源见[Master Spec](research/architecture_audit_and_rebuild_spec.md)。
 
 ## 1. 技术栈与单机拓扑
 

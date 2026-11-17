@@ -35,7 +35,7 @@
 | **旧链路与冗余测试 (`DELETE_BLOAT_TEST`)** | 36 | 15,001 | 511,720 | `api-server-trends.test.ts`（基线历史路径，现已实删） (2,124 LOC)、`api-server-readyz.test.ts`（基线历史路径，现已实删） (2,081 LOC)、`collect-subreddit-new-posts-p0.test.ts`（基线历史路径，现已实删） (2,052 LOC) 等。**随旧业务一并删除**。 |
 | **旧维护/实验脚本 (`DELETE_LEGACY_SCRIPTS`)** | 18 | 4,628 | 169,425 | `*phase1*`、`shadow-compare`、`controlled-promotion`、`prewarm-keyword-query` 等（含 25 处 `NPlusOneAwaitInLoop`）。**全部删除**。 |
 | **前端废弃页面 (`WEB_DELETE_LEGACY`)** | 11 | 2,819 | 121,642 | `MarketBoard`、`TargetDetail` (800 LOC)、`Compare`、`Dashboard`、`Queries`、`Phase1RunCard` 及旧冻结视图。**全部删除**。 |
-| **拟保留公共核心 (`KEEP_CORE_PROD`)** | 139 | 14,060 | 652,066 | **存在严重“压行伪装”与双轨冗余**：含 14 个 [in-memory 仓储目录](../../src/storage/repositories/in-memory) (2,185 LOC / **106 KB**) 及压行文件 `postgres-source-content.repository.ts`（基线历史路径，现已实删） (**305 行却高达 50,868 字节**，单行塞入 8~12 条语句)。**砍掉 In-Memory 双轨、`research_export`、Arctic Shift 与 TwitterAPI.io，重写为排版清晰的直白 SQL 模块**。 |
+| **拟保留公共核心 (`KEEP_CORE_PROD`)** | 139 | 14,060 | 652,066 | **存在严重“压行伪装”与双轨冗余**：含 14 个 [基线 in-memory 仓储目录](https://github.com/Euroish/reddit-monitoring-mvp/tree/a078c9c/src/storage/repositories/in-memory) (2,185 LOC / **106 KB**) 及压行文件 `postgres-source-content.repository.ts`（基线历史路径，现已实删） (**305 行却高达 50,868 字节**，单行塞入 8~12 条语句)。**砍掉 In-Memory 双轨、`research_export`、Arctic Shift 与 TwitterAPI.io，重写为排版清晰的直白 SQL 模块**。 |
 | **拟保留核心测试 (`KEEP_CORE_TEST`)** | 116 | 9,045 | 594,311 | 含 `tests/helpers/*-cases.ts` (58 KB)，将同一套用例在 JS `Map` 与 PG 上重复跑两遍。**砍掉 In-Memory 双跑，收敛为纯函数单测 + 唯一真实 PG 16 HTTP E2E；公共夹具重构为独立 `StubContentConnector`**。 |
 
 ```mermaid
@@ -70,7 +70,7 @@ flowchart TD
 即便仅审视 `029`–`040` 迁移之后的公共内容与研究模块，实码中仍存在以下违背“最低复杂度、最高性能、不过度防御”的隐患，且早先工程草图与真实 Schema/运行时之间存在 9 处规格漂移——R1 必须同步根治。
 
 ### 2.1 `[AUD-01]` 双轨 `InMemory*Repository` 是最大的工程税（106 KB 纯冗余）
-- **证据**：`source-content.repository.ts`（基线历史路径，现已实删） 用 29,122 字节的压缩 TS 代码在 JS `Map` 中手工模拟 PG 事务、租约、`23505` 冲突、`SKIP LOCKED`、全文检索与 `REPEATABLE READ` 快照（每次调用执行 `structuredClone`）；整个 [in-memory 目录](../../src/storage/repositories/in-memory) 达 14 文件 / 2,185 LOC / 106 KB。
+- **证据**：`source-content.repository.ts`（基线历史路径，现已实删） 用 29,122 字节的压缩 TS 代码在 JS `Map` 中手工模拟 PG 事务、租约、`23505` 冲突、`SKIP LOCKED`、全文检索与 `REPEATABLE READ` 快照（每次调用执行 `structuredClone`）；整个 [基线 in-memory 目录](https://github.com/Euroish/reddit-monitoring-mvp/tree/a078c9c/src/storage/repositories/in-memory) 达 14 文件 / 2,185 LOC / 106 KB。
 - **危害**：每增减一个字段或修改过滤规则都得双端重写，且内存模拟永远测不出 PostgreSQL 行锁死锁、索引失效、UTF-8 字符边界或事务隔离缺陷。
 - **修正**：**全删 27 个单实现 `Repository` 接口与 14 个 `InMemory*Repository`（只留外部 `ContentProvider`）**。内部直接暴露接收 `Pool | PoolClient` 的命名 SQL 函数；纯规则写单测，数据库行为只测真实 PG 16。
 
