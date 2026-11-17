@@ -14,7 +14,9 @@
 - Stage 0：跨平台 Node 构建脚本复制全部 SQL 到 `dist/`；空 SQL 目录与新增重复编号失败；迁移独立单连接、10 分钟语句超时与 30 秒锁超时。Node 24.22.3 + 空白 `postgres:16-alpine` 已由编译产物应用 46 个迁移，证据键列排序为 `C`；编译服务器已完成 readiness、登录、鉴权读取与 SIGTERM 正常退出。
 - Stage 1：已修复停机归还租约与 Run 续读、采集幂等与人工任务恢复、截断不推进水位；严格 Schema 合并、六种 scope、HEAD/readiness/PG 503 与单跳可信代理；确定性服务端内容 UUID、同版本合并、稳定锁顺序与零变更计数；导出并发 1、行数边界、JSON 终结统计与断流清理；来源选择、数组查询恢复、批注草稿/revision 与下载错误反馈。HTTP 接口仍为当前分支的 `/v1/access/keys`、`/v1/workspace/*`，统一命名和完整 R2 HTTP 表面留待 Stage 2。
 - 验证证据：13 项纯函数/协议夹具、16 项真实容器 PG16/HTTP（含父测试）与 1 条编译态 Chromium 主流程均零失败、零跳过，lint/typecheck/build/发布包校验通过；报告位于被忽略的 `output/validation/stage-one/`。真实付费 kaix SIGTERM 与 TwitterAPIs 入库探针尚未执行，不以协议夹具代替供应商验收；新 X 连接器属于 Stage 2。
-- Compose：已新增多阶段 `Dockerfile`、Caddy/App/PG16 三服务、强制秘密配置、私网 DB、健康依赖、init 与 20 秒停止窗口。已在全新隔离卷完成 46 个迁移、三服务健康、HTTPS Chromium 登录/五导航及 Caddy 双 IP 限流（首客户端 125 次中 5 次 429，第二客户端 200，伪造转发头不绕过）；停止耗时 3.07 秒、App 退出码 0，重启后 readiness 与 46 条 ledger 均正常。未连接旧内部测试库、未推送或部署公网。
+- Compose：已新增多阶段 `Dockerfile`、Caddy/App/PG16 三服务、强制秘密配置、私网 DB、健康依赖、init 与 20 秒停止窗口。已在全新隔离卷完成 46 个迁移、三服务健康、HTTPS Chromium 登录/五导航及 Caddy 双 IP 限流（首客户端 125 次中 5 次 429，第二客户端 200，伪造转发头不绕过）；停止耗时 3.07 秒、App 退出码 0，重启后 readiness 与 46 条 ledger 均正常。未连接旧内部测试库；已推送远端 `r1-content-batch`，未部署公网。
+
+- 云端检查：`edcf271` 的 [Core verification #60](https://github.com/Euroish/reddit-monitoring-mvp/actions/runs/44029043674) 已通过 lint、typecheck、单测、PG/HTTP、构建和编译态启动，浏览器因 Vite 彩色 URL 日志匹配失败而超时，发布打包未执行。本次将浏览器就绪判断改为真实 HTTP 200 + 页面标题校验，保留原 20 秒预算和完整业务断言，并在 `CI=true`、`FORCE_COLOR=1`、无 `NO_COLOR` 环境运行同一编译态浏览器流程；后续云端结论以该分支 PR Checks 为准。
 
 ## 1. `main` 实码现状与验证证据
 

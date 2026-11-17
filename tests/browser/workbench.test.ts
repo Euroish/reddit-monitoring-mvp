@@ -63,22 +63,28 @@ test("browser: keyboard login, five navigation tasks, saved query and responsive
       /* Process already exited. */
     }
   });
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(Error("Vite startup timeout")),
-      20000,
-    );
-    vite.stdout.on("data", (chunk) => {
-      if (chunk.toString().includes(origin)) {
-        clearTimeout(timer);
-        resolve();
-      }
-    });
-    vite.once("exit", (code) => {
-      clearTimeout(timer);
-      if (code) reject(Error(`Vite exit ${code}`));
-    });
-  });
+  let viteOutput = "";
+  let viteError: Error | undefined;
+  const capture = (chunk: Buffer) => {
+    viteOutput = (viteOutput + chunk.toString()).slice(-8000);
+  };
+  vite.stdout.on("data", capture);
+  vite.stderr.on("data", capture);
+  vite.once("error", error => { viteError = error; });
+  const deadline = Date.now() + 20000;
+  let ready = false;
+  while (Date.now() < deadline) {
+    if (viteError) throw viteError;
+    if (vite.exitCode !== null || vite.signalCode !== null) {
+      throw Error(`Vite exited before readiness: ${vite.exitCode ?? vite.signalCode}\n${viteOutput}`);
+    }
+    ready = await fetch(origin, { signal: AbortSignal.timeout(1000) })
+      .then(async response => response.ok && (await response.text()).includes("<title>信号研究</title>"))
+      .catch(() => false);
+    if (ready) break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.ok(ready, `Vite HTTP readiness timeout\n${viteOutput}`);
   const browser = await chromium.launch({
     executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
     headless: true,
