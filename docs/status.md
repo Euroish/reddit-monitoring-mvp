@@ -16,7 +16,26 @@
 - 验证证据：13 项纯函数/协议夹具、16 项真实容器 PG16/HTTP（含父测试）与 1 条编译态 Chromium 主流程均零失败、零跳过，lint/typecheck/build/发布包校验通过；报告位于被忽略的 `output/validation/stage-one/`。真实付费 kaix SIGTERM 与 TwitterAPIs 入库探针尚未执行，不以协议夹具代替供应商验收；新 X 连接器属于 Stage 2。
 - Compose：已新增多阶段 `Dockerfile`、Caddy/App/PG16 三服务、强制秘密配置、私网 DB、健康依赖、init 与 20 秒停止窗口。已在全新隔离卷完成 46 个迁移、三服务健康、HTTPS Chromium 登录/五导航及 Caddy 双 IP 限流（首客户端 125 次中 5 次 429，第二客户端 200，伪造转发头不绕过）；停止耗时 3.07 秒、App 退出码 0，重启后 readiness 与 46 条 ledger 均正常。未连接旧内部测试库；已推送远端 `r1-content-batch`，未部署公网。
 
-- 云端检查：`edcf271` 的 [Core verification #60](https://github.com/Euroish/reddit-monitoring-mvp/actions/runs/44029043674) 已通过 lint、typecheck、单测、PG/HTTP、构建和编译态启动，浏览器因 Vite 彩色 URL 日志匹配失败而超时，发布打包未执行。本次将浏览器就绪判断改为真实 HTTP 200 + 页面标题校验，保留原 20 秒预算和完整业务断言，并在 `CI=true`、`FORCE_COLOR=1`、无 `NO_COLOR` 环境运行同一编译态浏览器流程；后续云端结论以该分支 PR Checks 为准。
+- 云端检查：`edcf271` 的 #60 因 Vite 彩色 URL 日志匹配失败而超时；`46a37d8` 改用真实 HTTP 就绪判断后，[Core verification #62](https://github.com/Euroish/reddit-monitoring-mvp/actions/runs/44029823730) 全部通过，包括 lint、typecheck、单测、PG/HTTP、构建、编译态启动、浏览器与发布打包。此结论仅覆盖该提交与现有检查范围。
+
+### 当前 R1–R3 完成度与下一步
+
+2026-11-17 重新 fetch 核对：`origin/main` 仍为 `dac7ab7`，当前分支代码基线为 `46a37d8`；分支已包含 main 全部规范，并更新了本文件、开发入口和迁移计划。其余目标架构、契约、交互与研究规范与 main 相同。当前分支第 0 节是最新执行事实，第 1–2 节继续作为旧 main / 修复前双分支的审计基线，不能混用完成度。R1–R3 是重建工作范围，Stage 0–3 是分期验收与推进顺序，二者不一一对应。
+
+| 范围 | 当前可证实完成 | 尚未完成 / 验收缺口 |
+| --- | --- | --- |
+| R1 内核与运行底座 | 单 Fastify 入口、五模块、严格 HTTP Schema、混合集合写与推流幂等、Keyset 检索、导出生命周期、任务人工恢复、PG16 编译态与 Compose 验收；Stage 0 完成，Stage 1 六类核心修复已落地。 | 设置页 `Account.tsx` 仍发送旧 scope，创建机器 Key 会被新契约拒绝；真实收费 kaix 进程 SIGTERM / 重启续接及 TwitterAPIs 经任务链落库尚未验收。worker 当前只消费已有队列、每任务提交一页；自动增量排期、多页推进与实际费用核对不能记为已完成。 |
+| R2 产品闭环与来源扩展 | 项目建表、创建/列表/基础概览、三段词过滤、五导航、保存查询/批注与 Key 后端基础能力。 | TwitterAPIs、ScrapeBadger、red_crawler、NewsNow、feed 均未装配；项目编辑/删除/内容钻取、`threadAware` 根帖去重、`discussion`/`pain`、显式批量 Hydrate、三视图树、对比与推流统计隔离未闭环；目标 HTTP 命名和游标 `projectRevision` 待对齐。 |
+| R3 遗留实删与交付收口 | 旧 API、Repository/InMemory、旧调度运行时、Arctic Shift / TwitterAPI.io 在线连接器、旧页面和 systemd 链已从当前源码移除，新运行时独立启动。 | 历史冻结导出表仍保留；已有 `assets:export` 工具不等于真实库按 owner 导出、对账和交付已完成。资产交付后才能向前删表；旧兼容搜索列稳态后再收缩。CI 仍使用 Action 标签，尚缺 SHA 固定、gitleaks / 生产依赖审计和 GHCR 发布链。未公网部署或做生产恢复演练。 |
+
+本次授权仅做简单真实供应商验证：使用仓外凭据，kaix 经当前编译连接器创建 **1 个 Run**，限制 2 主帖、每帖最多 2 评论，实际返回 **2 主帖 + 1 评论**，混合批准备通过，截断时 `exhausted=false`；TwitterAPIs 仅 **1 次搜索请求**，HTTP 200 返回 **20 条**字符串 ID 推文。回执、响应与脱敏摘要保存在忽略目录 `output/validation/live-source-check/`，不进入 Git。未自动重试收费请求、未写业务库、未执行进程重启试验；因此仅证明当前凭据/协议/kaix 规范化可用，不把它算作 Stage 1 全链路验收。
+
+下一阶段按以下顺序推进，每个切片完成后复用现有 PG16/HTTP 套件和一条关键浏览器流程，不新增平行测试体系：
+
+1. **先收 R1 尾项**：修正设置页六种 scope 与现有契约的一致性，在现有浏览器流程中补一次真正创建只读 Key 的操作；修正当前分支环境加载说明。真实 kaix 中断续接只做一次有界任务，并核对重启前后同一 Run、没有新增收费启动。
+2. **打通双主源最小闭环**：重写 TwitterAPIs adapter，严格响应校验、每页最多 20 条、收费结果不明停发；接入来源、预算、队列和唯一入库内核，完成一次受控实际入库。按此补齐 Stage 1 外部验收，不重新重复全部本地基础设施测试。
+3. **交付 R2 核心研究流**：项目 CRUD / 权限 / revision → 项目限定内容与根帖联动 → `discussion` / `pain` → 显式手选 Hydrate → 有界三视图树 → 保存/下载。统一过滤和授权交集、默认排除推流统计；同一条 PG16 + HTTP + Chromium 流程贯穿验收。
+4. **扩展与发布收口**：先补 red_crawler / ScrapeBadger 的显式备源及批量 ID 能力，再补 NewsNow / 安全 feed；ScrapeBadger 真实验收需其凭据。独立核对旧资产、备份恢复、安全 CI 与镜像发布，完成 R3 交付门禁后再安排正式切流。Stage 3 的自动水合、重型拆分与 R4 不提前启动。
 
 ## 1. `main` 实码现状与验证证据
 

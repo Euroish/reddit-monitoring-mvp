@@ -40,15 +40,17 @@ SCRAPEBADGER_API_KEY=
 | `TWITTERAPIS_API_KEY` | `TwitterAPIs`（目标 X 主源） | 上游小样本直连已通；待 R2 新 adapter 读取 |
 | `SCRAPEBADGER_API_KEY` | `ScrapeBadger`（目标 X 备源与批量 ID 补全） | 预留凭证名；待 R2 新 adapter 读取 |
 
-API 与公共来源 worker 可通过 `LOCAL_ENV_FILE` 读取环境变量文件（显式 shell 变量优先；设 `LOCAL_ENV_FILE=none` 禁用）；脱敏核对配置（零外网请求）：
+当前重整分支仅从进程环境读取配置，不再支持旧 main 的 `LOCAL_ENV_FILE` / `config:check` / 独立 `worker:sources` 入口。Node 24 可显式加载仓外凭据后启动编译服务器（应用必需的 DB、会话与 Origin 配置仍须另行提供）：
 
 ```sh
-LOCAL_ENV_FILE="$HOME/.config/reddit-monitoring/credentials.env" npm run config:check
+node --env-file="$HOME/.config/reddit-monitoring/credentials.env" dist/apps/api/src/server.js
 ```
 
-`TWITTERAPIS_TIMEOUT_MS` / `SCRAPEBADGER_TIMEOUT_MS` 默认 `20000ms`（区间 `100..120000ms`），认证头与映射见[来源替换规格](research/source_replacement_and_twitterapi_io_removal_spec.md)；严禁与待退役的 `TWITTERAPI_IO_*` 混用。此仓外文件不会注入旧系统 `systemd` 服务。
+`TWITTERAPIS_TIMEOUT_MS` / `SCRAPEBADGER_TIMEOUT_MS` 的目标默认值为 `20000ms`（区间 `100..120000ms`），当前分支尚无相应连接器；认证头与映射见[来源替换规格](research/source_replacement_and_twitterapi_io_removal_spec.md)。Compose 当前固定 `SOURCE_NETWORK_ENABLED=false` 且未传入供应商密钥，显式加载宿主机凭据不会自动启用容器内采集；接入时需按需传递，禁止把密钥写进镜像或 Git。
 
 ## 2. `main@0.9.1` 当前可执行入口与门禁脚本
+
+本节命令仅描述尚未合入重整分支的旧 main；当前分支可执行入口以上方“当前分支的编译与 Compose 验收入口”和 `package.json` 为准，不使用下述旧运行时工具。
 
 当前环境兼容 Node 22+（CI 目标 Node 22/24 与 PostgreSQL 16）。`SOURCE_NETWORK_ENABLED` 默认 `false`（不发真实收费网包），本地明文调试设 `API_SESSION_COOKIE_SECURE=false`。
 
