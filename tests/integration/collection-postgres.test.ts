@@ -123,7 +123,7 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
     const result = await app.inject({
       method: "POST",
       url: `/v1/sources/${id}/collect`,
-      headers,
+      headers: { ...headers, "idempotency-key": randomUUID() },
       payload: {
         from: new Date(Date.now() - 86400000).toISOString(),
         to: now,
@@ -209,7 +209,7 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
       await app.inject({
         method: "POST",
         url: `/v1/sources/${unknownSource}/collect`,
-        headers,
+        headers: { ...headers, "idempotency-key": randomUUID() },
         payload: {
           from: new Date(Date.now() - 86400000).toISOString(),
           to: now,
@@ -279,7 +279,7 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
   const safeJob = await app.inject({
     method: "POST",
     url: `/v1/sources/${safeId}/collect`,
-    headers,
+    headers: { ...headers, "idempotency-key": randomUUID() },
     payload: {
       from: new Date(Date.now() - 86400000).toISOString(),
       to: now,

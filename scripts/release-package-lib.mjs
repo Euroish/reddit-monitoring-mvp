@@ -36,13 +36,14 @@ const safeName = value => typeof value === 'string' && !path.posix.isAbsolute(va
 const allowed = file => !file.split('/').some(part => part.startsWith('.') || part === 'node_modules' || part === 'output')
   && !/^(?:dist\/)?plugins\//.test(file) && (
   /^dist\/.*\.(js|map)$/.test(file)
+  || /^dist\/src\/storage\/schema\/\d{3}_[a-z0-9_]+\.sql$/.test(file)
   || /^apps\/web\/dist\/.*\.(html|js|css|map|svg|png|jpe?g|webp|ico|woff2?|ttf|webmanifest)$/.test(file)
   || /^src\/storage\/schema\/\d{3}_[a-z0-9_]+\.sql$/.test(file)
   || /^deploy\/.*\.(service|conf|example)$/.test(file)
   || [
-    'package.json', 'package-lock.json', 'README.md', 'AGENTS.md',
+    'package.json', 'package-lock.json', 'README.md', 'AGENTS.md', 'Dockerfile', 'docker-compose.yml', 'deploy/Caddyfile',
     'docs/README.md', 'docs/development.md', 'docs/architecture.md', 'docs/status.md',
-    'docs/history/handoff.md', 'docs/history/development-log.md', 'docs/research/data-sources.md',
+    'docs/research/data-sources.md',
     'docs/research/source_replacement_and_twitterapi_io_removal_spec.md',
     'docs/research/architecture_audit_and_rebuild_spec.md',
     'docs/plans/source-expansion.md', 'docs/contracts.md', 'docs/design.md',
@@ -58,12 +59,20 @@ export async function packRelease({ root = process.cwd(), destination }) {
   let parent = path.dirname(destination); while (!fs.existsSync(parent)) parent = path.dirname(parent);
   const actualParent = fs.realpathSync(parent), actualRoot = fs.realpathSync(root);
   if (actualParent !== actualRoot && actualParent !== path.join(actualRoot, 'output') && !actualParent.startsWith(path.join(actualRoot, 'output') + path.sep)) throw new Error('Release output symlink escape refused');
-  const required = ['dist/apps/api/src/server.js', 'apps/web/dist/index.html', 'package.json', 'package-lock.json'];
+  const required = ['dist/apps/api/src/server.js', 'dist/src/storage/schema/run-migrations.js', 'apps/web/dist/index.html', 'package.json', 'package-lock.json'];
   for (const file of required) await fsp.access(path.join(root, file)).catch(() => { throw new Error(`Missing release input ${file}; run build and compiled smoke first`); });
+  const sqlFiles = (await fsp.readdir(path.join(root, 'src/storage/schema'))).filter(file => /^\d{3}_[a-z0-9_]+\.sql$/.test(file));
+  if (!sqlFiles.length) throw new Error('Missing release SQL migrations');
+  for (const file of sqlFiles) {
+    const compiled = path.join(root, 'dist/src/storage/schema', file);
+    if (!fs.existsSync(compiled) || await digest(compiled) !== await digest(path.join(root, 'src/storage/schema', file))) {
+      throw new Error(`Missing or stale compiled SQL migration: ${file}`);
+    }
+  }
   const inputs = [];
   for (const directory of ['dist', 'apps/web/dist', 'src/storage/schema', 'deploy', 'docs'])
     if (fs.existsSync(path.join(root, directory))) inputs.push(...(await entries(path.join(root, directory))).map(file => `${directory}/${file}`).filter(file => allowed(file) && !/^dist\/(?:workers\/|src\/(?:runtime|application|domain|storage\/repositories)\/)/.test(file) && (!file.startsWith('docs/') || DOCUMENTATION_FILES.includes(file))));
-  for (const file of ['package.json', 'package-lock.json', 'README.md', 'AGENTS.md', 'scripts/database-backup.mjs', 'scripts/database-backup-lib.mjs', 'scripts/verify-release.mjs', 'scripts/release-package-lib.mjs'])
+  for (const file of ['package.json', 'package-lock.json', 'README.md', 'AGENTS.md', 'Dockerfile', 'docker-compose.yml', 'deploy/Caddyfile', 'scripts/database-backup.mjs', 'scripts/database-backup-lib.mjs', 'scripts/verify-release.mjs', 'scripts/release-package-lib.mjs'])
     if (fs.existsSync(path.join(root, file))) inputs.push(file);
   await fsp.mkdir(path.dirname(destination), { recursive: true }); await fsp.mkdir(destination);
   const files = [];

@@ -9,7 +9,7 @@ export function batchItem(
 ): CollectedContent {
   const externalId = overrides.externalId ?? "t3_19riqx8r047lt";
   return {
-    id: stableUuidFromString(`reddit:content:${externalId}`),
+    id: stableUuidFromString(`reddit:content:${overrides.kind ?? "post"}:${externalId}`),
     platform: "reddit",
     kind: "post",
     externalId,

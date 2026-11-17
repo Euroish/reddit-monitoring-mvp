@@ -24,7 +24,9 @@ test("browser: keyboard login, five navigation tasks, saved query and responsive
   await bootstrapOwner(db.pool, "fixture-password-123", "owner@example.test");
   const port = await freePort(),
     origin = `http://127.0.0.1:${port}`;
-  const app = await buildApp({
+  const createApp: typeof buildApp = process.env.TEST_COMPILED === "true"
+    ? require("../../dist/apps/api/src/app.js").buildApp : buildApp;
+  const app = await createApp({
     pool: db.pool,
     sessionSecret: "synthetic-secret-".repeat(3),
     origin,
@@ -38,7 +40,7 @@ test("browser: keyboard login, five navigation tasks, saved query and responsive
       "--prefix",
       "apps/web",
       "run",
-      "dev",
+      process.env.TEST_COMPILED === "true" ? "preview" : "dev",
       "--",
       "--host",
       "127.0.0.1",
@@ -134,19 +136,33 @@ test("browser: keyboard login, five navigation tasks, saved query and responsive
   await page.getByLabel("研究批注").fill("保留这条研究判断");
   await page.getByRole("checkbox", { name: "收藏这条证据" }).check();
   await page.getByRole("button", { name: "保存到我的研究" }).click();
+  await page.getByLabel("研究批注").fill("刷新后仍保留的草稿");
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  assert.equal(await page.getByLabel("研究批注").inputValue(), "刷新后仍保留的草稿");
+  await page.getByRole("button", { name: "保存到我的研究" }).click();
+  await page.getByRole("button", { name: "保存到我的研究" }).isEnabled();
   await page.keyboard.press("Escape");
   const downloadEvent = page.waitForEvent("download");
-  await page.getByRole("link", { name: "下载当前结果" }).click();
+  await page.getByRole("button", { name: "下载当前结果" }).click();
   const download = await downloadEvent;
   assert.equal(download.suggestedFilename(), "content.json");
   await page.getByRole("button", { name: "搜索", exact: true }).click();
-  page.once("dialog", (dialog) => {
-    void dialog.accept("常用研究查询");
-  });
-  await page.getByRole("button", { name: "保存查询" }).click();
+  await page.getByRole("button", { name: "保存查询", exact: true }).click();
+  await page.getByLabel("查询名称").fill("常用研究查询");
+  await page.getByRole("button", { name: "确认保存查询" }).click();
   await page.getByRole("link", { name: "我的研究", exact: true }).click();
   await page.getByRole("button", { name: "常用研究查询 →" }).waitFor();
-  await page.getByText("保留这条研究判断", { exact: true }).waitFor();
+  await page.getByText("刷新后仍保留的草稿", { exact: true }).waitFor();
+  await page.request.post(`${origin}/api/v1/workspace/queries`, {
+    headers: { origin }, data: { name: "数组条件查询", filter: { sourceId, anyTerms: ["内部", "讨论"] } },
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "数组条件查询 →" }).click();
+  assert.deepEqual(new URL(page.url()).searchParams.getAll("anyTerms"), ["内部", "讨论"]);
+  await page.getByLabel("限定来源").locator(`option[value="${sourceId}"]`).waitFor({ state: "attached" });
+  assert.equal(await page.getByLabel("限定来源").inputValue(), sourceId);
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
+  assert.deepEqual(new URL(page.url()).searchParams.getAll("anyTerms"), ["内部", "讨论"]);
   await page.getByRole("link", { name: "设置", exact: true }).click();
   await page.getByRole("heading", { name: "当前账户" }).waitFor();
   await page.getByRole("link", { name: "项目", exact: true }).click();

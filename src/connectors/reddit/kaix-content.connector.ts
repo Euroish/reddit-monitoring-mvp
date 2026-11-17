@@ -387,7 +387,7 @@ export class KaixContentConnector implements ContentProvider {
     return {
       items,
       nextCheckpoint: null,
-      exhausted: true,
+      exhausted: target.type === "post" || data.filter(row => object(row)?.type === request.source.contentKind).length < request.limit,
       coverage: "partial" as const,
       warning: WARNING,
     };

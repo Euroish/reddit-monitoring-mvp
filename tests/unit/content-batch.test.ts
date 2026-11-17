@@ -150,3 +150,16 @@ test("premerge preserves known fields before a sparse update and respects an int
     assert.equal(prepareContentBatch(items).nodes[0].item.text, null);
   }
 });
+
+test("same version merges sparse fields from independent sources without losing the later fetched clock", () => {
+  const base = batchItem(randomUUID());
+  const a = { ...base, title: null };
+  const b = { ...base, text: null, fetchedAt: "2026-11-17T00:00:00Z",
+    observation: { ...base.observation, sourceId: randomUUID(), fetchedAt: "2026-11-17T00:00:00Z" } };
+  for (const items of [[a, b], [b, a]]) {
+    const node = prepareContentBatch(items).nodes[0];
+    assert.equal(node.item.title, base.title);
+    assert.equal(node.item.text, base.text);
+    assert.equal(node.item.fetchedAt, b.fetchedAt);
+  }
+});

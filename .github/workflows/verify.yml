@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: ci_fixture_only
@@ -35,16 +35,20 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             apps/web/package-lock.json
-      - run: npm ci
-      - run: npm --prefix apps/web ci
+      - run: npm ci --ignore-scripts
+      - run: npm --prefix apps/web ci --ignore-scripts
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test:unit
       - run: npm run test:postgres
       - run: npm run build
-      - run: node -e "require('./dist/apps/api/src/app.js')"
+      - run: npm run smoke:compiled
+        env:
+          DATABASE_URL: postgresql://postgres:ci_fixture_only@127.0.0.1:5432/source_validation_ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
+        env:
+          TEST_COMPILED: 'true'
       - run: node scripts/package-release.mjs
       - uses: actions/upload-artifact@v4
         if: always()

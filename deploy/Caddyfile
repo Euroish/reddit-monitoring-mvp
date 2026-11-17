@@ -1,0 +1,20 @@
+{$SITE_ADDRESS} {
+  {$TLS_CONFIG}
+  encode zstd gzip
+  handle_path /api/* {
+    reverse_proxy app:3000 {
+      flush_interval -1
+    }
+  }
+  handle /healthz {
+    reverse_proxy app:3000
+  }
+  handle /readyz {
+    reverse_proxy app:3000
+  }
+  handle {
+    root * /srv
+    try_files {path} /index.html
+    file_server
+  }
+}

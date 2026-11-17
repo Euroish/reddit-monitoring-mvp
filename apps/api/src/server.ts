@@ -36,6 +36,7 @@ export async function main() {
       origin,
       secureCookies: !localHttp,
       logger: true,
+      trustProxy: process.env.TRUST_PROXY_HOPS === "1" ? 1 : false,
     });
     await app.listen({
       host: process.env.HOST ?? "127.0.0.1",

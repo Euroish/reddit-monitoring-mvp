@@ -130,3 +130,12 @@ export function decodeCursor(
     return fail(422, "Invalid cursor or changed query scope");
   }
 }
+
+export function contentSelect(discovery: string) {
+  return `SELECT c.*,p.code AS platform,to_char(c.created_at_source,'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time,
+    COALESCE((SELECT jsonb_agg(latest.payload) FROM (
+      SELECT DISTINCT ON(o.collection_source_id,o.provider) jsonb_build_object('sourceId',o.collection_source_id,'provider',o.provider,'sourceObservedAt',o.source_observed_at,'fetchedAt',o.fetched_at,'timeBasis',o.time_basis,'maturity',o.maturity,'metrics',o.metrics,'evidenceKey',o.evidence_key) AS payload
+      FROM content_observation o WHERE o.content_id=c.id AND EXISTS(SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id WHERE ${discovery} AND d.collection_source_id=o.collection_source_id)
+      ORDER BY o.collection_source_id,o.provider,o.source_observed_at DESC NULLS LAST,o.fetched_at DESC,o.id DESC) latest),'[]'::jsonb) AS observations
+    FROM content c JOIN source p ON p.id=c.source_id JOIN public_content_search_document doc ON doc.content_id=c.id`;
+}

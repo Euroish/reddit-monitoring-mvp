@@ -5,6 +5,17 @@
 
 ---
 
+## 0. 当前重整分支执行记录
+
+`r1-content-batch` 已通过合并提交 `11e7864` 合入指定 `main@dac7ab7`。下文 main 与双分支审计表保留为修复前基线；本节只描述当前分支，不表示 main 已合并或已部署。
+
+唯一迁移链为原样保留的 `001..040`（含历史重复前缀的两个 018、两个 020）→ `041_content_batch.sql` → `042_monitor_projects.sql` → `043_kernel_cutover.sql` → `044_stage_one_safety.sql`，共 46 个 SQL 文件。另一开发分支的同号迁移不得组合应用；其隔离开发库应备份并重建，禁止改 ledger。041–043 已有隔离库校验和也保持不变；044 在同一迁移事务中恢复旧搜索投影兼容列、补齐项目字段、Run ID 和采集幂等唯一索引，将后续删除留到稳定版本。043 对未决旧付费任务的切换阻断继续保留，必须核查回执后迁移。
+
+- Stage 0：跨平台 Node 构建脚本复制全部 SQL 到 `dist/`；空 SQL 目录与新增重复编号失败；迁移独立单连接、10 分钟语句超时与 30 秒锁超时。Node 24.22.3 + 空白 `postgres:16-alpine` 已由编译产物应用 46 个迁移，证据键列排序为 `C`；编译服务器已完成 readiness、登录、鉴权读取与 SIGTERM 正常退出。
+- Stage 1：已修复停机归还租约与 Run 续读、采集幂等与人工任务恢复、截断不推进水位；严格 Schema 合并、六种 scope、HEAD/readiness/PG 503 与单跳可信代理；确定性服务端内容 UUID、同版本合并、稳定锁顺序与零变更计数；导出并发 1、行数边界、JSON 终结统计与断流清理；来源选择、数组查询恢复、批注草稿/revision 与下载错误反馈。HTTP 接口仍为当前分支的 `/v1/access/keys`、`/v1/workspace/*`，统一命名和完整 R2 HTTP 表面留待 Stage 2。
+- 验证证据：13 项纯函数/协议夹具、16 项真实容器 PG16/HTTP（含父测试）与 1 条编译态 Chromium 主流程均零失败、零跳过，lint/typecheck/build/发布包校验通过；报告位于被忽略的 `output/validation/stage-one/`。真实付费 kaix SIGTERM 与 TwitterAPIs 入库探针尚未执行，不以协议夹具代替供应商验收；新 X 连接器属于 Stage 2。
+- Compose：已新增多阶段 `Dockerfile`、Caddy/App/PG16 三服务、强制秘密配置、私网 DB、健康依赖、init 与 20 秒停止窗口。已在全新隔离卷完成 46 个迁移、三服务健康、HTTPS Chromium 登录/五导航及 Caddy 双 IP 限流（首客户端 125 次中 5 次 429，第二客户端 200，伪造转发头不绕过）；停止耗时 3.07 秒、App 退出码 0，重启后 readiness 与 46 条 ledger 均正常。未连接旧内部测试库、未推送或部署公网。
+
 ## 1. `main` 实码现状与验证证据
 
 ### 1.1 `main` 与目标架构的核心差距
@@ -61,7 +72,7 @@
 
 ---
 
-## 3. 收敛前置条件与下一阶段重建路线规划（待拍板执行）
+## 3. 收敛前置条件与分阶段验收目标
 
 无论下一步选择以哪条具体操作融合，在最终合并进 `main` 前**必须同时满足以下前置条件**：
 1. 全仓仅保留唯一入口 `apps/api/src/server.ts`（`create-api-server.ts`、`InMemory*` 与 `research_export*` 全量清理且历史个人资产已完成核对交付）；
@@ -83,4 +94,4 @@
 - **Compiled + PG16 E2E Gate**：使用 `postgres:16-alpine` 服务容器，先执行 `npm run build` + `npm run db:migrate:compiled` 并启动编译后 `dist/apps/api/src/server.js`，执行核心 PG16/HTTP 契约测试与 1 条主流程 Playwright 浏览器冒烟（不再双跑 `InMemory`）。
 - **单机镜像构建**：打 tag 构建同一多阶段 `Dockerfile` 推 GHCR（开启 GHA layer cache），VPS 通过 `docker compose pull && docker compose up -d` 升级，`app` 强制 `${SESSION_SECRET:?required}`、`init: true`、`stop_grace_period: 20s`，`db` 永不对外映射端口。
 
-> 下一步等待你的明确拍板：**决定以单支渐进改造还是双分支按期移植启动 Stage 0**，我再据此进入编码与合并实施。
+> 本轮已获授权在现有重整分支执行 Stage 0/1；执行事实见第 0 节。Stage 2/3 仍按对应范围推进，不整支合入另一分支。

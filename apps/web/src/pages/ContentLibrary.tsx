@@ -13,7 +13,21 @@ const date = (value: string | null) =>
 export default function ContentLibrary({ run }: { run: Run }) {
   const [params, setParams] = useSearchParams(),
     [selected, setSelected] = useState<PublicContent | null>(null),
-    [revision, setRevision] = useState(0);
+    [savingQuery, setSavingQuery] = useState(false),
+    [draft, setDraft] = useState({
+      scope: params.toString(),
+      query: params.get("query") ?? "",
+      sourceId: params.get("sourceId") ?? "",
+    }),
+    [exporting, setExporting] = useState(false);
+  const searchDraft =
+    draft.scope === params.toString()
+      ? draft
+      : {
+          scope: params.toString(),
+          query: params.get("query") ?? "",
+          sourceId: params.get("sourceId") ?? "",
+        };
   const annotation = useQuery({
     queryKey: ["annotation", selected?.id],
     enabled: !!selected,
@@ -68,19 +82,52 @@ export default function ContentLibrary({ run }: { run: Run }) {
   return (
     <>
       <Heading title="内容库" note="检索已经收集的内容，保留可追溯的原始证据。">
-        <a
-          className="button primary"
-          href={`/api/v1/content/export?${new URLSearchParams([...params].filter(([key]) => key !== "cursor"))}&format=json`}
+        <button
+          className="primary"
+          disabled={exporting}
+          onClick={() => {
+            setExporting(true);
+            void run(async () => {
+              try {
+                const filter = new URLSearchParams(
+                  [...params].filter(
+                    ([key]) => !["cursor", "limit"].includes(key),
+                  ),
+                );
+                const response = await fetch(
+                  `/api/v1/content/export?${filter}&format=json`,
+                );
+                if (!response.ok)
+                  throw Error(
+                    (await response.json()).error?.message ?? "下载失败",
+                  );
+                const body = await response.text();
+                const payload = JSON.parse(body);
+                if (!payload.result?.complete) throw Error("下载中断，请重试");
+                const url = URL.createObjectURL(
+                  new Blob([body], { type: "application/json" }),
+                );
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = "content.json";
+                link.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+              } finally {
+                setExporting(false);
+              }
+            });
+          }}
         >
-          下载当前结果
-        </a>
+          {exporting ? "正在下载…" : "下载当前结果"}
+        </button>
       </Heading>
       <form
         className="search-bar"
         onSubmit={(event) => {
           event.preventDefault();
           const form = new FormData(event.currentTarget),
-            next = new URLSearchParams();
+            next = new URLSearchParams(params);
+          for (const key of ["cursor", "query", "sourceId"]) next.delete(key);
           if (form.get("query")) next.set("query", String(form.get("query")));
           if (form.get("sourceId"))
             next.set("sourceId", String(form.get("sourceId")));
@@ -88,16 +135,21 @@ export default function ContentLibrary({ run }: { run: Run }) {
         }}
       >
         <input
-          key={params.get("query")}
           name="query"
           aria-label="搜索词"
-          defaultValue={params.get("query") ?? ""}
+          value={searchDraft.query}
+          onChange={(event) =>
+            setDraft({ ...searchDraft, query: event.target.value })
+          }
           placeholder="搜索标题与正文…"
         />
         <select
           name="sourceId"
           aria-label="限定来源"
-          defaultValue={params.get("sourceId") ?? ""}
+          value={searchDraft.sourceId}
+          onChange={(event) =>
+            setDraft({ ...searchDraft, sourceId: event.target.value })
+          }
         >
           <option value="">全部可见来源</option>
           {sources.data?.sources.map((source) => (
@@ -111,27 +163,37 @@ export default function ContentLibrary({ run }: { run: Run }) {
       {content.error && <p role="alert">{content.error.message}</p>}
       <div className="result-heading">
         <span>已存样本</span>
-        <button
-          onClick={() => {
-            const name = window.prompt("保存为哪个研究查询？");
-            if (name) {
-              const filter = Object.fromEntries(
-                [...params].filter(
-                  ([key]) => !["cursor", "limit"].includes(key),
-                ),
-              );
-              void run(() =>
-                api("/workspace/queries", {
-                  method: "POST",
-                  body: JSON.stringify({ name, filter }),
-                }),
-              );
+        <button onClick={() => setSavingQuery(!savingQuery)}>保存查询</button>
+      </div>
+      {savingQuery && (
+        <form
+          className="panel"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const name = String(new FormData(event.currentTarget).get("name"));
+            const filter: Record<string, string | string[]> = {};
+            for (const key of new Set(params.keys())) {
+              if (["cursor", "limit"].includes(key)) continue;
+              const values = params.getAll(key);
+              filter[key] = ["anyTerms", "allTerms", "exclusions"].includes(key)
+                ? values
+                : values[0];
             }
+            void run(async () => {
+              await api("/workspace/queries", {
+                method: "POST",
+                body: JSON.stringify({ name, filter }),
+              });
+              setSavingQuery(false);
+            });
           }}
         >
-          保存查询
-        </button>
-      </div>
+          <Field label="查询名称">
+            <input name="name" required maxLength={100} />
+          </Field>
+          <button>确认保存查询</button>
+        </form>
+      )}
       {content.data?.items.length === 0 && (
         <Empty>当前范围没有匹配内容。尝试调整关键词或来源。</Empty>
       )}
@@ -142,7 +204,6 @@ export default function ContentLibrary({ run }: { run: Run }) {
             key={item.id}
             onClick={() => {
               setSelected(item);
-              setRevision(0);
             }}
           >
             <div className="content-meta">
@@ -202,48 +263,18 @@ export default function ContentLibrary({ run }: { run: Run }) {
               </a>
             )}
             <hr />
-            <form
-              key={`${selected.id}-${annotation.data?.annotation?.revision ?? 0}`}
-              onSubmit={(event) => {
-                event.preventDefault();
-                const form = new FormData(event.currentTarget);
-                void run(async () => {
-                  const saved = await api<{ revision: number }>(
-                    `/workspace/annotations/${selected.id}`,
-                    {
-                      method: "PUT",
-                      body: JSON.stringify({
-                        favorite: form.get("favorite") === "on",
-                        note: form.get("note"),
-                        revision:
-                          annotation.data?.annotation?.revision ?? revision,
-                      }),
-                    },
-                  );
-                  setRevision(saved.revision);
-                });
-              }}
-            >
-              <label className="check">
-                <input
-                  type="checkbox"
-                  name="favorite"
-                  defaultChecked={
-                    annotation.data?.annotation?.favorite ?? false
-                  }
-                />
-                收藏这条证据
-              </label>
-              <Field label="研究批注">
-                <textarea
-                  name="note"
-                  maxLength={2000}
-                  rows={5}
-                  defaultValue={annotation.data?.annotation?.note ?? ""}
-                />
-              </Field>
-              <button>保存到我的研究</button>
-            </form>
+            {annotation.isPending ? (
+              <p role="status">正在读取批注…</p>
+            ) : annotation.error ? (
+              <p role="alert">{annotation.error.message}</p>
+            ) : (
+              <AnnotationForm
+                key={selected.id}
+                contentId={selected.id}
+                initial={annotation.data?.annotation ?? null}
+                run={run}
+              />
+            )}
             <details>
               <summary>采集记录</summary>
               <pre>{JSON.stringify(selected.observations, null, 2)}</pre>
@@ -252,5 +283,60 @@ export default function ContentLibrary({ run }: { run: Run }) {
         </div>
       )}
     </>
+  );
+}
+
+function AnnotationForm({
+  contentId,
+  initial,
+  run,
+}: {
+  contentId: string;
+  initial: { favorite: boolean; note: string; revision: number } | null;
+  run: Run;
+}) {
+  const [note, setNote] = useState(initial?.note ?? "");
+  const [favorite, setFavorite] = useState(initial?.favorite ?? false);
+  const [revision, setRevision] = useState(initial?.revision ?? 0);
+  const [saving, setSaving] = useState(false);
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        setSaving(true);
+        void run(async () => {
+          try {
+            const result = await api<{ revision: number }>(
+              `/workspace/annotations/${contentId}`,
+              {
+                method: "PUT",
+                body: JSON.stringify({ note, favorite, revision }),
+              },
+            );
+            setRevision(result.revision);
+          } finally {
+            setSaving(false);
+          }
+        });
+      }}
+    >
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={favorite}
+          onChange={(event) => setFavorite(event.target.checked)}
+        />
+        收藏这条证据
+      </label>
+      <Field label="研究批注">
+        <textarea
+          rows={5}
+          maxLength={2000}
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+        />
+      </Field>
+      <button disabled={saving}>保存到我的研究</button>
+    </form>
   );
 }

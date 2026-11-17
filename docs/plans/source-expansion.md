@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | PLAN-01 | MUST | 物理删除旧运行时、仓储与页面时，严禁连带破坏账户、来源观测证据与个人研究资产；历史 `research_export` 资产必须按原 owner 导出可读档案并完成对账交付后才删表。 | 资产对账报告 |
 | PLAN-02 | MUST | 新 Fastify 5 内核必须零依赖旧 `Phase1` 运行时独立冷启动，禁止新旧两套写入器或调度器并写同一生产库，R3 物理删净旧链而不维护永久兼容双轨。 | 冷启动与依赖检查 |
-| PLAN-03 | MUST | 全系统数据库仅允许新增 `monitor_project` 与 `monitor_project_source` 两张新表（`collection_source_id REFERENCES collection_source(id) ON DELETE CASCADE`）；`001..040` SQL 严禁修改，结构演化严格按 Expand-Migrate-Contract 推进 `041+` 前向迁移（先扩兼容列并在独立后续版本再删废弃列）；禁止对 `source_collection_job` 重复添加已由 `030_source_lifecycle.sql` 创建的 `parent_job_id`。 | 迁移静态与 PG16 验证 |
+| PLAN-03 | MUST | 全系统数据库仅允许新增 `monitor_project` 与 `monitor_project_source` 两张新表（`collection_source_id REFERENCES collection_source(id) ON DELETE CASCADE`）；`001..040` SQL 严禁修改，结构演化严格按 Expand-Migrate-Contract 推进 `041+` 前向迁移（先扩兼容列并在独立后续版本再删废弃列；本分支已校验的 041–043 保持 checksum，由 044 同事务恢复兼容投影列）；禁止对 `source_collection_job` 重复添加已由 `030_source_lifecycle.sql` 创建的 `parent_job_id`。 | 迁移静态与 PG16 验证 |
 
 ## 2. 既有数据库资产盘点与最小迁移矩阵
 

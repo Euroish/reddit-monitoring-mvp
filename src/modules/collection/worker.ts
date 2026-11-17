@@ -49,7 +49,7 @@ export async function workOnce(
     transaction(pool, async (client) => {
       await lockSource(client, workerActor, source.id);
       const updated = await client.query(
-        "UPDATE source_collection_job SET provider_state=$3,lease_until=NOW()+interval '2 minutes' WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id",
+        "UPDATE source_collection_job SET provider_state=$3,provider_run_id=$3::jsonb->>'runId',lease_until=NOW()+interval '2 minutes' WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id",
         [job.id, token, state],
       );
       if (!updated.rowCount) fail(409, "Collection lease lost");
@@ -93,7 +93,7 @@ export async function workOnce(
         ).rows[0];
         const usage = (
           await client.query(
-            "SELECT COALESCE(SUM(requests),0) AS requests,COALESCE(SUM(resources_reserved),0) AS resources,COALESCE(SUM(requests) FILTER(WHERE day=(NOW() AT TIME ZONE 'UTC')::date),0) AS daily_requests,COALESCE(SUM(resources_reserved) FILTER(WHERE day=(NOW() AT TIME ZONE 'UTC')::date),0) AS daily_resources FROM source_provider_usage WHERE provider=$1 AND day>=date_trunc('month',NOW() AT TIME ZONE 'UTC')::date",
+            `SELECT COALESCE(SUM(requests),0) AS requests,COALESCE(SUM(resources_reserved),0) AS resources,COALESCE(SUM(requests) FILTER(WHERE day=(NOW() AT TIME ZONE 'UTC')::date),0) AS daily_requests,COALESCE(SUM(resources_reserved) FILTER(WHERE day=(NOW() AT TIME ZONE 'UTC')::date),0) AS daily_resources FROM source_provider_usage WHERE provider=$1 AND day>=date_trunc('month',NOW() AT TIME ZONE 'UTC')::date`,
             [job.provider],
           )
         ).rows[0];
@@ -109,12 +109,12 @@ export async function workOnce(
         )
           return false;
         const updated = await client.query(
-          "UPDATE source_collection_job SET provider_state='{\"phase\":\"starting\"}',request_count=request_count+1,page_request_attempts=page_request_attempts+1 WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id",
+          `UPDATE source_collection_job SET provider_state='{"phase":"starting"}',request_count=request_count+1,page_request_attempts=page_request_attempts+1 WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id`,
           [job.id, token],
         );
         if (!updated.rowCount) fail(409, "Collection lease lost");
         await client.query(
-          "INSERT INTO source_provider_usage(provider,day,requests,resources_reserved) VALUES($1,(NOW() AT TIME ZONE 'UTC')::date,1,$2) ON CONFLICT(provider,day) DO UPDATE SET requests=source_provider_usage.requests+1,resources_reserved=source_provider_usage.resources_reserved+EXCLUDED.resources_reserved",
+          `INSERT INTO source_provider_usage(provider,day,requests,resources_reserved) VALUES($1,(NOW() AT TIME ZONE 'UTC')::date,1,$2) ON CONFLICT(provider,day) DO UPDATE SET requests=source_provider_usage.requests+1,resources_reserved=source_provider_usage.resources_reserved+EXCLUDED.resources_reserved`,
           [job.provider, resources],
         );
         await client.query(
@@ -174,7 +174,7 @@ export async function workOnce(
         new Date().toISOString(),
       );
       await client.query(
-        "UPDATE source_collection_job SET status='succeeded',provider_state=provider_state||'{\"phase\":\"committed\"}',checkpoint=$3,pages_committed=pages_committed+1,records_processed=$4,records_inserted=$5,records_updated=$6,coverage='partial',exhausted=$7,finished_at=NOW(),lease_token=NULL,lease_until=NULL WHERE id=$1 AND lease_token=$2",
+        `UPDATE source_collection_job SET status='succeeded',provider_state=provider_state||'{"phase":"committed"}',checkpoint=$3,pages_committed=pages_committed+1,records_processed=$4,records_inserted=$5,records_updated=$6,coverage='partial',exhausted=$7,finished_at=NOW(),lease_token=NULL,lease_until=NULL WHERE id=$1 AND lease_token=$2`,
         [
           job.id,
           token,
@@ -186,8 +186,8 @@ export async function workOnce(
         ],
       );
       await client.query(
-        "UPDATE collection_source SET last_success_at=NOW(),coverage='partial',incremental_to=GREATEST(incremental_to,$2) WHERE id=$1",
-        [source.id, job.to_at],
+        "UPDATE collection_source SET last_success_at=NOW(),coverage='partial',incremental_to=CASE WHEN $3 THEN GREATEST(incremental_to,$2) ELSE incremental_to END WHERE id=$1",
+        [source.id, job.to_at, page.exhausted],
       );
     });
   } catch (error) {
@@ -203,6 +203,13 @@ export async function workOnce(
         )
       ).rows[0];
       if (!current) return;
+      if (signal?.aborted) {
+        await client.query(
+          "UPDATE source_collection_job SET status='queued',next_run_at=NOW(),lease_token=NULL,lease_until=NULL,error=NULL WHERE id=$1 AND lease_token=$2",
+          [job.id, token],
+        );
+        return;
+      }
       const retryable =
         provider?.capability.automaticRequestReplay !== false &&
         error !== null &&

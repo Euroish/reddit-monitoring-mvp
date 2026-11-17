@@ -112,6 +112,8 @@ function checkMigrations(): void {
 }
 
 for (const file of files) {
+  if (/^(?:src\/(?:application|domain|runtime|jobs|workers|storage\/repositories)\/|workers\/)/.test(file)) errors.push(`Retired architecture path: ${file}`);
+  if (/^src\/connectors\/(?:reddit\/arctic-shift|x\/twitterapi-io)/.test(file)) errors.push(`Retired online connector: ${file}`);
   if (/\.(md|mdc|markdown)$/i.test(file) && !DOCUMENTATION_FILES.includes(file)) {
     errors.push(`Unexpected documentation: ${file}. Update an existing document.`);
   }

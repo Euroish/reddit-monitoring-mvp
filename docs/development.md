@@ -4,6 +4,23 @@
 
 ---
 
+## 当前分支的编译与 Compose 验收入口
+
+现有重整分支已合入 `main@dac7ab7`。Compose 从完整源码检出构建镜像；`release:pack` 是供 Node 直接运行的编译包。开发入口为 `npm run app:api`，唯一发布入口为 `node dist/apps/api/src/server.js`；构建用 `npm run build`，迁移用 `npm run db:migrate:compiled`。`DATABASE_URL` 必须指向独立 PG16 验证库，随后运行 `npm run smoke:compiled`，验证发布态 SQL、readiness、登录与 SIGTERM。迁移 runner 使用独立长超时连接，找不到 SQL 直接失败；空库应用共 46 文件，完整唯一链和不可改写边界见 [当前执行记录](status.md#0-当前重整分支执行记录)。
+
+本地三服务验收设置 `POSTGRES_PASSWORD`（URL 安全字符）、`SESSION_SECRET`（至少 32 字符）、`APP_ORIGIN=https://localhost:8443`、`SITE_ADDRESS=https://localhost`、`HTTPS_PORT=8443`、`TLS_CONFIG='tls internal'`，可选一次性 `ADMIN_BOOTSTRAP_PASSWORD`，再运行：
+
+```sh
+docker compose -p monitoring-local up --build -d --wait
+curl --insecure https://localhost:8443/readyz
+docker compose -p monitoring-local stop
+docker compose -p monitoring-local up -d --wait
+```
+
+自签证书仅用于本地验收。公网部署使用真实域名、`APP_ORIGIN=https://域名`、`SITE_ADDRESS=域名`、`HTTPS_PORT=443`、`PROXY_BIND=0.0.0.0` 并留空 `TLS_CONFIG`，由 Caddy 签发证书。app/db 不映射宿主机端口；`TRUST_PROXY_HOPS=1` 仅在此私有网络单跳反代拓扑设置，直接运行 API 默认不信任转发头。主线默认关闭外部网络采集；本轮仅本地启动，不执行公网部署。
+
+模块内职责文件现为 `content/batch.ts`（事务外归约）、`content/sql.ts`（唯一集合写）、`content/search.ts`（统一检索）、`content/export.ts`（下载生命周期）与 `collection/jobs.ts`（人工任务恢复）；其余维持原五模块。门禁继续拒绝旧运行时/连接器回流，保持 450 行文件与 220 字符代码行约束。流式 JSON 下载现在返回 `{items, result:{exportedCount,truncated,nextCursor,complete}}`，CSV 保持纯 RFC 4180 数据行。
+
 ## 1. 本机私有密钥与环境变量
 
 密钥仅存于仓外本机私有文件（如 `~/.config/reddit-monitoring/credentials.env`，目录 `700`、文件 `600`），严禁写入仓库、测试夹具、文档日志或前端 `VITE_*` 变量；模板见 `deploy/env/`。

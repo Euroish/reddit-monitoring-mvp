@@ -3,18 +3,20 @@ import test from "node:test";
 import { mkdtemp, mkdir, writeFile, appendFile, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import os from "node:os";
 
 test("release packaging allowlist excludes credentials/data and verification detects tampering or extra files", async (t) => {
   const { DOCUMENTATION_FILES, packRelease, verifyRelease } = await import("../../scripts/release-package-lib.mjs");
-  await mkdir("output/validation", { recursive: true });
-  const root = await mkdtemp(path.resolve("output/validation/release-fixture-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "release-fixture-"));
   t.after(async () => rm(root, { recursive: true, force: true }));
   for (const folder of [
-    "dist/apps/api/src", "dist/workers", "dist/plugins/zst-archive", "plugins/zst-archive",
+    "dist/apps/api/src", "dist/src/storage/schema", "dist/workers", "dist/plugins/zst-archive", "plugins/zst-archive",
     "apps/web/dist", "src/storage/schema", "deploy/env", "docs/research", "docs/plans",
   ]) await mkdir(path.join(root, folder), { recursive: true });
   for (const [file, content] of [
     ["dist/apps/api/src/server.js", "console.log('synthetic-api');"], ["dist/workers/source-content-worker.js", "console.log('synthetic-worker');"],
+    ["dist/src/storage/schema/run-migrations.js", "console.log('synthetic-migration');"],
+    ["dist/src/storage/schema/001_fixture.sql", "SELECT 1;"],
     ["apps/web/dist/index.html", "<html lang='en'>synthetic</html>"], ["src/storage/schema/001_fixture.sql", "SELECT 1;"],
     ["package.json", JSON.stringify({ name: "synthetic", version: "0.7.0" })], ["package-lock.json", "{}"],
     ["docs/research/data-sources.md", "candidate evidence"], ["docs/plans/source-expansion.md", "future design"],
@@ -31,7 +33,7 @@ test("release packaging allowlist excludes credentials/data and verification det
   ]) await writeFile(path.join(root, file), content);
   const destination = path.join(root, "output/release-a");
   const manifest = await packRelease({ root, destination });
-  assert.ok(manifest.files.some(file => file.path === "dist/workers/source-content-worker.js"));
+  assert.ok(!manifest.files.some(file => file.path === "dist/workers/source-content-worker.js"));
   assert.ok(!manifest.files.some(file => file.path.endsWith(".env") || file.path.includes(".env.local")));
   assert.deepEqual(
     manifest.files.filter(entry => entry.path.startsWith("docs/")).map(entry => entry.path).sort(),
@@ -51,7 +53,7 @@ test("release packaging allowlist excludes credentials/data and verification det
     legacyManifest.files.push({ path: legacyPath, bytes: Buffer.byteLength(legacyBody), sha256: createHash("sha256").update(legacyBody).digest("hex") });
   }
   await writeFile(path.join(legacyRoot, "release-manifest.json"), JSON.stringify(legacyManifest));
-  assert.equal((await verifyRelease(legacyRoot)).verified, true);
+  await assert.rejects(verifyRelease(legacyRoot), /Invalid release manifest/);
   await assert.rejects(packRelease({ root, destination }), /already exists/);
   await appendFile(path.join(destination, "dist/apps/api/src/server.js"), "tampered");
   await assert.rejects(verifyRelease(destination), /integrity/);

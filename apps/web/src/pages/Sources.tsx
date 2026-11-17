@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, useRef, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Radio } from "lucide-react";
 import type { CollectionSource } from "../../../../packages/contracts/src/source-content";
@@ -11,6 +11,8 @@ export default function Sources({
   run: Run;
   canEdit: boolean;
 }) {
+  const collectionRequest = useRef<{ body: string; key: string } | null>(null);
+  const [collecting, setCollecting] = useState(false);
   const [openedAt] = useState(() => Date.now());
   const sources = useQuery({
     queryKey: ["sources"],
@@ -141,19 +143,26 @@ export default function Sources({
                   onSubmit={(event) => {
                     event.preventDefault();
                     const form = new FormData(event.currentTarget);
-                    void run(() =>
-                      api(`/sources/${selected.id}/collect`, {
-                        method: "POST",
-                        body: JSON.stringify({
-                          from: new Date(
-                            String(form.get("from")),
-                          ).toISOString(),
-                          to: new Date(String(form.get("to"))).toISOString(),
-                          limit: Number(form.get("limit")),
-                          includeComments: form.get("comments") === "on",
-                        }),
-                      }),
-                    );
+                    const body = JSON.stringify({
+                      from: new Date(String(form.get("from"))).toISOString(),
+                      to: new Date(String(form.get("to"))).toISOString(),
+                      limit: Number(form.get("limit")),
+                      includeComments: form.get("comments") === "on",
+                    });
+                    const signature = `${selected.id}:${body}`;
+                    if (collectionRequest.current?.body !== signature) {
+                      collectionRequest.current = { body: signature, key: crypto.randomUUID() };
+                    }
+                    const key = collectionRequest.current.key;
+                    setCollecting(true);
+                    void run(async () => {
+                      try {
+                        await api(`/sources/${selected.id}/collect`, {
+                          method: "POST", headers: { "Idempotency-Key": key }, body,
+                        });
+                        if (collectionRequest.current?.key === key) collectionRequest.current = null;
+                      } finally { setCollecting(false); }
+                    });
                   }}
                 >
                   <Field label="开始日期">
@@ -190,7 +199,7 @@ export default function Sources({
                     <input name="comments" type="checkbox" />
                     连带高赞评论（每帖最多 15 条）
                   </label>
-                  <button>开始采集</button>
+                  <button disabled={collecting}>{collecting ? "正在提交…" : "开始采集"}</button>
                 </form>
               )}
             {canEdit &&

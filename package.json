@@ -10,7 +10,7 @@
     "db:migrate:compiled": "node dist/src/storage/schema/run-migrations.js",
     "typecheck": "tsc --noEmit && npm --prefix apps/web run typecheck",
     "build": "npm run build:api && npm run build:web",
-    "build:api": "node -e 'require(\"node:fs\").rmSync(\"dist\",{recursive:true,force:true})' && tsc --project tsconfig.build.json",
+    "build:api": "node scripts/build-api.mjs",
     "build:web": "npm --prefix apps/web run build",
     "lint": "npm run docs:check && npm --prefix apps/web run lint",
     "docs:check": "tsx scripts/check-docs.ts",
@@ -22,7 +22,8 @@
     "db:restore": "node scripts/database-backup.mjs restore",
     "assets:export": "tsx scripts/export-legacy-assets.ts",
     "release:pack": "npm run build && node scripts/package-release.mjs",
-    "release:verify": "node scripts/verify-release.mjs"
+    "release:verify": "node scripts/verify-release.mjs",
+    "smoke:compiled": "node scripts/smoke-compiled.mjs"
   },
   "dependencies": {
     "@fastify/rate-limit": "^11.2.2",

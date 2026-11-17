@@ -8,7 +8,11 @@ export default function Workspace({ run }: { run: Run }) {
     queryKey: ["queries"],
     queryFn: () =>
       api<{
-        queries: { id: string; name: string; query: Record<string, string> }[];
+        queries: {
+          id: string;
+          name: string;
+          query: Record<string, string | string[]>;
+        }[];
       }>("/workspace/queries"),
   });
   const annotations = useQuery({
@@ -35,7 +39,18 @@ export default function Workspace({ run }: { run: Run }) {
           <div className="saved-row" key={query.id}>
             <button
               onClick={() =>
-                navigate(`/content?${new URLSearchParams(query.query)}`)
+                navigate(
+                  `/content?${(() => {
+                    const params = new URLSearchParams();
+                    for (const [key, value] of Object.entries(query.query)) {
+                      for (const entry of Array.isArray(value)
+                        ? value
+                        : [value])
+                        params.append(key, entry);
+                    }
+                    return params;
+                  })()}`,
+                )
               }
             >
               {query.name} →

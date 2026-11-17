@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool } from "pg";
 import {
+  strictMerge,
   ActorSchema,
   Login,
   MachineKeyInput,
@@ -75,7 +76,7 @@ export async function accessRoutes(
     "/v1/auth/register",
     {
       schema: {
-        body: Type.Composite([
+        body: strictMerge([
           Login,
           Type.Object({
             invite: Type.String({ minLength: 1, maxLength: 256 }),
@@ -165,6 +166,7 @@ export async function accessRoutes(
       if (actor.clientKind !== "browser" || actor.role === "viewer")
         fail(403, "Administrator browser session required");
       const { allowedSourceIds, scopes, expiresInDays, label } = request.body;
+      if (scopes.includes("ingest") && !allowedSourceIds.length) fail(422, "Ingest keys require allowed sources");
       const count = (
         await pool.query(
           "SELECT COUNT(*) FROM collection_source WHERE id=ANY($1::uuid[])",

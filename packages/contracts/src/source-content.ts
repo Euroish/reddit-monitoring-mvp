@@ -1,4 +1,15 @@
-import { Type, type Static } from "@sinclair/typebox";
+import { Type, type TObject, type Static } from "@sinclair/typebox";
+
+export function strictMerge<T extends TObject[]>(schemas: [...T]) {
+  return Type.Composite(schemas, { additionalProperties: false });
+}
+export const IdempotencyHeaders = Type.Object({
+  "idempotency-key": Type.String({
+    minLength: 1,
+    maxLength: 128,
+    pattern: "^[\\x21-\\x7e]+$",
+  }),
+});
 
 export type JsonValue =
   string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -185,7 +196,7 @@ export const ContentItem = Type.Object(
   },
   { additionalProperties: false },
 );
-export const Content = Type.Composite([
+export const Content = strictMerge([
   Type.Omit(ContentItem, ["fetchedAt", "observation"]),
   Type.Object({
     firstFetchedAt: DateTime,
@@ -214,7 +225,7 @@ export const SourceInput = Type.Object(
   },
   { additionalProperties: false },
 );
-export const Source = Type.Composite([
+export const Source = strictMerge([
   Type.Omit(SourceInput, ["primaryProvider"]),
   Type.Object({
     id: Id,
@@ -270,7 +281,7 @@ export const ContentFilter = Type.Object(
   },
   { additionalProperties: false },
 );
-export const ListQuery = Type.Composite([
+export const ListQuery = strictMerge([
   ContentFilter,
   Type.Object({
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
@@ -291,13 +302,11 @@ export const ActorSchema = Type.Object({
   allowedSourceIds: Type.Union([Type.Array(Id), Type.Null()]),
 });
 export const Scopes = [
-  "sources:read",
   "sources:write",
-  "content:read",
-  "content:export",
-  "content:ingest",
-  "collection:run",
-  "projects:read",
+  "read",
+  "export",
+  "ingest",
+  "collect",
   "projects:write",
 ] as const;
 export const ParamsId = Type.Object({ id: Id });
@@ -315,13 +324,21 @@ export const MachineKeyInput = Type.Object(
       minItems: 1,
       uniqueItems: true,
     }),
-    allowedSourceIds: Type.Array(Id, { maxItems: 1000 }),
+    allowedSourceIds: Type.Array(Id, { maxItems: 1000, uniqueItems: true }),
     expiresInDays: Type.Integer({ minimum: 1, maximum: 90 }),
   },
   { additionalProperties: false },
 );
 export const Ingest = Type.Object(
-  { items: Type.Array(ContentItem, { minItems: 1, maxItems: 100 }) },
+  {
+    items: Type.Array(
+      strictMerge([
+        Type.Omit(ContentItem, ["id"]),
+        Type.Object({ id: Type.Optional(Id) }),
+      ]),
+      { minItems: 1, maxItems: 100 },
+    ),
+  },
   { additionalProperties: false },
 );
 export const Collect = Type.Object(

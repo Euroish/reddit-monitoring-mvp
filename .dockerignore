@@ -1,0 +1,9 @@
+.git
+node_modules
+apps/web/node_modules
+dist
+apps/web/dist
+output
+plugins
+.env*
+**/*.env

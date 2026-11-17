@@ -38,6 +38,7 @@ test("repository policy accepts clean multi-helper modules and enforces AST, rec
   put("src/storage/schema/042_b.sql", "SELECT 2;\n");
   put(".env.local", "APIFY_API_TOKEN=synthetic_fixture_only\n");
   execFileSync("git", ["add", "--", ".env.local"], { cwd: root });
+  put("src/runtime/obsolete.ts", "export const retired = true;\n");
   const invalid = run();
   assert.equal(invalid.status, 1, invalid.stderr);
   for (const error of [
@@ -45,6 +46,6 @@ test("repository policy accepts clean multi-helper modules and enforces AST, rec
     /Invalid Markdown anchor/, /Unexpected documentation/, /60 lines/,
     /Unregistered module file/, /Legacy dependency/, /Wrapper class/,
     /Code line exceeds 220 chars/, /Oversized module file/, /Duplicate forward migration prefix 042/,
-    /Private configuration tracked/,
+    /Private configuration tracked/, /Retired architecture path/,
   ]) assert.match(invalid.stderr, error);
 });

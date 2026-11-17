@@ -9,6 +9,7 @@ import type { Actor } from "../../../packages/contracts/src/source-content";
 import type { ContentProvider } from "../../../src/connectors/shared/content-provider.interface";
 import { findActor } from "../../../src/modules/access/sql";
 import { accessRoutes } from "../../../src/modules/access/routes";
+import { jobRoutes } from "../../../src/modules/collection/jobs";
 import { collectionRoutes } from "../../../src/modules/collection/routes";
 import { contentRoutes } from "../../../src/modules/content/routes";
 import { workspaceRoutes } from "../../../src/modules/workspace/routes";
@@ -28,14 +29,16 @@ export async function buildApp(options: {
   providers?: ContentProvider[];
   logger?: boolean;
   rateLimitMax?: number;
+  trustProxy?: false | 1;
 }) {
   if (options.sessionSecret.length < 32)
     throw new Error("SESSION_SECRET must have at least 32 characters");
   const origin = new URL(options.origin).origin;
   const app = Fastify({
     forceCloseConnections: "idle",
+    keepAliveTimeout: 5000,
     bodyLimit: 16 * 1024 * 1024,
-    trustProxy: false,
+    trustProxy: options.trustProxy === 1 ? (_address, hop) => hop < 1 : false,
     logger: options.logger
       ? {
           redact: [
@@ -71,6 +74,10 @@ export async function buildApp(options: {
       security: [{ bearerAuth: [] }],
     },
   });
+  app.addHook("onRoute", (route) => {
+    route.schema ??= {};
+    route.schema.operationId ??= `${Array.isArray(route.method) ? route.method[0] : route.method}_${route.url.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  });
   await app.register(rateLimit, {
     global: true,
     max: options.rateLimitMax ?? 120,
@@ -84,18 +91,27 @@ export async function buildApp(options: {
       failure.statusCode ??
       (code === "23505" || code === "23503"
         ? 409
-        : code === "57014"
+        : ["57014", "55P03", "53300", "08006", "57P01"].includes(code ?? "")
           ? 503
           : 500);
     const message =
       statusCode === 500 ? "Internal server error" : failure.message;
-    reply.code(statusCode).send({ error: { message, requestId: request.id } });
+    reply.code(statusCode).send({
+      error: {
+        code:
+          statusCode === 503 ? "temporarily_unavailable" : `http_${statusCode}`,
+        message,
+        requestId: request.id,
+        retryable: statusCode === 503,
+      },
+    });
   });
   app.addHook("onRequest", async (request) => {
     const route = request.routeOptions.url ?? request.url.split("?")[0],
       method = request.method;
     const publicRoute =
-      (method === "GET" && ["/healthz", "/v1/auth/session"].includes(route)) ||
+      (["GET", "HEAD"].includes(method) &&
+        ["/healthz", "/readyz", "/v1/auth/session"].includes(route)) ||
       (method === "POST" &&
         ["/v1/auth/login", "/v1/auth/register"].includes(route));
     let token: string | undefined,
@@ -142,22 +158,28 @@ export async function buildApp(options: {
     if (actor.clientKind === "machine") {
       const scope =
         route === "/v1/content/export"
-          ? "content:export"
+          ? "export"
           : route.endsWith("/ingest")
-            ? "content:ingest"
+            ? "ingest"
             : route.endsWith("/collect")
-              ? "collection:run"
-              : route.startsWith("/v1/content")
-                ? "content:read"
-                : route.startsWith("/v1/sources")
-                  ? method === "GET"
-                    ? "sources:read"
-                    : "sources:write"
-                  : route.startsWith("/v1/projects")
-                    ? method === "GET"
-                      ? "projects:read"
-                      : "projects:write"
-                    : null;
+              ? "collect"
+              : route.startsWith("/v1/source-jobs")
+                ? ["GET", "HEAD"].includes(method)
+                  ? "read"
+                  : "collect"
+                : route.endsWith("/unblock")
+                  ? "collect"
+                  : route.startsWith("/v1/content")
+                    ? "read"
+                    : route.startsWith("/v1/sources")
+                      ? ["GET", "HEAD"].includes(method)
+                        ? "read"
+                        : "sources:write"
+                      : route.startsWith("/v1/projects")
+                        ? ["GET", "HEAD"].includes(method)
+                          ? "read"
+                          : "projects:write"
+                        : null;
       if (
         route.startsWith("/v1/access/") ||
         route.startsWith("/v1/workspace/") ||
@@ -174,6 +196,7 @@ export async function buildApp(options: {
   });
   await accessRoutes(app, options.pool, cookie);
   await collectionRoutes(app, options.pool, providers);
+  await jobRoutes(app, options.pool);
   const shutdown = new AbortController();
   app.addHook("preClose", async () => {
     shutdown.abort();

@@ -176,7 +176,7 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
         db.pool,
         viewer,
         "machine",
-        ["content:read"],
+        ["read"],
         [a.id],
         1,
       );
@@ -243,7 +243,7 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
       const responses = await Promise.all([ingest(), ingest()]);
       assert.deepEqual(
         responses.map((response) => response.statusCode),
-        [200, 200],
+        [201, 200],
       );
       assert.equal(responses[0].json().jobId, responses[1].json().jobId);
       assert.equal(responses[0].json().added, 32);
@@ -318,10 +318,9 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
         payload: {
           label: "Research tool",
           scopes: [
-            "sources:read",
-            "content:read",
-            "content:export",
-            "content:ingest",
+            "read",
+            "export",
+            "ingest",
           ],
           allowedSourceIds: [a.id],
           expiresInDays: 1,
@@ -382,7 +381,8 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
         url: `/v1/content/export?sourceId=${b.id}`,
         headers: machine,
       });
-      assert.deepEqual(scopedExport.json(), []);
+      assert.deepEqual(scopedExport.json().items, []);
+      assert.equal(scopedExport.json().result.complete, true);
       await app.inject({
         method: "DELETE",
         url: `/v1/access/keys/${issued.json().id}`,
@@ -628,7 +628,7 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
         db.pool,
         viewer.id,
         "machine",
-        ["content:read"],
+        ["read"],
         [a.id],
         1,
       );
@@ -692,7 +692,7 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
       });
       assert.equal(response.statusCode, 200, response.body);
       assert.equal(response.headers["x-accel-buffering"], "no");
-      assert.equal(response.json().length, 32);
+      assert.equal(response.json().items.length, 32);
       const csv = await app.inject({
         url: `/v1/content/export?sourceId=${a.id}&format=csv`,
         headers,
@@ -746,6 +746,10 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
       assert.equal(response.status, 200);
       const reader = response.body!.getReader();
       assert.equal((await reader.read()).done, false);
+      const concurrent = await fetch(`${address}/v1/content/export`, { headers: { cookie } });
+      assert.equal(concurrent.status, 429);
+      assert.equal(concurrent.headers.get("retry-after"), "5");
+      assert.match((await concurrent.json()).error.message, /export is in progress/);
       await reader.cancel();
       let active = 1;
       for (let attempt = 0; attempt < 50 && active; attempt++) {

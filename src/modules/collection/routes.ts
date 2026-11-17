@@ -5,6 +5,7 @@ import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool } from "pg";
 import {
   Collect,
+  IdempotencyHeaders,
   Ingest,
   ParamsId,
   SourceInput,
@@ -107,7 +108,7 @@ export async function collectionRoutes(
         fail(422, "Provider not registered");
       const input = request.body;
       const result = await pool.query(
-        "UPDATE source_provider_budget SET enabled=$2,daily_requests=$3,monthly_requests=$4,daily_resources=$5,monthly_resources=$6,minimum_interval_ms=$7,revision=revision+1 WHERE provider=$1 AND revision=$8 RETURNING revision",
+        `UPDATE source_provider_budget SET enabled=$2,daily_requests=$3,monthly_requests=$4,daily_resources=$5,monthly_resources=$6,minimum_interval_ms=$7,revision=revision+1 WHERE provider=$1 AND revision=$8 RETURNING revision`,
         [
           request.params.provider,
           input.enabled,
@@ -236,8 +237,11 @@ export async function collectionRoutes(
         }),
       },
     },
-    async (request) => {
-      const batch = prepareContentBatch(request.body.items);
+    async (request, reply) => {
+      for (const item of request.body.items) {
+        if (Buffer.byteLength(item.title ?? "") > 4096 || Buffer.byteLength(item.text ?? "") > 65536) fail(413, "Content title or text exceeds byte limit");
+      }
+      const batch = prepareContentBatch(request.body.items.map(item => ({ ...item, id: item.id ?? randomUUID() })));
       const hash = createHash("sha256")
         .update(canonical(request.body))
         .digest("hex");
@@ -279,6 +283,7 @@ export async function collectionRoutes(
           batch,
           new Date().toISOString(),
         );
+        reply.code(201);
         const result = {
           jobId,
           ...counts,
@@ -295,7 +300,7 @@ export async function collectionRoutes(
   );
   api.post(
     "/v1/sources/:id/collect",
-    { schema: { params: ParamsId, body: Collect } },
+    { schema: { params: ParamsId, body: Collect, headers: IdempotencyHeaders } },
     async (request) =>
       transaction(pool, async (client) => {
         const source = await lockSource(
@@ -303,6 +308,15 @@ export async function collectionRoutes(
           request.actor!,
           request.params.id,
         );
+        const key = request.headers["idempotency-key"];
+        const previous = (await client.query(
+          "SELECT id,request_json FROM source_collection_job WHERE collection_source_id=$1 AND request_key=$2 AND purpose='collect'",
+          [source.id, key],
+        )).rows[0];
+        if (previous) {
+          if (canonical(previous.request_json) !== canonical(request.body)) fail(409, "Idempotency key already used with different request");
+          return { jobId: previous.id };
+        }
         if (source.delivery_mode !== "pull")
           fail(409, "Push sources cannot be scheduled");
         if (Date.parse(request.body.from) >= Date.parse(request.body.to))
@@ -347,7 +361,7 @@ export async function collectionRoutes(
             request.body.from,
             request.body.to,
             request.body.limit,
-            randomUUID(),
+            key,
             request.body,
           ],
         );

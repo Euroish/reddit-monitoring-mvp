@@ -38,8 +38,8 @@ export async function createProject(
   return transaction(pool, async (client) => {
     const id = randomUUID();
     await client.query(
-      "INSERT INTO monitor_project(id,name,filter) VALUES($1,$2,$3)",
-      [id, input.name, input.filter],
+      "INSERT INTO monitor_project(id,name,filter,owner_user_id) VALUES($1,$2,$3,$4)",
+      [id, input.name, input.filter, actor.userId],
     );
     await client.query(
       "INSERT INTO monitor_project_source(project_id,collection_source_id) SELECT $1,UNNEST($2::uuid[])",
