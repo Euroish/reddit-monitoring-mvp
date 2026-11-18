@@ -24,9 +24,9 @@ test("filter compiler intersects source scopes within one EXISTS and escapes LIK
   assert.equal(normalizePublicSearchText("  ＡI\u00a0🧭  工具 "), "ai 🧭 工具");
   assert.throws(
     () => compileContentFilter({ allowedSourceIds: ["allowed"] }, {}, ["project"], {
-      sourceId: "requested", anyTerms: ["valid", "ＡI"],
+      sourceId: "requested", anyTerms: ["valid", "Ａ"],
     }),
-    /three consecutive/,
+    /two consecutive/,
   );
   assert.throws(
     () =>

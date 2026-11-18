@@ -37,7 +37,7 @@ export const Target = Type.Union([
   Type.Object(
     {
       type: Type.Literal("search"),
-      query: Type.String({ minLength: 1, maxLength: 200 }),
+      query: Type.String({ minLength: 1, maxLength: 512 }),
     },
     { additionalProperties: false },
   ),
@@ -216,6 +216,16 @@ export const Content = strictMerge([
   }),
 ]);
 export const FallbackProvider = Type.Union([Type.Literal("scrapebadger"), Type.Literal("red_crawler")]);
+export const SourceSchedule = Type.Object({
+  enabled: Type.Boolean(),
+  cadenceSeconds: Type.Optional(Type.Integer({ minimum: 120, maximum: 43200 })),
+  overlapSeconds: Type.Optional(Type.Integer({ minimum: 0, maximum: 3600 })),
+  initialLookbackHours: Type.Optional(Type.Integer({ minimum: 1, maximum: 48 })),
+  maxCatchupHours: Type.Optional(Type.Integer({ minimum: 1, maximum: 48 })),
+  pageSize: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+  maxPages: Type.Optional(Type.Integer({ minimum: 1, maximum: 5 })),
+}, { additionalProperties: false });
+
 export const SourceInput = Type.Object(
   {
     platform: Platform,
@@ -230,6 +240,7 @@ export const SourceInput = Type.Object(
       Type.Literal("external_ingest"),
     ]),
     fallbackProvider: Type.Optional(FallbackProvider),
+    schedule: Type.Optional(SourceSchedule),
     label: Type.String({ minLength: 1, maxLength: 100 }),
     target: Target,
     contentKind: Kind,
@@ -251,12 +262,17 @@ export const Source = strictMerge([
     primaryProvider: Type.String({ minLength: 1, maxLength: 64 }),
     fallbackProvider: NullableText,
     revision: Type.Integer(),
+    nextDueAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
+    lastCheckedAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
+    lastSuccessAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
+    automaticCollectionBlocked: Type.Optional(Type.Boolean()),
     coverage: Type.Union([Type.Literal("unknown"), Type.Literal("partial")]),
   }),
 ]);
 export const ContentFilter = Type.Object(
   {
     sourceId: Type.Optional(Id),
+    deliveryMode: Type.Optional(Type.Union([Type.Literal("pull"), Type.Literal("push")])),
     platform: Type.Optional(Platform),
     kind: Type.Optional(Kind),
     query: Type.Optional(

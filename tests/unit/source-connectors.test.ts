@@ -3,6 +3,7 @@ import test from "node:test";
 import type { CollectionSource } from "../../packages/contracts/src/source-content";
 import { redCrawler } from "../../src/connectors/reddit/red-crawler";
 import { webSource } from "../../src/connectors/web/sources";
+import { twitterApis } from "../../src/connectors/x/twitterapis";
 import { scrapeBadger } from "../../src/connectors/x/scrapebadger";
 
 const from = "2026-11-15T00:00:00.000Z";
@@ -78,4 +79,23 @@ test("ScrapeBadger scopes account searches upstream and records refresh credits"
   const refreshed = await connector.refreshIds!({ source: account, externalIds: ["123456"] });
   assert.equal(refreshed.creditsUsed, 2);
   assert.equal(refreshed.items.length, 1);
+});
+
+test("TwitterAPIs queries an account window and preserves attached media and links", async () => {
+  const connector = twitterApis({ ...env, TWITTERAPIS_API_KEY: "fixture" }, async (raw) => {
+    const url = new URL(String(raw));
+    assert.equal(url.pathname, "/twitter/tweet/advanced_search");
+    assert.match(url.searchParams.get("query")!, /^from:fixture since_time:\d+ until_time:\d+$/);
+    return Response.json({ tweets: [{
+      id: "123456", created_at: from, text: "Example", author: { username: "Fixture" },
+      media: [{
+        type: "video", media_url_https: "https://example.com/preview.jpg",
+        video_info: { duration_millis: 1500, variants: [{ content_type: "video/mp4", url: "https://example.com/video.mp4" }] },
+      }],
+      entities: { urls: [{ expanded_url: "https://example.com/release" }] },
+    }] });
+  });
+  const account = source({ type: "account", account: "@Fixture" }, "post");
+  const page = await connector.collectPage({ ...request, source: account, limit: 25 });
+  assert.deepEqual(page.items[0]?.media.map(({ type, durationSeconds }) => [type, durationSeconds]), [["video", 1.5], ["link", null]]);
 });

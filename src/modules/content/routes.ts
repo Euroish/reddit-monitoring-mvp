@@ -10,7 +10,7 @@ import {
   ResearchFilter,
   strictMerge,
 } from "../../../packages/contracts/src/source-content";
-import { contentSelect, compileContentFilter, decodeCursor, filterSignature, matchedAnchors } from "./search";
+import { contentColumns, contentSelect, contentTables, compileContentFilter, decodeCursor, filterSignature, matchedAnchors, pageObservations } from "./search";
 import { contentFromRow } from "./sql";
 import { exportRoutes } from "./export";
 import { readThread } from "./thread";
@@ -28,32 +28,33 @@ const ListResponse = {
   }),
 };
 
-async function listContent(pool: Pool, actor: Actor, query: Static<typeof ListQuery>, pathProjectId?: string) {
+async function listContent(pool: Pool, actor: Actor, query: Static<typeof ListQuery>, pathProjectId?: string, feed = false) {
   const { limit = 50, cursor, projectId: queryProjectId, ...filter } = query;
   const projectId = pathProjectId ?? queryProjectId;
   const project = projectId ? await projectSources(pool, actor, projectId) : undefined;
-  const compiled = compileContentFilter(actor, filter, project?.source_ids, project?.filter);
+  const compiled = compileContentFilter(actor, filter, project?.source_ids, project?.filter, feed);
   const match = matchedAnchors(compiled, filter.threadAware ?? project?.thread_aware ?? false);
-  const signature = filterSignature(actor, filter, project && { id: project.id, revision: project.revision });
-  let seek = "";
+  const signature = filterSignature(actor, filter, project && { id: project.id, revision: project.revision }) + (feed ? ":feed" : "");
+  let seek = feed ? " AND c.created_at_source IS NOT NULL" : "";
   if (cursor) {
     const after = decodeCursor(cursor, signature);
     compiled.values.push(after.id);
     const id = `$${compiled.values.length}`;
     if (after.time === null)
-      seek = ` AND c.created_at_source IS NULL AND c.id<${id}::uuid`;
+      seek += ` AND c.created_at_source IS NULL AND c.id<${id}::uuid`;
     else {
       compiled.values.push(after.time);
       const time = `$${compiled.values.length}`;
-      seek = ` AND ((c.created_at_source,c.id)<(${time}::timestamptz,${id}::uuid) OR c.created_at_source IS NULL)`;
+      seek += ` AND ((c.created_at_source,c.id)<(${time}::timestamptz,${id}::uuid) OR c.created_at_source IS NULL)`;
     }
   }
   compiled.values.push(limit + 1);
-  const selection = contentSelect(match.columns ? compiled.visible : compiled.discovery, match.columns);
   const rows = (
     await pool.query(
-      `${match.cte} ${selection} ${match.joins} WHERE ${match.where}${seek}
-       ORDER BY c.created_at_source DESC NULLS LAST,c.id DESC LIMIT $${compiled.values.length}`,
+      `${match.cte ? `${match.cte},` : "WITH"} page AS MATERIALIZED (
+        SELECT ${contentColumns}${match.columns} FROM ${contentTables} ${match.joins} WHERE ${match.where}${seek}
+        ORDER BY c.created_at_source DESC NULLS LAST,c.id DESC LIMIT $${compiled.values.length}
+      ) ${pageObservations(match.columns ? compiled.visible : compiled.discovery)}`,
       compiled.values,
     )
   ).rows;
@@ -86,6 +87,9 @@ export async function contentRoutes(
   api.get("/v1/content", { schema: { querystring: ListQuery, response: ListResponse } },
     (request) => listContent(pool, request.actor!, request.query),
   );
+  api.get("/v1/content/feed", { schema: {
+    querystring: Type.Omit(ListQuery, ["projectId", "threadAware"]), response: ListResponse,
+  } }, (request) => listContent(pool, request.actor!, request.query, undefined, true));
   api.get("/v1/projects/:id/content", { schema: {
     params: ParamsId, querystring: Type.Omit(ListQuery, ["projectId"]), response: ListResponse,
   } }, (request) => listContent(pool, request.actor!, request.query, request.params.id));

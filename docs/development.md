@@ -88,7 +88,24 @@ node --env-file="$HOME/.config/reddit-monitoring/credentials.env" dist/apps/api/
 
 `TWITTERAPIS_TIMEOUT_MS` / `SCRAPEBADGER_TIMEOUT_MS` 的默认值为 `20000ms`（区间 `100..120000ms`）。Compose 默认关闭采集，显式设置 `SOURCE_NETWORK_ENABLED=true` 后透传环境中的供应商凭据，开启相应来源预算后才可提交任务。
 
-TwitterAPIs 单任务一页、最多 20 条（追踪大批量 VIP 账号时，按 15–20 人/组配置 `from:u1 OR from:u2 ... -is:retweet` 搜索源可节省 95% 调用成本）。需要备源时在来源创建或 PATCH 中设置 `fallbackProvider`，提交采集时显式传 `useFallback: true`。ScrapeBadger 批量刷新用 `POST /v1/sources/:id/refresh`，每次 1–20 个库内内容 ID，带 `Idempotency-Key`。Reddit 项目手选水合用 `POST /v1/projects/:id/hydrate`，每次最多 30 个现有根帖。
+TwitterAPIs 每页最多 20 条。账号用带时间窗的 `from:` 搜索，批量追踪用 `from:u1 OR from:u2` 搜索源。手动任务取一页，自动排期按配置限制游标页数。手动任务可传 `useFallback: true`，自动排期仅在首次请求明确返回 429、尚无 Run 回执及提交页，并已配置兼容备源时单跳切备。ScrapeBadger 批量刷新用 `POST /v1/sources/:id/refresh`，每次 1–20 个库内内容 ID，带 `Idempotency-Key`。Reddit 项目手选水合用 `POST /v1/projects/:id/hydrate`，每次最多 30 个现有根帖。
+
+### 搜索投影存量维护
+
+`047` 创建双字 GIN 索引并调整压缩设置。现有 TOAST 值维持原存储方式，新写入和变更按列配置压缩。搜索投影新写入将 `normalized_title`、`normalized_text` 置空，旧记录可按主键分批清理。估算实际索引构建空间、WAL 与备份余量后，在授权的维护窗口执行。单批最多 2,000 行，使用上次返回的主键继续直到返回空值：
+
+```sql
+WITH batch AS MATERIALIZED (
+  SELECT content_id FROM public_content_search_document
+  WHERE content_id > :'after_id'::uuid ORDER BY content_id LIMIT 2000
+), cleaned AS (
+  UPDATE public_content_search_document d SET normalized_title='', normalized_text=''
+  FROM batch WHERE d.content_id=batch.content_id AND (d.normalized_title<>'' OR d.normalized_text<>'')
+)
+SELECT content_id FROM batch ORDER BY content_id DESC LIMIT 1;
+```
+
+首批的 `after_id` 为全零 UUID。常规 VACUUM 让释放的空间可复用，文件大小与 WAL 实际变化按维护结果记录。
 
 ### 批量提交采集计划
 

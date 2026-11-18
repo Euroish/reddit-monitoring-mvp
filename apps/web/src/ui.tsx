@@ -22,7 +22,7 @@ export function Heading({
   children,
 }: {
   title: string;
-  note: string;
+  note?: string;
   children?: ReactNode;
 }) {
   return (
@@ -30,7 +30,7 @@ export function Heading({
       <div>
         <p className="eyebrow">研究工作台</p>
         <h1>{title}</h1>
-        <p>{note}</p>
+        {note && <p>{note}</p>}
       </div>
       {children}
     </header>

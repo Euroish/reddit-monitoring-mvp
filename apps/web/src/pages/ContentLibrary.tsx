@@ -11,7 +11,7 @@ import Thread from "./Thread";
 import { api, type Run } from "../api";
 const date = (value: string | null) =>
   value ? new Date(value).toLocaleString("zh-CN") : "发布时间未知";
-export default function ContentLibrary({ run, canCollect }: { run: Run; canCollect: boolean }) {
+export default function ContentLibrary({ run, canCollect, feed = false }: { run: Run; canCollect: boolean; feed?: boolean }) {
   const [params, setParams] = useSearchParams(),
     [selected, setSelected] = useState<PublicContent | null>(null),
     [savingQuery, setSavingQuery] = useState(false),
@@ -81,10 +81,10 @@ export default function ContentLibrary({ run, canCollect }: { run: Run; canColle
     queryFn: () => api<{ name: string; source_ids: string[] }>(`/projects/${projectId}`),
   });
   const content = useQuery({
-    queryKey: ["content", query],
+    queryKey: ["content", feed, query],
     queryFn: () =>
       api<{ items: PublicContent[]; nextCursor: string | null }>(
-        `/content?${query}`,
+        `/content${feed ? "/feed" : ""}?${query}`,
       ),
   });
   const sources = useQuery({
@@ -93,8 +93,8 @@ export default function ContentLibrary({ run, canCollect }: { run: Run; canColle
   });
   return (
     <>
-      <Heading title="内容库" note={project.data?.name ?? "检索已经收集的内容，保留可追溯的原始证据。"}>
-        <button
+      <Heading title={feed ? "最新" : "内容库"} note={feed ? undefined : project.data?.name ?? "检索已经收集的内容，保留可追溯的原始证据。"}>
+        {!feed && <button
           className="primary"
           disabled={exporting}
           onClick={() => {
@@ -131,7 +131,7 @@ export default function ContentLibrary({ run, canCollect }: { run: Run; canColle
           }}
         >
           {exporting ? "正在下载…" : "下载当前结果"}
-        </button>
+        </button>}
       </Heading>
       <form
         className="search-bar"
@@ -154,7 +154,7 @@ export default function ContentLibrary({ run, canCollect }: { run: Run; canColle
           onChange={(event) =>
             setDraft({ ...searchDraft, query: event.target.value })
           }
-          placeholder="搜索标题与正文，至少连续 3 个字母或数字"
+          placeholder="搜索标题与正文，至少连续 2 个字母或数字"
         />
         <select
           name="sourceId"
@@ -165,7 +165,7 @@ export default function ContentLibrary({ run, canCollect }: { run: Run; canColle
           }
         >
           <option value="">全部可见来源</option>
-          {sources.data?.sources.filter((source) => !project.data || project.data.source_ids.includes(source.id)).map((source) => (
+          {sources.data?.sources.filter((source) => (!feed || source.deliveryMode === "pull") && (!project.data || project.data.source_ids.includes(source.id))).map((source) => (
             <option key={source.id} value={source.id}>
               {source.label}
             </option>
@@ -180,8 +180,8 @@ export default function ContentLibrary({ run, canCollect }: { run: Run; canColle
       </form>
       {content.error && <p role="alert">{content.error.message}</p>}
       <div className="result-heading">
-        <span>已存样本</span>
-        <button onClick={() => setSavingQuery(!savingQuery)}>保存查询</button>
+        <span>{feed ? "在线来源" : "已存样本"}</span>
+        {!feed && <button onClick={() => setSavingQuery(!savingQuery)}>保存查询</button>}
       </div>
       {savingQuery && (
         <form
@@ -264,6 +264,7 @@ export default function ContentLibrary({ run, canCollect }: { run: Run; canColle
           >
             <div className="content-meta">
               <span>{item.platform}</span>
+              {(item.author?.displayName ?? item.author?.handle) && <span>{item.author?.displayName ?? item.author?.handle}</span>}
               {item.contextMissing && <span>根帖上下文缺失</span>}
               <span>{item.kind === "comment" ? "评论" : "主帖 / 文章"}</span>
               <time>{date(item.publishedAt)}</time>
@@ -272,8 +273,15 @@ export default function ContentLibrary({ run, canCollect }: { run: Run; canColle
             <p>{item.text?.slice(0, 220)}</p>
             <div className="content-footer">
               {item.observations
-                .map((observation) => observation.provider)
-                .join(" · ")}
+                .map(({ provider, metrics }) => {
+                  const values = [
+                    [metrics["reddit.num_comments"] ?? metrics["x.replies"], "回复"],
+                    [metrics["x.likes"], "点赞"],
+                    [metrics["web.rank"], "榜单名次"],
+                  ] as const;
+                  return [provider, ...values.flatMap(([value, label]) => value == null ? [] : [`${label} ${value}`])].join(" · ");
+                })
+                .join("　")}
               <span>
                 查看证据 <ArrowUpRight size={14} />
               </span>

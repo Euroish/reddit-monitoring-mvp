@@ -109,7 +109,7 @@ export default function Projects({
             />
           </Field>
           <Field label="任一提及">
-            <input name="anyTerms" defaultValue={editing?.filter.anyTerms?.join(", ")} placeholder="至少连续 3 个字母或数字，词组以逗号分隔" />
+            <input name="anyTerms" defaultValue={editing?.filter.anyTerms?.join(", ")} placeholder="至少连续 2 个字母或数字，词组以逗号分隔" />
           </Field>
           <Field label="同时包含">
             <input name="allTerms" defaultValue={editing?.filter.allTerms?.join(", ")} />
@@ -172,6 +172,15 @@ export default function Projects({
                   {facet.platform} <strong>{facet.count}</strong>
                 </span>
               ))}
+          </div>
+          <div className="facets" aria-label="按日命中">
+            {overview.data.facets.filter((facet) => facet.day_group === 0 && facet.day).map((facet) => {
+              const from = new Date(facet.day!).toISOString();
+              const to = new Date(Date.parse(from) + 86400000).toISOString();
+              const url = new URLSearchParams({ projectId: project.id, from, to });
+              if (!project.include_push_in_trends) url.set("deliveryMode", "pull");
+              return <Link key={from} to={`/content?${url}`}>{from.slice(0, 10)} · {facet.count}</Link>;
+            })}
           </div>
           <div className="facets">
             <Link to={`/content?projectId=${project.id}`}>查看项目内容 →</Link>

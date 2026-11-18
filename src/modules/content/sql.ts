@@ -175,7 +175,7 @@ export async function commitContentBatch(
     });
   await client.query(
     `INSERT INTO public_content_search_document(content_id,format_version,search_text,title_length,text_present,indexed_at,fingerprint,normalized_title,normalized_text)
-    SELECT (v->>'id')::uuid,1,(v->>'normalizedTitle')||chr(31)||(v->>'normalizedText'),char_length(v->>'normalizedTitle'),(v->>'textPresent')::boolean,$2,(v->>'fingerprint'),v->>'normalizedTitle',v->>'normalizedText'
+    SELECT (v->>'id')::uuid,1,(v->>'normalizedTitle')||chr(31)||(v->>'normalizedText'),char_length(v->>'normalizedTitle'),(v->>'textPresent')::boolean,$2,(v->>'fingerprint'),'',''
     FROM UNNEST($1::jsonb[]) AS input(v)
     ON CONFLICT(content_id) DO UPDATE SET search_text=EXCLUDED.search_text,title_length=EXCLUDED.title_length,text_present=EXCLUDED.text_present,indexed_at=EXCLUDED.indexed_at,fingerprint=EXCLUDED.fingerprint,format_version=1,normalized_title=EXCLUDED.normalized_title,normalized_text=EXCLUDED.normalized_text
     WHERE public_content_search_document.fingerprint IS DISTINCT FROM EXCLUDED.fingerprint`,

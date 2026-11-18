@@ -445,7 +445,16 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
         assert.equal(response.statusCode, 200, response.body);
         assert.equal(response.json().items.length, count);
       }
-      assert.equal((await app.inject({ url: `/v1/content?sourceId=${a.id}&query=%E4%B8%AD%E6%96%87`, headers })).statusCode, 422);
+      for (const [query, scope, count] of [["中文", "text", 1], ["中文", "title", 0], ["el", "title", 1]] as const) {
+        const response = await app.inject({
+          url: `/v1/content?sourceId=${a.id}&query=${encodeURIComponent(query)}&searchScope=${scope}`, headers,
+        });
+        assert.equal(response.statusCode, 200, response.body);
+        assert.equal(response.json().items.some((entry: { externalId: string }) => entry.externalId === known.externalId), !!count);
+      }
+      const excluded = await app.inject({ url: `/v1/content?sourceId=${a.id}&exclusions=%E4%B8%AD%E6%96%87`, headers });
+      assert.equal(excluded.statusCode, 200, excluded.body);
+      assert.ok(!excluded.json().items.some((entry: { externalId: string }) => entry.externalId === known.externalId));
       assert.equal(
         (
           await app.inject({
@@ -768,4 +777,20 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
       assert.equal(db.pool.waitingCount, 0);
     },
   );
+  await t.test("thread resolves a visible nested reply without an explicit thread root", async () => {
+    const nested = batchItem(a.id, {
+      kind: "comment", externalId: "t1_nestedshort",
+      references: [{ kind: "comment", externalId: comments[0].externalId, relation: "reply_to" }],
+      observation: { ...item.observation, evidenceKey: "nested-reply" },
+    });
+    const inserted = await ingest({ items: [nested] }, "nested-reply");
+    assert.equal(inserted.statusCode, 201, inserted.body);
+    const row = (await db.pool.query("SELECT id FROM content WHERE external_id=$1", [nested.externalId])).rows[0];
+    const response = await app.inject({ url: `/v1/content/${row.id}/thread`, headers });
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(response.json().root.externalId, item.externalId);
+    const node = response.json().nodes.find(({ item }: { item: { id: string } }) => item.id === row.id);
+    assert.equal(node?.depth, 2);
+    assert.equal(node.contextMissing, false);
+  });
 });

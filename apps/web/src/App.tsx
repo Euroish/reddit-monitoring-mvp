@@ -99,7 +99,8 @@ export default function App() {
         <nav aria-label="主导航">
           {(
             [
-              ["/", "项目", Radar],
+              ["/", "最新", Library],
+              ["/projects", "项目", Radar],
               ["/content", "内容库", Library],
               ["/sources", "来源", Radio],
               ["/workspace", "我的研究", Bookmark],
@@ -136,8 +137,9 @@ export default function App() {
           </div>
         )}
         <Routes>
+          <Route path="/" element={<ContentLibrary key="feed" feed run={run} canCollect={false} />} />
           <Route
-            path="/"
+            path="/projects"
             element={<Projects run={run} canEdit={user.role !== "viewer"} />}
           />
           <Route path="/content" element={<ContentLibrary run={run} canCollect={user.role !== "viewer"} />} />

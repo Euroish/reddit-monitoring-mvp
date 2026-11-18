@@ -18,7 +18,7 @@ async function freePort() {
   await new Promise<void>((resolve) => socket.close(() => resolve()));
   return port;
 }
-test("browser: keyboard login, five navigation tasks, saved query and responsive layouts", async (t) => {
+test("browser: keyboard login, six navigation entries, saved query and responsive layouts", async (t) => {
   const db = await testDatabase();
   t.after(db.close);
   await bootstrapOwner(db.pool, "fixture-password-123", "owner@example.test");
@@ -100,7 +100,7 @@ test("browser: keyboard login, five navigation tasks, saved query and responsive
   await page.keyboard.press("Tab");
   await page.keyboard.type("fixture-password-123");
   await page.keyboard.press("Enter");
-  await page.getByRole("heading", { name: "监测项目" }).waitFor();
+  await page.getByRole("heading", { name: "最新" }).waitFor();
   await page.getByRole("link", { name: "来源", exact: true }).click();
   await page.getByRole("button", { name: "添加来源" }).click();
   await page.getByLabel("来源名称").fill("内部研究样本");
@@ -221,7 +221,7 @@ test("browser: keyboard login, five navigation tasks, saved query and responsive
         .getByRole("navigation", { name: "主导航" })
         .getByRole("link")
         .count(),
-      5,
+      6,
     );
     assert.ok(
       await page.evaluate(
