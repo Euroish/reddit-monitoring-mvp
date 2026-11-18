@@ -79,6 +79,8 @@
 
 下表用于规划命名。当前调用方以运行实例的 `/v1/openapi.json` 为准。个人查询使用 `/v1/workspace/queries`，批注使用 `/v1/workspace/annotations`，机器 Key 管理使用 `/v1/access/keys`。项目对比仍待实现。
 
+`GET /v1/source-jobs?ids=<uuid>,<uuid>` 一次接受最多 100 个任务 ID，返回对应的可见任务状态与处理计数。缺失或不在当前来源授权范围内的 ID 均省略。机器 Key 使用 `read` scope。
+
 | 资源域 | 标准化接口路径（不额外搭建第二套 Agent 接口） |
 | :--- | :--- |
 | **账户与发现** | `POST /v1/auth/login`、`GET /v1/auth/session`、`POST /v1/auth/logout`、`POST /v1/auth/register`、`GET /v1/capabilities`、`GET /v1/openapi.json`、`GET/POST /v1/access-tokens`、`DELETE /v1/access-tokens/:id` |

@@ -14,6 +14,10 @@ export const IdempotencyHeaders = Type.Object({
 export type JsonValue =
   string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 export const Id = Type.String({ format: "uuid" });
+const jobIdPattern = "[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}";
+export const JobStatusQuery = Type.Object({
+  ids: Type.String({ maxLength: 3699, pattern: `^${jobIdPattern}(?:,${jobIdPattern}){0,99}$` }),
+}, { additionalProperties: false });
 export const DateTime = Type.String({ format: "date-time" });
 export const NullableText = Type.Union([Type.String(), Type.Null()]);
 export const Platform = Type.Union([

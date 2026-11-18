@@ -51,6 +51,14 @@ TwitterAPIs 单任务一页、最多 20 条。需要备源时在来源创建或 
 
 单帖 Reddit 采集在来源目标中使用 `{type: "post", postId: "t3_…"}` 和 `contentKind: "comment"`。Kaix 的 `maxCommentsPerPost` 最大为 50，实际取两项中较小者（任务 `limit` 与评论上限）；预算另为同批返回的主帖预留 1 条。任务结束后通过 `GET /v1/source-jobs/:id` 查看 `job.result_summary.warning`，评论缺失时用对应 `provider_run_id` 核对 Apify Run。
 
+### 批量提交采集计划
+
+`npm run collect:batch -- output/collect-plan.json` 在本地解析 JSON 计划并汇总任务数和请求条数上限。计划是对象数组，每项填写已有 `sourceId`、ISO 时间 `from` / `to` 和 `limit`。可选字段为 `includeComments`、`maxCommentsPerPost` 和 `useFallback`，每个来源继续遵循对应供应商页大小与预算。
+
+执行时从环境提供 `COLLECT_API_URL`（经 Caddy 时包含 `/api`）和拥有 `read`、`collect` 权限的来源范围 Machine Key，再给命令加 `--apply`。脚本每轮最多提交 32 项，合并查询状态，按服务端 `Retry-After` 退避。遇到排队预算提示或等待超时会保留进度。等额度或任务状态更新后，用同一计划和命令继续，已提交的任务沿用回执。服务端继续控制实际供应商调用。脚本将进度保存到计划旁的 `.progress.json`，计划和进度可一并放入 `output/`。
+
+当前每个采集任务仍为供应商的一页或一个 Actor Run。计划中的记录上限用于估算，实际供给受来源覆盖、供应商页大小和额度约束。
+
 ## 2. 历史版本 `main@0.9.1` 的入口与门禁脚本
 
 本节保留 `main@0.9.1` 的历史运维记录。当前版本以本页开头的编译与 Compose 入口及 `package.json` 为准。

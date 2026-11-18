@@ -2,12 +2,22 @@ import { Type } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool } from "pg";
-import { ParamsId } from "../../../packages/contracts/src/source-content";
+import { JobStatusQuery, ParamsId } from "../../../packages/contracts/src/source-content";
 import { fail, transaction } from "../../storage/db";
 import { assertSource, audit, lockSource } from "./sql";
 
 export async function jobRoutes(app: FastifyInstance, pool: Pool) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
+  api.get("/v1/source-jobs", { schema: { querystring: JobStatusQuery } }, async (request) => {
+    const { rows } = await pool.query(
+      `SELECT id,status,provider,provider_state->>'phase' AS phase,error,next_run_at,
+        request_count,records_processed,records_inserted,records_updated
+       FROM source_collection_job
+       WHERE id=ANY($1::uuid[]) AND ($2::uuid[] IS NULL OR collection_source_id=ANY($2::uuid[]))`,
+      [request.query.ids.split(","), request.actor!.allowedSourceIds],
+    );
+    return { jobs: rows };
+  });
   api.get(
     "/v1/source-jobs/:id",
     { schema: { params: ParamsId } },

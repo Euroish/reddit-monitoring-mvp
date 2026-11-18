@@ -20,6 +20,7 @@
     "test": "npm run test:unit && npm run test:postgres",
     "db:backup": "node scripts/database-backup.mjs backup",
     "db:restore": "node scripts/database-backup.mjs restore",
+    "collect:batch": "node scripts/collect-batch.mjs",
     "assets:export": "tsx scripts/export-legacy-assets.ts",
     "release:pack": "npm run build && node scripts/package-release.mjs",
     "release:verify": "node scripts/verify-release.mjs",
