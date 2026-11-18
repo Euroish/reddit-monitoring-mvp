@@ -304,6 +304,38 @@ $$\text{GravityScore}(d) = \frac{\text{RRF}(d) + \epsilon_{\text{base}}}{\bigl(t
 | **Phase 2：四大支柱主流源、VIP 批次追踪与首页信息流** | 1. 扩展 `sources.ts` 接入 13+ `NewsNow` 财经/社媒/科技热榜、HF Daily Papers、SEC EDGAR 与完整 IPv4/IPv6/重定向安全抓取；<br>2. 支持 X/Reddit 批次 VIP 追踪并补齐推文媒体/外链提取；<br>3. 实现 64-bit SimHash + 实体链接事件聚类与 RRF + 重力衰减排序；<br>4. 将 `/` 切换为“最新 / 为你 / 四大频道”信息流首页，卡片展示作者、指标、入选理由与折叠转发。 | • `src/connectors/web/sources.ts`（或拆分 `newsnow-boards.ts`）<br>• `src/connectors/x/twitterapis.ts`<br>• `src/modules/content/batch.ts`, `routes.ts`<br>• `apps/web/src/App.tsx`, `pages/ContentLibrary.tsx`, `pages/Projects.tsx` | 1. 200 位 VIP 批次采集正常归属各自作者；<br>2. 同一事件的多源报道在首页折叠为 1 张事件卡；<br>3. `findActor` LRU + 15s SWR 缓存生效。 |
 | **Phase 3：按题动态探索（20–30 站）与 Dual-LLM 操作环境** | 1. 实现 4 正交槽拆解 + Tier-1/Tier-2 联邦搜索路由器；<br>2. 引入 `linkedom` + `@mozilla/readability` 内存安全正文提取器与 RSS 自动嗅探；<br>3. 复用 `delivery_mode='push'` 实现 3 波渐进式证据展现，支持一键转长期 `pull` 订阅；<br>4. 落地 Dual-LLM 污点隔离与付费操作 Proposal 人工确认门禁。 | • `src/connectors/web/extractor.ts`, `search-router.ts`<br>• `src/modules/collection/routes.ts`<br>• `src/modules/workspace/routes.ts`<br>• `apps/web/src/pages/Workspace.tsx` | 1. 提问后 $<3.5\text{s}$ 出首屏证据，$<12\text{s}$ 完成 24 站提取且 Node RSS 内存 $< 800\text{ MB}$；<br>2. 发现的新站点可一键转为后台定时监控源。 |
 
+
+---
+
+## 五、 `KKKKhazix/AIHOT` (`4c6e9e1`, 10.9k★) 深度拆解与双语三大支柱降维融合方案
+
+针对您提出的：**“数据源先不做金融，聚焦 AI 与大众生活娱乐（及高流量科技数码），考虑中英文差异（英文是一手，中文滞后），参考 `KKKKhazix/AIHOT` 的功能亮点并用更成熟低复杂度的技术结合现有仓库实现”**，我们对 `KKKKhazix/AIHOT@4c6e9e1` 的 687 个文件、105 个迁移与核心模块（`packages/backend/src/events/hot.ts`、`industry/sources.json`、`industry/topics.json`、`docs/selection.md`、`docs/sources.md`）进行了全量源码拆解：
+
+### 5.1 `KKKKhazix/AIHOT` 的 6 项核心产品亮点 vs. 3 项 Vibe-Coding 重型缺陷
+
+| 维度 | `KKKKhazix/AIHOT` 的原始实现（687 文件 / 105 迁移 / 3 容器） | 原实现的工程缺陷（为何不能照搬其代码架构） | 本仓（5 模块 / 单容器 / 零新增表）的降维融合实现 |
+| :--- | :--- | :--- | :--- |
+| **1. 三级信源分级与英文一手代表选举** | `industry/sources.json` 将信源分为 `T1`（官方一手，如 OpenAI / DeepMind / Anthropic / HF）、`T1_5`（认证官方账号与主创，绑定 `owner_entity_id`）与 `T2`（媒体与个人）；同一事件多篇报道由 `pickRepresentative` 选出唯一代表 | 为分级与实体单独建了多张关联表与几十个迁移脚本 | 直接存入 `collection_source.schedule` / `source_group` JSONB（`tier: 'T1' \| 'T1_5' \| 'T2'`, `ownerEntityId`）。在事件聚簇（`storyKey`）内按 **`T1`（英文一手官方）$>$ `T1_5`（认证核心学者/主创）$>$ `T2`（媒体/社区）** 确定性选出主标题，10 家二手中文营销号转述自动折叠到底栏 |
+| **2. 六类信源与“先预览再创建 + 旧文不刷屏”** | 支持 `rss`、`web_list`（写 CSS 选择器抓无 RSS 的官网新闻页）、`json_list`、`x_search`、`mp_account`、`external`；后台支持“预览抓取前 20 条”；新源限 `initialBackfillLimit: 8` 且 >48h 旧文不进今日流 | `web_list` 依赖外部按次计费的 Jina Reader API，且配置校验散落在多层包中 | 在 `src/connectors/web/sources.ts` 内置零成本 `cheerio` 选择器驱动的 `web_list` 与 `json_list`；新增 `POST /v1/sources/preview` 试抓前 20 条不落库；`commitContentBatch` 对首次采集限 8 条且 `publishedAt < NOW() - 48h` 自动标为历史归档，绝不刷屏今日首页 |
+| **3. 入库筛选、打分与双语摘要流水线** | 每篇文章入库后必须串行调用 **5–6 次大模型**：`prefilter` $\rightarrow$ **独立调用 2 次 LLM 打分**（`selection-score.md`）$\rightarrow$ `structure` $\rightarrow$ `content-understanding`（写中文标题与答案先行摘要）$\rightarrow$ `mend-wording` $\rightarrow$ `group` | **致命瓶颈**：日采 5,000–10,000 条时需每天发起 **30,000–60,000 次 LLM 调用**！且如其文档 `docs/selection.md:14` 所言，一旦模型超时或格式不对，“这条资料就停在那里，等得再久也不会自动放行” | **100% 确定性入库 + 聚簇代表事件按需异步摘要（省 95% Token）**：入库、去重、实体识别（用确定性 `IDENTITY_LEXICON` 词典毫秒级匹配）、64-bit SimHash 聚簇、RRF 排序 **0 模型调用**；当配置了可选低价模型（DeepSeek / Qwen / Gemini Flash-Lite）时，**仅对聚簇胜出的代表事件（1 个事件调 1 次，而非每篇原料调 6 次）** 异步生成中文“答案先行”标题与摘要 |
+| **4. 48 小时独立参与者事件热度与 6 小时飙升检测** | `packages/backend/src/events/hot.ts`：统计过去 48 小时内报道该事件的独立参与者，同源重复采集不累加，按 `publishedAt` 施加 24 小时指数半衰期（`power(0.5, ageHours / 24.0)`），并与 6 小时前对比标出 `surge`/`rising`/`new`（剔除落后停采 `behind` 与新接入 `late` 来源） | 单独维护定时任务表与历史排行快照表 | 直接在 `src/modules/content/` 用单条 PostgreSQL CTE 实时聚合 `content_discovery` + `content_observation` 计算 48h 半衰期热度与 6h 增量比，同时检查 `collection_source.last_checked_at` 排除落后源，零新增表 |
+| **5. 08:00 每日自动日报（Daily Digest）** | 每天 08:00 汇总前 24 小时入选事件，“按规则编排，不调用模型：一件事一条，取最权威的一篇，同事件其他进展列在下面” | 绑定在独立 `apps/worker` 的 `pg-boss` 进程中 | 在 `GET /v1/content?view=digest` 与每日 08:00 快照中直接用确定性 SQL 按 `storyKey` 热度排序输出结构化日报（一事件一主卡 + 当日新增进展子项），0 模型开销 |
+| **6. 部署拓扑与进程模型** | `docker-compose.yml` 拆分 `db` (PG17) + `setup` + `api` (Fastify) + `worker` (`pg-boss`) + `web` (React Router SSR) **共 5 个容器（3 个常驻 Node 进程）** | 3 个常驻 Node 进程在 4 GB 内存 VPS 上仅基础 V8 堆与运行时就多耗 $>1\text{ GB}$ RAM | 保持本仓 **Caddy（静态 SPA 反代，`128m`）+ 单 Fastify 容器（内置自适应 Worker，`1350m`）+ PG16（`1536m`）** 三容器极简拓扑 |
+
+### 5.2 中英双语三大高频内容支柱定案（暂缓金融，突出英文一手 AI + 全球科技数码 + 大众生活娱乐）
+
+1. **支柱一：AI、LLM、Agent 与 Vibe Coding（英文一手 `T1`/`T1_5` 占 85%+，中文只收头部实验室官方一手）**
+   - **`T1` 英文官方一手**：OpenAI News、Anthropic News (`web_list`)、Google DeepMind、Google Research、Hugging Face Blog、Microsoft Research、NVIDIA Blog、GitHub Blog AI & ML、Mistral AI、BAIR、xAI News (`web_list`)、Cursor Changelog (`web_list`)，以及 `anthropics/claude-code`、`openai/codex`、`ggml-org/llama.cpp`、`vllm-project/vllm`、`ollama/ollama` 的 GitHub Releases `.atom`。
+   - **`T1` 中资大模型官方一手（拒绝二手自媒体）**：DeepSeek（深度求索）、阿里千问 Qwen、月之暗面 Kimi、MiniMax、智谱的官方 GitHub Releases / Hugging Face 组织页与官方技术报告。
+   - **`T1_5` 核心学者与构建者（VIP 追踪）**：Simon Willison、Latent Space、Import AI、Ahead of AI 等独立一手博客；200 位核心 AI 学者/工程师的 **10 组×20 人 X 批次 `advanced_search`**（省 95% 成本）；Andrej Karpathy、Two Minute Papers、Fireship 等 YouTube 原生免 Key Atom 订阅。
+   - **`T2` 论文与硬核实战社区**：HuggingFace Daily Papers 官方免费 JSON API、arXiv `cs.AI+cs.CL+cs.LG`、Reddit `r/LocalLLaMA` / `r/ClaudeAI` / `r/MachineLearning` / `r/ChatGPTCoding`（`.rss` 免费雷达 + 按需 `kaix` 水合）、Ars Technica AI、MIT Tech Review AI、The Decoder。
+2. **支柱二：全球科技、独立开发与数码产品（人们日常高频查看的硬核与新奇科技）**
+   - **英文一手高流量**：Hacker News 热榜 + Algolia 高分榜、GitHub Trending 今日飙升榜、TechMeme 硅谷头条聚合、Product Hunt 每日新品榜、The Verge、Ars Technica。
+   - **中文高频极客与数码**：V2EX 最新分享与热议（`v2ex-share`）、IT之家实时快讯与热榜（`ithome`，自动过滤电商导购广告）、少数派（`sspai`）、酷安今日最热（`coolapk`）、爱范儿（`ifanr`）。
+3. **支柱三：大众生活、文化娱乐与全网热议（中英双语国民级日常注意力入口）**
+   - **中文大众热榜（`newsnow` 零成本直取）**：B站（Bilibili）全站热门视频与实时热搜（`bilibili-hot-video`, `bilibili-hot-search`）、知乎热榜（`zhihu`）、微博实时热搜（`weibo`）、虎扑步行街日常热帖（`hupu`）、机核网（游戏与流行文化）、什么值得买热门好物（`smzdm`）、今日头条/澎湃热榜。
+   - **英文全球大众与娱乐文化**：Reddit 全球顶流大众版块 `r/popular`、`r/gaming`、`r/movies`、`r/television`、`r/technology`、`r/worldnews`、`r/todayilearned`、`r/ExplainLikeImFive`（`.rss` 免费雷达 + 高赞帖 `kaix` 神评水合），以及 MKBHD、Linus Tech Tips、MrBeast、Veritasium、3Blue1Brown、IGN 等 YouTube 顶流频道原生 Atom Feed。
+
 ---
 
 # 附录：五路专项深度研究与全量代码审查原始技术报告（Unabridged Technical Appendices）
