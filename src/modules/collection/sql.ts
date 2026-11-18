@@ -24,6 +24,13 @@ export function sourceFromRow(
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
     revision: row.revision,
+    schedule: row.schedule,
+    tier: row.tier,
+    ownerEntityId: row.owner_entity_id,
+    nextDueAt: row.next_due_at?.toISOString() ?? null,
+    lastCheckedAt: row.last_checked_at?.toISOString() ?? null,
+    lastSuccessAt: row.last_success_at?.toISOString() ?? null,
+    automaticCollectionBlocked: row.automatic_collection_blocked,
     coverage: row.coverage,
   };
 }
@@ -31,13 +38,13 @@ export function assertSource(actor: Actor, id: string) {
   if (actor.allowedSourceIds !== null && !actor.allowedSourceIds.includes(id))
     fail(404, "Source not found");
 }
-export async function lockSource(client: PoolClient, actor: Actor, id: string) {
+export async function lockSource(client: PoolClient, actor: Actor, id: string, requireActive = true) {
   assertSource(actor, id);
   const row = (
     await client.query(`${sourceSelect} WHERE cs.id=$1 FOR UPDATE OF cs`, [id])
   ).rows[0];
   if (!row) fail(404, "Source not found");
-  if (row.state !== "active") fail(409, "Source must be active");
+  if (requireActive && row.state !== "active") fail(409, "Source must be active");
   return row;
 }
 export async function audit(

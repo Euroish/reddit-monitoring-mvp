@@ -799,3 +799,53 @@ summary {
     padding: 22px;
   }
 }
+
+.story-tabs,
+.story-heat {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.story-tabs {
+  margin-bottom: 20px;
+}
+
+.story-tabs a {
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.story-tabs a[aria-current="page"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.story-card .content-meta {
+  flex-wrap: wrap;
+}
+
+.story-card {
+  overflow-wrap: anywhere;
+}
+
+.story-card h2 a {
+  color: inherit;
+  text-underline-offset: 3px;
+}
+
+.story-card details {
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.story-heat {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}

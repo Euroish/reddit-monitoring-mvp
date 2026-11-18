@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 import type { Pool } from "pg";
 import { ContentProviderError, type ContentProvider } from "../../connectors/shared/content-provider.interface";
 import type {
@@ -8,6 +9,7 @@ import type {
 import { commitContentBatch, prepareContentBatch } from "../content/sql";
 import { fail, transaction } from "../../storage/db";
 import { lockSource, sourceFromRow } from "./sql";
+import { scheduleDueSourcesOnce } from "./schedule";
 
 const workerActor = { allowedSourceIds: null } as Actor;
 export async function workOnce(
@@ -26,6 +28,10 @@ export async function workOnce(
           (j.status='running' OR COALESCE(j.provider_state->>'phase' IN ('starting','running','reading'),FALSE)) DESC,j.created_at,j.id
       ) head ON head.collection_source_id=cs.id AND head.next_run_at<=NOW() AND (head.status<>'running' OR head.lease_until<NOW())
       WHERE cs.state='active' AND cs.delivery_mode='pull' AND NOT cs.automatic_collection_blocked
+        AND (cs.primary_provider<>'feed' OR NOT EXISTS (
+          SELECT 1 FROM source_collection_job j JOIN collection_source peer ON peer.id=j.collection_source_id
+          WHERE j.provider='feed' AND j.status='running' AND j.lease_until>now() AND peer.id<>cs.id
+            AND split_part(peer.target->>'url','/',3)=split_part(cs.target->>'url','/',3)))
       ORDER BY head.next_run_at,cs.id FOR UPDATE OF cs SKIP LOCKED LIMIT 1`)
     ).rows[0];
     if (!candidate) return null;
@@ -38,6 +44,18 @@ export async function workOnce(
       )
     ).rows[0];
     if (!job) return null;
+    if (job.provider === "feed") {
+      const host = new URL(source.target.url).hostname;
+      const { rows: [lock] } = await client.query(
+        "SELECT pg_try_advisory_xact_lock(hashtextextended($1,0)) AS acquired", [`feed:${host}`],
+      );
+      if (!lock.acquired) return null;
+      const busy = await client.query(`
+        SELECT 1 FROM source_collection_job j JOIN collection_source cs ON cs.id=j.collection_source_id
+        WHERE j.provider='feed' AND j.status='running' AND j.lease_until>now() AND cs.id<>$1
+          AND split_part(cs.target->>'url','/',3)=$2 LIMIT 1`, [source.id, host]);
+      if (busy.rowCount) return null;
+    }
     const token = randomUUID();
     await client.query(
       "UPDATE source_collection_job SET status='running',lease_token=$2,lease_until=NOW()+interval '2 minutes',attempts=attempts+1 WHERE id=$1",
@@ -54,7 +72,7 @@ export async function workOnce(
   );
   const saveState = async (state: JsonValue) =>
     transaction(pool, async (client) => {
-      await lockSource(client, workerActor, source.id);
+      await lockSource(client, workerActor, source.id, false);
       const updated = await client.query(
         "UPDATE source_collection_job SET provider_state=$3,provider_run_id=$3::jsonb->>'runId',lease_until=NOW()+interval '2 minutes' WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id",
         [job.id, token, state],
@@ -84,39 +102,32 @@ export async function workOnce(
     ) {
       const hydrate = job.operation === "hydrate";
       const refresh = Array.isArray(job.request_json.externalIds);
-      const resources = refresh ? job.page_size : hydrate
-        ? job.page_size + 1
+      const kaixThread = job.provider === "kaix" && (hydrate || source.target.type === "post");
+      const resources = refresh ? job.page_size : kaixThread
+        ? 1 + Math.min(job.page_size, job.request_json.maxCommentsPerPost ?? 50)
         : ["twitterapis", "scrapebadger"].includes(job.provider)
           ? (provider.capability.requestResourceUpperBound ?? 20)
           : Math.min(2000, job.page_size *
               (job.request_json.includeComments ? (job.request_json.maxCommentsPerPost ?? 15) + 1 : 1) + 1);
       const admitted = await transaction(pool, async (client) => {
-        await lockSource(client, workerActor, source.id);
-        const budget = (
-          await client.query(
-            "SELECT * FROM source_provider_budget WHERE provider=$1 FOR UPDATE",
-            [job.provider],
-          )
-        ).rows[0];
-        const usage = (
-          await client.query(
-            `SELECT COALESCE(SUM(requests),0) AS requests,COALESCE(SUM(resources_reserved),0) AS resources,COALESCE(SUM(requests) FILTER(WHERE day=(NOW() AT TIME ZONE 'UTC')::date),0) AS daily_requests,COALESCE(SUM(resources_reserved) FILTER(WHERE day=(NOW() AT TIME ZONE 'UTC')::date),0) AS daily_resources FROM source_provider_usage WHERE provider=$1 AND day>=date_trunc('month',NOW() AT TIME ZONE 'UTC')::date`,
-            [job.provider],
-          )
-        ).rows[0];
-        if (
-          !budget?.enabled ||
-          Number(usage.requests) + 1 > budget.monthly_requests ||
-          Number(usage.daily_requests) + 1 > budget.daily_requests ||
-          Number(usage.resources) + resources > budget.monthly_resources ||
-          Number(usage.daily_resources) + resources > budget.daily_resources ||
-          (budget.last_request_at &&
-            Date.now() - budget.last_request_at.getTime() <
-              budget.minimum_interval_ms)
-        )
+        const currentSource = await lockSource(client, workerActor, source.id);
+        if (job.purpose === "scheduled" && !currentSource.schedule.enabled) {
+          await client.query(`
+            UPDATE source_collection_job SET status='cancelled',finished_at=now(),
+              lease_token=NULL,lease_until=NULL,attempts=attempts-1 WHERE id=$1 AND lease_token=$2`, [job.id, token]);
           return false;
+        }
+        await client.query("SELECT 1 FROM source_provider_budget WHERE provider=$1 FOR UPDATE", [job.provider]);
+        const deferred = await client.query(
+          `UPDATE source_collection_job SET status='queued',next_run_at=ready.at,lease_token=NULL,lease_until=NULL,
+            attempts=attempts-1,error='Waiting for provider budget'
+           FROM (SELECT provider_ready_at($3,$4) AS at) ready
+           WHERE id=$1 AND lease_token=$2 AND ready.at>now()`,
+          [job.id, token, job.provider, resources],
+        );
+        if (deferred.rowCount) return false;
         const updated = await client.query(
-          `UPDATE source_collection_job SET provider_state='{"phase":"starting"}',request_count=request_count+1,page_request_attempts=page_request_attempts+1 WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id`,
+          `UPDATE source_collection_job SET provider_state='{"phase":"starting"}',error=NULL,request_count=request_count+1,page_request_attempts=page_request_attempts+1 WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id`,
           [job.id, token],
         );
         if (!updated.rowCount) fail(409, "Collection lease lost");
@@ -130,13 +141,7 @@ export async function workOnce(
         );
         return true;
       });
-      if (!admitted) {
-        await pool.query(
-          "UPDATE source_collection_job SET status='queued',next_run_at=NOW()+interval '1 minute',lease_token=NULL,lease_until=NULL,error='Budget disabled, exhausted or request spacing' WHERE id=$1 AND lease_token=$2",
-          [job.id, token],
-        );
-        return true;
-      }
+      if (!admitted) return true;
       job.provider_state = { phase: "starting" };
       job.page_request_attempts++;
     }
@@ -175,7 +180,7 @@ export async function workOnce(
     }
     const batch = prepareContentBatch(page.items);
     await transaction(pool, async (client) => {
-      await lockSource(client, workerActor, source.id);
+      const finishingSource = await lockSource(client, workerActor, source.id, false);
       const current = (
         await client.query(
           "SELECT * FROM source_collection_job WHERE id=$1 AND lease_token=$2 AND status='running' AND lease_until>NOW() FOR UPDATE",
@@ -195,32 +200,45 @@ export async function workOnce(
         batch,
         new Date().toISOString(),
       );
+      const scheduled = job.purpose === "scheduled";
+      const nextPage = scheduled && finishingSource.state === "active" && finishingSource.schedule.enabled &&
+        job.provider !== "feed" && page.nextCheckpoint !== null && job.pages_committed + 1 < job.max_pages;
       await client.query(
-        `UPDATE source_collection_job SET status='succeeded',provider_state=provider_state||'{"phase":"committed"}',checkpoint=$3,pages_committed=pages_committed+1,records_processed=$4,records_inserted=$5,records_updated=$6,result_summary=$8,coverage='partial',exhausted=$7,finished_at=NOW(),lease_token=NULL,lease_until=NULL WHERE id=$1 AND lease_token=$2`,
+        `UPDATE source_collection_job SET status=CASE WHEN $9 THEN 'queued' ELSE 'succeeded' END,
+          provider_state=CASE WHEN $9 THEN '{}' ELSE provider_state||'{"phase":"committed"}' END,
+          provider_run_id=CASE WHEN $9 THEN NULL ELSE provider_run_id END,
+          page_request_attempts=CASE WHEN $9 THEN 0 ELSE page_request_attempts END,
+          checkpoint=$3,pages_committed=pages_committed+1,records_processed=records_processed+$4,
+          records_inserted=records_inserted+$5,records_updated=records_updated+$6,result_summary=$8,
+          coverage='partial',exhausted=$7,finished_at=CASE WHEN NOT $9 THEN now() END,
+          lease_token=NULL,lease_until=NULL,next_run_at=now() WHERE id=$1 AND lease_token=$2`,
         [
-          job.id,
-          token,
-          page.nextCheckpoint,
-          page.items.length,
-          counts.added,
-          counts.updated,
-          page.exhausted,
-          page.creditsUsed === undefined ? null : { creditsUsed: page.creditsUsed },
+          job.id, token, page.nextCheckpoint, page.items.length, counts.added, counts.updated, page.exhausted,
+          page.warning || page.creditsUsed !== undefined
+            ? { warning: page.warning ?? undefined, creditsUsed: page.creditsUsed }
+            : null, nextPage,
         ],
       );
+      const schedule = finishingSource.schedule;
+      const cadence = schedule.cadenceSeconds ?? 3600;
+      const previous = schedule.intervalSeconds ?? cadence;
+      const interval = page.warning || job.provider === "newsnow" ? cadence :
+        !page.exhausted ? Math.max(120, Math.floor(previous / 2)) :
+        (page.notModified || job.records_inserted + counts.added === 0)
+          ? Math.min(43200, Math.ceil(previous * 1.5)) : cadence;
       await client.query(
-        `UPDATE collection_source SET last_checked_at=NOW(),coverage='partial',
-           last_success_at=CASE WHEN $4 THEN last_success_at ELSE NOW() END,
-           incremental_to=CASE WHEN $3 THEN GREATEST(incremental_to,$2) ELSE incremental_to END WHERE id=$1`,
-        [source.id, job.to_at, page.exhausted && job.operation !== "hydrate", page.notModified ?? false],
+        `UPDATE collection_source SET last_checked_at=now(),coverage='partial',
+          last_success_at=CASE WHEN $4 THEN last_success_at ELSE now() END,
+          incremental_to=CASE WHEN $3 THEN GREATEST(incremental_to,$2) ELSE incremental_to END,
+          next_due_at=CASE WHEN $5 THEN now()+make_interval(secs => $6) ELSE next_due_at END,
+          schedule=CASE WHEN $5 THEN schedule||jsonb_build_object('intervalSeconds',$6::int) ELSE schedule END WHERE id=$1`,
+        [source.id, job.to_at, page.exhausted && job.operation !== "hydrate", page.notModified ?? false,
+          scheduled && !nextPage && schedule.enabled && finishingSource.state === "active", interval],
       );
     });
   } catch (error) {
     await transaction(pool, async (client) => {
-      await client.query(
-        "SELECT id FROM collection_source WHERE id=$1 FOR UPDATE",
-        [source.id],
-      );
+      const failedSource = await lockSource(client, workerActor, source.id, false);
       const current = (
         await client.query(
           "SELECT provider_state FROM source_collection_job WHERE id=$1 AND lease_token=$2 AND status='running' FOR UPDATE",
@@ -235,26 +253,37 @@ export async function workOnce(
         );
         return;
       }
-      const retryable =
-        provider?.capability.automaticRequestReplay !== false &&
-        error !== null &&
-        typeof error === "object" &&
-        "retryable" in error &&
-        error.retryable === true &&
-        job.page_request_attempts < 3;
-      if (retryable) {
+      const phase = current.provider_state.phase;
+      const httpStatus = error instanceof ContentProviderError ? error.httpStatus : undefined;
+      const hasRun = ["running", "reading"].includes(phase) && Boolean(current.provider_state.runId);
+      const transient = error instanceof ContentProviderError ? error.retryable : error instanceof TypeError ||
+        (error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name));
+      const retryStart = provider?.capability.automaticRequestReplay !== false && transient && job.page_request_attempts < 3;
+      const retryRead = hasRun && (transient || httpStatus === 429 || (httpStatus ?? 0) >= 500);
+      if (retryStart || retryRead) {
         await client.query(
-          "UPDATE source_collection_job SET status='retrying',provider_state='{}',next_run_at=NOW()+interval '30 seconds',lease_token=NULL,lease_until=NULL WHERE id=$1 AND lease_token=$2",
-          [job.id, token],
+          `UPDATE source_collection_job SET status='retrying',provider_state=CASE WHEN $4 THEN provider_state ELSE '{}' END,next_run_at=now()+make_interval(secs => $3),
+          lease_token=NULL,lease_until=NULL WHERE id=$1 AND lease_token=$2`,
+          [job.id, token, error instanceof ContentProviderError ? error.retryAfterSeconds : 30, retryRead],
         );
         return;
       }
-      const httpStatus = error instanceof ContentProviderError ? error.httpStatus : undefined;
       const rejected = httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500 && httpStatus !== 408;
       // ScrapeBadger documents zero credits for failed HTTP responses. Apify
       // can lose a run receipt after accepting the POST, including on a 5xx.
       const uncharged = rejected || (job.provider === "scrapebadger" && httpStatus !== undefined && httpStatus >= 500);
-      const phase = current.provider_state.phase;
+      const fallback = job.purpose === "scheduled" && failedSource.state === "active" && failedSource.schedule.enabled &&
+        job.provider === failedSource.primary_provider && job.pages_committed === 0 && phase === "starting" &&
+        !current.provider_state.runId && httpStatus === 429
+        ? providers.find(({ capability }) => capability.enabled && capability.provider === failedSource.fallback_provider &&
+          capability.platform === failedSource.platform) : undefined;
+      if (fallback) {
+        await client.query(`
+          UPDATE source_collection_job SET provider=$3,status='queued',provider_state='{}',provider_run_id=NULL,
+            page_request_attempts=0,lease_token=NULL,lease_until=NULL,next_run_at=now(),error=NULL
+          WHERE id=$1 AND lease_token=$2`, [job.id, token, fallback.capability.provider]);
+        return;
+      }
       const unknown = phase === "unknown" ||
         (provider?.capability.automaticRequestReplay === false && phase === "starting" && !uncharged);
       await client.query(
@@ -279,30 +308,40 @@ export async function workOnce(
   return true;
 }
 
-export function startWorker(pool: Pool, providers: ContentProvider[]) {
+export function startWorker(pool: Pool, providers: ContentProvider[], onError?: (error: unknown) => void) {
   const controller = new AbortController();
-  const run = async () => {
+  const startedAt = new Date();
+  const heartbeat = (state: "active" | "stopped") => pool.query(`
+    INSERT INTO source_worker_heartbeat(id,started_at,last_heartbeat_at,state)
+    VALUES('unified-collection',$1,now(),$2)
+    ON CONFLICT (id) DO UPDATE SET started_at=EXCLUDED.started_at,last_heartbeat_at=EXCLUDED.last_heartbeat_at,state=EXCLUDED.state
+    WHERE source_worker_heartbeat.started_at<=EXCLUDED.started_at`, [startedAt, state]).catch((error) => onError?.(error));
+  const reportLiveness = async () => {
     while (!controller.signal.aborted) {
-      const worked = await workOnce(pool, providers, controller.signal).catch(
-        () => false,
-      );
-      if (!worked)
-        await new Promise<void>((resolve) => {
-          const done = () => {
-            clearTimeout(timer);
-            controller.signal.removeEventListener("abort", done);
-            resolve();
-          };
-          const timer = setTimeout(done, 1000);
-          controller.signal.addEventListener("abort", done, { once: true });
-        });
+      await heartbeat("active");
+      await sleep(30000, undefined, { signal: controller.signal }).catch(() => {});
     }
   };
-  const active = Promise.all([run(), run()]);
+  const run = async (schedule: boolean) => {
+    let scanAt = 0;
+    while (!controller.signal.aborted) {
+      if (schedule && Date.now() >= scanAt) {
+        scanAt = Date.now() + 5000;
+        await scheduleDueSourcesOnce(pool, providers).catch((error) => onError?.(error));
+      }
+      const worked = await workOnce(pool, providers, controller.signal).catch((error) => {
+        onError?.(error);
+        return false;
+      });
+      if (!worked) await sleep(1000, undefined, { signal: controller.signal }).catch(() => {});
+    }
+  };
+  const active = Promise.all([reportLiveness(), run(true), run(false)]);
   return {
     stop: async () => {
       controller.abort();
       await active;
+      await heartbeat("stopped");
     },
   };
 }

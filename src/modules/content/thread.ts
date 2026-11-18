@@ -15,30 +15,43 @@ export async function readThread(
   const idParam = `$${compiled.values.length}::uuid`;
   const match = compiled;
   const rows = (await pool.query(`
-    WITH seed AS (
-      SELECT c.* FROM content c WHERE c.id=${idParam}
-      AND EXISTS(SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id WHERE ${compiled.visible})
+    WITH RECURSIVE ancestors AS (
+      SELECT c.id,c.source_id,c.external_id,c.kind,c.content_references,0 AS depth,ARRAY[c.id] AS path
+      FROM content c WHERE c.id=${idParam}
+        AND EXISTS (SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id WHERE ${compiled.visible})
+      UNION ALL
+      SELECT parent.id,parent.source_id,parent.external_id,parent.kind,parent.content_references,a.depth+1,a.path||parent.id
+      FROM ancestors a
+      JOIN LATERAL (
+        SELECT c.id,c.source_id,c.external_id,c.kind,c.content_references
+        FROM jsonb_array_elements(a.content_references) r(value)
+        JOIN content c ON c.source_id=a.source_id AND c.kind=r.value->>'kind' AND c.external_id=r.value->>'externalId'
+        WHERE r.value->>'relation' IN ('thread_root','reply_to') AND NOT c.id=ANY(a.path)
+          AND EXISTS (SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id WHERE ${compiled.visible})
+        ORDER BY (r.value->>'relation'='thread_root') DESC,c.id LIMIT 1
+      ) parent ON a.depth<32
     ), root AS (
-      SELECT COALESCE(root.id,seed.id) AS id,seed.source_id,
-        COALESCE(root.external_id,seed.external_id) AS external_id, COALESCE(root.kind,seed.kind) AS kind,
-        root.id IS NULL AND ref.value IS NOT NULL AS context_missing
-      FROM seed
-      LEFT JOIN LATERAL (
-        SELECT value FROM jsonb_array_elements(seed.content_references) r(value) WHERE value->>'relation'='thread_root' LIMIT 1
-      ) ref ON true
-      LEFT JOIN LATERAL (
-        SELECT c.id,c.external_id,c.kind FROM content c WHERE c.source_id=seed.source_id
-          AND c.external_id=ref.value->>'externalId' AND c.kind=ref.value->>'kind'
-          AND EXISTS(SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id WHERE ${compiled.visible})
-      ) root ON true
+      SELECT id,source_id,external_id,kind,
+        content_references @> '[{"relation":"thread_root"}]'::jsonb OR
+          content_references @> '[{"relation":"reply_to"}]'::jsonb AS context_missing
+      FROM ancestors ORDER BY depth DESC LIMIT 1
+    ), descendants AS (
+      SELECT id,external_id,kind FROM root
+      UNION
+      SELECT c.id,c.external_id,c.kind FROM descendants parent CROSS JOIN root
+      JOIN content c ON c.source_id=root.source_id
+      WHERE (c.content_references @> jsonb_build_array(jsonb_build_object('relation','reply_to','kind',parent.kind,'externalId',parent.external_id))
+          OR (parent.id=root.id AND c.content_references @> jsonb_build_array(
+            jsonb_build_object('relation','thread_root','kind',root.kind,'externalId',root.external_id))))
+        AND EXISTS (SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id WHERE ${compiled.visible})
+    ), sample AS MATERIALIZED (
+      SELECT id FROM descendants LIMIT 200
     )
-    ${contentSelect(compiled.visible, `, root.id AS root_id,root.context_missing, (${match.text}) AS matched`)}
+    ${contentSelect(compiled.visible, `, root.context_missing, (${match.text}) AS matched`)}
     JOIN root ON root.source_id=c.source_id
-    WHERE (c.id=root.id OR c.id=${idParam} OR
-      c.content_references @> jsonb_build_array(jsonb_build_object('relation','thread_root','kind',root.kind,'externalId',root.external_id)) OR
-      c.content_references @> jsonb_build_array(jsonb_build_object('relation','reply_to','kind',root.kind,'externalId',root.external_id)))
-    AND EXISTS(SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id WHERE ${compiled.visible})
-    ORDER BY (c.id=root.id) DESC, (c.id=${idParam}) DESC, c.created_at_source DESC NULLS LAST,c.id
+    WHERE c.id IN (SELECT id FROM ancestors UNION SELECT id FROM sample)
+    ORDER BY (c.id=root.id) DESC, (c.id=${idParam}) DESC, (c.id IN (SELECT id FROM ancestors)) DESC,
+      c.created_at_source DESC NULLS LAST,c.id
     LIMIT 200`, compiled.values)).rows;
   if (!rows.length) fail(404, "Content not found");
   const root = contentFromRow(rows[0]);

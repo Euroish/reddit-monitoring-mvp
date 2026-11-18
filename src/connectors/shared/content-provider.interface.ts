@@ -24,6 +24,7 @@ export interface CollectedPage {
   pending?: boolean;
   creditsUsed?: number;
   notModified?: boolean;
+  discoveredFeeds?: string[];
 }
 export interface CollectContentPageRequest {
   source: CollectionSource;
@@ -36,6 +37,7 @@ export interface CollectContentPageRequest {
     saveState: (state: JsonValue) => Promise<void>;
   };
   signal?: AbortSignal;
+  preview?: boolean;
   includeComments?: boolean;
   maxCommentsPerPost?: number;
   commentSort?: "top";

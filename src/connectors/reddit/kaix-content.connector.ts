@@ -15,7 +15,7 @@ import {
 } from "../shared/content-provider.interface";
 
 const WARNING =
-  "Bounded kaix sample; no continuation cursor. New sorting may fall back to relevance. Local date filtering does not establish complete coverage; native upstream query semantics are retained. Comments support account or post targets only.";
+  "Bounded kaix sample; no continuation cursor. New sorting may fall back to relevance. Local date filtering does not establish complete coverage; native upstream query semantics are retained. Comment-only targets are accounts or individual posts.";
 type Row = Record<string, unknown>;
 const object = (v: unknown): Row | null =>
   v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Row) : null;
@@ -192,12 +192,14 @@ export class KaixContentConnector implements ContentProvider {
       request.source.contentKind,
     );
     request.signal?.throwIfAborted();
-    const comments = request.includeComments ?? false,
-      commentLimit = request.maxCommentsPerPost ?? 15;
-    const maxRows =
-      target.type === "post"
-        ? Math.min(request.limit, 50) + 1
-        : request.limit * (comments ? commentLimit + 1 : 1);
+    const thread = target.type === "post";
+    const comments = thread || (request.includeComments ?? false);
+    const commentLimit = thread
+      ? Math.min(request.limit, request.maxCommentsPerPost ?? 50)
+      : request.maxCommentsPerPost ?? 15;
+    const maxRows = thread
+      ? 1 + commentLimit
+      : request.limit * (comments ? commentLimit + 1 : 1);
     if (
       maxRows > 2000 ||
       !Number.isInteger(commentLimit) ||
@@ -209,13 +211,13 @@ export class KaixContentConnector implements ContentProvider {
         false,
       );
     const input: Row = {
-      sort: "new",
-      time: "all",
       depth: "detailed",
       includeNsfw: true,
       includeComments: comments,
-      maxItems: request.limit,
       maxCommentsPerPost: commentLimit,
+      ...(thread
+        ? { commentSort: request.commentSort ?? "top" }
+        : { sort: "new", time: "all", maxItems: request.limit }),
     };
     if (target.type === "search")
       Object.assign(input, { mode: "search", keyword: target.query });
@@ -240,11 +242,7 @@ export class KaixContentConnector implements ContentProvider {
     else if (target.type === "post")
       Object.assign(input, {
         mode: "post",
-        postUrls: [target.postId],
-        maxItems: 1,
-        includeComments: true,
-        maxCommentsPerPost: Math.min(request.limit, 50),
-        commentSort: request.commentSort ?? "new",
+        postUrls: [`t3_${target.postId}`],
       });
     const start = new URL(
       "https://api.apify.com/v2/acts/kaix~reddit-scraper/runs",
@@ -384,12 +382,19 @@ export class KaixContentConnector implements ContentProvider {
         continue;
       items.push(item);
     }
+    const returnedItems = data.filter(row => object(row)?.type === request.source.contentKind).length;
+    const reportedComments = items.some(item =>
+      item.kind === "post" && (item.observation.metrics["reddit.num_comments"] ?? 0) > 0,
+    );
+    const missingComments = comments && reportedComments && !items.some(item => item.kind === "comment");
     return {
       items,
       nextCheckpoint: null,
-      exhausted: target.type === "post" || data.filter(row => object(row)?.type === request.source.contentKind).length < request.limit,
+      exhausted: !missingComments && (thread || returnedItems < request.limit),
       coverage: "partial" as const,
-      warning: WARNING,
+      warning: missingComments
+        ? "Kaix returned posts with a positive comment count but no comment records. Check the Actor run before retrying."
+        : WARNING,
     };
   }
 
