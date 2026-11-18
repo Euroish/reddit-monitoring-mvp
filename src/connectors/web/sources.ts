@@ -8,7 +8,7 @@ import sanitize from "sanitize-html";
 import type { SourceTarget } from "../../../packages/contracts/src/source-content";
 import { stableUuidFromString } from "../../shared/ids/stable-id";
 import { fail } from "../../storage/db";
-import { ContentProviderError, type CollectedContent, type ContentProvider } from "../shared/content-provider.interface";
+import { ContentProviderError, type CollectedContent, type CollectedPage, type ContentProvider } from "../shared/content-provider.interface";
 
 const reserved = new BlockList();
 for (const [network, prefix] of [
@@ -90,7 +90,7 @@ function article(input: {
   };
 }
 
-export function webSource(provider: "feed" | "newsnow", env = process.env): ContentProvider {
+export function webSource(provider: "feed" | "newsnow", env = process.env, readPage = read): ContentProvider {
   const allowed = new Set((env.FEED_ALLOWED_URLS ?? "").split(",").map((raw) => httpsUrl(raw.trim())?.href));
   const targetTypes: SourceTarget["type"][] = [provider === "feed" ? "feed" : "search"];
   const enabled = env.SOURCE_NETWORK_ENABLED === "true" && (provider === "newsnow" || [...allowed].some(Boolean));
@@ -112,7 +112,7 @@ export function webSource(provider: "feed" | "newsnow", env = process.env): Cont
       observationModel: "snapshot", limitations: ["Current snapshot, up to 30 articles"],
     },
     normalizeTarget,
-    async collectPage(input) {
+    async collectPage(input): Promise<CollectedPage> {
       if (!enabled) fail(422, "Web collection is disabled");
       const target = normalizeTarget(input.source.target, input.source.contentKind);
       const fetchedAt = new Date().toISOString();
@@ -122,30 +122,53 @@ export function webSource(provider: "feed" | "newsnow", env = process.env): Cont
         const url = new URL(target.url);
         const checkpoint = input.checkpoint;
         const prior = checkpoint && typeof checkpoint === "object" && !Array.isArray(checkpoint) ? checkpoint : {};
+        const from = Date.parse(input.from), to = Date.parse(input.to);
         const headers: Record<string, string> = {};
-        if (typeof prior.etag === "string") headers["If-None-Match"] = prior.etag;
-        if (typeof prior.modified === "string") headers["If-Modified-Since"] = prior.modified;
-        const response = await read(url, input.signal, headers);
-        if (response.status === 304) return { ...base, items: [], nextCheckpoint: checkpoint, notModified: true };
+        // A 304 is usable only when the new window excludes all previously skipped entries.
+        if (typeof prior.coveredFrom === "number" && from >= prior.coveredFrom &&
+            (prior.coveredTo === null || typeof prior.coveredTo === "number" && to <= prior.coveredTo)) {
+          if (typeof prior.etag === "string") headers["If-None-Match"] = prior.etag;
+          if (typeof prior.modified === "string") headers["If-Modified-Since"] = prior.modified;
+        }
+        const response = await readPage(url, input.signal, headers);
+        if (response.status === 304) return {
+          ...base, items: [], notModified: true,
+          nextCheckpoint: { ...prior, etag: response.etag ?? prior.etag ?? null, modified: response.modified ?? prior.modified ?? null },
+        };
         const feed = await parser.parseString(response.body);
-        const items = feed.items.flatMap((entry) => {
+        let coveredTo: number | null = null;
+        const items: CollectedContent[] = [];
+        let truncated = false;
+        for (const entry of feed.items) {
           const link = entry.link && httpsUrl(entry.link, url.href);
-          const title = clean(entry.title ?? "");
-          if (!link || !title) return [];
+          if (!link || !entry.title) continue;
           const timestamp = Date.parse(entry.isoDate ?? "");
-          const publishedAt = Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
-          if (publishedAt && (timestamp < Date.parse(input.from) || timestamp >= Date.parse(input.to))) return [];
-          return [article({
-            provider, sourceId: input.source.id, fetchedAt, url: link, title, publishedAt,
+          if (timestamp < from) continue;
+          if (timestamp >= to) {
+            coveredTo = Math.min(coveredTo ?? timestamp, timestamp);
+            continue;
+          }
+          const title = clean(entry.title);
+          if (!title) continue;
+          if (items.length === limit) {
+            truncated = true;
+            break;
+          }
+          items.push(article({
+            provider, sourceId: input.source.id, fetchedAt, url: link, title,
+            publishedAt: Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null,
             text: clean(entry.content ?? entry.summary ?? "") || null, feedUrl: url.href,
-          })];
-        });
+          }));
+        }
         return {
-          ...base, items: items.slice(0, limit),
-          nextCheckpoint: items.length > limit ? null : { etag: response.etag ?? null, modified: response.modified ?? null },
+          ...base, items,
+          nextCheckpoint: {
+            etag: response.etag ?? null, modified: response.modified ?? null,
+            coveredFrom: truncated ? null : from, coveredTo,
+          },
         };
       }
-      const response = await read(new URL(hn), input.signal);
+      const response = await readPage(new URL(hn), input.signal);
       const page = load(response.body);
       const rows = page("tr.athing").toArray();
       if (!rows.length) throw new ContentProviderError("Hacker News front page has no stories", false);

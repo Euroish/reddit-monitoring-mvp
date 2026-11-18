@@ -57,7 +57,7 @@
 
 | ID | 等级 | 过滤、信号与联动比较规则 | 验收出口 |
 | --- | --- | --- | --- |
-| QRY-01 | MUST | `compileContentFilter(scope, filter)` 为全系统唯一编译入口：有效范围 = `actor允许来源 ∩ 项目关联来源 ∩ 项目filter ∩ 请求filter`，并在单个 `EXISTS(content_discovery JOIN collection_source)` 内完成来源交集；项目与请求的三段词组间取 `AND`（禁止合并成单个平铺 `OR`），词项按 NFKC/Unicode 小写/转义 `LIKE` 求值，统一执行最短有效词长防扫表守卫；时间窗为 UTC 半开区间 `[from, to)`，传 `timeStatus="unknown"` 同时带日期返 `422`。 | 过滤、权限隔离与词边界测试 |
+| QRY-01 | MUST | `compileContentFilter(scope, filter)` 为全系统唯一编译入口：有效范围 = `actor允许来源 ∩ 项目关联来源 ∩ 项目filter ∩ 请求filter`，并在单个 `EXISTS(content_discovery JOIN collection_source)` 内完成来源交集；项目与请求的三段词组间取 `AND`（禁止合并成单个平铺 `OR`），词项按 NFKC/Unicode 小写/转义 `LIKE` 求值，每项须含三个连续的 Unicode 字母或数字；时间窗为 UTC 半开区间 `[from, to)`，传 `timeStatus="unknown"` 同时带日期返 `422`。 | 过滤、权限隔离与词边界测试 |
 | QRY-02 | MUST | Keyset 游标编入指纹与 `projectRevision`，失效返 `409 cursor_scope_changed`；分页执行非空与空时间双分支 seek。确定性 `signal` 在基线 R2 固定提供 **`discussion`**（Reddit `num_comments >= 10` / X `replies >= 5`）与 **`pain`**（痛点词命中或已知 `score` 下 `num_comments >= max(score, 1)`）；多快照 `growing` 推迟至具备同源时间轴基准的 Stage 3。 | 分页与信号判别测试 |
 | QRY-03 | MUST | `threadAware = true` 下先匹配有效证据节点再映射至授权内可见 `anchor`（根帖不在授权范围内降级为节点自身并标 `contextMissing = true`）；只读树接口 `GET /v1/content/:id/thread?view=top|matches|op` 在基线 R2 采用单次有界查询（`LIMIT 200` 节点、32 跳环截断）在应用内存组装三视图；`POST /v1/project-comparisons` 保持统一口径并在跨平台互动比较时返回 `422`。 | 联动、三视图与 422 测试 |
 

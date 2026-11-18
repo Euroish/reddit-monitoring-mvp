@@ -78,7 +78,7 @@ export function normalizeTweet(value: unknown, sourceId: string, fetchedAt: stri
   };
 }
 
-export function normalizeXTarget(target: SourceTarget, kind: PublicContentKind): SourceTarget {
+export function normalizeXTarget(target: SourceTarget, kind: PublicContentKind): Extract<SourceTarget, { type: "search" | "account" }> {
     if (kind === "post" && target.type === "search" && target.query.trim())
       return { type: "search", query: target.query.trim() };
     if (kind === "post" && target.type === "account" && !target.query) {

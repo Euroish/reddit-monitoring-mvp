@@ -3,7 +3,7 @@ import type { Pool, PoolClient } from "pg";
 import type { Static } from "@sinclair/typebox";
 import type { Actor, Filter, ProjectInput } from "../../../packages/contracts/src/source-content";
 import { transaction, fail } from "../../storage/db";
-import { compileContentFilter, matchedAnchors } from "../content/search";
+import { compileContentFilter, matchingNodes } from "../content/search";
 
 type ProjectWrite = Static<typeof ProjectInput>;
 export interface Project {
@@ -74,18 +74,35 @@ export async function deleteProject(pool: Pool, actor: Actor, id: string, revisi
 export async function projectOverview(pool: Pool, actor: Actor, id: string) {
   const project = await projectSources(pool, actor, id);
   const compiled = compileContentFilter(actor, {}, project.source_ids, project.filter, !project.include_push_in_trends);
-  const match = matchedAnchors(compiled, project.thread_aware);
-  const rows = (await pool.query(`
-    ${match.cte}
-    SELECT GROUPING(date_trunc('day',c.created_at_source)) AS day_group,
-      GROUPING(p.code) AS platform_group,GROUPING(c.kind) AS kind_group,
-      date_trunc('day',c.created_at_source) AS day,p.code AS platform,c.kind,COUNT(*)::bigint AS count
-    FROM content c JOIN source p ON p.id=c.source_id JOIN public_content_search_document doc ON doc.content_id=c.id
-    ${match.joins} WHERE ${match.where}
-    GROUP BY GROUPING SETS ((),(date_trunc('day',c.created_at_source)),(p.code),(c.kind))`, compiled.values)).rows;
+  const anchorCount = project.thread_aware ? "COUNT(DISTINCT c.anchor_id)" : "COUNT(*)";
+  const [row] = (await pool.query<{
+    facets: {
+      day_group: number; platform_group: number; kind_group: number;
+      day: string | null; platform: string | null; kind: string | null;
+      count: number; matchedContentCount: number;
+    }[];
+    providers: string[];
+  }>(`
+    WITH matched AS (${matchingNodes(compiled, project.thread_aware)}), facets AS (
+      SELECT GROUPING(date_trunc('day',c.created_at_source,'UTC')) AS day_group,
+        GROUPING(c.platform) AS platform_group,GROUPING(c.kind) AS kind_group,
+        date_trunc('day',c.created_at_source,'UTC') AS day,c.platform,c.kind,
+        ${anchorCount} AS count,COUNT(*) AS "matchedContentCount"
+      FROM matched c
+      GROUP BY GROUPING SETS ((),(date_trunc('day',c.created_at_source,'UTC')),(c.platform),(c.kind))
+    )
+    SELECT (SELECT jsonb_agg(facets ORDER BY day_group DESC,day,platform,kind) FROM facets) AS facets,
+      ARRAY(SELECT DISTINCT o.provider FROM matched c JOIN content_observation o ON o.content_id=c.id
+        WHERE EXISTS (SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id
+          WHERE ${compiled.discovery} AND d.collection_source_id=o.collection_source_id)
+        ORDER BY o.provider) AS providers`, compiled.values)).rows;
+  const totals = row.facets[0];
   return {
     project,
-    facets: rows.map((row) => ({ ...row, count: Number(row.count) })),
+    contentCount: totals.count,
+    matchedContentCount: totals.matchedContentCount,
+    facets: row.facets,
+    providers: row.providers,
     resolvedFilter: project.filter,
     coverage: "stored_sample",
     threadAware: project.thread_aware,

@@ -47,6 +47,8 @@ export default function Projects({
     enabled: !!project,
     queryFn: () =>
       api<{
+        contentCount: number;
+        matchedContentCount: number;
         facets: {
           day_group: number;
           platform_group: number;
@@ -157,16 +159,9 @@ export default function Projects({
       {overview.data && project && (
         <section className="panel">
           <p className="eyebrow">已存命中内容</p>
-          <div className="big-number">
-            {overview.data.facets.find(
-              (facet) =>
-                facet.day_group === 1 &&
-                facet.platform_group === 1 &&
-                facet.kind_group === 1,
-            )?.count ?? 0}
-          </div>
+          <div className="big-number">{overview.data.contentCount}</div>
           <p className="muted">
-            {project.thread_aware ? "按可见讨论根帖计数" : "按内容节点计数"}
+            {project.thread_aware ? `按可见讨论根帖归组 · ${overview.data.matchedContentCount} 个命中节点` : "按内容节点计数"}
             {project.include_push_in_trends ? " · 包含导入样本" : " · 统计仅含在线来源"}
           </p>
           <div className="facets">

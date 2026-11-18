@@ -72,15 +72,8 @@ export function compileContentFilter(
       const term = normalizePublicSearchText(raw);
       if (!term || /[\u0000-\u001f]/u.test(term))
         fail(422, "Search terms cannot be empty or contain controls");
-      if (
-        !/[\p{L}\p{N}]{3}/u.test(term) &&
-        !filter.sourceId &&
-        !projectSourceIds &&
-        !filter.from &&
-        !filter.to &&
-        actor.allowedSourceIds === null
-      )
-        fail(422, "Short searches require a source or date range");
+      if (!/[\p{L}\p{N}]{3}/u.test(term))
+        fail(422, "Search terms need at least three consecutive letters or digits");
       const pattern = bind(`%${escapeLike(term)}%`);
       const candidate = `doc.search_text LIKE ${pattern}`;
       const selected =
@@ -166,21 +159,28 @@ export function contentSelect(discovery: string, extraColumns = "") {
     FROM content c JOIN source p ON p.id=c.source_id JOIN public_content_search_document doc ON doc.content_id=c.id`;
 }
 
-export function matchedAnchors(compiled: ReturnType<typeof compileContentFilter>, threadAware: boolean) {
-  if (!threadAware) return { cte: "", joins: "", where: compiled.text, columns: "" };
-  return {
-    cte: `WITH anchors AS (
-      SELECT COALESCE(root.id,c.id) AS id, BOOL_OR(root.id IS NULL AND ref.value IS NOT NULL) AS context_missing
-      FROM content c JOIN source p ON p.id=c.source_id JOIN public_content_search_document doc ON doc.content_id=c.id
-      LEFT JOIN LATERAL (
+export function matchingNodes(compiled: ReturnType<typeof compileContentFilter>, threadAware: boolean) {
+  return `SELECT c.id,c.created_at_source,c.kind,p.code AS platform,
+      ${threadAware ? "COALESCE(root.id,c.id) AS anchor_id,root.id IS NULL AND ref.value IS NOT NULL AS context_missing" :
+        "c.id AS anchor_id,FALSE AS context_missing"}
+    FROM content c JOIN source p ON p.id=c.source_id JOIN public_content_search_document doc ON doc.content_id=c.id
+    ${threadAware ? `LEFT JOIN LATERAL (
         SELECT value FROM jsonb_array_elements(c.content_references) r(value)
         WHERE value->>'relation'='thread_root' LIMIT 1
       ) ref ON true
       LEFT JOIN LATERAL (
         SELECT c.id FROM content c WHERE c.source_id=p.id AND c.kind=ref.value->>'kind' AND c.external_id=ref.value->>'externalId'
         AND EXISTS (SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id WHERE ${compiled.visible})
-      ) root ON true
-      WHERE ${compiled.text} GROUP BY COALESCE(root.id,c.id)
+      ) root ON true` : ""}
+    WHERE ${compiled.text}`;
+}
+
+export function matchedAnchors(compiled: ReturnType<typeof compileContentFilter>, threadAware: boolean) {
+  if (!threadAware) return { cte: "", joins: "", where: compiled.text, columns: "" };
+  return {
+    cte: `WITH anchors AS (
+      SELECT anchor_id AS id, BOOL_OR(context_missing) AS context_missing
+      FROM (${matchingNodes(compiled, true)}) matched GROUP BY anchor_id
     )`,
     joins: "JOIN anchors ON anchors.id=c.id",
     where: "TRUE",

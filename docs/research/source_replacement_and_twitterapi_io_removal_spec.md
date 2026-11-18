@@ -32,7 +32,7 @@
 - **配置与能力**：`SCRAPEBADGER_API_KEY`（请求头 `x-api-key: <KEY>`）、`SCRAPEBADGER_TIMEOUT_MS`（`20000`，`100..120000`）；`refreshByIds: true`（`GET /v1/twitter/tweets/?tweets=id1,id2,...`，每批限 20–50 ID）、`automaticRequestReplay: false`、`requestResourceUpperBound: 100`。
 - **真实端点与响应结构**：
   - 搜索：`GET /v1/twitter/tweets/advanced_search`（参数仅 `query`、`query_type=Top|Latest|Media`、`count 1..100`、`cursor`——**没有独立 `start_time`/`end_time` 查询参数，时间窗必须编入 `query`**）；
-  - 时间线：`GET /v1/twitter/users/{username}/latest_tweets`；回复/引用：`GET /v1/twitter/tweets/tweet/{tweet_id}/replies` 与 `/quotes`。
+  - 时间线端点 `GET /v1/twitter/users/{username}/latest_tweets` 仅接受游标。带日期的账号采集使用搜索端点的 `from:` 条件，每任务一页；供应商标注的近期搜索范围约为 7–10 天。回复与引用端点分别是 `GET /v1/twitter/tweets/tweet/{tweet_id}/replies` 与 `/quotes`。
   - **响应体容错**：优先识别 Schema 的 `{ data: TweetData[] | null, next_cursor }`（显式 `null` 视作空页），仅在 `data` 键完全缺省时兼容读取 `tweets`；两者皆缺即抛协议错误。
   - **`TweetData` 扁平作者字段**：`user_id` / `username` / `user_name`（非嵌套 `author`），正文取 `full_text ?? text`，响应头 `X-Credits-Used` 写入任务用量诊断。未首充账户按 `5 req/min`（`>= 12s/次`），确认 PAYG 按 `>= 1s/次`；“失败零扣费”不构成超时重放授权。
 

@@ -29,7 +29,7 @@ export function scrapeBadger(env = process.env, fetchPage = fetch): ContentProvi
     const fetchedAt = new Date().toISOString();
     const items = tweets.slice(0, 100).map((row) => normalizeTweet({
       ...row,
-      author: { id: row?.user_id, username: row?.username, name: row?.user_name },
+      author: row?.author ?? { id: row?.user_id, username: row?.username, name: row?.user_name },
     }, sourceId, fetchedAt, provider));
     const credits = response.headers.get("x-credits-used");
     return {
@@ -43,7 +43,8 @@ export function scrapeBadger(env = process.env, fetchPage = fetch): ContentProvi
     capability: {
       platform: "x", provider, enabled, contentKinds: ["post"], targetTypes: ["search", "account"],
       keywordSearch: "global", observationModel: "snapshot", automaticRequestReplay: false,
-      refreshByIds: true, requestResourceUpperBound: 100, limitations: ["One page per task, up to 20 IDs per refresh"],
+      refreshByIds: true, requestResourceUpperBound: 100,
+      limitations: ["One recent-search page per task, up to 20 IDs per refresh"],
       metrics: Object.keys(metricFields).map((key) => ({
         key, label: key.slice(2), unit: "count", cumulative: true, signed: false, contentKinds: ["post"], direction: "higher",
       })),
@@ -52,14 +53,13 @@ export function scrapeBadger(env = process.env, fetchPage = fetch): ContentProvi
     async collectPage(request) {
       const target = normalizeXTarget(request.source.target, request.source.contentKind);
       const from = Date.parse(request.from), to = Date.parse(request.to);
-      const params = new URLSearchParams();
-      const path = target.type === "account" ? `users/${target.account}/latest_tweets` : "tweets/advanced_search";
-      if (target.type === "search") {
-        params.set("query", `(${target.query}) since_time:${Math.floor(from / 1000)} until_time:${Math.ceil(to / 1000)}`);
-        params.set("query_type", "Latest");
-        params.set("count", String(request.limit));
-      }
-      const page = await read(path, params, request.source.id, request.signal);
+      const query = target.type === "account" ? `from:${target.account}` : `(${target.query})`;
+      const params = new URLSearchParams({
+        query: `${query} since_time:${Math.floor(from / 1000)} until_time:${Math.ceil(to / 1000)}`,
+        query_type: "Latest",
+        count: String(request.limit),
+      });
+      const page = await read("tweets/advanced_search", params, request.source.id, request.signal);
       const items = page.items.filter((item) => {
         const time = Date.parse(item.publishedAt!);
         return time >= from && time < to;
@@ -67,7 +67,7 @@ export function scrapeBadger(env = process.env, fetchPage = fetch): ContentProvi
       const truncated = items.length > request.limit || page.returned > 100;
       return {
         items: items.slice(0, request.limit), nextCheckpoint: null, coverage: "partial",
-        exhausted: !truncated && !page.partial && (!page.cursor || !page.returned),
+        exhausted: !truncated && !page.partial && !page.cursor,
         warning: page.partial ? "ScrapeBadger returned a partial page" : null,
         creditsUsed: page.creditsUsed,
       };

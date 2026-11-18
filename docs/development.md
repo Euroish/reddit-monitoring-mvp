@@ -6,7 +6,7 @@
 
 ## 当前分支的编译与 Compose 验收入口
 
-现有重整分支已引入 `main@dac7ab7`。Compose 从完整源码检出构建镜像；`release:pack` 是供 Node 直接运行的编译包。开发入口为 `npm run app:api`，唯一发布入口为 `node dist/apps/api/src/server.js`；构建用 `npm run build`，迁移用 `npm run db:migrate:compiled`。`DATABASE_URL` 必须指向独立 PG16 验证库，随后运行 `npm run smoke:compiled`，验证发布态 SQL、readiness、登录与 SIGTERM。迁移 runner 使用独立长超时连接，找不到 SQL 直接失败；空库应用共 47 文件，完整唯一链和不可改写边界见 [当前执行记录](status.md#0-当前重整分支执行记录)。
+Compose 从完整源码检出构建镜像；`release:pack` 是供 Node 直接运行的编译包。开发入口为 `npm run app:api`，唯一发布入口为 `node dist/apps/api/src/server.js`；构建用 `npm run build`，迁移用 `npm run db:migrate:compiled`。`DATABASE_URL` 必须指向独立 PG16 验证库，随后运行 `npm run smoke:compiled`，验证发布态 SQL、readiness、登录与 SIGTERM。迁移 runner 使用独立长超时连接，找不到 SQL 直接失败；空库应用共 48 个文件，完整迁移链见[当前执行记录](status.md#0-当前重整分支执行记录)。
 
 本地三服务验收设置 `POSTGRES_PASSWORD`（URL 安全字符）、`SESSION_SECRET`（至少 32 字符）、`APP_ORIGIN=https://localhost:8443`、`SITE_ADDRESS=https://localhost`、`HTTPS_PORT=8443`、`TLS_CONFIG='tls internal'`，可选一次性 `ADMIN_BOOTSTRAP_PASSWORD`，再运行：
 
@@ -51,7 +51,7 @@ TwitterAPIs 单任务一页、最多 20 条。需要备源时在来源创建或 
 
 ## 2. `main@0.9.1` 当前可执行入口与门禁脚本
 
-本节命令仅描述尚未合入重整分支的旧 main；当前分支可执行入口以上方“当前分支的编译与 Compose 验收入口”和 `package.json` 为准，不使用下述旧运行时工具。
+本节保留 `main@0.9.1` 的历史运维记录。当前版本以本页开头的编译与 Compose 入口及 `package.json` 为准。
 
 当前环境兼容 Node 22+（CI 目标 Node 22/24 与 PostgreSQL 16）。`SOURCE_NETWORK_ENABLED` 默认 `false`（不发真实收费网包），本地明文调试设 `API_SESSION_COOKIE_SECURE=false`。
 

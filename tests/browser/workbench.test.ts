@@ -160,15 +160,15 @@ test("browser: keyboard login, five navigation tasks, saved query and responsive
   await page.getByRole("button", { name: "常用研究查询 →" }).waitFor();
   await page.getByText("刷新后仍保留的草稿", { exact: true }).waitFor();
   await page.request.post(`${origin}/api/v1/workspace/queries`, {
-    headers: { origin }, data: { name: "数组条件查询", filter: { sourceId, anyTerms: ["内部", "讨论"] } },
+    headers: { origin }, data: { name: "数组条件查询", filter: { sourceId, anyTerms: ["内部研究", "讨论样本"] } },
   });
   await page.reload();
   await page.getByRole("button", { name: "数组条件查询 →" }).click();
-  assert.deepEqual(new URL(page.url()).searchParams.getAll("anyTerms"), ["内部", "讨论"]);
+  assert.deepEqual(new URL(page.url()).searchParams.getAll("anyTerms"), ["内部研究", "讨论样本"]);
   await page.getByLabel("限定来源").locator(`option[value="${sourceId}"]`).waitFor({ state: "attached" });
   assert.equal(await page.getByLabel("限定来源").inputValue(), sourceId);
   await page.getByRole("button", { name: "搜索", exact: true }).click();
-  assert.deepEqual(new URL(page.url()).searchParams.getAll("anyTerms"), ["内部", "讨论"]);
+  assert.deepEqual(new URL(page.url()).searchParams.getAll("anyTerms"), ["内部研究", "讨论样本"]);
   await page.getByRole("link", { name: "设置", exact: true }).click();
   await page.getByRole("heading", { name: "当前账户" }).waitFor();
   await page.getByLabel("工具名称").fill("只读研究工具");

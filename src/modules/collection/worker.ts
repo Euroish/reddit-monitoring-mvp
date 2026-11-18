@@ -18,16 +18,23 @@ export async function workOnce(
   if (signal?.aborted) return false;
   const claim = await transaction(pool, async (client) => {
     const candidate = (
-      await client.query(`SELECT cs.id FROM collection_source cs WHERE cs.state='active' AND cs.delivery_mode='pull' AND NOT cs.automatic_collection_blocked
-      AND EXISTS(SELECT 1 FROM source_collection_job j WHERE j.collection_source_id=cs.id AND j.next_run_at<=NOW() AND (j.status IN ('queued','retrying') OR j.status='running' AND j.lease_until<NOW()))
-      ORDER BY cs.created_at FOR UPDATE OF cs SKIP LOCKED LIMIT 1`)
+      await client.query(`SELECT cs.id,head.id AS job_id FROM collection_source cs
+      JOIN (
+        SELECT DISTINCT ON (j.collection_source_id) j.collection_source_id,j.id,j.status,j.next_run_at,j.lease_until
+        FROM source_collection_job j WHERE j.status IN ('queued','retrying','running')
+        ORDER BY j.collection_source_id,
+          (j.status='running' OR COALESCE(j.provider_state->>'phase' IN ('starting','running','reading'),FALSE)) DESC,j.created_at,j.id
+      ) head ON head.collection_source_id=cs.id AND head.next_run_at<=NOW() AND (head.status<>'running' OR head.lease_until<NOW())
+      WHERE cs.state='active' AND cs.delivery_mode='pull' AND NOT cs.automatic_collection_blocked
+      ORDER BY head.next_run_at,cs.id FOR UPDATE OF cs SKIP LOCKED LIMIT 1`)
     ).rows[0];
     if (!candidate) return null;
     const source = await lockSource(client, workerActor, candidate.id);
     const job = (
       await client.query(
-        `SELECT * FROM source_collection_job WHERE collection_source_id=$1 AND next_run_at<=NOW() AND (status IN ('queued','retrying') OR status='running' AND lease_until<NOW()) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1`,
-        [source.id],
+        `SELECT * FROM source_collection_job WHERE id=$1 AND next_run_at<=NOW()
+         AND (status IN ('queued','retrying') OR status='running' AND lease_until<NOW()) FOR UPDATE`,
+        [candidate.job_id],
       )
     ).rows[0];
     if (!job) return null;
@@ -142,8 +149,8 @@ export async function workOnce(
     if (externalIds && !provider.refreshIds) fail(422, "Provider does not support ID refresh");
     const checkpoint = job.provider === "feed" ? (await pool.query(
       `SELECT checkpoint FROM source_collection_job WHERE collection_source_id=$1 AND provider='feed' AND status='succeeded'
-       AND from_at=$2 AND to_at=$3 AND page_size=$4 ORDER BY finished_at DESC LIMIT 1`,
-      [source.id, job.from_at, job.to_at, job.page_size],
+       ORDER BY created_at DESC LIMIT 1`,
+      [source.id],
     )).rows[0]?.checkpoint ?? null : job.checkpoint;
     const page = externalIds
       ? await provider.refreshIds!({ source: collectionSource, externalIds, signal })
@@ -244,8 +251,12 @@ export async function workOnce(
       }
       const httpStatus = error instanceof ContentProviderError ? error.httpStatus : undefined;
       const rejected = httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500 && httpStatus !== 408;
-      const unknown = provider?.capability.automaticRequestReplay === false &&
-        current.provider_state.phase === "starting" && !rejected;
+      // ScrapeBadger documents zero credits for failed HTTP responses. Apify
+      // can lose a run receipt after accepting the POST, including on a 5xx.
+      const uncharged = rejected || (job.provider === "scrapebadger" && httpStatus !== undefined && httpStatus >= 500);
+      const phase = current.provider_state.phase;
+      const unknown = phase === "unknown" ||
+        (provider?.capability.automaticRequestReplay === false && phase === "starting" && !uncharged);
       await client.query(
         "UPDATE source_collection_job SET status='failed',error=$3,provider_state=provider_state||$4::jsonb,finished_at=NOW(),lease_token=NULL,lease_until=NULL WHERE id=$1 AND lease_token=$2",
         [
@@ -255,11 +266,11 @@ export async function workOnce(
           JSON.stringify({
             phase: unknown
               ? "unknown"
-              : (["running", "reading"].includes(current.provider_state.phase) ? current.provider_state.phase : "failed"),
+              : (["running", "reading"].includes(phase) ? phase : "failed"),
           }),
         ],
       );
-      await client.query(
+      if (unknown) await client.query(
         "UPDATE collection_source SET automatic_collection_blocked=TRUE WHERE id=$1",
         [source.id],
       );

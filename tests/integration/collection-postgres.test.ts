@@ -144,6 +144,13 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
     );
   const first = await create("OpenAI OR Anthropic"),
     jobId = await enqueue(first);
+  const missingFallback = await app.inject({
+    method: "POST", url: `/v1/sources/${first}/collect`,
+    headers: { ...headers, "idempotency-key": randomUUID() },
+    payload: { from: new Date(Date.now() - 86400000).toISOString(), to: now, limit: 5, useFallback: true },
+  });
+  assert.equal(missingFallback.statusCode, 422);
+  assert.match(missingFallback.body, /No fallback provider configured/);
   await workOnce(db.pool, [connector]);
   assert.equal(posts, 0, "New paid providers start with disabled zero budgets");
   await db.pool.query(
@@ -310,12 +317,14 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
   );
   const safeResult = (
     await db.pool.query(
-      "SELECT status,page_request_attempts FROM source_collection_job WHERE id=$1",
+      `SELECT j.status,j.page_request_attempts,cs.automatic_collection_blocked
+       FROM source_collection_job j JOIN collection_source cs ON cs.id=j.collection_source_id WHERE j.id=$1`,
       [safeJob.json().jobId],
     )
   ).rows[0];
   assert.equal(safeResult.status, "failed");
   assert.equal(safeResult.page_request_attempts, 3);
+  assert.equal(safeResult.automatic_collection_blocked, false);
   await t.test("project hydration queues the selected root and preserves the discovery watermark", async () => {
     const project = await app.inject({
       method: "POST", url: "/v1/projects", headers,
@@ -325,20 +334,29 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
     const scoped = await app.inject({ url: `/v1/content?projectId=${project.json().id}`, headers });
     assert.equal(scoped.statusCode, 200, scoped.body);
     assert.deepEqual(scoped.json().items.map((item: { externalId: string }) => item.externalId), ["t3_root123"]);
+    const overview = (await app.inject({ url: `/v1/projects/${project.json().id}/overview`, headers })).json();
+    assert.equal(overview.contentCount, 1);
+    assert.equal(overview.matchedContentCount, 1);
+    assert.deepEqual(overview.providers, ["kaix"]);
+    assert.equal(overview.facets.find((facet: { kind: string }) => facet.kind === "comment")?.matchedContentCount, 1);
     for (const signal of ["discussion", "pain"]) {
       const filtered = await app.inject({ url: `/v1/content?sourceId=${first}&signal=${signal}`, headers });
       assert.equal(filtered.statusCode, 200, filtered.body);
       assert.deepEqual(filtered.json().items.map((item: { externalId: string }) => item.externalId), ["t3_root123"]);
     }
-    const response = await app.inject({
+    const hydrate = () => app.inject({
       method: "POST", url: `/v1/projects/${project.json().id}/hydrate`,
       headers: { ...headers, "idempotency-key": randomUUID() },
       payload: { contentIds: [scoped.json().items[0].id], maxCommentsPerPost: 4 },
     });
+    const response = await hydrate();
     assert.equal(response.statusCode, 200, response.body);
+    const second = await hydrate();
+    assert.equal(second.statusCode, 200, second.body);
     mode = "success";
     const beforeHydrate = (await db.pool.query("SELECT incremental_to FROM collection_source WHERE id=$1", [first])).rows[0];
     await workOnce(db.pool, [connector]);
+    assert.equal(await workOnce(db.pool, [connector]), false, "Waiting for the first run holds its source");
     await wake();
     await workOnce(db.pool, [connector]);
     assert.equal(runInput.mode, "post");

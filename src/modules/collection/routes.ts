@@ -347,6 +347,7 @@ export async function collectionRoutes(
         if (Date.parse(request.body.from) >= Date.parse(request.body.to))
           fail(422, "Invalid collection window");
         const providerName = request.body.useFallback ? source.fallback_provider : source.primary_provider;
+        if (!providerName) fail(422, "No fallback provider configured for this source");
         const provider = providers.find(
           (item) =>
             item.capability.provider === providerName &&
@@ -354,7 +355,7 @@ export async function collectionRoutes(
         );
         const maxComments = request.body.maxCommentsPerPost ?? 15;
         if (
-          source.primary_provider === "kaix" &&
+          providerName === "kaix" &&
           source.target.type !== "post" &&
           request.body.limit *
             (request.body.includeComments ? maxComments + 1 : 1) >
@@ -362,7 +363,7 @@ export async function collectionRoutes(
         )
           fail(422, "Requested batch exceeds 2000 nodes");
         if (
-          source.primary_provider === "bluesky_appview" &&
+          providerName === "bluesky_appview" &&
           (request.body.limit > 100 || request.body.includeComments)
         )
           fail(422, "Bluesky supports at most 100 authored posts per request");

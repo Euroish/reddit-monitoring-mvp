@@ -14,7 +14,6 @@ interface RedditRow {
   name?: unknown;
   createdAt?: string;
   created_at?: string;
-  endpoint?: string;
   permalink?: unknown;
   parent?: { id?: unknown };
   parent_id?: unknown;
@@ -40,21 +39,32 @@ interface RedditRow {
   removed_by_category?: unknown;
 }
 
-function normalize(row: RedditRow, sourceId: string, fetchedAt: string, runId: string): CollectedContent {
-  const id = text(row.name) ?? text(row.id);
+function fullname(value: unknown, prefix: "t1" | "t3") {
+  const id = text(value);
+  if (!id) return null;
+  if (/^t[13]_[a-z0-9]{2,32}$/.test(id)) return id;
+  return /^[a-z0-9]{2,32}$/.test(id) ? `${prefix}_${id}` : null;
+}
+
+function normalize(row: RedditRow, sourceId: string, fetchedAt: string, runId: string, kindHint: "post" | "comment", postId?: string): CollectedContent {
+  const prefix = kindHint === "comment" ? "t1" : "t3";
+  const id = fullname(row.id, prefix) ?? fullname(row.name, prefix);
   const time = Date.parse(row.createdAt ?? row.created_at ?? "");
-  if (!id || !/^t[13]_[a-z0-9]{2,32}$/.test(id) || !Number.isFinite(time))
+  if (!id || !Number.isFinite(time))
     throw new ContentProviderError("Invalid red_crawler dataset record", false);
   const kind = id.startsWith("t1_") ? "comment" : "post";
   const permalink = text(row.permalink);
-  const root = text(row.postInfo?.id ?? row.post_id);
+  const root = kind === "comment" ? fullname(row.postInfo?.id ?? row.post_id ?? postId, "t3") : null;
   const handle = text(row.authorInfo?.name ?? row.author ?? row.authorName)?.replace(/^u\//, "");
   const community = text(row.subreddit?.prefixedName ?? (typeof row.postInfo?.subreddit === "object" ? row.postInfo.subreddit.prefixedName : row.postInfo?.subreddit) ?? permalink?.match(/^\/r\/([^/]+)/i)?.[1])?.replace(/^r\//i, "").toLowerCase();
   if (!community) throw new ContentProviderError("red_crawler record has no subreddit", false);
   const references: ContentReference[] = [];
-  const parent = text(row.parent?.id ?? row.parent_id) ?? (row.endpoint === "post_comments" && row.depth === 0 ? root : null);
+  const parentId = row.parent?.id ?? row.parent_id;
+  const parent = parentId == null
+    ? (row.depth === 0 ? root : null)
+    : fullname(parentId, root?.slice(3) === parentId || row.depth === 0 ? "t3" : "t1");
   for (const [relation, target] of [["thread_root", root], ["reply_to", parent]] as const) {
-    if (target && /^t[13]_[a-z0-9]{2,32}$/.test(target)) {
+    if (target) {
       references.push({ relation, kind: target.startsWith("t1_") ? "comment" : "post", externalId: target });
     }
   }
@@ -160,7 +170,8 @@ export function redCrawler(env = process.env, fetchPage = fetch): ContentProvide
       const rows = await read(`datasets/${datasetId}/items?clean=true&limit=${limit + 1}`);
       if (!Array.isArray(rows)) throw new ContentProviderError("Invalid red_crawler dataset", false);
       const fetchedAt = new Date().toISOString();
-      const items = rows.slice(0, limit).map((row) => normalize(row, request.source.id, fetchedAt, runId))
+      const kind = post || (search && request.source.contentKind === "comment") ? "comment" : "post";
+      const items = rows.slice(0, limit).map((row) => normalize(row, request.source.id, fetchedAt, runId, kind, post ? target.postId : undefined))
         .filter((item) => post || (item.publishedAt! >= request.from && item.publishedAt! < request.to));
       return { ...base, items, exhausted: rows.length < limit };
     },

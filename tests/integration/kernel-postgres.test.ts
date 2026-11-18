@@ -65,7 +65,7 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
     externalId: "t3_known123",
     publishedAt: "2026-11-16T10:00:00.123456Z",
     title: "Hello",
-    text: "World 100%_ 中文",
+    text: "World 100%_ 中文内容",
     observation: { ...item.observation, evidenceKey: "known" },
   });
   const comments = Array.from({ length: 30 }, (_, i) =>
@@ -436,7 +436,7 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
       for (const [query, count] of [
         ["Hello World", 0],
         ["100%_", 1],
-        ["中文", 32],
+        ["中文内容", 1],
       ] as const) {
         const response = await app.inject({
           url: `/v1/content?sourceId=${a.id}&query=${encodeURIComponent(query)}`,
@@ -445,6 +445,7 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
         assert.equal(response.statusCode, 200, response.body);
         assert.equal(response.json().items.length, count);
       }
+      assert.equal((await app.inject({ url: `/v1/content?sourceId=${a.id}&query=%E4%B8%AD%E6%96%87`, headers })).statusCode, 422);
       assert.equal(
         (
           await app.inject({
