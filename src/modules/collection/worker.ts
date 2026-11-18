@@ -84,8 +84,9 @@ export async function workOnce(
     ) {
       const hydrate = job.operation === "hydrate";
       const refresh = Array.isArray(job.request_json.externalIds);
-      const resources = refresh ? job.page_size : hydrate
-        ? job.page_size + 1
+      const kaixThread = job.provider === "kaix" && (hydrate || source.target.type === "post");
+      const resources = refresh ? job.page_size : kaixThread
+        ? 1 + Math.min(job.page_size, job.request_json.maxCommentsPerPost ?? 50)
         : ["twitterapis", "scrapebadger"].includes(job.provider)
           ? (provider.capability.requestResourceUpperBound ?? 20)
           : Math.min(2000, job.page_size *
@@ -205,7 +206,9 @@ export async function workOnce(
           counts.added,
           counts.updated,
           page.exhausted,
-          page.creditsUsed === undefined ? null : { creditsUsed: page.creditsUsed },
+          page.warning || page.creditsUsed !== undefined
+            ? { warning: page.warning ?? undefined, creditsUsed: page.creditsUsed }
+            : null,
         ],
       );
       await client.query(

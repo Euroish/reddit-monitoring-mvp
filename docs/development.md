@@ -49,6 +49,8 @@ node --env-file="$HOME/.config/reddit-monitoring/credentials.env" dist/apps/api/
 
 TwitterAPIs 单任务一页、最多 20 条。需要备源时在来源创建或 PATCH 中设置 `fallbackProvider`，提交采集时显式传 `useFallback: true`。ScrapeBadger 批量刷新用 `POST /v1/sources/:id/refresh`，每次 1–20 个库内内容 ID，带 `Idempotency-Key`。Reddit 项目手选水合用 `POST /v1/projects/:id/hydrate`，每次最多 30 个现有根帖。两类任务均可在来源页查看。
 
+单帖 Reddit 采集在来源目标中使用 `{type: "post", postId: "t3_…"}` 和 `contentKind: "comment"`。Kaix 的 `maxCommentsPerPost` 最大为 50，实际取两项中较小者（任务 `limit` 与评论上限）；预算另为同批返回的主帖预留 1 条。任务结束后通过 `GET /v1/source-jobs/:id` 查看 `job.result_summary.warning`，评论缺失时用对应 `provider_run_id` 核对 Apify Run。
+
 ## 2. 历史版本 `main@0.9.1` 的入口与门禁脚本
 
 本节保留 `main@0.9.1` 的历史运维记录。当前版本以本页开头的编译与 Compose 入口及 `package.json` 为准。
