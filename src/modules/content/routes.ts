@@ -4,6 +4,8 @@ import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import {
   Content,
+  ContentFacets,
+  ContentFacetsQuery,
   type Actor,
   ListQuery,
   ParamsId,
@@ -13,6 +15,7 @@ import {
 import { contentColumns, contentSelect, contentTables, compileContentFilter, decodeCursor, filterSignature, matchedAnchors, pageObservations } from "./search";
 import { contentFromRow } from "./sql";
 import { exportRoutes } from "./export";
+import { contentFacets } from "./facets";
 import { readThread } from "./thread";
 export { csvCell } from "./export";
 import { projectSources } from "../projects/sql";
@@ -86,6 +89,9 @@ export async function contentRoutes(
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   api.get("/v1/content", { schema: { querystring: ListQuery, response: ListResponse } },
     (request) => listContent(pool, request.actor!, request.query),
+  );
+  api.get("/v1/content/facets", { schema: { querystring: ContentFacetsQuery, response: { 200: ContentFacets } } },
+    (request) => contentFacets(pool, request.actor!, request.query),
   );
   api.get("/v1/content/feed", { schema: {
     querystring: Type.Omit(ListQuery, ["projectId", "threadAware"]), response: ListResponse,

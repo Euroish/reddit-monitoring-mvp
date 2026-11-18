@@ -61,6 +61,8 @@
 | COL-04 | MUST | `hydrate` 由用户或高讨论度阈值勾选根帖集合触发（每批 `<= 30` 根、每帖 `<= 50` 评论，`commentSort="top"`），同时兼容 `kaix` 主源与 `red_crawler` 备源（`post_comments`）；按题动态探索（`POST /v1/discovery/query`）拆解 4 个正交槽，经 Tier-1 免费垂直 API（本地 PG、HN Algolia、GitHub、HF/arXiv、Reddit）与受预算门控的 Tier-2 网页搜索挑选最多 24–30 个去重站点，在系统内置 `delivery_mode='push'` 的 `radar` 源下分三波渐进提取入库，并输出 `candidateSubscriptions` 供一键转为长期 `pull` 源。 | 水合主备与动态探索三波测试 |
 | ING-01 | MUST | `POST /v1/sources/:id/ingest` 仅接收规范化 `NormalizedContentItem[]`（服务端生成确定 UUID），强验证 `ingest` scope、非空允许来源与 `Idempotency-Key`；单批限 **1–100 项、解码体 <= 1 MiB、标题 <= 4 KiB、正文 <= 64 KiB**；首次写入返 `201`、同键同载重放返 `200`、异体返 `409`。 | 推流边界与 201/200/409 测试 |
 
+当前试抓使用与创建一致的 `SourceInput`。管理员浏览器会话可对已启用的 `feed` 和 `newsnow` 获取最多 20 个样本（`mode: fetched`），其余来源返回静态校验结果（`mode: validated`）。`providerEnabled` 报告渠道开关状态。HTML 列表可返回页面声明的 RSS/Atom 链接。试抓不写入来源、任务、内容或用量。
+
 ### 供应商能力与双语三大支柱覆盖摘要
 
 | `provider` | 支持操作与能力 | `refreshByIds` | 关键限制与双语支柱分工 |
@@ -94,12 +96,14 @@
 
 `GET /v1/content/feed` 是「最新」读路径。仅返回授权内由 `pull` 来源发现且已知发布时间的库内内容，分页与观测都使用相同来源权限。来源创建和 PATCH 支持可选 `schedule`，开启需要浏览器管理员会话，且只适用于 `pull`。默认周期 1 小时、首次回看 24 小时、后续最多追赶 6 小时、重叠 5 分钟。创建默认关闭排期。来源列表返回下次到期、最近检查、最近采集成功时间和阻断状态。
 
+`GET /v1/content/facets` 接受与内容列表相同的过滤条件和可选 `projectId`，要求 `from`、`to` 组成最多 90 天的半开区间。默认统计 `pull` 来源，显式 `deliveryMode` 或项目的 `includePushInTrends` 可选择纳入推流。`bucket` 可选 `day`（默认）或 `6h`，均按 UTC 对齐。返回 `timeline`（含 `byPlatform`）、`distributions.platforms` 和 `distributions.kinds`。`threadAware` 下每组按可见根帖去重计 `count`，`matchedContentCount` 仍按证据节点计数。按桶下钻时将原查询时间窗与桶求交。无命中的桶不返回，`coverage: stored_sample` 表示当前库内样本。
+
 > **说明**：为消除历史文档与运行时代码的路径命名漂移，下表同时标明**当前运行时已注册路径**与**Phase 1–3 增补端点**，所有前端与 Agent 统一以运行时 `/v1/openapi.json` 为准：
 
 | 资源域 | 当前运行时已注册路径（保持向后兼容） | Phase 1–3 增补与对齐路径 |
 | :--- | :--- | :--- |
 | **账户与机器 Key** | `POST /v1/auth/login`、`GET /v1/auth/session`、`POST /v1/auth/logout`、`POST /v1/auth/register`、`GET/POST /v1/access/keys`、`DELETE /v1/access/keys/:id`、`POST /v1/access/invites`、`GET /v1/capabilities`、`GET /v1/openapi.json` | 前端 `Account.tsx` 完整接通 `GET/DELETE /v1/access/keys` 与 `POST /v1/access/invites` |
-| **来源、预算与任务** | `GET/POST /v1/sources`、`PATCH /v1/sources/:id`、`GET /v1/sources/budgets`、`PUT /v1/sources/budgets/:provider`、`POST /v1/sources/:id/{collect,ingest,refresh,unblock}`、`GET /v1/sources/:id/jobs`、`GET /v1/source-jobs`、`GET /v1/source-jobs/:id`、`POST /v1/source-jobs/:id/{cancel,retry,continue}` | 新增 `POST /v1/sources/preview`（先预览前 20 条再保存）；`GET /v1/sources/budgets` 纳入 `ai_enrich` 可选翻译/摘要预算行；`GET /v1/sources` 增补 `sourceGroup` 和 `tier` |
-| **内容、聚簇、图表、AI 翻译/摘要与导出** | `GET /v1/content`、`GET /v1/content/feed`、`GET /v1/content/:id`、`GET /v1/content/:id/thread`、`GET /v1/content/export` | `GET /v1/content` 支持 `sourceGroup`、`tier`、`storyKey`、`view=feed\|events\|digest`；新增 `GET /v1/content/facets`（驱动全局探索与频道四类可视化图表）与 `POST /v1/content/:id/enrich`（按簇/按需触发或写回 AI 翻译与三点摘要，幂等缓存在 `platform_details.extensions.ai`） |
+| **来源、预算与任务** | `GET/POST /v1/sources`、`POST /v1/sources/preview`、`PATCH /v1/sources/:id`、`GET /v1/sources/budgets`、`PUT /v1/sources/budgets/:provider`、`POST /v1/sources/:id/{collect,ingest,refresh,unblock}`、`GET /v1/sources/:id/jobs`、`GET /v1/source-jobs`、`GET /v1/source-jobs/:id`、`POST /v1/source-jobs/:id/{cancel,retry,continue}` | `GET /v1/sources/budgets` 纳入 `ai_enrich` 可选翻译/摘要预算行；`GET /v1/sources` 增补 `sourceGroup` 和 `tier` |
+| **内容、聚簇、图表、AI 翻译/摘要与导出** | `GET /v1/content`、`GET /v1/content/feed`、`GET /v1/content/facets`、`GET /v1/content/:id`、`GET /v1/content/:id/thread`、`GET /v1/content/export` | `GET /v1/content` 支持 `sourceGroup`、`tier`、`storyKey`、`view=feed\|events\|digest`；扩展分面统计以支持频道、权威度和事件图表；新增 `POST /v1/content/:id/enrich`（按簇/按需触发或写回 AI 翻译与三点摘要，幂等缓存在 `platform_details.extensions.ai`） |
 | **按题探索与 Agent 提案** | （待增补） | 新增 `POST /v1/discovery/query`、`GET /v1/discovery/jobs/:id`（三波渐进取证 + 一键转 `pull` 订阅）及 `POST /v1/agent/proposals`、`POST /v1/agent/proposals/:id/approve` |
 | **项目可视化与个人工作区** | `GET/POST /v1/projects`、`GET/PATCH/DELETE /v1/projects/:id`、`GET /v1/projects/:id/overview`、`POST /v1/projects/:id/hydrate`、`GET/POST /v1/workspace/queries`、`DELETE /v1/workspace/queries/:id`、`GET /v1/workspace/annotations`、`GET/PUT /v1/workspace/annotations/:id` | 新增 `POST /v1/project-comparisons`（多专题/多主题并排图表对比）；前端 `Projects.tsx` 与探索页基于 `apps/web/src/charts.tsx` 原生 `<svg>` 完整渲染按日/6h 叠柱趋势、48h 热度 × 6h 增速矩阵、权威级分布与来源联动钻取 |

@@ -33,6 +33,18 @@ export const Kind = Type.Union([
   Type.Literal("image"),
   Type.Literal("video"),
 ]);
+const selectorPart = "(?:[a-zA-Z][\\w-]*|\\*|[.#][a-zA-Z_-][\\w-]*)(?:[.#][a-zA-Z_-][\\w-]*)*";
+const ListSelector = Type.String({ maxLength: 160, pattern: `^${selectorPart}(?:(?: +| *> *)${selectorPart}){0,7}$` });
+const ListPath = Type.String({ maxLength: 160, pattern: "^[a-zA-Z0-9_-]+(?:\\.[a-zA-Z0-9_-]+){0,7}$" });
+const feedList = (format: "web_list" | "json_list", field: typeof ListSelector) => Type.Object({
+  format: Type.Literal(format),
+  items: format === "json_list" ? Type.Union([field, Type.Literal("$")]) : field,
+  link: field,
+  title: field,
+  summary: Type.Optional(field),
+  publishedAt: Type.Optional(field),
+  author: Type.Optional(field),
+}, { additionalProperties: false });
 export const Target = Type.Union([
   Type.Object(
     {
@@ -69,6 +81,7 @@ export const Target = Type.Union([
     {
       type: Type.Literal("feed"),
       url: Type.String({ format: "uri", maxLength: 2000 }),
+      list: Type.Optional(Type.Union([feedList("web_list", ListSelector), feedList("json_list", ListPath)])),
     },
     { additionalProperties: false },
   ),
@@ -248,6 +261,18 @@ export const SourceInput = Type.Object(
   },
   { additionalProperties: false },
 );
+export const SourcePreview = Type.Object({
+  mode: Type.Union([Type.Literal("fetched"), Type.Literal("validated")]),
+  target: Target,
+  providerEnabled: Type.Boolean(),
+  items: Type.Array(Type.Object({
+    url: NullableText,
+    title: NullableText,
+    publishedAt: Type.Union([DateTime, Type.Null()]),
+    summary: NullableText,
+  })),
+  feeds: Type.Array(Type.String()),
+});
 export const Source = strictMerge([
   Type.Omit(SourceInput, ["primaryProvider", "fallbackProvider"]),
   Type.Object({
@@ -317,6 +342,33 @@ export const ListQuery = strictMerge([
   Type.Object({
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
     cursor: Type.Optional(Type.String({ maxLength: 4096 })),
+  }),
+]);
+export const ContentFacetsQuery = strictMerge([
+  Type.Omit(ResearchFilter, ["from", "to"]),
+  Type.Object({
+    from: DateTime,
+    to: DateTime,
+    bucket: Type.Optional(Type.Union([Type.Literal("day"), Type.Literal("6h")])),
+  }),
+]);
+const FacetCounts = Type.Object({
+  count: Type.Integer({ minimum: 0 }),
+  matchedContentCount: Type.Integer({ minimum: 0 }),
+});
+const PlatformFacet = strictMerge([Type.Object({ platform: Platform }), FacetCounts]);
+export const ContentFacets = strictMerge([
+  FacetCounts,
+  Type.Object({
+    timeline: Type.Array(strictMerge([
+      Type.Object({ bucket: DateTime, byPlatform: Type.Array(PlatformFacet) }),
+      FacetCounts,
+    ])),
+    distributions: Type.Object({
+      platforms: Type.Array(PlatformFacet),
+      kinds: Type.Array(strictMerge([Type.Object({ kind: Kind }), FacetCounts])),
+    }),
+    coverage: Type.Literal("stored_sample"),
   }),
 ]);
 export const ActorSchema = Type.Object({

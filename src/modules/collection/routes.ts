@@ -6,8 +6,6 @@ import type { Pool } from "pg";
 import {
   Collect,
   FallbackProvider,
-  type PublicContentKind,
-  type SourceTarget,
   IdempotencyHeaders,
   Ingest,
   ParamsId,
@@ -18,6 +16,7 @@ import {
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { commitContentBatch, prepareContentBatch } from "../content/sql";
 import { fail, transaction } from "../../storage/db";
+import { sourcePreviewRoute, validateFallback, validateSource } from "./config";
 import {
   assertSource,
   lockSource,
@@ -35,16 +34,6 @@ function canonical(value: unknown): string {
       .join(",")}}`;
   return JSON.stringify(value);
 }
-function validateFallback(providers: ContentProvider[], input: {
-  primary: string; fallback: string; delivery: string; target: SourceTarget; kind: PublicContentKind;
-}) {
-  const expectedPrimary = input.fallback === "scrapebadger" ? "twitterapis" : "kaix";
-  if (input.primary !== expectedPrimary || input.delivery !== "pull")
-    fail(422, "Fallback is incompatible with the primary provider");
-  const provider = providers.find(({ capability }) => capability.provider === input.fallback);
-  if (!provider) fail(422, "Fallback provider not registered");
-  provider.normalizeTarget(input.target, input.kind);
-}
 
 export async function collectionRoutes(
   app: FastifyInstance,
@@ -52,6 +41,7 @@ export async function collectionRoutes(
   providers: ContentProvider[],
 ) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
+  sourcePreviewRoute(app, providers);
   api.get(
     "/v1/sources",
     {
@@ -159,27 +149,8 @@ export async function collectionRoutes(
       if (request.actor!.clientKind !== "browser")
         fail(403, "Create sources from a browser administrator session");
       const input = request.body;
-      const provider = providers.find(
-        (item) =>
-          item.capability.provider === input.primaryProvider &&
-          item.capability.platform === input.platform,
-      );
-      if (
-        (input.deliveryMode === "push") !==
-        (input.primaryProvider === "external_ingest")
-      )
-        fail(422, "Push sources require external_ingest");
-      if (input.deliveryMode === "pull" && !provider)
-        fail(422, "Unsupported provider for this platform");
-      const target = provider
-        ? provider.normalizeTarget(input.target, input.contentKind)
-        : input.target;
-      if (input.schedule?.enabled && input.deliveryMode !== "pull")
-        fail(422, "Automatic scheduling requires a pull source");
+      const { target } = validateSource(providers, input);
       const fallbackProvider = input.fallbackProvider ?? null;
-      if (fallbackProvider) validateFallback(providers, {
-        primary: input.primaryProvider, fallback: fallbackProvider, delivery: input.deliveryMode, target, kind: input.contentKind,
-      });
       const row = (
         await pool.query(
           `INSERT INTO collection_source(id,platform_id,provider,primary_provider,label,target,content_kind,delivery_mode,fallback_provider,created_at,updated_at,schedule,next_due_at)

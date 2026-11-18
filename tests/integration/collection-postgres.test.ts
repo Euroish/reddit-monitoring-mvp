@@ -89,8 +89,15 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
     },
   });
   const feedUrl = "https://fixture.example/atom";
+  const listUrl = "https://fixture.example/releases";
+  const jsonUrl = "https://fixture.example/api/releases";
   let feedChecks = 0;
-  const feed = webSource("feed", { SOURCE_NETWORK_ENABLED: "true", FEED_ALLOWED_URLS: feedUrl }, async (_url, _signal, requestHeaders) => {
+  const feed = webSource("feed", { SOURCE_NETWORK_ENABLED: "true", FEED_ALLOWED_URLS: [feedUrl, listUrl, jsonUrl].join(",") }, async (url, _signal, requestHeaders) => {
+    if (url.href === listUrl) return { status: 200, body: `<link rel="alternate" type="application/atom+xml" href="/atom">
+      <article class="release"><h2><a href="/tool">Web result</a></h2><p>Summary</p><time datetime="2026-11-16T10:00:00Z"></time></article>` };
+    if (url.href === jsonUrl) return { status: 200, body: JSON.stringify({ data: { releases: [
+      { ref: { url: "/tool" }, title: "JSON result", description: "Summary" },
+    ] } }) };
     feedChecks++;
     if (requestHeaders?.["If-None-Match"] === '"fixture"') return { status: 304, body: "" };
     const published = new Date(Date.now() - 60000).toUTCString();
@@ -426,5 +433,52 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
       SELECT status,records_inserted,request_count FROM source_collection_job
       WHERE collection_source_id=$1 ORDER BY created_at DESC LIMIT 1`, [id]);
     assert.deepEqual(last, { status: "succeeded", records_inserted: 0, request_count: 1 });
+    const { rows: [heartbeat] } = await db.pool.query("SELECT state FROM source_worker_heartbeat WHERE id='unified-collection'");
+    assert.equal(heartbeat?.state, "stopped");
+  });
+  await t.test("source preview shares creation validation, parses public lists and never starts paid runs", async () => {
+    const snapshot = async () => (await db.pool.query(`SELECT
+      (SELECT count(*) FROM collection_source) AS sources, (SELECT count(*) FROM source_collection_job) AS jobs,
+      (SELECT count(*) FROM content) AS content, (SELECT count(*) FROM source_provider_usage) AS usage`)).rows[0];
+    const before = await snapshot();
+    const paidStarts = posts;
+    const web = { platform: "web", primaryProvider: "feed", contentKind: "article", deliveryMode: "pull", label: "Fixture list" };
+    const html = { ...web, target: { type: "feed", url: listUrl, list: {
+      format: "web_list", items: "article.release", title: "h2 > a", link: "a", summary: "p", publishedAt: "time",
+    } } };
+    const json = { ...web, target: { type: "feed", url: jsonUrl, list: {
+      format: "json_list", items: "data.releases", title: "title", link: "ref.url", summary: "description",
+    } } };
+    const preview = (payload: object) => app.inject({ method: "POST", url: "/v1/sources/preview", headers, payload });
+    const result = await preview(html);
+    assert.equal(result.statusCode, 200, result.body);
+    assert.deepEqual(result.json().items, [{
+      url: "https://fixture.example/tool", title: "Web result", summary: "Summary", publishedAt: "2026-11-16T10:00:00.000Z",
+    }]);
+    assert.deepEqual(result.json().feeds, [feedUrl]);
+    const parsed = await preview(json);
+    assert.equal(parsed.statusCode, 200, parsed.body);
+    assert.deepEqual(parsed.json().items, [{ url: "https://fixture.example/tool", title: "JSON result", summary: "Summary", publishedAt: null }]);
+    assert.equal((await preview({ ...json, target: { ...json.target, list: { ...json.target.list, items: "missing" } } })).statusCode, 422);
+    assert.equal((await preview({ ...html, target: { ...html.target, url: "https://unapproved.example/releases" } })).statusCode, 422);
+    const paid = await preview({ platform: "reddit", primaryProvider: "kaix", contentKind: "post", deliveryMode: "pull",
+      label: "Paid dry run", target: { type: "search", query: "Fixture" } });
+    assert.equal(paid.statusCode, 200, paid.body);
+    assert.equal(paid.json().mode, "validated");
+    assert.equal(posts, paidStarts);
+    assert.deepEqual(await snapshot(), before);
+    const saved = await app.inject({ method: "POST", url: "/v1/sources", headers, payload: json });
+    assert.equal(saved.statusCode, 200, saved.body);
+    assert.deepEqual(saved.json().source.target, parsed.json().target);
+    const id = saved.json().source.id;
+    const job = await app.inject({ method: "POST", url: `/v1/sources/${id}/collect`,
+      headers: { ...headers, "idempotency-key": randomUUID() },
+      payload: { from: "2026-11-16T00:00:00Z", to: "2026-11-17T00:00:00Z", limit: 2 },
+    });
+    assert.equal(job.statusCode, 200, job.body);
+    assert.equal(await workOnce(db.pool, [connector, safeProvider, feed]), true);
+    const stored = await app.inject({ url: `/v1/content?sourceId=${id}`, headers });
+    assert.equal(stored.statusCode, 200, stored.body);
+    assert.equal(stored.json().items[0]?.title, "JSON result");
   });
 });

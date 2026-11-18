@@ -351,6 +351,7 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
       );
       const other = batchItem(b.id, {
         externalId: "t3_other123",
+        publishedAt: known.publishedAt,
         observation: {
           ...item.observation,
           sourceId: b.id,
@@ -383,6 +384,32 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
       });
       assert.deepEqual(scopedExport.json().items, []);
       assert.equal(scopedExport.json().result.complete, true);
+      const facetPath = "/v1/content/facets?from=2026-11-16T00:00:00Z&to=2026-11-17T00:00:00Z&bucket=6h";
+      const facets = await app.inject({ url: `${facetPath}&deliveryMode=push`, headers: machine });
+      assert.equal(facets.statusCode, 200, facets.body);
+      assert.deepEqual(facets.json(), {
+        count: 1, matchedContentCount: 1, coverage: "stored_sample",
+        timeline: [{
+          bucket: "2026-11-16T06:00:00.000Z", count: 1, matchedContentCount: 1,
+          byPlatform: [{ platform: "reddit", count: 1, matchedContentCount: 1 }],
+        }],
+        distributions: {
+          platforms: [{ platform: "reddit", count: 1, matchedContentCount: 1 }],
+          kinds: [{ kind: "post", count: 1, matchedContentCount: 1 }],
+        },
+      });
+      const defaultFacets = await app.inject({ url: facetPath, headers: machine });
+      assert.equal(defaultFacets.statusCode, 200, defaultFacets.body);
+      assert.equal(defaultFacets.json().count, 0);
+      const emptyFacets = await app.inject({ url: `${facetPath}&deliveryMode=push&sourceId=${b.id}`, headers: machine });
+      assert.equal(emptyFacets.statusCode, 200, emptyFacets.body);
+      assert.deepEqual(emptyFacets.json(), {
+        count: 0, matchedContentCount: 0, coverage: "stored_sample", timeline: [], distributions: { platforms: [], kinds: [] },
+      });
+      assert.equal((await app.inject({
+        url: "/v1/content/facets?from=2026-01-01T00:00:00Z&to=2026-11-17T00:00:00Z",
+        headers: machine,
+      })).statusCode, 422);
       await app.inject({
         method: "DELETE",
         url: `/v1/access/keys/${issued.json().id}`,

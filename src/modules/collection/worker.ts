@@ -310,6 +310,18 @@ export async function workOnce(
 
 export function startWorker(pool: Pool, providers: ContentProvider[], onError?: (error: unknown) => void) {
   const controller = new AbortController();
+  const startedAt = new Date();
+  const heartbeat = (state: "active" | "stopped") => pool.query(`
+    INSERT INTO source_worker_heartbeat(id,started_at,last_heartbeat_at,state)
+    VALUES('unified-collection',$1,now(),$2)
+    ON CONFLICT (id) DO UPDATE SET started_at=EXCLUDED.started_at,last_heartbeat_at=EXCLUDED.last_heartbeat_at,state=EXCLUDED.state
+    WHERE source_worker_heartbeat.started_at<=EXCLUDED.started_at`, [startedAt, state]).catch((error) => onError?.(error));
+  const reportLiveness = async () => {
+    while (!controller.signal.aborted) {
+      await heartbeat("active");
+      await sleep(30000, undefined, { signal: controller.signal }).catch(() => {});
+    }
+  };
   const run = async (schedule: boolean) => {
     let scanAt = 0;
     while (!controller.signal.aborted) {
@@ -324,11 +336,12 @@ export function startWorker(pool: Pool, providers: ContentProvider[], onError?: 
       if (!worked) await sleep(1000, undefined, { signal: controller.signal }).catch(() => {});
     }
   };
-  const active = Promise.all([run(true), run(false)]);
+  const active = Promise.all([reportLiveness(), run(true), run(false)]);
   return {
     stop: async () => {
       controller.abort();
       await active;
+      await heartbeat("stopped");
     },
   };
 }

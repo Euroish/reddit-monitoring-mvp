@@ -88,6 +88,8 @@ node --env-file="$HOME/.config/reddit-monitoring/credentials.env" dist/apps/api/
 
 `TWITTERAPIS_TIMEOUT_MS` / `SCRAPEBADGER_TIMEOUT_MS` 的默认值为 `20000ms`（区间 `100..120000ms`）。Compose 默认关闭采集，显式设置 `SOURCE_NETWORK_ENABLED=true` 后透传环境中的供应商凭据，开启相应来源预算后才可提交任务。
 
+`FEED_ALLOWED_URLS` 接受逗号分隔的完整 HTTPS 地址，RSS、HTML 列表和 JSON 列表共用这份配置。使用 `primaryProvider: "feed"`、`contentKind: "article"` 和 `target.type: "feed"`。RSS/Atom 仅需 `target.url`。HTML 在 `target.list` 设置 `format: "web_list"` 与 `items`、`link`、`title` 选择器，支持标签、类、ID、后代及直接子节点。JSON 使用 `format: "json_list"` 和同名字段的点路径，例如 `data.items`、`links.canonical`、`title`，顶层数组可用 `items: "$"`。两种列表均可映射 `summary`、`publishedAt`、`author`，按响应地址解析相对链接，从前 200 个候选项中取样。先向 `POST /v1/sources/preview` 提交与创建相同的请求体，确认样本后用该请求体创建来源。
+
 TwitterAPIs 每页最多 20 条。账号用带时间窗的 `from:` 搜索，批量追踪用 `from:u1 OR from:u2` 搜索源。手动任务取一页，自动排期按配置限制游标页数。手动任务可传 `useFallback: true`，自动排期仅在首次请求明确返回 429、尚无 Run 回执及提交页，并已配置兼容备源时单跳切备。ScrapeBadger 批量刷新用 `POST /v1/sources/:id/refresh`，每次 1–20 个库内内容 ID，带 `Idempotency-Key`。Reddit 项目手选水合用 `POST /v1/projects/:id/hydrate`，每次最多 30 个现有根帖。
 
 ### 搜索投影存量维护
@@ -141,6 +143,8 @@ npm run release:verify -- output/releases/目录
 ```
 
 PG16 实测使用不按 schema 过滤的备份归档，将 `pg_trgm` 与搜索索引一并恢复。归档清单在隔离恢复后对账表行数和迁移校验和。备份恢复必须使用版本匹配的完整 PostgreSQL 客户端，禁止直接覆盖活跃生产库，先恢复至独立新库核验迁移摘要后再切流。
+
+本机无端口部署使用 `monitoring-unified` Compose 项目和 `/opt/reddit-monitoring/compose.yml`。安装清单仅包含 `app` 与 `db`，后台采集由 `app` 进程内的 Worker 处理。应用健康由容器内 `/readyz` 检查。切流前使用旧库同版本客户端导出，使用 PG16 客户端还原和应用迁移；最终快照、校验和、对账结果及旧运行文件同存于权限受限的备份目录。回退前先停止新版写入，再根据切流后的写入情况决定旧库的恢复点。
 
 ---
 

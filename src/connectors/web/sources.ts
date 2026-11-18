@@ -139,10 +139,66 @@ type ReadPage = (url: URL, signal?: AbortSignal, headers?: Record<string, string
   body: string; status: number; etag?: string; modified?: string; url?: string;
 }>;
 
+type ListConfig = NonNullable<Extract<SourceTarget, { type: "feed" }>["list"]>;
+type Entry = { link?: string; title?: string; summary?: string; publishedAt?: string; author?: string };
+
+function jsonDocument(body: string): unknown {
+  try { return JSON.parse(body); }
+  catch { throw new ContentProviderError("Expected a JSON document", false); }
+}
+
+function jsonField(value: unknown, path?: string): unknown {
+  if (!path) return undefined;
+  if (path === "$") return value;
+  for (const key of path.split(".")) {
+    if (!value || typeof value !== "object" || !Object.hasOwn(value, key)) return undefined;
+    value = (value as Record<string, unknown>)[key];
+  }
+  return value;
+}
+
+function jsonText(value: unknown, path?: string) {
+  const field = jsonField(value, path);
+  return typeof field === "string" ? field : undefined;
+}
+
+function listEntries(body: string, config: ListConfig, base: string, preview?: boolean) {
+  if (config.format === "json_list") {
+    const rows = jsonField(jsonDocument(body), config.items);
+    if (!Array.isArray(rows)) throw new ContentProviderError("JSON items path must select an array", false);
+    return { entries: rows.slice(0, 200).map((row): Entry => ({
+      link: jsonText(row, config.link), title: jsonText(row, config.title), summary: jsonText(row, config.summary),
+      publishedAt: jsonText(row, config.publishedAt), author: jsonText(row, config.author),
+    })), discoveredFeeds: undefined };
+  }
+
+  const page = load(body);
+  const rows = page(config.items).slice(0, 200);
+  if (!rows.length) throw new ContentProviderError("Item selector matched no elements", false);
+  const entries = rows.toArray().map((row): Entry => {
+    const item = page(row);
+    const field = (selector?: string) => !selector ? page([]) : item.is(selector) ? item : item.find(selector).first();
+    const date = field(config.publishedAt);
+    return {
+      link: field(config.link).attr("href"), title: field(config.title).text(), summary: field(config.summary).text(),
+      publishedAt: date.attr("datetime") ?? date.text(), author: field(config.author).text(),
+    };
+  });
+  const discoveredFeeds = preview ? [...new Set(page('link[rel="alternate"][type="application/rss+xml"],link[rel="alternate"][type="application/atom+xml"]')
+    .slice(0, 10).toArray().flatMap((node) => {
+      const href = page(node).attr("href");
+      const url = href && httpsUrl(href, base);
+      return url ? [url.href] : [];
+    }))] : undefined;
+  return { entries, discoveredFeeds };
+}
+
 const boards = {
   hackernews: hn,
   "bilibili-hot-video": "https://api.bilibili.com/x/web-interface/popular",
   "v2ex-share": "https://www.v2ex.com/feed/share.json",
+  "github-trending": "https://github.com/trending",
+  "huggingface-papers": "https://huggingface.co/api/daily_papers?limit=30",
 } as const;
 type Board = keyof typeof boards;
 
@@ -157,7 +213,7 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
     }
     if (kind === "article" && provider === "feed" && target.type === "feed") {
       const url = httpsUrl(target.url);
-      if (url && allowed.has(url.href)) return { type: "feed", url: url.href };
+      if (url && allowed.has(url.href)) return { ...target, url: url.href };
     }
     return fail(422, provider === "feed" ? "Select an approved HTTPS feed URL" : `Available boards: ${Object.keys(boards).join(", ")}`);
   };
@@ -193,35 +249,52 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
           ...base, items: [], notModified: true, exhausted: true,
           nextCheckpoint: { ...prior, etag: response.etag ?? prior.etag ?? null, modified: response.modified ?? prior.modified ?? null },
         };
-        const feed = await parser.parseString(response.body);
+        const baseUrl = response.url ?? url.href;
+        let entries: Entry[];
+        let discoveredFeeds: string[] | undefined;
+        if (target.list) {
+          ({ entries, discoveredFeeds } = listEntries(response.body, target.list, baseUrl, input.preview));
+        } else {
+          const feed = await parser.parseString(response.body).catch(() => {
+            throw new ContentProviderError("Expected a valid RSS or Atom feed", false);
+          });
+          entries = feed.items.map((entry) => ({ link: entry.link, title: entry.title, summary: entry.content ?? entry.summary,
+            publishedAt: entry.isoDate, author: entry.creator ?? entry.author }));
+        }
         let coveredTo: number | null = null;
         const items: CollectedContent[] = [];
         let truncated = false;
-        const entries = feed.items.map((entry) => ({ entry, timestamp: Date.parse(entry.isoDate ?? "") }));
-        entries.sort((a, b) => (b.timestamp || -Infinity) - (a.timestamp || -Infinity));
-        for (const { entry, timestamp } of entries) {
-          const link = entry.link && httpsUrl(entry.link, response.url ?? url.href);
-          if (!link || !entry.title) continue;
+        const seen = new Set<string>();
+        let valid = false;
+        const ordered = entries.map((entry) => ({ entry, timestamp: Date.parse(entry.publishedAt ?? "") }));
+        const sortTime = (time: number) => Number.isFinite(time) ? time : -Infinity;
+        ordered.sort((a, b) => sortTime(b.timestamp) - sortTime(a.timestamp));
+        for (const { entry, timestamp } of ordered) {
+          const link = entry.link?.trim() && httpsUrl(entry.link, baseUrl);
+          const title = clean(entry.title ?? "");
+          if (!link || link.href.length > 1000 || !title || seen.has(link.href)) continue;
+          valid = true;
           if (timestamp < from) continue;
           if (timestamp >= to) {
             coveredTo = Math.min(coveredTo ?? timestamp, timestamp);
             continue;
           }
-          const title = clean(entry.title);
-          if (!title) continue;
           if (items.length === limit) {
             truncated = true;
             break;
           }
+          seen.add(link.href);
           items.push(article({
             provider, sourceId: input.source.id, fetchedAt, url: link, title,
             publishedAt: Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null,
-            text: clean(entry.content ?? entry.summary ?? "") || null, feedUrl: url.href,
-            author: clean(entry.creator ?? entry.author ?? "") || undefined,
+            text: clean(entry.summary ?? "") || null, feedUrl: url.href,
+            author: clean(entry.author ?? "") || undefined,
           }));
         }
+        if (target.list && entries.length && !valid)
+          throw new ContentProviderError("No list entries have both a title and a valid HTTPS link", false);
         return {
-          ...base, items, exhausted: !truncated,
+          ...base, items, exhausted: !truncated, discoveredFeeds,
           nextCheckpoint: {
             etag: response.etag ?? null, modified: response.modified ?? null,
             coveredFrom: truncated ? null : from, coveredTo,
@@ -230,6 +303,35 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
       }
       const board = (target as Extract<SourceTarget, { type: "search" }>).query as Board;
       const response = await readPage(new URL(boards[board]), input.signal);
+      if (board === "github-trending" || board === "huggingface-papers") {
+        const baseUrl = response.url ?? boards[board];
+        let entries: Entry[];
+        if (board === "github-trending") {
+          ({ entries } = listEntries(response.body, { format: "web_list", items: "article.Box-row", link: "h2 a", title: "h2 a", summary: "p" }, baseUrl));
+          for (const entry of entries) entry.title = entry.title?.replace(/\s*\/\s*/u, "/");
+        } else {
+          const rows = jsonDocument(response.body);
+          if (!Array.isArray(rows)) throw new ContentProviderError("Invalid Daily Papers response", false);
+          entries = rows.slice(0, limit).map((row) => {
+            const id = jsonText(row, "paper.id");
+            return {
+              title: jsonText(row, "title"), summary: jsonText(row, "summary"), publishedAt: jsonText(row, "paper.publishedAt"),
+              link: id && /^\d{4}\.\d{4,5}(?:v\d+)?$/.test(id) ? `/papers/${id}` : undefined,
+              author: jsonText(row, "paper.authors.0.name"),
+            };
+          });
+        }
+        const items = entries.slice(0, limit).flatMap((entry, index) => {
+          const url = entry.link && httpsUrl(entry.link, baseUrl);
+          const title = clean(entry.title ?? "");
+          const timestamp = Date.parse(entry.publishedAt ?? "");
+          return url && title ? [article({ provider, sourceId: input.source.id, fetchedAt, url, title,
+            text: clean(entry.summary ?? "") || null, publishedAt: Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null,
+            feedUrl: null, rank: index + 1, author: entry.author && clean(entry.author) })] : [];
+        });
+        if (entries.length && !items.length) throw new ContentProviderError("Board entries no longer match the expected format", false);
+        return { ...base, items, nextCheckpoint: null };
+      }
       if (board !== "hackernews") {
         const envelope = JSON.parse(response.body);
         const bilibili = board === "bilibili-hot-video";
