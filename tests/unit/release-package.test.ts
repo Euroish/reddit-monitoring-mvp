@@ -28,6 +28,7 @@ test("release packaging allowlist excludes credentials/data and verification det
     ["dist/plugins/zst-archive/archive.js", "throw new Error('external plugin');"],
     ["plugins/zst-archive/archive.py", "raise RuntimeError('external plugin')"],
     ["docs/research/ChatGPT-讲解仓库文档-20261118-1807.md", "research input"],
+    ["docs/research/product-architecture-conversation-20261118.md", "conversation archive"],
     ["docs/private-notes.md", "unapproved notes"],
     [".env.local", "secret=must-not-package"], ["dist/.env", "secret=must-not-package"],
     ["deploy/env/sources.env.example", "SOURCE_NETWORK_ENABLED=false"], ["deploy/env/private.env", "secret=must-not-package"],
