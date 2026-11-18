@@ -59,6 +59,28 @@ TwitterAPIs 单任务一页、最多 20 条。需要备源时在来源创建或 
 
 当前每个采集任务仍为供应商的一页或一个 Actor Run。计划中的记录上限用于估算，实际供给受来源覆盖、供应商页大小和额度约束。
 
+### R4 离线归档推流插件（`plugins/zst-archive/`）
+
+`plugins/zst-archive/` 为物理隔离的独立 Python 插件（不入主线 `Dockerfile`、`release:pack`、TypeScript 编译与默认 CI），直接读取离线管线预构建好的 `open-corpus-v1` 包（每包需含 `manifest.json`、`corpus/posts.parquet`、`corpus/comments.parquet` 与 `index/fts_*.sqlite`），经本地 FTS5 初筛与 DuckDB 精确过滤后，按 `ING-01` 规范化为 `t3_*`/`t1_*` 主帖+评论混合批并走鉴权 `POST /v1/sources/:id/ingest` 推流（直连 `open-packages`，插件内不重复承担 `.zst` 解压转换）：
+
+```sh
+# 1. 运行插件离线单测（在具备 duckdb + pyarrow 的 Python 环境中执行）
+python -m pytest plugins/zst-archive/tests -v
+
+# 2. 盘点与本地预览筛选结果（零网络请求）
+PYTHONPATH=plugins/zst-archive python -m zst_archive inspect --archive-root /path/to/open-packages
+PYTHONPATH=plugins/zst-archive python -m zst_archive query --archive-root /path/to/open-packages --months 2026-10 --query "cursor OR claude OR duckdb" --subreddits localllama,machinelearning --min-score 10 --limit 15
+
+# 3. --dry-run 校验分批（<=100 项且 <=850 KiB）与 NormalizedContentItem 结构
+PYTHONPATH=plugins/zst-archive python -m zst_archive push --archive-root /path/to/open-packages --months 2026-10 --query "cursor OR claude OR duckdb" --source-id "<PUSH_SOURCE_UUID>" --dry-run
+
+# 4. 签发仅含 ingest/read 作用域且绑定目标 sourceId 的 Machine Key 写入环境变量后执行推流与断点续传
+ARCHIVE_INGEST_TOKEN="<43-char-machine-key>" PYTHONPATH=plugins/zst-archive python -m zst_archive push --archive-root /path/to/open-packages --months 2026-10 --query "cursor OR claude OR duckdb" --subreddits localllama,machinelearning --min-score 10 --limit 15 --source-id "<PUSH_SOURCE_UUID>" --api-url http://127.0.0.1:3000 --ledger-path output/r4_ingest_ledger.sqlite
+```
+
+- 映射严格遵守 `timeBasis = 'archive_initial'`、`sourceObservedAt = null`（因 `open-corpus-v1` Parquet 不保留 `observed_utc` 且已脱敏 `author_key`），并按 UTF-8 字节边界截断标题（`<=4096`）与正文（`<=65536`）；
+- 每批计算确定性 `evidenceKey` 与 `Idempotency-Key`，支持 `429 Retry-After` / `503` 退避及本地 SQLite 账本断点续传。
+
 ## 2. 历史版本 `main@0.9.1` 的入口与门禁脚本
 
 本节保留 `main@0.9.1` 的历史运维记录。当前版本以本页开头的编译与 Compose 入口及 `package.json` 为准。

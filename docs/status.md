@@ -69,8 +69,9 @@ Stage 0/1 已交付单 Fastify 入口、编译迁移、付费 Run 的持久化�
 | R1 尾项与 X 主源 | 设置页从共享契约读取六种 scope，浏览器实际创建 `read` + `export` Key 并用它检索。真实 kaix 任务持久化 Run 后收到 SIGTERM，退出码 0，重启复用同一 Run，队列只记一次收费启动，唯一写入并检索回 2 条主帖。TwitterAPIs 通过来源、预算、单页任务及同一写入内核，以 1 次真实搜索写入并检索回 20 条。 | kaix 此次开启评论采集，实际样本为 0 条评论。TwitterAPIs 真实验收覆盖搜索，账号时间线未做付费验收。自动排期和多页推进留待后续。 |
 | R2 核心研究流 | 项目创建、编辑、删除、来源交集及 revision；浏览器钻取项目内容，根帖归组和缺失上下文提示；`discussion` / `pain`，手选最多 30 个 Reddit 根帖水合，三视图评论树，保存查询、批注和流式下载。推流样本默认从项目统计排除，仍可在项目内容中阅读。 | PostgreSQL 16 通过 kaix 协议夹具验收水合排队、top 参数、入库和水位保持。真实水合与项目对比待验收。 |
 | 备源、资讯与 R3 | 可显式配置并选用 red_crawler / ScrapeBadger 备源，ScrapeBadger 备源与批量 ID 刷新通过协议夹具及 PG16 队列验证，任务记录 `X-Credits-Used`。NewsNow 的 Hacker News 榜与白名单 RSS 源经真实任务入库并分别检索回 20 条、10 条。PG16 隔离库备份修复扩展漏打包，恢复后 47 张表的行数与 47 条迁移校验和均一致。CI 锁定 Action SHA，并增加 gitleaks、生产依赖审计和标签触发的 GHCR App / Caddy 镜像发布链。 | ScrapeBadger 缺实测凭据，red_crawler 未发真实收费任务。旧冻结导出仍需原 owner 交付和对账后再做向前删除。GHCR 发布、生产恢复演练和公网切流待授权。 |
+| R4 离线归档外挂 | 已按独立 Python 外挂在 `plugins/zst-archive/` 交付（直连预构建的 `open-corpus-v1` Parquet + 4 分片 FTS5 包，通过 DuckDB 筛选与 `t3_*`/`t1_*` 父链映射经 `POST /v1/sources/:id/ingest` 推流，完全隔离于主线依赖、镜像与发布包之外）；已通过 5 项离线 pytest 及对 `2026-10` 真实归档（15 篇主帖 + 92 条评论共 107 条）的三轮预览库端到端验收（首次 `201 added=107`、同体 `200` 幂等重放、异时刻 `201 added=0/updated=0`、`thread` 树 7 节点检索通过）。 | 若未来新增未预处理的原始 `.zst` 归档，先按离线 `open-corpus-v1` 管线转换后再由本插件推流，或按需再行授权扩展直读转换模块。 |
 
-本分支账户及个人研究接口继续使用 `/v1/access/keys`、`/v1/workspace/*`，路由统一命名见第 3 节。脱敏验收摘要、本地检查日志与隔离库备份位于忽略目录 `output/validation/next-stage/`。真实采集只对隔离库开放。未启动自动水合或 R4。
+本分支账户及个人研究接口继续使用 `/v1/access/keys`、`/v1/workspace/*`，路由统一命名见第 3 节。脱敏验收摘要、本地检查日志与隔离库备份位于忽略目录 `output/validation/next-stage/`。真实采集只对隔离库开放。未启动自动水合。
 
 ---
 

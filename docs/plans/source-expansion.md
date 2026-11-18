@@ -45,6 +45,5 @@
 
 在线主线稳定后，按需单独授权启动 `plugins/zst-archive/`（独立 Python / DuckDB 环境、依赖与测试，不入根 `tsconfig`、主线镜像、发布包与日常 CI）：
 
-- `.zst` 单遍顺序流式解压（依据 `ArthurHeitmann/arctic_shift` 格式特性，不假定任意字节偏移恢复）-> 转 12 核心列排序自索引 Parquet（`ORDER BY subreddit_lower, created_utc`、`ROW_GROUP_SIZE 100000`、`COMPRESSION ZSTD`）；
-- 未核对总行数、拒绝行统计与备份完整性前，严禁删除原始 `.zst` 压缩包；
-- 经离线筛选后的高相关样本严格按 `ING-01` 构造成 `NormalizedContentItem[]`（保留真实 `timeBasis = 'archive_initial'` 与 `Idempotency-Key`），通过鉴权 `POST /v1/sources/:id/ingest` 推流至在线主线（不混入默认 `pull` 趋势）。
+- 原始 `.zst` 归档（依据 `ArthurHeitmann/arctic_shift` 格式特性，单遍顺序流式解压，未核对总行数、拒绝行统计与备份完整性前严禁删除原始 `.zst`）在离线管线预先整理为标准化的归档包（当前实施直连已准备好的 `open-corpus-v1` Parquet + FTS5 包；外挂自身不再重复兼容未处理的 `.zst` 原始流）；
+- 经离线 FTS5 + DuckDB 筛选后的高相关样本严格按 `ING-01` 构造成 `NormalizedContentItem[]`（保留真实 `timeBasis = 'archive_initial'` 与确定性 `Idempotency-Key`），通过鉴权 `POST /v1/sources/:id/ingest` 推流至在线主线（不混入默认 `pull` 趋势）。
