@@ -20,7 +20,7 @@
    - **`T1`（官方一手）**：AI 与科技巨头官方英文 Blog / Newsroom / GitHub Releases（如 OpenAI、Anthropic、Google DeepMind、Hugging Face、NVIDIA、Microsoft Research）及中资大模型官方一手发布（DeepSeek、Qwen、Kimi、MiniMax 官方 GitHub/Blog）；
    - **`T1_5`（认证主创与核心学者）**：绑定了 `ownerEntityId` 或人物标识的核心研究员、创始人与独立开发者账号（如 Karpathy、Simon Willison、Boris Cherny 等的 X / Reddit / 个人站 / YouTube 频道）；
    - **`T2`（精选媒体与社区热榜）**：Ars Technica、MIT Tech Review、The Decoder、TechMeme、Product Hunt、Hacker News、V2EX、IT之家、少数派、B站热门、知乎热榜、微博热搜、Reddit 热门社区。
-   - **代表选举规则**：同一事件簇（`storyKey`）下有多篇报道时，首页与日报卡片主标题严格按 **`T1` $>$ `T1_5`（机构先于个人）$>$ `T2`（有全文 $>$ 互动/热度高 $>$ 发布早）** 选举唯一代表报道（Representative），其余同簇报道按 `storyRole` 归入“独立实测 (`benchmark_eval`)”、“社区讨论 (`community_discussion`)”或折叠进“$K$ 家同源报道 (`syndicated_repost`)”。
+   - **代表选举与原语种直出规则**：同一事件簇（`storyKey`）下有多篇报道时，首页与日报卡片主标题严格按 **`T1` $>$ `T1_5`（机构先于个人）$>$ `T2`（有全文 $>$ 互动/热度高 $>$ 发布早）** 选举唯一代表报道（Representative），**直接展示原语种标题与确定性导语摘录（主线不做强制机器翻译）**；其余同簇报道按 `storyRole` 归入“独立实测 (`benchmark_eval`)”、“社区讨论 (`community_discussion`)”或折叠进“$K$ 家同源报道 (`syndicated_repost`)”。
 2. **48 小时事件热度（`heat`）与 6 小时趋势（`trend`）**：
    - 借鉴 `AIHOT` 事件热度模型，在 48 小时滑动窗口内，每个独立来源/参与者对同一 `storyKey` 只计一次最高权重（`T1=3.0`, `T1_5=2.0`, `T2=1.0`），按 `publishedAt` 施加 24 小时指数半衰期衰减：$\text{Heat}(E, t) = \sum_{p} w_{\text{tier}}(p) \cdot 0.5^{(t - t_p)/24\text{h}}$。
    - 对比当前热度与 6 小时前热度（剔除落后停采 `behind` 与新接入未满窗口 `late` 的来源）计算 `trend: 'up' | 'down' | 'flat' | 'new' | 'unknown'` 及徽章 `badges: ('surge' | 'rising' | 'new')[]`。
@@ -81,7 +81,7 @@
 | ID | 等级 | 访问控制、Agent 安全与导出格式契约 | 验收出口 |
 | --- | --- | --- | --- |
 | SEC-01 | MUST | 主体分三类：`owner`/`admin`（全共享与账户/预算/运维权限，保留最后一位 `owner`）、`viewer`（只读共享 + 自己工作区）与 **`machine` API Key**（扩展 `app_session`、`client_kind='machine'`、SHA-256 `token_hash`、1–90 天过期、`allowed_source_ids` 贯穿全查询防枚举 404/403）；统一权限作用域 enum 锁定为 `read` / `projects:write` / `sources:write` / `collect` / `ingest` / `export`（`ingest` Key 禁空来源清单；机器 Key 严禁访问个人研究/账户管理或直接批准付费 Proposal）。 | 角色与越权 E2E |
-| OP-01 | MUST | 鉴权后访问 `GET /v1/capabilities` 与同源 TypeBox 派生的 `GET /v1/openapi.json`（完整 `operationId`），并提供机器可读日报/精选订阅出口。**防提示词注入采用 Dual-LLM（CaMeL）技术硬隔离**：消费不可信抓取正文的 Reader LLM 锁定 `tools: []`，外部 AI Agent 默认签发仅含 `read` + `export` 的只读 Key，任何产生费用的探索或订阅提案必须由浏览器会话同源点击确认。 | Capabilities 与污点隔离测试 |
+| OP-01 | MUST | 鉴权后访问 `GET /v1/capabilities` 与同源 TypeBox 派生的 `GET /v1/openapi.json`（完整 `operationId`），并提供机器可读日报/精选订阅出口。**主线采用开放式 Agent 接入架构（不内置强耦合 LLM 运行时）**：外部 AI Agent 或后续扩展插件默认签发仅含 `read` + `export` 的只读 Key，第三方抓取正文一律作为不可信数据隔离，任何产生费用的采集或订阅操作必须由浏览器会话同源点击确认。 | Capabilities 与权限边界测试 |
 | EXP-01 | MUST | `GET /v1/content/export?format=csv|json` 默认上限 `10,000`、硬上限 `50,000`，强制**全局（`max=2`）与单用户（`concurrency=1`）信号量**（冲突返 `429 + Retry-After`）；采用 `pg-query-stream` + `stream.pipeline` 在 `REPEATABLE READ READ ONLY` + `SET LOCAL idle_in_transaction_session_timeout = '35s'` 内写出；JSON 在 `COMMIT` 后追加 `{result: {exportedCount, truncated, nextCursor, complete: true}}`；**CSV 严格遵守 RFC 4180，包含 `id,platform,kind,externalId,publishedAt,author,url,textState,title,text` 并做文本化 ID 与 OWASP 公式中和**。 | 并发导出、断流与 RFC 4180 测试 |
 
 ## 5. 标准化 HTTP 路由与运行时路径对齐表

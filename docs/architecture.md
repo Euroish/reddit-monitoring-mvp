@@ -2,17 +2,17 @@
 
 本文定义系统的架构边界、运行不变量与 4 GB 内存 / 60 GB 磁盘单机交付蓝图。已落地能力、7 项实码缺陷台账与分阶段路线见[当前状态](status.md)，接口细节见[数据与 API 契约](contracts.md)，交互细节见[产品交互规范](design.md)，开源源码考证与完整数学推导见[深度审查与单机架构蓝图](research/deep-audit-and-architecture-blueprint-20261118.md)。
 
-## 0. 产品全景与“确定性优先、可选模型增强”架构原则
+## 0. 产品转型全景与“100% 确定性内核 + 开放式扩展边界”架构原则
 
-系统吸收 [`KKKKhazix/AIHOT`](https://github.com/KKKKhazix/AIHOT) 的产品长处（三级信源 `T1`/`T1_5`/`T2`、英文一手优先代表选举、事件聚簇、48h/6h 热度升降、08:00 每日日报、先预览再创建、48h 旧文不刷屏），同时**彻底摒弃其高复杂度与高成本缺陷**（拒绝拆分成 `api`/`worker`/`web` 三个 Node 容器耗尽 4 GB 内存，拒绝每篇文章串行调用 5–6 次大模型才能入库发布的脆弱流水线），并与 [`miniflux/v2`](https://github.com/miniflux/v2) 自适应调度、[`newsnext/newsnow`](https://github.com/newsnext/newsnow) 大众热榜、[`ItzCrazyKns/Vane`](https://github.com/ItzCrazyKns/Vane) / [`jina-ai/node-DeepResearch`](https://github.com/jina-ai/node-DeepResearch) 按题动态探索深度融合：
+系统从早期单一平台监测全面转型为**中英双语高价值资讯流、事件聚簇与主动探索平台**。在架构上，我们吸收 [`KKKKhazix/AIHOT`](https://github.com/KKKKhazix/AIHOT) 的产品信息组织长处（三级信源 `T1`/`T1_5`/`T2`、英文一手优先代表选举、事件聚簇、48h/6h 热度升降、08:00 每日日报、先预览再创建、48h 旧文不刷屏），同时**彻底摒弃其高复杂度与强绑定大模型的缺陷**（拒绝拆分成 `api`/`worker`/`web` 三个 Node 容器耗尽 4 GB 内存，拒绝每篇文章串行调用 5–6 次大模型或强制翻译才能入库发布的脆弱流水线），并与 [`miniflux/v2`](https://github.com/miniflux/v2) 自适应调度、[`newsnext/newsnow`](https://github.com/newsnext/newsnow) 大众热榜、[`ItzCrazyKns/Vane`](https://github.com/ItzCrazyKns/Vane) / [`jina-ai/node-DeepResearch`](https://github.com/jina-ai/node-DeepResearch) 按题动态探索深度融合：
 
-| 核心平面 | 数据流与确定性机制（零强制 LLM 依赖） | 可选模型增强与成本控制边界 |
+| 核心平面 | 数据流与 100% 确定性机制（主线零内置 LLM 依赖） | 成本控制与未来开放式扩展边界 |
 | --- | --- | --- |
 | **1. 后台自适应采集与分级入库** | 到期扫描（`scheduleDueSourcesOnce`）→ 预算与同域并发门控（`host_rank <= 1`）→ 六类采集器（`feed` / `web_list` / `json_list` / `x` 批次 / `reddit` 三级 / `newsnow`）→ 48h 旧文防刷屏门控 → `commitContentBatch` 4x `UNNEST` 入库 | **0 模型调用**。X 采用 15–20 人批次 `(from:u1 OR from:u2 ...)` 搜索合并（较单号时间线省 95% 费用）；Reddit 采用原生 `.rss` 免费雷达 + 按需 `kaix` 水合。 |
-| **2. 确定性事件聚簇、热度与 08:00 日报** | 规范化实体链接提取（GitHub/arXiv/原帖 ID/Canonical URL）+ 64-bit SimHash（$4\times 16$-bit 鸽巢 LSH 分桶复用 `idx_content_reference_nodes`）→ 自动归入 `storyKey` 并按 `T1 > T1_5 > T2` 选举英文一手代表报道 → 单 CTE 计算 48h 独立来源热度（24h 半衰期）与 6h 升温比 → 08:00 规则汇编日报 | **日报成刊与事件归组 0 强制模型调用**。当配置了可选低价模型（DeepSeek / Qwen / Gemini Flash-Lite）且预算允许时，**仅对聚簇胜出的代表事件（1 事件 1 次，而非每篇原始文章 6 次，省 95% Token）** 异步生成中文“答案先行”标题与摘要。 |
+| **2. 确定性事件聚簇、热度与 08:00 日报** | 规范化实体链接提取（GitHub/arXiv/原帖 ID/Canonical URL）+ 64-bit SimHash（$4\times 16$-bit 鸽巢 LSH 分桶复用 `idx_content_reference_nodes`）→ 自动归入 `storyKey` 并按 `T1 > T1_5 > T2` 选举英文一手代表报道 → 单 CTE 计算 48h 独立来源热度（24h 半衰期）与 6h 升温比 → 08:00 规则汇编日报 | **0 模型调用、不做强制机器翻译**。英文一手代表报道（`T1`/`T1_5`）与中文热榜均保持原语种标题与确定性导语摘录原生直出；`platform_details.extensions` 保持开放 JSONB 结构，供未来外部插件或 Agent 按需挂载扩展字段。 |
 | **3. 首页双语信息流、三维主题与 RRF 排序** | 进程内 `findActor` 60s LRU + `Singleflight` 15s SWR 缓存 → 候选池按保存查询、关注 VIP、跨源印证度、平台内对数互动率执行 RRF（$k=60$）+ 重力时间衰减 + 同源连续出现指数折损（$\gamma_p=0.55^k$）→ 输出折叠转发后的事件卡与入选理由 | **读路径 100% 零外部请求、零模型调用**。500 并发读者刷新首页对应数据库查询 $< 1\text{ QPS}$。 |
-| **4. 按题动态探索（20–30 站）** | 提问拆解为 4 个正交证据槽（官方一手 / 独立评测 / 真实复现 / 失败反例）→ Tier-1 免费垂直 API 联邦（本地 PG + HN Algolia + GitHub Search + HF/arXiv + Reddit）+ Tier-2 可插拔网页搜索 → 标题 3-gram 去重与 `keepKPerHostname(2)` → 流式 IP 绑定 + `linkedom` + `@mozilla/readability` 提取正文 → 复用 `delivery_mode='push'` 分三波（1.5s / 3.5s / 12s）入库 | 无模型时直接返回按 4 槽分组的可核查证据卡与嗅探到的 RSS/作者一键订阅按钮；有模型时由无工具权限的 Quarantined Reader 基于已入库证据合成带引文回答。 |
-| **5. 内置/外部 Agent 沙箱（Dual-LLM / CaMeL）** | 统一复用 `/v1/capabilities` 与 `/v1/openapi.json`；默认只读（`scopes: ['read']`）。抓取正文视为不可信污点数据，控制面 Planner LLM 仅见元数据句柄，数据面 Reader LLM 锁定 `tools: []` | 发起动态探索或新建订阅须经 `POST /v1/agent/proposals` Dry-Run 算账，并由管理员在浏览器同源会话点击确认后执行。 |
+| **4. 按题动态探索（20–30 站）** | 提问按确定性规则模板拆解为 4 个正交证据槽（官方一手 / 独立评测 / 真实复现 / 失败反例）→ Tier-1 免费垂直 API 联邦（本地 PG + HN Algolia + GitHub Search + HF/arXiv + Reddit）+ Tier-2 可插拔网页搜索 → 标题 3-gram 去重与 `keepKPerHostname(2)` → 流式 IP 绑定 + `linkedom` + `@mozilla/readability` 提取正文 → 复用 `delivery_mode='push'` 分三波（1.5s / 3.5s / 12s）入库 | **0 模型调用**即可在 3.5s 内返回按 4 槽分组的可核查证据卡与嗅探到的 RSS/作者一键订阅按钮；同时提供标准 JSON 证据包接口供外部 AI 工具消费。 |
+| **5. 开放式外部 Agent / 插件接入边界** | 统一暴露 `/v1/capabilities` 与同源 TypeBox 派生的 `/v1/openapi.json`；外部 Agent 默认签发只读机器 Key（`scopes: ['read', 'export']`），抓取正文标注为不可信外部数据防止提示词越权 | 主线不耦合任何 LLM SDK；未来外部 Agent 或自定义工作流若需触发付费采集或新建订阅，须通过管理员在浏览器同源会话点击确认后执行。 |
 
 ## 1. 架构鸟瞰与刻意不做列表（Bird's Eye & Deliberate Absences）
 

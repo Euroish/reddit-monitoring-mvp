@@ -4,26 +4,26 @@
 
 ---
 
-## 产品方向与唯一实施路线（已清理首尾双路线漂移）
+## 产品转型方向与唯一实施路线（已清理首尾双路线漂移）
 
-产品定位为运行在 **4 GB 内存、60 GB 系统盘、\$0 新增基础设施预算** 单机上的**中英双语高价值信息采集、事件聚簇、按题动态探索与个性化推荐平台**。
+产品已从早期的“单一平台监测与重型研究项目工作台”转型为运行在 **4 GB 内存、60 GB 系统盘、\$0 新增基础设施预算** 单机上的**中英双语高价值信息流、事件聚簇、按题动态探索与个性化推荐平台（100% 确定性零内置 LLM 内核 + 开放式 API 扩展架构）**。
 
-**本轮信源范围与架构收敛定案**：
+**本轮产品转型、信源范围与架构收敛定案**：
 1. **聚焦三大高频支柱，暂缓重度金融接入**：
    - **支柱 1 · 关注的人与 AI 前沿开发（英文一手 `T1`/`T1_5` 占 85%+，中资只收官方一手）**：因为全球大模型、Coding Agent、开源仓库与架构论文 100% 首发于英文（OpenAI / Anthropic / DeepMind / Hugging Face 官方源、GitHub Releases、`r/LocalLLaMA`、Hacker News 及硅谷核心研究员 X/博客），中文仅收录 DeepSeek、千问 Qwen、月之暗面 Kimi、MiniMax 等官方一手发布，彻底剔除滞后失真的二手中文营销号；
    - **支柱 2 · 全球科技、独立开发与数码产品**：英文收 Hacker News、GitHub Trending、TechMeme、Product Hunt、The Verge、Ars Technica；中文收 V2EX、IT之家、少数派、酷安今日最热；
    - **支柱 3 · 大众生活、文化娱乐与全网热议**：中文通过 `newsnow` 零成本直取 B站全站热门视频与热搜、知乎热榜、微博实时热搜、虎扑步行街、机核、什么值得买；英文通过 Reddit 原生 `.rss` 雷达 + 按需 `kaix` 水合覆盖 `r/popular`、`r/gaming`、`r/movies`、`r/television`、`r/technology` 及 YouTube 顶流创作者原生 Atom 频道。
-2. **吸收 [`KKKKhazix/AIHOT`](https://github.com/KKKKhazix/AIHOT) 产品精华，并用本仓低复杂度五模块内核降维实现**：
+2. **吸收 [`KKKKhazix/AIHOT`](https://github.com/KKKKhazix/AIHOT) 产品精华，坚持“零内置大模型、不做强制翻译、开放式扩展设计”**：
    - 吸收其 **三级信源（`T1` 官方一手 / `T1_5` 认证主创 / `T2` 媒体社区）与代表报道选举**、**`web_list` 选择器抓无 RSS 页与“先预览前 20 条再保存”**、**`initialBackfillLimit: 8` 与 48h 旧文不刷屏**、**48h 独立来源事件热度（24h 半衰期 + 6h 飙升检测）**、**08:00 零模型成本规则日报** 与 **三维主题目录**；
-   - 摒弃其“3 个独立 Node 容器 + 105 个碎迁移 + 每篇文章串行调用 6 次大模型才允许入库”的重型脆弱设计：本系统**入库、实体打标、64-bit SimHash 事件聚簇、48h/6h 热度、RRF 推荐与 08:00 日报 100% 确定性零模型运行**；可选低价模型**仅对聚簇胜出的英文代表事件异步生成 1 次中文“答案先行”标题与摘要（减少 95% 模型调用）**。
+   - 摒弃其“3 个独立 Node 容器 + 105 个碎迁移 + 每篇文章串行调用 6 次大模型才允许入库”的重型脆弱设计：本系统**入库、实体打标、64-bit SimHash 事件聚簇、48h/6h 热度、RRF 推荐、按题探索与 08:00 日报 100% 确定性零模型运行**；**不做强制机器翻译**（英文一手源与中文热榜均保持原语种原生直出），同时通过 `/v1/capabilities`、`/v1/openapi.json`、只读机器 API Key 与 `platform_details.extensions` 开放 JSONB 槽位，为未来外部 Agent 或自定义插件留出干净的开放式接入边界。
 
 ### Phase 1–3 分阶段交付序列（按可独立验收的纵向切片推进）
 
 | 阶段 | 核心交付切片 | 涉及模块与文件 | 完成验收标志 |
 | --- | --- | --- | --- |
 | **Phase 1 · 存储止血、双字词 GIN 检索与全自动排期闭环** | 1. 消除 `044` + `content/sql.ts` 正文 3 倍冗余落盘，开启 PG16 `lz4` 压缩、连接池读写隔离与 Docker 日志/内存限制；<br>2. 基于 `pg_trgm` (`trgm_op.c:990,1058`) 空格边界机制修复 `search.ts:75`，支持中文双字词（如 `算力`、`开源`、`评测`、`游戏`）与短代号（`AI`、`o3`、`R1`）纯 GIN 索引秒查；<br>3. 在 `worker.ts` 落地 `scheduleDueSourcesOnce` 到期扫描、同域并发限流（`host_rank <= 1`）、自适应轮询间隔（$\text{clamp}([2\text{m}, 12\text{h}])$）与预算精确唤醒（根治 1 分钟死循环写库）；<br>4. 补齐 `Sources.tsx` 账号/社区/`web_list` 目标创建、试抓预览（前 20 条）、预算开关与任务恢复按钮，落实 48h 旧文不刷屏。 | • `047_storage_and_scheduler.sql`<br>• `src/modules/content/sql.ts`, `search.ts`<br>• `src/modules/collection/worker.ts`, `routes.ts`, `sql.ts`<br>• `apps/web/src/pages/Sources.tsx`, `Account.tsx`, `docker-compose.yml` | 1. `EXPLAIN` 证实 `LIKE '% 算力 %'` 与 `LIKE '% o3 %'` 走 `idx_content_search_trgm` Bitmap Index Scan；<br>2. 关闭所有浏览器跨 2 个调度周期自动入库，预算受阻时 0 空转写库；<br>3. 新导入 900 条历史源只取前 8 条且 >48h 旧文不刷屏今日流。 |
-| **Phase 2 · 三大双语支柱、事件聚簇、48h 热度日报与首页信息流** | 1. 扩展 `sources.ts` 接入 13+ `NewsNow` 大众娱乐/科技榜单、HF Daily Papers、`web_list` 选择器与完整 IPv4/IPv6 + 3 跳 IP 绑定安全读取；<br>2. 支持 200 位 AI 学者/主创 X 批次搜索（`from:u1 OR from:u2 ...`，省 95% 成本）并提取推文图片/视频 `media` 与外链；<br>3. 落地规范实体链接 + 64-bit SimHash 事件聚簇（`storyKey`）、`T1 > T1_5 > T2` 英文一手代表选举、48h/6h 热度趋势、08:00 规则日报与 RRF + 重力衰减个性化排序；<br>4. 将 `/` 切换为“为你 / 最新 / 08:00 日报 / 48h 热度”与三大频道首页，启用 `findActor` 60s LRU + `Singleflight` 15s SWR 缓存，修复 `Projects.tsx` 按日柱形图联动。 | • `src/connectors/web/sources.ts`<br>• `src/connectors/x/twitterapis.ts`<br>• `src/modules/content/batch.ts`, `routes.ts`, `thread.ts`<br>• `apps/web/src/App.tsx`, `pages/ContentLibrary.tsx`, `pages/Projects.tsx` | 1. 同一事件（英文官方一手 + 实测 + 社区讨论 + 10 家中文媒体转发）在首页折叠为 1 张事件聚簇卡，英文 `T1`/`T1_5` 稳居主标题；<br>2. 500 并发读者压测首页对应 PG 查询 $< 1\text{ QPS}$。 |
-| **Phase 3 · 按题动态探索（20–30 站）与 Dual-LLM 沙箱** | 1. 实现 4 正交槽查询拆解（官方一手 / 独立评测 / 真实复现 / 失败反例）+ Tier-1 免费垂直 API 联邦（本地 PG + HN Algolia + GitHub Search + HF/arXiv + Reddit）+ Tier-2 可插拔搜索索引；<br>2. 引入 `linkedom` + `@mozilla/readability` 内存安全正文提取器（单页 `<15ms`、峰值 `<65MB`）与页面 RSS 自动嗅探；<br>3. 复用 `delivery_mode='push'` 的 `radar` 系统源实现三波渐进提交（1.5s / 3.5s / 12s），支持将发现的作者/RSS 一键转为长期 `pull` 监控源；<br>4. 落地可选代表事件异步中文摘要与 Dual-LLM（CaMeL）污点隔离 + 付费 Proposal 浏览器人工确认门禁。 | • `src/connectors/web/extractor.ts`, `search-router.ts`<br>• `src/modules/collection/routes.ts`<br>• `src/modules/workspace/routes.ts`<br>• `apps/web/src/pages/Workspace.tsx` | 1. 自然语言提问后 $<3.5\text{s}$ 渲染首批正文证据，$<12\text{s}$ 完成 24–30 站提取且 Node RSS 内存 $< 800\text{ MB}$；<br>2. 发现的新站点点击即可转为后台定时 `pull` 源。 |
+| **Phase 2 · 三大双语支柱、事件聚簇、48h 热度日报与首页信息流** | 1. 扩展 `sources.ts` 接入 13+ `NewsNow` 大众娱乐/科技榜单、HF Daily Papers、`web_list` 选择器与完整 IPv4/IPv6 + 3 跳 IP 绑定安全读取；<br>2. 支持 200 位 AI 学者/主创 X 批次搜索（`from:u1 OR from:u2 ...`，省 95% 成本）并提取推文图片/视频 `media` 与外链；<br>3. 落地规范实体链接 + 64-bit SimHash 事件聚簇（`storyKey`）、`T1 > T1_5 > T2` 英文一手代表选举（原语种直出不强制翻译）、48h/6h 热度趋势、08:00 规则日报与 RRF + 重力衰减个性化排序；<br>4. 将 `/` 切换为“为你 / 最新 / 08:00 日报 / 48h 热度”与三大频道首页，启用 `findActor` 60s LRU + `Singleflight` 15s SWR 缓存，修复 `Projects.tsx` 按日柱形图联动。 | • `src/connectors/web/sources.ts`<br>• `src/connectors/x/twitterapis.ts`<br>• `src/modules/content/batch.ts`, `routes.ts`, `thread.ts`<br>• `apps/web/src/App.tsx`, `pages/ContentLibrary.tsx`, `pages/Projects.tsx` | 1. 同一事件（英文官方一手 + 实测 + 社区讨论 + 10 家中文媒体转发）在首页折叠为 1 张事件聚簇卡，英文 `T1`/`T1_5` 原题稳居主标题；<br>2. 500 并发读者压测首页对应 PG 查询 $< 1\text{ QPS}$。 |
+| **Phase 3 · 按题动态探索（20–30 站）与开放式 Agent 接入边界** | 1. 实现 4 正交槽确定性查询拆解（官方一手 / 独立评测 / 真实复现 / 失败反例）+ Tier-1 免费垂直 API 联邦（本地 PG + HN Algolia + GitHub Search + HF/arXiv + Reddit）+ Tier-2 可插拔搜索索引；<br>2. 引入 `linkedom` + `@mozilla/readability` 内存安全正文提取器（单页 `<15ms`、峰值 `<65MB`）与页面 RSS 自动嗅探；<br>3. 复用 `delivery_mode='push'` 的 `radar` 系统源实现三波渐进提交（1.5s / 3.5s / 12s），支持将发现的作者/RSS 一键转为长期 `pull` 监控源；<br>4. 完善开放式 `/v1/capabilities`、`/v1/openapi.json`、只读机器 Key（`read`/`export`）与付费操作浏览器人工确认门禁（主线零内置 LLM 依赖）。 | • `src/connectors/web/extractor.ts`, `search-router.ts`<br>• `src/modules/collection/routes.ts`<br>• `src/modules/workspace/routes.ts`<br>• `apps/web/src/pages/Workspace.tsx` | 1. 提问后 $<3.5\text{s}$ 渲染首批正文证据，$<12\text{s}$ 完成 24–30 站提取且 Node RSS 内存 $< 800\text{ MB}$；<br>2. 发现的新站点点击即可转为后台定时 `pull` 源。 |
 
 ---
 
