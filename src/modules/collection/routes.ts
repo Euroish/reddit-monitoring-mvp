@@ -11,6 +11,8 @@ import {
   ParamsId,
   SourceInput,
   SourceSchedule,
+  SourceOwner,
+  SourceTier,
   Source,
 } from "../../../packages/contracts/src/source-content";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
@@ -153,9 +155,10 @@ export async function collectionRoutes(
       const fallbackProvider = input.fallbackProvider ?? null;
       const row = (
         await pool.query(
-          `INSERT INTO collection_source(id,platform_id,provider,primary_provider,label,target,content_kind,delivery_mode,fallback_provider,created_at,updated_at,schedule,next_due_at)
+          `INSERT INTO collection_source(id,platform_id,provider,primary_provider,label,target,content_kind,delivery_mode,
+        fallback_provider,created_at,updated_at,schedule,next_due_at,tier,owner_entity_id)
       SELECT $1,id,$2,$2,$3,$4,$5,$6,$8,NOW(),NOW(),$9::jsonb,
-        CASE WHEN $9::jsonb @> '{"enabled":true}' THEN now() END FROM source WHERE code=$7
+        CASE WHEN $9::jsonb @> '{"enabled":true}' THEN now() END,$10,$11 FROM source WHERE code=$7
       RETURNING id`,
           [
             randomUUID(),
@@ -167,6 +170,8 @@ export async function collectionRoutes(
             input.platform,
             fallbackProvider,
             input.schedule ?? { enabled: false },
+            input.tier ?? "T2",
+            input.ownerEntityId ?? null,
           ],
         )
       ).rows[0];
@@ -188,6 +193,8 @@ export async function collectionRoutes(
           {
             fallbackProvider: Type.Optional(Type.Union([FallbackProvider, Type.Null()])),
             schedule: Type.Optional(SourceSchedule),
+            tier: Type.Optional(SourceTier),
+            ownerEntityId: Type.Optional(SourceOwner),
             state: Type.Optional(Type.Union([
               Type.Literal("active"),
               Type.Literal("paused"),
@@ -213,9 +220,9 @@ export async function collectionRoutes(
           fail(409, "Source changed; reload before saving");
         if (["arctic_shift", "twitterapi_io"].includes(source.primary_provider))
           fail(409, "Retired provider cannot be reactivated");
-        const { fallbackProvider, state, schedule } = request.body;
-        if (schedule && request.actor!.clientKind !== "browser")
-          fail(403, "Configure scheduling from a browser administrator session");
+        const { fallbackProvider, state, schedule, tier, ownerEntityId } = request.body;
+        if ((schedule || tier || ownerEntityId !== undefined) && request.actor!.clientKind !== "browser")
+          fail(403, "Configure scheduling and authority from a browser administrator session");
         if (schedule?.enabled && source.delivery_mode !== "pull")
           fail(422, "Automatic scheduling requires a pull source");
         if (fallbackProvider) validateFallback(providers, {
@@ -225,8 +232,10 @@ export async function collectionRoutes(
         await client.query(
           `UPDATE collection_source SET state=$2,fallback_provider=$3,revision=revision+1,updated_at=NOW(),
            schedule=COALESCE($4::jsonb,schedule),next_due_at=CASE WHEN $4::jsonb IS NULL THEN next_due_at
-             WHEN $4::jsonb @> '{"enabled":true}' THEN now() END WHERE id=$1`,
-          [source.id, state ?? source.state, fallbackProvider === undefined ? source.fallback_provider : fallbackProvider, schedule ?? null],
+             WHEN $4::jsonb @> '{"enabled":true}' THEN now() END,
+           tier=COALESCE($5,tier),owner_entity_id=$6 WHERE id=$1`,
+          [source.id, state ?? source.state, fallbackProvider === undefined ? source.fallback_provider : fallbackProvider,
+            schedule ?? null, tier ?? null, ownerEntityId === undefined ? source.owner_entity_id : ownerEntityId],
         );
         if (state && state !== "active")
           await client.query(

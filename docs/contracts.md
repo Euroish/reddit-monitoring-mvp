@@ -8,13 +8,23 @@
 | :--- | :--- |
 | **`Platform`** | 原内容平台（`reddit`、`x`、`bluesky`、`web`）；对应 `source` 表，`content.source_id` 指向它。 |
 | **`Provider`** | 执行采集或推流的渠道实现（`kaix`、`red_crawler`、`twitterapis`、`scrapebadger`、`newsnow`、`feed`、`bluesky_appview`、`external_ingest`）。 |
-| **`CollectionSource`** | 逻辑监测目标（`collection_source`）；所有 HTTP 路由中的 `:id` / `sourceId` **始终指逻辑来源 `collection_source.id`**；通过 `source_group` 与 `schedule` JSONB 承载频道归属（`vip` / `ai` / `tech` / `life`）、权威分级（`tier`: `'T1' \| 'T1_5' \| 'T2'`）与主体实体标识（`ownerEntityId`）。 |
+| **`CollectionSource`** | 逻辑监测目标（`collection_source`）；来源路由的 `:id` / `sourceId` 指 `collection_source.id`。`tier` 和 `ownerEntityId` 独立于自动排期，分别描述权威等级与共同发布主体。 |
 | **`Project`** | 研究工作空间（`monitor_project`）；绑定逻辑来源集合、本地三段词过滤与按需水合选项，不复制正文文本。 |
-| **`Content`** | 规范内容节点，全局业务身份 `(platform, kind, externalId)`；`externalId` 始终为字符串；物理主键值 `id` 在写入内核确定性派生；通过 `platform_details.extensions` 与 `content_references` 承载事件簇标识 `storyKey`、簇内角色 `storyRole` 与 64-bit SimHash。 |
+| **`Content`** | 规范内容节点，全局业务身份 `(platform, kind, externalId)`；`externalId` 始终为字符串；物理主键 `id` 在写入内核确定性派生。事件视图从可见发现记录派生事件簇。 |
 | **`Discovery`** | 某内容被哪条逻辑来源发现的关联（`content_discovery`），非独立正文。 |
 | **`Observation`** | 某逻辑来源经特定 `Provider` 采回的不可变快照指标（`content_observation`）。 |
 
 ### 双语信息流、事件聚簇、可插拔 AI 翻译/摘要与全景可视化读模型
+
+#### 已交付的事件 API
+
+- `GET /v1/content/stories?view=latest|hot|digest` 使用与内容库相同的 `read` 权限，并在归组前应用来源可见范围。支持 `sourceId`、`platform` 和 `limit`（默认 20，最大 50）。每条事件含代表报道、最多六条相关报道、计数、热度、趋势和最新进展时间。
+- 来源创建和修订支持 `tier`、`ownerEntityId`。省略等级时使用 `T2`。同一机构或创作者的多个订阅可共享小写主体 ID。相同正文从多源发现时，使用当前范围内最高等级的一条发现记录展示来源。
+- 事件按规范链接、规范化标题与 64-bit SimHash 归组。模糊匹配同时要求标题词项重合，并区分不同数字版本。已归组事件从 `T1 > T1_5 > T2` 选代表，一手同级优先英语原标题，其后比较正文可用性和时间。`storyKey` 是当前可见时间窗的最早成员 ID，可随锚点滑出窗口而变化。
+- 48 小时热度按独立主体取最大衰减贡献。缺少显式主体 ID 时，使用网页发布者、YouTube 订阅频道、社交账号或逻辑来源。使用真实发布时间，无发布时间时使用来源首次发现时间。六小时趋势对比同口径的两个 48 小时窗口，排除新接入与检查逾期的排期来源。所有输出均以库内样本为依据。
+- 日报每天北京时间 08:00 切换到新一期，覆盖此前 24 小时。允许以 `date=YYYY-MM-DD` 读取已发布日期。新进展可沿用最近 48 小时内的一手代表，同一事件在同一期只出现一次。日报由固定窗口按需计算，历史正文修订和来源等级调整可影响重读结果。
+
+#### 后续扩展规范
 
 1. **信源三级权威度（`tier`）与英文一手优先代表选举（`pickRepresentative`）**：
    - **`T1`（官方一手）**：AI 与科技巨头官方英文 Blog / Newsroom / GitHub Releases（如 OpenAI、Anthropic、Google DeepMind、Hugging Face、NVIDIA、Microsoft Research）及中资大模型官方一手发布（DeepSeek、Qwen、Kimi、MiniMax 官方 GitHub/Blog）；
@@ -49,7 +59,7 @@
 | DAT-01 | MUST | `externalId` 统一字符串防精度丢失：Reddit ID 统一小写 2–32 位 ASCII base36（含 `t3_` 主帖与 `t1_` 评论）；X 帖子与回复同属 `kind='post'`（用 `reply_to` 与 `thread_root` 建树，并完整保留图片/视频 `media`、外链与引用推文）；`web` 按去追踪参数后的规范 `canonical publisher URL` 或 `feed namespace + GUID` 去重，`NewsNow` 以 `sha256(boardId + ':' + externalId + ':' + snapshotBucket)`（UTC 5 分钟桶）生成 `evidenceKey`。 | ID、URL 与媒体归一化单测 |
 | DAT-02 | MUST | 正文版本严格按 **`(content_observed_at IS NOT NULL, COALESCE(content_observed_at, content_version_fetched_at), content_evidence_key COLLATE "C")`** 决胜：同批先做单轮确定性归约且不丢较新 `fetchedAt`；胜出 `available` 省略或传入 `null` 字段时用 `COALESCE` 保留已知文本（显式 `""` 除外），`deleted`/`removed` 立即清空正文与搜索投影且禁止落后 `available` 记录复活正文。 | 逆序/平局/防复活 PG 测试 |
 | DAT-03 | MUST | 三轴时间彻底分离：`publishedAt`（`content.created_at_source`）、`sourceObservedAt`、`fetchedAt`；缺失值一律存 `null`；所有互动指标显式绑定平台 `metricKey`、真实 `provider` 与 `timeBasis`（缺值维持 `null` 不补 `0`），所有正文携带精确 `textState`（`full` / `summary` / `missing` / `truncated`，存于 `platform_details.textState` 并由 `contentFromRow` 还原）。 | 时间、指标口径与 `textState` 测试 |
-| DAT-04 | MUST | 观测唯一键为 `(contentId, collectionSourceId, provider, evidenceKey)`，`evidenceKey` **严禁掺入读取时刻 `fetchedAt`**；同键同内容重放保持原行并返回 `updated = 0`，同键不同指标返回 `409`；入库时确定性计算 `storyKey`（规范实体链接优先，64-bit SimHash + 72h LSH 分桶次之）与 `storyRole`，未入库父帖标 `contextMissing = true`。 | 观测幂等、聚簇与 409 PG 测试 |
+| DAT-04 | MUST | 观测唯一键为 `(contentId, collectionSourceId, provider, evidenceKey)`，证据键标识上游证据或榜单五分钟快照；同键同内容重放保持原行并返回 `updated = 0`，同键不同指标返回 `409`。事件归组在可见读取窗口内计算，未入库父帖标 `contextMissing = true`。 | 观测幂等、聚簇与 409 PG 测试 |
 
 ## 2. 在线采集（Radar / Hydrate / Preview）、按题探索与外部推流（Ingest）
 

@@ -229,6 +229,8 @@ export const Content = strictMerge([
   }),
 ]);
 export const FallbackProvider = Type.Union([Type.Literal("scrapebadger"), Type.Literal("red_crawler")]);
+export const SourceTier = Type.Union([Type.Literal("T1"), Type.Literal("T1_5"), Type.Literal("T2")]);
+export const SourceOwner = Type.Union([Type.String({ pattern: "^[a-z0-9][a-z0-9_-]{0,79}$" }), Type.Null()]);
 export const SourceSchedule = Type.Object({
   enabled: Type.Boolean(),
   cadenceSeconds: Type.Optional(Type.Integer({ minimum: 120, maximum: 43200 })),
@@ -254,6 +256,8 @@ export const SourceInput = Type.Object(
     ]),
     fallbackProvider: Type.Optional(FallbackProvider),
     schedule: Type.Optional(SourceSchedule),
+    tier: Type.Optional(SourceTier),
+    ownerEntityId: Type.Optional(SourceOwner),
     label: Type.String({ minLength: 1, maxLength: 100 }),
     target: Target,
     contentKind: Kind,
@@ -274,7 +278,7 @@ export const SourcePreview = Type.Object({
   feeds: Type.Array(Type.String()),
 });
 export const Source = strictMerge([
-  Type.Omit(SourceInput, ["primaryProvider", "fallbackProvider"]),
+  Type.Omit(SourceInput, ["primaryProvider", "fallbackProvider", "tier", "ownerEntityId"]),
   Type.Object({
     id: Id,
     state: Type.Union([
@@ -286,6 +290,8 @@ export const Source = strictMerge([
     updatedAt: DateTime,
     primaryProvider: Type.String({ minLength: 1, maxLength: 64 }),
     fallbackProvider: NullableText,
+    tier: SourceTier,
+    ownerEntityId: SourceOwner,
     revision: Type.Integer(),
     nextDueAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
     lastCheckedAt: Type.Optional(Type.Union([DateTime, Type.Null()])),

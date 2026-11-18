@@ -25,6 +25,8 @@ export function sourceFromRow(
     updatedAt: row.updated_at.toISOString(),
     revision: row.revision,
     schedule: row.schedule,
+    tier: row.tier,
+    ownerEntityId: row.owner_entity_id,
     nextDueAt: row.next_due_at?.toISOString() ?? null,
     lastCheckedAt: row.last_checked_at?.toISOString() ?? null,
     lastSuccessAt: row.last_success_at?.toISOString() ?? null,

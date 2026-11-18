@@ -8,6 +8,7 @@ import { load } from "cheerio";
 import Parser from "rss-parser";
 import sanitize from "sanitize-html";
 import type { SourceTarget } from "../../../packages/contracts/src/source-content";
+import type { webBoards } from "../../../packages/contracts/src/web-boards";
 import { stableUuidFromString } from "../../shared/ids/stable-id";
 import { fail } from "../../storage/db";
 import { ContentProviderError, type CollectedContent, type CollectedPage, type ContentProvider } from "../shared/content-provider.interface";
@@ -25,8 +26,8 @@ for (const [network, prefix] of [["2001::", 23], ["2001:db8::", 32], ["2002::", 
 
 const hn = "https://news.ycombinator.com";
 type MediaGroup = { "media:description"?: ({ _?: string } | string)[]; "media:thumbnail"?: { $?: { url?: string } }[] };
-const parser = new Parser<Record<string, never>, { author?: string; mediaGroup?: MediaGroup }>({
-  customFields: { item: [["media:group", "mediaGroup"]] },
+const parser = new Parser<Record<string, never>, { author?: string; mediaGroup?: MediaGroup; trendNews?: { "ht:news_item_url"?: string[] }[] }>({
+  customFields: { item: [["media:group", "mediaGroup"], ["ht:news_item", "trendNews", { keepArray: true }]] },
 });
 const clean = (value: string) => sanitize(value, { allowedTags: [], allowedAttributes: {} }).trim();
 const decodeGzip = promisify(gunzip);
@@ -133,20 +134,25 @@ function requestPage(url: URL, ip: string, signal: AbortSignal, headers?: Record
 function article(input: {
   provider: "feed" | "newsnow"; sourceId: string; fetchedAt: string; url: URL;
   title: string; text: string | null; publishedAt: string | null; feedUrl: string | null; rank?: number; author?: string; thumbnail?: string;
+  externalId?: string;
+  relatedUrl?: string;
 }): CollectedContent {
-  const externalId = input.url.href;
+  const externalId = input.externalId ?? input.url.href;
   const snapshot = Math.floor(Date.parse(input.fetchedAt) / 300000);
   const evidence = input.rank !== undefined
     ? JSON.stringify([externalId, snapshot, input.rank, input.title, input.text, input.publishedAt, input.author])
-    : JSON.stringify([externalId, input.title, input.text, input.publishedAt, input.author, ...(input.thumbnail ? [input.thumbnail] : [])]);
+    : JSON.stringify([externalId, input.title, input.text, input.publishedAt, input.author, ...(input.thumbnail ? [input.thumbnail] : []),
+      ...(input.relatedUrl ? [input.relatedUrl] : [])]);
   return {
     id: stableUuidFromString(`web:content:article:${externalId}`),
-    platform: "web", kind: "article", externalId, url: externalId,
+    platform: "web", kind: "article", externalId, url: input.url.href,
     title: input.title, text: input.text, publishedAt: input.publishedAt, fetchedAt: input.fetchedAt,
     author: input.author ? { externalId: null, handle: null, displayName: input.author, url: null } : null,
     language: null, availability: "available", references: [],
-    media: input.thumbnail ? [{ type: "image", url: input.thumbnail, previewUrl: null, altText: null, durationSeconds: null }] : [],
-    platformDetails: { platform: "web", publisher: input.url.hostname, canonicalUrl: externalId, feedUrl: input.feedUrl },
+    media: input.thumbnail || input.relatedUrl
+      ? [{ type: input.thumbnail ? "image" : "link", url: input.thumbnail ?? input.relatedUrl!, previewUrl: null, altText: null, durationSeconds: null }]
+      : [],
+    platformDetails: { platform: "web", publisher: input.url.hostname, canonicalUrl: input.url.href, feedUrl: input.feedUrl },
     observation: {
       provider: input.provider, sourceId: input.sourceId, sourceObservedAt: null, fetchedAt: input.fetchedAt,
       timeBasis: "provider_snapshot", maturity: "unknown",
@@ -217,10 +223,12 @@ function listEntries(body: string, config: ListConfig, base: string, preview?: b
 const boards = {
   hackernews: hn,
   "bilibili-hot-video": "https://api.bilibili.com/x/web-interface/popular",
+  "zhihu-hot": "https://api.zhihu.com/topstory/hot-lists/total?limit=30",
+  "google-trends-us": "https://trends.google.com/trending/rss?geo=US",
   "v2ex-share": "https://www.v2ex.com/feed/share.json",
   "github-trending": "https://github.com/trending",
   "huggingface-papers": "https://huggingface.co/api/daily_papers?limit=30",
-} as const;
+} as const satisfies Record<keyof typeof webBoards, string>;
 type Board = keyof typeof boards;
 
 export function webSource(provider: "feed" | "newsnow", env = process.env, readPage: ReadPage = read): ContentProvider {
@@ -333,6 +341,38 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
       }
       const board = (target as Extract<SourceTarget, { type: "search" }>).query as Board;
       const response = await readPage(new URL(boards[board]), input.signal);
+      if (board === "zhihu-hot" || board === "google-trends-us") {
+        const common = { provider, sourceId: input.source.id, fetchedAt, feedUrl: null };
+        if (board === "zhihu-hot") {
+          const rows = jsonField(jsonDocument(response.body), "data");
+          if (!Array.isArray(rows) || !rows.length) throw new ContentProviderError("Invalid Zhihu hot list", false);
+          const items = rows.slice(0, limit).flatMap((row, index) => {
+            // The URL carries the exact ID. The JSON number can exceed JavaScript's safe integer range.
+            const id = jsonText(row, "target.url")?.match(/\/questions?\/(\d+)(?:[/?#]|$)/u)?.[1];
+            const title = clean(jsonText(row, "target.title") ?? "");
+            return id && title ? [article({ ...common, title, text: clean(jsonText(row, "target.excerpt") ?? "") || null,
+              url: new URL(`https://www.zhihu.com/question/${id}`), publishedAt: null, rank: index + 1 })] : [];
+          });
+          if (!items.length) throw new ContentProviderError("No valid Zhihu questions", false);
+          return { ...base, items, nextCheckpoint: null };
+        }
+        const feed = await parser.parseString(response.body).catch(() => {
+          throw new ContentProviderError("Invalid Google Trends RSS", false);
+        });
+        const items = feed.items.slice(0, limit).flatMap((entry) => {
+          const title = clean(entry.title ?? "");
+          if (!title || !entry.isoDate) return [];
+          const url = new URL("https://trends.google.com/trends/explore");
+          url.search = new URLSearchParams({ geo: "US", q: title, date: `${entry.isoDate.slice(0, 10)} ${entry.isoDate.slice(0, 10)}` }).toString();
+          const externalId = `google-trends:US:${createHash("sha256").update(JSON.stringify([title, entry.isoDate])).digest("hex")}`;
+          if (url.href.length > 1000) return [];
+          const news = entry.trendNews?.[0]?.["ht:news_item_url"]?.[0];
+          const relatedUrl = news && news.length <= 1000 ? httpsUrl(news)?.href : undefined;
+          return [article({ ...common, title, url, externalId, relatedUrl, text: null, publishedAt: entry.isoDate })];
+        });
+        if (feed.items.length && !items.length) throw new ContentProviderError("No valid Google Trends entries", false);
+        return { ...base, items, nextCheckpoint: null };
+      }
       if (board === "github-trending" || board === "huggingface-papers") {
         const baseUrl = response.url ?? boards[board];
         let entries: Entry[];

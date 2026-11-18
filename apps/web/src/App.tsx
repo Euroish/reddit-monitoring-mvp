@@ -7,6 +7,7 @@ import { api, type Run } from "./api";
 import { Field, Empty } from "./ui";
 import Projects from "./pages/Projects";
 import ContentLibrary from "./pages/ContentLibrary";
+import Stories from "./pages/Stories";
 import Sources from "./pages/Sources";
 import Workspace from "./pages/Workspace";
 import Account from "./pages/Account";
@@ -137,7 +138,7 @@ export default function App() {
           </div>
         )}
         <Routes>
-          <Route path="/" element={<ContentLibrary key="feed" feed run={run} canCollect={false} />} />
+          <Route path="/" element={<Stories />} />
           <Route
             path="/projects"
             element={<Projects run={run} canEdit={user.role !== "viewer"} />}

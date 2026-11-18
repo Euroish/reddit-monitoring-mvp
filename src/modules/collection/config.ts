@@ -55,7 +55,8 @@ export function sourcePreviewRoute(app: FastifyInstance, providers: ContentProvi
       const now = new Date().toISOString();
       const page = await provider.collectPage({
         source: { ...input, target, id: "00000000-0000-4000-8000-000000000000", state: "active",
-          createdAt: now, updatedAt: now, revision: 1, fallbackProvider: input.fallbackProvider ?? null, coverage: "unknown" },
+          createdAt: now, updatedAt: now, revision: 1, fallbackProvider: input.fallbackProvider ?? null,
+          tier: input.tier ?? "T2", ownerEntityId: input.ownerEntityId ?? null, coverage: "unknown" },
         from: "1970-01-01T00:00:00.000Z", to: now, limit: 20, checkpoint: null, preview: true,
       });
       return { mode: "fetched" as const, target, providerEnabled, feeds: page.discoveredFeeds ?? [],

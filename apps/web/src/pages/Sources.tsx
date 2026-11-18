@@ -1,7 +1,9 @@
 import { useState, useRef, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Radio } from "lucide-react";
-import type { CollectionSource } from "../../../../packages/contracts/src/source-content";
+import type { Static } from "@sinclair/typebox";
+import type { CollectionSource, SourcePreview } from "../../../../packages/contracts/src/source-content";
+import { webBoards } from "../../../../packages/contracts/src/web-boards";
 import { Field, Heading, Empty } from "../ui";
 import { api, type Run } from "../api";
 
@@ -12,6 +14,7 @@ const budgetFields = {
   monthly_resources: ["monthlyResources", "每月记录额度"],
   minimum_interval_ms: ["minimumIntervalMs", "最短请求间隔（毫秒）"],
 } as const;
+const tierLabels = { T1: "T1 · 官方一手", T1_5: "T1_5 · 主创", T2: "T2 · 媒体与社区" };
 type Budget = { provider: string; enabled: boolean; revision: number } & Record<keyof typeof budgetFields, number>;
 
 export default function Sources({
@@ -23,6 +26,8 @@ export default function Sources({
 }) {
   const collectionRequest = useRef<{ body: string; key: string } | null>(null);
   const [collecting, setCollecting] = useState(false);
+  const [preview, setPreview] = useState<Static<typeof SourcePreview> | null>(null);
+  const [previewing, setPreviewing] = useState(false);
   const [openedAt] = useState(() => Date.now());
   const [creating, setCreating] = useState(false),
     [selectedId, setSelectedId] = useState<string | null>(null),
@@ -62,23 +67,33 @@ export default function Sources({
       : targetType === "community" ? { type: "community", community: value }
       : targetType === "feed" ? { type: "feed", url: value }
       : { type: "search", query: value };
-    void run(async () => {
-      await api("/sources", {
-        method: "POST",
-        body: JSON.stringify({
-          label: form.get("label"),
-          platform: provider === "bluesky_appview" ? "bluesky" : provider === "twitterapis" ? "x" :
-            ["feed", "newsnow"].includes(provider) ? "web" : "reddit",
-          primaryProvider: provider,
-          fallbackProvider: form.get("fallbackProvider") || undefined,
-          deliveryMode: provider === "external_ingest" ? "push" : "pull",
-          contentKind: ["feed", "newsnow"].includes(provider) ? "article" : "post",
-          target,
-          schedule: provider === "external_ingest" ? undefined : { enabled: form.has("schedule") },
-        }),
-      });
-      setCreating(false);
+    const body = JSON.stringify({
+      label: form.get("label"),
+      platform: provider === "bluesky_appview" ? "bluesky" : provider === "twitterapis" ? "x" :
+        ["feed", "newsnow"].includes(provider) ? "web" : "reddit",
+      primaryProvider: provider,
+      fallbackProvider: form.get("fallbackProvider") || undefined,
+      deliveryMode: provider === "external_ingest" ? "push" : "pull",
+      contentKind: ["feed", "newsnow"].includes(provider) ? "article" : "post",
+      tier: form.get("tier"),
+      ownerEntityId: form.get("ownerEntityId") || null,
+      target,
+      schedule: provider === "external_ingest" ? undefined : {
+        enabled: form.has("schedule"),
+        ...(provider === "newsnow" ? { cadenceSeconds: 900, pageSize: 20, maxPages: 1 } : {}),
+      },
     });
+    const previewOnly = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "preview";
+    if (previewOnly) setPreviewing(true);
+    void run(async () => {
+      if (previewOnly) {
+        setPreview(await api<Static<typeof SourcePreview>>("/sources/preview", { method: "POST", body }));
+        return;
+      }
+      await api("/sources", { method: "POST", body });
+      setCreating(false);
+      setPreview(null);
+    }).finally(() => setPreviewing(false));
   };
   return (
     <>
@@ -90,7 +105,7 @@ export default function Sources({
         )}
       </Heading>
       {creating && (
-        <form className="panel form-grid" onSubmit={submit}>
+        <form className="panel form-grid" onSubmit={submit} onChange={() => setPreview(null)}>
           <Field label="来源名称">
             <input name="label" required maxLength={100} />
           </Field>
@@ -120,9 +135,7 @@ export default function Sources({
           </Field>}
           {provider === "newsnow" ? <Field label="热榜">
             <select name="target">
-              <option value="hackernews">Hacker News</option>
-              <option value="bilibili-hot-video">B 站热门视频</option>
-              <option value="v2ex-share">V2EX 分享</option>
+              {Object.entries(webBoards).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </select>
           </Field> : <Field label={provider === "external_ingest" ? "样本主题" : ({
             account: "账号", community: "社区", feed: "已批准的订阅 URL", search: "搜索表达式",
@@ -138,7 +151,22 @@ export default function Sources({
               配置备源 {provider === "twitterapis" ? "ScrapeBadger" : "red_crawler"} 备源
             </label>
           )}
-          <button>保存来源</button>
+          <Field label="权威等级">
+            <select name="tier" defaultValue="T2">
+              {Object.entries(tierLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+          </Field>
+          <Field label="发布主体 ID（可选，同一主体共用）">
+            <input name="ownerEntityId" pattern="[a-z0-9][a-z0-9_\-]{0,79}" maxLength={80} />
+          </Field>
+          <button disabled={previewing}>保存来源</button>
+          <button disabled={previewing} value="preview">{previewing ? "试抓中…" : "预览来源"}</button>
+          {preview && <div aria-live="polite">
+            <p>{preview.mode === "fetched" ? `试抓 ${preview.items.length} 条` :
+              preview.providerEnabled ? "配置有效" : "连接器未启用"}</p>
+            {preview.items.length > 0 && <ol>{preview.items.map((item, index) =>
+              <li key={index}>{item.title ?? item.url}</li>)}</ol>}
+          </div>}
         </form>
       )}
       <div className="source-layout">
@@ -155,7 +183,7 @@ export default function Sources({
               <div>
                 <h2>{source.label}</h2>
                 <p>
-                  {source.platform} · {source.primaryProvider}
+                  {source.platform} · {source.primaryProvider} · {source.tier}
                 </p>
               </div>
               <span className="badge">
@@ -173,7 +201,7 @@ export default function Sources({
             <h2>{selected.label}</h2>
             <p className="muted">
               {selected.deliveryMode === "push" ? "导入样本" : selected.schedule?.enabled ? "自动采集" : "按需采集"} ·{" "}
-              {selected.contentKind}
+              {selected.contentKind} · {tierLabels[selected.tier]}
             </p>
             <p className="target-text">
               {"query" in selected.target
@@ -184,6 +212,27 @@ export default function Sources({
             </p>
             {selected.lastCheckedAt && <p className="muted">最近检查 {new Date(selected.lastCheckedAt).toLocaleString("zh-CN")}</p>}
             {selected.lastSuccessAt && <p className="muted">最近采集成功 {new Date(selected.lastSuccessAt).toLocaleString("zh-CN")}</p>}
+            {canEdit && selected.state !== "archived" && <details>
+              <summary>编辑来源等级</summary>
+              <form key={`${selected.id}:${selected.revision}`} onSubmit={(event) => {
+                event.preventDefault();
+                const form = new FormData(event.currentTarget);
+                void run(() => api(`/sources/${selected.id}`, {
+                  method: "PATCH",
+                  body: JSON.stringify({ revision: selected.revision, tier: form.get("tier"), ownerEntityId: form.get("ownerEntityId") || null }),
+                }));
+              }}>
+                <Field label="权威等级">
+                  <select name="tier" defaultValue={selected.tier}>
+                    {Object.entries(tierLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                  </select>
+                </Field>
+                <Field label="发布主体 ID（可选，同一主体共用）">
+                  <input name="ownerEntityId" defaultValue={selected.ownerEntityId ?? ""} pattern="[a-z0-9][a-z0-9_\-]{0,79}" maxLength={80} />
+                </Field>
+                <button>保存等级</button>
+              </form>
+            </details>}
             {canEdit && selected.deliveryMode === "pull" && selected.state !== "archived" && (
               <button onClick={() => void run(() => api(`/sources/${selected.id}`, {
                 method: "PATCH",

@@ -160,6 +160,14 @@ docker exec monitoring-unified-db-1 psql -X -U monitoring -d monitoring \
 
 新增 RSS 或 YouTube 频道 Atom 时，将完整地址加入运行配置的 `FEED_ALLOWED_URLS`。候选配置通过 `docker compose config --quiet` 后只重建 `app`。通过来源预览、创建和手动采集接口实抓，核对任务状态及 `content_discovery` 后再启用自动排期。热榜使用内置查询目标和独立渠道预算。更新运行配置前保留仓外备份，并核对宿主机端口映射仍为空。
 
+知乎热榜（`zhihu-hot`）与 Google Trends 美国榜（`google-trends-us`）在来源页选择「NewsNow · 热榜」。启用 `newsnow` 预算后，可直接预览并保存为 15 分钟自动采集，每次最多 20 条。知乎保留准确问题链接与榜单名次，入库时间和发布时间分别记录；Google Trends 使用词条与起始时间作独立身份，保留地区与趋势链接。两项共用现有 Worker 与入库事务。
+
+### 事件产品首次生产发布
+
+2026-11-18 已验证生产备份可恢复，并在隔离恢复库上验证新旧镜像均可处理 `049` 之后的库。生产只重建 `app`。前一版本、配置、备份校验和及本次实际构建源码清单保留在权限受限的 `/opt/reddit-monitoring-backups/pre-stories.GBRV4l/`。当前后端镜像摘要与 Web 镜像摘要记在 `/opt/reddit-monitoring/release`。
+
+三条热榜共用 `newsnow` 渠道预算。生产上限为日/月 320/9,920 请求、7,800/241,800 记录额度，保留 1 秒最短请求间隔。预算覆盖 15 分钟周期和少量重试。若回退旧镜像，先关闭知乎和 Google Trends 的自动排期，再恢复前一 `APP_IMAGE` 并只重建 `app`，保留兼容迁移和已入库内容。
+
 ---
 
 ## 4. `twitterapi_io` 与 `arctic_shift` 安全退役操作顺序

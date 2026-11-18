@@ -17,6 +17,8 @@ export function sourceFixture(
     platform: "reddit",
     primaryProvider: "kaix",
     fallbackProvider: null,
+    tier: "T2",
+    ownerEntityId: null,
     deliveryMode: "pull",
     label: "Fixture",
     target: { type: "search", query: "OpenAI OR Anthropic" },

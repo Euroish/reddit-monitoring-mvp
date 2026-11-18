@@ -101,11 +101,19 @@ test("browser: keyboard login, six navigation entries, saved query and responsiv
   await page.keyboard.type("fixture-password-123");
   await page.keyboard.press("Enter");
   await page.getByRole("heading", { name: "最新" }).waitFor();
+  const views = page.getByRole("navigation", { name: "信息流视图" });
+  await views.getByRole("link", { name: "48 小时热度" }).click();
+  await page.getByRole("heading", { name: "48 小时热度" }).waitFor();
+  await views.getByRole("link", { name: "08:00 日报" }).click();
+  await page.getByRole("heading", { name: "08:00 日报" }).waitFor();
+  await page.getByRole("link", { name: "前一日" }).click();
+  await page.waitForURL(/view=digest&date=/);
   await page.getByRole("link", { name: "来源", exact: true }).click();
   await page.getByRole("button", { name: "添加来源" }).click();
   await page.getByLabel("来源名称").fill("内部研究样本");
   await page.getByLabel("采集方式").selectOption("external_ingest");
   await page.getByLabel("样本主题").fill("人工智能工具");
+  await page.getByLabel("权威等级").selectOption("T1_5");
   await page.getByRole("button", { name: "保存来源" }).click();
   await page
     .getByRole("heading", { name: "内部研究样本", exact: true })
