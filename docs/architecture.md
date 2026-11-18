@@ -7,7 +7,7 @@
 ```text
 Web 浏览器 / 外部 AI Agent / 未来 R4 外挂 (plugins/zst-archive/)
                        │  HTTPS :443
-         Caddy (:80/:443，托管静态 Web，/api/* 去前缀反代，导出关闭缓冲)
+         Caddy (Compose 服务 proxy，对外映射 HTTPS，托管静态 Web，/api/* 去前缀反代，导出关闭缓冲)
                        │  Compose 内部网络
         Fastify 5 单体应用 + 进程内有界调度器 (concurrency=2)
                        │  单一 pg.Pool (max=10)
@@ -19,7 +19,7 @@ Web 浏览器 / 外部 AI Agent / 未来 R4 外挂 (plugins/zst-archive/)
 | ID | 等级 | 运行时与结构基线 | 验收出口 |
 | --- | --- | --- | --- |
 | ARC-01 | MUST | 后端锁定 Node 24+、TypeScript、Fastify 5、`@sinclair/typebox`（`TypeBoxValidatorCompiler` + `registerAjvFormats` 保持 `removeAdditional: false`）、`pg`、`pg-query-stream`、PostgreSQL 16；前端使用 React / Vite / Router / TanStack Query；单容器 `app` 整合 API、调度器与静态产物，构建阶段必须复制 `src/storage/schema/*.sql` 至 `dist/` 且迁移脚本在发现 0 个 SQL 或错误前缀时立即报错。 | 构建与编译态启动验收 |
-| ARC-02 | MUST | 单机 Compose（`caddy` / `app` / `db`）为唯一生产交付拓扑；应用监听 `SIGTERM` / `SIGINT`（如 `closeWithGrace` `15_000ms`，严格大于 SQL `10_000ms` 超时），构建与日常 CI 严禁打入 Python / DuckDB / `plugins/`。 | Compose 启动与退出测试 |
+| ARC-02 | MUST | 单机 Compose（`proxy` / `app` / `db`）为唯一生产交付拓扑；应用监听 `SIGTERM` / `SIGINT`（如 `closeWithGrace` `15_000ms`，严格大于 SQL `10_000ms` 超时），构建与日常 CI 严禁打入 Python / DuckDB / `plugins/`。 | Compose 启动与退出测试 |
 | ARC-03 | MUST | 仅外部多实现采集契约保留 `ContentProvider` 接口；业务模块内部直接调用接收 `Pool | PoolClient` 的命名 SQL 函数（写事务强制 `PoolClient`），彻底清除单实现 `*Repository` 与 `InMemory*` 模拟；`src/modules/` 内按职责自然拆分文件，由 `scripts/check-docs.ts` 守住 5 模块顶层结构、禁类/旧层 AST、<= 450 行/文件与 <= 220 字符非字符串代码行上限。 | `docs:check` 与 AST lint |
 
 ## 2. 入口地图与五模块所有权（Code Map）

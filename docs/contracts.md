@@ -59,7 +59,7 @@
 
 ## 3. 统一过滤、信号、讨论树与对比
 
-`ContentFilter` 白名单字段：`platforms`、`kinds`、`sourceIds`、`providers`、`deliveryModes`、`from` / `to`、`timeStatus`、`author`、`language`、`query`（`<= 200` 字符）、`searchMode`、`searchScope`、`anyTerms`（`<= 20`）、`allTerms`（`<= 20`）、`exclusions`（`<= 10`，单条 `<= 100`）、`threadAware`、`signal` 与同平台 `metricKey`/`min`/`max`；`limit` 默认 25 最大 100，非法额外字段一律 `400`。
+`ContentFilter` 白名单字段：`platforms`、`kinds`、`sourceIds`、`providers`、`deliveryModes`、`from` / `to`、`timeStatus`、`author`、`language`、`query`（`<= 200` 字符）、`searchMode`、`searchScope`、`anyTerms`（`<= 20`）、`allTerms`（`<= 20`）、`exclusions`（`<= 10`，单条 `<= 100`）、`threadAware`、`signal` 与同平台 `metricKey`/`min`/`max`；`limit` 当前列表默认 50、最大 100，非法额外字段一律 `400`。
 
 | ID | 等级 | 过滤、信号与联动比较规则 | 验收出口 |
 | --- | --- | --- | --- |
@@ -75,7 +75,9 @@
 | OP-01 | MUST | 鉴权后访问 `GET /v1/capabilities` 与同源 TypeBox 派生的 `GET /v1/openapi.json`（完整 `operationId`）。**防提示词注入采用技术硬隔离**：向消费不可信抓取正文的外部 AI Agent 默认签发仅含 `read` + `export` 作用域的只读 Key，使其在权限层物理无法触发 `collect` 或修改来源。错误信封统一为 `{ error: { code, message, requestId, details?, retryable, nextAction? } }`。 | Capabilities 与隔离测试 |
 | EXP-01 | MUST | `GET /v1/content/export?format=csv|json` 默认上限 `10,000`、硬上限 `50,000`，强制**全局与单用户并发 `1` 信号量**（冲突返 `429 + Retry-After`）；采用 `pg-query-stream` + Node `stream.pipeline` 在 `REPEATABLE READ READ ONLY` + `SET LOCAL idle_in_transaction_session_timeout = '35s'` 内写出并标记 `released=true`（禁止 `COMMIT` 后再执行 `ROLLBACK`）；设置 `X-Accel-Buffering: no`。JSON 在 `COMMIT` 后追加 `{result: {exportedCount, truncated, nextCursor, complete: true}}`；**CSV 严格遵守 RFC 4180，只输出正文数据行、文本化雪花/Reddit ID 与 OWASP 公式中和（严禁插入破坏通用 CSV 解析器的伪终结行），中途异常直接 `reply.raw.destroy()` 中断分块响应**。 | 并发导出、断流与 RFC 4180 测试 |
 
-## 5. 标准化 HTTP 路由总览
+## 5. 标准化 HTTP 路由目标
+
+下表用于规划命名。当前调用方以运行实例的 `/v1/openapi.json` 为准。个人查询使用 `/v1/workspace/queries`，批注使用 `/v1/workspace/annotations`，机器 Key 管理使用 `/v1/access/keys`。项目对比仍待实现。
 
 | 资源域 | 标准化接口路径（不额外搭建第二套 Agent 接口） |
 | :--- | :--- |

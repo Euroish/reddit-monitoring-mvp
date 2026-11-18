@@ -1,6 +1,6 @@
 # 开发记录与运维交付手册（唯一开发记录真源）
 
-> **文档定位**：本文件是全仓**唯一的开发操作手册与阶段交付台账真源**（已完整整合原 `docs/history/` 历史记录，禁止再新建 `handoff.md` 或独立日志）。开头与第 1 节记录 **重整分支入口和配置**，第 2–4 节记录旧 `main@0.9.1 / node:http` 操作与退役步骤；第 5–6 节记录历史阶段 `0.2.0–0.9.1` 交付事实与文档收敛里程碑。目标架构、契约及各开发分支实况分别见[主线架构规范](architecture.md)、[数据与 API 契约](contracts.md)和[当前状态与下一阶段](status.md)。
+> **文档定位**：本文件是全仓**唯一的开发操作手册与阶段交付台账真源**（已完整整合原 `docs/history/` 历史记录，禁止再新建 `handoff.md` 或独立日志）。开头与第 1 节记录 **重整分支入口和配置**，第 2–4 节记录旧 `main@0.9.1 / node:http` 操作与退役步骤；第 5 节记录历史阶段 `0.2.0–0.9.1` 交付事实与文档收敛里程碑。目标架构、契约及各开发分支实况分别见[主线架构规范](architecture.md)、[数据与 API 契约](contracts.md)和[当前状态与下一阶段](status.md)。
 
 ---
 
@@ -70,9 +70,9 @@ npm --prefix apps/web run dev
 - **Windows 本机合成演示（不连外部平台）**：`npm run local:setup -- --pg-bin 'C:\your-postgresql\bin'`、`local:start`、`local:status`、`local:account`、`local:stop`（日志写于被忽略的 `output/local-dev/`；Linux 生产环境禁止复用 Windows 进程工具）。
 - **测试脚本**：`npm run test:offline`、`npm run test:postgres`（需独立 loopback 库 `TEST_SOURCE_DATABASE_URL`）、`npm run verify:repo`；`npm test` 遇未配测试库会 skip，不得代替 `test:postgres`。
 
-## 3. 维护脚本、备份恢复与目标 Compose 切换方向
+## 3. 旧版本维护脚本与切换记录
 
-以下脚本供运维手工执行（**未经明确授权不得对生产数据运行写动作**）：
+以下命令属于旧版本；当前可用命令见根目录 package.json，其中备份与恢复分别使用 npm run db:backup 和 npm run db:restore（**未经明确授权不得对生产数据运行写动作**）：
 
 ```sh
 npm run ops:backfill:public-search -- --limit=100 --dry-run
