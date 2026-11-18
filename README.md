@@ -2,14 +2,14 @@
 
 面向品牌、运营与竞品研究：**创建项目 → 增量发现 → 确定性门控 → 按需补评论 → 阅读证据 → 保存或流式下载**。
 
-目标架构为远端单服务器 `Fastify 5 + TypeBox + PostgreSQL 16 + React` 产品，Web 与外部 AI Agent 共用同一 HTTP API。Reddit 采用 `kaix` 主源 + `red_crawler` 备源，X 采用 `TwitterAPIs` 主源 + `ScrapeBadger` 备源，资讯补充精选 `NewsNow` MIT getter 与白名单 `feed`。历史 `.zst` 归档加工独立演进为 R4 外挂 `plugins/zst-archive/`。
+工作台在单台服务器运行 `Fastify 5 + TypeBox + PostgreSQL 16 + React`，Web 与外部 AI Agent 共用同一 HTTP API。Reddit 采用 `kaix` 主源与 `red_crawler` 备源，X 采用 `TwitterAPIs` 主源与 `ScrapeBadger` 备源，资讯来自精选 NewsNow 榜单与白名单 Feed。
 
 ## 当前开发基线
 
-当前 `main` 可执行代码仍为 `0.9.1 / node:http`；两个并行重建分支状态、阻断与差异汇总见唯一状态真源：[docs/status.md](docs/status.md)。开发依赖 Node 22+ 与 PostgreSQL；CI 锁定 PostgreSQL 16。
+开发使用 Node 24+ 与 PostgreSQL 16。版本进度与后续交付见[当前状态](docs/status.md)。
 
 ```sh
-npm ci && npm --prefix apps/web ci
+npm ci --ignore-scripts && npm --prefix apps/web ci --ignore-scripts
 npm run lint
 npm run typecheck
 ```
