@@ -11,10 +11,10 @@
 
 | 文档 | 唯一管辖范围 |
 | :--- | :--- |
-| [产品边界与指标口径](docs/README.md) | 产品范围、三阶漏斗定位、统一度量口径与工程准则 |
+| [产品边界与指标口径](docs/README.md) | 产品范围、个人信息流与可视化定位、统一度量口径与工程准则 |
 | [主线架构规范](docs/architecture.md) | 架构图、入口地图、5 模块边界与不变量、SQL/调度/单机安全及 CI/Compose 基线 |
 | [数据与 API 契约](docs/contracts.md) | 领域模型、来源与主备、版本幂等与混合批、采集推流、三段词过滤、权限与流式导出契约 |
-| [产品交互规范](docs/design.md) | 五大一级导航、研究主流程、三视图评论树、错误恢复与响应式无障碍规范 |
+| [产品交互规范](docs/design.md) | 信息流、探索与研究下钻、三视图评论树、错误恢复与响应式无障碍规范 |
 | [R1–R4 重建与实删计划](docs/plans/source-expansion.md) | R1–R4 资产迁移矩阵、遗留代码实删清单与 R4 `plugins/zst-archive/` 外挂规范 |
 | [架构审查母本](docs/research/architecture_audit_and_rebuild_spec.md) | `main@7045185` 尸检数据、核心 SQL 模板与代码减法预算溯源 |
 | [来源研究与替换规格](docs/research/source_replacement_and_twitterapi_io_removal_spec.md) | X/Reddit 供应商商业与 OpenAPI 字段映射、与[开源来源证据](docs/research/data-sources.md)协同的实删坐标 |

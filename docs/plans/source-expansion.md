@@ -22,9 +22,9 @@
 | `content_saved_query` / `content_annotation` | 保留 `user_id` 隔离与 `revision` 乐观锁，迁移旧可转换查询，明确输出无法等价转换项报告至 `output/`。 |
 | `research_export` / `member` 与 7 张旧归档设想表 | R3 按原 owner 交付历史导出文件后实删 `research_export*`；7 张归档表（`dataset*`、`import_batch`、`archive_activity_day`）不进入主线库与迁移。 |
 
-## 3. 物理实删遗留资产总矩阵
+## 3. 重整前的遗留资产与处置矩阵
 
-基于 `main@7045185` 全仓基线（457 源码文件 / ~73,534 LOC -> 实际重整目标参照 Branch A 已收敛结构 ~5,469 生产 LOC），R1–R3 期间待彻底清理的对象及前置条件：
+基于 `main@7045185` 全仓基线（457 源码文件 / ~73,534 LOC -> 实际重整目标参照 Branch A 已收敛结构 ~5,469 生产 LOC），当时列出的清理对象及前置条件；当前余项见[状态记录](../status.md)：
 
 | 待清理遗留目录 / 文件组 | 删除前必须满足的保护门禁 |
 | :--- | :--- |
