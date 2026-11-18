@@ -146,6 +146,20 @@ PG16 实测使用不按 schema 过滤的备份归档，将 `pg_trgm` 与搜索�
 
 本机无端口部署使用 `monitoring-unified` Compose 项目和 `/opt/reddit-monitoring/compose.yml`。安装清单仅包含 `app` 与 `db`，后台采集由 `app` 进程内的 Worker 处理。应用健康由容器内 `/readyz` 检查。切流前使用旧库同版本客户端导出，使用 PG16 客户端还原和应用迁移；最终快照、校验和、对账结果及旧运行文件同存于权限受限的备份目录。回退前先停止新版写入，再根据切流后的写入情况决定旧库的恢复点。
 
+部署使用仓外配置 `/etc/reddit-monitoring/unified.env`，应用版本和镜像摘要记在 `/opt/reddit-monitoring/release`。接续前在当前宿主机核对运行实例、迁移和来源排期：
+
+```sh
+git status --short --branch
+git ls-remote origin refs/heads/prod
+cat /opt/reddit-monitoring/release
+docker compose --env-file /etc/reddit-monitoring/unified.env -f /opt/reddit-monitoring/compose.yml -p monitoring-unified ps
+docker exec monitoring-unified-db-1 psql -X -U monitoring -d monitoring \
+  -c 'SELECT count(*) AS applied, max(filename) AS latest FROM schema_migration' \
+  -c "SELECT primary_provider, state, schedule->>'enabled' AS scheduled, count(*) FROM collection_source GROUP BY 1,2,3 ORDER BY 1,2,3"
+```
+
+新增 RSS 或 YouTube 频道 Atom 时，将完整地址加入运行配置的 `FEED_ALLOWED_URLS`。候选配置通过 `docker compose config --quiet` 后只重建 `app`。通过来源预览、创建和手动采集接口实抓，核对任务状态及 `content_discovery` 后再启用自动排期。热榜使用内置查询目标和独立渠道预算。更新运行配置前保留仓外备份，并核对宿主机端口映射仍为空。
+
 ---
 
 ## 4. `twitterapi_io` 与 `arctic_shift` 安全退役操作顺序
@@ -184,3 +198,12 @@ PG16 实测使用不按 schema 过滤的备份归档，将 `pg_trgm` 与搜索�
 
 - **2026-11-17**：将 `docs/history/development-log.md` 与 `docs/history/handoff.md` 并入本文件第 5 节并清理重复目录，确保 `AGENTS.md` 只指向[开发记录](development.md)与[当前状态](status.md)两份唯一真源；`scripts/check-docs.ts` 实施五模块顶层约束、非模板单行 `<= 220` 字符、单文件 `<= 450` 行、AST 禁类/旧层导入及 `041+` 前向迁移号唯一检查。
 - **2026-11-18**：完成全仓 54 个生产文件与 48 个 SQL 迁移逐行审计，输出[深度审查与 4GB 单机架构蓝图](research/deep-audit-and-architecture-blueprint-20261118.md)，并对 `docs/README.md`、`docs/status.md`、`docs/architecture.md`、`docs/contracts.md`、`docs/design.md`、`docs/development.md`、`docs/research/data-sources.md` 执行全面去漂移对齐：录入 7 项实存代码缺陷台账、吸收 `KKKKhazix/AIHOT` / `miniflux/v2` / `newsnext/newsnow` / `ItzCrazyKns/Vane` 核心机制、确立“英文一手 AI (`T1`/`T1_5`) + 全球科技数码 + 大众生活娱乐”三大双语高频支柱与 Phase 1–3 唯一实施路线。
+
+### 5.3 统一后端切流与在线采集验证（`2026-11-18`）
+
+| 版本 | 开发与运维记录 | 验证 |
+| --- | --- | --- |
+| `5ce2e1d` | 新版统一 Fastify 应用与内嵌 Worker 切流，PG14 数据恢复到 PG16；旧服务停用并归档。切流快照和旧运行文件归档至仓外权限受限目录 `/opt/reddit-monitoring-backups/pgt16-cutover.j7N5gume/`。 | 迁移文件校验和、原账户登录、历史内容读取、流式导出、Worker 心跳和宿主机端口。 |
+| `dafff76` | 接入 37 个 RSS/Atom，修复请求头兼容性和同一文章跨订阅的版本冲突。 | 首批和首轮自动任务各 37 个成功。 |
+| `faa84a8` | 启用 B 站全站热门。 | 首轮自动入库 20 条，保留榜单名次。 |
+| `ef9e170` | 接入 7 个 YouTube 频道，存储视频链接、简介和缩略图地址。网页采集支持有界 gzip，普通列表省去搜索投影关联。 | 16 项 PG16 集成测试通过。YouTube 首批和首轮自动任务各 7 个成功，信息流及关键词检索可读。 |
