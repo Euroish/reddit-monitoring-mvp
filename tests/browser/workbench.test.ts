@@ -185,7 +185,7 @@ test("browser: keyboard login, five navigation tasks, saved query and responsive
   await page.getByRole("link", { name: "项目", exact: true }).click();
   await page.getByRole("button", { name: "创建项目", exact: true }).click();
   await page.getByLabel("研究主题").fill("工具使用反馈");
-  await page.getByLabel("任一提及").fill("内部");
+  await page.getByLabel("任一提及").fill("内部讨论");
   await page.getByRole("checkbox", { name: "内部研究样本" }).check();
   await page.getByRole("button", { name: "保存项目", exact: true }).click();
   await page.getByRole("button", { name: /工具使用反馈/ }).click();

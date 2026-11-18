@@ -13,6 +13,7 @@ import {
   updateAnnotation,
 } from "./sql";
 import { fail } from "../../storage/db";
+import { compileContentFilter } from "../content/search";
 
 export async function workspaceRoutes(app: FastifyInstance, pool: Pool) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
@@ -39,8 +40,11 @@ export async function workspaceRoutes(app: FastifyInstance, pool: Pool) {
         ),
       },
     },
-    async (request) =>
-      saveQuery(pool, request.actor!, request.body.name, request.body.filter),
+    async (request) => {
+      const { name, filter } = request.body;
+      compileContentFilter(request.actor!, filter);
+      return saveQuery(pool, request.actor!, name, filter);
+    },
   );
   api.delete(
     "/v1/workspace/queries/:id",

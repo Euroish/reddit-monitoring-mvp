@@ -109,7 +109,7 @@ export default function Projects({
             />
           </Field>
           <Field label="任一提及">
-            <input name="anyTerms" defaultValue={editing?.filter.anyTerms?.join(", ")} placeholder="词组以逗号分隔" />
+            <input name="anyTerms" defaultValue={editing?.filter.anyTerms?.join(", ")} placeholder="至少连续 3 个字母或数字，词组以逗号分隔" />
           </Field>
           <Field label="同时包含">
             <input name="allTerms" defaultValue={editing?.filter.allTerms?.join(", ")} />

@@ -154,7 +154,7 @@ export default function ContentLibrary({ run, canCollect }: { run: Run; canColle
           onChange={(event) =>
             setDraft({ ...searchDraft, query: event.target.value })
           }
-          placeholder="搜索标题与正文…"
+          placeholder="搜索标题与正文，至少连续 3 个字母或数字"
         />
         <select
           name="sourceId"

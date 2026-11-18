@@ -36,6 +36,7 @@ export async function writeProject(pool: Pool, actor: Actor, input: ProjectWrite
   const sources = [...new Set(input.sourceIds)];
   if (actor.allowedSourceIds !== null && !sources.every((id) => actor.allowedSourceIds!.includes(id)))
     fail(404, "Source not found");
+  compileContentFilter(actor, input.filter);
   return transaction(pool, async (client) => {
     const id = update?.id ?? randomUUID();
     const fields = [id, input.name, input.filter, input.threadAware, input.includePushInTrends];
