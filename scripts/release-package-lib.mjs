@@ -27,6 +27,7 @@ export const DOCUMENTATION_FILES = Object.freeze([
   'docs/development.md',
   'docs/status.md',
   'docs/research/data-sources.md',
+  'docs/research/ChatGPT-讲解仓库文档-20261118-1807.md',
   'docs/research/architecture_audit_and_rebuild_spec.md',
   'docs/research/source_replacement_and_twitterapi_io_removal_spec.md',
   'docs/plans/source-expansion.md',
@@ -42,11 +43,7 @@ const allowed = file => !file.split('/').some(part => part.startsWith('.') || pa
   || /^deploy\/.*\.(service|conf|example)$/.test(file)
   || [
     'package.json', 'package-lock.json', 'README.md', 'AGENTS.md', 'Dockerfile', 'docker-compose.yml', 'deploy/Caddyfile',
-    'docs/README.md', 'docs/development.md', 'docs/architecture.md', 'docs/status.md',
-    'docs/research/data-sources.md',
-    'docs/research/source_replacement_and_twitterapi_io_removal_spec.md',
-    'docs/research/architecture_audit_and_rebuild_spec.md',
-    'docs/plans/source-expansion.md', 'docs/contracts.md', 'docs/design.md',
+    ...DOCUMENTATION_FILES,
     'scripts/database-backup.mjs', 'scripts/database-backup-lib.mjs',
     'scripts/verify-release.mjs', 'scripts/release-package-lib.mjs',
   ].includes(file));

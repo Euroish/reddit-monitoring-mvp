@@ -145,3 +145,23 @@ PG16 实测使用不按 schema 过滤的备份归档，将 `pg_trgm` 与搜索�
 
 - 完成历史文档整合：将 `docs/history/development-log.md` 与 `docs/history/handoff.md` 并入本文件第 5 节并清理重复目录，确保 `AGENTS.md` 只指向[开发记录](development.md)与[当前状态](status.md)两份唯一真源。
 - 修正治理门禁：`scripts/check-docs.ts` 移除诱导千行上帝文件的 `moduleFiles` 两文件白名单与 300 字符注释限制，替换为五模块顶层约束、非模板单行 `<= 220` 字符、单文件 `<= 450` 行、全量 AST 禁止类封装/旧层导入及 `041+` 前向迁移号唯一检查；`scripts/release-package-lib.mjs` 同步精简 `DOCUMENTATION_FILES` 为 12 份同时保留历史归档验证兼容。
+
+## 2026-11-18 · 固定规格主机容量核对
+
+本轮在 prod 快进到 `2b60b82` 后比对研究稿、运行入口、Feed、任务领取和入库路径，修订架构与规划。以下为目标机采样方法。本轮未在生产服务器运行。
+
+在同一时刻记录日期、已启用来源和测试窗口。以实际挂载数据库卷的文件系统为准，用 `df -B1` 取得可用字节，用 `docker system df` 查看镜像占用，用 `docker stats --no-stream` 和 `free -m` 记录容器与宿主机。重复覆盖空闲、读首页叠加一轮采集、备份三个窗口；短时峰值需在操作期间连续采样。数据库内运行：
+
+```sql
+SELECT now(), pg_database_size(current_database());
+SELECT relname, pg_total_relation_size(relid) AS bytes_including_indexes
+FROM pg_stat_user_tables ORDER BY bytes_including_indexes DESC LIMIT 12;
+SELECT status, count(*), min(next_run_at)
+FROM source_collection_job WHERE status IN ('queued','retrying','running') GROUP BY status;
+```
+
+按相同业务周期取差值。数据库日净增长除以独立新增正文数可以估算含索引、观察和发现关系的摊销成本，零新增时单列观察增长。磁盘可用天数用「文件系统可用字节减恢复、备份、镜像切换和 WAL 波峰所需余量」除以实际日净增长，余量从一次真实恢复和发布测量。举例：若可用于持续增长的空间为 20 GiB，每天一万条，每条摊销 8 KiB，则约 262 天；32 KiB 则约 65 天。此例的三个输入均需实测替换。若余量不足，先暂停新增采集、维持阅读，再确认清理对象和可恢复备份。单盘副本只能覆盖部分故障，可复用已有异机空间验证恢复。
+
+用相同账号、过滤条件、数据量分别测首页单读与采集并行时的 p95 和错误数，记录样本数；若差异明显，再单独对该查询执行 `EXPLAIN (ANALYZE, BUFFERS)`。采样结果随本节追加日期、版本和负载，原始报告置于忽略的 output/。[PostgreSQL 16 容量函数](https://www.postgresql.org/docs/16/functions-admin.html#FUNCTIONS-ADMIN-DBSIZE)
+
+本轮扩源核对在开发环境分批 GET 48 个候选端点，复用仓内 rss-parser 做字段筛选；原始端点和结果见[来源研究](research/data-sources.md)。未调用付费采集，未修改生产白名单。目标机在接入首批时沿正常 API 创建任务，由 worker 走实际 DNS、事务与权限路径，核对来源详情和库内读页。
