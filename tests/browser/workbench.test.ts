@@ -171,6 +171,17 @@ test("browser: keyboard login, five navigation tasks, saved query and responsive
   assert.deepEqual(new URL(page.url()).searchParams.getAll("anyTerms"), ["内部", "讨论"]);
   await page.getByRole("link", { name: "设置", exact: true }).click();
   await page.getByRole("heading", { name: "当前账户" }).waitFor();
+  await page.getByLabel("工具名称").fill("只读研究工具");
+  await page.getByRole("checkbox", { name: "检索内容与查看来源" }).check();
+  await page.getByRole("checkbox", { name: "下载结果" }).check();
+  await page.getByRole("checkbox", { name: "内部研究样本" }).check();
+  await page.getByRole("button", { name: "创建访问密钥" }).click();
+  const key = await page.getByRole("status").locator("code").innerText();
+  const read = await fetch(`${address}/v1/content?sourceId=${sourceId}`, {
+    headers: { authorization: `Bearer ${key}` },
+  });
+  assert.equal(read.status, 200);
+
   await page.getByRole("link", { name: "项目", exact: true }).click();
   await page.getByRole("button", { name: "创建项目", exact: true }).click();
   await page.getByLabel("研究主题").fill("工具使用反馈");
@@ -179,7 +190,24 @@ test("browser: keyboard login, five navigation tasks, saved query and responsive
   await page.getByRole("button", { name: "保存项目", exact: true }).click();
   await page.getByRole("button", { name: /工具使用反馈/ }).click();
   await page.getByText("已存命中内容", { exact: true }).waitFor();
-  assert.equal(await page.locator(".big-number").innerText(), "2");
+  assert.equal(await page.locator(".big-number").innerText(), "0");
+  await page.getByRole("button", { name: "编辑项目" }).click();
+  await page.getByRole("checkbox", { name: "统计纳入导入样本" }).check();
+  await page.getByRole("button", { name: "保存项目", exact: true }).click();
+  await page.getByText("· 包含导入样本", { exact: false }).waitFor();
+  assert.equal(await page.locator(".big-number").innerText(), "1");
+  await page.getByRole("link", { name: "查看项目内容" }).click();
+  await page.getByRole("button", { name: /研究证据/ }).click();
+  await page.getByRole("button", { name: "展开评论树" }).click();
+  await page.getByRole("button", { name: "命中", exact: true }).click();
+  await page.getByText("内部讨论的补充评论。", { exact: true }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "保存查询", exact: true }).click();
+  await page.getByLabel("查询名称").fill("项目讨论证据");
+  await page.getByRole("button", { name: "确认保存查询" }).click();
+  const projectDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "下载当前结果" }).click();
+  assert.equal((await projectDownload).suggestedFilename(), "content.json");
   await mkdir("output/validation/kernel", { recursive: true });
   for (const viewport of [
     { width: 1440, height: 900 },

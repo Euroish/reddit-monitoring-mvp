@@ -11,7 +11,7 @@ export default function Workspace({ run }: { run: Run }) {
         queries: {
           id: string;
           name: string;
-          query: Record<string, string | string[]>;
+          query: Record<string, string | boolean | string[]>;
         }[];
       }>("/workspace/queries"),
   });
@@ -46,7 +46,7 @@ export default function Workspace({ run }: { run: Run }) {
                       for (const entry of Array.isArray(value)
                         ? value
                         : [value])
-                        params.append(key, entry);
+                        params.append(key, String(entry));
                     }
                     return params;
                   })()}`,

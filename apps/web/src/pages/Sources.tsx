@@ -44,14 +44,18 @@ export default function Sources({
         method: "POST",
         body: JSON.stringify({
           label: form.get("label"),
-          platform: provider === "bluesky_appview" ? "bluesky" : "reddit",
+          platform: provider === "bluesky_appview" ? "bluesky" : provider === "twitterapis" ? "x" :
+            ["feed", "newsnow"].includes(provider) ? "web" : "reddit",
           primaryProvider: provider,
+          fallbackProvider: form.get("fallbackProvider") || undefined,
           deliveryMode: provider === "external_ingest" ? "push" : "pull",
-          contentKind: "post",
+          contentKind: ["feed", "newsnow"].includes(provider) ? "article" : "post",
           target:
             provider === "bluesky_appview"
               ? { type: "account", account: form.get("target") }
-              : { type: "search", query: form.get("target") },
+              : provider === "feed"
+                ? { type: "feed", url: form.get("target") }
+                : { type: "search", query: provider === "newsnow" ? "hackernews" : form.get("target") },
         }),
       });
       setCreating(false);
@@ -77,21 +81,30 @@ export default function Sources({
               onChange={(event) => setProvider(event.target.value)}
             >
               <option value="kaix">Reddit · kaix</option>
+              <option value="twitterapis">X · TwitterAPIs</option>
               <option value="bluesky_appview">Bluesky · 公开账号</option>
+              <option value="newsnow">NewsNow · Hacker News</option>
+              <option value="feed">RSS / Atom</option>
               <option value="external_ingest">导入已筛选内容</option>
             </select>
           </Field>
-          <Field
+          {provider !== "newsnow" && <Field
             label={
               provider === "bluesky_appview"
                 ? "账号"
                 : provider === "external_ingest"
                   ? "样本主题"
-                  : "搜索表达式"
+                  : provider === "feed" ? "已批准的订阅 URL" : "搜索表达式"
             }
           >
-            <input name="target" required maxLength={200} />
-          </Field>
+            <input name="target" required maxLength={provider === "feed" ? 2000 : 200} />
+          </Field>}
+          {["twitterapis", "kaix"].includes(provider) && (
+            <label className="check">
+              <input type="checkbox" name="fallbackProvider" value={provider === "twitterapis" ? "scrapebadger" : "red_crawler"} />
+              允许手动使用 {provider === "twitterapis" ? "ScrapeBadger" : "red_crawler"} 备源
+            </label>
+          )}
           <button>保存来源</button>
         </form>
       )}
@@ -140,6 +153,7 @@ export default function Sources({
               selected.state === "active" &&
               selected.deliveryMode === "pull" && (
                 <form
+                  key={selected.id}
                   onSubmit={(event) => {
                     event.preventDefault();
                     const form = new FormData(event.currentTarget);
@@ -148,6 +162,7 @@ export default function Sources({
                       to: new Date(String(form.get("to"))).toISOString(),
                       limit: Number(form.get("limit")),
                       includeComments: form.get("comments") === "on",
+                      useFallback: form.has("useFallback") || undefined,
                     });
                     const signature = `${selected.id}:${body}`;
                     if (collectionRequest.current?.body !== signature) {
@@ -190,15 +205,20 @@ export default function Sources({
                       name="limit"
                       type="number"
                       min={1}
-                      max={100}
-                      defaultValue={25}
+                      max={selected.primaryProvider === "twitterapis" ? 20 : selected.platform === "web" ? 30 : 100}
+                      defaultValue={selected.primaryProvider === "twitterapis" ? 20 : 25}
                       required
                     />
                   </Field>
-                  <label className="check">
+                  {selected.primaryProvider === "kaix" && <label className="check">
                     <input name="comments" type="checkbox" />
                     连带高赞评论（每帖最多 15 条）
-                  </label>
+                  </label>}
+                  {selected.fallbackProvider && (
+                    <label className="check">
+                      <input type="checkbox" name="useFallback" />使用备源 {selected.fallbackProvider}
+                    </label>
+                  )}
                   <button disabled={collecting}>{collecting ? "正在提交…" : "开始采集"}</button>
                 </form>
               )}

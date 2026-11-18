@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { ArrowUpRight, X } from "lucide-react";
@@ -7,10 +7,11 @@ import type {
   PublicContent,
 } from "../../../../packages/contracts/src/source-content";
 import { Field, Heading, Empty } from "../ui";
+import Thread from "./Thread";
 import { api, type Run } from "../api";
 const date = (value: string | null) =>
   value ? new Date(value).toLocaleString("zh-CN") : "发布时间未知";
-export default function ContentLibrary({ run }: { run: Run }) {
+export default function ContentLibrary({ run, canCollect }: { run: Run; canCollect: boolean }) {
   const [params, setParams] = useSearchParams(),
     [selected, setSelected] = useState<PublicContent | null>(null),
     [savingQuery, setSavingQuery] = useState(false),
@@ -68,6 +69,17 @@ export default function ContentLibrary({ run }: { run: Run }) {
     };
   }, [selected]);
   const query = params.toString();
+  const projectId = params.get("projectId");
+  const [selection, setSelection] = useState<{ scope: string; ids: string[] }>({ scope: "", ids: [] });
+  const picked = selection.scope === query ? selection.ids : [];
+  const [hydrated, setHydrated] = useState(0);
+  const [hydrating, setHydrating] = useState(false);
+  const hydrationKey = useRef<{ body: string; key: string } | null>(null);
+  const project = useQuery({
+    queryKey: ["projects", projectId],
+    enabled: !!projectId,
+    queryFn: () => api<{ name: string; source_ids: string[] }>(`/projects/${projectId}`),
+  });
   const content = useQuery({
     queryKey: ["content", query],
     queryFn: () =>
@@ -81,7 +93,7 @@ export default function ContentLibrary({ run }: { run: Run }) {
   });
   return (
     <>
-      <Heading title="内容库" note="检索已经收集的内容，保留可追溯的原始证据。">
+      <Heading title="内容库" note={project.data?.name ?? "检索已经收集的内容，保留可追溯的原始证据。"}>
         <button
           className="primary"
           disabled={exporting}
@@ -127,10 +139,11 @@ export default function ContentLibrary({ run }: { run: Run }) {
           event.preventDefault();
           const form = new FormData(event.currentTarget),
             next = new URLSearchParams(params);
-          for (const key of ["cursor", "query", "sourceId"]) next.delete(key);
+          for (const key of ["cursor", "query", "sourceId", "signal"]) next.delete(key);
           if (form.get("query")) next.set("query", String(form.get("query")));
           if (form.get("sourceId"))
             next.set("sourceId", String(form.get("sourceId")));
+          if (form.get("signal")) next.set("signal", String(form.get("signal")));
           setParams(next);
         }}
       >
@@ -152,11 +165,16 @@ export default function ContentLibrary({ run }: { run: Run }) {
           }
         >
           <option value="">全部可见来源</option>
-          {sources.data?.sources.map((source) => (
+          {sources.data?.sources.filter((source) => !project.data || project.data.source_ids.includes(source.id)).map((source) => (
             <option key={source.id} value={source.id}>
               {source.label}
             </option>
           ))}
+        </select>
+        <select key={params.get("signal") ?? ""} name="signal" aria-label="研究信号" defaultValue={params.get("signal") ?? ""}>
+          <option value="">全部信号</option>
+          <option value="discussion">讨论活跃</option>
+          <option value="pain">痛点</option>
         </select>
         <button>搜索</button>
       </form>
@@ -171,13 +189,13 @@ export default function ContentLibrary({ run }: { run: Run }) {
           onSubmit={(event) => {
             event.preventDefault();
             const name = String(new FormData(event.currentTarget).get("name"));
-            const filter: Record<string, string | string[]> = {};
+            const filter: Record<string, string | string[] | boolean> = {};
             for (const key of new Set(params.keys())) {
               if (["cursor", "limit"].includes(key)) continue;
               const values = params.getAll(key);
               filter[key] = ["anyTerms", "allTerms", "exclusions"].includes(key)
                 ? values
-                : values[0];
+                : key === "threadAware" ? values[0] === "true" : values[0];
             }
             void run(async () => {
               await api("/workspace/queries", {
@@ -197,17 +215,56 @@ export default function ContentLibrary({ run }: { run: Run }) {
       {content.data?.items.length === 0 && (
         <Empty>当前范围没有匹配内容。尝试调整关键词或来源。</Empty>
       )}
+      {projectId && canCollect && picked.length > 0 && (
+        <form className="panel search-bar" onSubmit={(event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          const body = JSON.stringify({ contentIds: picked, maxCommentsPerPost: Number(form.get("comments")) });
+          const signature = `${projectId}:${body}`;
+          if (hydrationKey.current?.body !== signature)
+            hydrationKey.current = { body: signature, key: crypto.randomUUID() };
+          const key = hydrationKey.current.key;
+          setHydrating(true);
+          void run(async () => {
+            try {
+              const result = await api<{ jobIds: string[] }>(`/projects/${projectId}/hydrate`, {
+                method: "POST", headers: { "Idempotency-Key": key }, body,
+              });
+              setHydrated(result.jobIds.length);
+              setSelection({ scope: query, ids: [] });
+              hydrationKey.current = null;
+            } finally {
+              setHydrating(false);
+            }
+          });
+        }}>
+          <Field label="每帖评论上限"><input type="number" name="comments" min={1} max={50} defaultValue={15} required /></Field>
+          <button disabled={hydrating}>水合已选根帖（{picked.length}）</button>
+        </form>
+      )}
+      {hydrated > 0 && <p role="status">已提交 {hydrated} 个水合任务。任务进度见来源页。</p>}
       <div className="content-list">
         {content.data?.items.map((item) => (
+          <div key={item.id}>
+          {projectId && canCollect && item.platform === "reddit" && item.kind === "post" &&
+            item.observations.some(({ provider }) => provider === "kaix") && (
+            <label className="check">
+              <input type="checkbox" checked={picked.includes(item.id)} disabled={picked.length >= 30 && !picked.includes(item.id)}
+                onChange={(event) => setSelection({ scope: query,
+                  ids: event.target.checked ? [...picked, item.id] : picked.filter((id) => id !== item.id),
+                })} />
+              选取根帖
+            </label>
+          )}
           <button
             className="content-row"
-            key={item.id}
             onClick={() => {
               setSelected(item);
             }}
           >
             <div className="content-meta">
               <span>{item.platform}</span>
+              {item.contextMissing && <span>根帖上下文缺失</span>}
               <span>{item.kind === "comment" ? "评论" : "主帖 / 文章"}</span>
               <time>{date(item.publishedAt)}</time>
             </div>
@@ -222,6 +279,7 @@ export default function ContentLibrary({ run }: { run: Run }) {
               </span>
             </div>
           </button>
+          </div>
         ))}
       </div>
       {content.data?.nextCursor && (
@@ -262,6 +320,9 @@ export default function ContentLibrary({ run }: { run: Run }) {
                 查看原文 ↗
               </a>
             )}
+            <Thread key={selected.id} id={selected.id} scope={new URLSearchParams(
+              [...params].filter(([key]) => !["cursor", "limit"].includes(key)),
+            ).toString()} />
             <hr />
             {annotation.isPending ? (
               <p role="status">正在读取批注…</p>

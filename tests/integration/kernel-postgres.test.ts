@@ -419,7 +419,7 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
                 headers,
               })
             ).statusCode,
-            422,
+            409,
           );
       } while (cursor);
       assert.equal(seen.size, 32);
@@ -656,6 +656,7 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
         headers,
         payload: {
           name: "Topic",
+          includePushInTrends: true,
           sourceIds: [a.id],
           filter: { anyTerms: ["World"], exclusions: ["missing"] },
         },

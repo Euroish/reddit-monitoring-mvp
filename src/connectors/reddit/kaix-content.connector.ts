@@ -244,7 +244,7 @@ export class KaixContentConnector implements ContentProvider {
         maxItems: 1,
         includeComments: true,
         maxCommentsPerPost: Math.min(request.limit, 50),
-        commentSort: "new",
+        commentSort: request.commentSort ?? "new",
       });
     const start = new URL(
       "https://api.apify.com/v2/acts/kaix~reddit-scraper/runs",

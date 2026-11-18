@@ -1,11 +1,20 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type {
-  Actor,
-  CollectionSource,
+import {
+  Scopes,
+  type Actor,
+  type CollectionSource,
 } from "../../../../packages/contracts/src/source-content";
 import { Field, Heading } from "../ui";
 import { api, type Run } from "../api";
+const scopeLabels: Record<(typeof Scopes)[number], string> = {
+  "sources:write": "管理来源",
+  read: "检索内容与查看来源",
+  export: "下载结果",
+  ingest: "推送样本",
+  collect: "启动采集",
+  "projects:write": "管理项目",
+};
 export default function Account({ run, user }: { run: Run; user: Actor }) {
   const [token, setToken] = useState("");
   const sources = useQuery({
@@ -55,16 +64,10 @@ export default function Account({ run, user }: { run: Run; user: Actor }) {
             </Field>
             <fieldset>
               <legend>允许操作</legend>
-              {[
-                ["content:read", "检索内容"],
-                ["content:export", "下载结果"],
-                ["content:ingest", "推送样本"],
-                ["sources:read", "查看来源"],
-                ["collection:run", "启动采集"],
-              ].map(([value, label]) => (
+              {Scopes.map((value) => (
                 <label className="check" key={value}>
                   <input type="checkbox" name="scopes" value={value} />
-                  {label}
+                  {scopeLabels[value]}
                 </label>
               ))}
             </fieldset>

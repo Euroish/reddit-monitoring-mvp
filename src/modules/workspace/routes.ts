@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import {
-  ContentFilter,
+  ResearchFilter,
   ParamsId,
 } from "../../../packages/contracts/src/source-content";
 import {
@@ -33,7 +33,7 @@ export async function workspaceRoutes(app: FastifyInstance, pool: Pool) {
         body: Type.Object(
           {
             name: Type.String({ minLength: 1, maxLength: 100 }),
-            filter: ContentFilter,
+            filter: ResearchFilter,
           },
           { additionalProperties: false },
         ),

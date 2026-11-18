@@ -5,11 +5,12 @@ import type { Pool, PoolClient } from "pg";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import {
-  ContentFilter,
+  ResearchFilter,
   strictMerge,
 } from "../../../packages/contracts/src/source-content";
-import { compileContentFilter, contentSelect, filterSignature } from "./search";
+import { compileContentFilter, contentSelect, filterSignature, matchedAnchors } from "./search";
 import { contentFromRow } from "./sql";
+import { projectSources } from "../projects/sql";
 import { fail } from "../../storage/db";
 
 export function csvCell(value: unknown) {
@@ -31,7 +32,7 @@ export async function exportRoutes(
     {
       schema: {
         querystring: strictMerge([
-          ContentFilter,
+          ResearchFilter,
           Type.Object({
             format: Type.Optional(
               Type.Union([Type.Literal("json"), Type.Literal("csv")]),
@@ -48,8 +49,7 @@ export async function exportRoutes(
         reply.header("Retry-After", "5");
         fail(429, "Another export is in progress; try again shortly");
       }
-      const { format = "json", maxRows = 10000, ...filter } = request.query;
-      const compiled = compileContentFilter(request.actor!, filter);
+      const { format = "json", maxRows = 10000, projectId, ...filter } = request.query;
       exporting = true;
       let client: PoolClient;
       try {
@@ -61,6 +61,7 @@ export async function exportRoutes(
       let released = false;
       let committed = false;
       let stream: QueryStream | undefined;
+      let signature: string;
       const release = (destroy = false) => {
         if (released) return;
         released = true;
@@ -89,10 +90,14 @@ export async function exportRoutes(
         await client.query(
           "SET LOCAL idle_in_transaction_session_timeout='35s'",
         );
+        const project = projectId ? await projectSources(client, request.actor!, projectId) : undefined;
+        const compiled = compileContentFilter(request.actor!, filter, project?.source_ids, project?.filter);
+        const match = matchedAnchors(compiled, filter.threadAware ?? project?.thread_aware ?? false);
+        signature = filterSignature(request.actor!, filter, project && { id: project.id, revision: project.revision });
         compiled.values.push(maxRows + 1);
         stream = client.query(
           new QueryStream(
-            `${contentSelect(compiled.discovery)} WHERE ${compiled.text}
+            `${match.cte} ${contentSelect(match.columns ? compiled.visible : compiled.discovery, match.columns)} ${match.joins} WHERE ${match.where}
           ORDER BY c.created_at_source DESC NULLS LAST,c.id DESC LIMIT $${compiled.values.length}`,
             compiled.values,
             { batchSize: 100 },
@@ -146,7 +151,7 @@ export async function exportRoutes(
                 ? Buffer.from(
                     JSON.stringify({
                       ...last,
-                      signature: filterSignature(request.actor!, filter),
+                      signature,
                     }),
                   ).toString("base64url")
                 : null;

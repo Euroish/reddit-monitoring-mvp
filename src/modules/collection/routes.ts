@@ -5,6 +5,9 @@ import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool } from "pg";
 import {
   Collect,
+  FallbackProvider,
+  type PublicContentKind,
+  type SourceTarget,
   IdempotencyHeaders,
   Ingest,
   ParamsId,
@@ -31,6 +34,17 @@ function canonical(value: unknown): string {
       .join(",")}}`;
   return JSON.stringify(value);
 }
+function validateFallback(providers: ContentProvider[], input: {
+  primary: string; fallback: string; delivery: string; target: SourceTarget; kind: PublicContentKind;
+}) {
+  const expectedPrimary = input.fallback === "scrapebadger" ? "twitterapis" : "kaix";
+  if (input.primary !== expectedPrimary || input.delivery !== "pull")
+    fail(422, "Fallback is incompatible with the primary provider");
+  const provider = providers.find(({ capability }) => capability.provider === input.fallback);
+  if (!provider) fail(422, "Fallback provider not registered");
+  provider.normalizeTarget(input.target, input.kind);
+}
+
 export async function collectionRoutes(
   app: FastifyInstance,
   pool: Pool,
@@ -152,10 +166,14 @@ export async function collectionRoutes(
       const target = provider
         ? provider.normalizeTarget(input.target, input.contentKind)
         : input.target;
+      const fallbackProvider = input.fallbackProvider ?? null;
+      if (fallbackProvider) validateFallback(providers, {
+        primary: input.primaryProvider, fallback: fallbackProvider, delivery: input.deliveryMode, target, kind: input.contentKind,
+      });
       const row = (
         await pool.query(
-          `INSERT INTO collection_source(id,platform_id,provider,primary_provider,label,target,content_kind,delivery_mode,created_at,updated_at)
-      SELECT $1,id,$2,$2,$3,$4,$5,$6,NOW(),NOW() FROM source WHERE code=$7
+          `INSERT INTO collection_source(id,platform_id,provider,primary_provider,label,target,content_kind,delivery_mode,fallback_provider,created_at,updated_at)
+      SELECT $1,id,$2,$2,$3,$4,$5,$6,$8,NOW(),NOW() FROM source WHERE code=$7
       RETURNING id`,
           [
             randomUUID(),
@@ -165,6 +183,7 @@ export async function collectionRoutes(
             input.contentKind,
             input.deliveryMode,
             input.platform,
+            fallbackProvider,
           ],
         )
       ).rows[0];
@@ -184,11 +203,12 @@ export async function collectionRoutes(
         params: ParamsId,
         body: Type.Object(
           {
-            state: Type.Union([
+            fallbackProvider: Type.Optional(Type.Union([FallbackProvider, Type.Null()])),
+            state: Type.Optional(Type.Union([
               Type.Literal("active"),
               Type.Literal("paused"),
               Type.Literal("archived"),
-            ]),
+            ])),
             revision: Type.Integer({ minimum: 1 }),
           },
           { additionalProperties: false },
@@ -209,11 +229,16 @@ export async function collectionRoutes(
           fail(409, "Source changed; reload before saving");
         if (["arctic_shift", "twitterapi_io"].includes(source.primary_provider))
           fail(409, "Retired provider cannot be reactivated");
+        const { fallbackProvider, state } = request.body;
+        if (fallbackProvider) validateFallback(providers, {
+          primary: source.primary_provider, fallback: fallbackProvider, delivery: source.delivery_mode,
+          target: source.target, kind: source.content_kind,
+        });
         await client.query(
-          "UPDATE collection_source SET state=$2,revision=revision+1,updated_at=NOW() WHERE id=$1",
-          [source.id, request.body.state],
+          "UPDATE collection_source SET state=$2,fallback_provider=$3,revision=revision+1,updated_at=NOW() WHERE id=$1",
+          [source.id, state ?? source.state, fallbackProvider === undefined ? source.fallback_provider : fallbackProvider],
         );
-        if (request.body.state !== "active")
+        if (state && state !== "active")
           await client.query(
             "UPDATE source_collection_job SET status='cancelled',finished_at=NOW(),lease_token=NULL,lease_until=NULL WHERE collection_source_id=$1 AND status IN ('queued','running','retrying')",
             [source.id],
@@ -310,7 +335,7 @@ export async function collectionRoutes(
         );
         const key = request.headers["idempotency-key"];
         const previous = (await client.query(
-          "SELECT id,request_json FROM source_collection_job WHERE collection_source_id=$1 AND request_key=$2 AND purpose='collect'",
+          "SELECT id,request_json FROM source_collection_job WHERE collection_source_id=$1 AND request_key=$2 AND purpose='collect' AND operation='radar'",
           [source.id, key],
         )).rows[0];
         if (previous) {
@@ -321,9 +346,10 @@ export async function collectionRoutes(
           fail(409, "Push sources cannot be scheduled");
         if (Date.parse(request.body.from) >= Date.parse(request.body.to))
           fail(422, "Invalid collection window");
+        const providerName = request.body.useFallback ? source.fallback_provider : source.primary_provider;
         const provider = providers.find(
           (item) =>
-            item.capability.provider === source.primary_provider &&
+            item.capability.provider === providerName &&
             item.capability.platform === source.platform,
         );
         const maxComments = request.body.maxCommentsPerPost ?? 15;
@@ -340,6 +366,15 @@ export async function collectionRoutes(
           (request.body.limit > 100 || request.body.includeComments)
         )
           fail(422, "Bluesky supports at most 100 authored posts per request");
+        if ((providerName === "twitterapis" && (request.body.limit > 20 || request.body.includeComments)) ||
+            (providerName === "scrapebadger" && (request.body.limit > 100 || request.body.includeComments)))
+          fail(422, "X collection exceeds the provider page limit or requests comments");
+        if (providerName === "red_crawler" &&
+          (request.body.limit > (source.target.type === "post" ? 50 : 100) ||
+           (request.body.includeComments && source.target.type !== "post")))
+          fail(422, "red_crawler supports one bounded search or post comment run per task");
+        if (source.platform === "web" && (request.body.limit > 30 || request.body.includeComments))
+          fail(422, "Web collection supports up to 30 articles per task");
         if (!provider?.capability.enabled)
           fail(
             422,
@@ -357,7 +392,7 @@ export async function collectionRoutes(
           [
             id,
             source.id,
-            source.primary_provider,
+            providerName,
             request.body.from,
             request.body.to,
             request.body.limit,

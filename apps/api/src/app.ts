@@ -10,6 +10,7 @@ import type { ContentProvider } from "../../../src/connectors/shared/content-pro
 import { findActor } from "../../../src/modules/access/sql";
 import { accessRoutes } from "../../../src/modules/access/routes";
 import { jobRoutes } from "../../../src/modules/collection/jobs";
+import { refreshRoutes } from "../../../src/modules/collection/refresh";
 import { collectionRoutes } from "../../../src/modules/collection/routes";
 import { contentRoutes } from "../../../src/modules/content/routes";
 import { workspaceRoutes } from "../../../src/modules/workspace/routes";
@@ -99,7 +100,8 @@ export async function buildApp(options: {
     reply.code(statusCode).send({
       error: {
         code:
-          statusCode === 503 ? "temporarily_unavailable" : `http_${statusCode}`,
+          message === "cursor_scope_changed" ? message :
+            statusCode === 503 ? "temporarily_unavailable" : `http_${statusCode}`,
         message,
         requestId: request.id,
         retryable: statusCode === 503,
@@ -161,7 +163,7 @@ export async function buildApp(options: {
           ? "export"
           : route.endsWith("/ingest")
             ? "ingest"
-            : route.endsWith("/collect")
+            : (route.endsWith("/collect") || route.endsWith("/hydrate") || route === "/v1/sources/:id/refresh")
               ? "collect"
               : route.startsWith("/v1/source-jobs")
                 ? ["GET", "HEAD"].includes(method)
@@ -196,13 +198,14 @@ export async function buildApp(options: {
   });
   await accessRoutes(app, options.pool, cookie);
   await collectionRoutes(app, options.pool, providers);
+  await refreshRoutes(app, options.pool, providers);
   await jobRoutes(app, options.pool);
   const shutdown = new AbortController();
   app.addHook("preClose", async () => {
     shutdown.abort();
   });
   await contentRoutes(app, options.pool, shutdown.signal);
-  await projectRoutes(app, options.pool);
+  await projectRoutes(app, options.pool, providers);
   await workspaceRoutes(app, options.pool);
   app.get("/v1/openapi.json", async () => app.swagger());
   app.get("/v1/capabilities", async () => ({
@@ -210,6 +213,9 @@ export async function buildApp(options: {
     operations: [
       "ingest",
       "radar",
+      "hydrate",
+      "refresh_by_ids",
+      "thread",
       "search",
       "stream_export",
       "saved_queries",
@@ -218,7 +224,7 @@ export async function buildApp(options: {
     maxIngestItems: 100,
     maxIngestBytes: 1048576,
     maxOnlineItems: 2000,
-    threadAware: false,
+    threadAware: true,
     automaticHydration: false,
   }));
   return app;

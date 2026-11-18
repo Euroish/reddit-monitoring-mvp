@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
-import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
+import { ContentProviderError, type ContentProvider } from "../../connectors/shared/content-provider.interface";
 import type {
   JsonValue,
   Actor,
@@ -75,14 +75,14 @@ export async function workOnce(
       (phase === "starting" &&
         provider.capability.automaticRequestReplay !== false)
     ) {
-      const resources = Math.min(
-        2000,
-        job.page_size *
-          (job.request_json.includeComments
-            ? (job.request_json.maxCommentsPerPost ?? 15) + 1
-            : 1) +
-          1,
-      );
+      const hydrate = job.operation === "hydrate";
+      const refresh = Array.isArray(job.request_json.externalIds);
+      const resources = refresh ? job.page_size : hydrate
+        ? job.page_size + 1
+        : ["twitterapis", "scrapebadger"].includes(job.provider)
+          ? (provider.capability.requestResourceUpperBound ?? 20)
+          : Math.min(2000, job.page_size *
+              (job.request_json.includeComments ? (job.request_json.maxCommentsPerPost ?? 15) + 1 : 1) + 1);
       const admitted = await transaction(pool, async (client) => {
         await lockSource(client, workerActor, source.id);
         const budget = (
@@ -133,17 +133,32 @@ export async function workOnce(
       job.provider_state = { phase: "starting" };
       job.page_request_attempts++;
     }
-    const page = await provider.collectPage({
-      source: { ...sourceFromRow(source), primaryProvider: job.provider },
-      from: job.from_at.toISOString(),
-      to: job.to_at.toISOString(),
-      limit: job.page_size,
-      checkpoint: job.checkpoint,
-      signal,
-      includeComments: job.request_json.includeComments,
-      maxCommentsPerPost: job.request_json.maxCommentsPerPost,
-      execution: { state: job.provider_state, saveState },
-    });
+    const collectionSource = { ...sourceFromRow(source), primaryProvider: job.provider };
+    const externalIds = job.request_json.externalIds;
+    if (job.operation === "hydrate" && !externalIds) {
+      collectionSource.target = { type: "post", postId: job.request_json.postId };
+      collectionSource.contentKind = "comment";
+    }
+    if (externalIds && !provider.refreshIds) fail(422, "Provider does not support ID refresh");
+    const checkpoint = job.provider === "feed" ? (await pool.query(
+      `SELECT checkpoint FROM source_collection_job WHERE collection_source_id=$1 AND provider='feed' AND status='succeeded'
+       AND from_at=$2 AND to_at=$3 AND page_size=$4 ORDER BY finished_at DESC LIMIT 1`,
+      [source.id, job.from_at, job.to_at, job.page_size],
+    )).rows[0]?.checkpoint ?? null : job.checkpoint;
+    const page = externalIds
+      ? await provider.refreshIds!({ source: collectionSource, externalIds, signal })
+      : await provider.collectPage({
+          source: collectionSource,
+          from: job.from_at.toISOString(),
+          to: job.to_at.toISOString(),
+          limit: job.page_size,
+          checkpoint,
+          signal,
+          includeComments: job.request_json.includeComments,
+          commentSort: job.operation === "hydrate" ? "top" : undefined,
+          maxCommentsPerPost: job.request_json.maxCommentsPerPost,
+          execution: { state: job.provider_state, saveState },
+        });
     if (page.pending) {
       await pool.query(
         "UPDATE source_collection_job SET status='queued',next_run_at=NOW()+interval '2 seconds',lease_token=NULL,lease_until=NULL WHERE id=$1 AND lease_token=$2",
@@ -174,7 +189,7 @@ export async function workOnce(
         new Date().toISOString(),
       );
       await client.query(
-        `UPDATE source_collection_job SET status='succeeded',provider_state=provider_state||'{"phase":"committed"}',checkpoint=$3,pages_committed=pages_committed+1,records_processed=$4,records_inserted=$5,records_updated=$6,coverage='partial',exhausted=$7,finished_at=NOW(),lease_token=NULL,lease_until=NULL WHERE id=$1 AND lease_token=$2`,
+        `UPDATE source_collection_job SET status='succeeded',provider_state=provider_state||'{"phase":"committed"}',checkpoint=$3,pages_committed=pages_committed+1,records_processed=$4,records_inserted=$5,records_updated=$6,result_summary=$8,coverage='partial',exhausted=$7,finished_at=NOW(),lease_token=NULL,lease_until=NULL WHERE id=$1 AND lease_token=$2`,
         [
           job.id,
           token,
@@ -183,11 +198,14 @@ export async function workOnce(
           counts.added,
           counts.updated,
           page.exhausted,
+          page.creditsUsed === undefined ? null : { creditsUsed: page.creditsUsed },
         ],
       );
       await client.query(
-        "UPDATE collection_source SET last_success_at=NOW(),coverage='partial',incremental_to=CASE WHEN $3 THEN GREATEST(incremental_to,$2) ELSE incremental_to END WHERE id=$1",
-        [source.id, job.to_at, page.exhausted],
+        `UPDATE collection_source SET last_checked_at=NOW(),coverage='partial',
+           last_success_at=CASE WHEN $4 THEN last_success_at ELSE NOW() END,
+           incremental_to=CASE WHEN $3 THEN GREATEST(incremental_to,$2) ELSE incremental_to END WHERE id=$1`,
+        [source.id, job.to_at, page.exhausted && job.operation !== "hydrate", page.notModified ?? false],
       );
     });
   } catch (error) {
@@ -224,9 +242,10 @@ export async function workOnce(
         );
         return;
       }
-      const unknown =
-        provider?.capability.automaticRequestReplay === false &&
-        current.provider_state.phase === "starting";
+      const httpStatus = error instanceof ContentProviderError ? error.httpStatus : undefined;
+      const rejected = httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500 && httpStatus !== 408;
+      const unknown = provider?.capability.automaticRequestReplay === false &&
+        current.provider_state.phase === "starting" && !rejected;
       await client.query(
         "UPDATE source_collection_job SET status='failed',error=$3,provider_state=provider_state||$4::jsonb,finished_at=NOW(),lease_token=NULL,lease_until=NULL WHERE id=$1 AND lease_token=$2",
         [
@@ -236,7 +255,7 @@ export async function workOnce(
           JSON.stringify({
             phase: unknown
               ? "unknown"
-              : (current.provider_state.phase ?? "failed"),
+              : (["running", "reading"].includes(current.provider_state.phase) ? current.provider_state.phase : "failed"),
           }),
         ],
       );

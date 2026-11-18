@@ -1,12 +1,12 @@
 # 开发记录与运维交付手册（唯一开发记录真源）
 
-> **文档定位**：本文件是全仓**唯一的开发操作手册与阶段交付台账真源**（已完整整合原 `docs/history/` 历史记录，禁止再新建 `handoff.md` 或独立日志）。第 1–4 节记录 **`main@0.9.1 / node:http` 当前实际可执行命令与安全退役步骤**；第 5–6 节记录历史阶段 `0.2.0–0.9.1` 交付事实与文档收敛里程碑。目标架构、契约及各开发分支实况分别见[主线架构规范](architecture.md)、[数据与 API 契约](contracts.md)和[当前状态与下一阶段](status.md)。
+> **文档定位**：本文件是全仓**唯一的开发操作手册与阶段交付台账真源**（已完整整合原 `docs/history/` 历史记录，禁止再新建 `handoff.md` 或独立日志）。开头与第 1 节记录 **重整分支入口和配置**，第 2–4 节记录旧 `main@0.9.1 / node:http` 操作与退役步骤；第 5–6 节记录历史阶段 `0.2.0–0.9.1` 交付事实与文档收敛里程碑。目标架构、契约及各开发分支实况分别见[主线架构规范](architecture.md)、[数据与 API 契约](contracts.md)和[当前状态与下一阶段](status.md)。
 
 ---
 
 ## 当前分支的编译与 Compose 验收入口
 
-现有重整分支已合入 `main@dac7ab7`。Compose 从完整源码检出构建镜像；`release:pack` 是供 Node 直接运行的编译包。开发入口为 `npm run app:api`，唯一发布入口为 `node dist/apps/api/src/server.js`；构建用 `npm run build`，迁移用 `npm run db:migrate:compiled`。`DATABASE_URL` 必须指向独立 PG16 验证库，随后运行 `npm run smoke:compiled`，验证发布态 SQL、readiness、登录与 SIGTERM。迁移 runner 使用独立长超时连接，找不到 SQL 直接失败；空库应用共 46 文件，完整唯一链和不可改写边界见 [当前执行记录](status.md#0-当前重整分支执行记录)。
+现有重整分支已引入 `main@dac7ab7`。Compose 从完整源码检出构建镜像；`release:pack` 是供 Node 直接运行的编译包。开发入口为 `npm run app:api`，唯一发布入口为 `node dist/apps/api/src/server.js`；构建用 `npm run build`，迁移用 `npm run db:migrate:compiled`。`DATABASE_URL` 必须指向独立 PG16 验证库，随后运行 `npm run smoke:compiled`，验证发布态 SQL、readiness、登录与 SIGTERM。迁移 runner 使用独立长超时连接，找不到 SQL 直接失败；空库应用共 47 文件，完整唯一链和不可改写边界见 [当前执行记录](status.md#0-当前重整分支执行记录)。
 
 本地三服务验收设置 `POSTGRES_PASSWORD`（URL 安全字符）、`SESSION_SECRET`（至少 32 字符）、`APP_ORIGIN=https://localhost:8443`、`SITE_ADDRESS=https://localhost`、`HTTPS_PORT=8443`、`TLS_CONFIG='tls internal'`，可选一次性 `ADMIN_BOOTSTRAP_PASSWORD`，再运行：
 
@@ -17,7 +17,7 @@ docker compose -p monitoring-local stop
 docker compose -p monitoring-local up -d --wait
 ```
 
-自签证书仅用于本地验收。公网部署使用真实域名、`APP_ORIGIN=https://域名`、`SITE_ADDRESS=域名`、`HTTPS_PORT=443`、`PROXY_BIND=0.0.0.0` 并留空 `TLS_CONFIG`，由 Caddy 签发证书。app/db 不映射宿主机端口；`TRUST_PROXY_HOPS=1` 仅在此私有网络单跳反代拓扑设置，直接运行 API 默认不信任转发头。主线默认关闭外部网络采集；本轮仅本地启动，不执行公网部署。
+自签证书仅用于本地验收。公网部署使用真实域名、`APP_ORIGIN=https://域名`、`SITE_ADDRESS=域名`、`HTTPS_PORT=443`、`PROXY_BIND=0.0.0.0` 并留空 `TLS_CONFIG`，由 Caddy 签发证书。app/db 不映射宿主机端口；`TRUST_PROXY_HOPS=1` 仅在此私有网络单跳反代拓扑设置，直接运行 API 默认不信任转发头。主线默认关闭外部网络采集。发布标签通过 CI 门禁后产出 App 与 Caddy 镜像，设置 `APP_IMAGE` 指向发布标签的 App 镜像，`PROXY_IMAGE` 指向对应的 `-proxy` 标签。
 
 模块内职责文件现为 `content/batch.ts`（事务外归约）、`content/sql.ts`（唯一集合写）、`content/search.ts`（统一检索）、`content/export.ts`（下载生命周期）与 `collection/jobs.ts`（人工任务恢复）；其余维持原五模块。门禁继续拒绝旧运行时/连接器回流，保持 450 行文件与 220 字符代码行约束。流式 JSON 下载现在返回 `{items, result:{exportedCount,truncated,nextCursor,complete}}`，CSV 保持纯 RFC 4180 数据行。
 
@@ -27,18 +27,17 @@ docker compose -p monitoring-local up -d --wait
 
 ```dotenv
 NODE_ENV=development
-SOURCE_RUN_MODE=live
 SOURCE_NETWORK_ENABLED=true
 APIFY_API_TOKEN=
 TWITTERAPIS_API_KEY=
 SCRAPEBADGER_API_KEY=
 ```
 
-| 环境变量 | 服务角色 | `main@0.9.1` 代码现状与目标去向 |
+| 环境变量 | 服务角色 | 当前分支 |
 | :--- | :--- | :--- |
-| `APIFY_API_TOKEN` | Apify 账户令牌（供 `kaix` 与目标 `red_crawler` 共用） | 已有 `kaix` adapter 读取 |
-| `TWITTERAPIS_API_KEY` | `TwitterAPIs`（目标 X 主源） | 上游小样本直连已通；待 R2 新 adapter 读取 |
-| `SCRAPEBADGER_API_KEY` | `ScrapeBadger`（目标 X 备源与批量 ID 补全） | 预留凭证名；待 R2 新 adapter 读取 |
+| `APIFY_API_TOKEN` | Apify 账户令牌（供 `kaix` 与 `red_crawler` 共用） | 两个 Reddit 连接器读取 |
+| `TWITTERAPIS_API_KEY` | `TwitterAPIs`（目标 X 主源） | 搜索任务在隔离 PG16 已真实落库 |
+| `SCRAPEBADGER_API_KEY` | `ScrapeBadger`（目标 X 备源与批量 ID 补全） | 选配备源和批量刷新凭据 |
 
 当前重整分支仅从进程环境读取配置，不再支持旧 main 的 `LOCAL_ENV_FILE` / `config:check` / 独立 `worker:sources` 入口。Node 24 可显式加载仓外凭据后启动编译服务器（应用必需的 DB、会话与 Origin 配置仍须另行提供）：
 
@@ -46,7 +45,9 @@ SCRAPEBADGER_API_KEY=
 node --env-file="$HOME/.config/reddit-monitoring/credentials.env" dist/apps/api/src/server.js
 ```
 
-`TWITTERAPIS_TIMEOUT_MS` / `SCRAPEBADGER_TIMEOUT_MS` 的目标默认值为 `20000ms`（区间 `100..120000ms`），当前分支尚无相应连接器；认证头与映射见[来源替换规格](research/source_replacement_and_twitterapi_io_removal_spec.md)。Compose 当前固定 `SOURCE_NETWORK_ENABLED=false` 且未传入供应商密钥，显式加载宿主机凭据不会自动启用容器内采集；接入时需按需传递，禁止把密钥写进镜像或 Git。
+`TWITTERAPIS_TIMEOUT_MS` / `SCRAPEBADGER_TIMEOUT_MS` 的默认值为 `20000ms`（区间 `100..120000ms`），认证头与映射见[来源替换规格](research/source_replacement_and_twitterapi_io_removal_spec.md)。Compose 默认关闭采集，显式设置 `SOURCE_NETWORK_ENABLED=true` 后透传环境中的供应商凭据，`FEED_ALLOWED_URLS` 用逗号分隔精确的 HTTPS 订阅地址，连接绑定到解析出的公网 IPv4。开启相应来源预算后才可提交任务。凭据仅从进程环境或仓外私有文件加载。
+
+TwitterAPIs 单任务一页、最多 20 条。需要备源时在来源创建或 PATCH 中设置 `fallbackProvider`，提交采集时显式传 `useFallback: true`。ScrapeBadger 批量刷新用 `POST /v1/sources/:id/refresh`，每次 1–20 个库内内容 ID，带 `Idempotency-Key`。Reddit 项目手选水合用 `POST /v1/projects/:id/hydrate`，每次最多 30 个现有根帖。两类任务均可在来源页查看。
 
 ## 2. `main@0.9.1` 当前可执行入口与门禁脚本
 
@@ -81,6 +82,9 @@ npm run db:restore -- --file output/backups/唯一名称.dump --target info_work
 npm run release:pack
 npm run release:verify -- output/releases/目录
 ```
+
+PG16 实测使用不按 schema 过滤的备份归档，将 `pg_trgm` 与搜索索引一并恢复。归档清单在隔离恢复后对账表行数和迁移校验和。历史仅含 public schema 的归档需先核对扩展，不能作为已演练恢复凭据。
+
 
 - 备份恢复必须使用版本匹配的完整 PostgreSQL 客户端，禁止直接覆盖活跃生产库，先恢复至独立新库核验迁移摘要后再切流。
 - 现有遗留 `deploy/` 为 `systemd` + Nginx 过渡模板；**目标生产形态已收敛为单机 3 服务 Docker Compose（`caddy` `:80/:443` 静态 Web + `/api/*` 反代与导出去缓冲、`app` 单容器 `HOST=0.0.0.0` + `trustProxy: 1` + `15s` 优雅退场、`db` 内网 `postgres:16-alpine` 零端口映射）**，正式上线时同步替代本节旧启动命令。生产首次空库仅强依赖 `DATABASE_URL`、`SESSION_SECRET`、`ADMIN_BOOTSTRAP_PASSWORD`（引导首号后移除），来源凭证按需配置。

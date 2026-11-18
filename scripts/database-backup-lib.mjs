@@ -101,7 +101,7 @@ export async function backupDatabase({ root = process.cwd(), connectionString, p
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     const snapshot = (await client.query('SELECT pg_export_snapshot() AS snapshot')).rows[0].snapshot;
     const inventory = await databaseInventory(client);
-    await run(tool(pgBin, 'pg_dump'), ['--format=custom', '--no-owner', '--no-acl', '--schema=public', '--snapshot', snapshot, '--file', destination], env, `${destination}.dump-error.log`);
+    await run(tool(pgBin, 'pg_dump'), ['--format=custom', '--no-owner', '--no-acl', '--snapshot', snapshot, '--file', destination], env, `${destination}.dump-error.log`);
     await client.query('COMMIT');
     const manifest = { version: 1, createdAt: new Date().toISOString(), sourceDatabase: env.PGDATABASE,
       filename: path.basename(destination), bytes: (await fsp.stat(destination)).size, sha256: await digest(destination),

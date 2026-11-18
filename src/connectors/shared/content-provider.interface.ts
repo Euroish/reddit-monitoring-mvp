@@ -22,6 +22,8 @@ export interface CollectedPage {
   coverage: "unknown" | "partial";
   warning: string | null;
   pending?: boolean;
+  creditsUsed?: number;
+  notModified?: boolean;
 }
 export interface CollectContentPageRequest {
   source: CollectionSource;
@@ -36,6 +38,7 @@ export interface CollectContentPageRequest {
   signal?: AbortSignal;
   includeComments?: boolean;
   maxCommentsPerPost?: number;
+  commentSort?: "top";
 }
 export interface ContentProvider {
   readonly capability: SourceCapability;

@@ -140,7 +140,7 @@ export default function App() {
             path="/"
             element={<Projects run={run} canEdit={user.role !== "viewer"} />}
           />
-          <Route path="/content" element={<ContentLibrary run={run} />} />
+          <Route path="/content" element={<ContentLibrary run={run} canCollect={user.role !== "viewer"} />} />
           <Route
             path="/sources"
             element={<Sources run={run} canEdit={user.role !== "viewer"} />}

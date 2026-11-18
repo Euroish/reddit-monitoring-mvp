@@ -17,12 +17,14 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
     posts = 0,
     reads = 0;
   let sourceId = "";
+  let runInput: { mode?: string; commentSort?: string } = {};
   const now = new Date().toISOString();
   const connector = new KaixContentConnector(
     { networkEnabled: true, apiToken: "synthetic-token" },
     async (_, init) => {
       if (init?.method === "POST") {
         posts++;
+        runInput = JSON.parse(String(init.body));
         if (mode === "interrupt") throw Error("synthetic interrupted POST");
         return Response.json({
           data: {
@@ -57,6 +59,8 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
           id: "root123",
           fullName: "t3_root123",
           title: "Native OR result",
+          score: 5,
+          numComments: 12,
           subreddit: "fixture",
           selftext: "Evidence",
           createdUtc: Date.now() / 1000 - 60,
@@ -312,4 +316,37 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
   ).rows[0];
   assert.equal(safeResult.status, "failed");
   assert.equal(safeResult.page_request_attempts, 3);
+  await t.test("project hydration queues the selected root and preserves the discovery watermark", async () => {
+    const project = await app.inject({
+      method: "POST", url: "/v1/projects", headers,
+      payload: { name: "Hydration", sourceIds: [first], filter: { query: "Useful comment" } },
+    });
+    assert.equal(project.statusCode, 200, project.body);
+    const scoped = await app.inject({ url: `/v1/content?projectId=${project.json().id}`, headers });
+    assert.equal(scoped.statusCode, 200, scoped.body);
+    assert.deepEqual(scoped.json().items.map((item: { externalId: string }) => item.externalId), ["t3_root123"]);
+    for (const signal of ["discussion", "pain"]) {
+      const filtered = await app.inject({ url: `/v1/content?sourceId=${first}&signal=${signal}`, headers });
+      assert.equal(filtered.statusCode, 200, filtered.body);
+      assert.deepEqual(filtered.json().items.map((item: { externalId: string }) => item.externalId), ["t3_root123"]);
+    }
+    const response = await app.inject({
+      method: "POST", url: `/v1/projects/${project.json().id}/hydrate`,
+      headers: { ...headers, "idempotency-key": randomUUID() },
+      payload: { contentIds: [scoped.json().items[0].id], maxCommentsPerPost: 4 },
+    });
+    assert.equal(response.statusCode, 200, response.body);
+    mode = "success";
+    const beforeHydrate = (await db.pool.query("SELECT incremental_to FROM collection_source WHERE id=$1", [first])).rows[0];
+    await workOnce(db.pool, [connector]);
+    await wake();
+    await workOnce(db.pool, [connector]);
+    assert.equal(runInput.mode, "post");
+    assert.equal(runInput.commentSort, "top");
+    const job = await app.inject({ url: `/v1/source-jobs/${response.json().jobIds[0]}`, headers });
+    assert.equal(job.json().job.status, "succeeded");
+    const afterHydrate = (await db.pool.query("SELECT incremental_to FROM collection_source WHERE id=$1", [first])).rows[0];
+    assert.deepEqual(afterHydrate, beforeHydrate);
+  });
+
 });

@@ -202,6 +202,7 @@ export const Content = strictMerge([
     firstFetchedAt: DateTime,
     lastFetchedAt: DateTime,
     observations: Type.Array(Observation),
+    contextMissing: Type.Optional(Type.Boolean()),
     textState: Type.Union([
       Type.Literal("full"),
       Type.Literal("missing"),
@@ -210,14 +211,21 @@ export const Content = strictMerge([
     ]),
   }),
 ]);
+export const FallbackProvider = Type.Union([Type.Literal("scrapebadger"), Type.Literal("red_crawler")]);
 export const SourceInput = Type.Object(
   {
     platform: Platform,
     primaryProvider: Type.Union([
       Type.Literal("kaix"),
+      Type.Literal("red_crawler"),
       Type.Literal("bluesky_appview"),
+      Type.Literal("twitterapis"),
+      Type.Literal("scrapebadger"),
+      Type.Literal("newsnow"),
+      Type.Literal("feed"),
       Type.Literal("external_ingest"),
     ]),
+    fallbackProvider: Type.Optional(FallbackProvider),
     label: Type.String({ minLength: 1, maxLength: 100 }),
     target: Target,
     contentKind: Kind,
@@ -226,7 +234,7 @@ export const SourceInput = Type.Object(
   { additionalProperties: false },
 );
 export const Source = strictMerge([
-  Type.Omit(SourceInput, ["primaryProvider"]),
+  Type.Omit(SourceInput, ["primaryProvider", "fallbackProvider"]),
   Type.Object({
     id: Id,
     state: Type.Union([
@@ -271,6 +279,8 @@ export const ContentFilter = Type.Object(
     ),
     from: Type.Optional(DateTime),
     to: Type.Optional(DateTime),
+    threadAware: Type.Optional(Type.Boolean()),
+    signal: Type.Optional(Type.Union([Type.Literal("discussion"), Type.Literal("pain")])),
     searchScope: Type.Optional(
       Type.Union([
         Type.Literal("title"),
@@ -281,8 +291,9 @@ export const ContentFilter = Type.Object(
   },
   { additionalProperties: false },
 );
+export const ResearchFilter = strictMerge([ContentFilter, Type.Object({ projectId: Type.Optional(Id) })]);
 export const ListQuery = strictMerge([
-  ContentFilter,
+  ResearchFilter,
   Type.Object({
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
     cursor: Type.Optional(Type.String({ maxLength: 4096 })),
@@ -347,17 +358,27 @@ export const Collect = Type.Object(
     to: DateTime,
     limit: Type.Integer({ minimum: 1, maximum: 300 }),
     includeComments: Type.Optional(Type.Boolean()),
+    useFallback: Type.Optional(Type.Boolean()),
     maxCommentsPerPost: Type.Optional(
       Type.Integer({ minimum: 1, maximum: 50 }),
     ),
   },
   { additionalProperties: false },
 );
+export const Refresh = Type.Object({
+  contentIds: Type.Array(Id, { minItems: 1, maxItems: 20, uniqueItems: true }),
+}, { additionalProperties: false });
+export const Hydrate = Type.Object({
+  contentIds: Type.Array(Id, { minItems: 1, maxItems: 30, uniqueItems: true }),
+  maxCommentsPerPost: Type.Integer({ minimum: 1, maximum: 50 }),
+}, { additionalProperties: false });
 export const ProjectInput = Type.Object(
   {
     name: Type.String({ minLength: 1, maxLength: 100 }),
     sourceIds: Type.Array(Id, { minItems: 1, maxItems: 100 }),
     filter: ContentFilter,
+    threadAware: Type.Optional(Type.Boolean()),
+    includePushInTrends: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
 );

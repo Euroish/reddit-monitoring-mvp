@@ -241,6 +241,7 @@ export function contentFromRow(
     lastFetchedAt: row.last_seen_at.toISOString(),
     availability: row.availability,
     references: row.content_references,
+    ...(row.context_missing === undefined ? {} : { contextMissing: row.context_missing }),
     media: row.content_media,
     platformDetails: row.platform_details,
     textState: row.body_text === null ? "missing" : "full",

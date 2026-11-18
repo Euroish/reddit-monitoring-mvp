@@ -2,8 +2,12 @@ import { createPool } from "../../../src/storage/db";
 import { bootstrapOwner } from "../../../src/modules/access/sql";
 import { startWorker } from "../../../src/modules/collection/worker";
 import { KaixContentConnector } from "../../../src/connectors/reddit/kaix-content.connector";
+import { redCrawler } from "../../../src/connectors/reddit/red-crawler";
 import { resolveKaixConfig } from "../../../src/connectors/reddit/kaix.config";
 import { BlueskyAppViewContentConnector } from "../../../src/connectors/bluesky/bluesky-appview-content.connector";
+import { scrapeBadger } from "../../../src/connectors/x/scrapebadger";
+import { twitterApis } from "../../../src/connectors/x/twitterapis";
+import { webSource } from "../../../src/connectors/web/sources";
 import { buildApp } from "./app";
 
 export async function main() {
@@ -17,6 +21,11 @@ export async function main() {
     );
   const pool = createPool();
   const providers = [
+    twitterApis(),
+    scrapeBadger(),
+    webSource("newsnow"),
+    webSource("feed"),
+    redCrawler(),
     new KaixContentConnector(resolveKaixConfig()),
     new BlueskyAppViewContentConnector({
       networkEnabled: process.env.SOURCE_NETWORK_ENABLED === "true",
