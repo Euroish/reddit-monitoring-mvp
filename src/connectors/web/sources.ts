@@ -73,7 +73,12 @@ function requestPage(url: URL, ip: string, signal: AbortSignal, headers?: Record
   const family = isIP(ip);
   return new Promise<{ body: string; status: number; etag?: string; modified?: string; location?: string }>((resolve, reject) => {
     const req = request(url, {
-      headers, family, signal, agent: false,
+      headers: {
+        "User-Agent": "MonitoringWorkbench/1.0 (RSS reader)",
+        Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.1",
+        ...headers,
+      },
+      family, signal, agent: false,
       lookup: (_host, _options, callback) => callback(null, ip, family),
     }, async (response) => {
       try {

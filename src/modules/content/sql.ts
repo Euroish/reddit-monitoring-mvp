@@ -27,6 +27,7 @@ const replacementColumns = [
   "content_version_fetched_at",
 ];
 const preservedColumns = ["url", "permalink", "language", "created_at_source"];
+// Multiple discovery channels can carry the same version of an article.
 const sameVersionConflict = `EXCLUDED.content_evidence_key=content.content_evidence_key
   AND EXCLUDED.content_observed_at IS NOT DISTINCT FROM content.content_observed_at
   AND (EXCLUDED.availability<>content.availability
@@ -34,7 +35,7 @@ const sameVersionConflict = `EXCLUDED.content_evidence_key=content.content_evide
     OR (EXCLUDED.body_text IS NOT NULL AND content.body_text IS NOT NULL AND EXCLUDED.body_text<>content.body_text)
     OR EXCLUDED.content_references<>content.content_references
     OR EXCLUDED.content_media<>content.content_media
-    OR EXCLUDED.platform_details IS DISTINCT FROM content.platform_details)`;
+    OR (EXCLUDED.platform_details-'feedUrl') IS DISTINCT FROM (content.platform_details-'feedUrl'))`;
 const sameVersion = `EXCLUDED.content_evidence_key=content.content_evidence_key
   AND EXCLUDED.content_observed_at IS NOT DISTINCT FROM content.content_observed_at`;
 const changed = `(${newer}) OR ((${sameVersion}) AND content.availability NOT IN ('deleted','removed') AND
@@ -92,7 +93,7 @@ export async function commitContentBatch(
          AND ((c.title IS NOT NULL AND v->>'title' IS NOT NULL AND c.title<>v->>'title')
            OR (c.body_text IS NOT NULL AND v->>'text' IS NOT NULL AND c.body_text<>v->>'text')
            OR c.availability<>v->>'availability' OR c.content_references<>v->'references'
-           OR c.content_media<>v->'media' OR c.platform_details IS DISTINCT FROM v->'platformDetails')) AS conflict
+           OR c.content_media<>v->'media' OR (c.platform_details-'feedUrl') IS DISTINCT FROM ((v->'platformDetails')-'feedUrl'))) AS conflict
       FROM content c JOIN input ON c.source_id=$1 AND c.kind=v->>'kind' AND c.external_id=v->>'externalId'
     ), written AS (
     INSERT INTO content(id,source_id,external_id,kind,title,body_text,url,permalink,created_at_source,first_seen_at,last_seen_at,total_eligible,content_author,content_media,content_references,platform_details,language,availability,content_observed_at,content_evidence_key,content_version_fetched_at)
@@ -151,7 +152,7 @@ export async function commitContentBatch(
           item.availability !== row.availability ||
           canonical(item.references) !== canonical(row.content_references) ||
           canonical(item.media) !== canonical(row.content_media) ||
-          canonical(item.platformDetails) !== canonical(row.platform_details)
+          canonical({ ...item.platformDetails, feedUrl: undefined }) !== canonical({ ...row.platform_details, feedUrl: undefined })
         ) {
           conflict("Conflicting content in the same version");
         }

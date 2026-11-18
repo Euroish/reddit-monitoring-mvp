@@ -91,16 +91,17 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
   const feedUrl = "https://fixture.example/atom";
   const listUrl = "https://fixture.example/releases";
   const jsonUrl = "https://fixture.example/api/releases";
+  const published = new Date(Date.now() - 60000).toUTCString();
   let feedChecks = 0;
   const feed = webSource("feed", { SOURCE_NETWORK_ENABLED: "true", FEED_ALLOWED_URLS: [feedUrl, listUrl, jsonUrl].join(",") }, async (url, _signal, requestHeaders) => {
     if (url.href === listUrl) return { status: 200, body: `<link rel="alternate" type="application/atom+xml" href="/atom">
       <article class="release"><h2><a href="/tool">Web result</a></h2><p>Summary</p><time datetime="2026-11-16T10:00:00Z"></time></article>` };
     if (url.href === jsonUrl) return { status: 200, body: JSON.stringify({ data: { releases: [
       { ref: { url: "/tool" }, title: "JSON result", description: "Summary" },
+      { ref: { url: "/release" }, title: "开源算力工具", time: new Date(published).toISOString() },
     ] } }) };
     feedChecks++;
     if (requestHeaders?.["If-None-Match"] === '"fixture"') return { status: 304, body: "" };
-    const published = new Date(Date.now() - 60000).toUTCString();
     return { status: 200, etag: '"fixture"', body: `<rss version="2.0"><channel><title>Fixture</title>
       <item><title>开源算力工具</title><link>https://fixture.example/release</link><pubDate>${published}</pubDate></item>
       </channel></rss>` };
@@ -447,7 +448,7 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
       format: "web_list", items: "article.release", title: "h2 > a", link: "a", summary: "p", publishedAt: "time",
     } } };
     const json = { ...web, target: { type: "feed", url: jsonUrl, list: {
-      format: "json_list", items: "data.releases", title: "title", link: "ref.url", summary: "description",
+      format: "json_list", items: "data.releases", title: "title", link: "ref.url", summary: "description", publishedAt: "time",
     } } };
     const preview = (payload: object) => app.inject({ method: "POST", url: "/v1/sources/preview", headers, payload });
     const result = await preview(html);
@@ -458,7 +459,7 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
     assert.deepEqual(result.json().feeds, [feedUrl]);
     const parsed = await preview(json);
     assert.equal(parsed.statusCode, 200, parsed.body);
-    assert.deepEqual(parsed.json().items, [{ url: "https://fixture.example/tool", title: "JSON result", summary: "Summary", publishedAt: null }]);
+    assert.deepEqual(parsed.json().items[1], { url: "https://fixture.example/tool", title: "JSON result", summary: "Summary", publishedAt: null });
     assert.equal((await preview({ ...json, target: { ...json.target, list: { ...json.target.list, items: "missing" } } })).statusCode, 422);
     assert.equal((await preview({ ...html, target: { ...html.target, url: "https://unapproved.example/releases" } })).statusCode, 422);
     const paid = await preview({ platform: "reddit", primaryProvider: "kaix", contentKind: "post", deliveryMode: "pull",
@@ -473,12 +474,12 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
     const id = saved.json().source.id;
     const job = await app.inject({ method: "POST", url: `/v1/sources/${id}/collect`,
       headers: { ...headers, "idempotency-key": randomUUID() },
-      payload: { from: "2026-11-16T00:00:00Z", to: "2026-11-17T00:00:00Z", limit: 2 },
+      payload: { from: new Date(Date.now() - 86400000).toISOString(), to: new Date().toISOString(), limit: 2 },
     });
     assert.equal(job.statusCode, 200, job.body);
     assert.equal(await workOnce(db.pool, [connector, safeProvider, feed]), true);
     const stored = await app.inject({ url: `/v1/content?sourceId=${id}`, headers });
     assert.equal(stored.statusCode, 200, stored.body);
-    assert.equal(stored.json().items[0]?.title, "JSON result");
+    assert.deepEqual(stored.json().items.map(({ title }: { title: string }) => title), ["开源算力工具", "JSON result"]);
   });
 });
