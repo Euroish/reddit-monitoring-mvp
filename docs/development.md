@@ -67,6 +67,10 @@ SOURCE_NETWORK_ENABLED=true
 APIFY_API_TOKEN=
 TWITTERAPIS_API_KEY=
 SCRAPEBADGER_API_KEY=
+# 可选：后续按需启用可插拔 AI 双语翻译与事件簇摘要（兼容任意 OpenAI /v1/chat/completions 端点，未配置时 100% 确定性零模型运行）
+AI_BASE_URL=
+AI_API_KEY=
+AI_MODEL=
 ```
 
 | 环境变量 | 服务角色 | 当前分支 |
@@ -74,6 +78,7 @@ SCRAPEBADGER_API_KEY=
 | `APIFY_API_TOKEN` | Apify 账户令牌（供 `kaix` 与 `red_crawler` 共用） | 两个 Reddit 连接器读取 |
 | `TWITTERAPIS_API_KEY` | `TwitterAPIs`（X 主源，支持 VIP 批次 `advanced_search` 与时间线） | 搜索任务在隔离 PG16 已真实落库 |
 | `SCRAPEBADGER_API_KEY` | `ScrapeBadger`（X 备源与批量 ID 补全） | 选配备源和批量刷新凭据 |
+| `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` | 可插拔 AI 翻译与事件摘要端点（兼容 DeepSeek / Qwen / OpenAI / Gemini OpenAI 端点 / 本地 Ollama） | 选配扩展；受 `source_provider_budget` (`ai_enrich`) 额度门控，未设置时默认零模型运行 |
 
 Node 24 可显式加载仓外凭据后启动编译服务器（应用必需的 DB、会话与 Origin 配置仍须另行提供）：
 

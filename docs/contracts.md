@@ -14,19 +14,25 @@
 | **`Discovery`** | 某内容被哪条逻辑来源发现的关联（`content_discovery`），非独立正文。 |
 | **`Observation`** | 某逻辑来源经特定 `Provider` 采回的不可变快照指标（`content_observation`）。 |
 
-### 双语信息流、事件聚簇与日报读模型
+### 双语信息流、事件聚簇、可插拔 AI 翻译/摘要与全景可视化读模型
 
 1. **信源三级权威度（`tier`）与英文一手优先代表选举（`pickRepresentative`）**：
    - **`T1`（官方一手）**：AI 与科技巨头官方英文 Blog / Newsroom / GitHub Releases（如 OpenAI、Anthropic、Google DeepMind、Hugging Face、NVIDIA、Microsoft Research）及中资大模型官方一手发布（DeepSeek、Qwen、Kimi、MiniMax 官方 GitHub/Blog）；
    - **`T1_5`（认证主创与核心学者）**：绑定了 `ownerEntityId` 或人物标识的核心研究员、创始人与独立开发者账号（如 Karpathy、Simon Willison、Boris Cherny 等的 X / Reddit / 个人站 / YouTube 频道）；
    - **`T2`（精选媒体与社区热榜）**：Ars Technica、MIT Tech Review、The Decoder、TechMeme、Product Hunt、Hacker News、V2EX、IT之家、少数派、B站热门、知乎热榜、微博热搜、Reddit 热门社区。
-   - **代表选举与原语种直出规则**：同一事件簇（`storyKey`）下有多篇报道时，首页与日报卡片主标题严格按 **`T1` $>$ `T1_5`（机构先于个人）$>$ `T2`（有全文 $>$ 互动/热度高 $>$ 发布早）** 选举唯一代表报道（Representative），**直接展示原语种标题与确定性导语摘录（主线不做强制机器翻译）**；其余同簇报道按 `storyRole` 归入“独立实测 (`benchmark_eval`)”、“社区讨论 (`community_discussion`)”或折叠进“$K$ 家同源报道 (`syndicated_repost`)”。
+   - **代表选举、原语种直出与可插拔 AI 双语增强规则**：同一事件簇（`storyKey`）下有多篇报道时，首页与日报卡片主标题严格按 **`T1` $>$ `T1_5`（机构先于个人）$>$ `T2`（有全文 $>$ 互动/热度高 $>$ 发布早）** 选举唯一代表报道（Representative），**默认直接展示原语种标题与确定性导语摘录（入库绝不阻塞等待翻译）**；当接入并启用 `ai_enrich`（通过环境变量 `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` 原生 `fetch` 调用或外部 Agent 调 `POST /v1/content/:id/enrich` 写回）时，按簇代表或按需触发生成中英对照标题与三点事件综述，幂等持久化于 `platform_details.extensions.ai = { titleZh, leadZh, summaryPoints, model, fingerprint, enrichedAt }`；其余同簇报道按 `storyRole` 归入“独立实测 (`benchmark_eval`)”、“社区讨论 (`community_discussion`)”或折叠进“$K$ 家同源报道 (`syndicated_repost`)”。
 2. **48 小时事件热度（`heat`）与 6 小时趋势（`trend`）**：
    - 借鉴 `AIHOT` 事件热度模型，在 48 小时滑动窗口内，每个独立来源/参与者对同一 `storyKey` 只计一次最高权重（`T1=3.0`, `T1_5=2.0`, `T2=1.0`），按 `publishedAt` 施加 24 小时指数半衰期衰减：$\text{Heat}(E, t) = \sum_{p} w_{\text{tier}}(p) \cdot 0.5^{(t - t_p)/24\text{h}}$。
    - 对比当前热度与 6 小时前热度（剔除落后停采 `behind` 与新接入未满窗口 `late` 的来源）计算 `trend: 'up' | 'down' | 'flat' | 'new' | 'unknown'` 及徽章 `badges: ('surge' | 'rising' | 'new')[]`。
 3. **“为你”可解释 RRF 排序与 `FeedReason`**：
    - 对近期可见事件簇融合四路名次：保存查询与兴趣词命中（$w_{\text{query}}=1.4$）、关注 VIP/一手源（$w_{\text{vip}}=1.3$）、多平台独立印证度（$w_{\text{corroboration}}=1.1$）、平台内对数互动率（$w_{\text{engagement}}=0.8$），计算 $\text{RRF}(d) = \sum_m \frac{w_m}{60 + r_m(d)}$，再乘以重力时间衰减 $(t_{\text{hours}}+2)^{-G}$ 与同发布者连续出现指数折损 $0.55^{\text{seen}(p)}$。
    - 每张返回卡片携带确定性 `reason: { kind: 'saved_query' | 'followed_vip' | 'corroborated_event' | 'fresh_discovery', label: string }`。
+4. **统一 SQL 分面与全景可视化图表契约（`GET /v1/content/facets`、`GET /v1/projects/:id/overview`、`POST /v1/project-comparisons`）**：
+   - 所有可视化图表共享 `compileContentFilter` 与单次 PostgreSQL `GROUPING SETS` 聚合，一次性返回四类可视化序列（耗时 `< 8ms`，零额外统计表）：
+     1. **`timeline`（按日 / 6h 跨平台与权威级叠柱序列）**：包含 `bucket`、`count`（按根帖/事件去重）、`matchedContentCount`、`byPlatform`、`byTier`（`T1`/`T1_5`/`T2`）及 `coverageStatus: 'covered' | 'unknown'`；
+     2. **`topStories`（48h 事件热度 × 6h 增速散点/排行序列）**：返回当前筛选范围内 Top 事件簇的 `{ storyKey, title, titleZh, leadTier, heat48h, surgeRatio6h, trend, sourceCount, platforms }`；
+     3. **`distributions`（平台、信源权威级、体裁、三维主题实体与信号占比）**：返回 `platforms`、`tiers`、`kinds`、`entities`（`company`/`field`/`genre`）与 `signals`（`discussion`/`pain`/`surge`）计数；
+     4. **`comparisons`（多专题/多主题对齐对比序列）**：对 2–5 个项目或主题返回同时间轴对齐的每日内容量、事件簇数、48h 热度与平台结构（跨平台直接比较原始点赞/评论数时按 `MET-04` 返回 `422` 并提示切回内容量或事件热度）。
 
 ### SRC-01–03：逻辑来源分离、六类采集目标与失效策略
 
@@ -81,7 +87,7 @@
 | ID | 等级 | 访问控制、Agent 安全与导出格式契约 | 验收出口 |
 | --- | --- | --- | --- |
 | SEC-01 | MUST | 主体分三类：`owner`/`admin`（全共享与账户/预算/运维权限，保留最后一位 `owner`）、`viewer`（只读共享 + 自己工作区）与 **`machine` API Key**（扩展 `app_session`、`client_kind='machine'`、SHA-256 `token_hash`、1–90 天过期、`allowed_source_ids` 贯穿全查询防枚举 404/403）；统一权限作用域 enum 锁定为 `read` / `projects:write` / `sources:write` / `collect` / `ingest` / `export`（`ingest` Key 禁空来源清单；机器 Key 严禁访问个人研究/账户管理或直接批准付费 Proposal）。 | 角色与越权 E2E |
-| OP-01 | MUST | 鉴权后访问 `GET /v1/capabilities` 与同源 TypeBox 派生的 `GET /v1/openapi.json`（完整 `operationId`），并提供机器可读日报/精选订阅出口。**主线采用开放式 Agent 接入架构（不内置强耦合 LLM 运行时）**：外部 AI Agent 或后续扩展插件默认签发仅含 `read` + `export` 的只读 Key，第三方抓取正文一律作为不可信数据隔离，任何产生费用的采集或订阅操作必须由浏览器会话同源点击确认。 | Capabilities 与权限边界测试 |
+| OP-01 | MUST | 鉴权后访问 `GET /v1/capabilities` 与同源 TypeBox 派生的 `GET /v1/openapi.json`（完整 `operationId`），并提供机器可读日报/精选订阅出口。**主线采用极简确定性微内核 + 可插拔 AI 翻译/摘要与开放 Agent 架构**：内置可选 AI 增强走零 SDK 原生 `fetch`（兼容任意 OpenAI 格式 `/v1/chat/completions` 端点）并复用 `source_provider_budget`（`provider='ai_enrich'`）额度门控与 `tools: []` 隔离读取态；外部 AI Agent 默认签发仅含 `read` + `export` 的只读 Key，第三方抓取正文一律作为不可信数据隔离，任何产生费用的采集或订阅操作必须由浏览器会话同源点击确认。 | Capabilities、AI 预算门控与权限边界测试 |
 | EXP-01 | MUST | `GET /v1/content/export?format=csv|json` 默认上限 `10,000`、硬上限 `50,000`，强制**全局（`max=2`）与单用户（`concurrency=1`）信号量**（冲突返 `429 + Retry-After`）；采用 `pg-query-stream` + `stream.pipeline` 在 `REPEATABLE READ READ ONLY` + `SET LOCAL idle_in_transaction_session_timeout = '35s'` 内写出；JSON 在 `COMMIT` 后追加 `{result: {exportedCount, truncated, nextCursor, complete: true}}`；**CSV 严格遵守 RFC 4180，包含 `id,platform,kind,externalId,publishedAt,author,url,textState,title,text` 并做文本化 ID 与 OWASP 公式中和**。 | 并发导出、断流与 RFC 4180 测试 |
 
 ## 5. 标准化 HTTP 路由与运行时路径对齐表
@@ -91,7 +97,7 @@
 | 资源域 | 当前运行时已注册路径（保持向后兼容） | Phase 1–3 增补与对齐路径 |
 | :--- | :--- | :--- |
 | **账户与机器 Key** | `POST /v1/auth/login`、`GET /v1/auth/session`、`POST /v1/auth/logout`、`POST /v1/auth/register`、`GET/POST /v1/access/keys`、`DELETE /v1/access/keys/:id`、`POST /v1/access/invites`、`GET /v1/capabilities`、`GET /v1/openapi.json` | 前端 `Account.tsx` 完整接通 `GET/DELETE /v1/access/keys` 与 `POST /v1/access/invites` |
-| **来源、预算与任务** | `GET/POST /v1/sources`、`PATCH /v1/sources/:id`、`GET /v1/sources/budgets`、`PUT /v1/sources/budgets/:provider`、`POST /v1/sources/:id/{collect,ingest,refresh,unblock}`、`GET /v1/sources/:id/jobs`、`GET /v1/source-jobs`、`GET /v1/source-jobs/:id`、`POST /v1/source-jobs/:id/{cancel,retry,continue}` | 新增 `POST /v1/sources/preview`（先预览前 20 条再保存）；`GET /v1/sources` 完整返回 `schedule`、`sourceGroup`、`tier`、`lastCheckedAt`、`lastSuccessAt`、`automaticCollectionBlocked` |
-| **内容、聚簇、日报与导出** | `GET /v1/content`、`GET /v1/content/:id`、`GET /v1/content/:id/thread`、`GET /v1/content/export` | `GET /v1/content` 支持 `sourceGroup`、`tier`、`storyKey`、`view=feed|events|digest`（含 RRF 排序、事件聚簇卡、48h/6h 热度与 08:00 自动日报） |
+| **来源、预算与任务** | `GET/POST /v1/sources`、`PATCH /v1/sources/:id`、`GET /v1/sources/budgets`、`PUT /v1/sources/budgets/:provider`、`POST /v1/sources/:id/{collect,ingest,refresh,unblock}`、`GET /v1/sources/:id/jobs`、`GET /v1/source-jobs`、`GET /v1/source-jobs/:id`、`POST /v1/source-jobs/:id/{cancel,retry,continue}` | 新增 `POST /v1/sources/preview`（先预览前 20 条再保存）；`GET /v1/sources/budgets` 纳入 `ai_enrich` 可选翻译/摘要预算行；`GET /v1/sources` 完整返回 `schedule`、`sourceGroup`、`tier`、`lastCheckedAt`、`lastSuccessAt`、`automaticCollectionBlocked` |
+| **内容、聚簇、图表、AI 翻译/摘要与导出** | `GET /v1/content`、`GET /v1/content/:id`、`GET /v1/content/:id/thread`、`GET /v1/content/export` | `GET /v1/content` 支持 `sourceGroup`、`tier`、`storyKey`、`view=feed\|events\|digest`；新增 `GET /v1/content/facets`（驱动全局探索与频道四类可视化图表）与 `POST /v1/content/:id/enrich`（按簇/按需触发或写回 AI 翻译与三点摘要，幂等缓存在 `platform_details.extensions.ai`） |
 | **按题探索与 Agent 提案** | （待增补） | 新增 `POST /v1/discovery/query`、`GET /v1/discovery/jobs/:id`（三波渐进取证 + 一键转 `pull` 订阅）及 `POST /v1/agent/proposals`、`POST /v1/agent/proposals/:id/approve` |
-| **项目与个人工作区** | `GET/POST /v1/projects`、`GET/PATCH/DELETE /v1/projects/:id`、`GET /v1/projects/:id/overview`、`POST /v1/projects/:id/hydrate`、`GET/POST /v1/workspace/queries`、`DELETE /v1/workspace/queries/:id`、`GET /v1/workspace/annotations`、`GET/PUT /v1/workspace/annotations/:id` | 新增 `POST /v1/project-comparisons`；前端 `Projects.tsx` 完整渲染 `/projects/:id/overview` 返回的 `day_group` 按日柱图与来源联动钻取 |
+| **项目可视化与个人工作区** | `GET/POST /v1/projects`、`GET/PATCH/DELETE /v1/projects/:id`、`GET /v1/projects/:id/overview`、`POST /v1/projects/:id/hydrate`、`GET/POST /v1/workspace/queries`、`DELETE /v1/workspace/queries/:id`、`GET /v1/workspace/annotations`、`GET/PUT /v1/workspace/annotations/:id` | 新增 `POST /v1/project-comparisons`（多专题/多主题并排图表对比）；前端 `Projects.tsx` 与探索页基于 `apps/web/src/charts.tsx` 原生 `<svg>` 完整渲染按日/6h 叠柱趋势、48h 热度 × 6h 增速矩阵、权威级分布与来源联动钻取 |

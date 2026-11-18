@@ -2506,3 +2506,132 @@ Per `docs/architecture.md` and `AGENTS.md`, the future in-product LLM agent envi
      3. Strict `Origin === APP_ORIGIN` header verification + matching `proposalChecksum` so only an explicit human click in the web UI can commit the action.
 3. **Graceful Degradation**:
    - All LLM sessions, questions, and proposals are scoped strictly to the individual `user_id` and never pollute shared public `content` tables. If the LLM provider is unreachable or its budget is `0`, background scheduled crawling, homepage feeds, search, and exports continue operating at 100% availability.
+
+---
+
+### 3.5 Pluggable AI Translation & Cluster Summarization Seam + Unified SQL Data Visualization Engine (Zero-SDK, Zero-New-Table Micro-Kernel Extensibility)
+
+To keep the entire backend under `~6,000 LOC` with maximum runtime speed while allowing seamless addition of **AI Translation & Summarization** and **Interactive Multi-Dimensional Data Visualizations**, we standardize on two composable kernel extensions:
+
+#### 1. Pluggable AI Translation & Cluster Summarization (`src/modules/content/ai.ts`, `~55 LOC`, Zero SDK Dependencies)
+- **Why AIHOT's Ingestion-Coupled LLM Pipeline Failed vs. Our Post-Cluster Seam**:
+  - `KKKKhazix/AIHOT` runs 5–6 serial LLM calls on *every incoming raw article* before saving it. At 10,000 items/day, that requires 50,000–60,000 LLM calls/day, blocks ingestion on API latency, and halts the entire system when rate-limited.
+  - In our architecture, **ingestion (`commitContentBatch`), entity extraction (`IDENTITY_LEXICON`), 64-bit SimHash clustering (`storyKey`), `T1 > T1_5 > T2` representative election, and 48h/6h heat scoring are 100% deterministic (`0ms` LLM wait)**.
+  - AI translation and summarization plug in **after clustering** at the **`storyKey` Event Representative level** (or on-demand via `POST /v1/content/:id/enrich`), reducing token consumption by **~90%** because 15 duplicate `T2` reposts in the same cluster are never sent to the LLM!
+- **Unified Budget & Circuit-Breaker Governance (`source_provider_budget` row `provider = 'ai_enrich'`)**:
+  - In `047_storage_and_scheduler.sql`, we seed `('ai_enrich', FALSE, 0, 0, 0, 0)` into `source_provider_budget`.
+  - The operator enables or caps AI translation/summarization (daily/monthly calls & token budget, minimum spacing) from the exact same `/sources` Budget Panel used for `twitterapis` and `kaix`—zero new tables!
+- **45-Line Zero-SDK OpenAI-Compatible Native `fetch` Implementation**:
+  ```ts
+  // src/modules/content/ai.ts — works with DeepSeek, Qwen, OpenAI, Gemini OpenAI endpoint, or local Ollama/vLLM
+  import { createHash } from "node:crypto";
+
+  export interface AiEnrichment {
+    titleZh: string | null;
+    leadZh: string | null;
+    summaryPoints: string[]; // 3 bullets: [核心进展, 实测与数据, 社区争议/局限]
+    model: string;
+    fingerprint: string;
+    enrichedAt: string;
+  }
+
+  export async function enrichClusterWithAi(input: {
+    title: string | null;
+    text: string | null;
+    corroboratingSnippets: string[];
+    signal?: AbortSignal;
+  }): Promise<AiEnrichment | null> {
+    const baseUrl = process.env.AI_BASE_URL?.replace(/\/+$/, "");
+    const apiKey = process.env.AI_API_KEY;
+    const model = process.env.AI_MODEL || "deepseek-chat";
+    if (!baseUrl || !apiKey) return null; // 100% zero-LLM deterministic fallback
+
+    const fingerprint = createHash("sha256")
+      .update(JSON.stringify([1, input.title, input.text?.slice(0, 2000), input.corroboratingSnippets]))
+      .digest("hex");
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      signal: input.signal ?? AbortSignal.timeout(15_000),
+      body: JSON.stringify({
+        model,
+        temperature: 0.1,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a quarantined technical translator & synthesizer (tools: []). Preserve exact model names, repo slugs, metrics, and code terms (e.g. Claude 4.5, o3, pg_trgm, SimHash). Return strict JSON: {\"titleZh\": string, \"leadZh\": string, \"summaryPoints\": [string, string, string]} covering 1.核心进展 2.独立实测/数据 3.社区讨论/局限.",
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              primaryTitle: input.title,
+              primaryLead: input.text?.slice(0, 1800),
+              perspectives: input.corroboratingSnippets.slice(0, 5),
+            }),
+          },
+        ],
+      }),
+    });
+    if (!response.ok) return null;
+    const payload = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const parsed = JSON.parse(payload.choices?.[0]?.message?.content ?? "{}") as Partial<AiEnrichment>;
+    return {
+      titleZh: typeof parsed.titleZh === "string" ? parsed.titleZh.slice(0, 300) : null,
+      leadZh: typeof parsed.leadZh === "string" ? parsed.leadZh.slice(0, 600) : null,
+      summaryPoints: Array.isArray(parsed.summaryPoints)
+        ? parsed.summaryPoints.filter((x): x is string => typeof x === "string").slice(0, 3)
+        : [],
+      model,
+      fingerprint,
+      enrichedAt: new Date().toISOString(),
+    };
+  }
+  ```
+- **Idempotent JSONB Persistence (`content.platform_details -> 'extensions' -> 'ai'`)**:
+  - Before calling `enrichClusterWithAi`, check if `row.platform_details?.extensions?.ai?.fingerprint === currentFingerprint`. If identical, return cached enrichment immediately with **0 API calls**.
+  - External AI Agents with a write-enabled scope can also push pre-computed `{ titleZh, leadZh, summaryPoints, model, fingerprint }` to `POST /v1/content/:id/enrich`.
+
+#### 2. Unified Single-Pass SQL Data Visualization & Native `<svg>` Chart Engine (`GET /v1/content/facets`, `GET /v1/projects/:id/overview`, `POST /v1/project-comparisons`)
+- **Single-Pass PostgreSQL 16 `GROUPING SETS` Analytics Kernel (`< 8ms`, Zero BI/ClickHouse Bloat)**:
+  - Reuses `compileContentFilter(actor, filter, projectSourceIds, projectFilter, pullOnly)` and `matchingNodes(compiled, threadAware)` so every chart in the product reflects the exact same security scope, 2-char CJK GIN search, channel (`vip`/`ai`/`tech`/`life`), authority tier (`T1`/`T1_5`/`T2`), and root-post deduplication (`MET-04`):
+  ```sql
+  WITH matched AS (
+    SELECT c.id, c.created_at_source, c.kind, p.code AS platform,
+           COALESCE(c.platform_details->'extensions'->>'storyKey', c.id::text) AS story_key,
+           COALESCE(c.platform_details->'extensions'->>'tier', 'T2') AS tier,
+           anchor_id
+    FROM (${matchingNodes(compiled, threadAware)}) c
+  ),
+  facets AS (
+    SELECT
+      GROUPING(date_trunc($bucketUnit, c.created_at_source, 'UTC')) AS bucket_group,
+      GROUPING(c.platform) AS platform_group,
+      GROUPING(c.tier) AS tier_group,
+      GROUPING(c.kind) AS kind_group,
+      date_trunc($bucketUnit, c.created_at_source, 'UTC') AS bucket,
+      c.platform,
+      c.tier,
+      c.kind,
+      COUNT(DISTINCT c.anchor_id)::int AS count,
+      COUNT(*)::int AS "matchedContentCount",
+      COUNT(DISTINCT c.story_key)::int AS "storyCount"
+    FROM matched c
+    GROUP BY GROUPING SETS (
+      (),
+      (date_trunc($bucketUnit, c.created_at_source, 'UTC'), c.platform),
+      (date_trunc($bucketUnit, c.created_at_source, 'UTC'), c.tier),
+      (c.platform),
+      (c.tier),
+      (c.kind)
+    )
+  )
+  SELECT jsonb_agg(facets ORDER BY bucket_group DESC, bucket ASC, platform, tier, kind) AS facets;
+  ```
+- **Four Native Declarative `<svg>` Chart Primitives (`apps/web/src/charts.tsx`, `<= 180 LOC`, `0 KB` Third-Party Chart Dependencies)**:
+  1. **`TimelinePulseChart` (按日 / 6h 跨平台与权威级叠柱脉冲图)**: Fixes `BUG-07` (`Projects.tsx:169`), renders stacked bars by `platform` or `tier` (`T1`/`T1_5`/`T2`), overlays diagonal hatching on uncovered intervals (`coverage: unknown` vs solid `0` per `MET-01`), and supports 1-click bar filtering (`?from=...&to=...&platform=...`).
+  2. **`StoryHeatMatrixChart` (48h 事件热度 × 6h 升温增速矩阵)**: Plots top clustered events (`storyKey`) with X = 48h decayed heat (`score_48h`), Y = 6h surge velocity / independent source count, and badge = `T1`/`T1_5`/`T2` representative, allowing instant click-through to breaking (`surge ↑`) stories.
+  3. **`TierSignalDistributionStrip` (`T1 / T1_5 / T2` 权威级、体裁与信号分布条)**: Horizontal stacked proportion bar with `tabular-nums` counters and 1-click filter pills for `T1 一手`, `T1_5 主创`, `T2 社区/热榜`, `discussion`, `pain`, and `surge`.
+  4. **`MultiScopeComparisonChart` (多专题 / 多实体并排声量与热度对比图 `POST /v1/project-comparisons`)**: Compares 2–5 projects or `IDENTITY_LEXICON` entities (`Claude Code` vs `Codex` vs `Cursor`, or `OpenAI` vs `Anthropic` vs `DeepSeek`) on aligned daily volume, event cluster count, and 48h heat (enforcing `MET-04` `HTTP 422` + 1-click metric switch if raw cross-platform likes are requested).
