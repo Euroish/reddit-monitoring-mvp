@@ -12,7 +12,7 @@ import {
   ResearchFilter,
   strictMerge,
 } from "../../../packages/contracts/src/source-content";
-import { contentColumns, contentSelect, contentTables, compileContentFilter, decodeCursor, filterSignature, matchedAnchors, pageObservations } from "./search";
+import { contentColumns, contentSelect, contentSourceTables, contentTables, compileContentFilter, decodeCursor, filterSignature, matchedAnchors, pageObservations } from "./search";
 import { contentFromRow } from "./sql";
 import { exportRoutes } from "./export";
 import { contentFacets } from "./facets";
@@ -52,10 +52,11 @@ async function listContent(pool: Pool, actor: Actor, query: Static<typeof ListQu
     }
   }
   compiled.values.push(limit + 1);
+  const tables = compiled.needsSearchDocument ? contentTables : contentSourceTables;
   const rows = (
     await pool.query(
       `${match.cte ? `${match.cte},` : "WITH"} page AS MATERIALIZED (
-        SELECT ${contentColumns}${match.columns} FROM ${contentTables} ${match.joins} WHERE ${match.where}${seek}
+        SELECT ${contentColumns}${match.columns} FROM ${tables} ${match.joins} WHERE ${match.where}${seek}
         ORDER BY c.created_at_source DESC NULLS LAST,c.id DESC LIMIT $${compiled.values.length}
       ) ${pageObservations(match.columns ? compiled.visible : compiled.discovery)}`,
       compiled.values,

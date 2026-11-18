@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { Resolver } from "node:dns/promises";
 import { request } from "node:https";
 import { BlockList, isIP } from "node:net";
+import { promisify } from "node:util";
+import { gunzip } from "node:zlib";
 import { load } from "cheerio";
 import Parser from "rss-parser";
 import sanitize from "sanitize-html";
@@ -22,8 +24,13 @@ for (const [network, prefix] of [["2001::", 23], ["2001:db8::", 32], ["2002::", 
   reserved.addSubnet(network, prefix, "ipv6");
 
 const hn = "https://news.ycombinator.com";
-const parser = new Parser<Record<string, never>, { author?: string }>();
+type MediaGroup = { "media:description"?: ({ _?: string } | string)[]; "media:thumbnail"?: { $?: { url?: string } }[] };
+const parser = new Parser<Record<string, never>, { author?: string; mediaGroup?: MediaGroup }>({
+  customFields: { item: [["media:group", "mediaGroup"]] },
+});
 const clean = (value: string) => sanitize(value, { allowedTags: [], allowedAttributes: {} }).trim();
+const decodeGzip = promisify(gunzip);
+const maxResponseBytes = 2 * 1024 * 1024;
 
 function httpsUrl(raw: string, base?: string) {
   try {
@@ -76,6 +83,7 @@ function requestPage(url: URL, ip: string, signal: AbortSignal, headers?: Record
       headers: {
         "User-Agent": "MonitoringWorkbench/1.0 (RSS reader)",
         Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.1",
+        "Accept-Encoding": "gzip",
         ...headers,
       },
       family, signal, agent: false,
@@ -98,11 +106,18 @@ function requestPage(url: URL, ip: string, signal: AbortSignal, headers?: Record
         let bytes = 0;
         for await (const chunk of response) {
           bytes += chunk.length;
-          if (bytes > 2 * 1024 * 1024) throw new ContentProviderError("Web source response exceeds 2 MiB", false);
+          if (bytes > maxResponseBytes) throw new ContentProviderError("Web source response exceeds 2 MiB", false);
           chunks.push(chunk);
         }
+        const body = Buffer.concat(chunks, bytes);
+        const decoded = status === 200 && response.headers["content-encoding"] === "gzip"
+          ? await decodeGzip(body, { maxOutputLength: maxResponseBytes }).catch(() => {
+            throw new ContentProviderError("Invalid or oversized gzip response", false);
+          })
+          : body;
+        signal.throwIfAborted();
         resolve({
-          body: Buffer.concat(chunks, bytes).toString("utf8"), status,
+          body: decoded.toString("utf8"), status,
           etag: response.headers.etag, modified: response.headers["last-modified"],
         });
       } catch (error) {
@@ -117,19 +132,20 @@ function requestPage(url: URL, ip: string, signal: AbortSignal, headers?: Record
 
 function article(input: {
   provider: "feed" | "newsnow"; sourceId: string; fetchedAt: string; url: URL;
-  title: string; text: string | null; publishedAt: string | null; feedUrl: string | null; rank?: number; author?: string;
+  title: string; text: string | null; publishedAt: string | null; feedUrl: string | null; rank?: number; author?: string; thumbnail?: string;
 }): CollectedContent {
   const externalId = input.url.href;
   const snapshot = Math.floor(Date.parse(input.fetchedAt) / 300000);
   const evidence = input.rank !== undefined
     ? JSON.stringify([externalId, snapshot, input.rank, input.title, input.text, input.publishedAt, input.author])
-    : JSON.stringify([externalId, input.title, input.text, input.publishedAt, input.author]);
+    : JSON.stringify([externalId, input.title, input.text, input.publishedAt, input.author, ...(input.thumbnail ? [input.thumbnail] : [])]);
   return {
     id: stableUuidFromString(`web:content:article:${externalId}`),
     platform: "web", kind: "article", externalId, url: externalId,
     title: input.title, text: input.text, publishedAt: input.publishedAt, fetchedAt: input.fetchedAt,
     author: input.author ? { externalId: null, handle: null, displayName: input.author, url: null } : null,
-    language: null, availability: "available", references: [], media: [],
+    language: null, availability: "available", references: [],
+    media: input.thumbnail ? [{ type: "image", url: input.thumbnail, previewUrl: null, altText: null, durationSeconds: null }] : [],
     platformDetails: { platform: "web", publisher: input.url.hostname, canonicalUrl: externalId, feedUrl: input.feedUrl },
     observation: {
       provider: input.provider, sourceId: input.sourceId, sourceObservedAt: null, fetchedAt: input.fetchedAt,
@@ -145,7 +161,7 @@ type ReadPage = (url: URL, signal?: AbortSignal, headers?: Record<string, string
 }>;
 
 type ListConfig = NonNullable<Extract<SourceTarget, { type: "feed" }>["list"]>;
-type Entry = { link?: string; title?: string; summary?: string; publishedAt?: string; author?: string };
+type Entry = { link?: string; title?: string; summary?: string; publishedAt?: string; author?: string; thumbnail?: string };
 
 function jsonDocument(body: string): unknown {
   try { return JSON.parse(body); }
@@ -263,8 +279,17 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
           const feed = await parser.parseString(response.body).catch(() => {
             throw new ContentProviderError("Expected a valid RSS or Atom feed", false);
           });
-          entries = feed.items.map((entry) => ({ link: entry.link, title: entry.title, summary: entry.content ?? entry.summary,
-            publishedAt: entry.isoDate, author: entry.creator ?? entry.author }));
+          const youtube = url.hostname === "www.youtube.com" && url.pathname === "/feeds/videos.xml";
+          entries = feed.items.map((entry) => {
+            const media = youtube ? entry.mediaGroup : undefined;
+            const description = media?.["media:description"]?.[0];
+            const thumbnail = media?.["media:thumbnail"]?.[0]?.$?.url;
+            return {
+              link: entry.link, title: entry.title, publishedAt: entry.isoDate, author: entry.creator ?? entry.author,
+              summary: entry.content ?? entry.summary ?? (typeof description === "string" ? description : description?._),
+              thumbnail: thumbnail ? httpsUrl(thumbnail, baseUrl)?.href : undefined,
+            };
+          });
         }
         let coveredTo: number | null = null;
         const items: CollectedContent[] = [];
@@ -293,7 +318,7 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
             provider, sourceId: input.source.id, fetchedAt, url: link, title,
             publishedAt: Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null,
             text: clean(entry.summary ?? "") || null, feedUrl: url.href,
-            author: clean(entry.author ?? "") || undefined,
+            author: clean(entry.author ?? "") || undefined, thumbnail: entry.thumbnail,
           }));
         }
         if (target.list && entries.length && !valid)

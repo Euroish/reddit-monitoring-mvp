@@ -58,6 +58,7 @@ export function compileContentFilter(
   const where = [
     `EXISTS(SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id WHERE ${discovery.join(" AND ")})`,
   ];
+  let needsSearchDocument = false;
   for (const filter of [projectFilter, requestFilter]) {
     if (filter.platform) where.push(`p.code=${bind(filter.platform)}`);
     if (filter.kind) where.push(`c.kind=${bind(filter.kind)}`);
@@ -72,6 +73,7 @@ export function compileContentFilter(
     )
       fail(422, "from must precede to");
     const predicate = (raw: string) => {
+      needsSearchDocument = true;
       const term = normalizePublicSearchText(raw);
       if (!term || /[\u0000-\u001f]/u.test(term))
         fail(422, "Search terms cannot be empty or contain controls");
@@ -99,6 +101,7 @@ export function compileContentFilter(
     for (const term of filter.exclusions ?? [])
       where.push(`NOT (${predicate(term)})`);
     if (filter.signal) {
+      if (filter.signal === "pain") needsSearchDocument = true;
       const metric = (key: string) => `(latest.metrics->>'${key}')::numeric`;
       const qualifies = filter.signal === "discussion"
         ? `(p.code='reddit' AND ${metric("reddit.num_comments")}>=10 OR p.code='x' AND ${metric("x.replies")}>=5)`
@@ -119,6 +122,7 @@ export function compileContentFilter(
     values,
     discovery: discovery.join(" AND "),
     visible,
+    needsSearchDocument,
   };
 }
 export function filterSignature(
@@ -157,7 +161,8 @@ export function decodeCursor(
 }
 
 export const contentColumns = `c.*,p.code AS platform,to_char(c.created_at_source,'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time`;
-export const contentTables = "content c JOIN source p ON p.id=c.source_id JOIN public_content_search_document doc ON doc.content_id=c.id";
+export const contentSourceTables = "content c JOIN source p ON p.id=c.source_id";
+export const contentTables = `${contentSourceTables} JOIN public_content_search_document doc ON doc.content_id=c.id`;
 
 function latestObservations(discovery: string, from: string) {
   return `SELECT DISTINCT ON(o.content_id,o.collection_source_id,o.provider) o.content_id,
