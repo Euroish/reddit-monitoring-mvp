@@ -23,7 +23,7 @@
 
 1. 从 [Web 路由](../apps/web/src/App.tsx) 入手，将项目列表移到 `/projects`，根路径留给“最新”。已有的 `/content?projectId=…` 项目钻取链接继续生效。
 2. 使用 [内容 API](../src/modules/content/routes.ts) 的 `GET /v1/content`。服务端已经按发布时间降序、未知时间置后，返回 `items` 和 `nextCursor`。首屏显式取 20 条，每条呈现标题或正文摘要、平台和发布时间；阅读列表保留下一页入口。
-3. 从[内容库](../apps/web/src/pages/ContentLibrary.tsx) 提取首页与内容库都要用的详情及收藏交互，保留已有批注与 revision。首页无需加载项目列表或预算。用已有库内数据试读，空库时分别为管理员和读者提供合适提示。
+3. 从[内容检索页](../apps/web/src/pages/ContentExplorerPage.tsx) 提取首页与内容库都要用的详情及收藏交互，保留已有批注与 revision。首页无需加载项目列表或预算。用已有库内数据试读，空库时分别为管理员和读者提供合适提示。
 4. 调整[既有浏览器主流程](../tests/browser/workbench.test.ts)的登录落点，串起首页阅读、收藏和进入项目三个动作；在隔离环境检查返回位置及窄屏阅读。该切片沿用现有 API 和表，独立交付后再做“为你”。
 
 ### 如何区分重整残留与产品缺口
@@ -69,7 +69,18 @@ Stage 0/1 已交付单 Fastify 入口、编译迁移、付费 Run 的持久化�
 | R1 尾项与 X 主源 | 设置页从共享契约读取六种 scope，浏览器实际创建 `read` + `export` Key 并用它检索。真实 kaix 任务持久化 Run 后收到 SIGTERM，退出码 0，重启复用同一 Run，队列只记一次收费启动，唯一写入并检索回 2 条主帖。TwitterAPIs 通过来源、预算、单页任务及同一写入内核，以 1 次真实搜索写入并检索回 20 条。 | kaix 此次开启评论采集，实际样本为 0 条评论。TwitterAPIs 真实验收覆盖搜索，账号时间线未做付费验收。自动排期和多页推进留待后续。 |
 | R2 核心研究流 | 项目创建、编辑、删除、来源交集及 revision；浏览器钻取项目内容，根帖归组和缺失上下文提示；`discussion` / `pain`，手选最多 30 个 Reddit 根帖水合，三视图评论树，保存查询、批注和流式下载。推流样本默认从项目统计排除，仍可在项目内容中阅读。 | PostgreSQL 16 通过 kaix 协议夹具验收水合排队、top 参数、入库和水位保持。真实水合与项目对比待验收。 |
 | 备源、资讯与 R3 | 可显式配置并选用 red_crawler / ScrapeBadger 备源，ScrapeBadger 备源与批量 ID 刷新通过协议夹具及 PG16 队列验证，任务记录 `X-Credits-Used`。NewsNow 的 Hacker News 榜与白名单 RSS 源经真实任务入库并分别检索回 20 条、10 条。PG16 隔离库备份修复扩展漏打包，恢复后 47 张表的行数与 47 条迁移校验和均一致。CI 锁定 Action SHA，并增加 gitleaks、生产依赖审计和标签触发的 GHCR App / Caddy 镜像发布链。 | ScrapeBadger 缺实测凭据，red_crawler 未发真实收费任务。旧冻结导出仍需原 owner 交付和对账后再做向前删除。GHCR 发布、生产恢复演练和公网切流待授权。 |
-| R4 离线归档外挂 | 已按独立 Python 外挂在 `plugins/zst-archive/` 交付（直连预构建的 `open-corpus-v1` Parquet + 4 分片 FTS5 包，通过 DuckDB 筛选与 `t3_*`/`t1_*` 父链映射经 `POST /v1/sources/:id/ingest` 推流，完全隔离于主线依赖、镜像与发布包之外）；已通过 5 项离线 pytest 及对 `2026-10` 真实归档（15 篇主帖 + 92 条评论共 107 条）的三轮预览库端到端验收（首次 `201 added=107`、同体 `200` 幂等重放、异时刻 `201 added=0/updated=0`、`thread` 树 7 节点检索通过）。 | 若未来新增未预处理的原始 `.zst` 归档，先按离线 `open-corpus-v1` 管线转换后再由本插件推流，或按需再行授权扩展直读转换模块。 |
+| R4 离线归档外挂 | 已按独立 Python 外挂在 `plugins/zst-archive/` 交付（直连预构建的 `open-corpus-v1` Parquet + 4 分片 FTS5 包，通过 DuckDB 筛选与 `t3_*`/`t1_*` 父链映射经 `POST /v1/sources/:id/ingest` 推流，完全隔离于主线依赖、镜像与发布包之外）；已通过 5 项离线 pytest、本地 3 个月（`2026-08`/`2026-09`/`2026-10`）归档包 `inspect` 校验及向同一 `push` 来源的跨 3 月联合推流端到端验收。 | 若未来新增未预处理的原始 `.zst` 归档，先按离线 `open-corpus-v1` 管线转换后再由本插件推流，或按需再行授权扩展直读转换模块。 |
+
+#### 阶段状态快照：R4 已完成 · 新版前端进入 Beta 测试（`2026-11-18`）
+
+- **代码基线与检查点**：在 `checkpoint/r4-open-corpus-plugin`（R4 离线插件检查点）之上推进 `feat/semrush-frontend-rebuild`，完成 Semrush 风格工作台全量替换，当前定位为 **R4 后端与外挂就绪、前端处于 Beta 测试**。
+- **前端 Beta 已落地与已修缺陷**：
+  - 保留公开产品首页 `/`（[Homepage.tsx](../apps/web/src/pages/Homepage.tsx)）与登录/邀请注册弹窗（[AuthModal.tsx](../apps/web/src/components/AuthModal.tsx)，已放宽邮箱校验兼容 `owner@localhost`），彻底移除离线 `mockEngine`，全量走 Live 同源 `/api/v1`，默认语言 `zh`。
+  - 修复讨论树抽屉向 `/v1/content/:id/thread` 误传 `limit`/`cursor` 触发 TypeBox `additionalProperties: false` 400 的问题（[client.ts](../apps/web/src/api/client.ts)、[ContentExplorerPage.tsx](../apps/web/src/pages/ContentExplorerPage.tsx)）；修复空项目库隐藏 `新建监测` 按钮问题（[ProjectsPage.tsx](../apps/web/src/pages/ProjectsPage.tsx)）；修复静态图片目录嵌套问题；接入 ECharts 6 图表与 [R4ArchivePanel.tsx](../apps/web/src/components/R4ArchivePanel.tsx) 多月联合推流控制台（取消此前写死单月 `--months 2026-10` 的误导）。
+  - 浏览器端到端基线 [workbench.test.ts](../tests/browser/workbench.test.ts) 已适配新界面与 `owner@localhost` 登录，验证公开着陆页、建源推流、批注、讨论树、JSON 流式导出、保存查询、R4 `ingest+read` 机器密钥、`include_push_in_trends` 开关及 1440/768/390 无横向溢出。
+- **Beta 后续待整理项（供后续 Agent 接续）**：
+  1. **来源与 R4 面板信息层级收敛**：当前 [SourcesPage.tsx](../apps/web/src/pages/SourcesPage.tsx) 将来源元信息、`R4ArchivePanel` 参数表单、手工 JSON 调试框与任务列表纵向堆叠在同一右栏，视觉偏密集；后续可把 R4 命令配置迁入弹窗向导、将手工 JSON 调试收折进二级工具栏，保留清爽的推流概览与批次历史。
+  2. **跨表聚合与筛选边界复测**：继续在实际 Beta 试用中核对 `ProjectsPage` 图表联动筛选、各渠道真实凭据下 `pull` 与 `push` 混合展示口径，以及 R4 多批次跨月抽样策略优化。
 
 本分支账户及个人研究接口继续使用 `/v1/access/keys`、`/v1/workspace/*`，路由统一命名见第 3 节。脱敏验收摘要、本地检查日志与隔离库备份位于忽略目录 `output/validation/next-stage/`。真实采集只对隔离库开放。未启动自动水合。
 

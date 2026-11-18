@@ -1,158 +1,199 @@
-import { useState } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Radar, Library, Radio, Bookmark, Settings, X } from "lucide-react";
-import type { Actor } from "../../../packages/contracts/src/source-content";
-import { api, type Run } from "./api";
-import { Field, Empty } from "./ui";
-import Projects from "./pages/Projects";
-import ContentLibrary from "./pages/ContentLibrary";
-import Sources from "./pages/Sources";
-import Workspace from "./pages/Workspace";
-import Account from "./pages/Account";
-export default function App() {
-  const client = useQueryClient();
-  const session = useQuery({
-    queryKey: ["session"],
-    queryFn: () => api<{ user: Actor | null }>("/auth/session"),
-  });
-  const [message, setMessage] = useState(""),
-    [busy, setBusy] = useState(false);
-  const run: Run = async (action) => {
-    setBusy(true);
-    setMessage("");
+import React, { useEffect, useState } from 'react';
+import { useCapabilitiesQuery, useSessionQuery } from './api/hooks';
+import { AuthModal } from './components/AuthModal';
+import { LogoProvider } from './components/BrandMark';
+import { ThemeProvider } from './components/ThemeStudio';
+import { type Lang, LangContext } from './i18n/translations';
+import { ContentExplorerPage } from './pages/ContentExplorerPage';
+import { Homepage } from './pages/Homepage';
+import { ProjectsPage } from './pages/ProjectsPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { SourcesPage } from './pages/SourcesPage';
+import { type WorkbenchRoute, WorkbenchShell } from './pages/WorkbenchShell';
+import { WorkspacePage } from './pages/WorkspacePage';
+
+const WORKBENCH_ROUTES: WorkbenchRoute[] = [
+  '/projects',
+  '/content',
+  '/sources',
+  '/workspace',
+  '/settings',
+];
+
+function parseLocation(): { pathname: string; search: string } {
+  return {
+    pathname: window.location.pathname || '/',
+    search: window.location.search.replace(/^\?/, ''),
+  };
+}
+
+function isWorkbenchPath(p: string): p is WorkbenchRoute {
+  return WORKBENCH_ROUTES.includes(p as WorkbenchRoute);
+}
+
+export function App() {
+  const [lang, setLangState] = useState<Lang>(() => {
     try {
-      await action();
-      await client.invalidateQueries();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "操作未完成");
-    } finally {
-      setBusy(false);
+      return localStorage.getItem('siftline.lang') === 'en' ? 'en' : 'zh';
+    } catch {
+      return 'zh';
+    }
+  });
+
+  const setLang = (l: Lang) => {
+    setLangState(l);
+    try {
+      localStorage.setItem('siftline.lang', l);
+    } catch {
+      // ignore
     }
   };
-  if (session.isPending)
-    return <main className="login-shell">正在连接工作台…</main>;
-  if (session.error)
-    return (
-      <main className="login-shell">
-        <p role="alert">{session.error.message}</p>
-        <button onClick={() => void session.refetch()}>重新连接</button>
-      </main>
-    );
-  if (!session.data?.user)
-    return (
-      <main className="login-shell">
-        <section className="login-card">
-          <Radar size={32} />
-          <p className="eyebrow">SIGNAL / RESEARCH</p>
-          <h1>回到你的研究</h1>
-          <p>登录后，继续追踪讨论与证据。</p>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              const form = new FormData(event.currentTarget);
-              void run(() =>
-                api("/auth/login", {
-                  method: "POST",
-                  body: JSON.stringify({
-                    email: form.get("email"),
-                    password: form.get("password"),
-                  }),
-                }),
-              );
-            }}
-          >
-            <Field label="邮箱">
-              <input
-                name="email"
-                type="email"
-                autoComplete="username"
-                required
-              />
-            </Field>
-            <Field label="密码">
-              <input
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-              />
-            </Field>
-            <button className="primary" disabled={busy}>
-              进入工作台
-            </button>
-          </form>
-          {message && <p role="alert">{message}</p>}
-        </section>
-      </main>
-    );
-  const user = session.data.user;
+
+  const t = (en: string, zh: string) => (lang === 'zh' ? zh : en);
+
+  const [loc, setLoc] = useState(parseLocation);
+  const [authModal, setAuthModal] = useState<{ open: boolean; tab: 'login' | 'register'; pendingTarget?: string }>({
+    open: false,
+    tab: 'login',
+  });
+  const [contentDetailId, setContentDetailId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+
+  useEffect(() => {
+    const onPop = () => setLoc(parseLocation());
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  const navigate = (pathWithQuery: string) => {
+    window.history.pushState(null, '', pathWithQuery);
+    setLoc(parseLocation());
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  };
+
+  const sessionQuery = useSessionQuery();
+  const actor = sessionQuery.data?.user ?? null;
+  const capabilitiesQuery = useCapabilitiesQuery(Boolean(actor));
+
+  const handleEnterWorkbench = (targetPath = '/projects') => {
+    if (!actor) {
+      setAuthModal({ open: true, tab: 'login', pendingTarget: targetPath });
+      return;
+    }
+    navigate(targetPath);
+  };
+
+  const onWorkbenchRoute = isWorkbenchPath(loc.pathname);
+  const showWorkbench = Boolean(actor) && onWorkbenchRoute;
+
+  const pendingQueryContext = React.useMemo(() => {
+    const raw = authModal.pendingTarget || (onWorkbenchRoute ? `${loc.pathname}?${loc.search}` : '');
+    const qPart = raw.split('?')[1];
+    if (!qPart) return undefined;
+    const sp = new URLSearchParams(qPart);
+    const q = sp.get('query');
+    const p = sp.get('platform');
+    if (q && p) return `${q} (${p})`;
+    return q || p || undefined;
+  }, [authModal.pendingTarget, onWorkbenchRoute, loc.pathname, loc.search]);
+
   return (
-    <div className="shell" aria-busy={busy}>
-      <aside className="sidebar">
-        <NavLink to="/" className="brand">
-          <Radar />
-          <span>
-            信号研究<span className="brand-small">MONITORING STUDIO</span>
-          </span>
-        </NavLink>
-        <nav aria-label="主导航">
-          {(
-            [
-              ["/", "项目", Radar],
-              ["/content", "内容库", Library],
-              ["/sources", "来源", Radio],
-              ["/workspace", "我的研究", Bookmark],
-              ["/settings", "设置", Settings],
-            ] as const
-          ).map(([to, label, Icon]) => (
-            <NavLink key={String(to)} to={String(to)} end>
-              <Icon size={19} />
-              <span>{String(label)}</span>
-            </NavLink>
-          ))}
-        </nav>
-        <div className="identity">
-          <span className="avatar">{user.email[0].toUpperCase()}</span>
-          <div>
-            {user.email}
-            <small>{user.role === "viewer" ? "研究成员" : "管理员"}</small>
-          </div>
-        </div>
-      </aside>
-      <main className="main">
-        <div className="topbar">
-          <span>
-            <i /> 个人研究空间
-          </span>
-          <span>以已存样本为依据</span>
-        </div>
-        {message && (
-          <div role="alert" className="alert">
-            {message}
-            <button aria-label="关闭提示" onClick={() => setMessage("")}>
-              <X size={16} />
-            </button>
-          </div>
-        )}
-        <Routes>
-          <Route
-            path="/"
-            element={<Projects run={run} canEdit={user.role !== "viewer"} />}
-          />
-          <Route path="/content" element={<ContentLibrary run={run} canCollect={user.role !== "viewer"} />} />
-          <Route
-            path="/sources"
-            element={<Sources run={run} canEdit={user.role !== "viewer"} />}
-          />
-          <Route path="/workspace" element={<Workspace run={run} />} />
-          <Route path="/settings" element={<Account run={run} user={user} />} />
-          <Route
-            path="*"
-            element={<Empty>页面不存在。请从左侧导航继续。</Empty>}
-          />
-        </Routes>
-      </main>
-    </div>
+    <LangContext.Provider value={{ lang, setLang, t }}>
+      <ThemeProvider>
+        <LogoProvider>
+          {showWorkbench && actor ? (
+            <WorkbenchShell
+              actor={actor}
+              capabilities={capabilitiesQuery.data}
+              route={loc.pathname as WorkbenchRoute}
+              currentSearch={loc.search}
+              selectedProjectId={selectedProjectId}
+              onSelectProjectId={setSelectedProjectId}
+              onNavigate={navigate}
+              onGoHome={() => navigate('/')}
+            >
+              {loc.pathname === '/projects' && (
+                <ProjectsPage
+                  actor={actor}
+                  selectedProjectId={selectedProjectId}
+                  onSelectProjectId={setSelectedProjectId}
+                  initialSearchString={loc.search}
+                  onDrilldown={(projectId, extraQs) => {
+                    const sp = new URLSearchParams(extraQs || '');
+                    if (projectId) sp.set('projectId', projectId);
+                    const suffix = sp.toString() ? `?${sp.toString()}` : '';
+                    navigate(`/content${suffix}`);
+                  }}
+                  onOpenContentDetail={(cid) => {
+                    setContentDetailId(cid);
+                    navigate('/content');
+                  }}
+                />
+              )}
+              {loc.pathname === '/content' && (
+                <ContentExplorerPage
+                  key={loc.search}
+                  actor={actor}
+                  initialQueryString={loc.search}
+                  initialDetailId={contentDetailId}
+                  onClearDetailId={() => setContentDetailId(null)}
+                />
+              )}
+              {loc.pathname === '/sources' && (
+                <SourcesPage actor={actor} initialQueryString={loc.search} />
+              )}
+              {loc.pathname === '/workspace' && (
+                <WorkspacePage
+                  initialQueryString={loc.search}
+                  onRunSavedQuery={(qs) => navigate(`/content${qs ? `?${qs}` : ''}`)}
+                  onOpenContentDetail={(cid) => {
+                    setContentDetailId(cid);
+                    navigate('/content');
+                  }}
+                  onNavigate={navigate}
+                />
+              )}
+              {loc.pathname === '/settings' && (
+                <SettingsPage actor={actor} initialQueryString={loc.search} />
+              )}
+            </WorkbenchShell>
+          ) : (
+            <Homepage
+              isAuthenticated={Boolean(actor)}
+              onOpenAuth={(tab = 'login') =>
+                setAuthModal({
+                  open: true,
+                  tab,
+                  pendingTarget: onWorkbenchRoute
+                    ? loc.pathname + (loc.search ? `?${loc.search}` : '')
+                    : '/projects',
+                })
+              }
+              onEnterWorkbench={handleEnterWorkbench}
+            />
+          )}
+
+          {(authModal.open || (!actor && onWorkbenchRoute && !sessionQuery.isLoading)) && (
+            <AuthModal
+              initialTab={authModal.tab}
+              initialQueryContext={pendingQueryContext}
+              onClose={() => {
+                setAuthModal((s) => ({ ...s, open: false }));
+                if (!actor && onWorkbenchRoute) navigate('/');
+              }}
+              onSuccess={() => {
+                const target =
+                  authModal.pendingTarget ||
+                  (onWorkbenchRoute ? loc.pathname + (loc.search ? `?${loc.search}` : '') : '/projects');
+                setAuthModal((s) => ({ ...s, open: false }));
+                navigate(target);
+              }}
+            />
+          )}
+        </LogoProvider>
+      </ThemeProvider>
+    </LangContext.Provider>
   );
 }
+
+export default App;

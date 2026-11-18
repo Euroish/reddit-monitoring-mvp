@@ -79,7 +79,15 @@ ARCHIVE_INGEST_TOKEN="<43-char-machine-key>" PYTHONPATH=plugins/zst-archive pyth
 ```
 
 - 映射严格遵守 `timeBasis = 'archive_initial'`、`sourceObservedAt = null`（因 `open-corpus-v1` Parquet 不保留 `observed_utc` 且已脱敏 `author_key`），并按 UTF-8 字节边界截断标题（`<=4096`）与正文（`<=65536`）；
+- **单源跨多月统一推流**：`collection_source`（`delivery_mode='push'`）不按月份锁死；不传 `--months` 时自动联合检索 `--archive-root` 下全部可用月份包（例如 `2026-08`、`2026-09`、`2026-10`）。因 `select_archive_threads` 按 `created_utc DESC` 截断 `--limit`，若需跨月均衡入库至同一 `sourceId`，可传入具体 `--months` 或 `--from`/`--to` 时间窗分批推送（全量去重仍由 `commitContentBatch` 统一守卫）；
 - 每批计算确定性 `evidenceKey` 与 `Idempotency-Key`，支持 `429 Retry-After` / `503` 退避及本地 SQLite 账本断点续传。
+
+### 前端 Beta 构建与 Windows 本地测试环境说明
+
+- **双 TS 配置**：根目录 `tsconfig.json` 覆盖 `src/`、`apps/api/`、`packages/`、`scripts/`、`tests/`（`NodeNext`），前端 `apps/web` 引入 `echarts` 后由 `apps/web/tsconfig.json` 经 `npm --prefix apps/web run typecheck` / `vite build` 独立检查；安装依赖与验证均需同时覆盖根目录与 `apps/web/`。
+- **Windows PG16 与 Playwright 运行要点**：
+  - `npm run test:postgres` / `npm run test:browser` 的 `TEST_SOURCE_DATABASE_URL` 路径必须匹配 `/^\/source_validation_[a-z0-9_]+$/`（例如 `postgresql://postgres:postgres@127.0.0.1:25432/source_validation_main`）。
+  - 若 Playwright 缓存的默认版本号与本机已安装版本不一致，可通过 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指向本机 `chrome-headless-shell.exe`；[workbench.test.ts](../tests/browser/workbench.test.ts) 已改为直接调用 Node 运行 `vite.js` 并在结束时用 `taskkill /T /F` 回收子进程，避免 Windows 下 `shell: true` 产生管道挂起。
 
 ## 2. 历史版本 `main@0.9.1` 的入口与门禁脚本
 

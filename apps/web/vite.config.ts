@@ -27,6 +27,14 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
+      '/healthz': {
+        target: apiProxyTarget,
+        changeOrigin: true,
+      },
+      '/readyz': {
+        target: apiProxyTarget,
+        changeOrigin: true,
+      },
     },
   },
   resolve: {
