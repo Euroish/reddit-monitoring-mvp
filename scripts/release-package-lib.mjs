@@ -29,6 +29,7 @@ export const DOCUMENTATION_FILES = Object.freeze([
   'docs/research/product-architecture-conversation-20261118.md',
   'docs/research/data-sources.md',
   'docs/research/ChatGPT-讲解仓库文档-20261118-1807.md',
+  'docs/research/deep-audit-and-architecture-blueprint-20261118.md',
   'docs/research/architecture_audit_and_rebuild_spec.md',
   'docs/research/source_replacement_and_twitterapi_io_removal_spec.md',
   'docs/plans/source-expansion.md',
