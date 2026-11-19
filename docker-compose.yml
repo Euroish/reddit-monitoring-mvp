@@ -42,6 +42,7 @@ services:
       TWITTERAPIS_API_KEY: ${TWITTERAPIS_API_KEY:-}
       SCRAPEBADGER_API_KEY: ${SCRAPEBADGER_API_KEY:-}
       FEED_ALLOWED_URLS: ${FEED_ALLOWED_URLS:-}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-6}
     depends_on:
       db:
         condition: service_healthy

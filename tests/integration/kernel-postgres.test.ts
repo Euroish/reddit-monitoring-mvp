@@ -819,5 +819,14 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
     const node = response.json().nodes.find(({ item }: { item: { id: string } }) => item.id === row.id);
     assert.equal(node?.depth, 2);
     assert.equal(node.contextMissing, false);
+
+    const readOnly = await createSession(db.pool, (await db.pool.query("SELECT id FROM app_user WHERE email='viewer@example.test'")).rows[0].id, "machine", ["read"], [a.id], 1);
+    assert.equal((await app.inject({ method: "POST", url: "/v1/content/enrich", headers: { authorization: `Bearer ${readOnly.token}` } })).statusCode, 403);
+
+    await db.pool.query("DELETE FROM public_content_search_document WHERE content_id=ANY($1::uuid[])", [[known.id, item.id]]);
+    assert.equal((await app.inject({ url: `/v1/content/${known.id}`, headers })).statusCode, 200);
+    assert.equal((await app.inject({ url: `/v1/content/${row.id}/thread`, headers })).json().root.externalId, item.externalId);
+    assert.ok((await app.inject({ url: "/v1/workspace/annotations", headers })).json().annotations.some((entry: { content_id: string }) => entry.content_id === known.id));
+    assert.ok(!(await app.inject({ url: `/v1/content?sourceId=${a.id}&query=World`, headers })).json().items.some((entry: { id: string }) => entry.id === item.id));
   });
 });

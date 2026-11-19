@@ -1,75 +1,69 @@
-# 产品规范、指标口径与文档总览
+# 产品规范、指标口径与文档总览（STD-100）
 
-本文确立产品的核心定位、度量诚实性标准与工程边界。系统拓扑与存储演进见[主线架构规范](architecture.md)，数据对象与路由契约见[数据与 API 契约](contracts.md)，交互体验与 `semrush` 前端分支融合方案见[前端与可视化交互规范](design.md)，实码盘点与 V2 实施序列见[当前状态与规划](status.md)，单机运维见[开发与运维手册](development.md)。
-
-规范等级 `MUST` / `MUST NOT` / `SHOULD` / `MAY` 由 `npm run docs:check` 执行静态校验，全仓规则 ID 全局唯一。
+本文规定产品边界、度量诚实性、建表纪律与全仓 15 份文档索引。规格关键词 `MUST` / `MUST NOT` / `SHOULD` / `MAY` 由 `npm run docs:check` 静态校验，全仓规则 ID 全局唯一。
 
 ---
 
-## 1. 产品定位演进：从“单一采集监控台”到“信息流优先 + 选择性可视化 + 内容资产复利”
+## 1. 产品定位：信息流优先 · 选择性可视化 · 内容资产复利
 
-产品最初是一个面向 Reddit 的重型关键字监控看板（包含 47 张历史中间统计表与多页图表仪表盘）；经过 R1–R3 内核重建与 `050` 结构大清理后，系统已经进化为运行在 **4 vCPU / 4 GB RAM / 60 GB 系统盘** 单机上的**多源双语信息流、事件聚簇、选择性数据可视化与个人/Agent 知识工作台**。
+系统已从早期单一平台监控看板收敛为运行于 **4 vCPU / 3.8 GiB RAM / 58 GiB 磁盘** 单机上的**多源双语信息流、选择性交互可视化与个人/Agent 知识工作台**：
+1. **信息流解决高效获取**：`/` 首页直接读取库内已聚簇事件卡与 08:00 日报，同源转发按 `T1 > T1_5 > T2` 折叠选举一手代表报道；
+2. **选择性可视化解决可信研判**：拒绝装饰性评分仪表与跨平台混淆计数；仅提供卡片内嵌权威比例条/48h 火花线及探索/专题页的可点击跨平台脉冲、热度×增速与单源时序观测图；
+3. **内容资产复利解决知识沉淀**：在稳定核心表内叠加阅读状态、持久化事件成员归属与既有 GIN/全文过滤，使抓取内容可持续检索、对比与二次利用。
 
-这次转型的核心判断只有三句：
-1. **信息流解决“每天 3 分钟读什么”**：首页（`/`）打开即读库内已聚合的事件卡与 08:00 日报，同源转发自动按 `T1 > T1_5 > T2` 折叠选举一手代表报道；
-2. **选择性可视化解决“热点从哪来、信源靠不靠谱、讨论怎么演进”**：摒弃为了装饰而堆砌的假分数仪表盘与跨平台混淆柱图。只保留真正回答阅读与研判问题的可视化：信息流卡片内嵌微型来源权威比例条与 48h 热度火花线，探索与专题页提供可点击联动的跨平台发布脉冲图、48h 热度×6h 增速四象限、单源时间序列观测图，点击任一柱体或事件气泡直接收窄下方正文与三视图评论树；
-3. **内容资产复利解决“抓取回来不只是看一眼就忘”**：现有采集回来的 `title`、`body_text`、`content_author`、`content_references`（外链/引用关系）、`platform_details`（通道/完整度）与 `content_observation`（时序指标）如果只做简单分页列表就是一次性消耗品。后续通过**已读/归档/静音阅读流状态**、**持久化的事件聚簇**与**确定性实体标签（公司/模型/人物/主题）**，让每一次抓取都在数据库内复利沉淀为可交叉透视的知识网络。
-
-### 五种高频使用节奏与当前可用性边界
-
-| 使用节奏 | 当前在线基线 (`prod@8e436ac`) | V2 计划深化方向 |
+| 使用场景 | `[LIVE]` 已上线基线 | `[V2]` 演进方向（见 `status.md`） |
 | :--- | :--- | :--- |
-| **1. 晨间 3 分钟扫读与 08:00 日报** | 已上线：`GET /v1/content/stories`（`latest` / `hot` / `digest`），支持 8 个频道、`tier`、`language` 过滤与 Markdown 日报复制 | 卡片增配 `已读/收藏/静音` 阅读状态、轻量 AI 双语摘要胶囊与 `为你` RRF 个性化排序 |
-| **2. 分频道与重点人物追踪** | 已上线：100 个活跃源按 8 个 `source_group`（`ai-firsthand`、`dev-infra`、`tech-media`、`lifestyle`、`design-visual`、`science`、`public-affairs`、`social-trends`）与 `T1`/`T1_5`/`T2` 分级持续排期采集 | 批量接入 200+ VIP 学者 X 批次与开源 `newsnow`/`bluesky` 榜单；按作者实体一键订阅/静音 |
-| **3. 克制且有信息量的图表看盘** | 已上线：`GET /v1/content/facets` 与 `GET /v1/projects/:id/overview` 单 CTE `GROUPING SETS` 查询返回按日/6h 平台脉冲（前端尚未充分渲染） | 融合 `semrush` 分支可用图表逻辑，落地**卡片内嵌零依赖 SVG 微图 + 按需懒加载交互分析图**，严守分平台/分渠道指标诚实性 |
-| **4. 内容探索与外部按题取证** | 已上线：`GET /v1/content` 与 `GET /v1/content/feed` 支持双字词/短词 GIN 检索、体裁/媒体/语言筛选与 `discussion`/`pain` 信号筛选 | 新增 `POST /v1/discovery/query` 联动垂直公开 API 与本地已存样本，并将发现的好站点一键转入长期排期 |
-| **5. 专题监测与三视图深挖** | 已上线：`monitor_project` 三段词过滤、按需 `kaix` 评论树水合、`top`/`matches`/`op` 三视图与 RFC 4180/JSON 流式导出 | 增加多专题/多实体并排对比（`POST /v1/project-comparisons`）与单条评论独立批注 |
+| **1. 首页流与 08:00 日报** | `GET /v1/content/stories`（`latest`/`hot`/`digest`），支持 8 频道/`tier`/`language` 过滤与 Markdown 复制 | Phase A 补 `tierBreakdown`+`sparkline48h` 微图；Phase B 补 `read_before_at` 水位与 `为你` RRF |
+| **2. 分频道与批量信源** | `100` 个活跃源（8 业务 `source_group`），支持动态 HTTPS/`web_list`/`json_list` 预览与 OPML/JSON 导入 | Phase C 扩 `newsnow`/`bluesky`/VIP X 批次/Readability，并通过 `stream_class='live'` 接入 L3 Sidecar |
+| **3. 选择性图表与三视图** | 后端 `GET /v1/content/facets` 与 `/v1/projects/:id/overview` 提供 `GROUPING SETS`；`ThreadTreeView` 待融合 | Phase A 落地 Tier-1 原生 SVG 微图 + Tier-2 懒加载 `echarts/core` 交互图与三视图评论树 |
+| **4. 检索与专题对比** | 三段词 + 中文双字词/短代号（`算力`/`o3`）GIN 检索、信号筛查、专题水合（`kaix`）与 RFC 4180 流式导出 | Phase B 新增基于 GIN 的 `POST /v1/project-comparisons` 与单条评论批注 |
+| **5. 外部探索与按需 AI** | 仅支持静态库内查询与受限 API Key 只读/导出 | Phase D 按需落地 `/v1/discovery/query` 与零 SDK `/v1/content/:id/enrich` |
 
 ---
 
-## 2. 产品能力、度量诚实性与工程准则（`docs:check` 受控规则）
+## 2. 规范规则表（`docs:check` 受控 ID）
 
 | ID | 等级 | 产品能力与边界规则 | 验收出口 |
 | --- | --- | --- | --- |
-| PRD-01 | MUST | 全文检索与项目过滤必须支持三段词（`anyTerms`、`allTerms`、`exclusions`）、中文双字词（`算力`、`评测`）及短技术代号（`AI`、`o3`、`R1`）GIN 索引匹配；任何首页加载、频道切换或项目保存操作只读取已存库内数据，绝不在读路径触发外部收费抓取。 | PG16 `EXPLAIN` 与路由测试 |
-| PRD-02 | MUST | 信源必须通过 `tier`（`T1`/`T1_5`/`T2`）、`sourceGroup`（8 业务分组）、`locale` 与 `fetchPolicy` 分类管理；接入渠道覆盖 `feed`（RSS/Atom/`web_list`/`json_list` 与 OPML/JSON 批量导入）、`newsnow`（7 大内置热榜）、`reddit`（`kaix`/`red_crawler`）、`x`（`twitterapis`/`scrapebadger`）、`bluesky_appview` 与 `external_ingest` 推流；公网列表源支持保存前“预览前 20 条”。 | 预览、导入与连接器单测 |
-| PRD-03 | MUST | 多源发现的同一事件通过规范外链与 64-bit SimHash（LSH 分桶与版本号隔离）聚簇并按 `T1 > T1_5 > T2`（同级英文原题优先）选举代表报道；48 小时独立参与者热度与 6 小时升温趋势按确定性规则计算，每日北京时间 08:00 切分日报窗口；专题与探索页通过单 SQL 分面与三视图评论树（`top`/`matches`/`op`）联动钻取，支持有界流式导出。 | 事件聚簇、分面与三视图 E2E |
-| PRD-04 | MUST | 后续 AI 翻译/事件综述与按题外部探索严格遵守微内核零阻塞隔离：AI 扩展以零 SDK 原生 `fetch`（按簇指纹幂等缓存于 `platform_details.extensions.ai`）或外部 Agent 经只读/限定 Scope API Key 接入，受 `source_provider_budget`（`ai_enrich`）额度控制，未配置时 100% 确定性零模型运行；任何会产生外部账单的采集或激活操作须经预算核验与浏览器管理会话明确确认。 | 权限隔离、预算熔断与降级检查 |
+| PRD-01 | MUST | 三段词（`anyTerms`/`allTerms`/`exclusions`）、中文双字词与短代号 GIN 检索 `MUST` 只读库内已存数据；页面切换或项目保存 `MUST NOT` 在读路径触发收费外网抓取。 | PG16 `EXPLAIN` 与路由测试 |
+| PRD-02 | MUST | 信源 `MUST` 归属 `tier`（`T1`/`T1_5`/`T2`）、`sourceGroup`、`locale` 与 `fetchPolicy`；新来源首次未检查状态限制 8 条采集，且 `[V2]` `MUST` 强制实现超 48 小时旧文按原发布时间归档而不挤占今日精选与日报；`feed`/`newsnow` 支持保存前预览前 20 条与 OPML/JSON 批量导入。 | 预览、导入与防刷屏测试 |
+| PRD-03 | MUST | 多源事件通过规范链接、版本防混淆与 64-bit SimHash 聚簇，代表报道严格按 `T1 > T1_5 > T2`（同级英文优先）选举；48h 热度（24h 半衰期）与 6h 趋势按确定性规则计算，08:00 切换日报；专题钻取支持三视图评论树与有界流式导出。 | 事件聚簇与三视图 E2E |
+| PRD-04 | MUST | `[V2]` 按题动态探索与按簇 AI 双语/三点综述 `MUST` 保持微内核无阻塞解耦：AI 扩展以零 SDK `fetch` 幂等写入 `platform_details.extensions.ai`，受 `source_provider_budget (ai_enrich)` 与非 `read` Key 权限隔离控制；产费与状态变更须经预算与浏览器管理员确认。 | 权限与预算熔断测试 |
 
-| ID | 等级 | 度量诚实性与样本可信度口径 | 验收出口 |
+| ID | 等级 | 度量诚实性与样本口径规范 | 验收出口 |
 | --- | --- | --- | --- |
-| MET-01 | MUST NOT | 将库内已采集的去重条目数宣传为“全网总声量”，或将 `newsnow` 榜单名次（`web.rank`）与 HTTP `304` 校验刷新冒充新增正文或互动上涨；来源停采逾期或新接入不足 6 小时窗口时，严禁伪造 6h 涨跌幅（必须标记 `trend = 'unknown'`）。 | 响应结构与图表文案审计 |
-| MET-02 | MUST | 严格隔离内容身份 `(platform, kind, externalId)`、`content_discovery`（多源发现关系）与 `content_observation`（按真实 `provider` 隔离的快照观测）；同一 48 小时窗口内同一独立参与者对同一事件只贡献一次最高权重；`pull` 与 `push` 共享身份去重，但默认流、热度与趋势仅统计 `pull` 来源。 | 多源去重与热度权重测试 |
-| MET-03 | MUST | 严守三轴时间分离：`publishedAt`（`created_at_source`）、`sourceObservedAt` 与 `fetchedAt` 互不冒名顶替；未知发布时间保持 `null`，禁止用 `first_seen_at` 或当前时间篡改填充。 | SQL/Connector 时间边界测试 |
-| MET-04 | MUST | `threadAware = true` 下内容与分面按可见根帖（`anchor`）去重计数 `contentCount` 并单独报告 `matchedContentCount`；不同平台（如 Reddit score vs X likes）或不同 `timeBasis` 的原始互动指标禁止跨系列直接相加，可视化图表必须按 `(sourceId, provider, metricKey)` 分线并保留 `null` 断档，跨平台对比必须退回内容量/事件热度视角或返回 `422`。 | 分面计数与图表口径审查 |
+| MET-01 | MUST NOT | `MUST NOT` 将库内去重条数冒充全网声量，或将 `newsnow` 排名（`web.rank`）与 HTTP `304` 刷新冒充新增互动/正文；来源停采逾期或接入未满 6 小时 `MUST` 标记 `trend = 'unknown'`。 | 响应结构与文案审计 |
+| MET-02 | MUST | 内容身份 `(source_id, kind, external_id)`、`content_discovery` 与 `content_observation`（按真实 `provider` 隔离）互不混用；48h 同一参与者仅计一次最高贡献；当前 `[LIVE]` 默认流/趋势仅算 `pull`，`[V2]` 引入 `stream_class` 后默认纳入 `live`（含 L3 实时推流）并排除 `archive`/`adhoc`。 | 多源去重与口径测试 |
+| MET-03 | MUST | 三轴时间 `publishedAt`（`created_at_source`）、`sourceObservedAt`、`fetchedAt` 严格分离；未知发布时间保持 `null`，`MUST NOT` 以抓取时间冒充原文时间挤压当日信息流。 | 时间轴边界单测 |
+| MET-04 | MUST | `threadAware = true` 下按可见根帖（`anchor`）去重计 `contentCount` 并另报 `matchedContentCount`；跨平台或跨 `timeBasis` 的原始互动分/赞 `MUST NOT` 直接相加，观测图必须按 `(sourceId, provider, metricKey)` 分线并保留 `null` 断档，跨平台对比仅允许内容量/事件热度，否则返 `422`。 | 对比 422 与图表审计 |
 
-| ID | 等级 | 工程可读性、建表纪律与验证准则 | 验收出口 |
+| ID | 等级 | 工程精简与验证规范 | 验收出口 |
 | --- | --- | --- | --- |
-| ENG-01 | MUST | 后端严守五模块扁平纵向切分（`access`、`collection`、`content`、`projects`、`workspace`）、`commitContentBatch` 唯一入库与进程内有界 Worker；数据库在 Post-050 20 张核心表基线上执行**节制演化纪律**：优先复用现有 JSONB/字段，新增持久关系表须证明性能/索引刚需且总表数严格控制于 **`<= 26` 张**；禁止单实现 `*Repository` 与 `InMemory*` 模拟层。 | `docs:check` 与迁移审查 |
-| ENG-02 | MUST NOT | 通过删换行压行、拆出纯透传碎文件或引入未经树摇的巨型第三方重包伪装功能丰富；前端严格实行“信息流零图表重包 + 分析页按需加载”，模块代码遵守 `<= 450` 行/文件与 `<= 220` 字/非模板行，注释只说明“为何这样做”的外部约束。 | `docs:check` 与构建体积检查 |
-| ENG-03 | MUST | 所有行为均以纯函数单测 + 真实 `postgres:16-alpine` HTTP 集成测试 + 无头浏览器核心流验证；任何外部付费调用在网络异常进入 `unknown` 状态时立即写库并停发待人工确认，绝不静默重试导致重复扣费。 | CI 全门禁与停发恢复测试 |
+| ENG-01 | MUST | 后端严守五模块扁平结构、`commitContentBatch` 唯一入库与进程内 Worker；核心数据库自 Post-050 `20` 张表起严守 **`<= 24` 张表** 上限（优先复用已有字段与 JSONB，不建投机性低收益关联表）；禁止单实现 `*Repository` 与 `InMemory*` 模拟。 | `docs:check` 与迁移审查 |
+| ENG-02 | MUST NOT | `MUST NOT` 压行删换行或引入全量重型前端图表包；前端严守“首页 SVG 微图 0 重包 + 分析页 `React.lazy` 懒加载 `echarts/core`”，源码遵守 `<= 450` 行/文件与 `<= 220` 字/非模板行。 | `docs:check` 与构建检查 |
+| ENG-03 | MUST | 测试锁定纯函数单测 + 隔离 `postgres:16-alpine` HTTP 集成 + 核心浏览器验证；任何外部付费调用处于 `unknown` 状态 `MUST` 立即落库停发并待人工 `acknowledgePotentialCharge` 解封，禁止静默重试。 | CI 门禁与停发测试 |
 
 ---
 
-## 3. 全仓 `docs/` 文档索引
+## 3. 全仓 15 份受控文档清单（`DOCUMENTATION_FILES` 100% 对齐）
 
-### A. 现行权威规范（8 份 · 随当前代码与演进同步维护）
+### A. 项目入口与合作规范（2 份）
+- [README.md](../README.md)：仓库总入口（`<= 60` 行）、`[LIVE]`/`[V2]` 边界与校验入口
+- [AGENTS.md](../AGENTS.md)：Agent 协作总纲、Post-050 红线与分支融合禁令
 
-| 文档 | 职责定位 |
-| :--- | :--- |
-| [AGENTS.md](../AGENTS.md) | Agent 协作总纲、Post-050 红线、分支融合禁令与代码静态护栏入口 |
-| [当前状态与规划](status.md) | **唯一状态真源**：`prod@8e436ac` 实码盘点、`semrush` 分支逐项对照、已修复故障台账与 V2 Phase A–D 交付路线 |
-| [开发与运维手册](development.md) | **唯一运维与历史台账真源**：Compose / PG16 参数、多阶段构建、备份演练、OPML 扩容实操与 `0.2.0–0.9.1` 至 `050` 记录 |
-| [主线架构规范](architecture.md) | 5 模块内核拓扑、PostgreSQL 20→<=26 表结构升级、内容复利层、L1–L3 扩源及安全/容量预算 |
-| [数据与 API 契约](contracts.md) | 核心领域对象、050 来源字段、混合批幂等、双字词 GIN、`story` 聚簇与全量 `/v1/*` 路由清单 |
-| [前端与可视化交互规范](design.md) | Editorial Mineral 视觉语言、三模态界面、双层图表架构与 `feat/semrush-frontend-rebuild` 融合清单 |
-| [来源矩阵与扩源分层](research/data-sources.md) | 开源标杆拆解（Folo/Miniflux/NewsNow/AIHOT/Karakeep/Ground News）、8 个活跃分组与 L1–L3 扩源策略 |
-| [演进边界与外挂隔离](plans/source-expansion.md) | R1–R3 已完成资产收敛对照、Post-050 迁移准则与 R4 `plugins/zst-archive/` + L3 Sidecar 隔离规范 |
+### B. 现行权威规范（8 份 · 与 `prod` 代码同步维护）
+- [docs/README.md](README.md)：产品定位、度量口径、规则表与全仓 15 文档清单
+- [docs/status.md](status.md)：**唯一状态真源**：实码盘点、`semrush` 审计与 V2 Phase A–D 路线
+- [docs/development.md](development.md)：**唯一运维与台账真源**：构建、环境、PG16 运维与 `0.2.0–050+` 记录
+- [docs/architecture.md](architecture.md)：五模块拓扑、`20 -> <= 24` 演进、L1–L3 扩源与 4 GB 安全预算
+- [docs/contracts.md](contracts.md)：领域语义、`050` 新字段、`[LIVE]` 43 路径/50 操作与 `[V2]` 接口契约
+- [docs/design.md](design.md)：三模态设计、双层图表架构与 `feat/semrush-frontend-rebuild` 融合矩阵
+- [docs/research/data-sources.md](research/data-sources.md)：开源标杆拆解、8 个活跃分组与 L1–L3 扩源分级
+- [docs/plans/source-expansion.md](plans/source-expansion.md)：R1–R3/`050` 完结档案、`051+` 边界与 R4/L3 外部隔离
 
-### B. 历史研究与早期审计归档（7 份 · 保留溯源，不再作现行实现依据）
-
-- [架构审查母本 (`main@7045185` 基线)](research/architecture_audit_and_rebuild_spec.md)
-- [旧来源替换与 `twitterapi_io` 清理规格 (`2026-11-16`)](research/source_replacement_and_twitterapi_io_removal_spec.md)
-- [全仓深度审查与 4GB 单机蓝图 (`prod@7440058`)](research/deep-audit-and-architecture-blueprint-20261118.md)
-- [产品方向与架构讨论归档 (`2026-11-18`)](research/product-architecture-conversation-20261118.md)
-- [历史外部大规模架构假设讨论归档 (`2026-11-18`)](research/ChatGPT-讲解仓库文档-20261118-1807.md)
+### C. 历史研究与早期审计归档（5 份 · 只读溯源，不作现状依据）
+- [docs/research/architecture_audit_and_rebuild_spec.md](research/architecture_audit_and_rebuild_spec.md)（`main@7045185` 尸检母本）
+- [docs/research/source_replacement_and_twitterapi_io_removal_spec.md](research/source_replacement_and_twitterapi_io_removal_spec.md)（旧双源清理规格）
+- [docs/research/deep-audit-and-architecture-blueprint-20261118.md](research/deep-audit-and-architecture-blueprint-20261118.md)（`prod@7440058` 审计蓝图）
+- [docs/research/product-architecture-conversation-20261118.md](research/product-architecture-conversation-20261118.md)（`2026-11-18` 早期讨论记录）
+- [docs/research/ChatGPT-讲解仓库文档-20261118-1807.md](research/ChatGPT-讲解仓库文档-20261118-1807.md)（外部架构输入归档）

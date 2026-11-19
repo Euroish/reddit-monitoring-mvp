@@ -175,7 +175,7 @@ export function decodeCursor(
 
 export const contentColumns = `c.*,p.code AS platform,to_char(c.created_at_source,'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time`;
 export const contentSourceTables = "content c JOIN source p ON p.id=c.source_id";
-export const contentTables = `${contentSourceTables} JOIN public_content_search_document doc ON doc.content_id=c.id`;
+export const contentTables = `${contentSourceTables} LEFT JOIN public_content_search_document doc ON doc.content_id=c.id`;
 
 function latestObservations(discovery: string, from: string) {
   return `SELECT DISTINCT ON(o.content_id,o.collection_source_id,o.provider) o.content_id,
@@ -206,7 +206,7 @@ export function matchingNodes(compiled: ReturnType<typeof compileContentFilter>,
   return `SELECT c.id,c.created_at_source,c.kind,p.code AS platform,
       ${threadAware ? "COALESCE(root.id,c.id) AS anchor_id,root.id IS NULL AND ref.value IS NOT NULL AS context_missing" :
         "c.id AS anchor_id,FALSE AS context_missing"}
-    FROM content c JOIN source p ON p.id=c.source_id JOIN public_content_search_document doc ON doc.content_id=c.id
+    FROM content c JOIN source p ON p.id=c.source_id LEFT JOIN public_content_search_document doc ON doc.content_id=c.id
     ${threadAware ? `LEFT JOIN LATERAL (
         SELECT value FROM jsonb_array_elements(c.content_references) r(value)
         WHERE value->>'relation'='thread_root' LIMIT 1

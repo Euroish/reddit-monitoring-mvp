@@ -1,25 +1,23 @@
-# Signal Studio — 多源信息流、选择性可视化与个人知识工作台
+# Signal Studio — 多源信息流与选择性可视化工作台
 
-把分散在资讯站点、技术社区、社交创作者与排行榜的高价值内容聚合成**可读、可聚类、可量化、可深挖**的单机信息流与个人/Agent 知识库。
+单机高密度多源信息流、可控数据可视化与个人/Agent 知识库（`Fastify 5 + TypeBox + PostgreSQL 16 + React 19`）。
 
-产品围绕 **信息流优先 + 选择性数据可视化 + 内容资产复利** 演进：首页以零等待的库内事件流与日报为主视图，卡片内嵌克制的来源构成与热度微图，探索与专题页提供可联动的跨平台脉冲图与三视图评论树，所有高耗分析与按题探索严格按需触发、绝不阻塞日常阅读。
+- **`[LIVE]`（`prod@8e436ac`）**：20 张 PG16 核心表、`42` 个后端核心 TS 文件、`43` 个 HTTP 路径（`50` 条 OpenAPI 操作）、`100` 个活跃排期源（`97` `feed` + `3` `newsnow`，8 大 `source_group`）；支持动态 SSRF 校验 HTTPS 订阅、`web_list`/`json_list`、OPML/JSON 批量导入、`GET /v1/content/stories` 事件聚簇与双字词 GIN 检索。
+- **`[V2]`（未上线规划，见 [status.md](docs/status.md)）**：前端融合（卡片内嵌 SVG 微图 + 懒加载分析图）、阅读状态与 `为你` RRF、持久化事件归属、L3 实时推流、Readability 正文提取与按需 AI 摘要。
 
-运行时基线为单机 **`Fastify 5 + TypeBox + PostgreSQL 16 + React 19`**：20 张核心表、5 模块扁平内核、`feed`（RSS/Atom/`web_list`/`json_list` + OPML 批量导入）、`newsnow`（7 大内置热榜）、Reddit（`kaix` / `red_crawler`）、X（`TwitterAPIs` / `ScrapeBadger`）与 `bluesky_appview`，Web 与外部 AI Agent 共用同一套 TypeBox 契约。
+## 本地门禁与文档校验
 
-## 本地校验与运行基线
-
-需要 **Node 24+** 与 **PostgreSQL 16**，生产镜像与运维入口详见 [开发与运维手册](docs/development.md)，真实代码现状与 V2 演进路线见 [当前状态与规划](docs/status.md)。
+需要 **Node 24+** 与 **PostgreSQL 16**；运维、多阶段构建（`--target runtime` / `--target proxy`）与备份恢复见 [开发与运维手册](docs/development.md)。
 
 ```sh
 npm ci --ignore-scripts && npm --prefix apps/web ci --ignore-scripts
-npm run docs:check && npm run lint && npm run typecheck
-npm run test:unit
+npm run docs:check && npm run lint && npm run typecheck && npm run test:unit
 ```
 
-> 私有凭证统一存于仓外文件（如 `/etc/reddit-monitoring/unified.env`）；任何 `git push` 均不自动触发远端容器重建。
+> 私有凭证仅存仓外文件（如 `/etc/reddit-monitoring/unified.env`）；`git push` 不触发自动部署。
 
-## 文档导航
+## 规范与真源索引
 
-- **两大唯一真源**：[开发与运维手册](docs/development.md) · [当前状态与规划](docs/status.md)
-- **核心架构与规范**：[产品总览](docs/README.md) · [主线架构](docs/architecture.md) · [数据与 API 契约](docs/contracts.md) · [前端与可视化交互规范](docs/design.md)
-- **来源、演进与协作**：[来源矩阵与扩源分层](docs/research/data-sources.md) · [演进边界与外挂隔离](docs/plans/source-expansion.md) · [AGENTS.md](AGENTS.md)
+- **唯一真源**：[当前状态与 V2 路线](docs/status.md) · [开发与运维手册](docs/development.md)
+- **标准规范**：[产品口径](docs/README.md) · [主线架构](docs/architecture.md) · [数据与 API 契约](docs/contracts.md) · [前端与融合规范](docs/design.md)
+- **来源与隔离**：[来源矩阵](docs/research/data-sources.md) · [演进边界与外挂隔离](docs/plans/source-expansion.md) · [AGENTS.md](AGENTS.md)

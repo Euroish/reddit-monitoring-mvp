@@ -175,7 +175,9 @@ export async function buildApp(options: {
                 : route.endsWith("/unblock")
                   ? "collect"
                   : route.startsWith("/v1/content")
-                    ? "read"
+                    ? ["GET", "HEAD"].includes(method)
+                      ? "read"
+                      : null
                     : route.startsWith("/v1/sources")
                       ? ["GET", "HEAD"].includes(method)
                         ? "read"

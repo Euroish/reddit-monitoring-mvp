@@ -33,7 +33,7 @@ export async function listAnnotations(pool: Pool, actor: Actor) {
   compiled.values.push(actor.userId);
   return (
     await pool.query(
-      `SELECT a.content_id,a.favorite,a.note,a.revision,c.title,c.body_text,c.external_id FROM content_annotation a JOIN content c ON c.id=a.content_id JOIN source p ON p.id=c.source_id JOIN public_content_search_document doc ON doc.content_id=c.id
+      `SELECT a.content_id,a.favorite,a.note,a.revision,c.title,c.body_text,c.external_id FROM content_annotation a JOIN content c ON c.id=a.content_id JOIN source p ON p.id=c.source_id
     WHERE ${compiled.text} AND a.user_id=$${compiled.values.length} ORDER BY a.updated_at DESC,a.content_id DESC LIMIT 100`,
       compiled.values,
     )

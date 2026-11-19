@@ -1,5 +1,5 @@
 > [!NOTE]
-> **历史替换规格提示（`2026-11-16`）**：本文件所述的 `twitterapi_io` 与 `arctic_shift` 在线源码清理已在生产主线完成；X/Reddit OpenAPI 字段映射部分继续有效，完整现状、Post-050 `newsnow` 1h 桶规则与全量渠道规划见[来源矩阵](../research/data-sources.md)与[数据与 API 契约](../contracts.md)。
+> **历史替换规格提示（`2026-11-16`）**：本文件所述的 `twitterapi_io` 与 `arctic_shift` 在线源码清理及 `050` 历史表清理均已在生产主线完成；X/Reddit OpenAPI 字段映射部分继续有效，完整现状、Post-050 `newsnow` 1h 桶规则与全量渠道规划见[来源矩阵](./data-sources.md)与[数据与 API 契约](../contracts.md)。
 
 # `twitterapi_io` 下线清理、低价 X 双源与 Apify Reddit 规格
 
