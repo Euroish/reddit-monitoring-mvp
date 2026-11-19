@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
 import { stableUuidFromString } from "../../shared/ids/stable-id";
+import { detectLanguage } from "../../shared/text/language";
 import { fail } from "../../storage/db";
 import { publicSearchDocument } from "./search";
 import {
@@ -77,6 +78,7 @@ export async function commitContentBatch(
   const values = batch.nodes.map(({ item, firstFetchedAt, lastFetchedAt }) =>
     JSON.stringify({
       ...item,
+      language: item.language ?? detectLanguage(item.title, item.text),
       id: stableUuidFromString(
         `${item.platform}:content:${item.kind}:${item.externalId}`,
       ),
@@ -96,11 +98,11 @@ export async function commitContentBatch(
            OR c.content_media<>v->'media' OR (c.platform_details-'feedUrl') IS DISTINCT FROM ((v->'platformDetails')-'feedUrl'))) AS conflict
       FROM content c JOIN input ON c.source_id=$1 AND c.kind=v->>'kind' AND c.external_id=v->>'externalId'
     ), written AS (
-    INSERT INTO content(id,source_id,external_id,kind,title,body_text,url,permalink,created_at_source,first_seen_at,last_seen_at,total_eligible,content_author,content_media,content_references,platform_details,language,availability,content_observed_at,content_evidence_key,content_version_fetched_at)
+    INSERT INTO content(id,source_id,external_id,kind,title,body_text,url,permalink,created_at_source,first_seen_at,last_seen_at,content_author,content_media,content_references,platform_details,language,availability,content_observed_at,content_evidence_key,content_version_fetched_at)
     SELECT (v->>'id')::uuid,$1,v->>'externalId',v->>'kind',
       CASE WHEN v->>'availability' IN ('removed','deleted') THEN NULL ELSE v->>'title' END,
       CASE WHEN v->>'availability' IN ('removed','deleted') THEN NULL ELSE v->>'text' END,
-      v->>'url',v->>'url',(v->>'publishedAt')::timestamptz,(v->>'firstFetchedAt')::timestamptz,(v->>'lastFetchedAt')::timestamptz,FALSE,
+      v->>'url',v->>'url',(v->>'publishedAt')::timestamptz,(v->>'firstFetchedAt')::timestamptz,(v->>'lastFetchedAt')::timestamptz,
       NULLIF(v->'author','null'::jsonb),v->'media',v->'references',v->'platformDetails',v->>'language',v->>'availability',
       (v->'observation'->>'sourceObservedAt')::timestamptz,v->'observation'->>'evidenceKey',(v->>'fetchedAt')::timestamptz
     FROM input
@@ -174,14 +176,16 @@ export async function commitContentBatch(
       const document = publicSearchDocument(row.title, row.body_text, now);
       return JSON.stringify({ id: row.id, ...document });
     });
-  await client.query(
-    `INSERT INTO public_content_search_document(content_id,format_version,search_text,title_length,text_present,indexed_at,fingerprint,normalized_title,normalized_text)
-    SELECT (v->>'id')::uuid,1,(v->>'normalizedTitle')||chr(31)||(v->>'normalizedText'),char_length(v->>'normalizedTitle'),(v->>'textPresent')::boolean,$2,(v->>'fingerprint'),'',''
-    FROM UNNEST($1::jsonb[]) AS input(v)
-    ON CONFLICT(content_id) DO UPDATE SET search_text=EXCLUDED.search_text,title_length=EXCLUDED.title_length,text_present=EXCLUDED.text_present,indexed_at=EXCLUDED.indexed_at,fingerprint=EXCLUDED.fingerprint,format_version=1,normalized_title=EXCLUDED.normalized_title,normalized_text=EXCLUDED.normalized_text
-    WHERE public_content_search_document.fingerprint IS DISTINCT FROM EXCLUDED.fingerprint`,
-    [documents, now],
-  );
+  if (documents.length) {
+    await client.query(
+      `INSERT INTO public_content_search_document(content_id,format_version,search_text,title_length,text_present,indexed_at,fingerprint)
+      SELECT (v->>'id')::uuid,1,(v->>'normalizedTitle')||chr(31)||(v->>'normalizedText'),char_length(v->>'normalizedTitle'),(v->>'textPresent')::boolean,$2,(v->>'fingerprint')
+      FROM UNNEST($1::jsonb[]) AS input(v)
+      ON CONFLICT(content_id) DO UPDATE SET search_text=EXCLUDED.search_text,title_length=EXCLUDED.title_length,text_present=EXCLUDED.text_present,indexed_at=EXCLUDED.indexed_at,fingerprint=EXCLUDED.fingerprint,format_version=1
+      WHERE public_content_search_document.fingerprint IS DISTINCT FROM EXCLUDED.fingerprint`,
+      [documents, now],
+    );
+  }
   await client.query(
     `INSERT INTO content_discovery(content_id,collection_source_id,first_fetched_at,last_fetched_at)
     SELECT (v->>'id')::uuid,$2,(v->>'firstFetchedAt')::timestamptz,(v->>'lastFetchedAt')::timestamptz FROM UNNEST($1::jsonb[]) AS input(v)
@@ -208,14 +212,25 @@ export async function commitContentBatch(
     `INSERT INTO content_observation(content_id,collection_source_id,provider,source_observed_at,fetched_at,time_basis,maturity,metrics,evidence_key,payload_hash)
     SELECT (v->>'id')::uuid,$2,v->>'provider',(v->>'sourceObservedAt')::timestamptz,(v->>'fetchedAt')::timestamptz,v->>'timeBasis',v->>'maturity',v->'metrics',v->>'evidenceKey',v->>'hash' FROM UNNEST($1::jsonb[]) AS input(v)
     ON CONFLICT(content_id,collection_source_id,provider,evidence_key) DO UPDATE SET payload_hash=EXCLUDED.payload_hash
-    WHERE (content_observation.payload_hash=EXCLUDED.payload_hash OR content_observation.payload_hash IS NULL)
+    WHERE content_observation.payload_hash IS NULL
       AND content_observation.source_observed_at IS NOT DISTINCT FROM EXCLUDED.source_observed_at
       AND content_observation.time_basis=EXCLUDED.time_basis AND content_observation.maturity=EXCLUDED.maturity AND content_observation.metrics=EXCLUDED.metrics
     RETURNING id`,
     [observations, source.id],
   );
-  if (inserted.rowCount !== observations.length)
-    conflict("Conflicting observation evidence key");
+  if (inserted.rowCount !== observations.length) {
+    const verified = await client.query<{ ok: number }>(
+      `SELECT count(*)::int AS ok FROM UNNEST($1::jsonb[]) v
+      JOIN content_observation o ON o.content_id=(v->>'id')::uuid AND o.collection_source_id=$2
+        AND o.provider=v->>'provider' AND o.evidence_key=v->>'evidenceKey'
+      WHERE o.payload_hash=v->>'hash'
+        AND o.source_observed_at IS NOT DISTINCT FROM (v->>'sourceObservedAt')::timestamptz
+        AND o.time_basis=v->>'timeBasis' AND o.maturity=v->>'maturity' AND o.metrics=v->'metrics'`,
+      [observations, source.id],
+    );
+    if (verified.rows[0]?.ok !== observations.length)
+      conflict("Conflicting observation evidence key");
+  }
   const added = result.rows.filter((row) => row.inserted).length;
   return {
     added,
@@ -227,6 +242,7 @@ export function contentFromRow(
   row: import("pg").QueryResultRow,
 ): import("../../../packages/contracts/src/source-content").PublicContent {
   const iso = (value: Date | null) => value?.toISOString() ?? null;
+  const hasText = typeof row.body_text === "string" && row.body_text.trim().length > 0;
   return {
     id: row.id,
     platform: row.platform,
@@ -245,7 +261,7 @@ export function contentFromRow(
     ...(row.context_missing === undefined ? {} : { contextMissing: row.context_missing }),
     media: row.content_media,
     platformDetails: row.platform_details,
-    textState: row.body_text === null ? "missing" : "full",
+    textState: !hasText ? "missing" : row.platform_details?.textCompleteness === "summary" ? "summary" : "full",
     observations: row.observations ?? [],
   };
 }

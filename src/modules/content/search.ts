@@ -5,6 +5,8 @@ import type {
 } from "../../../packages/contracts/src/source-content";
 import { fail } from "../../storage/db";
 
+export const MAX_INDEXED_BODY_CHARS = 1500;
+
 export function normalizePublicSearchText(value: string) {
   return value.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim();
 }
@@ -13,12 +15,18 @@ export function publicSearchDocument(
   text: string | null,
   indexedAt: string,
 ) {
+  const normalizedTitle = normalizePublicSearchText(title ?? "");
+  const rawBody = normalizePublicSearchText(text ?? "");
+  const normalizedText =
+    rawBody.length <= MAX_INDEXED_BODY_CHARS
+      ? rawBody
+      : Array.from(rawBody).slice(0, MAX_INDEXED_BODY_CHARS).join("");
   return {
-    normalizedTitle: normalizePublicSearchText(title ?? ""),
-    normalizedText: normalizePublicSearchText(text ?? ""),
+    normalizedTitle,
+    normalizedText,
     textPresent: text !== null,
     fingerprint: createHash("sha256")
-      .update(JSON.stringify([1, title, text]))
+      .update(JSON.stringify([2, normalizedTitle, normalizedText, text !== null]))
       .digest("hex"),
     indexedAt,
   };
@@ -54,6 +62,8 @@ export function compileContentFilter(
   const visible = discovery.join(" AND ");
   for (const scope of [projectFilter, requestFilter]) {
     if (scope.sourceId) discovery.push(`d.collection_source_id=${bind(scope.sourceId)}::uuid`);
+    if (scope.sourceGroup) discovery.push(`cs.source_group=${bind(scope.sourceGroup)}`);
+    if (scope.tier) discovery.push(`cs.tier=${bind(scope.tier)}`);
   }
   const where = [
     `EXISTS(SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id WHERE ${discovery.join(" AND ")})`,
@@ -62,6 +72,9 @@ export function compileContentFilter(
   for (const filter of [projectFilter, requestFilter]) {
     if (filter.platform) where.push(`p.code=${bind(filter.platform)}`);
     if (filter.kind) where.push(`c.kind=${bind(filter.kind)}`);
+    if (filter.language) where.push(`c.language=${bind(filter.language)}`);
+    if (filter.hasMedia === true) where.push("jsonb_array_length(c.content_media)>0");
+    if (filter.hasMedia === false) where.push("jsonb_array_length(c.content_media)=0");
     if (filter.from)
       where.push(`c.created_at_source>=${bind(filter.from)}::timestamptz`);
     if (filter.to)

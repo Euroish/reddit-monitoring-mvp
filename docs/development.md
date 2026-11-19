@@ -160,6 +160,10 @@ docker exec monitoring-unified-db-1 psql -X -U monitoring -d monitoring \
 
 新增 RSS 或 YouTube 频道 Atom 时，将完整地址加入运行配置的 `FEED_ALLOWED_URLS`。候选配置通过 `docker compose config --quiet` 后只重建 `app`。通过来源预览、创建和手动采集接口实抓，核对任务状态及 `content_discovery` 后再启用自动排期。热榜使用内置查询目标和独立渠道预算。更新运行配置前保留仓外备份，并核对宿主机端口映射仍为空。
 
+Feed 额度按来源排期估算基线，再预留重试和短期追赶余量。用 `source_provider_usage` 对账 UTC 当日请求与预留记录，用 `source_collection_job` 按来源定位高频请求，再核对 `records_inserted` 与 `exhausted`。2026-11-19 将生产 `feed` 预算调到日/月 2,400/74,400 次请求和 80,000/2,480,000 条记录额度，最短请求间隔 1 秒。给 8 个当日频繁截断的来源改用 30 条单页上限和 1 小时追赶窗。新订阅继续按完整 HTTPS 地址放行，按 1–4 小时基础周期运行，首轮自动采集最多 8 条。连接器预览与生产首次采集分别核验格式和实际入库。
+
+第二批补源按覆盖缺口选择日常生活、独立策展、设计与视觉文化、中文音乐与人文、原创视频和开发者首发。对每个候选先看真实样本，核对标题、原文链接、主题和发布时间。通过预览后先关闭自动排期创建，用最多 8 条的手动任务核对实际入库，再开启排期。一般订阅回看 7 天，低频来源可按最近已知发布日期扩大首批回补，保留原发布时间。新来源按 3–12 小时基础周期运行。现有 Feed 当日请求额度保持 2,400 次。
+
 知乎热榜（`zhihu-hot`）与 Google Trends 美国榜（`google-trends-us`）在来源页选择「NewsNow · 热榜」。启用 `newsnow` 预算后，可直接预览并保存为 15 分钟自动采集，每次最多 20 条。知乎保留准确问题链接与榜单名次，入库时间和发布时间分别记录；Google Trends 使用词条与起始时间作独立身份，保留地区与趋势链接。两项共用现有 Worker 与入库事务。
 
 ### 事件产品首次生产发布
@@ -215,3 +219,4 @@ docker exec monitoring-unified-db-1 psql -X -U monitoring -d monitoring \
 | `dafff76` | 接入 37 个 RSS/Atom，修复请求头兼容性和同一文章跨订阅的版本冲突。 | 首批和首轮自动任务各 37 个成功。 |
 | `faa84a8` | 启用 B 站全站热门。 | 首轮自动入库 20 条，保留榜单名次。 |
 | `ef9e170` | 接入 7 个 YouTube 频道，存储视频链接、简介和缩略图地址。网页采集支持有界 gzip，普通列表省去搜索投影关联。 | 16 项 PG16 集成测试通过。YouTube 首批和首轮自动任务各 7 个成功，信息流及关键词检索可读。 |
+| `050 / 20261119-v2` | 执行 `050_legacy_cleanup_and_schema_upgrade.sql` 清理 27 张历史表（47->20）与冗余列，新增来源分组/标签/语种/抓取策略/健康统计与 OPML 批量导入，截断搜索正文至 1500 字，解除 `FEED_ALLOWED_URLS` 硬绑定并上线 `6` 并发抓取、真 304/耗时统计及 `preParsing` 限流前移；上线前已备份全库与环境至 `/opt/reddit-monitoring-backups/pre-050-20261119T135511Z/`。 | `typecheck`、`lint`、`build`、`test:unit` (20/20)、`test:postgres` (24/24) 全通；生产 `/readyz` 200、5 批首轮任务全部成功且 `request_duration_ms > 0`。 |

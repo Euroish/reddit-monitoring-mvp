@@ -93,6 +93,7 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
   const jsonUrl = "https://fixture.example/api/releases";
   const published = new Date(Date.now() - 60000).toUTCString();
   let feedChecks = 0;
+  let overflowingFeed = false;
   const feed = webSource("feed", { SOURCE_NETWORK_ENABLED: "true", FEED_ALLOWED_URLS: [feedUrl, listUrl, jsonUrl].join(",") }, async (url, _signal, requestHeaders) => {
     if (url.href === listUrl) return { status: 200, body: `<link rel="alternate" type="application/atom+xml" href="/atom">
       <article class="release"><h2><a href="/tool">Web result</a></h2><p>Summary</p><time datetime="2026-11-16T10:00:00Z"></time></article>` };
@@ -101,9 +102,10 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
       { ref: { url: "/release" }, title: "开源算力工具", time: new Date(published).toISOString() },
     ] } }) };
     feedChecks++;
-    if (requestHeaders?.["If-None-Match"] === '"fixture"') return { status: 304, body: "" };
+    if (!overflowingFeed && requestHeaders?.["If-None-Match"] === '"fixture"') return { status: 304, body: "" };
     return { status: 200, etag: '"fixture"', body: `<rss version="2.0"><channel><title>Fixture</title>
       <item><title>开源算力工具</title><link>https://fixture.example/release</link><pubDate>${published}</pubDate></item>
+      ${overflowingFeed ? `<item><title>Another release</title><link>https://fixture.example/another</link><pubDate>${published}</pubDate></item>` : ""}
       </channel></rss>` };
   });
   const app = await buildApp({
@@ -434,6 +436,18 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
       SELECT status,records_inserted,request_count FROM source_collection_job
       WHERE collection_source_id=$1 ORDER BY created_at DESC LIMIT 1`, [id]);
     assert.deepEqual(last, { status: "succeeded", records_inserted: 0, request_count: 1 });
+    overflowingFeed = true;
+    try {
+      await db.pool.query(`UPDATE collection_source SET next_due_at=now(),
+        schedule=schedule||'{"cadenceSeconds":7200,"intervalSeconds":7200,"pageSize":1}'::jsonb WHERE id=$1`, [id]);
+      await runUntil(3);
+      const { rows: [truncated] } = await db.pool.query(`SELECT job.exhausted,cs.schedule->>'intervalSeconds' AS interval
+        FROM source_collection_job job JOIN collection_source cs ON cs.id=job.collection_source_id
+        WHERE job.collection_source_id=$1 ORDER BY job.created_at DESC LIMIT 1`, [id]);
+      assert.deepEqual(truncated, { exhausted: false, interval: "7200" });
+    } finally {
+      overflowingFeed = false;
+    }
     const { rows: [heartbeat] } = await db.pool.query("SELECT state FROM source_worker_heartbeat WHERE id='unified-collection'");
     assert.equal(heartbeat?.state, "stopped");
   });
@@ -481,5 +495,61 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
     const stored = await app.inject({ url: `/v1/content?sourceId=${id}`, headers });
     assert.equal(stored.statusCode, 200, stored.body);
     assert.deepEqual(stored.json().items.map(({ title }: { title: string }) => title), ["开源算力工具", "JSON result"]);
+  });
+
+  await t.test("tracks source metadata, HTTP ETag/health/duration, OPML/JSON import, and enforces rate limit before DB auth", async () => {
+    const opml = `<?xml version="1.0" encoding="UTF-8"?><opml version="2.0"><body>
+      <outline text="ai-firsthand" title="ai-firsthand">
+        <outline type="rss" text="Imported Feed" xmlUrl="https://fixture.example/atom" />
+        <outline type="rss" text="New List Feed" xmlUrl="https://fixture.example/releases" />
+        <outline type="rss" text="Blocked Local" xmlUrl="http://127.0.0.1/bad" />
+      </outline>
+    </body></opml>`;
+    const imp = await app.inject({
+      method: "POST", url: "/v1/sources/import", headers,
+      payload: { format: "opml", opml, defaults: { tier: "T1", locale: "en", fetchPolicy: { maxItems: 50 } } },
+    });
+    assert.equal(imp.statusCode, 200, imp.body);
+    assert.equal(imp.json().created, 1);
+    assert.equal(imp.json().skipped, 1);
+    assert.equal(imp.json().errors.length, 1);
+
+    const sourcesRes = await app.inject({ url: "/v1/sources?sourceGroup=ai-firsthand", headers });
+    assert.equal(sourcesRes.statusCode, 200, sourcesRes.body);
+    const imported = sourcesRes.json().sources.find((s: { label: string }) => s.label === "New List Feed");
+    assert.ok(imported);
+    assert.equal(imported.locale, "en");
+    assert.equal(imported.fetchPolicy.maxItems, 50);
+
+    const jobStats = await db.pool.query(
+      "SELECT max(request_duration_ms) AS max_ms FROM source_collection_job WHERE provider='feed' AND status='succeeded'",
+    );
+    assert.ok(Number(jobStats.rows[0].max_ms) > 0);
+    const cachedSources = await db.pool.query(
+      "SELECT http_etag, health FROM collection_source WHERE primary_provider='feed' AND http_etag IS NOT NULL",
+    );
+    assert.ok(cachedSources.rowCount && cachedSources.rowCount >= 1);
+    assert.equal(cachedSources.rows[0].health.lastStatus, "succeeded");
+    assert.ok(cachedSources.rows[0].health.totalRuns >= 1);
+
+    // Rate limit runs before preParsing DB actor lookup
+    let dbQueries = 0;
+    const origQuery = db.pool.query.bind(db.pool);
+    const spyPool = Object.create(db.pool);
+    spyPool.query = (...args: unknown[]) => { dbQueries++; return origQuery(...(args as [string])); };
+    const limited = await buildApp({
+      pool: spyPool, sessionSecret: "rate-limit-secret-".repeat(3), origin, secureCookies: false, rateLimitMax: 1,
+    });
+    await limited.ready();
+    try {
+      const badBearer = { authorization: "Bearer " + "a".repeat(43) };
+      assert.equal((await limited.inject({ url: "/v1/sources", headers: badBearer })).statusCode, 401);
+      const afterFirst = dbQueries;
+      assert.equal(afterFirst, 1);
+      assert.equal((await limited.inject({ url: "/v1/sources", headers: badBearer })).statusCode, 429);
+      assert.equal(dbQueries, afterFirst, "429 must not hit DB auth lookup");
+    } finally {
+      await limited.close();
+    }
   });
 });

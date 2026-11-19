@@ -1,13 +1,19 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { DateTime, Id, Platform, SourceTier } from "./source-content";
+import {
+  DateTime, Id, Platform, SourceGroupPattern, SourceLocalePattern, SourceTier,
+} from "./source-content";
 
 const View = Type.Union([Type.Literal("latest"), Type.Literal("hot"), Type.Literal("digest")]);
+export const MAX_STORY_LIMIT = 50;
 export const StoryQuery = Type.Object({
   view: Type.Optional(View),
   date: Type.Optional(Type.String({ format: "date" })),
-  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_STORY_LIMIT })),
   sourceId: Type.Optional(Id),
   platform: Type.Optional(Platform),
+  sourceGroup: Type.Optional(Type.String({ pattern: SourceGroupPattern })),
+  tier: Type.Optional(SourceTier),
+  language: Type.Optional(Type.String({ pattern: SourceLocalePattern })),
 }, { additionalProperties: false });
 
 const nullableText = Type.Union([Type.String(), Type.Null()]);

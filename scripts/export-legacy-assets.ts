@@ -25,14 +25,28 @@ export async function exportLegacyAssets(
     await client.query("SET LOCAL idle_in_transaction_session_timeout='35s'");
     const users = (await client.query("SELECT id FROM app_user ORDER BY id"))
       .rows;
-    const tables = [
+    const candidateTables = [
       "research_export",
       "content_saved_query",
       "content_annotation",
       "saved_workbench_view",
+      "research_export_member",
     ] as const;
+    const present = new Set<string>();
+    for (const table of candidateTables) {
+      const { rows } = await client.query<{ present: boolean }>(
+        "SELECT to_regclass($1) IS NOT NULL AS present",
+        [`public.${table}`],
+      );
+      if (rows[0]?.present) present.add(table);
+    }
+    const activeTables = candidateTables.filter((table) =>
+      table === "research_export_member"
+        ? present.has("research_export_member") && present.has("research_export")
+        : present.has(table),
+    );
     for (const user of users) {
-      for (const table of [...tables, "research_export_member"] as const) {
+      for (const table of activeTables) {
         const sql =
           table === "research_export_member"
             ? "SELECT m.* FROM research_export_member m JOIN research_export e ON e.id=m.export_id WHERE e.user_id=$1 ORDER BY m.export_id,m.ordinal"

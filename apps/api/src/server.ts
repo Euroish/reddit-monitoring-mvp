@@ -20,7 +20,7 @@ export async function main() {
       "HTTPS APP_ORIGIN required; local testing needs ALLOW_HTTP_DEV=true",
     );
   const pool = createPool(undefined, 8);
-  const workerPool = createPool(undefined, 2);
+  const workerPool = createPool(undefined, 4);
   const providers = [
     twitterApis(),
     scrapeBadger(),

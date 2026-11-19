@@ -2,7 +2,12 @@ import { useState, useRef, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Radio } from "lucide-react";
 import type { Static } from "@sinclair/typebox";
-import type { CollectionSource, SourcePreview } from "../../../../packages/contracts/src/source-content";
+import type {
+  CollectionSource,
+  SourceImportInput,
+  SourceInput,
+  SourcePreview,
+} from "../../../../packages/contracts/src/source-content";
 import { webBoards } from "../../../../packages/contracts/src/web-boards";
 import { Field, Heading, Empty } from "../ui";
 import { api, type Run } from "../api";
@@ -14,30 +19,75 @@ const budgetFields = {
   monthly_resources: ["monthlyResources", "每月记录额度"],
   minimum_interval_ms: ["minimumIntervalMs", "最短请求间隔（毫秒）"],
 } as const;
-const tierLabels = { T1: "T1 · 官方一手", T1_5: "T1_5 · 主创", T2: "T2 · 媒体与社区" };
+const tierLabels = { T1: "T1 · 官方一手", T1_5: "T1_5 · 主创", T2: "T2 · 媒体与社区" } as const;
+const sourceGroups = {
+  "ai-firsthand": "AI 一手与研发",
+  "dev-infra": "工程与基础",
+  "tech-media": "科技与数码",
+  lifestyle: "生活与旅行",
+  "design-visual": "设计与视觉",
+  science: "科研与科普",
+  "public-affairs": "公共与文化",
+  "social-trends": "热榜与泛娱乐",
+} as const;
+const languages = { zh: "中文", en: "English", ja: "日本語", ko: "한국어" } as const;
 type Budget = { provider: string; enabled: boolean; revision: number } & Record<keyof typeof budgetFields, number>;
+type ImportError = string | { index?: number; label?: string; url?: string; error?: string; message?: string };
+type ImportResult = { created: number | unknown[]; skipped: number | unknown[]; errors: ImportError[] | number };
 
-export default function Sources({
-  run,
-  canEdit,
-}: {
-  run: Run;
-  canEdit: boolean;
-}) {
+const parseTags = (raw: FormDataEntryValue | null) =>
+  Array.from(new Set(String(raw ?? "").split(/[,，]/).map((s) => s.trim().toLowerCase()).filter(Boolean))).slice(0, 20);
+const groupLabel = (group: string | null | undefined) =>
+  group ? (sourceGroups[group as keyof typeof sourceGroups] ?? group) : null;
+const localeLabel = (locale: string | null | undefined) =>
+  locale ? (languages[locale as keyof typeof languages] ?? locale) : null;
+const hitRate = (health: CollectionSource["health"] | undefined) =>
+  typeof health?.totalRuns === "number" && health.totalRuns > 0 && typeof health.notModifiedRuns === "number"
+    ? { pct: Math.round((health.notModifiedRuns / health.totalRuns) * 100), hits: health.notModifiedRuns, total: health.totalRuns }
+    : null;
+const countOf = (value: number | unknown[]) => (Array.isArray(value) ? value.length : value);
+const formatImportError = (item: ImportError) =>
+  typeof item === "string"
+    ? item
+    : [item.index !== undefined ? `#${item.index + 1}` : "", item.label ?? item.url ?? "", item.error ?? item.message ?? JSON.stringify(item)].filter(Boolean).join(" · ");
+
+export default function Sources({ run, canEdit }: { run: Run; canEdit: boolean }) {
   const collectionRequest = useRef<{ body: string; key: string } | null>(null);
   const [collecting, setCollecting] = useState(false);
   const [preview, setPreview] = useState<Static<typeof SourcePreview> | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [openedAt] = useState(() => Date.now());
   const [creating, setCreating] = useState(false),
+    [importing, setImporting] = useState(false),
     [selectedId, setSelectedId] = useState<string | null>(null),
     [provider, setProvider] = useState("kaix"),
-    [targetType, setTargetType] = useState("search");
+    [targetType, setTargetType] = useState("search"),
+    [listFormat, setListFormat] = useState(""),
+    [filterGroup, setFilterGroup] = useState(""),
+    [abnormalOnly, setAbnormalOnly] = useState(false),
+    [importText, setImportText] = useState(""),
+    [importFileKind, setImportFileKind] = useState<"auto" | "json" | "opml">("auto"),
+    [importGroup, setImportGroup] = useState(""),
+    [importTier, setImportTier] = useState<"T1" | "T1_5" | "T2">("T2"),
+    [importLocale, setImportLocale] = useState(""),
+    [importSchedule, setImportSchedule] = useState(false),
+    [importBusy, setImportBusy] = useState(false),
+    [importResult, setImportResult] = useState<ImportResult | null>(null);
+
   const sources = useQuery({
     queryKey: ["sources"],
     queryFn: () => api<{ sources: CollectionSource[] }>("/sources"),
   });
-  const selected = sources.data?.sources.find((source) => source.id === selectedId);
+  const allSources = sources.data?.sources ?? [];
+  const filteredSources = allSources.filter((source) => {
+    if (filterGroup && source.sourceGroup !== filterGroup) return false;
+    if (abnormalOnly) {
+      const h = source.health;
+      if (!h?.lastTruncated && (h?.consecutiveFailures ?? 0) === 0 && !source.automaticCollectionBlocked) return false;
+    }
+    return true;
+  });
+  const selected = allSources.find((source) => source.id === selectedId);
   const budgets = useQuery({
     queryKey: ["provider-budgets"],
     enabled: canEdit && selected?.deliveryMode === "pull",
@@ -59,14 +109,33 @@ export default function Sources({
         }[];
       }>(`/sources/${selected!.id}/jobs`),
   });
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const value = String(form.get("target") ?? "");
+    const listField = (name: string) => String(form.get(name) ?? "").trim();
     const target = targetType === "account" ? { type: "account", account: value }
       : targetType === "community" ? { type: "community", community: value }
-      : targetType === "feed" ? { type: "feed", url: value }
+      : targetType === "feed" ? {
+          type: "feed",
+          url: value,
+          ...(provider === "feed" && (listFormat === "web_list" || listFormat === "json_list") ? {
+            list: {
+              format: listFormat,
+              items: listField("listItems"),
+              link: listField("listLink"),
+              title: listField("listTitle"),
+              ...(listField("listSummary") ? { summary: listField("listSummary") } : {}),
+              ...(listField("listPublishedAt") ? { publishedAt: listField("listPublishedAt") } : {}),
+              ...(listField("listAuthor") ? { author: listField("listAuthor") } : {}),
+            },
+          } : {}),
+        }
       : { type: "search", query: value };
+    const sourceGroupVal = String(form.get("sourceGroup") ?? "").trim();
+    const localeVal = String(form.get("locale") ?? "").trim();
+    const tags = parseTags(form.get("tags"));
     const body = JSON.stringify({
       label: form.get("label"),
       platform: provider === "bluesky_appview" ? "bluesky" : provider === "twitterapis" ? "x" :
@@ -77,10 +146,15 @@ export default function Sources({
       contentKind: ["feed", "newsnow"].includes(provider) ? "article" : "post",
       tier: form.get("tier"),
       ownerEntityId: form.get("ownerEntityId") || null,
+      sourceGroup: sourceGroupVal || null,
+      locale: localeVal || null,
+      ...(tags.length ? { tags } : {}),
       target,
       schedule: provider === "external_ingest" ? undefined : {
         enabled: form.has("schedule"),
-        ...(provider === "newsnow" ? { cadenceSeconds: 900, pageSize: 20, maxPages: 1 } : {}),
+        cadenceSeconds: Number(form.get("cadenceSeconds") || 3600),
+        pageSize: Number(form.get("pageSize") || 30),
+        ...(provider === "newsnow" ? { maxPages: 1 } : {}),
       },
     });
     const previewOnly = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "preview";
@@ -92,18 +166,146 @@ export default function Sources({
       }
       await api("/sources", { method: "POST", body });
       setCreating(false);
+      setListFormat("");
       setPreview(null);
     }).finally(() => setPreviewing(false));
   };
+
+  const submitImport = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmed = importText.trim();
+    if (!trimmed) return;
+    setImportBusy(true);
+    setImportResult(null);
+    void run(async () => {
+      const looksJson = importFileKind === "json" || (importFileKind === "auto" && (trimmed.startsWith("{") || trimmed.startsWith("[")));
+      let payload: Static<typeof SourceImportInput>;
+      if (looksJson) {
+        const parsed: unknown = JSON.parse(trimmed);
+        const rawSources = Array.isArray(parsed)
+          ? parsed
+          : parsed && typeof parsed === "object" && Array.isArray((parsed as { sources?: unknown }).sources)
+            ? (parsed as { sources: unknown[] }).sources
+            : null;
+        if (!rawSources) throw new Error("JSON 需为来源数组或包含 sources 字段");
+        payload = {
+          format: "json",
+          sources: rawSources.map((entry) => {
+            const item = entry as Record<string, unknown>;
+            const isPush = item.deliveryMode === "push" || item.primaryProvider === "external_ingest";
+            return {
+              ...item,
+              sourceGroup: item.sourceGroup ?? (importGroup || undefined),
+              tier: item.tier ?? importTier,
+              locale: item.locale ?? (importLocale || undefined),
+              schedule: item.schedule ?? (!isPush && importSchedule ? { enabled: true } : undefined),
+            } as Static<typeof SourceInput>;
+          }),
+        };
+      } else {
+        payload = {
+          format: "opml",
+          opml: trimmed,
+          defaults: {
+            ...(importGroup ? { sourceGroup: importGroup } : {}),
+            tier: importTier,
+            ...(importLocale ? { locale: importLocale } : {}),
+            schedule: { enabled: importSchedule },
+          },
+        };
+      }
+      const result = await api<ImportResult>("/sources/import", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setImportResult(result);
+    }).finally(() => setImportBusy(false));
+  };
+
+  const selectedHealth = selected?.health;
+  const selectedHit = hitRate(selectedHealth);
+  const selectedFailures = selectedHealth?.consecutiveFailures ?? 0;
+
   return (
     <>
       <Heading title="来源" note="定义收集范围，并在需要时采集或导入。">
         {canEdit && (
-          <button className="primary" onClick={() => setCreating(!creating)}>
-            添加来源
-          </button>
+          <div className="heading-actions">
+            <button onClick={() => setImporting(!importing)}>批量导入（OPML / JSON）</button>
+            <button className="primary" onClick={() => setCreating(!creating)}>添加来源</button>
+          </div>
         )}
       </Heading>
+      {importing && (
+        <form className="panel form-grid" onSubmit={submitImport}>
+          <Field label="上传 OPML / XML / JSON 文件">
+            <input
+              type="file"
+              accept=".opml,.xml,.json,application/json,text/xml,application/xml"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                const lower = file.name.toLowerCase();
+                void file.text().then((text) => {
+                  setImportText(text);
+                  setImportFileKind(lower.endsWith(".json") ? "json" : /\.(opml|xml)$/.test(lower) ? "opml" : "auto");
+                  setImportResult(null);
+                });
+              }}
+            />
+          </Field>
+          <Field label="默认频道分组">
+            <select value={importGroup} onChange={(event) => setImportGroup(event.target.value)}>
+              <option value="">未分组</option>
+              {Object.entries(sourceGroups).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+          </Field>
+          <Field label="默认权威等级">
+            <select value={importTier} onChange={(event) => setImportTier(event.target.value as "T1" | "T1_5" | "T2")}>
+              {Object.entries(tierLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+          </Field>
+          <Field label="默认语言">
+            <select value={importLocale} onChange={(event) => setImportLocale(event.target.value)}>
+              <option value="">未指定</option>
+              {Object.entries(languages).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+          </Field>
+          <label className="check form-span">
+            <input type="checkbox" checked={importSchedule} onChange={(event) => setImportSchedule(event.target.checked)} />
+            自动采集
+          </label>
+          <div className="form-span">
+            <Field label="或粘贴 OPML / JSON 内容">
+              <textarea
+                rows={6}
+                value={importText}
+                onChange={(event) => {
+                  setImportText(event.target.value);
+                  setImportFileKind("auto");
+                }}
+                placeholder="粘贴 OPML XML 或 JSON 来源数组…"
+              />
+            </Field>
+          </div>
+          <button className="primary" disabled={importBusy || !importText.trim()}>
+            {importBusy ? "导入中…" : "开始导入"}
+          </button>
+          {importResult && (
+            <div className="form-span" aria-live="polite">
+              <p>
+                导入完成：新增 {countOf(importResult.created)} 个，跳过 {countOf(importResult.skipped)} 个，错误{" "}
+                {Array.isArray(importResult.errors) ? importResult.errors.length : importResult.errors} 条。
+              </p>
+              {Array.isArray(importResult.errors) && importResult.errors.length > 0 && (
+                <ul className="import-errors">
+                  {importResult.errors.map((err, idx) => <li key={idx}>{formatImportError(err)}</li>)}
+                </ul>
+              )}
+            </div>
+          )}
+        </form>
+      )}
       {creating && (
         <form className="panel form-grid" onSubmit={submit} onChange={() => setPreview(null)}>
           <Field label="来源名称">
@@ -116,6 +318,7 @@ export default function Sources({
                 const next = event.target.value;
                 setProvider(next);
                 setTargetType(next === "bluesky_appview" ? "account" : next === "feed" ? "feed" : "search");
+                if (next !== "feed") setListFormat("");
               }}
             >
               <option value="kaix">Reddit · kaix</option>
@@ -138,7 +341,7 @@ export default function Sources({
               {Object.entries(webBoards).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </select>
           </Field> : <Field label={provider === "external_ingest" ? "样本主题" : ({
-            account: "账号", community: "社区", feed: "已批准的订阅 URL", search: "搜索表达式",
+            account: "账号", community: "社区", feed: "订阅或列表页 HTTPS URL", search: "搜索表达式",
           })[targetType] ?? "搜索表达式"}>
             <input name="target" required maxLength={targetType === "feed" ? 2000 : targetType === "search" ? 512 : targetType === "account" ? 253 : 100} />
           </Field>}
@@ -156,12 +359,67 @@ export default function Sources({
               {Object.entries(tierLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </select>
           </Field>
+          <Field label="频道分组（可选）">
+            <select name="sourceGroup" defaultValue="">
+              <option value="">未分组</option>
+              {Object.entries(sourceGroups).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+          </Field>
+          <Field label="语言（可选）">
+            <select name="locale" defaultValue="">
+              <option value="">未指定</option>
+              {Object.entries(languages).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+          </Field>
+          <Field label="标签（逗号分隔 slug，可选）">
+            <input name="tags" placeholder="ai, release-notes" maxLength={400} title="小写字母、数字、- 或 _，逗号分隔" />
+          </Field>
+          {provider !== "external_ingest" && <>
+            <Field label="调度周期（秒，120–43200）">
+              <input type="number" name="cadenceSeconds" min={120} max={43200} defaultValue={3600} required />
+            </Field>
+            <Field label="每次抓取上限（1–100）">
+              <input type="number" name="pageSize" min={1} max={100} defaultValue={30} required />
+            </Field>
+          </>}
           <Field label="发布主体 ID（可选，同一主体共用）">
             <input name="ownerEntityId" pattern="[a-z0-9][a-z0-9_\-]{0,79}" maxLength={80} />
           </Field>
+          {provider === "feed" && (
+            <details className="form-span">
+              <summary>网页/JSON 列表选择器（无 RSS 页面可选）</summary>
+              <div className="sub-grid">
+                <Field label="列表格式">
+                  <select name="listFormat" value={listFormat} onChange={(event) => setListFormat(event.target.value)}>
+                    <option value="">自动识别 RSS / Atom</option>
+                    <option value="web_list">web_list（CSS 选择器）</option>
+                    <option value="json_list">json_list（JSON 字段路径）</option>
+                  </select>
+                </Field>
+                <Field label="列表项选择器 / 路径（items）">
+                  <input name="listItems" required={Boolean(listFormat)} maxLength={160} placeholder={listFormat === "json_list" ? "data.items 或 $" : "article.post"} />
+                </Field>
+                <Field label="链接字段（link）">
+                  <input name="listLink" required={Boolean(listFormat)} maxLength={160} placeholder={listFormat === "json_list" ? "url" : "a"} />
+                </Field>
+                <Field label="标题字段（title）">
+                  <input name="listTitle" required={Boolean(listFormat)} maxLength={160} placeholder={listFormat === "json_list" ? "title" : "h2"} />
+                </Field>
+                <Field label="摘要字段（summary，可选）">
+                  <input name="listSummary" maxLength={160} />
+                </Field>
+                <Field label="发布时间字段（publishedAt，可选）">
+                  <input name="listPublishedAt" maxLength={160} />
+                </Field>
+                <Field label="作者字段（author，可选）">
+                  <input name="listAuthor" maxLength={160} />
+                </Field>
+              </div>
+            </details>
+          )}
           <button disabled={previewing}>保存来源</button>
           <button disabled={previewing} value="preview">{previewing ? "试抓中…" : "预览来源"}</button>
-          {preview && <div aria-live="polite">
+          {preview && <div className="form-span" aria-live="polite">
             <p>{preview.mode === "fetched" ? `试抓 ${preview.items.length} 条` :
               preview.providerEnabled ? "配置有效" : "连接器未启用"}</p>
             {preview.items.length > 0 && <ol>{preview.items.map((item, index) =>
@@ -171,38 +429,99 @@ export default function Sources({
       )}
       <div className="source-layout">
         <div className="source-list">
-          {sources.data?.sources.map((source) => (
-            <button
-              className={`source-row ${selected?.id === source.id ? "selected" : ""}`}
-              key={source.id}
-              onClick={() => setSelectedId(source.id)}
-            >
-              <span className="source-icon">
-                <Radio size={20} />
-              </span>
-              <div>
-                <h2>{source.label}</h2>
-                <p>
-                  {source.platform} · {source.primaryProvider} · {source.tier}
-                </p>
-              </div>
-              <span className="badge">
-                {source.state === "active"
-                  ? "可用"
-                  : source.state === "paused"
-                    ? "已暂停"
-                    : "已归档"}
-              </span>
-            </button>
-          ))}
+          <div className="filter-strip" role="group" aria-label="来源筛选">
+            <select aria-label="按分组筛选" value={filterGroup} onChange={(event) => setFilterGroup(event.target.value)}>
+              <option value="">全部分组</option>
+              {Object.entries(sourceGroups).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+            <label className="check">
+              <input type="checkbox" checked={abnormalOnly} onChange={(event) => setAbnormalOnly(event.target.checked)} />
+              仅看截断/异常
+            </label>
+            <span className="muted">
+              {filteredSources.length === allSources.length ? `共 ${allSources.length} 个` : `显示 ${filteredSources.length} / ${allSources.length}`}
+            </span>
+          </div>
+          {allSources.length > 0 && filteredSources.length === 0 && <Empty>当前筛选条件下没有来源。</Empty>}
+          {filteredSources.map((source) => {
+            const h = source.health;
+            const rate = hitRate(h);
+            const failures = h?.consecutiveFailures ?? 0;
+            const meta = [
+              source.platform,
+              source.primaryProvider,
+              source.tier,
+              groupLabel(source.sourceGroup),
+              localeLabel(source.locale),
+              typeof h?.lastDurationMs === "number" ? `${Math.round(h.lastDurationMs)}ms` : null,
+              rate ? `304 ${rate.pct}%` : null,
+            ].filter(Boolean).join(" · ");
+            return (
+              <button
+                className={`source-row ${selected?.id === source.id ? "selected" : ""}`}
+                key={source.id}
+                onClick={() => setSelectedId(source.id)}
+              >
+                <span className="source-icon">
+                  <Radio size={20} />
+                </span>
+                <div>
+                  <h2>{source.label}</h2>
+                  <p>{meta}</p>
+                  {failures > 0 && (
+                    <p className="source-error">
+                      连续失败 {failures} 次{h?.lastError ? `：${h.lastError}` : ""}
+                    </p>
+                  )}
+                </div>
+                <div className="source-badges">
+                  {h?.lastTruncated && <span className="badge badge-warn">可能截断</span>}
+                  {failures > 0 && <span className="badge badge-error">异常 ×{failures}</span>}
+                  <span className="badge">
+                    {source.state === "active"
+                      ? "可用"
+                      : source.state === "paused"
+                        ? "已暂停"
+                        : "已归档"}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
         </div>
         {selected && (
           <section className="panel source-detail">
             <h2>{selected.label}</h2>
             <p className="muted">
-              {selected.deliveryMode === "push" ? "导入样本" : selected.schedule?.enabled ? "自动采集" : "按需采集"} ·{" "}
-              {selected.contentKind} · {tierLabels[selected.tier]}
+              {[
+                selected.deliveryMode === "push" ? "导入样本" : selected.schedule?.enabled ? "自动采集" : "按需采集",
+                selected.contentKind,
+                tierLabels[selected.tier],
+                groupLabel(selected.sourceGroup),
+                localeLabel(selected.locale),
+              ].filter(Boolean).join(" · ")}
             </p>
+            {(selected.tags?.length ?? 0) > 0 && (
+              <p className="muted">标签：{selected.tags.join(", ")}</p>
+            )}
+            {(typeof selectedHealth?.lastDurationMs === "number" || selectedHit || selectedHealth?.lastTruncated) && (
+              <div className="health-row">
+                {typeof selectedHealth?.lastDurationMs === "number" && (
+                  <span>最近耗时 {Math.round(selectedHealth.lastDurationMs)}ms</span>
+                )}
+                {selectedHit && (
+                  <span>304 命中率 {selectedHit.pct}%（{selectedHit.hits}/{selectedHit.total}）</span>
+                )}
+                {selectedHealth?.lastTruncated && <span className="badge badge-warn">可能截断</span>}
+              </div>
+            )}
+            {selectedFailures > 0 && (
+              <div className="alert" role="alert">
+                <span>
+                  连续失败 {selectedFailures} 次{selectedHealth?.lastError ? `：${selectedHealth.lastError}` : ""}
+                </span>
+              </div>
+            )}
             <p className="target-text">
               {"query" in selected.target
                 ? selected.target.query
@@ -213,13 +532,25 @@ export default function Sources({
             {selected.lastCheckedAt && <p className="muted">最近检查 {new Date(selected.lastCheckedAt).toLocaleString("zh-CN")}</p>}
             {selected.lastSuccessAt && <p className="muted">最近采集成功 {new Date(selected.lastSuccessAt).toLocaleString("zh-CN")}</p>}
             {canEdit && selected.state !== "archived" && <details>
-              <summary>编辑来源等级</summary>
+              <summary>编辑来源属性</summary>
               <form key={`${selected.id}:${selected.revision}`} onSubmit={(event) => {
                 event.preventDefault();
                 const form = new FormData(event.currentTarget);
+                const maxItemsRaw = String(form.get("maxItems") ?? "").trim();
+                const nextFetchPolicy = maxItemsRaw
+                  ? { ...(selected.fetchPolicy ?? {}), maxItems: Number(maxItemsRaw) }
+                  : Object.fromEntries(Object.entries(selected.fetchPolicy ?? {}).filter(([k]) => k !== "maxItems"));
                 void run(() => api(`/sources/${selected.id}`, {
                   method: "PATCH",
-                  body: JSON.stringify({ revision: selected.revision, tier: form.get("tier"), ownerEntityId: form.get("ownerEntityId") || null }),
+                  body: JSON.stringify({
+                    revision: selected.revision,
+                    tier: form.get("tier"),
+                    ownerEntityId: form.get("ownerEntityId") || null,
+                    sourceGroup: form.get("sourceGroup") || null,
+                    locale: form.get("locale") || null,
+                    tags: parseTags(form.get("tags")),
+                    fetchPolicy: nextFetchPolicy,
+                  }),
                 }));
               }}>
                 <Field label="权威等级">
@@ -227,10 +558,28 @@ export default function Sources({
                     {Object.entries(tierLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
                   </select>
                 </Field>
+                <Field label="频道分组">
+                  <select name="sourceGroup" defaultValue={selected.sourceGroup ?? ""}>
+                    <option value="">未分组</option>
+                    {Object.entries(sourceGroups).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                  </select>
+                </Field>
+                <Field label="语言">
+                  <select name="locale" defaultValue={selected.locale ?? ""}>
+                    <option value="">未指定</option>
+                    {Object.entries(languages).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                  </select>
+                </Field>
+                <Field label="标签（逗号分隔 slug）">
+                  <input name="tags" defaultValue={(selected.tags ?? []).join(", ")} maxLength={400} placeholder="ai, release-notes" />
+                </Field>
+                <Field label="抓取条数上限（fetchPolicy.maxItems，1–100）">
+                  <input type="number" name="maxItems" min={1} max={100} defaultValue={selected.fetchPolicy?.maxItems ?? ""} placeholder="默认" />
+                </Field>
                 <Field label="发布主体 ID（可选，同一主体共用）">
                   <input name="ownerEntityId" defaultValue={selected.ownerEntityId ?? ""} pattern="[a-z0-9][a-z0-9_\-]{0,79}" maxLength={80} />
                 </Field>
-                <button>保存等级</button>
+                <button>保存属性</button>
               </form>
             </details>}
             {canEdit && selected.deliveryMode === "pull" && selected.state !== "archived" && (
@@ -313,7 +662,7 @@ export default function Sources({
                       name="limit"
                       type="number"
                       min={1}
-                      max={selected.primaryProvider === "twitterapis" ? 20 : selected.platform === "web" ? 30 : 100}
+                      max={selected.primaryProvider === "twitterapis" ? 20 : 100}
                       defaultValue={selected.primaryProvider === "twitterapis" ? 20 : 25}
                       required
                     />
@@ -407,7 +756,7 @@ export default function Sources({
           </section>
         )}
       </div>
-      {sources.data?.sources.length === 0 && (
+      {allSources.length === 0 && (
         <Empty>添加一个来源，开始积累研究证据。</Empty>
       )}
     </>

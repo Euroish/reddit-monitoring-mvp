@@ -1,28 +1,14 @@
 import { createHash } from "node:crypto";
-import { Resolver } from "node:dns/promises";
-import { request } from "node:https";
-import { BlockList, isIP } from "node:net";
-import { promisify } from "node:util";
-import { gunzip } from "node:zlib";
 import { load } from "cheerio";
 import Parser from "rss-parser";
 import sanitize from "sanitize-html";
-import type { SourceTarget } from "../../../packages/contracts/src/source-content";
+import type { JsonValue, SourceTarget } from "../../../packages/contracts/src/source-content";
 import type { webBoards } from "../../../packages/contracts/src/web-boards";
 import { stableUuidFromString } from "../../shared/ids/stable-id";
+import { detectLanguage, detectWebChannel } from "../../shared/text/language";
 import { fail } from "../../storage/db";
 import { ContentProviderError, type CollectedContent, type CollectedPage, type ContentProvider } from "../shared/content-provider.interface";
-
-const reserved = new BlockList();
-for (const [network, prefix] of [
-  ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8], ["169.254.0.0", 16],
-  ["172.16.0.0", 12], ["192.0.0.0", 24], ["192.0.2.0", 24], ["192.88.99.0", 24], ["192.168.0.0", 16],
-  ["198.18.0.0", 15], ["198.51.100.0", 24], ["203.0.113.0", 24], ["224.0.0.0", 3],
-] as const) reserved.addSubnet(network, prefix);
-const globalV6 = new BlockList();
-globalV6.addSubnet("2000::", 3, "ipv6");
-for (const [network, prefix] of [["2001::", 23], ["2001:db8::", 32], ["2002::", 16], ["3fff::", 20]] as const)
-  reserved.addSubnet(network, prefix, "ipv6");
+import { canonicalizeUrl, httpsUrl, read, type ReadPage } from "./http";
 
 const hn = "https://news.ycombinator.com";
 type MediaGroup = { "media:description"?: ({ _?: string } | string)[]; "media:thumbnail"?: { $?: { url?: string } }[] };
@@ -30,141 +16,77 @@ const parser = new Parser<Record<string, never>, { author?: string; mediaGroup?:
   customFields: { item: [["media:group", "mediaGroup"], ["ht:news_item", "trendNews", { keepArray: true }]] },
 });
 const clean = (value: string) => sanitize(value, { allowedTags: [], allowedAttributes: {} }).trim();
-const decodeGzip = promisify(gunzip);
-const maxResponseBytes = 2 * 1024 * 1024;
-
-function httpsUrl(raw: string, base?: string) {
-  try {
-    const url = new URL(raw, base);
-    if (url.protocol !== "https:" || url.username || url.password || url.port || !url.hostname.includes(".") || isIP(url.hostname)) return null;
-    url.hash = "";
-    return url;
-  } catch {
-    return null;
-  }
-}
-
-async function read(url: URL, parent?: AbortSignal, headers?: Record<string, string>) {
-  const timer = AbortSignal.timeout(15000);
-  const signal = parent ? AbortSignal.any([parent, timer]) : timer;
-  const resolver = new Resolver();
-  const cancel = () => resolver.cancel();
-  signal.addEventListener("abort", cancel, { once: true });
-  try {
-    for (let hop = 0; hop <= 3; hop++) {
-      signal.throwIfAborted();
-      const addresses = (await Promise.allSettled([
-        resolver.resolve4(url.hostname), resolver.resolve6(url.hostname),
-      ])).flatMap((result) => result.status === "fulfilled" ? result.value : []);
-      signal.throwIfAborted();
-      if (!addresses.length) throw new ContentProviderError("Web source DNS lookup failed", true);
-      const address = addresses.find((ip) => isIP(ip) === 4 ? !reserved.check(ip) :
-        globalV6.check(ip, "ipv6") && !reserved.check(ip, "ipv6"));
-      if (!address) throw new ContentProviderError("Web source address is not public", false);
-      const response = await requestPage(url, address, signal, headers);
-      if (!response.location) return { ...response, url: url.href };
-      const next = httpsUrl(response.location, url.href);
-      if (!next || hop === 3) throw new ContentProviderError("Invalid web source redirect", false);
-      if (next.origin !== url.origin) headers = undefined;
-      url = next;
-    }
-    throw new ContentProviderError("Too many web source redirects", false);
-  } catch (error) {
-    if (error instanceof ContentProviderError || parent?.aborted) throw error;
-    throw new ContentProviderError("Web source connection failed or timed out", true);
-  } finally {
-    signal.removeEventListener("abort", cancel);
-  }
-}
-
-function requestPage(url: URL, ip: string, signal: AbortSignal, headers?: Record<string, string>) {
-  const family = isIP(ip);
-  return new Promise<{ body: string; status: number; etag?: string; modified?: string; location?: string }>((resolve, reject) => {
-    const req = request(url, {
-      headers: {
-        "User-Agent": "MonitoringWorkbench/1.0 (RSS reader)",
-        Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.1",
-        "Accept-Encoding": "gzip",
-        ...headers,
-      },
-      family, signal, agent: false,
-      lookup: (_host, _options, callback) => callback(null, ip, family),
-    }, async (response) => {
-      try {
-        const status = response.statusCode ?? 500;
-        if ([301, 302, 303, 307, 308].includes(status) && response.headers.location) {
-          response.destroy();
-          resolve({ status, body: "", location: response.headers.location });
-          return;
-        }
-        if (status !== 200 && status !== 304) {
-          const retry = response.headers["retry-after"];
-          const seconds = retry && /^\d+$/.test(retry) ? Number(retry) : (Date.parse(retry ?? "") - Date.now()) / 1000;
-          const delay = Number.isFinite(seconds) ? Math.min(43200, Math.max(1, Math.ceil(seconds))) : 30;
-          throw new ContentProviderError(`Web source returned HTTP ${status}`, status === 429 || status >= 500, delay, status);
-        }
-        const chunks: Buffer[] = [];
-        let bytes = 0;
-        for await (const chunk of response) {
-          bytes += chunk.length;
-          if (bytes > maxResponseBytes) throw new ContentProviderError("Web source response exceeds 2 MiB", false);
-          chunks.push(chunk);
-        }
-        const body = Buffer.concat(chunks, bytes);
-        const decoded = status === 200 && response.headers["content-encoding"] === "gzip"
-          ? await decodeGzip(body, { maxOutputLength: maxResponseBytes }).catch(() => {
-            throw new ContentProviderError("Invalid or oversized gzip response", false);
-          })
-          : body;
-        signal.throwIfAborted();
-        resolve({
-          body: decoded.toString("utf8"), status,
-          etag: response.headers.etag, modified: response.headers["last-modified"],
-        });
-      } catch (error) {
-        response.destroy();
-        reject(error);
-      }
-    });
-    req.on("error", reject);
-    req.end();
-  });
-}
 
 function article(input: {
-  provider: "feed" | "newsnow"; sourceId: string; fetchedAt: string; url: URL;
-  title: string; text: string | null; publishedAt: string | null; feedUrl: string | null; rank?: number; author?: string; thumbnail?: string;
+  provider: "feed" | "newsnow";
+  sourceId: string;
+  fetchedAt: string;
+  url: URL;
+  title: string;
+  text: string | null;
+  publishedAt: string | null;
+  feedUrl: string | null;
+  board?: string;
+  rank?: number;
+  metrics?: Record<string, number>;
+  author?: string;
+  thumbnail?: string;
   externalId?: string;
   relatedUrl?: string;
 }): CollectedContent {
   const externalId = input.externalId ?? input.url.href;
-  const snapshot = Math.floor(Date.parse(input.fetchedAt) / 300000);
-  const evidence = input.rank !== undefined
-    ? JSON.stringify([externalId, snapshot, input.rank, input.title, input.text, input.publishedAt, input.author])
-    : JSON.stringify([externalId, input.title, input.text, input.publishedAt, input.author, ...(input.thumbnail ? [input.thumbnail] : []),
-      ...(input.relatedUrl ? [input.relatedUrl] : [])]);
+  const snapshot = Math.floor(Date.parse(input.fetchedAt) / 3600000);
+  const language = detectLanguage(input.title, input.text);
+  const textCompleteness = !input.text ? "title_only" : input.text.length < 400 ? "summary" : "full";
+  const channel = detectWebChannel(input.url, input.board);
+  const metrics: Record<string, number> = {
+    ...(input.rank === undefined ? {} : { "web.rank": input.rank }),
+    ...input.metrics,
+  };
+  const evidence = input.rank !== undefined || Object.keys(metrics).length > 0
+    ? JSON.stringify([externalId, snapshot, metrics, input.title, input.text, input.publishedAt, input.author, channel, textCompleteness])
+    : JSON.stringify([
+        externalId, input.title, input.text, input.publishedAt, input.author, channel, textCompleteness,
+        ...(input.thumbnail ? [input.thumbnail] : []),
+        ...(input.relatedUrl ? [input.relatedUrl] : []),
+      ]);
   return {
     id: stableUuidFromString(`web:content:article:${externalId}`),
-    platform: "web", kind: "article", externalId, url: input.url.href,
-    title: input.title, text: input.text, publishedAt: input.publishedAt, fetchedAt: input.fetchedAt,
+    platform: "web",
+    kind: "article",
+    externalId,
+    url: input.url.href,
+    title: input.title,
+    text: input.text,
+    publishedAt: input.publishedAt,
+    fetchedAt: input.fetchedAt,
     author: input.author ? { externalId: null, handle: null, displayName: input.author, url: null } : null,
-    language: null, availability: "available", references: [],
+    language,
+    availability: "available",
+    references: [],
     media: input.thumbnail || input.relatedUrl
       ? [{ type: input.thumbnail ? "image" : "link", url: input.thumbnail ?? input.relatedUrl!, previewUrl: null, altText: null, durationSeconds: null }]
       : [],
-    platformDetails: { platform: "web", publisher: input.url.hostname, canonicalUrl: input.url.href, feedUrl: input.feedUrl },
+    platformDetails: {
+      platform: "web",
+      publisher: input.url.hostname,
+      canonicalUrl: input.url.href,
+      feedUrl: input.feedUrl,
+      channel,
+      textCompleteness,
+    },
     observation: {
-      provider: input.provider, sourceId: input.sourceId, sourceObservedAt: null, fetchedAt: input.fetchedAt,
-      timeBasis: "provider_snapshot", maturity: "unknown",
-      metrics: input.rank === undefined ? {} : { "web.rank": input.rank },
+      provider: input.provider,
+      sourceId: input.sourceId,
+      sourceObservedAt: null,
+      fetchedAt: input.fetchedAt,
+      timeBasis: "provider_snapshot",
+      maturity: "unknown",
+      metrics,
       evidenceKey: createHash("sha256").update(evidence).digest("hex"),
     },
   };
 }
-
-type ReadPage = (url: URL, signal?: AbortSignal, headers?: Record<string, string>) => Promise<{
-  body: string; status: number; etag?: string; modified?: string; url?: string;
-}>;
 
 type ListConfig = NonNullable<Extract<SourceTarget, { type: "feed" }>["list"]>;
 type Entry = { link?: string; title?: string; summary?: string; publishedAt?: string; author?: string; thumbnail?: string };
@@ -232,9 +154,14 @@ const boards = {
 type Board = keyof typeof boards;
 
 export function webSource(provider: "feed" | "newsnow", env = process.env, readPage: ReadPage = read): ContentProvider {
-  const allowed = new Set((env.FEED_ALLOWED_URLS ?? "").split(",").map((raw) => httpsUrl(raw.trim())?.href));
+  const allowedRaw = (env.FEED_ALLOWED_URLS ?? "")
+    .split(",")
+    .map((raw) => httpsUrl(raw.trim())?.href)
+    .filter((v): v is string => Boolean(v));
+  const restrictAllowlist = allowedRaw.length > 0;
+  const allowed = new Set(allowedRaw);
   const targetTypes: SourceTarget["type"][] = [provider === "feed" ? "feed" : "search"];
-  const enabled = env.SOURCE_NETWORK_ENABLED === "true" && (provider === "newsnow" || [...allowed].some(Boolean));
+  const enabled = env.SOURCE_NETWORK_ENABLED === "true";
   const normalizeTarget: ContentProvider["normalizeTarget"] = (target, kind) => {
     if (kind === "article" && provider === "newsnow" && target.type === "search") {
       const query = target.query.trim().toLowerCase();
@@ -242,17 +169,26 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
     }
     if (kind === "article" && provider === "feed" && target.type === "feed") {
       const url = httpsUrl(target.url);
-      if (url && allowed.has(url.href)) return { ...target, url: url.href };
+      if (url && (!restrictAllowlist || allowed.has(url.href))) return { ...target, url: url.href };
     }
-    return fail(422, provider === "feed" ? "Select an approved HTTPS feed URL" : `Available boards: ${Object.keys(boards).join(", ")}`);
+    const feedErr = restrictAllowlist ? "Select an approved HTTPS feed URL" : "Enter a valid public HTTPS feed URL";
+    return fail(422, provider === "feed" ? feedErr : `Available boards: ${Object.keys(boards).join(", ")}`);
   };
   return {
     capability: {
-      platform: "web", provider, enabled, contentKinds: ["article"], targetTypes, keywordSearch: "none",
-      metrics: provider === "newsnow" ? [{
-        key: "web.rank", label: "Board rank", unit: "rank", cumulative: false, signed: false, contentKinds: ["article"], direction: "lower",
-      }] : [],
-      observationModel: "snapshot", limitations: ["Current snapshot, up to 30 articles"],
+      platform: "web",
+      provider,
+      enabled,
+      contentKinds: ["article"],
+      targetTypes,
+      keywordSearch: "none",
+      metrics: provider === "newsnow" ? [
+        { key: "web.rank", label: "Board rank", unit: "rank", cumulative: false, signed: false, contentKinds: ["article"], direction: "lower" },
+        { key: "web.views", label: "Views", unit: "count", cumulative: true, signed: false, contentKinds: ["article"], direction: "higher" },
+        { key: "web.likes", label: "Likes", unit: "count", cumulative: true, signed: false, contentKinds: ["article"], direction: "higher" },
+      ] : [],
+      observationModel: "snapshot",
+      limitations: ["Current snapshot, up to 100 articles"],
     },
     normalizeTarget,
     async collectPage(input): Promise<CollectedPage> {
@@ -260,24 +196,43 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
       const target = normalizeTarget(input.source.target, input.source.contentKind);
       const fetchedAt = new Date().toISOString();
       const base = { exhausted: false, coverage: "partial" as const, warning: null };
-      const limit = Math.min(30, input.limit);
+      const policyMax = input.source.fetchPolicy?.maxItems;
+      const effectiveMax = policyMax !== undefined ? Math.min(input.limit, policyMax) : input.limit;
+      const limit = Math.min(100, Math.max(1, effectiveMax));
+      const stripTracking = input.source.fetchPolicy?.stripTrackingParams !== false;
+      const timeoutMs = input.source.fetchPolicy?.timeoutMs;
       if (target.type === "feed") {
         const url = new URL(target.url);
         const checkpoint = input.checkpoint;
-        const prior = checkpoint && typeof checkpoint === "object" && !Array.isArray(checkpoint) ? checkpoint : {};
+        const prior: Record<string, JsonValue> = checkpoint && typeof checkpoint === "object" && !Array.isArray(checkpoint) ? checkpoint : {};
         const from = Date.parse(input.from), to = Date.parse(input.to);
+        const etag = input.httpEtag ?? (typeof prior.etag === "string" ? prior.etag : undefined);
+        const modified = input.httpLastModified ?? (typeof prior.modified === "string" ? prior.modified : undefined);
         const headers: Record<string, string> = {};
-        // A 304 is usable only when the new window excludes all previously skipped entries.
-        if (typeof prior.coveredFrom === "number" && from >= prior.coveredFrom &&
-            (prior.coveredTo === null || typeof prior.coveredTo === "number" && to <= prior.coveredTo)) {
-          if (typeof prior.etag === "string") headers["If-None-Match"] = prior.etag;
-          if (typeof prior.modified === "string") headers["If-Modified-Since"] = prior.modified;
+        const coveredToOk = prior.coveredTo == null || (typeof prior.coveredTo === "number" && to <= prior.coveredTo);
+        const coveredFromOk = (typeof prior.coveredFrom === "number" && from >= prior.coveredFrom) ||
+          (prior.truncated === true &&
+            (prior.limit === undefined || limit <= Number(prior.limit)) &&
+            (prior.from === undefined || from >= Number(prior.from)));
+        if (!input.preview && coveredToOk && coveredFromOk) {
+          if (etag) headers["If-None-Match"] = etag;
+          if (modified) headers["If-Modified-Since"] = modified;
         }
-        const response = await readPage(url, input.signal, headers);
-        if (response.status === 304) return {
-          ...base, items: [], notModified: true, exhausted: true,
-          nextCheckpoint: { ...prior, etag: response.etag ?? prior.etag ?? null, modified: response.modified ?? prior.modified ?? null },
-        };
+        const response = await readPage(url, input.signal, headers, timeoutMs);
+        if (response.status === 304) {
+          const nextEtag = response.etag ?? etag ?? null;
+          const nextModified = response.modified ?? modified ?? null;
+          return {
+            ...base,
+            items: [],
+            notModified: true,
+            exhausted: true,
+            truncated: false,
+            httpEtag: nextEtag,
+            httpLastModified: nextModified,
+            nextCheckpoint: { ...prior, etag: nextEtag, modified: nextModified },
+          };
+        }
         const baseUrl = response.url ?? url.href;
         let entries: Entry[];
         let discoveredFeeds: string[] | undefined;
@@ -308,7 +263,7 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
         const sortTime = (time: number) => Number.isFinite(time) ? time : -Infinity;
         ordered.sort((a, b) => sortTime(b.timestamp) - sortTime(a.timestamp));
         for (const { entry, timestamp } of ordered) {
-          const link = entry.link?.trim() && httpsUrl(entry.link, baseUrl);
+          const link = entry.link?.trim() ? canonicalizeUrl(entry.link, baseUrl, stripTracking) : null;
           const title = clean(entry.title ?? "");
           if (!link || link.href.length > 1000 || !title || seen.has(link.href)) continue;
           valid = true;
@@ -331,18 +286,31 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
         }
         if (target.list && entries.length && !valid)
           throw new ContentProviderError("No list entries have both a title and a valid HTTPS link", false);
+        const nextEtag = response.etag ?? null;
+        const nextModified = response.modified ?? null;
         return {
-          ...base, items, exhausted: !truncated, discoveredFeeds,
+          ...base,
+          items,
+          exhausted: !truncated,
+          truncated,
+          httpEtag: nextEtag,
+          httpLastModified: nextModified,
+          discoveredFeeds,
           nextCheckpoint: {
-            etag: response.etag ?? null, modified: response.modified ?? null,
-            coveredFrom: truncated ? null : from, coveredTo,
+            etag: nextEtag,
+            modified: nextModified,
+            coveredFrom: truncated ? null : from,
+            coveredTo,
+            truncated,
+            limit,
+            from,
           },
         };
       }
       const board = (target as Extract<SourceTarget, { type: "search" }>).query as Board;
-      const response = await readPage(new URL(boards[board]), input.signal);
+      const response = await readPage(new URL(boards[board]), input.signal, undefined, timeoutMs);
       if (board === "zhihu-hot" || board === "google-trends-us") {
-        const common = { provider, sourceId: input.source.id, fetchedAt, feedUrl: null };
+        const common = { provider, sourceId: input.source.id, fetchedAt, feedUrl: null, board };
         if (board === "zhihu-hot") {
           const rows = jsonField(jsonDocument(response.body), "data");
           if (!Array.isArray(rows) || !rows.length) throw new ContentProviderError("Invalid Zhihu hot list", false);
@@ -367,7 +335,7 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
           const externalId = `google-trends:US:${createHash("sha256").update(JSON.stringify([title, entry.isoDate])).digest("hex")}`;
           if (url.href.length > 1000) return [];
           const news = entry.trendNews?.[0]?.["ht:news_item_url"]?.[0];
-          const relatedUrl = news && news.length <= 1000 ? httpsUrl(news)?.href : undefined;
+          const relatedUrl = news && news.length <= 1000 ? canonicalizeUrl(news, undefined, stripTracking)?.href : undefined;
           return [article({ ...common, title, url, externalId, relatedUrl, text: null, publishedAt: entry.isoDate })];
         });
         if (feed.items.length && !items.length) throw new ContentProviderError("No valid Google Trends entries", false);
@@ -392,12 +360,12 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
           });
         }
         const items = entries.slice(0, limit).flatMap((entry, index) => {
-          const url = entry.link && httpsUrl(entry.link, baseUrl);
+          const url = entry.link ? canonicalizeUrl(entry.link, baseUrl, stripTracking) : null;
           const title = clean(entry.title ?? "");
           const timestamp = Date.parse(entry.publishedAt ?? "");
           return url && title ? [article({ provider, sourceId: input.source.id, fetchedAt, url, title,
             text: clean(entry.summary ?? "") || null, publishedAt: Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null,
-            feedUrl: null, rank: index + 1, author: entry.author && clean(entry.author) })] : [];
+            feedUrl: null, board, rank: index + 1, author: entry.author && clean(entry.author) })] : [];
         });
         if (entries.length && !items.length) throw new ContentProviderError("Board entries no longer match the expected format", false);
         return { ...base, items, nextCheckpoint: null };
@@ -410,15 +378,22 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
         const items = rows.slice(0, limit).flatMap((row, index) => {
           const link = bilibili && typeof row?.bvid === "string" && /^BV\w+$/.test(row.bvid)
             ? `https://www.bilibili.com/video/${row.bvid}` : row?.url;
-          const url = typeof link === "string" ? httpsUrl(link) : null;
+          const url = typeof link === "string" ? canonicalizeUrl(link, undefined, stripTracking) : null;
           if (!url || typeof row.title !== "string" || !row.title.trim()) return [];
           const time = bilibili && typeof row.pubdate === "number" ? row.pubdate * 1000 : Date.parse(row.date_published ?? "");
           const date = new Date(time);
           const name = bilibili ? row.owner?.name : row.authors?.[0]?.name;
+          const metrics: Record<string, number> = {};
+          if (bilibili) {
+            if (typeof row.stat?.view === "number" && Number.isFinite(row.stat.view)) metrics["web.views"] = row.stat.view;
+            if (typeof row.stat?.like === "number" && Number.isFinite(row.stat.like)) metrics["web.likes"] = row.stat.like;
+          }
           return [article({
             provider, sourceId: input.source.id, fetchedAt, url, title: clean(row.title),
             text: null, publishedAt: Number.isFinite(date.getTime()) ? date.toISOString() : null,
-            feedUrl: null, rank: bilibili ? index + 1 : undefined, author: typeof name === "string" ? clean(name) : undefined,
+            feedUrl: null, board, rank: bilibili ? index + 1 : undefined,
+            metrics: bilibili ? metrics : undefined,
+            author: typeof name === "string" ? clean(name) : undefined,
           })];
         });
         return { ...base, items, nextCheckpoint: null };
@@ -431,7 +406,7 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
         const title = page(row).find(".titleline a").first().text();
         return id && /^\d+$/.test(id) && title ? [article({
           provider, sourceId: input.source.id, fetchedAt, url: new URL(`/item?id=${id}`, hn),
-          title, text: null, publishedAt: null, feedUrl: null, rank: index + 1,
+          title, text: null, publishedAt: null, feedUrl: null, board, rank: index + 1,
         })] : [];
       });
       return { ...base, items, nextCheckpoint: null };

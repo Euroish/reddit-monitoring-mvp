@@ -9,26 +9,39 @@ import type {
 import { Field, Heading, Empty } from "../ui";
 import Thread from "./Thread";
 import { api, type Run } from "../api";
+
+const sourceGroups = {
+  "ai-firsthand": "AI 一手与研发",
+  "dev-infra": "工程与基础",
+  "tech-media": "科技与数码",
+  lifestyle: "生活与旅行",
+  "design-visual": "设计与视觉",
+  science: "科研与科普",
+  "public-affairs": "公共与文化",
+  "social-trends": "热榜与泛娱乐",
+} as const;
+const tierLabels = { T1: "T1 · 官方一手", T1_5: "T1_5 · 主创", T2: "T2 · 媒体与社区" } as const;
+const languages = { zh: "中文", en: "English", ja: "日本語", ko: "한국어" } as const;
 const date = (value: string | null) =>
   value ? new Date(value).toLocaleString("zh-CN") : "发布时间未知";
+const readDraft = (search: URLSearchParams) => ({
+  scope: search.toString(),
+  query: search.get("query") ?? "",
+  sourceId: search.get("sourceId") ?? "",
+  signal: search.get("signal") ?? "",
+  sourceGroup: search.get("sourceGroup") ?? "",
+  tier: search.get("tier") ?? "",
+  language: search.get("language") ?? "",
+  hasMedia: search.get("hasMedia") === "true",
+});
+
 export default function ContentLibrary({ run, canCollect, feed = false }: { run: Run; canCollect: boolean; feed?: boolean }) {
   const [params, setParams] = useSearchParams(),
     [selected, setSelected] = useState<PublicContent | null>(null),
     [savingQuery, setSavingQuery] = useState(false),
-    [draft, setDraft] = useState({
-      scope: params.toString(),
-      query: params.get("query") ?? "",
-      sourceId: params.get("sourceId") ?? "",
-    }),
+    [draft, setDraft] = useState(() => readDraft(params)),
     [exporting, setExporting] = useState(false);
-  const searchDraft =
-    draft.scope === params.toString()
-      ? draft
-      : {
-          scope: params.toString(),
-          query: params.get("query") ?? "",
-          sourceId: params.get("sourceId") ?? "",
-        };
+  const searchDraft = draft.scope === params.toString() ? draft : readDraft(params);
   const annotation = useQuery({
     queryKey: ["annotation", selected?.id],
     enabled: !!selected,
@@ -137,13 +150,16 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
         className="search-bar"
         onSubmit={(event) => {
           event.preventDefault();
-          const form = new FormData(event.currentTarget),
-            next = new URLSearchParams(params);
-          for (const key of ["cursor", "query", "sourceId", "signal"]) next.delete(key);
-          if (form.get("query")) next.set("query", String(form.get("query")));
-          if (form.get("sourceId"))
-            next.set("sourceId", String(form.get("sourceId")));
-          if (form.get("signal")) next.set("signal", String(form.get("signal")));
+          const next = new URLSearchParams(params);
+          for (const key of ["cursor", "query", "sourceId", "signal", "sourceGroup", "tier", "language", "hasMedia"])
+            next.delete(key);
+          if (searchDraft.query.trim()) next.set("query", searchDraft.query.trim());
+          if (searchDraft.sourceId) next.set("sourceId", searchDraft.sourceId);
+          if (searchDraft.signal) next.set("signal", searchDraft.signal);
+          if (searchDraft.sourceGroup) next.set("sourceGroup", searchDraft.sourceGroup);
+          if (searchDraft.tier) next.set("tier", searchDraft.tier);
+          if (searchDraft.language) next.set("language", searchDraft.language);
+          if (searchDraft.hasMedia) next.set("hasMedia", "true");
           setParams(next);
         }}
       >
@@ -171,11 +187,52 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
             </option>
           ))}
         </select>
-        <select key={params.get("signal") ?? ""} name="signal" aria-label="研究信号" defaultValue={params.get("signal") ?? ""}>
+        <select
+          name="sourceGroup"
+          aria-label="频道"
+          value={searchDraft.sourceGroup}
+          onChange={(event) => setDraft({ ...searchDraft, sourceGroup: event.target.value })}
+        >
+          <option value="">全部频道</option>
+          {Object.entries(sourceGroups).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select>
+        <select
+          name="tier"
+          aria-label="等级"
+          value={searchDraft.tier}
+          onChange={(event) => setDraft({ ...searchDraft, tier: event.target.value })}
+        >
+          <option value="">全部等级</option>
+          {Object.entries(tierLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select>
+        <select
+          name="language"
+          aria-label="语言"
+          value={searchDraft.language}
+          onChange={(event) => setDraft({ ...searchDraft, language: event.target.value })}
+        >
+          <option value="">全部语言</option>
+          {Object.entries(languages).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select>
+        <select
+          name="signal"
+          aria-label="研究信号"
+          value={searchDraft.signal}
+          onChange={(event) => setDraft({ ...searchDraft, signal: event.target.value })}
+        >
           <option value="">全部信号</option>
           <option value="discussion">讨论活跃</option>
           <option value="pain">痛点</option>
         </select>
+        <label className="check">
+          <input
+            type="checkbox"
+            name="hasMedia"
+            checked={searchDraft.hasMedia}
+            onChange={(event) => setDraft({ ...searchDraft, hasMedia: event.target.checked })}
+          />
+          仅含媒体
+        </label>
         <button>搜索</button>
       </form>
       {content.error && <p role="alert">{content.error.message}</p>}
@@ -195,7 +252,9 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
               const values = params.getAll(key);
               filter[key] = ["anyTerms", "allTerms", "exclusions"].includes(key)
                 ? values
-                : key === "threadAware" ? values[0] === "true" : values[0];
+                : key === "threadAware" || key === "hasMedia"
+                  ? values[0] === "true"
+                  : values[0];
             }
             void run(async () => {
               await api("/workspace/queries", {
@@ -244,7 +303,9 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
       )}
       {hydrated > 0 && <p role="status">已提交 {hydrated} 个水合任务。任务进度见来源页。</p>}
       <div className="content-list">
-        {content.data?.items.map((item) => (
+        {content.data?.items.map((item) => {
+          const channel = (item.platformDetails as { channel?: string | null })?.channel;
+          return (
           <div key={item.id}>
           {projectId && canCollect && item.platform === "reddit" && item.kind === "post" &&
             item.observations.some(({ provider }) => provider === "kaix") && (
@@ -264,7 +325,9 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
           >
             <div className="content-meta">
               <span>{item.platform}</span>
+              {channel && <span>{channel}</span>}
               {(item.author?.displayName ?? item.author?.handle) && <span>{item.author?.displayName ?? item.author?.handle}</span>}
+              {item.language && <span>{languages[item.language as keyof typeof languages] ?? item.language}</span>}
               {item.contextMissing && <span>根帖上下文缺失</span>}
               <span>{item.kind === "comment" ? "评论" : "主帖 / 文章"}</span>
               <time>{date(item.publishedAt)}</time>
@@ -276,7 +339,8 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
                 .map(({ provider, metrics }) => {
                   const values = [
                     [metrics["reddit.num_comments"] ?? metrics["x.replies"], "回复"],
-                    [metrics["x.likes"], "点赞"],
+                    [metrics["x.likes"] ?? metrics["web.likes"], "点赞"],
+                    [metrics["web.views"], "浏览"],
                     [metrics["web.rank"], "榜单名次"],
                   ] as const;
                   return [provider, ...values.flatMap(([value, label]) => value == null ? [] : [`${label} ${value}`])].join(" · ");
@@ -288,7 +352,8 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
             </div>
           </button>
           </div>
-        ))}
+          );
+        })}
       </div>
       {content.data?.nextCursor && (
         <button

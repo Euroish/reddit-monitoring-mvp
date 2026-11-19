@@ -1,6 +1,6 @@
 import type { Static } from "@sinclair/typebox";
 import type { Pool, PoolClient } from "pg";
-import type { StoryEvidence, StoryFeed, StoryQuery } from "../../../packages/contracts/src/content-stories";
+import { MAX_STORY_LIMIT, type StoryEvidence, type StoryFeed, type StoryQuery } from "../../../packages/contracts/src/content-stories";
 import type { Actor, ContentAuthor } from "../../../packages/contracts/src/source-content";
 import { fail } from "../../storage/db";
 import { compileContentFilter, contentSourceTables } from "./search";
@@ -56,13 +56,20 @@ function dateWindow(query: Query, now: number) {
   return { view, from: to - (view === "digest" ? 24 : 48) * hour, to };
 }
 
-export async function contentStories(pool: Pool | PoolClient, actor: Actor, query: Query, now = Date.now()): Promise<StoryFeed> {
+export async function readStoryWindow(pool: Pool | PoolClient, actor: Actor, query: Query, now = Date.now()) {
   const { view, from, to } = dateWindow(query, now);
   const toDate = new Date(to);
-  const { discovery, values } = compileContentFilter(actor, { sourceId: query.sourceId }, undefined, {}, true);
+  const { discovery, values } = compileContentFilter(
+    actor,
+    { sourceId: query.sourceId, sourceGroup: query.sourceGroup, tier: query.tier },
+    undefined,
+    {},
+    true,
+  );
   const start = `$${values.push(new Date(to - 54 * hour))}`;
   const end = `$${values.push(toDate)}`;
   const platform = query.platform ? `AND p.code=$${values.push(query.platform)}` : "";
+  const language = query.language ? `AND c.language=$${values.push(query.language)}` : "";
   const { rows } = await pool.query<Row>(`
     WITH candidates AS MATERIALIZED (
       SELECT id FROM content WHERE created_at_source >= ${start} AND created_at_source < ${end}
@@ -89,7 +96,7 @@ export async function contentStories(pool: Pool | PoolClient, actor: Actor, quer
     JOIN content_discovery d ON d.content_id=c.id JOIN collection_source cs ON cs.id=d.collection_source_id
     WHERE ${discovery} AND COALESCE(c.created_at_source,d.first_fetched_at) >= ${start}
       AND d.first_fetched_at < ${end} AND c.kind<>'comment' AND c.availability NOT IN ('removed','deleted')
-      AND COALESCE(NULLIF(btrim(c.title),''),NULLIF(btrim(left(c.body_text,240)),'')) IS NOT NULL ${platform}
+      AND COALESCE(NULLIF(btrim(c.title),''),NULLIF(btrim(left(c.body_text,240)),'')) IS NOT NULL ${platform} ${language}
     ORDER BY event_at,c.id,cs.tier,cs.id`, values);
 
   const entries = new Map<string, Entry>();
@@ -130,10 +137,18 @@ export async function contentStories(pool: Pool | PoolClient, actor: Actor, quer
     };
     return [story];
   });
-  ranked.sort((a, b) => (view === "latest" ? 0 : b.heat48h - a.heat48h) ||
-    b.updatedAt.localeCompare(a.updatedAt) || a.storyKey.localeCompare(b.storyKey));
+  const latestFirst = (a: StoryFeed["items"][number], b: StoryFeed["items"][number]) =>
+    b.updatedAt.localeCompare(a.updatedAt) || a.storyKey.localeCompare(b.storyKey);
+  const latest = view === "digest" ? [] : [...ranked].sort(latestFirst).slice(0, MAX_STORY_LIMIT);
+  const hottest = ranked.sort((a, b) => b.heat48h - a.heat48h || latestFirst(a, b)).slice(0, MAX_STORY_LIMIT);
+  return { from: new Date(from).toISOString(), to: toDate.toISOString(), latest, hottest };
+}
+
+export function selectStoryFeed(
+  window: Awaited<ReturnType<typeof readStoryWindow>>, view: StoryFeed["view"], limit: number,
+): StoryFeed {
   return {
-    view, from: new Date(from).toISOString(), to: toDate.toISOString(),
-    items: ranked.slice(0, query.limit ?? 20), coverage: "stored_sample",
+    view, from: window.from, to: window.to,
+    items: (view === "latest" ? window.latest : window.hottest).slice(0, limit), coverage: "stored_sample",
   };
 }
