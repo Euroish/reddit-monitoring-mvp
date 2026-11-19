@@ -1,57 +1,75 @@
-# 产品规范与文档总览
+# 产品规范、指标口径与文档总览
 
-本文定义产品范围、度量口径与工程准则；系统布局与安全基线见[主线架构规范](architecture.md)，数据语义与接口表面见[数据与 API 契约](contracts.md)，页面交互见[产品交互规范](design.md)，R1–R4 资产迁移清单见[重建计划](plans/source-expansion.md)。真实源码状态、实码缺陷台账与下一阶段规划唯一以[当前状态](status.md)为准，开发操作与历史验证台账唯一以[开发记录](development.md)为准。
+本文确立产品的核心定位、度量诚实性标准与工程边界。系统拓扑与存储演进见[主线架构规范](architecture.md)，数据对象与路由契约见[数据与 API 契约](contracts.md)，交互体验与 `semrush` 前端分支融合方案见[前端与可视化交互规范](design.md)，实码盘点与 V2 实施序列见[当前状态与规划](status.md)，单机运维见[开发与运维手册](development.md)。
 
-规范等级 `MUST` / `MUST NOT` / `SHOULD` / `MAY` 严格执行，全仓编号全局唯一且由 `npm run docs:check` 静态校验。
+规范等级 `MUST` / `MUST NOT` / `SHOULD` / `MAY` 由 `npm run docs:check` 执行静态校验，全仓规则 ID 全局唯一。
 
-## 1. 产品定位转型与核心链路（极简确定性微内核 · 可插拔 AI 翻译与摘要 · 全景数据可视化）
+---
 
-产品已从早期的“单一平台监测与重型研究工作台”全面转型为面向个人与小规模开放读者的**中英双语高价值信息流、事件聚簇、按题动态探索、全景数据可视化与推荐平台**（聚焦 **AI 与前沿开发**、**全球科技与数码产品**、**大众生活文化娱乐与全网热议** 三大高频支柱，暂不展开重度金融行情接入；**后端采用极简高性能的 `Fastify 5 + TypeBox + PostgreSQL 16` 五模块微内核，默认 100% 确定性零模型运行、原生双语直出不强制翻译，同时内建轻量可插拔的 AI 翻译/事件摘要扩展缝隙与单 SQL 驱动的多维交互式图表可视化体系**）。
+## 1. 产品定位演进：从“单一采集监控台”到“信息流优先 + 选择性可视化 + 内容资产复利”
 
-一次采集与归组同时服务五种消费与分析节奏：
-1. **早上 3 分钟扫读今日精选与 08:00 自动日报**：同一事件（官网发一篇、核心开发者实测、社区讨论一天、10 家中文自媒体转述）自动聚合成一张**事件卡**，由 **英文一手官方源（`T1`）或认证核心学者/主创（`T1_5`）** 担任代表报道，默认以**原始语种标题与确定性导语摘录**原生呈现（不阻塞入库、不强制机器翻译，同簇下的中文讨论/报道自动并列作为跨语种视角；开启或按需触发 AI 扩展后，仅对簇代表或当前卡片生成高质量**中英双语对照标题与三点事件综述**，较逐篇调用省 90% Token）；
-2. **分频道与按人物追踪**：在“关注的人（VIP 学者与创作者）”“AI 与开发”“科技与产品”“大众生活与娱乐热榜”之间一键切换，或按“公司与模型 / 领域方向 / 内容体裁”三维主题浏览；
-3. **遇到具体问题时向外动态探索 20–30 个网站**：输入查询问题，系统按确定性规则拆解为 4 个正交取证方向（官方一手、独立评测、真实复现、失败反例），通过免费垂直 API 联邦与网页搜索索引在 3.5 秒内流式返回首批证据，并支持将新发现的作者或站点 RSS 一键加入长期自动排期；
-4. **全景交互式数据可视化与跨专题对比**：原有的趋势与分面图表体系全面适配双语事件流与专题工作台——单条 PostgreSQL `GROUPING SETS` 查询同时驱动**按日/6h 跨平台与权威级叠柱脉冲图**、**48h 事件热度 × 6h 升温增速矩阵**、**`T1/T1_5/T2` 信源传播结构条**与**多专题/多实体声量对比图**，点击任一柱体、平台或事件气泡即可联动收窄下方列表；
-5. **进入专题项目与三视图评论树深挖**：遇到值得长期跟踪的话题时保存查询或建立轻量监测专题，按需对高价值 Reddit/X 根帖发起评论树水合。
+产品最初是一个面向 Reddit 的重型关键字监控看板（包含 47 张历史中间统计表与多页图表仪表盘）；经过 R1–R3 内核重建与 `050` 结构大清理后，系统已经进化为运行在 **4 vCPU / 4 GB RAM / 60 GB 系统盘** 单机上的**多源双语信息流、事件聚簇、选择性数据可视化与个人/Agent 知识工作台**。
+
+这次转型的核心判断只有三句：
+1. **信息流解决“每天 3 分钟读什么”**：首页（`/`）打开即读库内已聚合的事件卡与 08:00 日报，同源转发自动按 `T1 > T1_5 > T2` 折叠选举一手代表报道；
+2. **选择性可视化解决“热点从哪来、信源靠不靠谱、讨论怎么演进”**：摒弃为了装饰而堆砌的假分数仪表盘与跨平台混淆柱图。只保留真正回答阅读与研判问题的可视化：信息流卡片内嵌微型来源权威比例条与 48h 热度火花线，探索与专题页提供可点击联动的跨平台发布脉冲图、48h 热度×6h 增速四象限、单源时间序列观测图，点击任一柱体或事件气泡直接收窄下方正文与三视图评论树；
+3. **内容资产复利解决“抓取回来不只是看一眼就忘”**：现有采集回来的 `title`、`body_text`、`content_author`、`content_references`（外链/引用关系）、`platform_details`（通道/完整度）与 `content_observation`（时序指标）如果只做简单分页列表就是一次性消耗品。后续通过**已读/归档/静音阅读流状态**、**持久化的事件聚簇**与**确定性实体标签（公司/模型/人物/主题）**，让每一次抓取都在数据库内复利沉淀为可交叉透视的知识网络。
+
+### 五种高频使用节奏与当前可用性边界
+
+| 使用节奏 | 当前在线基线 (`prod@8e436ac`) | V2 计划深化方向 |
+| :--- | :--- | :--- |
+| **1. 晨间 3 分钟扫读与 08:00 日报** | 已上线：`GET /v1/content/stories`（`latest` / `hot` / `digest`），支持 8 个频道、`tier`、`language` 过滤与 Markdown 日报复制 | 卡片增配 `已读/收藏/静音` 阅读状态、轻量 AI 双语摘要胶囊与 `为你` RRF 个性化排序 |
+| **2. 分频道与重点人物追踪** | 已上线：100 个活跃源按 8 个 `source_group`（`ai-firsthand`、`dev-infra`、`tech-media`、`lifestyle`、`design-visual`、`science`、`public-affairs`、`social-trends`）与 `T1`/`T1_5`/`T2` 分级持续排期采集 | 批量接入 200+ VIP 学者 X 批次与开源 `newsnow`/`bluesky` 榜单；按作者实体一键订阅/静音 |
+| **3. 克制且有信息量的图表看盘** | 已上线：`GET /v1/content/facets` 与 `GET /v1/projects/:id/overview` 单 CTE `GROUPING SETS` 查询返回按日/6h 平台脉冲（前端尚未充分渲染） | 融合 `semrush` 分支可用图表逻辑，落地**卡片内嵌零依赖 SVG 微图 + 按需懒加载交互分析图**，严守分平台/分渠道指标诚实性 |
+| **4. 内容探索与外部按题取证** | 已上线：`GET /v1/content` 与 `GET /v1/content/feed` 支持双字词/短词 GIN 检索、体裁/媒体/语言筛选与 `discussion`/`pain` 信号筛选 | 新增 `POST /v1/discovery/query` 联动垂直公开 API 与本地已存样本，并将发现的好站点一键转入长期排期 |
+| **5. 专题监测与三视图深挖** | 已上线：`monitor_project` 三段词过滤、按需 `kaix` 评论树水合、`top`/`matches`/`op` 三视图与 RFC 4180/JSON 流式导出 | 增加多专题/多实体并排对比（`POST /v1/project-comparisons`）与单条评论独立批注 |
+
+---
+
+## 2. 产品能力、度量诚实性与工程准则（`docs:check` 受控规则）
 
 | ID | 等级 | 产品能力与边界规则 | 验收出口 |
 | --- | --- | --- | --- |
-| PRD-01 | MUST | 支持三段词过滤（`anyTerms` 任一、`allTerms` 全含、`exclusions` 排除）、中文双字词（如 `开源`、`算力`、`评测`、`游戏`）与短技术代号（如 `AI`、`o3`、`R1`、`v4`）GIN 索引检索及逻辑来源绑定；打开首页、切换频道或创建/修改项目只检索已存库内样本，绝不在读路径触发外部收费抓取。 | Web / PG E2E 与 EXPLAIN |
-| PRD-02 | MUST | 信源按权威度分为 `T1`（官方一手英文 Blog/Releases/公告及中资大模型官方源）、`T1_5`（认证核心学者/工程师/主创账号，支持 X/Reddit 批次搜索合并降本）与 `T2`（精选科技/生活娱乐媒体与社区热榜）；支持 `rss`、`web_list`（选择器列表）、`json_list`、`x`（`TwitterAPIs` 主 + `ScrapeBadger` 备）、`reddit`（原生 `.rss` 雷达 + `kaix` 主 + `red_crawler` 备）、`newsnow`（B站/知乎/微博/V2EX/IT之家/HN/GitHub Trending 等主流热榜）与 `external_ingest`；新建来源支持“先预览前 20 条再保存”与首次入库限流（`initialBackfillLimit: 8` 及 48 小时旧文不刷屏门控）。 | 真实受控样本 + 预览与防刷屏测试 |
-| PRD-03 | MUST | 入库内核通过规范化实体链接（GitHub/arXiv/URL/原帖 ID）与 64-bit SimHash + LSH 分桶将同一事件的多源报道聚簇（`storyKey`），按 `T1 > T1_5 > T2` 选举一手代表报道（默认原语种直出，支持按簇/按需接入 AI 双语翻译与三点摘要）并标注角色（`primary_release` / `benchmark_eval` / `community_discussion` / `syndicated_repost`）；计算 48 小时独立参与者热度（24h 半衰期）与 6 小时升温趋势（`surge` / `rising` / `new`），每日 08:00 零模型成本按规则汇编日报（可选叠加 AI 晨间综述）；统一提供按日/6h 趋势、热度增速矩阵、权威级分布及多专题对比四类交互可视化图表，专题钻取支持三视图评论树（`top` / `matches` / `op`）与无状态流式下载。 | 事件聚簇、图表联动与三视图 E2E |
-| PRD-04 | MUST | 支持按题动态探索 20–30 个候选网站（复用 `delivery_mode='push'` 的 `radar` 系统源分三波渐进提交，默认不污染 `pull` 长期趋势，支持一键将发现的作者/RSS 升级为长期 `pull` 源）；AI 翻译与摘要通过零 SDK 原生 `fetch`（兼容任意 OpenAI 格式端点）或外部只读/写回 Agent 挂载于 `platform_details.extensions.ai` 并受 `source_provider_budget`（`ai_enrich`）额度门控，未配置 AI 时 100% 确定性无损运行，付费或改状态操作必须经预算评估与浏览器会话人工确认。 | 探索流、AI 降级与 release 检查 |
+| PRD-01 | MUST | 全文检索与项目过滤必须支持三段词（`anyTerms`、`allTerms`、`exclusions`）、中文双字词（`算力`、`评测`）及短技术代号（`AI`、`o3`、`R1`）GIN 索引匹配；任何首页加载、频道切换或项目保存操作只读取已存库内数据，绝不在读路径触发外部收费抓取。 | PG16 `EXPLAIN` 与路由测试 |
+| PRD-02 | MUST | 信源必须通过 `tier`（`T1`/`T1_5`/`T2`）、`sourceGroup`（8 业务分组）、`locale` 与 `fetchPolicy` 分类管理；接入渠道覆盖 `feed`（RSS/Atom/`web_list`/`json_list` 与 OPML/JSON 批量导入）、`newsnow`（7 大内置热榜）、`reddit`（`kaix`/`red_crawler`）、`x`（`twitterapis`/`scrapebadger`）、`bluesky_appview` 与 `external_ingest` 推流；公网列表源支持保存前“预览前 20 条”。 | 预览、导入与连接器单测 |
+| PRD-03 | MUST | 多源发现的同一事件通过规范外链与 64-bit SimHash（LSH 分桶与版本号隔离）聚簇并按 `T1 > T1_5 > T2`（同级英文原题优先）选举代表报道；48 小时独立参与者热度与 6 小时升温趋势按确定性规则计算，每日北京时间 08:00 切分日报窗口；专题与探索页通过单 SQL 分面与三视图评论树（`top`/`matches`/`op`）联动钻取，支持有界流式导出。 | 事件聚簇、分面与三视图 E2E |
+| PRD-04 | MUST | 后续 AI 翻译/事件综述与按题外部探索严格遵守微内核零阻塞隔离：AI 扩展以零 SDK 原生 `fetch`（按簇指纹幂等缓存于 `platform_details.extensions.ai`）或外部 Agent 经只读/限定 Scope API Key 接入，受 `source_provider_budget`（`ai_enrich`）额度控制，未配置时 100% 确定性零模型运行；任何会产生外部账单的采集或激活操作须经预算核验与浏览器管理会话明确确认。 | 权限隔离、预算熔断与降级检查 |
 
-## 2. 统一度量与可信度口径
-
-| ID | 等级 | 度量定义与样本诚实性边界 | 验收出口 |
+| ID | 等级 | 度量诚实性与样本可信度口径 | 验收出口 |
 | --- | --- | --- | --- |
-| MET-01 | MUST NOT | 将已存内容去重条数冒充全网讨论总量，或将 `NewsNow` 榜单名次（`web.rank`）与 HTTP `304` 检查刷新冒充互动量或新入库内容；禁止在来源落后停采（`behind`）或新接入未满窗口（`late`）时伪造 6 小时热度飙升百分比（须标 `trend = 'unknown'`）。 | UI 文案与响应 meta 核对 |
-| MET-02 | MUST | 严格区分实体身份 `(platform, kind, externalId)`、`discovery`（发现来源关系，多源发现不重复计入主内容总量）与 `observation`（按真实 `provider` 区分的指标快照）；事件热度（`heat`）在同一 48 小时窗口内对每个独立来源/参与者只计一次权重（重复抓取不虚增热度）；`pull` 与 `push`（含按题探索临时抓回页面与外部导入）共享身份去重，默认趋势与热度只算 `pull`。 | 概览、事件热度与多源 ID 集测试 |
-| MET-03 | MUST | 三轴时间彻底分离：`publishedAt`（`content.created_at_source`）、`sourceObservedAt` 与 `fetchedAt`；未知发布时间保持 `null`，禁止用 `first_seen_at`、`retrieved_on` 或 `0` 填补；无可靠发布时间或发布超过 48 小时的首次回填存量按原时间归档，不得挤占今日首页精选与日报。 | PG 边界与旧文防刷屏测试 |
-| MET-04 | MUST | `threadAware = true` 下列表、概览与导出对命中节点所属可见根帖（`anchor`）去重计数（`contentCount`），同时单独报告实际命中节点数（`matchedContentCount`）；跨平台或不同 `provider`/`timeBasis` 互动比较一律返回 `422` 并给出切回“内容量/事件热度”的就地操作。 | 对比 422 与联动聚合测试 |
+| MET-01 | MUST NOT | 将库内已采集的去重条目数宣传为“全网总声量”，或将 `newsnow` 榜单名次（`web.rank`）与 HTTP `304` 校验刷新冒充新增正文或互动上涨；来源停采逾期或新接入不足 6 小时窗口时，严禁伪造 6h 涨跌幅（必须标记 `trend = 'unknown'`）。 | 响应结构与图表文案审计 |
+| MET-02 | MUST | 严格隔离内容身份 `(platform, kind, externalId)`、`content_discovery`（多源发现关系）与 `content_observation`（按真实 `provider` 隔离的快照观测）；同一 48 小时窗口内同一独立参与者对同一事件只贡献一次最高权重；`pull` 与 `push` 共享身份去重，但默认流、热度与趋势仅统计 `pull` 来源。 | 多源去重与热度权重测试 |
+| MET-03 | MUST | 严守三轴时间分离：`publishedAt`（`created_at_source`）、`sourceObservedAt` 与 `fetchedAt` 互不冒名顶替；未知发布时间保持 `null`，禁止用 `first_seen_at` 或当前时间篡改填充。 | SQL/Connector 时间边界测试 |
+| MET-04 | MUST | `threadAware = true` 下内容与分面按可见根帖（`anchor`）去重计数 `contentCount` 并单独报告 `matchedContentCount`；不同平台（如 Reddit score vs X likes）或不同 `timeBasis` 的原始互动指标禁止跨系列直接相加，可视化图表必须按 `(sourceId, provider, metricKey)` 分线并保留 `null` 断档，跨平台对比必须退回内容量/事件热度视角或返回 `422`。 | 分面计数与图表口径审查 |
 
-## 3. 工程纪律与文档治理准则
-
-| ID | 等级 | 代码可读性与验证纪律 | 验收出口 |
+| ID | 等级 | 工程可读性、建表纪律与验证准则 | 验收出口 |
 | --- | --- | --- | --- |
-| ENG-01 | MUST | 五个纵向模块（`access`、`collection`、`content`、`projects`、`workspace`）共享单数据库、`commitContentBatch` 唯一入库通道与进程内有界自适应调度；全库严守 `PLAN-03` 不新增第 3 张业务表（信源分级 `tier`、实体归属、事件聚簇 `storyKey` 与探索状态均编码于既有 `JSONB` 扩展与引用索引）；禁止单实现 `*Repository`、14 个 `InMemory*` 模拟与空壳 `service`。 | AST lint / 依赖审查 |
-| ENG-02 | MUST NOT | 通过压行删换行（Code Golfing）、拆出纯透传碎文件或删除核心幂等/权限断言伪装精简；模块文件允许按职责自然拆分并在 `scripts/check-docs.ts` 检查可读行宽（`<= 220` 字符）与文件行数（`<= 450` 行），注释只写代码无法表达的外部约束或理由。 | `npm run docs:check` |
-| ENG-03 | MUST | 测试收敛为纯函数单测、唯一真实 PostgreSQL 16 + HTTP 集成套件与核心浏览器任务流，停止双跑 `InMemory` 与 PG 用例；外部付费连接器或可选模型在结果 `unknown` 时立即凭回执停发待人工核验，绝不自动重放扣费。 | CI 门禁与停发测试 |
+| ENG-01 | MUST | 后端严守五模块扁平纵向切分（`access`、`collection`、`content`、`projects`、`workspace`）、`commitContentBatch` 唯一入库与进程内有界 Worker；数据库在 Post-050 20 张核心表基线上执行**节制演化纪律**：优先复用现有 JSONB/字段，新增持久关系表须证明性能/索引刚需且总表数严格控制于 **`<= 26` 张**；禁止单实现 `*Repository` 与 `InMemory*` 模拟层。 | `docs:check` 与迁移审查 |
+| ENG-02 | MUST NOT | 通过删换行压行、拆出纯透传碎文件或引入未经树摇的巨型第三方重包伪装功能丰富；前端严格实行“信息流零图表重包 + 分析页按需加载”，模块代码遵守 `<= 450` 行/文件与 `<= 220` 字/非模板行，注释只说明“为何这样做”的外部约束。 | `docs:check` 与构建体积检查 |
+| ENG-03 | MUST | 所有行为均以纯函数单测 + 真实 `postgres:16-alpine` HTTP 集成测试 + 无头浏览器核心流验证；任何外部付费调用在网络异常进入 `unknown` 状态时立即写库并停发待人工确认，绝不静默重试导致重复扣费。 | CI 全门禁与停发恢复测试 |
 
-## 4. `docs/` 文档职责索引
+---
 
-| 文档路径 | 唯一职责 |
-| --- | --- |
-| [当前状态与下一阶段](status.md) | **唯一真源**：当前实码状态、7 项代码缺陷台账、分支审计基线与 Phase 1–3 实施路线 |
-| [开发与交付记录](development.md) | **唯一真源**：本机密钥、可执行命令、4GB/60GB 容量运维、分层保留 SQL 及历史 `0.2.0–0.9.1` 台账 |
-| [主线架构规范](architecture.md) | 架构鸟瞰、五模块地图、自适应调度/双字词 GIN/事件聚簇/动态探索/无 Redis 缓存与 4GB 单机安全基线 |
-| [数据与 API 契约](contracts.md) | 信源三级（`T1`/`T1_5`/`T2`）与六类采集、版本元组、混合批 `commitContentBatch`、探索/日报/排序与 HTTP 契约 |
-| [产品交互规范](design.md) | 首页信息流（最新/为你/三大频道/日报）、事件聚簇卡、按题探索渐进流、三视图评论树与无障碍标准 |
-| [R1–R4 重建与实删计划](plans/source-expansion.md) | R1–R4 资产迁移矩阵、遗留代码实删明细与 R4 离线归档外挂规格 |
-| [全仓深度审查与 4GB 单机架构蓝图](research/deep-audit-and-architecture-blueprint-20261118.md) | `prod@7440058` 全量源码与迁移尸检、五路成熟开源技术（`miniflux`/`newsnow`/`Vane`/`AIHOT`/`pg_trgm`）对比与完整推导 |
-| [来源研究与双语高流量信源矩阵](research/data-sources.md) | `AIHOT` / `NewsNow` / `RSSHub` 源码核验、英文一手 AI + 全球科技 + 大众生活娱乐双语信源矩阵与 VIP 批次降本算账 |
-| [架构审查母本](research/architecture_audit_and_rebuild_spec.md) | `a078c9c` 基线代码尸检、`GAP-01..06`、SQL 参考模板与代码减法预算 |
-| [来源替换与清理规格](research/source_replacement_and_twitterapi_io_removal_spec.md) | X/Reddit 定价对比、OpenAPI 参数/响应详细映射与旧渠道逐文件清理定位点阵 |
-| [产品方向与架构讨论归档](research/product-architecture-conversation-20261118.md) | 2026-11-18 早期产品方向演进对话原始记录 |
-| [ChatGPT 仓库文档讨论归档](research/ChatGPT-讲解仓库文档-20261118-1807.md) | 历史外部大规模架构假设讨论输入（仅供对比参考，实际约束以 `status.md` 与 `architecture.md` 为准） |
+## 3. 全仓 `docs/` 文档索引
+
+### A. 现行权威规范（8 份 · 随当前代码与演进同步维护）
+
+| 文档 | 职责定位 |
+| :--- | :--- |
+| [AGENTS.md](../AGENTS.md) | Agent 协作总纲、Post-050 红线、分支融合禁令与代码静态护栏入口 |
+| [当前状态与规划](status.md) | **唯一状态真源**：`prod@8e436ac` 实码盘点、`semrush` 分支逐项对照、已修复故障台账与 V2 Phase A–D 交付路线 |
+| [开发与运维手册](development.md) | **唯一运维与历史台账真源**：Compose / PG16 参数、多阶段构建、备份演练、OPML 扩容实操与 `0.2.0–0.9.1` 至 `050` 记录 |
+| [主线架构规范](architecture.md) | 5 模块内核拓扑、PostgreSQL 20→<=26 表结构升级、内容复利层、L1–L3 扩源及安全/容量预算 |
+| [数据与 API 契约](contracts.md) | 核心领域对象、050 来源字段、混合批幂等、双字词 GIN、`story` 聚簇与全量 `/v1/*` 路由清单 |
+| [前端与可视化交互规范](design.md) | Editorial Mineral 视觉语言、三模态界面、双层图表架构与 `feat/semrush-frontend-rebuild` 融合清单 |
+| [来源矩阵与扩源分层](research/data-sources.md) | 开源标杆拆解（Folo/Miniflux/NewsNow/AIHOT/Karakeep/Ground News）、8 个活跃分组与 L1–L3 扩源策略 |
+| [演进边界与外挂隔离](plans/source-expansion.md) | R1–R3 已完成资产收敛对照、Post-050 迁移准则与 R4 `plugins/zst-archive/` + L3 Sidecar 隔离规范 |
+
+### B. 历史研究与早期审计归档（7 份 · 保留溯源，不再作现行实现依据）
+
+- [架构审查母本 (`main@7045185` 基线)](research/architecture_audit_and_rebuild_spec.md)
+- [旧来源替换与 `twitterapi_io` 清理规格 (`2026-11-16`)](research/source_replacement_and_twitterapi_io_removal_spec.md)
+- [全仓深度审查与 4GB 单机蓝图 (`prod@7440058`)](research/deep-audit-and-architecture-blueprint-20261118.md)
+- [产品方向与架构讨论归档 (`2026-11-18`)](research/product-architecture-conversation-20261118.md)
+- [历史外部大规模架构假设讨论归档 (`2026-11-18`)](research/ChatGPT-讲解仓库文档-20261118-1807.md)
