@@ -4,16 +4,20 @@ import {
 } from "./source-content";
 
 const View = Type.Union([Type.Literal("latest"), Type.Literal("hot"), Type.Literal("digest")]);
-export const MAX_STORY_LIMIT = 50;
+export const MAX_STORY_LIMIT = 100;
+export const MAX_STORY_OFFSET = 500;
 export const StoryQuery = Type.Object({
   view: Type.Optional(View),
   date: Type.Optional(Type.String({ format: "date" })),
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_STORY_LIMIT })),
+  offset: Type.Optional(Type.Integer({ minimum: 0, maximum: MAX_STORY_OFFSET })),
   sourceId: Type.Optional(Id),
   platform: Type.Optional(Platform),
   sourceGroup: Type.Optional(Type.String({ pattern: SourceGroupPattern })),
   tier: Type.Optional(SourceTier),
   language: Type.Optional(Type.String({ pattern: SourceLocalePattern })),
+  includeTrends: Type.Optional(Type.Boolean()),
+  diverse: Type.Optional(Type.Boolean()),
 }, { additionalProperties: false });
 
 const nullableText = Type.Union([Type.String(), Type.Null()]);
@@ -23,6 +27,7 @@ const Evidence = Type.Object({
   title: Type.String(),
   url: nullableText,
   author: nullableText,
+  thumbnail: nullableText,
   sourceId: Id,
   sourceLabel: Type.String(),
   tier: SourceTier,
@@ -55,6 +60,8 @@ export const StoryFeed = Type.Object({
   from: DateTime,
   to: DateTime,
   items: Type.Array(Story),
+  totalCount: Type.Integer({ minimum: 0 }),
+  nextOffset: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
   coverage: Type.Literal("stored_sample"),
 });
 export type StoryFeed = Static<typeof StoryFeed>;

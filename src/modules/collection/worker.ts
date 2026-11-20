@@ -261,7 +261,7 @@ export async function workOnce(
       const interval = page.warning || job.provider === "newsnow" ? cadence :
         !page.exhausted ? (job.provider === "feed" ? cadence : Math.max(120, Math.floor(previous / 2))) :
         (page.notModified || job.records_inserted + counts.added === 0)
-          ? Math.min(43200, Math.ceil(previous * 1.5)) : cadence;
+          ? Math.min(14400, Math.ceil(previous * 1.25)) : cadence;
       const advanceCursor = (page.exhausted || (job.provider === "feed" && page.items.length > 0)) && job.operation !== "hydrate";
       await client.query(
         `UPDATE collection_source SET last_checked_at=now(),coverage='partial',

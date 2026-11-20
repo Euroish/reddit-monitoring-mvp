@@ -23,7 +23,7 @@ export default function Account({ run, user }: { run: Run; user: Actor }) {
     queryFn: () => api<{ sources: CollectionSource[] }>("/sources"),
   });
   return (
-    <>
+    <div className="workspace-page">
       <Heading title="设置" note="管理账户与研究工具的访问权限。" />
       <section className="panel">
         <h2>当前账户</h2>
@@ -102,6 +102,6 @@ export default function Account({ run, user }: { run: Run; user: Actor }) {
           )}
         </section>
       )}
-    </>
+    </div>
   );
 }

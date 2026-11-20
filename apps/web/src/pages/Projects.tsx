@@ -85,7 +85,7 @@ export default function Projects({
     return `/content?${url}`;
   };
   return (
-    <>
+    <div className="workspace-page">
       <Heading title="监测项目" note="从一个明确的问题开始，持续整理相关证据。">
         {canEdit && (
           <button className="primary" onClick={() => { setEditing(null); setCreating(!creating); }}>
@@ -182,7 +182,7 @@ export default function Projects({
       {overview.error && <p role="alert">{overview.error.message}</p>}
       {overview.data && project && (
         <section className="panel">
-          <p className="eyebrow">已存命中内容</p>
+          <p className="kpi-label">已存命中内容</p>
           <div className="big-number">{overview.data.contentCount}</div>
           <p className="muted">
             {project.thread_aware ? `按可见讨论根帖归组 · ${overview.data.matchedContentCount} 个命中节点` : "按内容节点计数"}
@@ -223,6 +223,6 @@ export default function Projects({
           </div>
         </section>
       )}
-    </>
+    </div>
   );
 }

@@ -215,7 +215,7 @@ export default function Sources({ run, canEdit }: { run: Run; canEdit: boolean }
   const selectedFailures = selectedHealth?.consecutiveFailures ?? 0;
 
   return (
-    <>
+    <div className="workspace-page">
       <Heading title="来源" note="定义收集范围，并在需要时采集或导入。">
         {canEdit && (
           <div className="heading-actions">
@@ -757,6 +757,6 @@ export default function Sources({ run, canEdit }: { run: Run; canEdit: boolean }
       {allSources.length === 0 && (
         <Empty>添加一个来源，开始积累研究证据。</Empty>
       )}
-    </>
+    </div>
   );
 }

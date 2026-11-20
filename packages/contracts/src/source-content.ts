@@ -249,6 +249,9 @@ export const SourceFetchPolicy = Type.Object({
   maxItems: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
   timeoutMs: Type.Optional(Type.Integer({ minimum: 3000, maximum: 15000 })),
   stripTrackingParams: Type.Optional(Type.Boolean()),
+  excludeTitlePatterns: Type.Optional(
+    Type.Array(Type.String({ minLength: 1, maxLength: 80 }), { maxItems: 10 }),
+  ),
 }, { additionalProperties: false });
 export const SourceHealth = Type.Object({
   consecutiveFailures: Type.Optional(Type.Integer({ minimum: 0 })),
@@ -337,6 +340,21 @@ export const SourcePreview = Type.Object({
   })),
   feeds: Type.Array(Type.String()),
 });
+export const PublicSourceSummary = Type.Object({
+  id: Id,
+  label: Type.String(),
+  platform: Platform,
+  sourceGroup: SourceGroup,
+  tier: SourceTier,
+  locale: SourceLocale,
+  state: Type.String(),
+  lastSuccessAt: Type.Union([DateTime, Type.Null()]),
+  count48h: Type.Integer({ minimum: 0 }),
+}, { additionalProperties: false });
+export const PublicSourceDirectory = Type.Object({
+  sources: Type.Array(PublicSourceSummary),
+  groupCounts: Type.Record(Type.String(), Type.Integer({ minimum: 0 })),
+}, { additionalProperties: false });
 export const Source = strictMerge([
   Type.Omit(SourceInput, [
     "primaryProvider", "fallbackProvider", "tier", "ownerEntityId",

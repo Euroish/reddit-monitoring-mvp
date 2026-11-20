@@ -12,8 +12,28 @@ import { canonicalizeUrl, httpsUrl, read, type ReadPage } from "./http";
 
 const hn = "https://news.ycombinator.com";
 type MediaGroup = { "media:description"?: ({ _?: string } | string)[]; "media:thumbnail"?: { $?: { url?: string } }[] };
-const parser = new Parser<Record<string, never>, { author?: string; mediaGroup?: MediaGroup; trendNews?: { "ht:news_item_url"?: string[] }[] }>({
-  customFields: { item: [["media:group", "mediaGroup"], ["ht:news_item", "trendNews", { keepArray: true }]] },
+type TrendNewsItem = {
+  "ht:news_item_title"?: string[];
+  "ht:news_item_url"?: string[];
+  "ht:news_item_snippet"?: string[];
+  "ht:news_item_source"?: string[];
+  "ht:news_item_picture"?: string[];
+};
+const parser = new Parser<Record<string, never>, {
+  author?: string;
+  mediaGroup?: MediaGroup;
+  approxTraffic?: string;
+  trendPicture?: string;
+  trendNews?: TrendNewsItem[];
+}>({
+  customFields: {
+    item: [
+      ["media:group", "mediaGroup"],
+      ["ht:approx_traffic", "approxTraffic"],
+      ["ht:picture", "trendPicture"],
+      ["ht:news_item", "trendNews", { keepArray: true }],
+    ],
+  },
 });
 const clean = (value: string) => sanitize(value, { allowedTags: [], allowedAttributes: {} }).trim();
 
@@ -64,9 +84,10 @@ function article(input: {
     language,
     availability: "available",
     references: [],
-    media: input.thumbnail || input.relatedUrl
-      ? [{ type: input.thumbnail ? "image" : "link", url: input.thumbnail ?? input.relatedUrl!, previewUrl: null, altText: null, durationSeconds: null }]
-      : [],
+    media: [
+      ...(input.thumbnail ? [{ type: "image" as const, url: input.thumbnail, previewUrl: null, altText: null, durationSeconds: null }] : []),
+      ...(input.relatedUrl ? [{ type: "link" as const, url: input.relatedUrl, previewUrl: null, altText: null, durationSeconds: null }] : []),
+    ],
     platformDetails: {
       platform: "web",
       publisher: input.url.hostname,
@@ -201,6 +222,19 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
       const limit = Math.min(100, Math.max(1, effectiveMax));
       const stripTracking = input.source.fetchPolicy?.stripTrackingParams !== false;
       const timeoutMs = input.source.fetchPolicy?.timeoutMs;
+      const excludedPatterns = (input.source.fetchPolicy?.excludeTitlePatterns ?? [])
+        .map((pattern) => pattern.trim().toLowerCase())
+        .filter(Boolean);
+      const isExcludedTitle = (title: string | null | undefined) => {
+        if (!excludedPatterns.length || !title) return false;
+        const lower = title.toLowerCase();
+        return excludedPatterns.some((pattern) => lower.includes(pattern));
+      };
+      const boardPage = (items: CollectedContent[]) => ({
+        ...base,
+        items: excludedPatterns.length ? items.filter((item) => !isExcludedTitle(item.title)) : items,
+        nextCheckpoint: null,
+      });
       if (target.type === "feed") {
         const url = new URL(target.url);
         const checkpoint = input.checkpoint;
@@ -267,6 +301,7 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
           const title = clean(entry.title ?? "");
           if (!link || link.href.length > 1000 || !title || seen.has(link.href)) continue;
           valid = true;
+          if (isExcludedTitle(title)) continue;
           if (timestamp < from) continue;
           if (timestamp >= to) {
             coveredTo = Math.min(coveredTo ?? timestamp, timestamp);
@@ -322,24 +357,59 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
               url: new URL(`https://www.zhihu.com/question/${id}`), publishedAt: null, rank: index + 1 })] : [];
           });
           if (!items.length) throw new ContentProviderError("No valid Zhihu questions", false);
-          return { ...base, items, nextCheckpoint: null };
+          return boardPage(items);
         }
         const feed = await parser.parseString(response.body).catch(() => {
           throw new ContentProviderError("Invalid Google Trends RSS", false);
         });
         const items = feed.items.slice(0, limit).flatMap((entry) => {
-          const title = clean(entry.title ?? "");
-          if (!title || !entry.isoDate) return [];
-          const url = new URL("https://trends.google.com/trends/explore");
-          url.search = new URLSearchParams({ geo: "US", q: title, date: `${entry.isoDate.slice(0, 10)} ${entry.isoDate.slice(0, 10)}` }).toString();
-          const externalId = `google-trends:US:${createHash("sha256").update(JSON.stringify([title, entry.isoDate])).digest("hex")}`;
-          if (url.href.length > 1000) return [];
-          const news = entry.trendNews?.[0]?.["ht:news_item_url"]?.[0];
-          const relatedUrl = news && news.length <= 1000 ? canonicalizeUrl(news, undefined, stripTracking)?.href : undefined;
-          return [article({ ...common, title, url, externalId, relatedUrl, text: null, publishedAt: entry.isoDate })];
+          const keyword = clean(entry.title ?? "");
+          if (!keyword || !entry.isoDate) return [];
+          const exploreUrl = new URL("https://trends.google.com/trends/explore");
+          exploreUrl.search = new URLSearchParams({
+            geo: "US", q: keyword, date: `${entry.isoDate.slice(0, 10)} ${entry.isoDate.slice(0, 10)}`,
+          }).toString();
+          const traffic = clean(entry.approxTraffic ?? "");
+          const fallbackPic = entry.trendPicture ? httpsUrl(entry.trendPicture)?.href : undefined;
+          let newsUrl: URL | null = null;
+          let picked: TrendNewsItem | undefined;
+          for (const candidate of entry.trendNews ?? []) {
+            const rawUrl = candidate["ht:news_item_url"]?.[0]?.trim();
+            const canonical = rawUrl ? canonicalizeUrl(rawUrl, undefined, stripTracking) : null;
+            if (canonical && canonical.href.length <= 1000) {
+              newsUrl = canonical;
+              picked = candidate;
+              break;
+            }
+          }
+          if (newsUrl && picked) {
+            const newsTitle = clean(picked["ht:news_item_title"]?.[0] ?? "") || keyword;
+            const snippet = clean(picked["ht:news_item_snippet"]?.[0] ?? "");
+            const author = clean(picked["ht:news_item_source"]?.[0] ?? "") || undefined;
+            const rawPic = picked["ht:news_item_picture"]?.[0]?.trim();
+            const parsedPic = rawPic ? httpsUrl(rawPic)?.href : undefined;
+            const thumbnail = (parsedPic && parsedPic.length <= 1000 ? parsedPic : undefined) ??
+              (fallbackPic && fallbackPic.length <= 1000 ? fallbackPic : undefined);
+            const trendTag = `热搜词：${keyword}${traffic ? ` · ${traffic}` : ""}`;
+            const text = [snippet, trendTag].filter(Boolean).join(" — ");
+            const relatedUrl = exploreUrl.href.length <= 1000 ? exploreUrl.href : undefined;
+            const externalId = `google-trends:US:${createHash("sha256").update(JSON.stringify([keyword, entry.isoDate, newsUrl.href])).digest("hex")}`;
+            return [article({
+              ...common, title: newsTitle, url: newsUrl, externalId, relatedUrl,
+              author, thumbnail, text, publishedAt: entry.isoDate,
+            })];
+          }
+          if (exploreUrl.href.length > 1000) return [];
+          const externalId = `google-trends:US:${createHash("sha256").update(JSON.stringify([keyword, entry.isoDate])).digest("hex")}`;
+          const text = traffic ? `热搜词：${keyword} · ${traffic}` : null;
+          return [article({
+            ...common, title: keyword, url: exploreUrl, externalId,
+            thumbnail: fallbackPic && fallbackPic.length <= 1000 ? fallbackPic : undefined,
+            text, publishedAt: entry.isoDate,
+          })];
         });
         if (feed.items.length && !items.length) throw new ContentProviderError("No valid Google Trends entries", false);
-        return { ...base, items, nextCheckpoint: null };
+        return boardPage(items);
       }
       if (board === "github-trending" || board === "huggingface-papers") {
         const baseUrl = response.url ?? boards[board];
@@ -368,7 +438,7 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
             feedUrl: null, board, rank: index + 1, author: entry.author && clean(entry.author) })] : [];
         });
         if (entries.length && !items.length) throw new ContentProviderError("Board entries no longer match the expected format", false);
-        return { ...base, items, nextCheckpoint: null };
+        return boardPage(items);
       }
       if (board !== "hackernews") {
         const envelope = JSON.parse(response.body);
@@ -396,7 +466,7 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
             author: typeof name === "string" ? clean(name) : undefined,
           })];
         });
-        return { ...base, items, nextCheckpoint: null };
+        return boardPage(items);
       }
       const page = load(response.body);
       const rows = page("tr.athing").toArray();
@@ -409,7 +479,7 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
           title, text: null, publishedAt: null, feedUrl: null, board, rank: index + 1,
         })] : [];
       });
-      return { ...base, items, nextCheckpoint: null };
+      return boardPage(items);
     },
   };
 }

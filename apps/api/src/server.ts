@@ -47,6 +47,8 @@ export async function main() {
       secureCookies: !localHttp,
       logger: true,
       trustProxy: process.env.TRUST_PROXY_HOPS === "1" ? 1 : false,
+      publicRead: process.env.PUBLIC_READ_ENABLED !== "false",
+      publicRegistration: process.env.PUBLIC_REGISTRATION_ENABLED !== "false",
     });
     await app.listen({
       host: process.env.HOST ?? "127.0.0.1",

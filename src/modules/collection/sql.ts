@@ -4,6 +4,7 @@ import type { Pool, PoolClient } from "pg";
 import type {
   Actor,
   CollectionSource,
+  PublicSourceDirectory,
   SourceInput,
   SourceListQuery,
   SourceTarget,
@@ -111,6 +112,44 @@ export async function lockSource(client: PoolClient, actor: Actor, id: string, r
   if (!row) fail(404, "Source not found");
   if (requireActive && row.state !== "active") fail(409, "Source must be active");
   return row;
+}
+export async function listPublicSources(
+  pool: Pool,
+  actor: Actor,
+): Promise<Static<typeof PublicSourceDirectory>> {
+  const { rows } = await pool.query(
+    `SELECT cs.id, cs.label, s.code AS platform, cs.source_group, cs.tier, cs.locale, cs.state, cs.last_success_at,
+       COALESCE(d.cnt, 0)::int AS count_48h
+     FROM collection_source cs
+     JOIN source s ON s.id = cs.platform_id
+     LEFT JOIN (
+       SELECT collection_source_id, COUNT(*)::int AS cnt
+       FROM content_discovery
+       WHERE first_fetched_at >= NOW() - interval '48 hours'
+       GROUP BY collection_source_id
+     ) d ON d.collection_source_id = cs.id
+     WHERE cs.state = 'active' AND ($1::uuid[] IS NULL OR cs.id = ANY($1))
+     ORDER BY COALESCE(d.cnt, 0) DESC, cs.created_at, cs.id`,
+    [actor.allowedSourceIds],
+  );
+  const groupCounts: Record<string, number> = {};
+  const sources = rows.map((row) => {
+    const sourceGroup: string | null = row.source_group ?? null;
+    const count48h = Number(row.count_48h ?? 0);
+    if (sourceGroup) groupCounts[sourceGroup] = (groupCounts[sourceGroup] ?? 0) + count48h;
+    return {
+      id: row.id,
+      label: row.label,
+      platform: row.platform,
+      sourceGroup,
+      tier: row.tier,
+      locale: row.locale ?? null,
+      state: row.state,
+      lastSuccessAt: row.last_success_at?.toISOString() ?? null,
+      count48h,
+    };
+  });
+  return { sources, groupCounts };
 }
 export async function audit(
   pool: Pool | PoolClient,

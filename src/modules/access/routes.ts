@@ -10,6 +10,7 @@ import {
   MachineKeyInput,
   Scopes,
   ParamsId,
+  type Actor,
 } from "../../../packages/contracts/src/source-content";
 import {
   createSession,
@@ -24,6 +25,7 @@ export async function accessRoutes(
   app: FastifyInstance,
   pool: Pool,
   cookie: (token: string) => string,
+  options: { publicRead?: boolean; publicRegistration?: boolean } = {},
 ) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   api.get(
@@ -31,11 +33,19 @@ export async function accessRoutes(
     {
       schema: {
         response: {
-          200: Type.Object({ user: Type.Union([ActorSchema, Type.Null()]) }),
+          200: Type.Object({
+            user: Type.Union([ActorSchema, Type.Null()]),
+            publicRead: Type.Boolean(),
+            publicRegistration: Type.Boolean(),
+          }),
         },
       },
     },
-    async (request) => ({ user: request.actor }),
+    async (request) => ({
+      user: request.actor,
+      publicRead: Boolean(options.publicRead),
+      publicRegistration: Boolean(options.publicRegistration),
+    }),
   );
   api.post(
     "/v1/auth/login",
@@ -75,42 +85,76 @@ export async function accessRoutes(
   api.post(
     "/v1/auth/register",
     {
+      config: { rateLimit: { max: 10, timeWindow: "15 minutes" } },
       schema: {
         body: strictMerge([
           Login,
           Type.Object({
-            invite: Type.String({ minLength: 1, maxLength: 256 }),
+            invite: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
           }),
         ]),
       },
     },
-    async (request) => {
+    async (request, reply) => {
       if (request.body.password.length < 12)
         fail(422, "Password must have at least 12 characters");
+      const inviteCode = request.body.invite;
+      if (!inviteCode && !options.publicRegistration)
+        fail(403, "Invitation required");
+      const email = request.body.email.trim().toLowerCase();
       const password = await hashPassword(request.body.password);
-      return transaction(pool, async (client) => {
-        const invite = (
-          await client.query(
-            "SELECT * FROM app_invite WHERE code_hash=$1 AND status='active' AND used_count<max_uses AND (expires_at IS NULL OR expires_at>NOW()) FOR UPDATE",
-            [tokenHash(request.body.invite)],
-          )
-        ).rows[0];
-        if (!invite) fail(403, "Invalid invitation");
+      const outcome = await transaction(pool, async (client) => {
+        let role: Actor["role"] = "viewer";
+        let inviteId: string | null = null;
+        if (inviteCode) {
+          const invite = (
+            await client.query(
+              "SELECT * FROM app_invite WHERE code_hash=$1 AND status='active' AND used_count<max_uses AND (expires_at IS NULL OR expires_at>NOW()) FOR UPDATE",
+              [tokenHash(inviteCode)],
+            )
+          ).rows[0];
+          if (!invite) fail(403, "Invalid invitation");
+          role = invite.role_on_accept;
+          inviteId = invite.id;
+        }
         const id = randomUUID();
-        await client.query(
-          "INSERT INTO app_user(id,email,role,status) VALUES($1,$2,$3,'active')",
-          [id, request.body.email.trim().toLowerCase(), invite.role_on_accept],
-        );
+        try {
+          await client.query(
+            "INSERT INTO app_user(id,email,role,status) VALUES($1,$2,$3,'active')",
+            [id, email, role],
+          );
+        } catch (error) {
+          if ((error as { code?: string }).code === "23505")
+            fail(409, "Email already registered");
+          throw error;
+        }
         await client.query(
           "INSERT INTO app_user_password(user_id,password_hash,password_algo) VALUES($1,$2,'scrypt')",
           [id, password],
         );
-        await client.query(
-          "UPDATE app_invite SET used_count=used_count+1 WHERE id=$1",
-          [invite.id],
-        );
-        return { registered: true };
+        if (inviteId) {
+          await client.query(
+            "UPDATE app_invite SET used_count=used_count+1 WHERE id=$1",
+            [inviteId],
+          );
+          return null;
+        }
+        const session = await createSession(client, id, "browser", Scopes, null, 7);
+        const actor: Actor = {
+          sessionId: session.id,
+          userId: id,
+          email,
+          role: "viewer",
+          clientKind: "browser",
+          scopes: [...Scopes],
+          allowedSourceIds: null,
+        };
+        return { token: session.token, actor };
       });
+      if (!outcome) return { registered: true };
+      reply.header("Set-Cookie", cookie(outcome.token));
+      request.actor = outcome.actor;
+      return { registered: true, user: outcome.actor };
     },
   );
   api.post("/v1/auth/logout", async (request, reply) => {

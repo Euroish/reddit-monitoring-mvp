@@ -74,14 +74,18 @@ test("new boards preview, schedule and publish stories with real discovery rows"
   assert.equal(hot.json().items.length, 1);
   assert.equal(digest.statusCode, 200, digest.body);
   assert.notEqual(digest.json().to, latest.json().to);
-  assert.equal(aggregations(), 2, "Latest and hot share one query while digest has its own window");
+  assert.equal(latest.json().totalCount, 3);
+  assert.equal(latest.json().nextOffset, null);
+  assert.equal(hot.json().totalCount, 3);
+  assert.equal(hot.json().nextOffset, 1);
+  assert.equal(aggregations(), 3, "Latest, hot and digest each cache their own window");
   const larger = await app.inject({ url: "/v1/content/stories?limit=50", headers });
   assert.deepEqual(larger.json(), latest.json());
-  assert.equal(aggregations(), 2);
+  assert.equal(aggregations(), 3);
   const filtered = await app.inject({ url: `/v1/content/stories?sourceId=${ids[0]}`, headers });
   assert.equal(filtered.statusCode, 200, filtered.body);
   assert.equal(filtered.json().items.length, 1);
-  assert.equal(aggregations(), 3);
+  assert.equal(aggregations(), 4);
   const key = await app.inject({ method: "POST", url: "/v1/access/keys", headers,
     payload: { label: "Google-only reader", scopes: ["read"], allowedSourceIds: [ids[1]], expiresInDays: 1 } });
   assert.equal(key.statusCode, 200, key.body);
@@ -89,15 +93,15 @@ test("new boards preview, schedule and publish stories with real discovery rows"
     headers: { authorization: `Bearer ${key.json().token}` } });
   assert.equal(scoped.statusCode, 200, scoped.body);
   assert.equal(scoped.json().items.length, 2, "Scoped keys must not reuse the full-scope cached view");
-  assert.equal(aggregations(), 4);
+  assert.equal(aggregations(), 5);
   now += 30_000;
   const refreshed = await app.inject({ url: "/v1/content/stories?view=hot", headers });
   assert.equal(refreshed.statusCode, 200, refreshed.body);
   assert.equal(refreshed.json().to, new Date(now).toISOString());
-  assert.equal(aggregations(), 5);
+  assert.equal(aggregations(), 6);
   const hidden = await app.inject({ url: "/v1/content/stories" });
   assert.equal(hidden.statusCode, 401);
-  assert.equal(aggregations(), 5);
+  assert.equal(aggregations(), 6);
 });
 
 test("visible story evidence selects the best tier, deduplicates owners and rolls over the morning edition", async t => {
@@ -230,7 +234,151 @@ test("stories and content endpoints filter cleanly by sourceGroup, tier and lang
   assert.deepEqual(aiStories.json().items.map((x: { representative: { title: string } }) => x.representative.title), ["New Model Launch"]);
   assert.deepEqual(aiStories.json().items[0].tierBreakdown, { T1: 1, T1_5: 0, T2: 0 });
   assert.equal(aiStories.json().items[0].sparkline48h.length, 8);
+  assert.equal(aiStories.json().items[0].representative.thumbnail, "https://ai.example/1.png");
   const zhMedia = await app.inject({ url: "/v1/content?sourceGroup=lifestyle&language=zh&hasMedia=false", headers });
   assert.equal(zhMedia.statusCode, 200, zhMedia.body);
   assert.deepEqual(zhMedia.json().items.map((x: { title: string; language: string }) => [x.title, x.language]), [["家庭料理指南", "zh"]]);
+});
+
+
+test("stories support pagination, diversity mixing, 7d latest window, social-trends isolation and thumbnails", async t => {
+  const db = await testDatabase();
+  t.after(db.close);
+  await bootstrapOwner(db.pool, "fixture-password-123", "owner@example.test");
+  const feed = webSource("feed", { SOURCE_NETWORK_ENABLED: "true" });
+  const app = await buildApp({
+    pool: db.pool, sessionSecret: "stories-diverse-secret".repeat(3), origin: "http://stories.test", secureCookies: false,
+    providers: [feed],
+  });
+  await app.ready();
+  t.after(() => app.close());
+  const login = await app.inject({
+    method: "POST", url: "/v1/auth/login", headers: { origin: "http://stories.test" },
+    payload: { email: "owner@example.test", password: "fixture-password-123" },
+  });
+  const headers = { cookie: login.headers["set-cookie"]!.toString().split(";")[0], origin: "http://stories.test" };
+  const createSource = async (label: string, tier: "T1" | "T1_5" | "T2", sourceGroup: string, slug: string) => {
+    const res = await app.inject({
+      method: "POST", url: "/v1/sources", headers,
+      payload: {
+        platform: "web", primaryProvider: "feed", deliveryMode: "pull", contentKind: "article",
+        label, tier, sourceGroup, locale: "en",
+        target: { type: "feed", url: `https://${slug}.example/rss` },
+      },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    return res.json().source.id as string;
+  };
+  const noisyId = await createSource("Noisy Wire", "T2", "tech-media", "noisy");
+  const researchId = await createSource("Deep Research", "T1", "ai-firsthand", "research");
+  const kernelId = await createSource("Kernel Notes", "T1_5", "dev-tools", "kernel");
+  const cloudId = await createSource("Cloud Journal", "T2", "tech-media", "cloud");
+  const archiveId = await createSource("Science Archive", "T1", "ai-firsthand", "archive");
+  const trendsId = await createSource("Hot Board", "T2", "social-trends", "trends");
+
+  const now = Date.now();
+  const agoMs = (ms: number) => new Date(now - ms).toISOString();
+  const min = 60_000;
+  const hr = 3_600_000;
+  const noisyTitles = [
+    "Copper turbine cooling update", "Harbor freight crane schedule", "Subway signal relay test",
+    "Solar inverter firmware note", "Fiber conduit trench report", "Bridge sensor battery check",
+    "Airport baggage belt audit", "Water pump pressure metric", "Grid transformer oil sample",
+    "Rail depot switch inspection",
+  ];
+  await transaction(db.pool, async client => {
+    const platId = (await client.query("SELECT id FROM source WHERE code='web'")).rows[0].id as string;
+    const commit = async (
+      sourceId: string,
+      slug: string,
+      entries: { title: string; ago: number; image?: string }[],
+    ) => {
+      const items = entries.map((entry, idx) => {
+        const url = `https://${slug}.example/post-${idx}`;
+        const publishedAt = agoMs(entry.ago);
+        const fetchedAt = agoMs(Math.max(1_000, entry.ago - 10_000));
+        const item = batchItem(sourceId, {
+          platform: "web", kind: "article", externalId: url, title: entry.title,
+          text: `Summary for ${entry.title}`, url, publishedAt, fetchedAt, language: "en",
+          media: entry.image
+            ? [{ type: "image", url: entry.image, previewUrl: null, altText: null, durationSeconds: null }]
+            : [],
+          platformDetails: { platform: "web", publisher: `${slug}.example`, canonicalUrl: url, feedUrl: `https://${slug}.example/rss` },
+        });
+        item.observation.provider = "feed";
+        item.observation.fetchedAt = fetchedAt;
+        return item;
+      });
+      await commitContentBatch(
+        client,
+        { id: sourceId, platformId: platId, platform: "web", provider: "feed", contentKinds: ["article"] },
+        prepareContentBatch(items),
+        agoMs(0),
+      );
+    };
+    await commit(noisyId, "noisy", noisyTitles.map((title, idx) => ({ title, ago: (idx + 1) * min })));
+    await commit(researchId, "research", [{ title: "Quantum error correction threshold", ago: 20 * min, image: "https://research.example/thumb.webp" }]);
+    await commit(kernelId, "kernel", [{ title: "Rust compiler borrow checker benchmark", ago: 25 * min }]);
+    await commit(cloudId, "cloud", [{ title: "Postgres vacuum memory optimization", ago: 30 * min }]);
+    await commit(archiveId, "archive", [{ title: "Five day old genomics breakthrough", ago: 120 * hr }]);
+    await commit(trendsId, "trends", [{ title: "Viral celebrity gossip headline", ago: 15 * min }]);
+  });
+
+  // 1. Diversity mixing vs raw recency + thumbnail surface
+  const mixedRes = await app.inject({ url: "/v1/content/stories?view=latest&limit=6&diverse=true", headers });
+  assert.equal(mixedRes.statusCode, 200, mixedRes.body);
+  const mixed = mixedRes.json();
+  assert.equal(mixed.totalCount, 14);
+  assert.equal(mixed.nextOffset, 6);
+  const mixedSources = new Set(mixed.items.map((x: { representative: { sourceId: string } }) => x.representative.sourceId));
+  assert.ok(mixedSources.has(researchId), "Page 1 must surface Deep Research");
+  assert.ok(mixedSources.has(kernelId), "Page 1 must surface Kernel Notes");
+  assert.ok(mixedSources.has(cloudId), "Page 1 must surface Cloud Journal");
+  const researchStory = mixed.items.find((x: { representative: { sourceId: string } }) => x.representative.sourceId === researchId);
+  const kernelStory = mixed.items.find((x: { representative: { sourceId: string } }) => x.representative.sourceId === kernelId);
+  assert.equal(researchStory.representative.thumbnail, "https://research.example/thumb.webp");
+  assert.equal(kernelStory.representative.thumbnail, null);
+
+  const rawRes = await app.inject({ url: "/v1/content/stories?view=latest&limit=6&diverse=false", headers });
+  assert.equal(rawRes.statusCode, 200, rawRes.body);
+  assert.ok(
+    rawRes.json().items.every((x: { representative: { sourceId: string } }) => x.representative.sourceId === noisyId),
+    "diverse=false must preserve strict raw recency",
+  );
+
+  // 2. Pagination returns disjoint slices, accurate totalCount, and null nextOffset on final page
+  const p1 = (await app.inject({ url: "/v1/content/stories?view=latest&limit=5&offset=0", headers })).json();
+  const p2 = (await app.inject({ url: "/v1/content/stories?view=latest&limit=5&offset=5", headers })).json();
+  const p3 = (await app.inject({ url: "/v1/content/stories?view=latest&limit=5&offset=10", headers })).json();
+  assert.equal(p1.items.length, 5);
+  assert.equal(p1.totalCount, 14);
+  assert.equal(p1.nextOffset, 5);
+  assert.equal(p2.items.length, 5);
+  assert.equal(p2.totalCount, 14);
+  assert.equal(p2.nextOffset, 10);
+  assert.equal(p3.items.length, 4);
+  assert.equal(p3.totalCount, 14);
+  assert.equal(p3.nextOffset, null);
+  const allKeys = [...p1.items, ...p2.items, ...p3.items].map((x: { storyKey: string }) => x.storyKey);
+  assert.equal(new Set(allKeys).size, 14, "Paginated slices must be disjoint and retain every story");
+
+  // 3. 7d latest surfaces 5-day-old T1 article while hot stays strictly within 48h
+  const latestAll = (await app.inject({ url: "/v1/content/stories?view=latest&limit=30", headers })).json();
+  const hotAll = (await app.inject({ url: "/v1/content/stories?view=hot&limit=30", headers })).json();
+  const titlesOf = (feed: { items: { representative: { title: string } }[] }) => feed.items.map(x => x.representative.title);
+  assert.ok(titlesOf(latestAll).includes("Five day old genomics breakthrough"));
+  assert.ok(!titlesOf(hotAll).includes("Five day old genomics breakthrough"));
+  assert.equal(latestAll.totalCount, 14);
+  assert.equal(hotAll.totalCount, 13);
+
+  // 4. Default social-trends exclusion vs explicit sourceGroup / includeTrends / sourceId
+  assert.ok(!titlesOf(latestAll).includes("Viral celebrity gossip headline"));
+  assert.ok(!titlesOf(hotAll).includes("Viral celebrity gossip headline"));
+  const onlyTrends = (await app.inject({ url: "/v1/content/stories?view=latest&sourceGroup=social-trends", headers })).json();
+  assert.deepEqual(titlesOf(onlyTrends), ["Viral celebrity gossip headline"]);
+  const withTrends = (await app.inject({ url: "/v1/content/stories?view=latest&includeTrends=true&limit=30", headers })).json();
+  assert.equal(withTrends.totalCount, 15);
+  assert.ok(titlesOf(withTrends).includes("Viral celebrity gossip headline"));
+  const byTrendsSource = (await app.inject({ url: `/v1/content/stories?view=latest&sourceId=${trendsId}`, headers })).json();
+  assert.deepEqual(titlesOf(byTrendsSource), ["Viral celebrity gossip headline"]);
 });

@@ -16,7 +16,7 @@ type Props =
   | { kind: "heat"; stories: StoryFeed["items"] };
 
 type Option = ComposeOption<BarSeriesOption | LineSeriesOption | ScatterSeriesOption>;
-const palette = ["#1f7471", "#527bc5", "#9b5a24", "#775099"];
+const palette = ["#14635f", "#2f5ea8", "#b84327", "#7c5a99"];
 const hatch = { symbol: "rect" as const, dashArrayX: [1, 0], dashArrayY: [3, 5], rotation: Math.PI / 4 };
 const base = {
   animation: false, color: palette,

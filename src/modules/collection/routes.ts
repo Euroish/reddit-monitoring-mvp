@@ -9,6 +9,7 @@ import {
   IdempotencyHeaders,
   Ingest,
   ParamsId,
+  PublicSourceDirectory,
   SourceFetchPolicy,
   SourceGroup,
   SourceInput,
@@ -29,6 +30,7 @@ import { sourceImportRoute } from "./import";
 import {
   assertSource,
   insertSource,
+  listPublicSources,
   listSources,
   lockSource,
   audit,
@@ -42,6 +44,11 @@ export async function collectionRoutes(
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   sourcePreviewRoute(app, providers);
   await sourceImportRoute(app, pool, providers);
+  api.get(
+    "/v1/public/sources",
+    { schema: { response: { 200: PublicSourceDirectory } } },
+    async (request) => listPublicSources(pool, request.actor!),
+  );
   api.get(
     "/v1/sources",
     {
