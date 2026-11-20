@@ -216,6 +216,7 @@ export function App() {
                 '当前为私有部署模式，请先登录以浏览信息流与监测工作台。',
               )}
               onSuccess={() => {
+                void sessionQuery.refetch();
                 if (loc.pathname === '__not_found__') {
                   navigate('/');
                 }

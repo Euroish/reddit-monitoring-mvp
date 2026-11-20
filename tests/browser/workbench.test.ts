@@ -172,11 +172,9 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   const errors: string[] = [];
   const scripts: string[] = [];
   const guestUnauthorized: string[] = [];
-  const apiRequests: string[] = [];
   let isAuthed = false;
   page.on("request", (req) => {
     if (req.resourceType() === "script") scripts.push(req.url());
-    if (req.url().includes("/api/v1/")) apiRequests.push(req.url());
   });
   page.on("response", (res) => {
     if (!isAuthed && res.status() === 401 && res.url().includes("/api/v1/")) {
@@ -236,12 +234,11 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await page.goto(`${origin}/content`);
   await page.getByText(storyTitle).first().waitFor();
   assert.deepEqual(guestUnauthorized, []);
-  await page.getByRole("button", { name: "分析内容" }).click();
-  await page.waitForFunction(() => true);
-  assert.ok(
-    apiRequests.some((url) => url.includes("/api/v1/content/facets")),
-    "Expected /api/v1/content/facets request when clicking 分析内容",
+  const facetsResponse = page.waitForResponse(
+    (res) => res.url().includes("/api/v1/content/facets") && res.status() === 200,
   );
+  await page.getByRole("button", { name: "分析内容" }).click();
+  await facetsResponse;
 
   // 6. Protected route gate -> Sign in -> Redirect preserves target path & query
   await page.goto(`${origin}/projects?section=platform`);
@@ -456,5 +453,12 @@ test("browser: private deployment mode (publicRead=false) blocks anonymous acces
   await page.goto(`${origin}/content`);
   await page.getByText("当前为私有部署模式").waitFor();
   assert.deepEqual(leakedRequests, []);
+
+  // Signing in from private-mode gate immediately unmounts the gate and loads the page
+  await page.getByLabel("工作邮箱").fill("owner@localhost");
+  await page.getByLabel("密码", { exact: true }).fill("fixture-password-123");
+  await page.getByRole("button", { name: "登录工作台" }).click();
+  await page.getByText("当前为私有部署模式").waitFor({ state: "detached" });
+  await page.getByRole("heading", { name: "内容检索" }).waitFor();
   assert.deepEqual(errors, []);
 });
