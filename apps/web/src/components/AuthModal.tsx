@@ -13,9 +13,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import type { EChartsOption } from 'echarts';
-import { apiClient } from '../api/client';
-import { useQueryClient } from '@tanstack/react-query';
-import { formatApiError, useLoginMutation } from '../api/hooks';
+import { formatApiError, useLoginMutation, useRegisterMutation } from '../api/hooks';
 import { useI18n } from '../i18n/translations';
 import { SiftlineLogo } from './BrandMark';
 import { useLogo } from './brandContext';
@@ -27,7 +25,9 @@ interface AuthModalProps {
   initialTab?: 'login' | 'register';
   initialQueryContext?: string;
   publicRegistration?: boolean;
-  onClose: () => void;
+  reason?: string;
+  inline?: boolean;
+  onClose?: () => void;
   onSuccess: () => void;
 }
 
@@ -62,10 +62,11 @@ export function AuthModal({
   initialTab = 'login',
   initialQueryContext,
   publicRegistration = false,
+  reason,
+  inline = false,
   onClose,
   onSuccess,
 }: AuthModalProps) {
-  const qc = useQueryClient();
   const { lang, setLang, t } = useI18n();
   const { activeLogo, setSwitcherOpen } = useLogo();
   const { setStudioOpen } = useTheme();
@@ -81,17 +82,18 @@ export function AuthModal({
   const [previewRange, setPreviewRange] = useState<'7' | '30' | '90'>('30');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
 
   const loginMutation = useLoginMutation();
+  const registerMutation = useRegisterMutation();
 
   useEffect(() => {
+    if (inline || !onClose) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [inline, onClose]);
 
   const isValidLoginEmail = (val: string) =>
     /^[^\s@]+@[^\s@]+$/.test(val) && val.length >= 3 && val.length <= 254;
@@ -105,8 +107,8 @@ export function AuthModal({
       setError(t('Please enter a valid work email (3..254 characters).', '请输入有效的工作邮箱地址（3..254 字符）。'));
       return;
     }
-    if (password.length < 8 || password.length > 128) {
-      setError(t('Password must be 8..128 characters.', '登录密码长度需为 8..128 位字符。'));
+    if (password.length < 1 || password.length > 128) {
+      setError(t('Please enter your password (1..128 characters).', '请输入登录密码（1..128 位字符）。'));
       return;
     }
     try {
@@ -131,12 +133,11 @@ export function AuthModal({
       setError(t('Valid one-time invite code (72 chars) is required.', '请输入管理员分发的有效一次性邀请码。'));
       return;
     }
-    const minLen = publicRegistration && !trimmedInvite ? 8 : 12;
-    if (password.length < minLen) {
+    if (password.length < 12) {
       setError(
         t(
-          `Password must be at least ${minLen} characters.`,
-          `注册密码长度必须至少 ${minLen} 位字符。`,
+          'Password must be at least 12 characters.',
+          '注册密码长度必须至少 12 位字符。',
         ),
       );
       return;
@@ -145,11 +146,13 @@ export function AuthModal({
       setError(t('Passwords do not match.', '两次输入的密码不一致。'));
       return;
     }
-    setSubmitting(true);
     try {
-      const res = await apiClient.register(cleaned, password, trimmedInvite || undefined);
+      const res = await registerMutation.mutateAsync({
+        email: cleaned,
+        password,
+        invite: trimmedInvite || undefined,
+      });
       if (res.user) {
-        await qc.invalidateQueries({ queryKey: ['session'] });
         onSuccess();
         return;
       }
@@ -159,10 +162,10 @@ export function AuthModal({
       setConfirmPw('');
     } catch (err) {
       setError(formatApiError(err));
-    } finally {
-      setSubmitting(false);
     }
   };
+
+  const submitting = loginMutation.isPending || registerMutation.isPending;
 
   const previewData = PREVIEW_SERIES[previewRange];
   const previewChartOption: EChartsOption = useMemo(
@@ -220,86 +223,122 @@ export function AuthModal({
     [previewData, chartColors.purple, chartColors.teal],
   );
 
-  return (
-    <div className="auth-overlay" role="dialog" aria-modal="true" aria-label={t('Sign in to SIFTLINE', '登录 SIFTLINE')}>
-      <div className="auth-shell" role="dialog" aria-modal="true" aria-label={t('Sign in', '登录账户')}>
-        {/* ================= Left Form Side ================= */}
-        <div className="auth-left">
-          <header className="auth-top">
+  const shell = (
+    <div
+      className="auth-shell"
+      role={inline ? undefined : 'dialog'}
+      aria-modal={inline ? undefined : true}
+      aria-label={tab === 'login' ? t('Sign in to SIFTLINE', '登录 SIFTLINE') : t('Create SIFTLINE account', '注册 SIFTLINE 账号')}
+    >
+      {/* ================= Left Form Side ================= */}
+      <div className="auth-left">
+        <header className="auth-top">
+          {onClose ? (
             <button
               type="button"
               onClick={onClose}
               style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
-              title={t('Back to Homepage', '返回产品首页')}
+              title={t('Back to feed', '返回页面')}
             >
               <SiftlineLogo size={28} fontSize={20} />
             </button>
-
-            <div className="at-right">
-              <button
-                type="button"
-                className="auth-util-pill"
-                onClick={() => setLang(lang === 'en' ? 'zh' : 'en')}
-                title={t('Switch Language', '切换中英文')}
-              >
-                <Globe size={12} />
-                {lang === 'en' ? '中文' : 'EN'}
-              </button>
-              <button
-                type="button"
-                className="auth-util-pill"
-                onClick={() => setStudioOpen(true)}
-                title={t('Color Skin', '界面色调')}
-              >
-                <Palette size={12} />
-                {t('Skin', '皮肤')}
-              </button>
-              <span>
-                {tab === 'login' ? t('No account yet?', '还没有账号？') : t('Already invited?', '已经有账号？')}
-              </span>
-              <button
-                type="button"
-                className="switch-link"
-                onClick={() => {
-                  setTab(tab === 'login' ? 'register' : 'login');
-                  setError(null);
-                  setNotice(null);
-                }}
-              >
-                {tab === 'login' ? (publicRegistration ? t('Create account', '免费注册') : t('Redeem Invite', '邀请码注册')) : t('Sign in', '去登录')}
-              </button>
+          ) : (
+            <div style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <SiftlineLogo size={28} fontSize={20} />
             </div>
-          </header>
+          )}
 
-          <main className="auth-main">
-            <div className="auth-card">
-              <p className="auth-eyebrow">
-                {tab === 'login' ? t('Welcome back', 'Welcome back') : t('Invite only', 'Invite only')}
-              </p>
-              <h1>
-                {tab === 'login'
-                  ? t('Back to your signal workbench', '回到你的信号工作台')
+          <div className="at-right">
+            <button
+              type="button"
+              className="auth-util-pill"
+              onClick={() => setLang(lang === 'en' ? 'zh' : 'en')}
+              title={t('Switch Language', '切换中英文')}
+            >
+              <Globe size={12} />
+              {lang === 'en' ? '中文' : 'EN'}
+            </button>
+            <button
+              type="button"
+              className="auth-util-pill"
+              onClick={() => setStudioOpen(true)}
+              title={t('Color Skin', '界面色调')}
+            >
+              <Palette size={12} />
+              {t('Skin', '皮肤')}
+            </button>
+            <span>
+              {tab === 'login'
+                ? t('No account yet?', '还没有账号？')
+                : publicRegistration
+                  ? t('Already have an account?', '已经有账号？')
+                  : t('Already invited?', '已经有账号？')}
+            </span>
+            <button
+              type="button"
+              className="switch-link"
+              onClick={() => {
+                setTab(tab === 'login' ? 'register' : 'login');
+                setError(null);
+                setNotice(null);
+              }}
+            >
+              {tab === 'login'
+                ? publicRegistration
+                  ? t('Create account', '注册账号')
+                  : t('Redeem Invite', '邀请码注册')
+                : t('Sign in', '去登录')}
+            </button>
+          </div>
+        </header>
+
+        <main className="auth-main">
+          <div className="auth-card">
+            <p className="auth-eyebrow">
+              {tab === 'login'
+                ? t('Welcome back', 'Welcome back')
+                : publicRegistration
+                  ? t('Open registration', '开放注册')
+                  : t('Invite only', '邀请制注册')}
+            </p>
+            <h1>
+              {tab === 'login'
+                ? t('Back to your signal workbench', '回到你的信号工作台')
+                : publicRegistration
+                  ? t('Create your SIFTLINE account', '创建你的 SIFTLINE 账号')
                   : t('Join team via invite code', '用邀请码加入团队')}
-              </h1>
-              <p className="auth-sub">
-                {tab === 'login'
+            </h1>
+            <p className="auth-sub">
+              {tab === 'login'
+                ? t(
+                    'Sign in to inspect project trends, thread structures, and team annotations. Every metric links back to source observations.',
+                    '登录后继续查看项目趋势、讨论结构与团队批注。所有数字都能回到原始链接与采集快照。',
+                  )
+                : publicRegistration
                   ? t(
-                      'Sign in to inspect project trends, thread structures, and team annotations. Every metric links back to source observations.',
-                      '登录后继续查看项目趋势、讨论结构与团队批注。所有数字都能回到原始链接与采集快照。',
+                      'Create a free account with a password of at least 12 characters. An invite code is optional unless joining a team role.',
+                      '开放注册已开启。设置至少 12 位密码即可创建账号；若持有团队邀请码也可一并填入。',
                     )
                   : t(
                       'SIFTLINE is an invite-only workspace. Enter the 72-character one-time invite token issued by your owner or admin.',
                       'SIFTLINE 采用邀请制工作区。输入管理员发给你的 72 位一次性邀请码，创建只属于你的登录凭据。',
                     )}
-              </p>
+            </p>
 
-              {initialQueryContext && (
-                <div className="ctx-chip">
-                  <Search size={13} color="var(--wb-teal, #258c89)" />
-                  <span>{t('Will explore query:', '登录后将自动检索：')}</span>
-                  <b>{initialQueryContext}</b>
-                </div>
-              )}
+            {reason && (
+              <div className="ctx-chip" role="status">
+                <Lock size={13} color="var(--wb-teal, #258c89)" />
+                <span>{reason}</span>
+              </div>
+            )}
+
+            {initialQueryContext && (
+              <div className="ctx-chip">
+                <Search size={13} color="var(--wb-teal, #258c89)" />
+                <span>{t('Will explore query:', '登录后将自动检索：')}</span>
+                <b>{initialQueryContext}</b>
+              </div>
+            )}
 
               <form className="auth-form" onSubmit={tab === 'login' ? handleLogin : handleRegister} noValidate>
                 {error && (
@@ -415,14 +454,16 @@ export function AuthModal({
                 <button
                   className="auth-submit-btn"
                   type="submit"
-                  disabled={loginMutation.isPending || submitting}
+                  disabled={submitting}
                 >
                   <span>
-                    {loginMutation.isPending || submitting
+                    {submitting
                       ? t('Authenticating...', '正在验证凭据...')
                       : tab === 'login'
                         ? t('Enter Signal Workbench', '登录工作台')
-                        : t('Create Invited Account', '创建账号')}
+                        : publicRegistration
+                          ? t('Create Account', '注册账号')
+                          : t('Create Invited Account', '邀请码注册')}
                   </span>
                   <ArrowRight size={15} />
                 </button>
@@ -473,7 +514,7 @@ export function AuthModal({
 
               <div className="auth-foot">
                 <span>© 2026 SIFTLINE</span>
-                <button type="button" onClick={onClose}>{t('Back to Homepage', '返回首页')}</button>
+                {onClose && <button type="button" onClick={onClose}>{t('Close', '关闭')}</button>}
               </div>
             </div>
           </main>
@@ -484,8 +525,8 @@ export function AuthModal({
           <div className="ar-rings" aria-hidden="true" />
 
           <div className="ar-top">
-            <span className="ar-label">Product preview · Signal overview</span>
-            <span className="ar-since">v2.0 / 2026</span>
+            <span className="ar-label">{t('Illustrative preview · Sample data', '界面示意 · 非实时数据')}</span>
+            <span className="ar-since">SIFTLINE</span>
           </div>
 
           <div className="ar-copy">
@@ -515,10 +556,10 @@ export function AuthModal({
           <div className="ar-mock-wrap">
             <div className="ar-mock-card">
               <div className="ar-mock-hd">
-                <b>Signal Overview</b>
+                <b>{t('Signal Overview (Sample)', '信号总览（示意）')}</b>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#6b756a' }}>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--wb-teal, #258c89)' }} />
-                  {t('Live · 4 platforms', '实时 · 4 个来源')}
+                  {t('Sample preview', '示意数据')}
                 </div>
               </div>
               <div style={{ padding: '12px 14px 14px' }}>
@@ -536,31 +577,22 @@ export function AuthModal({
                     ))}
                   </div>
                   <span className="tag tag--mint" style={{ height: 20, fontSize: 9.5 }}>
-                    {t('Strong Signal', '强信号')}
+                    {t('Illustrative', '演示样例')}
                   </span>
                 </div>
 
                 <div className="ar-mock-kpis">
                   <div>
                     <div className="lab">{t('Discussions', '讨论总量')}</div>
-                    <div className="val">
-                      {previewData.disc}
-                      <em>+18.4%</em>
-                    </div>
+                    <div className="val">{previewData.disc}</div>
                   </div>
                   <div>
                     <div className="lab">{t('Matched', '命中内容')}</div>
-                    <div className="val">
-                      {previewData.match}
-                      <em>+9.2%</em>
-                    </div>
+                    <div className="val">{previewData.match}</div>
                   </div>
                   <div>
                     <div className="lab">{t('Pain Signal', '痛点讨论')}</div>
-                    <div className="val">
-                      {previewData.pain}
-                      <em>+42%</em>
-                    </div>
+                    <div className="val">{previewData.pain}</div>
                   </div>
                 </div>
 
@@ -577,49 +609,48 @@ export function AuthModal({
                     <i style={{ width: 6, height: 6, borderRadius: '50%', background: '#f5ae78' }} /> X / Web
                   </span>
                   <span style={{ marginLeft: 'auto', color: '#9aa294' }}>
-                    {t('UTC daily buckets', '按 UTC 天分桶')}
+                    {t('Sample chart', '示意图')}
                   </span>
                 </div>
               </div>
-            </div>
-
-            <div className="ar-float">
-              <div className="af-l">This week</div>
-              <div className="af-v">+1,284</div>
-              <div className="af-s">{t('new matched signals', '条新增匹配讨论')}</div>
             </div>
           </div>
 
           <div className="ar-bottom">
             <div className="ar-quote">
               {t(
-                '“SIFTLINE turned our weekly qualitative interviews into daily quantitative signals traceable down to exact comments.”',
-                '“SIFTLINE 把我们每周一次的定性访谈，变成了每天都能看的定量信号，并可随时下钻原帖。”',
+                'Stored-sample transparency: every chart, daily bucket, and research note links directly back to persisted source observations.',
+                '透明样本口径：所有图表、按日分桶与研究批注均可追溯至已入库的原始观测记录。',
               )}
-              <div className="aq-by">
-                <i />
-                <span>Mia Chen · {t('Head of Research, Pawfect Labs', '洞察负责人，Pawfect Labs')}</span>
-              </div>
             </div>
             <div className="ar-stats">
               <div>
-                <span>Discussions</span>
-                <b>42M+</b>
-              </div>
-              <div>
-                <span>Platforms</span>
+                <span>{t('Platforms', '支持平台')}</span>
                 <b>4</b>
               </div>
               <div>
-                <span>Success rate</span>
-                <b>98.6%</b>
+                <span>{t('Auth', '鉴权方式')}</span>
+                <b>Cookie</b>
+              </div>
+              <div>
+                <span>{t('Storage', '数据底座')}</span>
+                <b>PG16</b>
               </div>
             </div>
           </div>
         </aside>
       </div>
+  );
 
-      {/* Floating Brand Explorer Chip (matches DeepSeek login screenshot bottom-right) */}
+  if (inline) {
+    return <div className="auth-overlay" style={{ position: 'relative', minHeight: '100vh' }}>{shell}</div>;
+  }
+
+  return (
+    <div className="auth-overlay">
+      {shell}
+
+      {/* Floating Brand Explorer Chip */}
       <button
         type="button"
         className="auth-brand-chip"
