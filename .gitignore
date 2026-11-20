@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Production build & TS incremental build info
+dist/
+dist-ssr/
+tsconfig.tsbuildinfo
+
+# Local environment & logs
+.env
+.env.local
+.env.*.local
+*.local
+npm-debug.log*
+pnpm-debug.log*
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
