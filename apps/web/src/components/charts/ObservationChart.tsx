@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
+import type { EChartsOption } from 'echarts';
 import type { ContentObservation } from '../../contracts/api';
 import { useI18n } from '../../i18n/translations';
-import { EChartBox, type EChartOption } from './EChartBox';
+import { EChartBox } from './EChartBox';
 import { useChartColors } from './chartUtils';
 
 export function ObservationChart({ observations }: { observations: ContentObservation[] }) {
@@ -94,7 +95,7 @@ export function ObservationChart({ observations }: { observations: ContentObserv
       <div style={{ display: 'grid', gap: 10 }}>
         {metricGroups.map((metricKey) => {
           const groupSeries = series.filter((s) => s.metricKey === metricKey);
-          const option: EChartOption = {
+          const option: EChartsOption = {
             tooltip: {
               trigger: 'axis',
               backgroundColor: '#1b221a',
@@ -131,7 +132,7 @@ export function ObservationChart({ observations }: { observations: ContentObserv
               axisLabel: {
                 color: '#8b9388',
                 fontSize: 9.5,
-                formatter: (v: number) => (Number.isFinite(v) ? new Date(v).toISOString().slice(5, 10) : ''),
+                formatter: (v: number) => new Date(v).toISOString().slice(5, 10),
               },
             },
             yAxis: {

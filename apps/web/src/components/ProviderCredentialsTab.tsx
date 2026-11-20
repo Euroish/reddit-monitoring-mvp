@@ -17,18 +17,6 @@ const PROVIDER_META: Record<CredentialProviderName, { title: string; platform: s
     noteEn: 'Unified APIFY_API_TOKEN shared by kaix (primary/hydrate) and red_crawler (fallback).',
     noteZh: '统一管理的 APIFY_API_TOKEN，同时驱动 kaix（主采集与评论水合）与 red_crawler（备源）。',
   },
-  kaix: {
-    title: 'Kaix (Apify Reddit Primary)',
-    platform: 'Reddit (primary)',
-    noteEn: 'Legacy Apify credential scoped to kaix primary connector.',
-    noteZh: 'kaix 主采集连接器 Apify 凭证。',
-  },
-  red_crawler: {
-    title: 'Red Crawler (Apify Fallback)',
-    platform: 'Reddit (fallback)',
-    noteEn: 'Legacy Apify credential scoped to red_crawler fallback connector.',
-    noteZh: 'red_crawler 备源连接器 Apify 凭证。',
-  },
   twitterapis: {
     title: 'TwitterAPIs',
     platform: 'X (primary)',

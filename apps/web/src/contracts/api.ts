@@ -59,130 +59,7 @@ export class ApiError extends Error {
 }
 
 export type PlanTier = 'free' | 'pro';
-export type SourceTier = 'T1' | 'T1_5' | 'T2';
-export type StoryView = 'latest' | 'hot' | 'digest';
-export type CredentialProviderName =
-  | 'apify'
-  | 'kaix'
-  | 'red_crawler'
-  | 'twitterapis'
-  | 'scrapebadger';
-
-export interface SessionPayload {
-  user: Actor | null;
-  publicRead: boolean;
-  publicRegistration: boolean;
-}
-
-export interface StoryQuery {
-  view?: StoryView;
-  date?: string;
-  limit?: number;
-  offset?: number;
-  sourceId?: string;
-  platform?: Platform;
-  sourceGroup?: string;
-  tier?: SourceTier;
-  language?: string;
-  includeTrends?: boolean;
-  diverse?: boolean;
-}
-
-export interface StoryEvidence {
-  id: string;
-  platform: Platform;
-  title: string;
-  url: string | null;
-  author: string | null;
-  thumbnail: string | null;
-  sourceId: string;
-  sourceLabel: string;
-  tier: SourceTier;
-  publishedAt: string | null;
-  discoveredAt: string;
-}
-
-export interface StoryItem {
-  storyKey: string;
-  representative: StoryEvidence;
-  excerpt: string | null;
-  related: StoryEvidence[];
-  relatedCount: number;
-  sourceCount: number;
-  heat48h: number;
-  tierBreakdown: {
-    T1: number;
-    T1_5: number;
-    T2: number;
-  };
-  sparkline48h: number[];
-  change6h: number | null;
-  trend: 'up' | 'down' | 'flat' | 'new' | 'unknown';
-  badges: Array<'surge' | 'rising' | 'new'>;
-  updatedAt: string;
-}
-
-export interface StoryFeed {
-  view: StoryView;
-  from: string;
-  to: string;
-  items: StoryItem[];
-  totalCount: number;
-  nextOffset: number | null;
-  coverage: 'stored_sample';
-}
-
-export interface PublicSourceSummary {
-  id: string;
-  label: string;
-  platform: Platform;
-  sourceGroup: string | null;
-  tier: SourceTier;
-  locale: string | null;
-  state: string;
-  lastSuccessAt: string | null;
-  count48h: number;
-}
-
-export interface PublicSourceDirectory {
-  sources: PublicSourceSummary[];
-  groupCounts: Record<string, number>;
-}
-
-export interface ContentFacetsQuery extends Omit<ContentFilter, 'from' | 'to'> {
-  projectId?: string;
-  sourceId?: string;
-  threadAware?: boolean;
-  from: string;
-  to: string;
-  bucket?: 'day' | '6h';
-}
-
-export interface ContentFacetPlatformBucket {
-  platform: Platform;
-  count: number;
-  matchedContentCount: number;
-}
-
-export interface ContentFacets {
-  count: number;
-  matchedContentCount: number;
-  timeline: Array<{
-    bucket: string;
-    count: number;
-    matchedContentCount: number;
-    byPlatform: ContentFacetPlatformBucket[];
-  }>;
-  distributions: {
-    platforms: ContentFacetPlatformBucket[];
-    kinds: Array<{
-      kind: ContentKind;
-      count: number;
-      matchedContentCount: number;
-    }>;
-  };
-  coverage: 'stored_sample';
-}
+export type CredentialProviderName = 'apify' | 'twitterapis' | 'scrapebadger';
 
 export interface Actor {
   userId: string;
@@ -355,7 +232,6 @@ export interface CapabilitiesResponse {
 
 export interface ContentFilter {
   sourceIds?: string[];
-  deliveryMode?: DeliveryMode;
   platform?: Platform;
   kind?: ContentKind;
   query?: string;
@@ -364,10 +240,6 @@ export interface ContentFilter {
   exclusions?: string[];
   searchScope?: SearchScope;
   signal?: SignalType;
-  sourceGroup?: string;
-  tier?: SourceTier;
-  language?: string;
-  hasMedia?: boolean;
   from?: string;
   to?: string;
 }
@@ -420,6 +292,12 @@ export interface DayPlatformFacet {
   matchedContentCount: number;
 }
 
+export interface SessionPayload {
+  user: Actor | null;
+  publicRead?: boolean;
+  publicRegistration?: boolean;
+}
+
 export interface ProjectOverviewResponse {
   project: Project;
   contentCount: number;
@@ -467,7 +345,7 @@ export interface PublicContent {
   textState: 'full' | 'missing' | 'summary' | 'truncated';
   contextMissing?: boolean;
   references: Array<{ type: string; targetId?: string; url?: string }>;
-  media: Array<{ type: string; url: string; previewUrl?: string | null; altText?: string | null }>;
+  media: Array<{ type: string; url: string }>;
   platformDetails: Record<string, unknown>;
   observations: ContentObservation[];
 }
@@ -712,14 +590,14 @@ export const DEFAULT_CAPABILITIES: SourceCapability[] = [
     enabled: true,
     targetTypes: ['search'],
     contentKinds: ['article'],
-    maxLimit: 100,
+    maxLimit: 30,
     supportsComments: false,
     maxCommentsPerPost: null,
     refreshByIds: false,
     automaticRequestReplay: true,
     fallbackAllowed: [],
     metrics: [{ key: 'web.rank', direction: 'lower' }],
-    notes: 'search target query="hackernews", limit <= 100.',
+    notes: 'search target query="hackernews", limit <= 30.',
   },
   {
     platform: 'web',
@@ -727,14 +605,14 @@ export const DEFAULT_CAPABILITIES: SourceCapability[] = [
     enabled: true,
     targetTypes: ['feed'],
     contentKinds: ['article'],
-    maxLimit: 100,
+    maxLimit: 30,
     supportsComments: false,
     maxCommentsPerPost: null,
     refreshByIds: false,
     automaticRequestReplay: true,
     fallbackAllowed: [],
     metrics: [],
-    notes: 'Only allowlisted HTTPS URLs in FEED_ALLOWED_URLS; limit <= 100.',
+    notes: 'Only allowlisted HTTPS URLs in FEED_ALLOWED_URLS; limit <= 30.',
   },
   {
     platform: 'bluesky',
@@ -898,19 +776,9 @@ export function mergeServerCapabilities(rawList: unknown): SourceCapability[] {
       enabled: typeof live.enabled === 'boolean' ? live.enabled : base.enabled,
       targetTypes: Array.isArray(live.targetTypes) ? (live.targetTypes as TargetType[]) : base.targetTypes,
       contentKinds: Array.isArray(live.contentKinds) ? (live.contentKinds as ContentKind[]) : base.contentKinds,
-      maxLimit: typeof live.maxLimit === 'number' && Number.isFinite(live.maxLimit) ? live.maxLimit : base.maxLimit,
-      supportsComments: typeof live.supportsComments === 'boolean' ? live.supportsComments : base.supportsComments,
-      maxCommentsPerPost:
-        live.maxCommentsPerPost === null ||
-        (typeof live.maxCommentsPerPost === 'number' && Number.isFinite(live.maxCommentsPerPost))
-          ? live.maxCommentsPerPost
-          : base.maxCommentsPerPost,
       refreshByIds: typeof live.refreshByIds === 'boolean' ? live.refreshByIds : base.refreshByIds,
       automaticRequestReplay:
         typeof live.automaticRequestReplay === 'boolean' ? live.automaticRequestReplay : base.automaticRequestReplay,
-      fallbackAllowed: Array.isArray(live.fallbackAllowed)
-        ? (live.fallbackAllowed as FallbackProviderName[])
-        : base.fallbackAllowed,
     };
   });
 }

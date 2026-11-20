@@ -1,12 +1,23 @@
 import React, { useEffect, useRef } from 'react';
 import * as echarts from 'echarts/core';
 import type { ECharts, EChartsCoreOption } from 'echarts/core';
-import { BarChart, LineChart, ScatterChart } from 'echarts/charts';
+import {
+  BarChart,
+  FunnelChart,
+  GaugeChart,
+  LineChart,
+  PieChart,
+  RadarChart,
+  SankeyChart,
+  ScatterChart,
+  TreemapChart,
+} from 'echarts/charts';
 import {
   DataZoomComponent,
   GridComponent,
   LegendComponent,
   MarkAreaComponent,
+  RadarComponent,
   TitleComponent,
   TooltipComponent,
 } from 'echarts/components';
@@ -17,7 +28,14 @@ echarts.use([
   BarChart,
   LineChart,
   ScatterChart,
+  PieChart,
+  GaugeChart,
+  RadarChart,
+  TreemapChart,
+  SankeyChart,
+  FunnelChart,
   GridComponent,
+  RadarComponent,
   TooltipComponent,
   LegendComponent,
   MarkAreaComponent,

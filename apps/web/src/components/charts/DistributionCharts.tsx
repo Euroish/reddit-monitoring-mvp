@@ -1,8 +1,9 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import type { EChartsOption } from 'echarts';
 import { Globe, Info, Layers, Link2 } from 'lucide-react';
 import type { OverviewFacet, Platform, PublicContent } from '../../contracts/api';
 import { useI18n } from '../../i18n/translations';
-import { EChartBox, type EChartOption } from './EChartBox';
+import { EChartBox } from './EChartBox';
 import { useChartColors } from './chartUtils';
 
 interface DistributionCardsProps {
@@ -20,6 +21,9 @@ export function DistributionCards({
 }: DistributionCardsProps) {
   const { t } = useI18n();
   const colors = useChartColors();
+
+  const [platChartMode, setPlatChartMode] = useState<'bar' | 'rose'>('bar');
+  const [kindChartMode, setKindChartMode] = useState<'stack' | 'sunburst'>('stack');
 
   const platformColor = useCallback(
     (p: string) =>
@@ -77,7 +81,34 @@ export function DistributionCards({
       .sort((a, b) => b.val - a.val);
   }, [providers, contentItems]);
 
-  const platformOption: EChartOption = useMemo(() => {
+  const platformOption: EChartsOption = useMemo(() => {
+    if (platChartMode === 'rose') {
+      return {
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: '#1b221a',
+          borderWidth: 0,
+          textStyle: { color: '#fff', fontSize: 11 },
+          formatter: '{b}: {c} ({d}%)',
+        },
+        series: [
+          {
+            type: 'pie',
+            roseType: 'radius',
+            radius: ['28%', '76%'],
+            center: ['50%', '52%'],
+            itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
+            label: { fontSize: 10.5, color: colors.ink, formatter: '{b} {d}%' },
+            data: platformRows.map((r) => ({
+              name: r.label,
+              value: r.count,
+              itemStyle: { color: platformColor(r.key) },
+            })),
+          },
+        ],
+      };
+    }
+
     const rev = [...platformRows].reverse();
     return {
       tooltip: {
@@ -88,7 +119,7 @@ export function DistributionCards({
         textStyle: { color: '#fff', fontSize: 11 },
       },
       grid: { left: 62, right: 44, top: 6, bottom: 6 },
-      xAxis: { type: 'value', show: false, max: (v: { max: number }) => Math.max(1, v.max) },
+      xAxis: { type: 'value', show: false, max: (v) => Math.max(1, v.max) },
       yAxis: {
         type: 'category',
         data: rev.map((r) => r.label),
@@ -106,7 +137,7 @@ export function DistributionCards({
             show: true,
             position: 'right',
             fontSize: 10.5,
-            fontFamily: 'ui-monospace, monospace',
+            fontFamily: 'JetBrains Mono, monospace',
             color: colors.muted,
             formatter: (params: unknown) => {
               const idx = (params as { dataIndex: number }).dataIndex;
@@ -120,9 +151,46 @@ export function DistributionCards({
         },
       ],
     };
-  }, [platformRows, colors, platformColor]);
+  }, [platChartMode, platformRows, colors, platformColor]);
 
-  const kindOption: EChartOption = useMemo(() => {
+  const kindOption: EChartsOption = useMemo(() => {
+    if (kindChartMode === 'sunburst') {
+      const hierarchy = (['reddit', 'x', 'bluesky', 'web'] as Platform[])
+        .map((p) => {
+          const items = contentItems.filter((c) => c.platform === p);
+          if (!items.length) return null;
+          const byK = new Map<string, number>();
+          items.forEach((c) => byK.set(c.kind, (byK.get(c.kind) || 0) + 1));
+          return {
+            name: p === 'x' ? 'X' : p.charAt(0).toUpperCase() + p.slice(1),
+            itemStyle: { color: platformColor(p) },
+            children: [...byK.entries()].map(([k, val], ki) => ({
+              name: k,
+              value: val,
+              itemStyle: { opacity: Math.max(0.55, 1 - ki * 0.18), color: platformColor(p) },
+            })),
+          };
+        })
+        .filter(Boolean);
+
+      return {
+        tooltip: {
+          backgroundColor: '#1b221a',
+          borderWidth: 0,
+          textStyle: { color: '#fff', fontSize: 11 },
+        },
+        series: [
+          {
+            type: 'sunburst',
+            radius: ['18%', '84%'],
+            itemStyle: { borderRadius: 3, borderColor: '#fff', borderWidth: 1.5 },
+            label: { fontSize: 9.5, minAngle: 20, rotate: 'radial' },
+            data: hierarchy as never,
+          },
+        ],
+      };
+    }
+
     return {
       tooltip: {
         trigger: 'axis',
@@ -160,9 +228,9 @@ export function DistributionCards({
         data: [k.pct],
       })),
     };
-  }, [kindRows]);
+  }, [kindChartMode, kindRows, contentItems, platformColor]);
 
-  const attributionOption: EChartOption = useMemo(() => {
+  const attributionOption: EChartsOption = useMemo(() => {
     const rev = [...providerCounts].reverse();
     return {
       tooltip: {
@@ -179,7 +247,7 @@ export function DistributionCards({
         data: rev.map((r) => r.name),
         axisLine: { show: false },
         axisTick: { show: false },
-        axisLabel: { color: colors.ink, fontSize: 10, fontFamily: 'ui-monospace, monospace' },
+        axisLabel: { color: colors.ink, fontSize: 10, fontFamily: 'JetBrains Mono, monospace' },
       },
       series: [
         {
@@ -191,12 +259,22 @@ export function DistributionCards({
             show: true,
             position: 'right',
             fontSize: 10,
-            fontFamily: 'ui-monospace, monospace',
+            fontFamily: 'JetBrains Mono, monospace',
             color: colors.muted,
           },
           itemStyle: {
             borderRadius: 99,
-            color: colors.purple,
+            color: {
+              type: 'linear',
+              x: 0,
+              y: 0,
+              x2: 1,
+              y2: 0,
+              colorStops: [
+                { offset: 0, color: colors.purple },
+                { offset: 1, color: colors.wisteria },
+              ],
+            },
           },
           data: rev.map((r) => r.val),
         },
@@ -208,6 +286,7 @@ export function DistributionCards({
 
   return (
     <>
+      {/* c5 Platform Breakdown */}
       <div className="c5" id="card-platform">
         <div className="ds-card" style={{ height: '100%' }}>
           <div className="ds-card-hd">
@@ -219,6 +298,14 @@ export function DistributionCards({
               <div className="ds-card-sub">
                 {t('Counted on deduplicated anchors (never engagement sums)', '按去重锚点数统计 · 非互动指标相加')}
               </div>
+            </div>
+            <div className="seg">
+              <button type="button" className={platChartMode === 'bar' ? 'on' : ''} onClick={() => setPlatChartMode('bar')}>
+                {t('Bar', '条形')}
+              </button>
+              <button type="button" className={platChartMode === 'rose' ? 'on' : ''} onClick={() => setPlatChartMode('rose')}>
+                {t('Rose', '南丁格尔')}
+              </button>
             </div>
           </div>
 
@@ -256,6 +343,7 @@ export function DistributionCards({
         </div>
       </div>
 
+      {/* c4 Content Morphology */}
       <div className="c4" id="card-kind">
         <div className="ds-card" style={{ height: '100%' }}>
           <div className="ds-card-hd">
@@ -264,7 +352,15 @@ export function DistributionCards({
                 <Layers size={14} color="var(--faint)" />
                 <span>{t('Content Morphology', '内容形态')}</span>
               </div>
-              <div className="ds-card-sub">{t('Post / Comment / Article split', '帖文 / 评论 / 文章构成')}</div>
+              <div className="ds-card-sub">{t('Post / Comment / Article hierarchy', '帖文 / 评论 / 文章层级分布')}</div>
+            </div>
+            <div className="seg">
+              <button type="button" className={kindChartMode === 'stack' ? 'on' : ''} onClick={() => setKindChartMode('stack')}>
+                {t('Stack', '堆叠')}
+              </button>
+              <button type="button" className={kindChartMode === 'sunburst' ? 'on' : ''} onClick={() => setKindChartMode('sunburst')}>
+                {t('Sunburst', '旭日图')}
+              </button>
             </div>
           </div>
 
@@ -279,6 +375,7 @@ export function DistributionCards({
         </div>
       </div>
 
+      {/* c3 Non-exclusive Channel Attribution (NEVER pie chart!) */}
       <div className="c3" id="card-attribution">
         <div className="ds-card" style={{ height: '100%' }}>
           <div className="ds-card-hd">
