@@ -22,6 +22,7 @@ interface HomepageProps {
   isAuthenticated: boolean;
   onOpenAuth: (tab?: 'login' | 'register') => void;
   onEnterWorkbench: (targetPath?: string) => void;
+  onGoFeed?: () => void;
 }
 
 const PLATFORM_OPTIONS: Array<{ value: '' | Platform; label: string; labelZh: string }> = [
@@ -352,7 +353,7 @@ function MiniCardVisual({ type }: { type: string }) {
   );
 }
 
-export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench }: HomepageProps) {
+export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench, onGoFeed }: HomepageProps) {
   const { lang, setLang, t } = useI18n();
   const { activeLogo, setSwitcherOpen } = useLogo();
   const { palette, setStudioOpen } = useTheme();
@@ -517,6 +518,18 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench }: Home
             >
               {t('Resources', '研究资源')} <ChevronDown size={14} />
             </button>
+            {onGoFeed && (
+              <button
+                type="button"
+                className="hp-nav-item"
+                onClick={() => {
+                  setOpenMega(null);
+                  onGoFeed();
+                }}
+              >
+                {t('Read Stories', '阅读信息流')}
+              </button>
+            )}
             <button
               type="button"
               className="hp-nav-item"
@@ -538,6 +551,15 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench }: Home
             >
               {lang === 'en' ? '中文' : 'EN'}
             </button>
+            {onGoFeed && (
+              <button
+                type="button"
+                className="sr-btn sr-btn--outline sr-btn--sm"
+                onClick={onGoFeed}
+              >
+                {t('Read Stories', '阅读信息流')}
+              </button>
+            )}
             <button
               type="button"
               className="sr-btn sr-btn--outline sr-btn--sm"

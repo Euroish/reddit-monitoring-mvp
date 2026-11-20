@@ -3,11 +3,14 @@ import {
   AlertTriangle,
   Bell,
   Bookmark,
+  BookOpen,
+  Calendar,
   Check,
   ChevronDown,
   Command,
   Database,
   ExternalLink,
+  Flame,
   FolderKanban,
   Globe,
   Grid,
@@ -16,6 +19,7 @@ import {
   Key,
   Layers,
   Link2,
+  LogIn,
   LogOut,
   Menu,
   MessageSquare,
@@ -48,28 +52,30 @@ import { useTheme } from '../components/themeContext';
 import { type Actor, type CapabilitiesResponse, validateSearchTerm } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
 
-export type WorkbenchRoute = '/projects' | '/content' | '/sources' | '/workspace' | '/settings';
+export type WorkbenchRoute = '/' | '/projects' | '/content' | '/sources' | '/workspace' | '/settings';
 
 interface WorkbenchShellProps {
-  actor: Actor;
+  actor: Actor | null;
+  publicRegistration?: boolean;
   capabilities?: CapabilitiesResponse;
   route: WorkbenchRoute;
   currentSearch: string;
   selectedProjectId: string;
   onSelectProjectId: (id: string) => void;
   onNavigate: (path: string) => void;
-  onGoHome: () => void;
+  onOpenAuth: (tab?: 'login' | 'register', reason?: string, pendingTarget?: string) => void;
   children: React.ReactNode;
 }
 
 export function WorkbenchShell({
   actor,
+  publicRegistration = false,
   route,
   currentSearch,
   selectedProjectId,
   onSelectProjectId,
   onNavigate,
-  onGoHome,
+  onOpenAuth,
   children,
 }: WorkbenchShellProps) {
   const { lang, setLang, t } = useI18n();
@@ -77,13 +83,14 @@ export function WorkbenchShell({
   const { palette, setStudioOpen } = useTheme();
   const logoutMut = useLogoutMutation();
 
-  const canWrite = actor.role === 'owner' || actor.role === 'admin';
-  const projectsQuery = useProjectsQuery(true);
-  const sourcesQuery = useSourcesQuery(true);
-  const queriesQuery = useSavedQueriesQuery(true);
-  const annotationsQuery = useAnnotationsListQuery(true);
+  const isAuthed = Boolean(actor);
+  const canWrite = actor?.role === 'owner' || actor?.role === 'admin';
+  const projectsQuery = useProjectsQuery(isAuthed);
+  const sourcesQuery = useSourcesQuery(isAuthed);
+  const queriesQuery = useSavedQueriesQuery(isAuthed);
+  const annotationsQuery = useAnnotationsListQuery(isAuthed);
   const budgetsQuery = useBudgetsQuery(canWrite);
-  const quotasSummaryQuery = useQuotasSummaryQuery(true);
+  const quotasSummaryQuery = useQuotasSummaryQuery(isAuthed);
 
   const projects = projectsQuery.data?.projects || [];
   const sources = useMemo(() => sourcesQuery.data?.sources ?? [], [sourcesQuery.data?.sources]);
@@ -224,10 +231,14 @@ export function WorkbenchShell({
       : name.slice(0, 2).toUpperCase();
   };
 
-  const userInitial = actor.email.slice(0, 2).toUpperCase();
+  const userInitial = actor ? actor.email.slice(0, 2).toUpperCase() : 'G';
 
   const paletteCommands = useMemo(
     () => [
+      { group: t('Feed', '信息流'), label: t("Today's Stories", '今日精选信息流'), kbd: 'G H', run: () => navigateAndClose('/') },
+      { group: t('Feed', '信息流'), label: t('48h Momentum', '48 小时热度'), kbd: 'G T', run: () => navigateAndClose('/?view=hot') },
+      { group: t('Feed', '信息流'), label: t('08:00 Daily Digest', '08:00 日报'), kbd: 'G D', run: () => navigateAndClose('/?view=digest') },
+      { group: t('Feed', '信息流'), label: t('Product Overview', '产品介绍'), kbd: 'G P', run: () => navigateAndClose('/product') },
       { group: t('Navigate', '页面跳转'), label: t('Project Overview', '项目总览'), kbd: 'G O', run: () => navigateAndClose('/projects') },
       { group: t('Navigate', '页面跳转'), label: t('Signal Radar Analytics', '趋势雷达多维图谱'), kbd: 'G R', run: () => navigateAndClose('/projects?section=radar') },
       { group: t('Navigate', '页面跳转'), label: t('Content Explorer', '内容检索与过滤'), kbd: 'G E', run: () => navigateAndClose('/content') },
@@ -257,14 +268,23 @@ export function WorkbenchShell({
         <button
           type="button"
           className="rail-logo"
-          onClick={onGoHome}
-          data-tip={t('Back to Homepage', '返回产品官网')}
-          aria-label={t('Back to Homepage', '返回产品官网')}
+          onClick={() => navigateAndClose('/')}
+          data-tip={t("Today's Stories", '今日精选信息流')}
+          aria-label={t("Today's Stories", '今日精选信息流')}
         >
           <SiftlineLogo size={24} showWordmark={false} />
         </button>
 
         <div className="rail-group">
+          <button
+            type="button"
+            className={`rail-btn ${route === '/' ? 'is-active' : ''}`}
+            onClick={() => navigateAndClose('/')}
+            data-tip={t('Stories Feed', '精选信息流')}
+            aria-label={t('Stories Feed', '精选信息流')}
+          >
+            <BookOpen size={18} />
+          </button>
           <button
             type="button"
             className={`rail-btn ${route === '/projects' ? 'is-active' : ''}`}
@@ -369,70 +389,86 @@ export function WorkbenchShell({
 
       {/* ================= 2. Collapsible Context Sidebar ================= */}
       <aside className="side">
-        {/* Project Switcher */}
-        <div className="proj-switch-wrap" data-pop-root>
-          <button
-            type="button"
-            className="proj-switch"
-            onClick={() => setOpenPop(openPop === 'proj' ? null : 'proj')}
-            aria-expanded={openPop === 'proj'}
-          >
-            <span className="ps-avatar">{projInitials(activeProject?.name)}</span>
-            <span className="ps-txt">
-              <b>{activeProject?.name || t('Select Project', '选择监测项目')}</b>
-              <small>
-                {activeProject
-                  ? `${activeProject.source_ids.length} ${t('sources', '个来源')} · rev ${activeProject.revision}`
-                  : t('Team Workspace', '团队空间')}
-              </small>
-            </span>
-            <ChevronDown size={14} color="var(--faint)" />
-          </button>
+        {/* Project Switcher (Authenticated) or Public Brand Header (Guest) */}
+        {actor ? (
+          <div className="proj-switch-wrap" data-pop-root>
+            <button
+              type="button"
+              className="proj-switch"
+              onClick={() => setOpenPop(openPop === 'proj' ? null : 'proj')}
+              aria-expanded={openPop === 'proj'}
+            >
+              <span className="ps-avatar">{projInitials(activeProject?.name)}</span>
+              <span className="ps-txt">
+                <b>{activeProject?.name || t('Select Project', '选择监测项目')}</b>
+                <small>
+                  {activeProject
+                    ? `${activeProject.source_ids.length} ${t('sources', '个来源')} · rev ${activeProject.revision}`
+                    : t('Team Workspace', '团队空间')}
+                </small>
+              </span>
+              <ChevronDown size={14} color="var(--faint)" />
+            </button>
 
-          {openPop === 'proj' && (
-            <div className="ds-pop" style={{ top: '100%', left: 12, width: 292 }}>
-              <div className="pop-hd">
-                <span>{t('Switch Project', '切换监测项目')}</span>
-                <span>{projects.length}</span>
-              </div>
-              <div style={{ display: 'grid', gap: 2, maxHeight: 240, overflowY: 'auto' }}>
-                {projects.map((p) => (
+            {openPop === 'proj' && (
+              <div className="ds-pop" style={{ top: '100%', left: 12, width: 292 }}>
+                <div className="pop-hd">
+                  <span>{t('Switch Project', '切换监测项目')}</span>
+                  <span>{projects.length}</span>
+                </div>
+                <div style={{ display: 'grid', gap: 2, maxHeight: 240, overflowY: 'auto' }}>
+                  {projects.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className={`pop-opt ${p.id === activeProject?.id ? 'on' : ''}`}
+                      onClick={() => {
+                        onSelectProjectId(p.id);
+                        setOpenPop(null);
+                        if (route !== '/projects') onNavigate('/projects');
+                      }}
+                    >
+                      <span className="ps-avatar" style={{ width: 24, height: 24, fontSize: 9.5 }}>
+                        {projInitials(p.name)}
+                      </span>
+                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <b style={{ display: 'block', fontSize: 11.5 }}>{p.name}</b>
+                        <small style={{ color: 'var(--faint)', fontSize: 10 }}>
+                          {p.source_ids.length} {t('sources', '个来源')} · rev {p.revision}
+                        </small>
+                      </span>
+                      {p.id === activeProject?.id && <Check size={13} color="var(--wb-purple)" />}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ borderTop: '1px solid var(--line)', marginTop: 6, paddingTop: 6 }}>
                   <button
-                    key={p.id}
                     type="button"
-                    className={`pop-opt ${p.id === activeProject?.id ? 'on' : ''}`}
-                    onClick={() => {
-                      onSelectProjectId(p.id);
-                      setOpenPop(null);
-                      if (route !== '/projects') onNavigate('/projects');
-                    }}
+                    className="pop-opt"
+                    onClick={() => navigateAndClose('/projects?new=1')}
                   >
-                    <span className="ps-avatar" style={{ width: 24, height: 24, fontSize: 9.5 }}>
-                      {projInitials(p.name)}
-                    </span>
-                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      <b style={{ display: 'block', fontSize: 11.5 }}>{p.name}</b>
-                      <small style={{ color: 'var(--faint)', fontSize: 10 }}>
-                        {p.source_ids.length} {t('sources', '个来源')} · rev {p.revision}
-                      </small>
-                    </span>
-                    {p.id === activeProject?.id && <Check size={13} color="var(--wb-purple)" />}
+                    <Plus size={13} />
+                    <span>{t('Create Monitoring Project', '新建监测项目')}</span>
                   </button>
-                ))}
+                </div>
               </div>
-              <div style={{ borderTop: '1px solid var(--line)', marginTop: 6, paddingTop: 6 }}>
-                <button
-                  type="button"
-                  className="pop-opt"
-                  onClick={() => navigateAndClose('/projects?new=1')}
-                >
-                  <Plus size={13} />
-                  <span>{t('Create Monitoring Project', '新建监测项目')}</span>
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        ) : (
+          <div className="proj-switch-wrap">
+            <button
+              type="button"
+              className="proj-switch"
+              onClick={() => navigateAndClose('/')}
+            >
+              <span className="ps-avatar">SL</span>
+              <span className="ps-txt">
+                <b>SIFTLINE</b>
+                <small>{t('Public Signal Reader', '公开信息流阅读器')}</small>
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* Cmd+K Search Trigger */}
         <button
@@ -449,8 +485,44 @@ export function WorkbenchShell({
           <span className="kbd">K</span>
         </button>
 
-        {/* Grouped Navigation (Exact DeepSeek Grouping) */}
+        {/* Grouped Navigation */}
         <nav className="side-nav" aria-label={t('Primary navigation', '工作台导航')}>
+          <div className="nav-group">
+            <p className="nav-label">{t('Feed', '信息流')}</p>
+            <button
+              type="button"
+              className={`nav-item ${route === '/' && (!currentView || currentView === 'latest') ? 'is-active' : ''}`}
+              onClick={() => navigateAndClose('/')}
+            >
+              <BookOpen size={14} className="nav-ic" />
+              <span>{t("Today's Stories", '今日精选')}</span>
+            </button>
+            <button
+              type="button"
+              className={`nav-item ${route === '/' && currentView === 'hot' ? 'is-active' : ''}`}
+              onClick={() => navigateAndClose('/?view=hot')}
+            >
+              <Flame size={14} className="nav-ic" />
+              <span>{t('48h Momentum', '48 小时热度')}</span>
+            </button>
+            <button
+              type="button"
+              className={`nav-item ${route === '/' && currentView === 'digest' ? 'is-active' : ''}`}
+              onClick={() => navigateAndClose('/?view=digest')}
+            >
+              <Calendar size={14} className="nav-ic" />
+              <span>{t('08:00 Digest', '08:00 日报')}</span>
+            </button>
+            <button
+              type="button"
+              className="nav-item"
+              onClick={() => navigateAndClose('/product')}
+            >
+              <ExternalLink size={14} className="nav-ic" />
+              <span>{t('Product Intro', '产品介绍')}</span>
+            </button>
+          </div>
+
           <div className="nav-group">
             <p className="nav-label">{t('Monitoring', '监测')}</p>
             <button
@@ -559,38 +631,64 @@ export function WorkbenchShell({
 
         {/* Bottom Usage Card & User Account */}
         <div className="side-foot">
-          <div className="usage-card">
-            <div className="uc-top">
-              <span>{t('Daily Resource Quota', '今日采集资源配额')}</span>
-              <b>{quotaStats.pct}%</b>
-            </div>
-            <div className="uc-bar">
-              <i style={{ width: `${quotaStats.pct}%` }} />
-            </div>
-            <div className="uc-meta">
-              <span>
-                {quotaStats.used} / {quotaStats.cap}
-              </span>
-              <button type="button" onClick={() => navigateAndClose('/sources?tab=budgets')}>
-                {t('Manage', '治理')}
-              </button>
-            </div>
-          </div>
+          {actor ? (
+            <>
+              <div className="usage-card">
+                <div className="uc-top">
+                  <span>{t('Daily Resource Quota', '今日采集资源配额')}</span>
+                  <b>{quotaStats.pct}%</b>
+                </div>
+                <div className="uc-bar">
+                  <i style={{ width: `${quotaStats.pct}%` }} />
+                </div>
+                <div className="uc-meta">
+                  <span>
+                    {quotaStats.used} / {quotaStats.cap}
+                  </span>
+                  <button type="button" onClick={() => navigateAndClose('/sources?tab=budgets')}>
+                    {t('Manage', '治理')}
+                  </button>
+                </div>
+              </div>
 
-          <button
-            type="button"
-            className="user-row"
-            onClick={() => setOpenPop(openPop === 'avatar' ? null : 'avatar')}
-          >
-            <span className="u-avatar">{userInitial}</span>
-            <span className="u-txt">
-              <b>{actor.email.split('@')[0]}</b>
-              <small>
-                {actor.role} · {actor.email}
-              </small>
-            </span>
-            <MoreHorizontal size={14} color="#a3aa9f" />
-          </button>
+              <button
+                type="button"
+                className="user-row"
+                onClick={() => setOpenPop(openPop === 'avatar' ? null : 'avatar')}
+              >
+                <span className="u-avatar">{userInitial}</span>
+                <span className="u-txt">
+                  <b>{actor.email.split('@')[0]}</b>
+                  <small>
+                    {actor.role} · {actor.email}
+                  </small>
+                </span>
+                <MoreHorizontal size={14} color="#a3aa9f" />
+              </button>
+            </>
+          ) : (
+            <div style={{ display: 'grid', gap: 6 }}>
+              <button
+                type="button"
+                className="ds-btn"
+                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={() => onOpenAuth('login', undefined, '/projects')}
+              >
+                <LogIn size={14} />
+                <span>{t('Sign in to Workbench', '登录进入工作台')}</span>
+              </button>
+              {publicRegistration && (
+                <button
+                  type="button"
+                  className="ds-btn ds-btn--ghost"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                  onClick={() => onOpenAuth('register', undefined, '/projects')}
+                >
+                  <span>{t('Create Account', '注册账号')}</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </aside>
 
@@ -658,174 +756,198 @@ export function WorkbenchShell({
               <span>{lang === 'en' ? '中文' : 'EN'}</span>
             </button>
 
-            {/* Live Session Status Pill */}
+            {/* Product Intro Link */}
             <button
               type="button"
               className="top-pill-btn"
-              onClick={() => navigateAndClose('/settings')}
-              title={t('Live /api/v1 Cookie Session & RBAC Role', '当前在线 /api/v1 同源会话与权限角色')}
+              onClick={() => navigateAndClose('/product')}
+              title={t('Product Overview', '查看产品介绍')}
             >
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
-                  background: 'var(--wb-teal)',
-                }}
-              />
-              <span>Live · {actor.role}</span>
+              <span>{t('Product', '产品介绍')}</span>
             </button>
 
-            {/* + New Quick Create */}
-            <div style={{ position: 'relative' }}>
-              <button
-                type="button"
-                className="ds-btn ds-btn--brand"
-                style={{ height: 33, padding: '0 13px', fontSize: 12 }}
-                onClick={() => setOpenPop(openPop === 'create' ? null : 'create')}
-              >
-                <Plus size={14} />
-                <span>{t('New', '新建')}</span>
-              </button>
+            {actor ? (
+              <>
+                {/* Live Session Status Pill */}
+                <button
+                  type="button"
+                  className="top-pill-btn"
+                  onClick={() => navigateAndClose('/settings')}
+                  title={t('Live /api/v1 Cookie Session & RBAC Role', '当前在线 /api/v1 同源会话与权限角色')}
+                >
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: 'var(--wb-teal)',
+                    }}
+                  />
+                  <span>Live · {actor.role}</span>
+                </button>
 
-              {openPop === 'create' && (
-                <div className="ds-pop" style={{ top: 'calc(100% + 6px)', right: 0, width: 220 }}>
-                  <div className="pop-hd"><span>{t('Quick Create', '新建')}</span></div>
-                  <button type="button" className="pop-opt" onClick={() => navigateAndClose('/projects?new=1')}>
-                    <FolderKanban size={13} />
-                    <span style={{ flex: 1 }}>{t('Monitoring Project', '监测项目')}</span>
-                    <span className="kbd">P</span>
+                {/* + New Quick Create */}
+                <div style={{ position: 'relative' }}>
+                  <button
+                    type="button"
+                    className="ds-btn ds-btn--brand"
+                    style={{ height: 33, padding: '0 13px', fontSize: 12 }}
+                    onClick={() => setOpenPop(openPop === 'create' ? null : 'create')}
+                  >
+                    <Plus size={14} />
+                    <span>{t('New', '新建')}</span>
                   </button>
-                  <button type="button" className="pop-opt" onClick={() => navigateAndClose('/sources?new=1')}>
-                    <Database size={13} />
-                    <span style={{ flex: 1 }}>{t('Collection Source', '采集来源')}</span>
-                    <span className="kbd">S</span>
-                  </button>
-                  <button type="button" className="pop-opt" onClick={() => navigateAndClose('/content')}>
-                    <Bookmark size={13} />
-                    <span style={{ flex: 1 }}>{t('Run & Save Query', '检索并保存查询')}</span>
-                    <span className="kbd">Q</span>
-                  </button>
-                </div>
-              )}
-            </div>
 
-            {/* Notification Bell */}
-            <div style={{ position: 'relative' }}>
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={() => setOpenPop(openPop === 'notif' ? null : 'notif')}
-                aria-label={t('Notifications', '通知')}
-              >
-                <Bell size={17} />
-                {unreadNotifs > 0 && <i className="notif-dot" />}
-              </button>
-
-              {openPop === 'notif' && (
-                <div className="ds-pop" style={{ top: 'calc(100% + 6px)', right: 0, width: 310, padding: 0, overflow: 'hidden' }}>
-                  <div style={{ padding: '11px 14px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                    <b>{t('System Alerts', '运行与采集告警')}</b>
-                    <span style={{ fontSize: 10.5, color: 'var(--faint)' }}>
-                      {unreadNotifs} {t('active', '条提示')}
-                    </span>
-                  </div>
-                  {blockedSources.map((src) => (
-                    <div key={src.id} style={{ padding: '10px 14px', borderBottom: '1px solid #f3f5ee', display: 'flex', gap: 9 }}>
-                      <AlertTriangle size={15} color="#d4821c" style={{ flexShrink: 0, marginTop: 2 }} />
-                      <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-                        <b>{src.label}</b> · {t('Automatic collection blocked pending review', '存在未决付费阶段任务，已暂停自动采集')}
-                      </div>
-                    </div>
-                  ))}
-                  {zeroQuotaProviders.map((b) => (
-                    <div key={b.provider} style={{ padding: '10px 14px', borderBottom: '1px solid #f3f5ee', display: 'flex', gap: 9 }}>
-                      <AlertTriangle size={15} color="#6b756a" style={{ flexShrink: 0, marginTop: 2 }} />
-                      <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-                        <b>{b.provider}</b> · {t('Daily request cap is 0', '已启用但日请求额度上限为 0')}
-                      </div>
-                    </div>
-                  ))}
-                  {blockedSources.length === 0 && zeroQuotaProviders.length === 0 && (
-                    <div style={{ padding: '16px 14px', textAlign: 'center', fontSize: 11.5, color: 'var(--faint)' }}>
-                      {t('No active collection or quota alerts.', '当前无阻断来源或配额告警。')}
-                    </div>
-                  )}
-                  {(blockedSources.length > 0 || zeroQuotaProviders.length > 0) && (
-                    <div style={{ padding: 6, textAlign: 'center' }}>
-                      <button
-                        type="button"
-                        className="ds-btn ds-btn--quiet"
-                        style={{ fontSize: 11, width: '100%' }}
-                        onClick={() => {
-                          setAlertsDismissed(true);
-                          setOpenPop(null);
-                        }}
-                      >
-                        {t('Dismiss notifications', '忽略当前红点')}
+                  {openPop === 'create' && (
+                    <div className="ds-pop" style={{ top: 'calc(100% + 6px)', right: 0, width: 220 }}>
+                      <div className="pop-hd"><span>{t('Quick Create', '新建')}</span></div>
+                      <button type="button" className="pop-opt" onClick={() => navigateAndClose('/projects?new=1')}>
+                        <FolderKanban size={13} />
+                        <span style={{ flex: 1 }}>{t('Monitoring Project', '监测项目')}</span>
+                        <span className="kbd">P</span>
+                      </button>
+                      <button type="button" className="pop-opt" onClick={() => navigateAndClose('/sources?new=1')}>
+                        <Database size={13} />
+                        <span style={{ flex: 1 }}>{t('Collection Source', '采集来源')}</span>
+                        <span className="kbd">S</span>
+                      </button>
+                      <button type="button" className="pop-opt" onClick={() => navigateAndClose('/content')}>
+                        <Bookmark size={13} />
+                        <span style={{ flex: 1 }}>{t('Run & Save Query', '检索并保存查询')}</span>
+                        <span className="kbd">Q</span>
                       </button>
                     </div>
                   )}
                 </div>
-              )}
-            </div>
 
-            {/* Avatar Popover */}
-            <div style={{ position: 'relative' }}>
-              <button
-                type="button"
-                className="avatar-btn"
-                onClick={() => setOpenPop(openPop === 'avatar' ? null : 'avatar')}
-                aria-label={t('Account Menu', '账户菜单')}
-              >
-                {userInitial}
-              </button>
-
-              {openPop === 'avatar' && (
-                <div className="ds-pop" style={{ top: 'calc(100% + 6px)', right: 0, width: 236 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 8px 10px', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
-                    <span className="u-avatar">{userInitial}</span>
-                    <div style={{ minWidth: 0 }}>
-                      <b style={{ display: 'block', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis' }}>{actor.email}</b>
-                      <span style={{ fontSize: 10, color: 'var(--faint)' }}>{actor.role} · {actor.clientKind}</span>
-                    </div>
-                  </div>
-                  <button type="button" className="pop-opt" onClick={() => navigateAndClose('/settings')}>
-                    <User size={13} />
-                    <span>{t('Account & Access', '账户与权限')}</span>
-                  </button>
-                  <button type="button" className="pop-opt" onClick={() => navigateAndClose('/settings?tab=keys')}>
-                    <Key size={13} />
-                    <span>{t('Machine API Keys', '机器 API 密钥')}</span>
-                  </button>
-                  <button type="button" className="pop-opt" onClick={() => { setOpenPop(null); setStudioOpen(true); }}>
-                    <Palette size={13} />
-                    <span>{t('Skin & Color Studio', '切换皮肤配色 (17套)')}</span>
-                  </button>
-                  <button type="button" className="pop-opt" onClick={() => { setOpenPop(null); setSwitcherOpen(true); }}>
-                    <Sparkles size={13} />
-                    <span>{t('Logo Mark Explorer (30)', '切换品牌标志 (30套)')}</span>
-                  </button>
-                  <div style={{ borderTop: '1px solid var(--line)', margin: '5px 0' }} />
-                  <button type="button" className="pop-opt" onClick={() => { setOpenPop(null); onGoHome(); }}>
-                    <ExternalLink size={13} />
-                    <span>{t('Public Homepage', '返回产品官网')}</span>
-                  </button>
+                {/* Notification Bell */}
+                <div style={{ position: 'relative' }}>
                   <button
                     type="button"
-                    className="pop-opt"
-                    style={{ color: '#a8462f' }}
-                    onClick={() => {
-                      setOpenPop(null);
-                      logoutMut.mutate();
-                    }}
+                    className="icon-btn"
+                    onClick={() => setOpenPop(openPop === 'notif' ? null : 'notif')}
+                    aria-label={t('Notifications', '通知')}
                   >
-                    <LogOut size={13} />
-                    <span>{t('Log Out', '退出登录')}</span>
+                    <Bell size={17} />
+                    {unreadNotifs > 0 && <i className="notif-dot" />}
                   </button>
+
+                  {openPop === 'notif' && (
+                    <div className="ds-pop" style={{ top: 'calc(100% + 6px)', right: 0, width: 310, padding: 0, overflow: 'hidden' }}>
+                      <div style={{ padding: '11px 14px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                        <b>{t('System Alerts', '运行与采集告警')}</b>
+                        <span style={{ fontSize: 10.5, color: 'var(--faint)' }}>
+                          {unreadNotifs} {t('active', '条提示')}
+                        </span>
+                      </div>
+                      {blockedSources.map((src) => (
+                        <div key={src.id} style={{ padding: '10px 14px', borderBottom: '1px solid #f3f5ee', display: 'flex', gap: 9 }}>
+                          <AlertTriangle size={15} color="#d4821c" style={{ flexShrink: 0, marginTop: 2 }} />
+                          <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                            <b>{src.label}</b> · {t('Automatic collection blocked pending review', '存在未决付费阶段任务，已暂停自动采集')}
+                          </div>
+                        </div>
+                      ))}
+                      {zeroQuotaProviders.map((b) => (
+                        <div key={b.provider} style={{ padding: '10px 14px', borderBottom: '1px solid #f3f5ee', display: 'flex', gap: 9 }}>
+                          <AlertTriangle size={15} color="#6b756a" style={{ flexShrink: 0, marginTop: 2 }} />
+                          <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                            <b>{b.provider}</b> · {t('Daily request cap is 0', '已启用但日请求额度上限为 0')}
+                          </div>
+                        </div>
+                      ))}
+                      {blockedSources.length === 0 && zeroQuotaProviders.length === 0 && (
+                        <div style={{ padding: '16px 14px', textAlign: 'center', fontSize: 11.5, color: 'var(--faint)' }}>
+                          {t('No active collection or quota alerts.', '当前无阻断来源或配额告警。')}
+                        </div>
+                      )}
+                      {(blockedSources.length > 0 || zeroQuotaProviders.length > 0) && (
+                        <div style={{ padding: 6, textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            className="ds-btn ds-btn--quiet"
+                            style={{ fontSize: 11, width: '100%' }}
+                            onClick={() => {
+                              setAlertsDismissed(true);
+                              setOpenPop(null);
+                            }}
+                          >
+                            {t('Dismiss notifications', '忽略当前红点')}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+
+                {/* Avatar Popover */}
+                <div style={{ position: 'relative' }}>
+                  <button
+                    type="button"
+                    className="avatar-btn"
+                    onClick={() => setOpenPop(openPop === 'avatar' ? null : 'avatar')}
+                    aria-label={t('Account Menu', '账户菜单')}
+                  >
+                    {userInitial}
+                  </button>
+
+                  {openPop === 'avatar' && (
+                    <div className="ds-pop" style={{ top: 'calc(100% + 6px)', right: 0, width: 236 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 8px 10px', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
+                        <span className="u-avatar">{userInitial}</span>
+                        <div style={{ minWidth: 0 }}>
+                          <b style={{ display: 'block', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis' }}>{actor.email}</b>
+                          <span style={{ fontSize: 10, color: 'var(--faint)' }}>{actor.role} · {actor.clientKind}</span>
+                        </div>
+                      </div>
+                      <button type="button" className="pop-opt" onClick={() => navigateAndClose('/settings')}>
+                        <User size={13} />
+                        <span>{t('Account & Access', '账户与权限')}</span>
+                      </button>
+                      <button type="button" className="pop-opt" onClick={() => navigateAndClose('/settings?tab=keys')}>
+                        <Key size={13} />
+                        <span>{t('Machine API Keys', '机器 API 密钥')}</span>
+                      </button>
+                      <button type="button" className="pop-opt" onClick={() => { setOpenPop(null); setStudioOpen(true); }}>
+                        <Palette size={13} />
+                        <span>{t('Skin & Color Studio', '切换皮肤配色 (17套)')}</span>
+                      </button>
+                      <button type="button" className="pop-opt" onClick={() => { setOpenPop(null); setSwitcherOpen(true); }}>
+                        <Sparkles size={13} />
+                        <span>{t('Logo Mark Explorer (30)', '切换品牌标志 (30套)')}</span>
+                      </button>
+                      <div style={{ borderTop: '1px solid var(--line)', margin: '5px 0' }} />
+                      <button type="button" className="pop-opt" onClick={() => navigateAndClose('/product')}>
+                        <ExternalLink size={13} />
+                        <span>{t('Product Intro', '产品介绍页')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="pop-opt"
+                        style={{ color: '#a8462f' }}
+                        onClick={() => {
+                          setOpenPop(null);
+                          logoutMut.mutate();
+                        }}
+                      >
+                        <LogOut size={13} />
+                        <span>{t('Log Out', '退出登录')}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="ds-btn ds-btn--brand"
+                style={{ height: 33, padding: '0 14px', fontSize: 12 }}
+                onClick={() => onOpenAuth('login', undefined, '/projects')}
+              >
+                <LogIn size={14} />
+                <span>{t('Sign in', '登录')}</span>
+              </button>
+            )}
           </div>
         </header>
 
