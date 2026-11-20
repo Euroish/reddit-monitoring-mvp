@@ -106,7 +106,7 @@ function checkMigrations(): void {
       .split(/\r?\n/).filter(Boolean);
     for (const rel of changed) {
       const num = Number(path.basename(rel).match(/^(\d{3})_/)?.[1] ?? "999");
-      if (num <= 40) errors.push(`Applied migration ${rel} (<= 040) must not be modified; add a 041+ forward migration.`);
+      if (num <= 50) errors.push(`Applied migration ${rel} (<= 050) must not be modified; add a 051+ forward migration.`);
     }
   } catch { /* Temp test fixtures without HEAD skip git diff guard. */ }
 }

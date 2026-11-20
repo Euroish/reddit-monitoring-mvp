@@ -1,54 +1,53 @@
-# 产品交互规范
+# 前端架构、双层可视化与 `semrush` 分支融合规范（STD-100）
 
-本规范定义面向日常高密度阅读、事件聚簇、按题动态探索与专题深挖的目标交互体验。当前实码差距与分阶段交付顺序见[当前状态](status.md)。
+本文严格区分 **`[LIVE]` 线上前端现状** 与 **`[V2]` 融合改造规格**，防止误将未实现 UI/图表写成现状。
 
-## 1. 从双语信息流、事件聚簇与每日日报开始（首页 `/`）
+---
 
-借鉴 `KKKKhazix/AIHOT` 的“一手代表报道 + 事件归组 + 08:00 每日日报 + 三维主题”体验，并融合个性化“为你”排序与三大高频双语频道（**暂不设重度金融频道，聚焦 AI 前沿、科技数码与大众生活娱乐**）：
+## 1. `[LIVE]` 现状 vs `[V2]` 三模态界面演进
 
-| 顶层入口 | 默认视图与核心交互 | 解决的核心阅读痛点 |
-| --- | --- | --- |
-| **首页信息流（`/`）** | 顶部提供 **“为你（RRF 个性化） / 最新 / 08:00 日报 / 48h 热度榜”** 视图切换，以及 **“全部 · 关注的人（VIP） · AI 与开发 · 科技与产品 · 大众生活与娱乐”** 频道标签 | 打开即读库内已更新内容（零外部请求等待）；同一事件自动折叠为一张**事件聚簇卡**，英文一手源（`T1`/`T1_5`）置顶，告别 10 家二手中文营销号刷屏 |
-| **按题探索与趋势（`/explore` 或 `/content`）** | 顶部为**自然语言探索框**（“问一个问题，动态发现 20–30 个相关网站并提取证据”）与**按日采集趋势柱形图**；下方为同范围可交叉筛选的内容与主题（公司与模型 / 领域方向 / 内容体裁）列表 | 平时看流，遇到具体问题（如“某 Agent 工具在大仓库有哪些实测失败案例？”）可主动向外取证，在 3.5 秒内看到首批证据并把好作者一键加入长期关注 |
-| **专题项目（`/projects`）** | 三段词（支持中文二字词如 `算力`、`开源`、`评测` 与 `AI`、`o3`）+ 来源绑定 + 按日/平台分面概览 + 根帖联动列表 + 显式批量水合与三视图评论树 | 针对需要持续数周跟踪的专题建立独立观察空间，不干扰日常首页信息流 |
-| **来源管理（`/sources`）** | 支持六类采集（`RSS` / `网页选择器列表 web_list` / `JSON 接口` / `X 账号或批次` / `Reddit 社区或账号` / `NewsNow 主流热榜`）、**“先预览前 20 条再保存”**、分级标签（`T1 一手` / `T1_5 主创` / `T2 媒体社区`）、自动排期开关、预算面板与任务恢复操作 | 管理员无需写 SQL 即可在界面开启预算、试抓预览选择器、配置 VIP 关注名单并查看“最近检查时间 vs 最新入库证据时间” |
-| **个人空间与设置（`/workspace` & `/settings`）** | 保存查询（兼作“为你”推荐的兴趣源）、收藏与批注、机器 API Key 列表/创建/吊销、邀请码管理 | 个人兴趣、收藏笔记与外部 Agent 只读 Key 集中管理 |
+- **`[LIVE]` 现行线上前端（`apps/web/src`，12 文件 / `3,038` 行 / `104 KB`）**：极简六页工作台（`/` `Stories.tsx`、`/projects` `Projects.tsx`、`/content` `ContentLibrary.tsx`、`/sources` `Sources.tsx`、`/workspace` `Workspace.tsx`、`/settings` `Account.tsx` + `index.css`/`ui.tsx`）。已支持 `sourceGroup`/`tier`/`language`/`hasMedia` 筛选、OPML/JSON 导入、preview 预览与任务恢复；**尚无 SVG 微图、`echarts` 分析图、`ThreadTreeView`、`ObservationChart` 与全局快捷键**。
+- **`[V2 Phase A–D]` 目标三模态演进**：
 
-### 事件聚簇卡（Event Cluster Card）、可插拔 AI 双语/摘要与全景数据可视化规范
+| 表面模态 | 路由与阶段 | 核心阅读与分析体验 |
+| :--- | :--- | :--- |
+| **Read · 信息流主视图** | **`/`（Stories）**<br>`[V2 Phase A/B]` | 打开即读。每张事件卡呈现：`T1`/`T1_5`/`T2` 徽章、原题与摘要、**Tier-1 纯原生 SVG 内嵌微图（16px 权威分布条 + 48h 热度火花线，数据由 Phase A `readStoryWindow` 提供）**、关联报道折行及 `j`/`k`/`o`/`s`/`m` 键盘速读；Phase B 接入 `read_before_at` 未读水位线与 `为你` RRF；Phase D 接入轻量 `原文 \| 双语对照 \| AI 综述`（若启用）。 |
+| **Explore & Visualize · 探索与专题** | **`/content` & `/projects`**<br>`[V2 Phase A/B]` | 按需下钻：Tier-2 懒加载模块化 **`echarts/core`** 渲染后端 `GROUPING SETS` **跨平台脉冲柱图（无采集区间显式绘斜线 Hatch，有采零命中标 `0`）**、48h 热度 × 6h 增速四象限、`ObservationChart`（按 `(sourceId, provider, metricKey)` 严格分线、保留 `null` 断档）、多专题对比（Phase B）与三视图评论树 `ThreadTreeView`（`top`/`matches`/`op`）。 |
+| **Operate · 运维与工作区** | **`/sources`、`/workspace`、`/settings`**<br>`[LIVE]` + `[V2 Phase A]` | 维持 `/sources` 作为导入、预览、预算（SVG/CSS `QuotaMeters`）与源健康（`304%`/`lastDurationMs`/截断/错误）主控台；Phase A 融合精简版 `WorkbenchShell`（`[` 折叠、`Cmd/Ctrl+K` 命令面板、告警角标）。 |
 
-1. **一张卡片讲清一件事（拒绝同题刷屏，默认原语种直出 + 可插拔 AI 双语对照与三点综述）**：
-   - **主标题、一手标识与双语/摘要切换**：当 OpenAI / Anthropic / DeepSeek 发布新品或某热点事件爆发时，卡片主标题优先展示 **`T1` 官方一手源或 `T1_5` 核心主创原帖**（标注 `一手` 或 `主创 @handle` 徽章、原平台、发表时间与入库延迟）；**默认直接展示英文原题、确定性首段导语与原文直达链接（保留一手技术术语、模型代号与开源仓库名准确性）**；当已配置或按需触发 AI 增强（`extensions.ai`）时，卡片提供轻量 **`原文 | 双语对照 | AI 综述`** 切换胶囊——“双语对照”在英文原题下方并列展示保留专业术语的中文精译副标（`titleZh`），“AI 综述”展示跨 `T1` 原始发布 + 独立实测 + 社区高赞评论提炼的 3 条结构化要点（`核心进展` / `实测数据` / `社区争议`），未配置 AI 时自动隐藏无用报错并保持纯净原生阅读体验。
-   - **三维证据折叠条**：卡片中部以紧凑胶囊/折叠抽屉并排展示该事件下的三类关联证据：
-     - `原始发布`（官方 Blog / GitHub Release / 论文原链）
-     - `独立实测 (M)`（含基准跑分、代码复现或踩坑的帖子）
-     - `社区讨论 (N)`（点击直接在右侧打开 Hacker News / `r/LocalLLaMA` / X / 知乎 / V2EX 的高赞讨论或三视图评论树）
-   - **二手转发折叠与热度徽章**：其余同源快讯或媒体转述折叠为底栏一行 `"IT之家 · 36氪 · The Verge 等 K 家来源同步报道"`；右上角显示 48h 独立来源热度及 6h 趋势徽章（`飙升 ↑` / `新上榜 NEW`）以及“为你”入选理由（如 `命中关注词「Claude Code」` 或 `来自关注人物 Karpathy`）。
-2. **08:00 每日日报视图（Daily Digest）**：
-   - 每天 08:00 自动按规则汇总过去 24 小时热度最高且有独立一手证据的 Top 事件（一件事一条，附当日新增进展子项，已报旧事无新进展不重复占版；若启用 `ai_enrich` 则在顶部附加晨间 AI 综述导读），支持一键复制 Markdown 或通过 RSS / API 订阅。
-3. **四大交互式数据可视化图表（零第三方重型图表库依赖，纯原生响应式 `<svg>` 实现）**：
-   - 原有产品规划的数据可视化能力在转型后全面升级，并统一复用于 **按题探索页（`/explore` 或 `/content`）**、**专题项目工作台（`/projects`）** 与 **首页 48h 热度榜**：
-     1. **按日 / 6h 跨平台与权威级叠柱脉冲图（Stacked Timeline Pulse）**：按日（或 48h 视图下按 6 小时桶）展示去重根帖/事件量，颜色区分平台（`Web/RSS` · `X` · `Reddit` · `NewsNow` · `Bluesky`）或信源等级（`T1` · `T1_5` · `T2`）；未采集区间以斜线纹理标示 `覆盖未知`，有采集无命中标示实线 `0`；**点击任意日期柱或拖拽区间即刻收窄下方事件/内容列表**。
-     2. **48h 事件热度 × 6h 升温增速象限/排行图（Event Heat & Surge Matrix）**：横轴为 48h 指数衰减热度，纵轴为 6h 升温增速（或独立印证信源数），直观标出右上方“正在爆发的一手热点（`surge ↑`）”与右下方“持续发酵的长尾议题”，点击节点直达该 `storyKey` 事件簇。
-     3. **信源权威级与传播结构条（Tier & Signal Distribution Strip）**：紧凑水平分段条展示当前范围内 `T1 官方一手` / `T1_5 核心主创` / `T2 媒体与热榜` 的比例、内容体裁（`article` / `post` / `comment`）及研究信号（`讨论活跃` / `痛点` / `热度飙升`），任一分段均可点击作为筛选器。
-     4. **多专题 / 多实体声量与热度对比图（Multi-Project & Entity Share-of-Voice Chart）**：在 `/projects` 或三维主题页勾选 2–5 个专题或实体（如对比 `Claude Code` vs `Codex` vs `Cursor`，或 `OpenAI` vs `Anthropic` vs `DeepSeek`），并排渲染同时间轴的每日声量折线/柱图、48h 事件热度与平台构成。
+---
 
-| ID | 等级 | 信息架构与首屏克制规范 | 验收出口 |
+## 2. `feat/semrush-frontend-rebuild` 分支审计与融合矩阵
+
+> **拉取提醒**：`origin/feat/semrush-frontend-rebuild@dbf8713`（含 `40fb284` + `dbf8713`，36 文件 / `637.8 KB`）目前仅位于 GitHub 远端 `origin`，审阅或提取前须在仓库执行 **`git fetch origin feat/semrush-frontend-rebuild`**。**`MUST NOT` 整支 merge 到 `prod`**，必须逐件执行下表裁剪：
+
+| 分支资产（`@dbf8713`） | 处置决策 | 审计发现的隐患与准确落地方式 |
+| :--- | :--- | :--- |
+| `styles/tokens.css` | **Adopt** | 采纳 Editorial Mineral & Ink 色板（`#f7f8f4` 纸面、`#20271f` 炭墨、`#1f7471` 矿石青、`#e3e6dc` 细线、WCAG AA `--muted >= 4.5:1`、`tabular-nums`）；剔除荧光柠檬绿促销渐变条。 |
+| `api/client.ts` & `api/hooks.ts` | **Distill** | 采纳 React Query 封装模式；**彻底删除其私有拷贝且残余 `THREE_ALNUM_RE`（误杀 `算力`/`o3`）的 `contracts/api.ts`**，改从 `packages/contracts/src/*` 直接引型，并补全 `stories`/`facets`/`preview`/`import` Hooks。 |
+| `vite.config.ts`、`i18n/translations.ts`、`SettingsPage.tsx`（Key 管理）、`ContentExplorerPage.tsx`（导出/并发保护） | **Distill** | 提取分包构建配置、中英文词条骨架、43 位 Machine Key 复制 UX 与并发导出状态保护，接入现行 API。 |
+| `pages/WorkbenchShell.tsx`（919 L） | **Distill (~250 L)** | 仅保留 `[` 侧栏折叠、`Cmd/Ctrl+K` 命令面板与阻塞源/零额度告警角标；剔除 SaaS 品牌切换器与多主题工坊挂件。 |
+| `components/charts/ThreadTreeView.tsx`（154 L） | **Adopt** | 迁移三视图结构（`top`\|`matches`\|`op`、32 跳预警、OP 徽章），补单条评论独立笔记与显式水合入口。 |
+| `components/charts/ObservationChart.tsx`（183 L） & `chartUtils.ts` | **Rewrite** | 完整保留按 `(sourceId, provider, metricKey)` 分线、`sourceObservedAt` 回退与 `null` 断档；**将 `chartUtils.ts` 的 `createHatchPattern` 从被丢弃的 `useTheme()` 解耦为静态 token**，切至按需加载的 `echarts/core`。 |
+| `DailyTrendChart.tsx`（452 L） & `QuotaMeters.tsx` | **Rewrite** | 原 `DailyTrendChart` 截断前 100 行且伪造 `{ reddit: 1 }` 分平台柱图、并因后端缺 `(day, platform)` 造假：改造为**直连后端补充 `(day, platform)` 后的 `GET /v1/projects/:id/overview` 与 `GET /v1/content/facets`**；`QuotaMeters` 改用零依赖 SVG/CSS。 |
+| `Homepage.tsx`（含假排行榜）、`AuthModal.tsx`（含虚假 `42M+` 指标）、`ThemeStudio.tsx`、`themes.ts`、`SignalScoreGauge.tsx`、`KpiSparkChart.tsx`、`TrendRadarCharts.tsx`（跨平台相加违背 `MET-04`）、`SourcesPage.tsx`（缺 OPML/`050`/预览且 `snake_case`）、`R4ArchivePanel.tsx`（硬编码 `D:/`） | **Discard** | **整文件丢弃，严禁入 `prod`**。 |
+
+### 双层图表架构锁定（Phase A 唯一技术路线）
+
+1. **Tier 1 · 原生响应式 `<svg>` 微图（`0 KB` 依赖，常驻首页与来源页）**：渲染故事卡片 `T1`/`T1_5`/`T2` 分布条、48h 热度火花线与预算 `QuotaMeters`。
+2. **Tier 2 · `React.lazy` 懒加载模块化 `echarts/core`（仅 `/content` 与 `/projects` 加载）**：严格按需注册 `BarChart` + `LineChart` + `ScatterChart` + `MarkArea` + `CanvasRenderer`（初始首页零加载，分析模块体积以构建输出为准），**绝不使用全量 `import * as echarts`**；放弃 `uPlot`（缺乏原生堆叠柱、斜线 Hatch 与象限散点支持）。
+
+---
+
+## 3. `[V2]` 排版、动效与 UI 规范（`docs:check` 受控规则）
+
+- **动效物理规范**：高频切页、`j`/`k` 游标与 `Cmd+K` 锁定 **`0ms` 瞬时响应**；抽屉与弹窗使用 `150–220ms cubic-bezier(0.22, 1, 0.36, 1)` 且只允许动画 `transform`/`opacity`（禁 `ease-in` 与 `transition: all`）。
+
+| ID | 等级 | 信息架构、图表联动与多端交互规范 | 验收出口 |
 | --- | --- | --- | --- |
-| UX-01 | MUST NOT | 在默认阅读界面暴露 `Phase`、`Legacy`、`Repository`、合同规则代号或大段协议说明框；登录与导航文案统一使用日常阅读与发现语言（根路径 `/` 为信息流，项目迁至 `/projects`），来源调度明细收入来源页，账户与预算收入设置页。 | 界面文案与路由审查 |
-| UX-02 | MUST | 任一页面或抽屉同一时刻仅设一个突出主操作；每张内容/事件卡片必须清晰渲染**作者（`@handle` / 显示名）、逻辑来源名称与权威等级（`T1`/`T1_5`/`T2`）、关键互动指标或榜单名次、媒体缩略图/外链、发表时间与入库时间**；全部数字与计数器启用 `font-variant-numeric: tabular-nums`，视觉对比度遵守 WCAG AA（`--muted >= 4.5:1`）。 | 首屏卡片元数据与对比度验证 |
-
-## 2. 按题动态探索、专题钻取与评论树深挖
-
-```text
-日常阅读流 (/) ──► 发现异常峰值 / 产生具体疑问 ──► 按题动态探索 (拆4正交槽 -> 3.5s首屏证据 -> 20-30站提取)
-                                                          │
-                                                          ├──► 一键将新发现的作者 / 站点 RSS 转为长期自动监控源
-                                                          └──► 保存查询 / 建立监测项目 (/projects) ──► 按需批量水合三视图评论树
-```
-
-| ID | 等级 | 工作流、探索交互、导出与多端可访问性规范 | 验收出口 |
-| --- | --- | --- | --- |
-| UX-03 | MUST | **四大可视化图表联动、项目对比钻取与返回保全**：探索页与项目概览页通过零依赖原生 `<svg>` 图表组件（`apps/web/src/charts.tsx`）完整渲染后端 `GROUPING SETS` 返回的**按日/6h 跨平台与权威级叠柱脉冲图（`day_group === 0`）**、**48h 事件热度 × 6h 升温增速矩阵**、**`T1/T1_5/T2` 信源传播结构条**与**多专题/多实体并排对比图（`/v1/project-comparisons`）**；点击某一天、某平台、某权威等级或某事件节点，下方列表同步收窄（无采集记录的区间显示斜线“覆盖未知”，有成功覆盖且无命中才显示“0”）；点进详情或评论树后返回时完整恢复原滚动位置与筛选条件。 | 四类图表联动->钻取->返回 E2E |
-| UX-04 | MUST | **按题动态探索三波渐进反馈与一键订阅**：提交自然语言探索问题后，界面实时展示“已拆解 4 个取证方向 → 已发现 $X$ 个候选站 → 已提取 $Y$ 篇正文（区分 `全文 full` / `摘要 summary` / `截断 truncated`）”；Wave 0（1.5s 本地+垂直 API）与 Wave 1（3.5s 前 6 站）到达即刻可读，不阻塞等待慢站；每张探索证据卡提供**“+ 关注该作者 / 订阅该站 RSS”**按钮，点击即可将其带入来源创建或直接转为长期 `pull` 监控源。 | 动态探索渐进渲染与一键订阅测试 |
-| UX-05 | MUST | **跨平台提示、三视图评论树与就地水合/笔记**：跨平台互动对比返 `422` 时就地提供一键切回“内容量 / 事件热度”按钮。详情侧栏 `ThreadTreeDrawer` 渲染 `top` / `matches` / `op` 三视图（支持 32 跳环截断提示、窄屏面包屑代替深缩进、**支持对单条评论本身独立记笔记/收藏而不误挂根帖**、抽屉内直接提供“补全本帖讨论”水合按钮）。流式下载使用受控请求验真尾块 `complete: true`，严禁裸 `<a href>` 或原生 `window.prompt`。 | 三视图、单评批注与导出断流测试 |
-| UX-06 | MUST | **来源全目标创建、试抓预览、预算面板与多端无障碍**：`Sources.tsx` 必须支持选择 `search`、`community`（如 `r/LocalLLaMA`）、`account`（如 X `@karpathy` 或 VIP 批次）、`post`、`feed`（含 `web_list` 选择器）及全部 `NewsNow` 榜单 `boardId`，提供**“预览抓取（前 20 条）”**、自动排期频率配置、供应商预算启用/额度编辑面板，以及对失败/阻塞任务的 **`取消 / 重试 / 继续 / 解除阻塞`** 按钮；区分“最近检查时间”（含 HTTP `304`）与“最新取到证据时间”（落实“旧文不刷屏”提示）；覆盖 `1440×900`、`768×1024`、`390×844` 零横向溢出与全键盘无障碍操作。 | 来源全流程与 `1440/768/390` 测试 |
+| UX-01 | MUST NOT | 在默认阅读界面暴露 `Phase`、`Legacy`、`Repository` 等内部工程代号或营销落地页；`/` 永远直达信息流，项目分析在 `/projects`，来源管理在 `/sources`。 | 路由与文案审计 |
+| UX-02 | MUST | 任意视图同屏只突出一个主操作；事件与内容卡展示等级（`T1`/`T1_5`/`T2`）、作者/来源名、发布/入库双时间、体裁/语种、互动或榜单名次及 `[V2]` 内嵌微图；数字启用 `tabular-nums`，正文字宽 `55–70ch`，对比度满足 WCAG AA。 | 卡片元数据与对比度审计 |
+| UX-03 | MUST | `[V2 Phase A]` `/content` 与 `/projects` 经双层可视化引擎渲染服务端 `GROUPING SETS` 分面，无采区间明确画斜线“覆盖未知”，有采无命中显式标 `0`；点击柱体/分面联动过滤下方列表并进出细节保留筛选与滚动条。 | 图表联动与状态 E2E |
+| UX-04 | MUST | `[V2 Phase D]` 按题探索实时展示 4 槽取证波次与 `full`/`summary`/`truncated` 完整度并支持一键转 `pull`；若启用 AI 扩展则提供零跳转 `原文 \| 双语对照 \| AI 综述` 胶囊，关闭时不报错。 | 探索与 AI 降级单测 |
+| UX-05 | MUST | 跨平台比较原始互动返 `422` 时提供一键切换“内容量 / 事件热度”；`[V2 Phase A]` `ThreadTreeView` 支持 `top`\|`matches`\|`op`、32 跳预警、单条评论笔记与显式水合；流式下载必须验真 JSON `complete: true` 尾块。 | 三视图、导出与断流 E2E |
+| UX-06 | MUST | `Sources.tsx` 完整支持目标类型切换、预览前 20 条、OPML/JSON 导入、健康面板、预算编辑与任务恢复；页面须在 `1440×900`、`768×1024`、`390×844` 下保持零横向溢出、键盘可达且 `[V2]` 改造须通过 `dom_critic >= 88`。 | 来源全流与三端门禁 |

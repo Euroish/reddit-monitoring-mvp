@@ -398,6 +398,9 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
           kinds: [{ kind: "post", count: 1, matchedContentCount: 1 }],
         },
       });
+      const byPlatform = await app.inject({ url: `${facetPath}&deliveryMode=push&platform=reddit`, headers: machine });
+      assert.equal(byPlatform.statusCode, 200, byPlatform.body);
+      assert.deepEqual(byPlatform.json(), facets.json());
       const defaultFacets = await app.inject({ url: facetPath, headers: machine });
       assert.equal(defaultFacets.statusCode, 200, defaultFacets.body);
       assert.equal(defaultFacets.json().count, 0);
@@ -819,5 +822,115 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
     const node = response.json().nodes.find(({ item }: { item: { id: string } }) => item.id === row.id);
     assert.equal(node?.depth, 2);
     assert.equal(node.contextMissing, false);
+
+    const readOnly = await createSession(db.pool, (await db.pool.query("SELECT id FROM app_user WHERE email='viewer@example.test'")).rows[0].id, "machine", ["read"], [a.id], 1);
+    assert.equal((await app.inject({ method: "POST", url: "/v1/content/enrich", headers: { authorization: `Bearer ${readOnly.token}` } })).statusCode, 403);
+
+    await db.pool.query("DELETE FROM public_content_search_document WHERE content_id=ANY($1::uuid[])", [[known.id, item.id]]);
+    assert.equal((await app.inject({ url: `/v1/content/${known.id}`, headers })).statusCode, 200);
+    assert.equal((await app.inject({ url: `/v1/content/${row.id}/thread`, headers })).json().root.externalId, item.externalId);
+    assert.ok((await app.inject({ url: "/v1/workspace/annotations", headers })).json().annotations.some((entry: { content_id: string }) => entry.content_id === known.id));
+    assert.ok(!(await app.inject({ url: `/v1/content?sourceId=${a.id}&query=World`, headers })).json().items.some((entry: { id: string }) => entry.id === item.id));
+  });
+  await t.test("publicRead and publicRegistration enforce read boundaries, sanitized directory, and self-service signup", async () => {
+    const publicApp = await buildApp({
+      pool: db.pool,
+      sessionSecret: "public-mode-secret-".repeat(3),
+      origin,
+      secureCookies: false,
+      rateLimitMax: 10000,
+      publicRead: true,
+      publicRegistration: true,
+    });
+    await publicApp.ready();
+    try {
+      const noInvitePrivate = await app.inject({
+        method: "POST",
+        url: "/v1/auth/register",
+        headers: { origin },
+        payload: { email: "blocked-private@example.test", password: "fixture-password-123" },
+      });
+      assert.equal(noInvitePrivate.statusCode, 403);
+
+      const anonSession = await publicApp.inject({ url: "/v1/auth/session" });
+      assert.equal(anonSession.statusCode, 200, anonSession.body);
+      assert.deepEqual(anonSession.json(), { user: null, publicRead: true, publicRegistration: true });
+
+      const publicSources = await publicApp.inject({ url: "/v1/public/sources" });
+      assert.equal(publicSources.statusCode, 200, publicSources.body);
+      const directory = publicSources.json();
+      assert.ok(Array.isArray(directory.sources) && directory.sources.length >= 1);
+      assert.equal(typeof directory.groupCounts, "object");
+      for (const entry of directory.sources) {
+        assert.equal("target" in entry, false);
+        assert.equal("health" in entry, false);
+        assert.equal("schedule" in entry, false);
+        assert.equal("fetchPolicy" in entry, false);
+        assert.equal("httpEtag" in entry, false);
+        assert.equal(typeof entry.count48h, "number");
+      }
+
+      assert.equal((await publicApp.inject({ url: "/v1/content" })).statusCode, 200);
+      assert.equal((await publicApp.inject({ url: "/v1/content/stories" })).statusCode, 200);
+      assert.equal((await publicApp.inject({ url: "/v1/content/feed" })).statusCode, 200);
+      assert.equal(
+        (await publicApp.inject({ url: "/v1/content", headers: { authorization: `Bearer ${"a".repeat(43)}` } })).statusCode,
+        401,
+      );
+
+      for (const path of ["/v1/sources", "/v1/workspace/annotations", "/v1/projects", "/v1/content/export"]) {
+        assert.equal((await publicApp.inject({ url: path })).statusCode, 401, `expected 401 for ${path}`);
+      }
+      assert.equal(
+        (await publicApp.inject({
+          method: "POST",
+          url: "/v1/sources",
+          headers: { origin },
+          payload: {
+            platform: "reddit",
+            primaryProvider: "external_ingest",
+            deliveryMode: "push",
+            label: "Unauth",
+            contentKind: "post",
+            target: { type: "search", query: "unauth" },
+          },
+        })).statusCode,
+        401,
+      );
+
+      const signup = await publicApp.inject({
+        method: "POST",
+        url: "/v1/auth/register",
+        headers: { origin },
+        payload: { email: "selfserve@example.test", password: "fixture-password-123" },
+      });
+      assert.equal(signup.statusCode, 200, signup.body);
+      const signupBody = signup.json();
+      assert.equal(signupBody.registered, true);
+      assert.equal(signupBody.user.role, "viewer");
+      assert.equal(signupBody.user.email, "selfserve@example.test");
+      const rawCookie = signup.headers["set-cookie"]!.toString();
+      assert.match(rawCookie, /^app_session=/);
+      const userCookie = rawCookie.split(";")[0];
+
+      const authedSession = await publicApp.inject({ url: "/v1/auth/session", headers: { cookie: userCookie } });
+      assert.equal(authedSession.statusCode, 200);
+      assert.equal(authedSession.json().user.email, "selfserve@example.test");
+      assert.equal(authedSession.json().user.role, "viewer");
+      assert.equal(
+        (await publicApp.inject({ url: "/v1/workspace/annotations", headers: { cookie: userCookie } })).statusCode,
+        200,
+      );
+
+      const duplicate = await publicApp.inject({
+        method: "POST",
+        url: "/v1/auth/register",
+        headers: { origin },
+        payload: { email: "selfserve@example.test", password: "fixture-password-123" },
+      });
+      assert.equal(duplicate.statusCode, 409, duplicate.body);
+    } finally {
+      await publicApp.close();
+    }
   });
 });

@@ -4,7 +4,7 @@ import type { ContentProvider } from "../../connectors/shared/content-provider.i
 export async function scheduleDueSourcesOnce(pool: Pool, providers: ContentProvider[]) {
   const limits = Object.fromEntries(providers.filter(({ capability }) => capability.enabled).map(({ capability }) => [
     capability.provider, capability.requestResourceUpperBound ??
-      (capability.provider === "feed" || capability.provider === "newsnow" ? 30 : 100),
+      (capability.provider === "newsnow" ? 30 : 100),
   ]));
   if (!Object.keys(limits).length) return;
   await pool.query(`
@@ -19,7 +19,10 @@ export async function scheduleDueSourcesOnce(pool: Pool, providers: ContentProvi
         now() AS to_at
       FROM collection_source cs
       CROSS JOIN LATERAL (SELECT ($1::jsonb->>cs.primary_provider)::int AS cap) provider
-      CROSS JOIN LATERAL (SELECT LEAST(COALESCE((cs.schedule->>'pageSize')::int,25), provider.cap,
+      CROSS JOIN LATERAL (SELECT LEAST(
+        COALESCE((cs.schedule->>'pageSize')::int,25),
+        COALESCE((cs.fetch_policy->>'maxItems')::int,100),
+        provider.cap,
         CASE WHEN cs.primary_provider='feed' AND cs.last_checked_at IS NULL THEN 8
           WHEN cs.target->>'type'='post' AND cs.primary_provider IN ('kaix','red_crawler') THEN 50 END) AS size) page
       WHERE cs.state='active' AND cs.delivery_mode='pull' AND NOT cs.automatic_collection_blocked
@@ -29,7 +32,7 @@ export async function scheduleDueSourcesOnce(pool: Pool, providers: ContentProvi
           CASE WHEN cs.primary_provider IN ('twitterapis','scrapebadger') THEN provider.cap ELSE page.size+1 END)<=now()
         AND NOT EXISTS (SELECT 1 FROM source_collection_job j WHERE j.collection_source_id=cs.id
           AND j.status IN ('queued','retrying','running') AND j.operation<>'hydrate')
-      ORDER BY cs.next_due_at,cs.id LIMIT 16 FOR UPDATE OF cs SKIP LOCKED
+      ORDER BY cs.next_due_at,cs.id LIMIT 32 FOR UPDATE OF cs SKIP LOCKED
     ), enqueued AS (
       INSERT INTO source_collection_job(id,collection_source_id,status,purpose,operation,provider,from_at,to_at,
         page_size,max_pages,next_run_at,created_at)

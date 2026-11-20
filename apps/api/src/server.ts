@@ -20,7 +20,7 @@ export async function main() {
       "HTTPS APP_ORIGIN required; local testing needs ALLOW_HTTP_DEV=true",
     );
   const pool = createPool(undefined, 8);
-  const workerPool = createPool(undefined, 2);
+  const workerPool = createPool(undefined, 4);
   const providers = [
     twitterApis(),
     scrapeBadger(),
@@ -47,6 +47,8 @@ export async function main() {
       secureCookies: !localHttp,
       logger: true,
       trustProxy: process.env.TRUST_PROXY_HOPS === "1" ? 1 : false,
+      publicRead: process.env.PUBLIC_READ_ENABLED !== "false",
+      publicRegistration: process.env.PUBLIC_REGISTRATION_ENABLED !== "false",
     });
     await app.listen({
       host: process.env.HOST ?? "127.0.0.1",

@@ -22,6 +22,24 @@ declare module "fastify" {
     actor: Actor | null;
   }
 }
+const PUBLIC_GUEST_ACTOR: Actor = {
+  sessionId: "00000000-0000-0000-0000-000000000000",
+  userId: "00000000-0000-0000-0000-000000000000",
+  email: "",
+  role: "viewer",
+  clientKind: "browser",
+  scopes: ["read"],
+  allowedSourceIds: null,
+};
+const PUBLIC_READ_ROUTES = new Set([
+  "/v1/public/sources",
+  "/v1/content/stories",
+  "/v1/content",
+  "/v1/content/feed",
+  "/v1/content/facets",
+  "/v1/content/:id",
+  "/v1/content/:id/thread",
+]);
 export async function buildApp(options: {
   pool: Pool;
   sessionSecret: string;
@@ -31,6 +49,8 @@ export async function buildApp(options: {
   logger?: boolean;
   rateLimitMax?: number;
   trustProxy?: false | 1;
+  publicRead?: boolean;
+  publicRegistration?: boolean;
 }) {
   if (options.sessionSecret.length < 32)
     throw new Error("SESSION_SECRET must have at least 32 characters");
@@ -38,6 +58,8 @@ export async function buildApp(options: {
   const app = Fastify({
     forceCloseConnections: "idle",
     keepAliveTimeout: 5000,
+    requestTimeout: 30_000,
+    connectionTimeout: 10_000,
     bodyLimit: 16 * 1024 * 1024,
     trustProxy: options.trustProxy === 1 ? (_address, hop) => hop < 1 : false,
     logger: options.logger
@@ -80,10 +102,11 @@ export async function buildApp(options: {
     route.schema.operationId ??= `${Array.isArray(route.method) ? route.method[0] : route.method}_${route.url.replace(/[^a-zA-Z0-9]/g, "_")}`;
   });
   await app.register(rateLimit, {
+    hook: "onRequest",
     global: true,
     max: options.rateLimitMax ?? 120,
     timeWindow: "1 minute",
-    allowList: (request) => request.routeOptions.url === "/healthz",
+    allowList: (request) => request.routeOptions?.url === "/healthz",
   });
   app.setErrorHandler((error, request, reply) => {
     const failure = error as Error & { code?: string; statusCode?: number };
@@ -108,7 +131,7 @@ export async function buildApp(options: {
       },
     });
   });
-  app.addHook("onRequest", async (request) => {
+  app.addHook("preParsing", async (request) => {
     const route = request.routeOptions.url ?? request.url.split("?")[0],
       method = request.method;
     const publicRoute =
@@ -116,6 +139,10 @@ export async function buildApp(options: {
         ["/healthz", "/readyz", "/v1/auth/session"].includes(route)) ||
       (method === "POST" &&
         ["/v1/auth/login", "/v1/auth/register"].includes(route));
+    const publicReadRoute =
+      Boolean(options.publicRead) &&
+      ["GET", "HEAD"].includes(method) &&
+      PUBLIC_READ_ROUTES.has(route);
     let token: string | undefined,
       kind: "browser" | "machine" = "browser";
     if (request.headers.authorization) {
@@ -141,6 +168,8 @@ export async function buildApp(options: {
       }
     }
     request.actor = token ? await findActor(options.pool, token, kind) : null;
+    if (!request.actor && publicReadRoute && !request.headers.authorization)
+      request.actor = PUBLIC_GUEST_ACTOR;
     if (!publicRoute && !request.actor) fail(401, "Authentication required");
     if (
       !["GET", "HEAD", "OPTIONS"].includes(method) &&
@@ -172,8 +201,14 @@ export async function buildApp(options: {
                 : route.endsWith("/unblock")
                   ? "collect"
                   : route.startsWith("/v1/content")
-                    ? "read"
-                    : route.startsWith("/v1/sources")
+                    ? ["GET", "HEAD"].includes(method)
+                      ? "read"
+                      : null
+                    : route === "/v1/public/sources"
+                      ? ["GET", "HEAD"].includes(method)
+                        ? "read"
+                        : null
+                      : route.startsWith("/v1/sources")
                       ? ["GET", "HEAD"].includes(method)
                         ? "read"
                         : "sources:write"
@@ -196,7 +231,10 @@ export async function buildApp(options: {
     await options.pool.query("SELECT 1");
     return { ok: true };
   });
-  await accessRoutes(app, options.pool, cookie);
+  await accessRoutes(app, options.pool, cookie, {
+    publicRead: Boolean(options.publicRead),
+    publicRegistration: Boolean(options.publicRegistration),
+  });
   await collectionRoutes(app, options.pool, providers);
   await refreshRoutes(app, options.pool, providers);
   await jobRoutes(app, options.pool);

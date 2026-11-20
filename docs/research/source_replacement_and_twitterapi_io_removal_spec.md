@@ -1,3 +1,6 @@
+> [!NOTE]
+> **历史替换规格提示（`2026-11-16`）**：本文件所述的 `twitterapi_io` 与 `arctic_shift` 在线源码清理及 `050` 历史表清理均已在生产主线完成；X/Reddit OpenAPI 字段映射部分继续有效，完整现状、Post-050 `newsnow` 1h 桶规则与全量渠道规划见[来源矩阵](./data-sources.md)与[数据与 API 契约](../contracts.md)。
+
 # `twitterapi_io` 下线清理、低价 X 双源与 Apify Reddit 规格
 
 > **文档定位**：本规格书维护 `2026-11-16` 核验后的 X/Reddit 供应商商业与 OpenAPI 字段映射定案，以及 `twitterapi_io` / `arctic_shift` 在旧 `0.9.1` 代码库中的逐文件实删坐标。产品约束与运行语义分别以[主线架构规范](../architecture.md)、[数据与 API 契约](../contracts.md)、[开发记录](../development.md)与[当前状态](../status.md)为准。

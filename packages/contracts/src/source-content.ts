@@ -153,6 +153,12 @@ export const Details = Type.Union([
       publisher: NullableText,
       canonicalUrl: NullableText,
       feedUrl: NullableText,
+      channel: Type.Optional(NullableText),
+      textCompleteness: Type.Optional(Type.Union([
+        Type.Literal("full"),
+        Type.Literal("summary"),
+        Type.Literal("title_only"),
+      ])),
       extensions,
     },
     { additionalProperties: false },
@@ -231,9 +237,39 @@ export const Content = strictMerge([
 export const FallbackProvider = Type.Union([Type.Literal("scrapebadger"), Type.Literal("red_crawler")]);
 export const SourceTier = Type.Union([Type.Literal("T1"), Type.Literal("T1_5"), Type.Literal("T2")]);
 export const SourceOwner = Type.Union([Type.String({ pattern: "^[a-z0-9][a-z0-9_-]{0,79}$" }), Type.Null()]);
+export const SourceGroupPattern = "^[a-z0-9][a-z0-9_-]{0,47}$";
+export const SourceGroup = Type.Union([Type.String({ pattern: SourceGroupPattern }), Type.Null()]);
+export const SourceLocalePattern = "^[a-z]{2}(?:-[A-Z]{2})?$";
+export const SourceLocale = Type.Union([Type.String({ pattern: SourceLocalePattern }), Type.Null()]);
+export const SourceTags = Type.Array(
+  Type.String({ minLength: 1, maxLength: 40, pattern: "^[a-z0-9][a-z0-9_-]{0,39}$" }),
+  { maxItems: 20, uniqueItems: true },
+);
+export const SourceFetchPolicy = Type.Object({
+  maxItems: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+  timeoutMs: Type.Optional(Type.Integer({ minimum: 3000, maximum: 15000 })),
+  stripTrackingParams: Type.Optional(Type.Boolean()),
+  excludeTitlePatterns: Type.Optional(
+    Type.Array(Type.String({ minLength: 1, maxLength: 80 }), { maxItems: 10 }),
+  ),
+}, { additionalProperties: false });
+export const SourceHealth = Type.Object({
+  consecutiveFailures: Type.Optional(Type.Integer({ minimum: 0 })),
+  lastError: Type.Optional(NullableText),
+  lastStatus: Type.Optional(NullableText),
+  lastDurationMs: Type.Optional(Type.Number({ minimum: 0 })),
+  lastTruncated: Type.Optional(Type.Boolean()),
+  lastNotModified: Type.Optional(Type.Boolean()),
+  lastFetchedCount: Type.Optional(Type.Integer({ minimum: 0 })),
+  lastInsertedCount: Type.Optional(Type.Integer({ minimum: 0 })),
+  totalRuns: Type.Optional(Type.Integer({ minimum: 0 })),
+  truncatedRuns: Type.Optional(Type.Integer({ minimum: 0 })),
+  notModifiedRuns: Type.Optional(Type.Integer({ minimum: 0 })),
+}, { additionalProperties: true });
 export const SourceSchedule = Type.Object({
   enabled: Type.Boolean(),
   cadenceSeconds: Type.Optional(Type.Integer({ minimum: 120, maximum: 43200 })),
+  intervalSeconds: Type.Optional(Type.Integer({ minimum: 60, maximum: 86400 })),
   overlapSeconds: Type.Optional(Type.Integer({ minimum: 0, maximum: 3600 })),
   initialLookbackHours: Type.Optional(Type.Integer({ minimum: 1, maximum: 48 })),
   maxCatchupHours: Type.Optional(Type.Integer({ minimum: 1, maximum: 48 })),
@@ -258,6 +294,10 @@ export const SourceInput = Type.Object(
     schedule: Type.Optional(SourceSchedule),
     tier: Type.Optional(SourceTier),
     ownerEntityId: Type.Optional(SourceOwner),
+    sourceGroup: Type.Optional(SourceGroup),
+    tags: Type.Optional(SourceTags),
+    locale: Type.Optional(SourceLocale),
+    fetchPolicy: Type.Optional(SourceFetchPolicy),
     label: Type.String({ minLength: 1, maxLength: 100 }),
     target: Target,
     contentKind: Kind,
@@ -265,6 +305,29 @@ export const SourceInput = Type.Object(
   },
   { additionalProperties: false },
 );
+export const SourceImportInput = Type.Union([
+  Type.Object({
+    format: Type.Literal("json"),
+    sources: Type.Array(SourceInput, { minItems: 1, maxItems: 200 }),
+  }, { additionalProperties: false }),
+  Type.Object({
+    format: Type.Literal("opml"),
+    opml: Type.String({ minLength: 10, maxLength: 524288 }),
+    defaults: Type.Optional(Type.Object({
+      sourceGroup: Type.Optional(SourceGroup),
+      tier: Type.Optional(SourceTier),
+      locale: Type.Optional(SourceLocale),
+      schedule: Type.Optional(SourceSchedule),
+      fetchPolicy: Type.Optional(SourceFetchPolicy),
+    }, { additionalProperties: false })),
+  }, { additionalProperties: false }),
+]);
+export const SourceListQuery = Type.Object({
+  sourceGroup: Type.Optional(Type.String({ pattern: SourceGroupPattern })),
+  tier: Type.Optional(SourceTier),
+  state: Type.Optional(Type.Union([Type.Literal("active"), Type.Literal("paused"), Type.Literal("archived")])),
+  truncatedOnly: Type.Optional(Type.Boolean()),
+}, { additionalProperties: false });
 export const SourcePreview = Type.Object({
   mode: Type.Union([Type.Literal("fetched"), Type.Literal("validated")]),
   target: Target,
@@ -277,8 +340,26 @@ export const SourcePreview = Type.Object({
   })),
   feeds: Type.Array(Type.String()),
 });
+export const PublicSourceSummary = Type.Object({
+  id: Id,
+  label: Type.String(),
+  platform: Platform,
+  sourceGroup: SourceGroup,
+  tier: SourceTier,
+  locale: SourceLocale,
+  state: Type.String(),
+  lastSuccessAt: Type.Union([DateTime, Type.Null()]),
+  count48h: Type.Integer({ minimum: 0 }),
+}, { additionalProperties: false });
+export const PublicSourceDirectory = Type.Object({
+  sources: Type.Array(PublicSourceSummary),
+  groupCounts: Type.Record(Type.String(), Type.Integer({ minimum: 0 })),
+}, { additionalProperties: false });
 export const Source = strictMerge([
-  Type.Omit(SourceInput, ["primaryProvider", "fallbackProvider", "tier", "ownerEntityId"]),
+  Type.Omit(SourceInput, [
+    "primaryProvider", "fallbackProvider", "tier", "ownerEntityId",
+    "sourceGroup", "tags", "locale", "fetchPolicy",
+  ]),
   Type.Object({
     id: Id,
     state: Type.Union([
@@ -292,6 +373,12 @@ export const Source = strictMerge([
     fallbackProvider: NullableText,
     tier: SourceTier,
     ownerEntityId: SourceOwner,
+    sourceGroup: SourceGroup,
+    tags: SourceTags,
+    locale: SourceLocale,
+    fetchPolicy: SourceFetchPolicy,
+    health: SourceHealth,
+    hasHttpCache: Type.Optional(Type.Boolean()),
     revision: Type.Integer(),
     nextDueAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
     lastCheckedAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
@@ -332,6 +419,10 @@ export const ContentFilter = Type.Object(
     to: Type.Optional(DateTime),
     threadAware: Type.Optional(Type.Boolean()),
     signal: Type.Optional(Type.Union([Type.Literal("discussion"), Type.Literal("pain")])),
+    sourceGroup: Type.Optional(Type.String({ pattern: SourceGroupPattern })),
+    tier: Type.Optional(SourceTier),
+    language: Type.Optional(Type.String({ pattern: SourceLocalePattern })),
+    hasMedia: Type.Optional(Type.Boolean()),
     searchScope: Type.Optional(
       Type.Union([
         Type.Literal("title"),

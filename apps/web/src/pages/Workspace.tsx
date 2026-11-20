@@ -28,7 +28,7 @@ export default function Workspace({ run }: { run: Run }) {
       }>("/workspace/annotations"),
   });
   return (
-    <>
+    <div className="workspace-page">
       <Heading
         title="我的研究"
         note="保存问题与判断，让每次研究可以接着进行。"
@@ -86,6 +86,6 @@ export default function Workspace({ run }: { run: Run }) {
           <p className="muted">打开一条内容，将证据与批注留在这里。</p>
         )}
       </section>
-    </>
+    </div>
   );
 }

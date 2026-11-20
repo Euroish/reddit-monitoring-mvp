@@ -4,7 +4,9 @@ import {
   compileContentFilter,
   decodeCursor,
   escapeLike,
+  MAX_INDEXED_BODY_CHARS,
   normalizePublicSearchText,
+  publicSearchDocument,
 } from "../../src/modules/content/search";
 import { csvCell } from "../../src/modules/content/routes";
 
@@ -43,4 +45,18 @@ test("CSV treats formula prefixes and quotes as data", () => {
   assert.equal(csvCell('  =SUM(A1)"'), '"\'  =SUM(A1)"""');
   assert.equal(csvCell(null), '""');
   assert.equal(csvCell("ordinary text"), '"ordinary text"');
+});
+
+test("publicSearchDocument caps body length and compileContentFilter compiles group, tier, language and hasMedia", () => {
+  const longBody = "算".repeat(MAX_INDEXED_BODY_CHARS + 500);
+  const doc = publicSearchDocument("标题", longBody, "2026-11-19T00:00:00Z");
+  assert.equal(Array.from(doc.normalizedText).length, MAX_INDEXED_BODY_CHARS);
+  const compiled = compileContentFilter(
+    { allowedSourceIds: null },
+    { sourceGroup: "ai-firsthand", tier: "T1", language: "zh", hasMedia: true },
+  );
+  assert.match(compiled.discovery, /cs\.source_group=/);
+  assert.match(compiled.discovery, /cs\.tier=/);
+  assert.match(compiled.text, /c\.language=/);
+  assert.match(compiled.text, /jsonb_array_length\(c\.content_media\)>0/);
 });

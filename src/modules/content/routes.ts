@@ -17,7 +17,7 @@ import { contentColumns, contentSelect, contentSourceTables, contentTables, comp
 import { contentFromRow } from "./sql";
 import { exportRoutes } from "./export";
 import { contentFacets } from "./facets";
-import { contentStories } from "./stories";
+import { readStoryWindow, selectStoryFeed } from "./stories";
 import { readThread } from "./thread";
 export { csvCell } from "./export";
 import { projectSources } from "../projects/sql";
@@ -90,7 +90,7 @@ export async function contentRoutes(
   shutdown: AbortSignal,
 ) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
-  const storyViews = new Map<StoryFeed["view"], { slot: number; result: Promise<StoryFeed> }>();
+  const storyWindows = new Map<StoryFeed["view"], { slot: number; result: ReturnType<typeof readStoryWindow> }>();
   api.get("/v1/content", { schema: { querystring: ListQuery, response: ListResponse } },
     (request) => listContent(pool, request.actor!, request.query),
   );
@@ -98,21 +98,27 @@ export async function contentRoutes(
     (request) => contentFacets(pool, request.actor!, request.query),
   );
   api.get("/v1/content/stories", { schema: { querystring: StoryQuery, response: { 200: StoryFeed } } },
-    (request) => {
+    async (request) => {
       const actor = request.actor!;
-      const { view = "latest", limit = 20, sourceId, platform, date } = request.query;
-      if (actor.allowedSourceIds !== null || limit !== 20 || sourceId || platform || date)
-        return contentStories(pool, actor, request.query);
+      const {
+        view = "latest", limit = 30, offset = 0, sourceId, platform, date,
+        sourceGroup, tier, language, includeTrends, diverse,
+      } = request.query;
+      const mix = diverse !== false && !sourceId;
+      if (actor.allowedSourceIds !== null || sourceId || platform || date || sourceGroup || tier || language || includeTrends)
+        return selectStoryFeed(await readStoryWindow(pool, actor, request.query), view, limit, offset, mix);
       const now = Date.now();
       const slot = Math.floor(now / 30_000);
-      const saved = storyViews.get(view);
-      if (saved?.slot === slot) return saved.result;
-      const result = contentStories(pool, actor, request.query, now).catch(error => {
-        if (storyViews.get(view)?.result === result) storyViews.delete(view);
-        throw error;
-      });
-      storyViews.set(view, { slot, result });
-      return result;
+      let saved = storyWindows.get(view);
+      if (saved?.slot !== slot) {
+        const result = readStoryWindow(pool, actor, { view }, now).catch(error => {
+          if (storyWindows.get(view)?.result === result) storyWindows.delete(view);
+          throw error;
+        });
+        saved = { slot, result };
+        storyWindows.set(view, saved);
+      }
+      return selectStoryFeed(await saved.result, view, limit, offset, mix);
     },
   );
   api.get("/v1/content/feed", { schema: {

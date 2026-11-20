@@ -9,33 +9,32 @@ import {
   IdempotencyHeaders,
   Ingest,
   ParamsId,
+  PublicSourceDirectory,
+  SourceFetchPolicy,
+  SourceGroup,
   SourceInput,
+  SourceListQuery,
+  SourceLocale,
   SourceSchedule,
   SourceOwner,
+  SourceTags,
   SourceTier,
   Source,
 } from "../../../packages/contracts/src/source-content";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
+import { canonical } from "../content/batch";
 import { commitContentBatch, prepareContentBatch } from "../content/sql";
 import { fail, transaction } from "../../storage/db";
 import { sourcePreviewRoute, validateFallback, validateSource } from "./config";
+import { sourceImportRoute } from "./import";
 import {
   assertSource,
+  insertSource,
+  listPublicSources,
+  listSources,
   lockSource,
-  sourceFromRow,
-  sourceSelect,
   audit,
 } from "./sql";
-
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value !== null && typeof value === "object")
-    return `{${Object.entries(value)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`)
-      .join(",")}}`;
-  return JSON.stringify(value);
-}
 
 export async function collectionRoutes(
   app: FastifyInstance,
@@ -44,10 +43,17 @@ export async function collectionRoutes(
 ) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   sourcePreviewRoute(app, providers);
+  await sourceImportRoute(app, pool, providers);
+  api.get(
+    "/v1/public/sources",
+    { schema: { response: { 200: PublicSourceDirectory } } },
+    async (request) => listPublicSources(pool, request.actor!),
+  );
   api.get(
     "/v1/sources",
     {
       schema: {
+        querystring: SourceListQuery,
         response: {
           200: Type.Object({
             sources: Type.Array(Source),
@@ -57,12 +63,7 @@ export async function collectionRoutes(
       },
     },
     async (request) => ({
-      sources: (
-        await pool.query(
-          `${sourceSelect} WHERE ($1::uuid[] IS NULL OR cs.id=ANY($1)) ORDER BY cs.created_at,cs.id`,
-          [request.actor!.allowedSourceIds],
-        )
-      ).rows.map(sourceFromRow),
+      sources: await listSources(pool, request.actor!, request.query),
       capabilities: providers.map((provider) => provider.capability),
     }),
   );
@@ -75,7 +76,20 @@ export async function collectionRoutes(
     return {
       budgets: (
         await pool.query(
-          "SELECT provider,enabled,daily_requests,monthly_requests,daily_resources,monthly_resources,minimum_interval_ms,revision FROM source_provider_budget WHERE provider=ANY($1::text[]) ORDER BY provider",
+          `WITH clock AS (
+             SELECT (NOW() AT TIME ZONE 'UTC')::date AS today, date_trunc('month',NOW() AT TIME ZONE 'UTC')::date AS month_start
+           )
+           SELECT b.provider,b.enabled,b.daily_requests,b.monthly_requests,b.daily_resources,b.monthly_resources,b.minimum_interval_ms,b.revision,
+             usage.requests_today,usage.requests_month,usage.resources_today,usage.resources_month
+           FROM source_provider_budget b CROSS JOIN clock
+           CROSS JOIN LATERAL (
+             SELECT COALESCE(SUM(requests) FILTER (WHERE day=clock.today),0)::float8 AS requests_today,
+               COALESCE(SUM(requests),0)::float8 AS requests_month,
+               COALESCE(SUM(resources_reserved) FILTER (WHERE day=clock.today),0)::float8 AS resources_today,
+               COALESCE(SUM(resources_reserved),0)::float8 AS resources_month
+             FROM source_provider_usage WHERE provider=b.provider AND day BETWEEN clock.month_start AND clock.today
+           ) usage
+           WHERE b.provider=ANY($1::text[]) ORDER BY b.provider`,
           [providers.map((provider) => provider.capability.provider)],
         )
       ).rows,
@@ -152,36 +166,7 @@ export async function collectionRoutes(
         fail(403, "Create sources from a browser administrator session");
       const input = request.body;
       const { target } = validateSource(providers, input);
-      const fallbackProvider = input.fallbackProvider ?? null;
-      const row = (
-        await pool.query(
-          `INSERT INTO collection_source(id,platform_id,provider,primary_provider,label,target,content_kind,delivery_mode,
-        fallback_provider,created_at,updated_at,schedule,next_due_at,tier,owner_entity_id)
-      SELECT $1,id,$2,$2,$3,$4,$5,$6,$8,NOW(),NOW(),$9::jsonb,
-        CASE WHEN $9::jsonb @> '{"enabled":true}' THEN now() END,$10,$11 FROM source WHERE code=$7
-      RETURNING id`,
-          [
-            randomUUID(),
-            input.primaryProvider,
-            input.label,
-            target,
-            input.contentKind,
-            input.deliveryMode,
-            input.platform,
-            fallbackProvider,
-            input.schedule ?? { enabled: false },
-            input.tier ?? "T2",
-            input.ownerEntityId ?? null,
-          ],
-        )
-      ).rows[0];
-      if (!row) fail(422, "Platform not registered");
-      return {
-        source: sourceFromRow(
-          (await pool.query(`${sourceSelect} WHERE cs.id=$1`, [row.id]))
-            .rows[0],
-        ),
-      };
+      return { source: await insertSource(pool, input, target) };
     },
   );
   api.patch(
@@ -191,6 +176,11 @@ export async function collectionRoutes(
         params: ParamsId,
         body: Type.Object(
           {
+            label: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+            sourceGroup: Type.Optional(SourceGroup),
+            tags: Type.Optional(SourceTags),
+            locale: Type.Optional(SourceLocale),
+            fetchPolicy: Type.Optional(SourceFetchPolicy),
             fallbackProvider: Type.Optional(Type.Union([FallbackProvider, Type.Null()])),
             schedule: Type.Optional(SourceSchedule),
             tier: Type.Optional(SourceTier),
@@ -220,7 +210,12 @@ export async function collectionRoutes(
           fail(409, "Source changed; reload before saving");
         if (["arctic_shift", "twitterapi_io"].includes(source.primary_provider))
           fail(409, "Retired provider cannot be reactivated");
-        const { fallbackProvider, state, schedule, tier, ownerEntityId } = request.body;
+        const {
+          label, sourceGroup, tags, locale, fetchPolicy,
+          fallbackProvider, state, schedule, tier, ownerEntityId,
+        } = request.body;
+        if (label !== undefined && !label.trim())
+          fail(422, "Source label cannot be blank");
         if ((schedule || tier || ownerEntityId !== undefined) && request.actor!.clientKind !== "browser")
           fail(403, "Configure scheduling and authority from a browser administrator session");
         if (schedule?.enabled && source.delivery_mode !== "pull")
@@ -230,12 +225,24 @@ export async function collectionRoutes(
           target: source.target, kind: source.content_kind,
         });
         await client.query(
-          `UPDATE collection_source SET state=$2,fallback_provider=$3,revision=revision+1,updated_at=NOW(),
-           schedule=COALESCE($4::jsonb,schedule),next_due_at=CASE WHEN $4::jsonb IS NULL THEN next_due_at
-             WHEN $4::jsonb @> '{"enabled":true}' THEN now() END,
-           tier=COALESCE($5,tier),owner_entity_id=$6 WHERE id=$1`,
-          [source.id, state ?? source.state, fallbackProvider === undefined ? source.fallback_provider : fallbackProvider,
-            schedule ?? null, tier ?? null, ownerEntityId === undefined ? source.owner_entity_id : ownerEntityId],
+          `UPDATE collection_source SET label=$2,state=$3,fallback_provider=$4,revision=revision+1,updated_at=NOW(),
+           schedule=COALESCE($5::jsonb,schedule),next_due_at=CASE WHEN $5::jsonb IS NULL THEN next_due_at
+             WHEN $5::jsonb @> '{"enabled":true}' THEN now() END,
+           tier=COALESCE($6,tier),owner_entity_id=$7,source_group=$8,tags=$9,locale=$10,fetch_policy=$11::jsonb
+           WHERE id=$1`,
+          [
+            source.id,
+            label ?? source.label,
+            state ?? source.state,
+            fallbackProvider === undefined ? source.fallback_provider : fallbackProvider,
+            schedule ?? null,
+            tier ?? null,
+            ownerEntityId === undefined ? source.owner_entity_id : ownerEntityId,
+            sourceGroup === undefined ? source.source_group : sourceGroup,
+            tags === undefined ? source.tags : tags,
+            locale === undefined ? source.locale : locale,
+            fetchPolicy === undefined ? source.fetch_policy : fetchPolicy,
+          ],
         );
         if (state && state !== "active")
           await client.query(
@@ -378,8 +385,8 @@ export async function collectionRoutes(
           (request.body.limit > (source.target.type === "post" ? 50 : 100) ||
            (request.body.includeComments && source.target.type !== "post")))
           fail(422, "red_crawler supports one bounded search or post comment run per task");
-        if (source.platform === "web" && (request.body.limit > 30 || request.body.includeComments))
-          fail(422, "Web collection supports up to 30 articles per task");
+        if (source.platform === "web" && (request.body.limit > 100 || request.body.includeComments))
+          fail(422, "Web collection supports up to 100 articles per task");
         if (!provider?.capability.enabled)
           fail(
             422,

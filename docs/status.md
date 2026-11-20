@@ -1,122 +1,58 @@
-# 当前状态与下一阶段规划（唯一状态与规划真源）
+# 当前状态与下一阶段规划（STD-100 唯一真源）
 
-> **核对日期** `2026-11-18`。从[第 0.3 节](#03-当前实现与未验证项)接续后端开发。第 0 节其余部分保留 `prod@8ebebfb` 的架构审查和隔离验证基线，第 1–2 节保留旧主线与双分支对照，第 3 节是生产发布门禁。
-
----
-
-## 产品转型方向与唯一实施路线（已清理首尾双路线漂移）
-
-产品已从早期的“单一平台监测与重型研究项目工作台”转型为运行在 **4 GB 内存、60 GB 系统盘、\$0 新增基础设施预算** 单机上的**中英双语高价值信息流、事件聚簇、按题动态探索、全景数据可视化与个性化推荐平台（极简高性能五模块确定性微内核 + 四大零改表扩展缝隙 + 可插拔 AI 翻译与事件摘要）**。
-
-**本轮产品转型、信源范围与极简架构定案**：
-1. **聚焦三大高频支柱，暂缓重度金融接入**：
-   - **支柱 1 · 关注的人与 AI 前沿开发（英文一手 `T1`/`T1_5` 占 85%+，中资只收官方一手）**：因为全球大模型、Coding Agent、开源仓库与架构论文 100% 首发于英文（OpenAI / Anthropic / DeepMind / Hugging Face 官方源、GitHub Releases、`r/LocalLLaMA`、Hacker News 及硅谷核心研究员 X/博客），中文仅收录 DeepSeek、千问 Qwen、月之暗面 Kimi、MiniMax 等官方一手发布，彻底剔除滞后失真的二手中文营销号；
-   - **支柱 2 · 全球科技、独立开发与数码产品**：英文收 Hacker News、GitHub Trending、TechMeme、Product Hunt、The Verge、Ars Technica；中文收 V2EX、IT之家、少数派、酷安今日最热；
-   - **支柱 3 · 大众生活、文化娱乐与全网热议**：中文通过 `newsnow` 零成本直取 B站全站热门视频与热搜、知乎热榜、微博实时热搜、虎扑步行街、机核、什么值得买；英文通过 Reddit 原生 `.rss` 雷达 + 按需 `kaix` 水合覆盖 `r/popular`、`r/gaming`、`r/movies`、`r/television`、`r/technology` 及 YouTube 顶流创作者原生 Atom 频道。
-2. **吸收 [`KKKKhazix/AIHOT`](https://github.com/KKKKhazix/AIHOT) 产品精华，打造“极简确定性微内核 + 可插拔 AI 翻译/摘要 + 全景数据可视化”**：
-   - 吸收其 **三级信源（`T1` 官方一手 / `T1_5` 认证主创 / `T2` 媒体社区）与代表报道选举**、**`web_list` 选择器抓无 RSS 页与“先预览前 20 条再保存”**、**`initialBackfillLimit: 8` 与 48h 旧文不刷屏**、**48h 独立来源事件热度（24h 半衰期 + 6h 飙升检测）**、**08:00 规则日报** 与 **三维主题目录**；
-   - 摒弃其“3 个独立 Node 容器 + 105 个碎迁移 + 每篇文章入库前串行调用 6 次大模型”的重型脆弱设计：本系统将全仓后端收敛在 **`~6,000 LOC` 的 `Fastify 5 + TypeBox + pg + PG16` 五模块微内核**，**入库、实体打标、64-bit SimHash 事件聚簇、48h/6h 热度、RRF 推荐、按题探索与 08:00 日报 100% 确定性零模型运行**（默认原语种原生直出不强制翻译）；
-   - **可插拔 AI 翻译与事件摘要缝隙（较逐篇调用省 90% Token）**：后续接入 AI 时无需安装重型 SDK、无需改表，直接通过 ~45 行 Node 原生 `fetch` 对接任意 OpenAI 兼容 `/v1/chat/completions` 接口（或由外部 Agent 调 `POST /v1/content/:id/enrich` 写回），并复用 `source_provider_budget`（`provider='ai_enrich'`）统一管控日/月额度与熔断；**仅对 `storyKey` 事件簇代表（`T1`/`T1_5`）或用户点击项**按需生成中英双语对照标题（`titleZh`）与三点事件综述（`summaryPoints`），按内容 SHA-256 指纹幂等缓存在 `platform_details.extensions.ai`；
-   - **原有数据可视化与图表体系全面适配升级**：基于 `compileContentFilter` + 单条 PostgreSQL `GROUPING SETS` 查询（`< 8ms`）与前端零依赖原生响应式 `<svg>` 图表组件（`apps/web/src/charts.tsx`），在探索页、热度榜与专题工作台统一提供**按日/6h 跨平台与权威级叠柱脉冲图**、**48h 事件热度 × 6h 升温增速矩阵**、**`T1/T1_5/T2` 信源传播结构条**与**多专题/多实体并排声量对比图（`POST /v1/project-comparisons`）**。
-
-### Phase 1–3 分阶段交付序列（按可独立验收的纵向切片推进）
-
-| 阶段 | 核心交付切片 | 涉及模块与文件 | 完成验收标志 |
-| --- | --- | --- | --- |
-| **Phase 1 · 存储、双字词检索与自动排期闭环** | 复用现有来源、预算、任务与内容表。补齐新写入的压缩与短词索引，开启有界自动采集、任务恢复和「最新」入口。存量投影清理走独立维护窗口。 | `047..048`、`content` 和 `collection` 模块、来源页、首页、Compose | 双字词命中与索引计划，后台定时入库及重启恢复，预算禁用和耗尽无空转写库。 |
-| **Phase 2 · 三大双语支柱、事件聚簇、48h 热度日报与全景可视化图表** | 1. 扩展 `sources.ts` 接入 13+ `NewsNow` 大众娱乐/科技榜单、HF Daily Papers、`web_list` 选择器与完整 IPv4/IPv6 + 3 跳 IP 绑定安全读取；<br>2. 支持 200 位 AI 学者/主创 X 批次搜索（`from:u1 OR from:u2 ...`，省 95% 成本）并提取推文图片/视频 `media` 与外链；<br>3. 落地规范实体链接 + 64-bit SimHash 事件聚簇（`storyKey`）、`T1 > T1_5 > T2` 英文一手代表选举、48h/6h 热度趋势、08:00 规则日报与 RRF + 重力衰减个性化排序；<br>4. 将 `/` 切换为“为你 / 最新 / 08:00 日报 / 48h 热度”与三大频道首页，按混合负载实测决定是否增加读取缓存；新增 `GET /v1/content/facets`、`POST /v1/project-comparisons` 与零依赖原生 `<svg>` 图表组件 `apps/web/src/charts.tsx`（按日/6h 叠柱图、48h 热度 × 6h 增速矩阵、权威级分布条、多专题对比图）。 | • `src/connectors/web/sources.ts`<br>• `src/connectors/x/twitterapis.ts`<br>• `src/modules/content/batch.ts`, `routes.ts`, `thread.ts`<br>• `src/modules/projects/routes.ts`, `sql.ts`<br>• `apps/web/src/App.tsx`, `charts.tsx`, `pages/ContentLibrary.tsx`, `pages/Projects.tsx` | 1. 同一事件（英文官方一手 + 实测 + 社区讨论 + 10 家中文媒体转发）在首页折叠为 1 张事件聚簇卡，英文 `T1`/`T1_5` 原题稳居主标题；<br>2. 四类 SVG 图表点击柱体/节点即可联动过滤下方列表；<br>3. 500 并发读者压测首页对应 PG 查询 $< 1\text{ QPS}$。 |
-| **Phase 3 · 按题动态探索（20–30 站）与可插拔 AI 翻译/事件摘要** | 1. 实现 4 正交槽确定性查询拆解（官方一手 / 独立评测 / 真实复现 / 失败反例）+ Tier-1 免费垂直 API 联邦（本地 PG + HN Algolia + GitHub Search + HF/arXiv + Reddit）+ Tier-2 可插拔搜索索引；<br>2. 引入 `linkedom` + `@mozilla/readability` 内存安全正文提取器（单页 `<15ms`、峰值 `<65MB`）与页面 RSS 自动嗅探；<br>3. 复用 `delivery_mode='push'` 的 `radar` 系统源实现三波渐进提交（1.5s / 3.5s / 12s），支持将发现的作者/RSS 一键转为长期 `pull` 监控源；<br>4. 落地零 SDK 可插拔 AI 翻译与事件簇三点摘要模块（`src/modules/content/ai.ts` + `POST /v1/content/:id/enrich`，按内容 SHA-256 指纹幂等写入 `platform_details.extensions.ai`，支持卡片 `原文 \| 双语对照 \| AI 综述` 切换，未配 AI 时 100% 确定性无损运行）。 | • `src/connectors/web/extractor.ts`, `search-router.ts`<br>• `src/modules/content/ai.ts`<br>• `src/modules/collection/routes.ts`<br>• `src/modules/workspace/routes.ts`<br>• `apps/web/src/pages/Workspace.tsx` | 1. 提问后 $<3.5\text{s}$ 渲染首批正文证据，$<12\text{s}$ 完成 24–30 站提取且 Node RSS 内存 $< 800\text{ MB}$；<br>2. 开启 `ai_enrich` 时按簇生成双语标题与三点摘要且同指纹零重复调用，关闭时零报错原生直出。 |
+> **核对基准**：`prod@2026-11-20`（开放阅读、防刷屏分页、编辑部重构与源治理上线）（见[开发台账](development.md#5-全阶段交付与演进台账)） · **运行镜像**：`monitoring-unified:20261120-v3` / `monitoring-unified-web:20261120-v3`。
+> 严格分离 **`[LIVE]` 实码真源** 与 **`[V2]` 演进计划**；文中实库行数为生产运行采样快照，持续采集会自然增长。
 
 ---
 
-## 0. 当前重整分支执行记录
+## 0. 当前生产基线与实测资产清单（`[LIVE]`）
 
-`r1-content-batch` 通过 `11e7864` 引入 `main@dac7ab7`，形成可快进的 Fastify 重整版本，审查时的 `prod` 基线为 `8ebebfb`。
-
-唯一迁移链为原样保留的 `001..040`（含历史重复前缀的两个 018、两个 020）→ `041_content_batch.sql` → `042_monitor_projects.sql` → `043_kernel_cutover.sql` → `044_stage_one_safety.sql` → `045_web_sources.sql` → `046_hydration_queue.sql`，共 48 个基线 SQL 文件。本轮新增 `047_short_search_and_storage.sql` 和 `048_provider_budget_window.sql`，已应用迁移保持原校验和。
-
-### 0.1 `prod@8ebebfb` 审查台账（历史基线）
-
-> 以下 7 项均为对 `src/` 与 `apps/web/` 逐行核实的确凿代码缺陷（完整推导见[深度审查与单机架构蓝图](research/deep-audit-and-architecture-blueprint-20261118.md)）：
-
-| 编号 | 缺陷摘要 | 真实源码坐标 | 审查时提出的方案 |
-| :--- | :--- | :--- | :--- |
-| **BUG-01** | **正文 3 倍冗余落盘（60 GB 磁盘寿命折损过半）** | `044_stage_one_safety.sql:3-7` 加回 `normalized_title`/`normalized_text` 后，[src/modules/content/sql.ts]( ../src/modules/content/sql.ts#L177-L181 ) 在每次写入时把完整正文同时存入 `content.body_text`、`search_text` 与 `normalized_text` 三处，而查询侧只读 `search_text`。 | `content/sql.ts:178` 对 `normalized_title`/`normalized_text` 写空串 `''`；追加 `047` 迁移清空历史冗余列并对 `body_text`、`platform_details`、`search_text` 启用 PG16 `COMPRESSION lz4`（日增量立降 52.5%）。 |
-| **BUG-02** | **中文双字词与短代号被 `422` 封杀及 `pg_trgm` 脱索引** | [src/modules/content/search.ts]( ../src/modules/content/search.ts#L75-L78 ) 硬拦截 `<3` 连续字符，导致 `算力`、`开源`、`评测`、`游戏`、`AI`、`o3`、`R1` 全部报 `HTTP 422`；且直接 `LIKE '%词%'` 在 `trgm_op.c:1005,1067` 下产生 0 个 trigram。 | `publicSearchDocument` 追加空格分隔的 CJK 2 字 Bigram 与短代号；`compileContentFilter` 对 2 字符词编译为 `LIKE '% 词 %'`，触发 `trgm_op.c:990,1058` 补齐 `LPADDING=2, RPADDING=1`，走 3 键纯 GIN 索引扫描。 |
-| **BUG-03** | **自动排期环缺失 + 预算受阻 1 分钟死循环写库风暴** | [src/modules/collection/worker.ts]( ../src/modules/collection/worker.ts#L285-L311 ) 无 `next_due_at` 扫描器；且 [worker.ts:136]( ../src/modules/collection/worker.ts#L136 ) 在预算未开启、耗尽或间隔不足时先 `attempts+1` 再硬编码 `next_run_at=NOW()+interval '1 minute'`，每天产生上万次无效写盘。 | 新增 `scheduleDueSourcesOnce`（领源前先校验预算与同域并发）；预算/间隔受阻时回退 `attempts` 并将 `next_run_at` 设为精确的 `provider_ready_at`。 |
-| **BUG-04** | **X 单号轮询无时间窗、丢弃媒体且与默认 `pageSize=25` 冲突崩溃** | [src/connectors/x/twitterapis.ts]( ../src/connectors/x/twitterapis.ts#L109-L120 ) 对 `limit > 20` 直接抛异常（与 `030` 默认 `pageSize=25` 冲突），`account` 模式不传时间窗，且 [twitterapis.ts:65]( ../src/connectors/x/twitterapis.ts#L65 ) 硬编码 `media: []`。 | 自动钳制 `Math.min(pageSize, 20)`；支持 15–20 人 `from:u1 OR from:u2` 批次 `advanced_search`（带 `since_time`/`until_time`，省 95% 成本）；完整提取图片/视频 `media`、外链与引用推文。 |
-| **BUG-05** | **Web 连接器仅支持 HN、丢弃作者且存在 IPv6/重定向与 DNS 超时缺口** | [src/connectors/web/sources.ts]( ../src/connectors/web/sources.ts#L13-L105 ) 的 `resolve4` 在超时计时器外执行，缺 IPv6/`::ffff:0:0/96`/`64:ff9b::/96` 拦截，拒绝一切 `301/302` 重定向，丢弃 `<author>`，且 `newsnow` 除 `"hackernews"` 外全报 `422`。 | 升级为完整 IPv4+IPv6 `BlockList` + 含 DNS 的总超时 + 最多 3 跳逐跳 DNS 重验与 IP 绑定 + `linkedom`/`Readability` 提取；扩充 13+ `NewsNow` 榜单、`web_list` 与 `json_list`。 |
-| **BUG-06** | **每请求直查 PG `findActor`、单连接池争用与多层回复漏查** | [apps/api/src/app.ts]( ../apps/api/src/app.ts#L143 ) 每请求查库鉴权；[search.ts:155]( ../src/modules/content/search.ts#L155-L158 ) 主查询逐行跑观测子查询；[thread.ts:37]( ../src/modules/content/thread.ts#L37-L40 ) 漏掉仅带 `reply_to` 中间评论的多层回复；`Bluesky`（[bluesky-appview-content.connector.ts:276]( ../src/connectors/bluesky/bluesky-appview-content.connector.ts#L276-L291 )）早于 `from` 时不停页。 | 加入 `findActor` 60s LRU + `Singleflight` 15s SWR 缓存；拆分为两阶段批量取观测与读写双连接池；`thread.ts` 补齐父链闭包；`Bluesky` 越过 `from` 立即停页。 |
-| **BUG-07** | **前端 UI 锁死 `search` 目标、隐藏作者/指标/按日分面且缺预算与任务按钮** | [App.tsx]( ../apps/web/src/App.tsx#L101 ) `/` 仍为项目页；[Sources.tsx]( ../apps/web/src/pages/Sources.tsx#L53-L59 ) 锁死 `target.type="search"`（无法建账号/社区源）且无预算面板和任务恢复按钮；[ContentLibrary.tsx]( ../apps/web/src/pages/ContentLibrary.tsx#L265 ) 不显示作者与指标；[Projects.tsx]( ../apps/web/src/pages/Projects.tsx#L169 ) 过滤丢弃了 SQL 已算好的 `day_group` 按日趋势数据。 | `/` 切换为信息流与事件聚簇卡（展示作者、分级、指标、理由）；`Sources.tsx` 开放全目标类型、试抓预览、排期、预算与任务恢复按钮；`Projects.tsx` 渲染按日柱形图联动。 |
-
-### 0.2 既有后端采集与隔离库真实验收基线
-
-2026-11-18 在仅绑定回环地址的全新 PG16 库应用 48 个迁移，通过编译态 API 提交真实任务并与 PostgreSQL 对账：共成功 12 项，处理 365 条记录，去重后入库 **358 条**（其中 7 条为跨来源重复发现，1 条已存主帖因评论补采更新）：
-
-| 渠道 | 实际入库与核验结果 | 启动次数与预算资源 |
-| --- | --- | --- |
-| **Kaix (Reddit)** | 111 条主帖、85 条评论（首帖 50 条、次帖 35 条，SQL 与评论树核实 10 条嵌套回复指向同根帖库内父评论）；`SIGTERM` 重启后复用同一 `runId` 零重复扣费 | 4 次，预留 214 条；Apify Run 合计 `$0.001786`、`0.002733 CU` |
-| **TwitterAPIs (X)** | 搜索与 NASA 时间线共返回 60 条，去重入库 54 条；两次时间线在触发限流停机时保持未决付费状态，重启后严守规则未自动重放 | 5 次入账，预留 100 条 |
-| **RSS / NewsNow** | Hacker News RSS、BBC Tech、The Verge、Ars Technica 共 78 条；NewsNow Hacker News 榜 30 条 | RSS 4 次（预留 124 条）；NewsNow 1 次（预留 31 条） |
-
-17 项单测、17 项隔离 PG16/HTTP 集成测试与 1 条编译态 Chromium 主流程通过；PG16 隔离库备份包含 `pg_trgm` 扩展，恢复后 47 张表行数与迁移校验和一致。
-
-### 0.3 当前实现与未验证项
-
-| 审查项 | 本轮实码 |
-| --- | --- |
-| BUG-01、02 · 存储和检索 | `047` 增加双字 GIN 表达式索引和 LZ4 列压缩。新写入省去第三份正文，保留既有列供兼容。存量重复列按[有界维护步骤](development.md#搜索投影存量维护)清理。 |
-| BUG-03 · 自动排期 | `048` 增加预算到期计算。来源可经 API 开启排期，后台使用有界 SQL 批次入队，预算等待按间隔或 UTC 日/月边界恢复，禁用或单次超上限等配置变化再唤醒。Feed 同域领取互斥，初次最多 8 条。X/Bluesky 支持有上限的游标推进。已知付费 Run 保留回执，未知启动停发。 |
-| BUG-04、05 · 连接器 | X 账号通过带窗口的 `from:` 搜索，限制为 20 条每页并保留媒体及外链。Feed 保留 RSS/Atom 作者，HTTPS 读取共享 DNS/响应总时限，逐跳验证并绑定公网 IP。固定热榜支持 HN、B 站热门视频和 V2EX 分享。 |
-| BUG-06、07 · 读取与交互 | 列表只为已分页的行批量读观测，API/采集各用有限连接池，评论树支持仅持有 `reply_to` 的多层节点。首页转到「最新」，项目移到 `/projects`。来源页支持目标类型、自动排期、预算和任务恢复。项目按日分面可进入同日内容。 |
-| Phase 2 · 内容统计 | `GET /v1/content/facets` 提供可见样本的 UTC 按日或 6 小时趋势，以及平台和体裁分布。查询要求显式时间窗，最大 90 天。浏览端图表接入待推进。 |
-| Phase 2 · 采集补齐 | `feed` 接收经配置批准的 HTML 与 JSON 列表。新增 GitHub Trending 和 HF Daily Papers 固定榜单。来源试抓共享创建校验，公开网页可预览样本，付费渠道只做静态校验。 |
-
-2026-11-18，本机运行环境由 PostgreSQL 14 与独立旧采集进程切换为 PostgreSQL 16 与统一 Fastify 应用。运行版本为 `ef9e170`，远端 `prod` 核对时为 `5929b0f`。运行库的 50 个迁移文件与源码逐项校验一致，末项为 `048_provider_budget_window.sql`，历史迁移含重复编号。迁移前后核对了账户、来源、任务、内容与历史资产。新版实测通过原账户登录、10 条历史内容读取和流式导出。统一 Worker 每 30 秒记录心跳。宿主机通过容器网络运行，HTTP、HTTPS 和数据库端口均未发布。[本机运维入口](development.md#3-备份恢复与发布包校验命令)
-
-本机共 **45 个启用自动采集的来源**，包括 37 个 RSS/Atom、7 个 YouTube 频道和 1 个 B 站全站热门。两条旧 Reddit 来源已归档。当前活跃库约 18 MB，内容、来源关联、观测与任务四张表连索引约 2 MiB。
-
-同日接入全部 37 个 RSS/Atom 订阅。首批查询最近 90 天，每源最多 8 条，37 个任务全部成功，存入 272 篇去重文章及 274 条来源关联。Feed 请求显式声明客户端和支持的 XML 类型。同一文章从多个订阅发现时共享内容版本，并保留独立来源关联。全部订阅启用两小时基础排期，首轮自动任务 37 个全部成功，两轮合计入库 348 篇去重文章及 351 条来源关联，信息流 API 已实测可读。
-
-大众热榜实测启用 B 站全站热门，复用 `newsnow`，基础周期 15 分钟。首轮自动入库 20 条视频和 20 条榜单名次观测。
-
-YouTube 复用 `feed` 接入 7 个官方频道 Atom，启用两小时基础排期。首批手动和首轮自动任务各 7 个全部成功，共入库 62 条视频记录，保留发布者、链接、发布时间、57 条简介和 62 个缩略图地址。列表查询仅在关键词或痛点信号筛选时关联搜索投影。网页采集启用 gzip，并对传输和解压各保留 2 MiB 上限。YouTube 与 BBC Tech 两个样本的传输量分别下降约 75% 和 77%。最近一次 16 项 PG16 集成测试通过。
-
-**事件产品切片（已在隔离 PG16 验收）**
-
-- 接入知乎热榜与 Google Trends 美国榜。真实来源各运行两轮自动任务，知乎处理 40 条并入库 20 条，Google Trends 处理 20 条并入库 10 条，第二轮正文去重。来源页支持试抓和 15 分钟自动采集。
-- `049_source_authority.sql` 增加权威等级与共同发布主体字段，用精确订阅地址初始化现有目录中的 16 个官方源和 5 位主创，并添加发现时间索引。首页已接入最新事件、48 小时热度榜和北京时间 08:00 日报。日报支持历史日期和 Markdown 复制。[事件 API](contracts.md#已交付的事件-api)
-- 10,000 条合成候选加真实热榜样本的隔离压测中，单次聚合约 1.0–1.5 秒。默认全范围三种事件视图各共享 30 秒聚合结果。Fastify 注入测试中，50 路冷请求 P95 约 1.47 秒，100 路热请求 P95 约 200 毫秒，两批合计执行一次事件聚合查询。鉴权查询独立执行。
-
-隔离 PG16 已核对后台自动采集、重启沿用 Feed 验证器、双字词范围、嵌套回复和 1,000 条长正文批量写入。15,002 行合成数据上，`算力` 与 `o3` 均使用双字 GIN Bitmap Index Scan。Bluesky 按有界游标推进。
-
-2026-11-18 17:25 UTC，生产后端切换到 `monitoring-unified:20261118-stories`，51 个迁移已应用，末项为 `049_source_authority.sql`。知乎与 Google Trends 分别首批入库 20 条和 10 条。两条来源各自首轮自动任务成功且正文去重，目前共 47 个启用排期的来源（`T1` 16、`T1_5` 5、`T2` 26）。最新和热度 API 各返回 20 个事件。当前一期日报窗口无合格样本，按现有生产样本模拟下一个 08:00 切点可生成 20 个事件。前端镜像已构建并通过临时容器网络检查，常驻生产实例仅运行 API 与数据库，宿主机无 HTTP/HTTPS 端口映射。[发布与回退记录](development.md#事件产品首次生产发布)
-
-继续观察实际 24 小时入库延迟、独立热点覆盖和聚合 P95。微博热搜直连遇到 403，YouTube 地区热门榜仍需 Data API 凭据。个性化推荐、按题探索和 AI 增强留在后续阶段。
+| 维度 | 实测基线数据（`2026-11-19` 采样） |
+| :--- | :--- |
+| **源码规模** | 后端核心 `42` 个 TS 文件（`~6,900` LOC：`apps/api` 2 + `src/modules` 24 + `src/connectors` 9 + `packages/contracts` 3 + `src/shared` 2 + `src/storage` 2）；前端 `apps/web/src` `12` 文件 / `3,038` 行 / `104 KB` |
+| **PG16 数据库** | **20 张公网表**（`050` 实删 27 张历史表）、`52` 条已应用迁移（`001..050`，含历史重复编号 `018`/`020`）；采样规模：`content` ~2,005、`content_observation` ~5,957、`source_collection_job` ~1,926、总库 ~40 MB |
+| **活跃来源分布** | **100 个活跃排期源**（`97` `feed` + `3` `newsnow`，另有 2 个归档来源），覆盖 **8 个 `source_group`**：`ai-firsthand` (16)、`dev-infra` (16)、`lifestyle` (15)、`public-affairs` (13)、`tech-media` (12)、`science` (11)、`design-visual` (9)、`social-trends` (8)，`missing_group=0`、`missing_locale=0` |
+| **接口与安全** | **`43` URL 路径 / `50` 条 HTTP 操作**（与 `/v1/openapi.json` 一致）；`onRequest` 限流早于 `preParsing` 鉴权（`429` 零查库）；`/v1/content/*` 仅 `GET/HEAD` 允许 `read` Key；`scripts/check-docs.ts` 守卫 `001..050` 迁移不可变；`search.ts` 使用 `LEFT JOIN public_content_search_document` |
 
 ---
 
-## 1. 重整前 `main` 实码与验证证据（历史对照留档）
+## 1. 跨分支客观审计与融合立场
 
-| 领域范围 | `main@0.9.1` 历史代码现状 | 重整分支已完成的清理与重构 |
+| 分支 / 引用 | 状态与特征 | 审计结论与执行动作 |
 | :--- | :--- | :--- |
-| **API / Web 框架** | 手写 `node:http`（`create-api-server.ts` 3,606 LOC + `readyz-observability.ts` 793 LOC）；React 含旧 Phase1/Markets 等 21 页 | 已收敛为 Fastify 5 + TypeBox 五模块、`/v1/capabilities` + `/v1/openapi.json`、机器 API Key、`monitor_project*` 两新表与五导航工作台 |
-| **存储与仓储层** | PG 迁移止于 `040`、30 个 PG 仓储、27 个单实现接口、14 个 `InMemory*`（106 KB）；`commitPage` 逐条 SQL | 已实删全部单实现 `*Repository` 与 `InMemory*`；落地 4x `UNNEST` `commitContentBatch`、`content_evidence_key COLLATE "C"` 与 Keyset 分页 |
-| **渠道替换** | 依赖 `Arctic Shift`（高超时 `422`）与 `TwitterAPI.io`（`$0.15/1k`） | 已物理实删 `Arctic Shift` 与 `TwitterAPI.io` 在线代码，切换至 `kaix` + `red_crawler`、`TwitterAPIs` + `ScrapeBadger`、`newsnow` 与 `feed` |
+| **`prod`** | 当前唯一主干与部署源 | 所有后端加固、文档同步与 V2 演进都在此分支推进。 |
+| **`origin/main` (`c75506b`)** | 停留在 `7ff733c` 合并快照（落后 `050` 升级） | 保持只读上游角色，由管理员按发布节奏反向合并。 |
+| **`origin/feat/semrush-frontend-rebuild` (`dbf8713`)** | 位于 GitHub 远端（本地/服务端拉取需 `git fetch origin feat/semrush-frontend-rebuild`），分叉自旧 `dd2feb2`，含 `40fb284`（R4 `.zst` 插件）+ `dbf8713`（36 文件 / `637.8 KB` + 全量 `echarts`） | **`MUST NOT` 整支合并**：严格按[融合矩阵](design.md#2-featsemrush-frontend-rebuild-分支审计与融合矩阵)抽取样式令牌、`api/hooks`、快捷键壳、`ThreadTreeView`、`ObservationChart`、`vite.config`/`i18n` 与设置/导出逻辑，丢弃营销页、`AuthModal`、`ThemeStudio`、`SignalScoreGauge` 与 `R4ArchivePanel`。 |
+| **`r1-content-batch` & `feat/r1-core-and-r2-wip`** | R1–R3 历史参考分支 | 历史任务已完结。 |
 
 ---
 
-## 2. 双开发分支客观实测对照（重整前审计留档）
+## 2. 已修复项与当前 V2 开放缺口
 
-重整前远端曾并存 `origin/r1-content-batch@353fd9b`（Branch A，128 文件 / 5,469 生产 LOC，0 循环依赖）与 `origin/feat/r1-core-and-r2-wip@3e77a3e`（Branch B，610 文件 / 55,180 生产 LOC，保留旧 `create-api-server.ts` 与 `InMemory*`）。主线以 Branch A 洁净五模块骨架为基底，吸收了 Branch B 中有价值的 UI/流式限读/异步 Run 思路，并修复了编译态迁移 SQL 复制、`SIGTERM` 租约回退、`trustProxy: 1`、同版本归约与流式导出 `complete: true` 尾块。
+- **已修复项**：`BUG-01..06`（`047..050` + `8e436ac`）及后续代码/文档漂移加固（`check-docs <= 50` 守卫、`app.ts` `/v1/content/*` 方法门控、`search.ts` `LEFT JOIN` 防冷删隐身、`docker-compose.yml` 透传 `WORKER_CONCURRENCY`）。
+- **当前 `[V2]` 开放缺口**：
+  1. 当前生产镜像仍使用上一版工作台；Phase A 的待发布实现见下文；
+  2. `content_annotation` 无阅读水位线，`readStoryWindow` 尚未沉淀跨周事件成员归属，尚无 `stream_class` 使 L3 推流融入首页；
+  3. 仅开通 3/7 个内置 `newsnow` 榜与 0 个 `bluesky` 源，尚未引入 `linkedom`/`Readability` 提取 RSS 原文与外链；
+  4. `/v1/discovery/query` 与 `/v1/content/:id/enrich` 均未实现。
 
 ---
 
-## 3. 生产发布门禁与阈值驱动演进
+## 3. `[V2]` 四阶段纵深路线（Phase A – D，总表数严格 `20 → <= 24`）
 
-1. **Fast Gate & Compiled PG16 E2E Gate**：所有 GitHub Actions 锁定 40 位 Commit SHA 与 `npm ci --ignore-scripts`；依次通过 `docs:check`、`lint`、`typecheck`、`build`（校验 `dist/src/storage/schema/*.sql` SHA-256 一致）、离线单测、编译态 `db:migrate:compiled` + PG16/HTTP 集成测试 + Playwright 浏览器冒烟，以及 `gitleaks` 和 `npm audit`。
-2. **单机生产上线前核对清单**：
-   - 应用 `047..048` 存储、检索与预算迁移，确认 `docker-compose.yml` 的内存限额（`1536m` / `1350m` / `128m`）、PG16 `lz4` 与 `json-file` 日志轮转生效；
-   - 验证宿主机 `2 GiB /swapfile`、Cloudflare mTLS Origin Pulls 与 `DOCKER-USER` 防火墙规则；
-   - 按原 owner 完成旧 `research_export` 历史导出交付对账后再在后续独立版本删除旧冻结表；
-   - 保持单容器 `app` 运行，仅在混合负载实测证实事件循环延迟持续影响首页且缓存/连接池已调优后，才讨论用同一镜像分拆 API 与 Worker 角色。R4 `.zst` 离线归档始终保持仓外/独立 `plugins/zst-archive/` 外挂推流路径。
+Phase A 待上线版本已实现故事卡微图与键盘速读、侧栏折叠与命令面板、采集告警与额度计量、内容库与专题的日 × 平台下钻、热度四象限、观测折线及评论三视图。无命中分面仅凭已存样本无法确认采集覆盖，显示斜线；0 仅用于服务端明确返回的零值。生产镜像状态仍以本页基线为准。
+
+| 阶段 | 核心交付切片 | 表数量与关键文件 | 完成验收门禁 |
+| :--- | :--- | :--- | :--- |
+| **Phase A · 前端融合与双层可视化** | 1. 在 `readStoryWindow` 附带 `tierBreakdown` + `sparkline48h`（8×6h 桶），在 `projects/sql.ts` 补齐 `(day, platform)` 分面；<br>2. 落地矿石编辑风、精简 `WorkbenchShell`、`packages/contracts` 驱动 `api/hooks`、`ThreadTreeView` 与 `ObservationChart`；<br>3. `/` 渲染 Tier-1 零依赖 SVG 微图，`/content` 与 `/projects` 通过 `React.lazy` 模块化 `echarts/core` 渲染带斜线未知区的脉冲图与四象限。 | `+0` 表（保持 `20`）<br>`src/modules/{content/stories,projects/sql}.ts`、`apps/web/src/*` | `/` 首屏 JS 零 ECharts 依赖；`1440`/`768`/`390` 无横向溢出且 `dom_critic >= 88`；三视图与分面联动 E2E 通过。 |
+| **Phase B · 阅读水位线与持久化事件归属** | 1. `051`：扩展 `content_annotation` 增配 `read_at`/`muted`/`tags` 并独立其修改与笔记 `revision` 锁，增加按频道/全局 `read_before_at` 水位线（已读锚定 `storyKey`）；实现 `为你` 可解释 RRF 与超 48h 旧文防刷屏门控；<br>2. `052`：新增 **`story_cluster` + `story_cluster_member`** **仅存成员归属与指纹**（代表选举与 `heat48h(now)` 在读路径按可见范围动态计算，禁存全局指标）；<br>3. 上线复用 GIN 索引的 `POST /v1/project-comparisons`（不建 `entity_catalog` 关联表）。 | `+2` 表（总计 `22`）<br>`051`、`052`、`src/modules/{content,projects,workspace}/*` | 一键已读写操作 `O(1)` 不膨胀，并发改笔记零 `409`；受限 API Key 不越权泄露他源代表；跨日热点查询 `< 10ms`。 |
+| **Phase C · `stream_class` 与 L1–L3 扩源** | 1. 升级 `collection_source` 区分 **`stream_class` (`live \| archive \| adhoc`)**，使 L3 实时 Sidecar 推流进入默认 `/` 与分面趋势，R4 `.zst` 保持 `archive` 隔离；<br>2. 启用其余内置 `newsnow` 榜、`bluesky_appview`、`twitterapis` VIP 批次与可选 `linkedom` + `@mozilla/readability` 正文/外链提取。 | `+0` 表（保持 `22`）<br>`053`（扩列）、`src/connectors/web/*` | `Readability` 单页 `< 15ms`、Node RSS `< 800 MB`；L3 `ingest` 源可在首页与趋势按规则正常呈现。 |
+| **Phase D · 按题探索与可插拔 AI 综述** | 1. 上线 `POST /v1/discovery/query`（4 正交槽 + 垂直公开 API + 三波写入 `adhoc` 源 + 一键转 `pull`）及基于 Readability 外链的未订阅高频域名查询；<br>2. 上线零 SDK `POST /v1/content/:id/enrich`（按簇指纹缓存双语/三点综述于 `platform_details.extensions.ai`，严格限制浏览器管理员或非 `read` 写授权）；<br>3. 可选增加 `alert_rule` / `alert_delivery`。 | 可选 `+0..2` 表（封顶 `<= 24`）<br>`src/modules/content/ai.ts`、`collection/discovery.ts` | `< 3.5s` 出首批证据；`read` API Key 调 `/enrich` 恒返 `403`；同指纹 AI 零重复调用；总表 `<= 24`。 |
+
+---
+
+## 4. 发布、部署与数据变更红线
+
+1. 任何代码改动须经隔离 `postgres:16-alpine` 跑通 `docs:check`、`lint`、`typecheck`、`build`、`test:unit`、`test:postgres` 与 `smoke:compiled`；
+2. 结构迁移前必须执行 `pg_dump -Fc` 并验证 `pg_restore --list`；
+3. 重建服务端容器镜像必须传入 **`--target runtime`**（`Dockerfile` 默认末段为 `proxy`）；注意本轮 `app.ts`/`search.ts`/`workspace/sql.ts`/`docker-compose.yml` 加固改动待下次构建重启容器后于线上生效。

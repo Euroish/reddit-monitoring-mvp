@@ -74,15 +74,18 @@ export async function readThread(
       cursor = next;
       depth++;
     }
+    const rootAuthor = root.author;
+    const isOp = item.platformDetails.extensions?.isOp === true || Boolean(
+      rootAuthor?.externalId && rootAuthor.externalId === item.author?.externalId ||
+      rootAuthor?.handle && rootAuthor.handle.toLowerCase() === item.author?.handle?.toLowerCase(),
+    );
     return {
-      item, depth, parentId: parent ? byExternal.get(`${parent.kind}:${parent.externalId}`)?.id ?? null : null,
+      item, depth, isOp, parentId: parent ? byExternal.get(`${parent.kind}:${parent.externalId}`)?.id ?? null : null,
       contextMissing: contextMissing || cursor.id !== root.id,
       matched: Boolean(rows[index + 1].matched),
     };
   });
-  const rootAuthor = root.author?.handle?.toLowerCase();
-  const selected = nodes.filter(({ item, matched }) =>
-    view === "top" || (view === "matches" ? matched : !!rootAuthor && item.author?.handle?.toLowerCase() === rootAuthor));
+  const selected = nodes.filter(node => view === "top" || (view === "matches" ? node.matched : node.isOp));
   const groups = new Map<string | null, typeof nodes>();
   const active = new Set(selected.map(({ item }) => item.id));
   for (const node of selected.sort((a, b) => score(b.item) - score(a.item))) {

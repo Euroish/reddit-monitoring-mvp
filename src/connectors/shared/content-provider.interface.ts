@@ -25,6 +25,9 @@ export interface CollectedPage {
   creditsUsed?: number;
   notModified?: boolean;
   discoveredFeeds?: string[];
+  httpEtag?: string | null;
+  httpLastModified?: string | null;
+  truncated?: boolean;
 }
 export interface CollectContentPageRequest {
   source: CollectionSource;
@@ -32,6 +35,8 @@ export interface CollectContentPageRequest {
   to: string;
   limit: number;
   checkpoint: JsonValue | null;
+  httpEtag?: string | null;
+  httpLastModified?: string | null;
   execution?: {
     state: JsonValue;
     saveState: (state: JsonValue) => Promise<void>;
