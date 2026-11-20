@@ -450,6 +450,26 @@ export const ContentFacets = strictMerge([
     coverage: Type.Literal("stored_sample"),
   }),
 ]);
+export const PlanTier = Type.Union([Type.Literal("free"), Type.Literal("pro")]);
+export const CredentialProvider = Type.Union([
+  Type.Literal("kaix"),
+  Type.Literal("red_crawler"),
+  Type.Literal("twitterapis"),
+  Type.Literal("scrapebadger"),
+]);
+export const ProviderCredentialInput = Type.Object(
+  {
+    apiKey: Type.String({ minLength: 8, maxLength: 512 }),
+    revision: Type.Optional(Type.Integer({ minimum: 1 })),
+  },
+  { additionalProperties: false },
+);
+export const ProviderCredentialTestInput = Type.Object(
+  {
+    confirmPaidProbe: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
 export const ActorSchema = Type.Object({
   userId: Id,
   email: Type.String(),
@@ -458,6 +478,7 @@ export const ActorSchema = Type.Object({
     Type.Literal("admin"),
     Type.Literal("viewer"),
   ]),
+  planTier: Type.Optional(PlanTier),
   clientKind: Type.Union([Type.Literal("browser"), Type.Literal("machine")]),
   sessionId: Id,
   scopes: Type.Array(Type.String()),

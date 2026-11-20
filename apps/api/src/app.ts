@@ -12,6 +12,7 @@ import { accessRoutes } from "../../../src/modules/access/routes";
 import { jobRoutes } from "../../../src/modules/collection/jobs";
 import { refreshRoutes } from "../../../src/modules/collection/refresh";
 import { collectionRoutes } from "../../../src/modules/collection/routes";
+import { createCredentialVault, credentialRoutes, type CredentialVault } from "../../../src/modules/collection/credentials";
 import { contentRoutes } from "../../../src/modules/content/routes";
 import { workspaceRoutes } from "../../../src/modules/workspace/routes";
 import { projectRoutes } from "../../../src/modules/projects/routes";
@@ -28,6 +29,7 @@ export async function buildApp(options: {
   origin: string;
   secureCookies?: boolean;
   providers?: ContentProvider[];
+  credentialVault?: CredentialVault;
   logger?: boolean;
   rateLimitMax?: number;
   trustProxy?: false | 1;
@@ -190,6 +192,7 @@ export async function buildApp(options: {
       if (
         route.startsWith("/v1/access/") ||
         route.startsWith("/v1/workspace/") ||
+        route.startsWith("/v1/sources/credentials") ||
         (!scope && !["/v1/capabilities", "/v1/openapi.json"].includes(route)) ||
         (scope && !actor.scopes.includes(scope))
       )
@@ -202,6 +205,8 @@ export async function buildApp(options: {
     return { ok: true };
   });
   await accessRoutes(app, options.pool, cookie);
+  const vault = options.credentialVault ?? createCredentialVault(options.pool, options.sessionSecret);
+  await credentialRoutes(app, vault);
   await collectionRoutes(app, options.pool, providers);
   await refreshRoutes(app, options.pool, providers);
   await jobRoutes(app, options.pool);

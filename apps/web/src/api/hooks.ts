@@ -424,6 +424,80 @@ export function useRevokeMachineKeyMutation() {
   });
 }
 
+export function useProviderCredentialsQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['providerCredentials'],
+    queryFn: () => apiClient.getProviderCredentials(),
+    enabled,
+  });
+}
+
+export function useSaveProviderCredentialMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      provider,
+      apiKey,
+      revision,
+    }: {
+      provider: 'kaix' | 'red_crawler' | 'twitterapis' | 'scrapebadger';
+      apiKey: string;
+      revision?: number;
+    }) => apiClient.saveProviderCredential(provider, { apiKey, revision }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['providerCredentials'] });
+      qc.invalidateQueries({ queryKey: ['capabilities'] });
+      qc.invalidateQueries({ queryKey: ['sources'] });
+    },
+  });
+}
+
+export function useRevokeProviderCredentialMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (provider: 'kaix' | 'red_crawler' | 'twitterapis' | 'scrapebadger') =>
+      apiClient.revokeProviderCredential(provider),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['providerCredentials'] });
+      qc.invalidateQueries({ queryKey: ['capabilities'] });
+      qc.invalidateQueries({ queryKey: ['sources'] });
+    },
+  });
+}
+
+export function useUsersQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['accessUsers'],
+    queryFn: () => apiClient.getUsers(),
+    enabled,
+  });
+}
+
+export function useUpdateUserAccessMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: { role?: 'admin' | 'viewer'; status?: 'active' | 'disabled'; planTier?: 'free' | 'pro' };
+    }) => apiClient.updateUserAccess(id, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accessUsers'] });
+      qc.invalidateQueries({ queryKey: ['accessAudit'] });
+    },
+  });
+}
+
+export function useAccessAuditQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['accessAudit'],
+    queryFn: () => apiClient.getAccessAudit(),
+    enabled,
+  });
+}
+
 export function formatApiError(err: unknown): string {
   if (err instanceof ApiError) {
     const retry = err.retryAfterSeconds ? ` (Retry after ${err.retryAfterSeconds}s)` : '';

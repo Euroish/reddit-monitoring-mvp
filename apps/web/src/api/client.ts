@@ -4,23 +4,28 @@ import {
   type AnnotationSummary,
   ApiError,
   type ApiErrorEnvelope,
+  type AuditEventDto,
   type CapabilitiesResponse,
   type CollectionSource,
   type ContentListResponse,
   type ContentThreadResponse,
+  type CredentialProviderName,
   type ExportJsonResult,
   type ListQuery,
   type MachineKeyDto,
   type MachineScope,
+  type PlanTier,
   type Project,
   type ProjectInput,
   type ProjectOverviewResponse,
   type ProviderBudget,
+  type ProviderCredentialStatus,
   type PublicContent,
   type PullProviderName,
   type SavedQueryDto,
   type SourceInput,
   type SourceJob,
+  type UserAccountDto,
   mergeServerCapabilities,
   normalizeCollectionSource,
   normalizeSourceJob,
@@ -428,5 +433,53 @@ export const apiClient = {
 
   async revokeMachineKey(id: string): Promise<{ revoked: boolean }> {
     return liveFetch(`/access/keys/${id}`, { method: 'DELETE' });
+  },
+
+  async getProviderCredentials(): Promise<{ networkEnabled: boolean; credentials: ProviderCredentialStatus[] }> {
+    return liveFetch('/sources/credentials');
+  },
+
+  async saveProviderCredential(
+    provider: CredentialProviderName,
+    payload: { apiKey: string; revision?: number },
+  ): Promise<{ credential: ProviderCredentialStatus; reloaded: boolean }> {
+    return liveFetch(`/sources/credentials/${provider}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async revokeProviderCredential(
+    provider: CredentialProviderName,
+  ): Promise<{ credential: ProviderCredentialStatus; reloaded: boolean }> {
+    return liveFetch(`/sources/credentials/${provider}`, { method: 'DELETE' });
+  },
+
+  async testProviderCredential(
+    provider: CredentialProviderName,
+    confirmPaidProbe: boolean,
+  ): Promise<{ ok: boolean; mode: 'dry' | 'live'; status?: number; reason: string; networkEnabled?: boolean }> {
+    return liveFetch(`/sources/credentials/${provider}/test`, {
+      method: 'POST',
+      body: JSON.stringify({ confirmPaidProbe }),
+    });
+  },
+
+  async getUsers(): Promise<{ users: UserAccountDto[] }> {
+    return liveFetch('/access/users');
+  },
+
+  async updateUserAccess(
+    id: string,
+    payload: { role?: 'admin' | 'viewer'; status?: 'active' | 'disabled'; planTier?: PlanTier },
+  ): Promise<{ user: UserAccountDto }> {
+    return liveFetch(`/access/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAccessAudit(): Promise<{ events: AuditEventDto[] }> {
+    return liveFetch('/access/audit');
   },
 };

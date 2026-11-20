@@ -19,14 +19,18 @@ import {
 import { apiClient } from '../api/client';
 import {
   formatApiError,
+  useAccessAuditQuery,
   useCreateMachineKeyMutation,
   useLogoutMutation,
   useMachineKeysQuery,
   useRevokeMachineKeyMutation,
   useSourcesQuery,
+  useUpdateUserAccessMutation,
+  useUsersQuery,
 } from '../api/hooks';
 import { SiftlineLogo } from '../components/BrandMark';
 import { useLogo } from '../components/brandContext';
+import { ProviderCredentialsTab } from '../components/ProviderCredentialsTab';
 import { useTheme } from '../components/themeContext';
 import { type Actor, type MachineScope } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
@@ -45,16 +49,22 @@ export function SettingsPage({
   const { palette, setStudioOpen } = useTheme();
   const canManage = actor.role === 'owner' || actor.role === 'admin';
 
+  type SettingsTab = 'account' | 'providers' | 'members' | 'keys' | 'brand';
   const sp = new URLSearchParams(initialQueryString);
   const rawTab = sp.get('tab');
-  const urlTab: 'account' | 'members' | 'keys' | 'brand' =
-    rawTab === 'keys' || rawTab === 'members' || rawTab === 'brand' || rawTab === 'account' ? rawTab : 'account';
-  const [tabState, setTabState] = useState<{ key: string; val: 'account' | 'members' | 'keys' | 'brand' } | null>(null);
+  const urlTab: SettingsTab =
+    rawTab === 'keys' || rawTab === 'providers' || rawTab === 'members' || rawTab === 'brand' || rawTab === 'account'
+      ? rawTab
+      : 'account';
+  const [tabState, setTabState] = useState<{ key: string; val: SettingsTab } | null>(null);
   const tab = tabState?.key === urlTab ? tabState.val : urlTab;
-  const setTab = (val: 'account' | 'members' | 'keys' | 'brand') => setTabState({ key: urlTab, val });
+  const setTab = (val: SettingsTab) => setTabState({ key: urlTab, val });
 
   const keysQuery = useMachineKeysQuery(true);
   const sourcesQuery = useSourcesQuery(true);
+  const usersQuery = useUsersQuery(canManage);
+  const auditQuery = useAccessAuditQuery(canManage);
+  const updateUserMut = useUpdateUserAccessMutation();
   const createKeyMut = useCreateMachineKeyMutation();
   const revokeKeyMut = useRevokeMachineKeyMutation();
   const logoutMut = useLogoutMutation();
@@ -174,7 +184,8 @@ export function SettingsPage({
         <div className="tabs">
           {([
             ['account', t('Account & RBAC', '当前账户与角色')],
-            ['members', t('Members & Invites', '成员与邀请')],
+            ...(canManage ? ([['providers', t('Provider API Keys', '第三方采集密钥')]] as const) : []),
+            ['members', t('Members & Invites', '成员与权限')],
             ['keys', t('Machine API Keys', '机器 API 密钥')],
             ['brand', t('Brand Mark & Skin', '品牌标识与皮肤')],
           ] as const).map(([v, l]) => (
@@ -210,6 +221,7 @@ export function SettingsPage({
                 <div style={{ display: 'grid', gap: 2 }}>
                   {[
                     [t('Client Kind', '客户端类型'), actor.clientKind],
+                    [t('Product Plan Tier', '产品权益层级'), `${actor.planTier ?? 'free'} (reserved)`],
                     [t('Session ID', '会话 ID'), actor.sessionId],
                     [t('Allowed Sources', '受限来源'), actor.allowedSourceIds ? actor.allowedSourceIds.join(', ') : 'null (all)'],
                   ].map(([k, v]) => (
@@ -270,33 +282,94 @@ export function SettingsPage({
         </div>
       )}
 
+      {tab === 'providers' && <ProviderCredentialsTab canManage={canManage} />}
+
       {tab === 'members' && (
         <div className="ds-grid">
           <div className="c7">
             <div className="ds-card">
               <div className="ds-card-hd">
                 <div>
-                  <div className="ds-card-title"><Users size={14} /><span>{t('Active Session & Invite Policy', '当前会话与成员邀请机制')}</span></div>
-                  <div className="ds-card-sub">{t('Single-node strict isolation · no unauthenticated user directory', '单机最小权限策略 · 不对外暴露全量成员枚举')}</div>
+                  <div className="ds-card-title"><Users size={14} /><span>{t('Members & Access Control', '成员列表与权限边界')}</span></div>
+                  <div className="ds-card-sub">{t('System role (owner/admin/viewer) is distinct from product plan tier (free/pro)', '系统角色与产品权益层级 (free/pro) 分离管理')}</div>
                 </div>
               </div>
               <div className="ds-card-bd" style={{ paddingTop: 4 }}>
-                <div className="note-row">
-                  <span className="u-avatar">{actor.email.slice(0, 2).toUpperCase()}</span>
-                  <div style={{ flex: 1 }}>
-                    <b style={{ fontSize: 12.5 }}>{actor.email}</b>
-                    <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>
-                      {t('Current authenticated operator', '当前已认证登录账户')} · {actor.clientKind}
+                {canManage && usersQuery.data?.users ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {usersQuery.data.users.map((u) => (
+                      <div key={u.id} className="note-row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                        <span className="u-avatar">{u.email.slice(0, 2).toUpperCase()}</span>
+                        <div style={{ flex: 1, minWidth: 160 }}>
+                          <b style={{ fontSize: 12.5 }}>{u.email}</b>
+                          <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>
+                            {u.status} · plan: {u.planTier}
+                          </div>
+                        </div>
+                        <span className={`tag ${u.role === 'owner' ? 'tag--lilac' : u.role === 'admin' ? 'tag--mint' : 'tag--line'}`}>{u.role}</span>
+                        {u.role !== 'owner' && (actor.role === 'owner' || u.role === 'viewer') && (
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            {actor.role === 'owner' && (
+                              <>
+                                <select
+                                  className="wb-select"
+                                  style={{ height: 26, fontSize: 11 }}
+                                  value={u.role}
+                                  onChange={(e) => updateUserMut.mutate({ id: u.id, payload: { role: e.target.value as 'admin' | 'viewer' } })}
+                                >
+                                  <option value="viewer">viewer</option>
+                                  <option value="admin">admin</option>
+                                </select>
+                                <select
+                                  className="wb-select"
+                                  style={{ height: 26, fontSize: 11 }}
+                                  value={u.planTier}
+                                  onChange={(e) => updateUserMut.mutate({ id: u.id, payload: { planTier: e.target.value as 'free' | 'pro' } })}
+                                >
+                                  <option value="free">free</option>
+                                  <option value="pro">pro</option>
+                                </select>
+                              </>
+                            )}
+                            <button
+                              type="button"
+                              className={`ds-btn ${u.status === 'active' ? 'ds-btn--danger' : 'ds-btn--ghost'}`}
+                              style={{ height: 26, padding: '0 8px', fontSize: 10.5 }}
+                              onClick={() => updateUserMut.mutate({ id: u.id, payload: { status: u.status === 'active' ? 'disabled' : 'active' } })}
+                            >
+                              {u.status === 'active' ? t('Disable', '停用') : t('Enable', '启用')}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="note-row">
+                    <span className="u-avatar">{actor.email.slice(0, 2).toUpperCase()}</span>
+                    <div style={{ flex: 1 }}>
+                      <b style={{ fontSize: 12.5 }}>{actor.email}</b>
+                      <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>
+                        {t('Current authenticated operator', '当前已认证登录账户')} · {actor.clientKind}
+                      </div>
+                    </div>
+                    <span className={`tag ${actor.role === 'owner' ? 'tag--lilac' : actor.role === 'admin' ? 'tag--mint' : 'tag--line'}`}>{actor.role}</span>
+                  </div>
+                )}
+                {canManage && auditQuery.data?.events && auditQuery.data.events.length > 0 && (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: 'var(--muted)' }}>
+                      {t('Recent Security & Credential Audit (no plaintext secrets)', '近期安全与密钥审计日志（零明文）')}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 160, overflowY: 'auto' }}>
+                      {auditQuery.data.events.slice(0, 10).map((ev) => (
+                        <div key={ev.id} style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)', color: 'var(--muted)', padding: '4px 8px', background: '#fbfcf7', borderRadius: 4, border: '1px solid var(--line)' }}>
+                          {ev.createdAt.slice(0, 19).replace('T', ' ')} · {ev.action} · {ev.resourceId ?? '-'} · {ev.actorEmail ?? 'system'}
+                        </div>
+                      ))}
                     </div>
                   </div>
-                  <span className={`tag ${actor.role === 'owner' ? 'tag--lilac' : actor.role === 'admin' ? 'tag--mint' : 'tag--line'}`}>{actor.role}</span>
-                </div>
-                <div className="wb-alert wb-alert--info" style={{ marginTop: 12 }}>
-                  {t(
-                    'Team members join exclusively via one-time 72-char invite tokens created on the right. Viewer accounts gain read-only access plus full personal workspace isolation.',
-                    '新成员仅可通过右侧生成的 72 位一次性邀请码注册加入（密码需 >= 12 位）。viewer 成员对来源/项目只读，个人工作区查询与批注按用户完全隔离。',
-                  )}
-                </div>
+                )}
               </div>
             </div>
           </div>

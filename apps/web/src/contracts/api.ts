@@ -58,14 +58,51 @@ export class ApiError extends Error {
   }
 }
 
+export type PlanTier = 'free' | 'pro';
+export type CredentialProviderName = 'kaix' | 'red_crawler' | 'twitterapis' | 'scrapebadger';
+
 export interface Actor {
   userId: string;
   email: string;
   role: Role;
+  planTier?: PlanTier;
   clientKind: ClientKind;
   sessionId: string;
   scopes: string[];
   allowedSourceIds: string[] | null;
+}
+
+export interface ProviderCredentialStatus {
+  provider: CredentialProviderName;
+  envVar: string;
+  source: 'db' | 'env' | 'none';
+  configured: boolean;
+  keyHint: string | null;
+  envConfigured: boolean;
+  envHint: string | null;
+  revision: number;
+  updatedAt: string | null;
+  updatedByEmail: string | null;
+}
+
+export interface UserAccountDto {
+  id: string;
+  email: string;
+  role: Role;
+  status: 'pending' | 'active' | 'disabled';
+  planTier: PlanTier;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuditEventDto {
+  id: string;
+  action: string;
+  resourceType: string | null;
+  resourceId: string | null;
+  meta: Record<string, unknown>;
+  createdAt: string;
+  actorEmail: string | null;
 }
 
 export interface SourceCapability {

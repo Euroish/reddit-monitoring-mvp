@@ -129,13 +129,20 @@ export function normalizeXTarget(target: SourceTarget, kind: PublicContentKind):
     return fail(422, "X collection requires a search expression or X account");
   }
 
-export function twitterApis(env: NodeJS.ProcessEnv = process.env, fetchPage = fetch): ContentProvider {
-  const key = env.TWITTERAPIS_API_KEY?.trim();
+export function twitterApis(
+  env: NodeJS.ProcessEnv = process.env,
+  fetchPage = fetch,
+  getSecret?: () => string | undefined,
+): ContentProvider {
+  const resolveKey = () => (getSecret?.() ?? env.TWITTERAPIS_API_KEY)?.trim() || undefined;
   const timeout = Number(env.TWITTERAPIS_TIMEOUT_MS ?? 20000);
   if (!Number.isInteger(timeout) || timeout < 100 || timeout > 120000)
     throw new Error("TWITTERAPIS_TIMEOUT_MS must be an integer between 100 and 120000");
   const capability: SourceCapability = {
-    platform: "x", provider: "twitterapis", enabled: Boolean(key) && env.SOURCE_NETWORK_ENABLED === "true",
+    platform: "x", provider: "twitterapis",
+    get enabled() {
+      return Boolean(resolveKey()) && env.SOURCE_NETWORK_ENABLED === "true";
+    },
     contentKinds: ["post"], targetTypes: ["account", "search"], keywordSearch: "global",
     observationModel: "snapshot", automaticRequestReplay: false, refreshByIds: false,
     requestResourceUpperBound: 20, limitations: ["Up to 20 posts per page; recent search coverage"],
@@ -160,7 +167,7 @@ export function twitterApis(env: NodeJS.ProcessEnv = process.env, fetchPage = fe
       if (cursor) url.searchParams.set("cursor", cursor);
       const timeoutSignal = AbortSignal.timeout(timeout);
       const signal = request.signal ? AbortSignal.any([request.signal, timeoutSignal]) : timeoutSignal;
-      const response = await fetchPage(url, { headers: { Authorization: `Bearer ${key}` }, signal, redirect: "error" });
+      const response = await fetchPage(url, { headers: { Authorization: `Bearer ${resolveKey()}` }, signal, redirect: "error" });
       if (!response.ok) {
         await response.body?.cancel();
         throw new ContentProviderError(`TwitterAPIs returned HTTP ${response.status}`, false, 30, response.status);

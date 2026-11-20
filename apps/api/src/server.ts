@@ -1,5 +1,6 @@
 import { createPool } from "../../../src/storage/db";
 import { bootstrapOwner } from "../../../src/modules/access/sql";
+import { createCredentialVault } from "../../../src/modules/collection/credentials";
 import { startWorker } from "../../../src/modules/collection/worker";
 import { KaixContentConnector } from "../../../src/connectors/reddit/kaix-content.connector";
 import { redCrawler } from "../../../src/connectors/reddit/red-crawler";
@@ -21,13 +22,19 @@ export async function main() {
     );
   const pool = createPool(undefined, 8);
   const workerPool = createPool(undefined, 4);
+  const sessionSecret = process.env.SESSION_SECRET ?? "";
+  const vault = createCredentialVault(pool, sessionSecret);
+  await vault.reload();
   const providers = [
-    twitterApis(),
-    scrapeBadger(),
+    twitterApis(process.env, fetch, () => vault.getSecret("twitterapis")),
+    scrapeBadger(process.env, fetch, () => vault.getSecret("scrapebadger")),
     webSource("newsnow"),
     webSource("feed"),
-    redCrawler(),
-    new KaixContentConnector(resolveKaixConfig()),
+    redCrawler(process.env, fetch, () => vault.getSecret("red_crawler")),
+    new KaixContentConnector({
+      ...resolveKaixConfig(),
+      getApiToken: () => vault.getSecret("kaix"),
+    }),
     new BlueskyAppViewContentConnector({
       networkEnabled: process.env.SOURCE_NETWORK_ENABLED === "true",
     }),
@@ -42,7 +49,8 @@ export async function main() {
     const app = await buildApp({
       pool,
       providers,
-      sessionSecret: process.env.SESSION_SECRET ?? "",
+      credentialVault: vault,
+      sessionSecret,
       origin,
       secureCookies: !localHttp,
       logger: true,
