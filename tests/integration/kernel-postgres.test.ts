@@ -398,6 +398,9 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
           kinds: [{ kind: "post", count: 1, matchedContentCount: 1 }],
         },
       });
+      const byPlatform = await app.inject({ url: `${facetPath}&deliveryMode=push&platform=reddit`, headers: machine });
+      assert.equal(byPlatform.statusCode, 200, byPlatform.body);
+      assert.deepEqual(byPlatform.json(), facets.json());
       const defaultFacets = await app.inject({ url: facetPath, headers: machine });
       assert.equal(defaultFacets.statusCode, 200, defaultFacets.body);
       assert.equal(defaultFacets.json().count, 0);

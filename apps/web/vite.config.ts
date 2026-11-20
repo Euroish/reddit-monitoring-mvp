@@ -12,6 +12,7 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined
+          if (id.includes('/echarts/') || id.includes('/zrender/')) return 'charts'
           if (id.includes('@tanstack/react-query')) return 'react-query'
           if (id.includes('react-router')) return 'router'
           if (id.includes('/react/') || id.includes('/react-dom/')) return 'react-vendor'

@@ -69,7 +69,20 @@ export async function collectionRoutes(
     return {
       budgets: (
         await pool.query(
-          "SELECT provider,enabled,daily_requests,monthly_requests,daily_resources,monthly_resources,minimum_interval_ms,revision FROM source_provider_budget WHERE provider=ANY($1::text[]) ORDER BY provider",
+          `WITH clock AS (
+             SELECT (NOW() AT TIME ZONE 'UTC')::date AS today, date_trunc('month',NOW() AT TIME ZONE 'UTC')::date AS month_start
+           )
+           SELECT b.provider,b.enabled,b.daily_requests,b.monthly_requests,b.daily_resources,b.monthly_resources,b.minimum_interval_ms,b.revision,
+             usage.requests_today,usage.requests_month,usage.resources_today,usage.resources_month
+           FROM source_provider_budget b CROSS JOIN clock
+           CROSS JOIN LATERAL (
+             SELECT COALESCE(SUM(requests) FILTER (WHERE day=clock.today),0)::float8 AS requests_today,
+               COALESCE(SUM(requests),0)::float8 AS requests_month,
+               COALESCE(SUM(resources_reserved) FILTER (WHERE day=clock.today),0)::float8 AS resources_today,
+               COALESCE(SUM(resources_reserved),0)::float8 AS resources_month
+             FROM source_provider_usage WHERE provider=b.provider AND day BETWEEN clock.month_start AND clock.today
+           ) usage
+           WHERE b.provider=ANY($1::text[]) ORDER BY b.provider`,
           [providers.map((provider) => provider.capability.provider)],
         )
       ).rows,

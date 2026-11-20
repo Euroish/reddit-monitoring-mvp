@@ -82,6 +82,7 @@ export async function projectOverview(pool: Pool, actor: Actor, id: string) {
       day: string | null; platform: string | null; kind: string | null;
       count: number; matchedContentCount: number;
     }[];
+    dayPlatformFacets: { day: string; platform: string; count: number; matchedContentCount: number }[];
     providers: string[];
   }>(`
     WITH matched AS (${matchingNodes(compiled, project.thread_aware)}), facets AS (
@@ -90,9 +91,15 @@ export async function projectOverview(pool: Pool, actor: Actor, id: string) {
         date_trunc('day',c.created_at_source,'UTC') AS day,c.platform,c.kind,
         ${anchorCount} AS count,COUNT(*) AS "matchedContentCount"
       FROM matched c
-      GROUP BY GROUPING SETS ((),(date_trunc('day',c.created_at_source,'UTC')),(c.platform),(c.kind))
+      GROUP BY GROUPING SETS ((),(date_trunc('day',c.created_at_source,'UTC')),(c.platform),(c.kind),
+        (date_trunc('day',c.created_at_source,'UTC'),c.platform))
     )
-    SELECT (SELECT jsonb_agg(facets ORDER BY day_group DESC,day,platform,kind) FROM facets) AS facets,
+    SELECT (SELECT jsonb_agg(facets ORDER BY day_group DESC,day,platform,kind)
+        FROM facets WHERE day_group=1 OR platform_group=1) AS facets,
+      (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+        'day',day,'platform',platform,'count',count,'matchedContentCount',"matchedContentCount"
+      ) ORDER BY day,platform),'[]'::jsonb)
+        FROM facets WHERE day_group=0 AND platform_group=0 AND day IS NOT NULL) AS "dayPlatformFacets",
       ARRAY(SELECT DISTINCT o.provider FROM matched c JOIN content_observation o ON o.content_id=c.id
         WHERE EXISTS (SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id
           WHERE ${compiled.discovery} AND d.collection_source_id=o.collection_source_id)
@@ -103,6 +110,7 @@ export async function projectOverview(pool: Pool, actor: Actor, id: string) {
     contentCount: totals.count,
     matchedContentCount: totals.matchedContentCount,
     facets: row.facets,
+    dayPlatformFacets: row.dayPlatformFacets,
     providers: row.providers,
     resolvedFilter: project.filter,
     coverage: "stored_sample",

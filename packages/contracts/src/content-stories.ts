@@ -38,6 +38,12 @@ const Story = Type.Object({
   relatedCount: Type.Integer(),
   sourceCount: Type.Integer(),
   heat48h: Type.Number(),
+  tierBreakdown: Type.Object({
+    T1: Type.Integer({ minimum: 0 }),
+    T1_5: Type.Integer({ minimum: 0 }),
+    T2: Type.Integer({ minimum: 0 }),
+  }),
+  sparkline48h: Type.Array(Type.Number({ minimum: 0 }), { minItems: 8, maxItems: 8 }),
   change6h: Type.Union([Type.Number(), Type.Null()]),
   trend: Type.Union([Type.Literal("up"), Type.Literal("down"), Type.Literal("flat"), Type.Literal("new"), Type.Literal("unknown")]),
   badges: Type.Array(Type.Union([Type.Literal("surge"), Type.Literal("rising"), Type.Literal("new")])),

@@ -364,6 +364,9 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
     assert.equal(overview.contentCount, 1);
     assert.equal(overview.matchedContentCount, 1);
     assert.deepEqual(overview.providers, ["kaix"]);
+    const day = overview.facets.find((facet: { day: string | null }) => facet.day)?.day;
+    assert.ok(day);
+    assert.deepEqual(overview.dayPlatformFacets, [{ day, platform: "reddit", count: 1, matchedContentCount: 1 }]);
     assert.equal(overview.facets.find((facet: { kind: string }) => facet.kind === "comment")?.matchedContentCount, 1);
     for (const signal of ["discussion", "pain"]) {
       const filtered = await app.inject({ url: `/v1/content?sourceId=${first}&signal=${signal}`, headers });

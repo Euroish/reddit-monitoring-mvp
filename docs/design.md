@@ -35,7 +35,7 @@
 ### 双层图表架构锁定（Phase A 唯一技术路线）
 
 1. **Tier 1 · 原生响应式 `<svg>` 微图（`0 KB` 依赖，常驻首页与来源页）**：渲染故事卡片 `T1`/`T1_5`/`T2` 分布条、48h 热度火花线与预算 `QuotaMeters`。
-2. **Tier 2 · `React.lazy` 懒加载模块化 `echarts/core`（仅 `/content` 与 `/projects` 加载）**：严格按需注册 `BarChart` + `LineChart` + `ScatterChart` + `MarkArea` + `CanvasRenderer`（~90 KB gz），**绝不使用全量 `import * as echarts`**；放弃 `uPlot`（缺乏原生堆叠柱、斜线 Hatch 与象限散点支持）。
+2. **Tier 2 · `React.lazy` 懒加载模块化 `echarts/core`（仅 `/content` 与 `/projects` 加载）**：严格按需注册 `BarChart` + `LineChart` + `ScatterChart` + `MarkArea` + `CanvasRenderer`（初始首页零加载，分析模块体积以构建输出为准），**绝不使用全量 `import * as echarts`**；放弃 `uPlot`（缺乏原生堆叠柱、斜线 Hatch 与象限散点支持）。
 
 ---
 

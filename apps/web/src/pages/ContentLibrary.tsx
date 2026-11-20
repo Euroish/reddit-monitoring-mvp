@@ -1,3 +1,4 @@
+import { sourceGroups, tierLabels, languages } from "../sourceLabels";
 import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
@@ -8,20 +9,11 @@ import type {
 } from "../../../../packages/contracts/src/source-content";
 import { Field, Heading, Empty } from "../ui";
 import Thread from "./Thread";
+import { AnnotationEditor } from "../components/AnnotationEditor";
+import ContentAnalysis from "../components/ContentAnalysis";
+import LazyChart from "../components/LazyChart";
 import { api, type Run } from "../api";
 
-const sourceGroups = {
-  "ai-firsthand": "AI 一手与研发",
-  "dev-infra": "工程与基础",
-  "tech-media": "科技与数码",
-  lifestyle: "生活与旅行",
-  "design-visual": "设计与视觉",
-  science: "科研与科普",
-  "public-affairs": "公共与文化",
-  "social-trends": "热榜与泛娱乐",
-} as const;
-const tierLabels = { T1: "T1 · 官方一手", T1_5: "T1_5 · 主创", T2: "T2 · 媒体与社区" } as const;
-const languages = { zh: "中文", en: "English", ja: "日本語", ko: "한국어" } as const;
 const date = (value: string | null) =>
   value ? new Date(value).toLocaleString("zh-CN") : "发布时间未知";
 const readDraft = (search: URLSearchParams) => ({
@@ -35,25 +27,13 @@ const readDraft = (search: URLSearchParams) => ({
   hasMedia: search.get("hasMedia") === "true",
 });
 
-export default function ContentLibrary({ run, canCollect, feed = false }: { run: Run; canCollect: boolean; feed?: boolean }) {
+export default function ContentLibrary({ run, canCollect }: { run: Run; canCollect: boolean }) {
   const [params, setParams] = useSearchParams(),
     [selected, setSelected] = useState<PublicContent | null>(null),
     [savingQuery, setSavingQuery] = useState(false),
     [draft, setDraft] = useState(() => readDraft(params)),
     [exporting, setExporting] = useState(false);
   const searchDraft = draft.scope === params.toString() ? draft : readDraft(params);
-  const annotation = useQuery({
-    queryKey: ["annotation", selected?.id],
-    enabled: !!selected,
-    queryFn: () =>
-      api<{
-        annotation: {
-          favorite: boolean;
-          note: string;
-          revision: number;
-        } | null;
-      }>(`/workspace/annotations/${selected!.id}`),
-  });
   useEffect(() => {
     if (!selected) return;
     const previous = document.activeElement as HTMLElement;
@@ -81,6 +61,10 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
       previous?.focus();
     };
   }, [selected]);
+  const [showAnalysis, setShowAnalysis] = useState(false);
+  const scope = new URLSearchParams(params);
+  scope.delete("cursor");
+  scope.delete("limit");
   const query = params.toString();
   const projectId = params.get("projectId");
   const [selection, setSelection] = useState<{ scope: string; ids: string[] }>({ scope: "", ids: [] });
@@ -88,16 +72,37 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
   const [hydrated, setHydrated] = useState(0);
   const [hydrating, setHydrating] = useState(false);
   const hydrationKey = useRef<{ body: string; key: string } | null>(null);
+  const hydrate = (contentIds: string[], maxCommentsPerPost: number) => {
+    if (!projectId || hydrating) return;
+    const body = JSON.stringify({ contentIds, maxCommentsPerPost });
+    const signature = `${projectId}:${body}`;
+    if (hydrationKey.current?.body !== signature)
+      hydrationKey.current = { body: signature, key: crypto.randomUUID() };
+    const key = hydrationKey.current.key;
+    setHydrating(true);
+    void run(async () => {
+      try {
+        const result = await api<{ jobIds: string[] }>(`/projects/${projectId}/hydrate`, {
+          method: "POST", headers: { "Idempotency-Key": key }, body,
+        });
+        setHydrated(result.jobIds.length);
+        setSelection({ scope: query, ids: [] });
+        hydrationKey.current = null;
+      } finally {
+        setHydrating(false);
+      }
+    });
+  };
   const project = useQuery({
     queryKey: ["projects", projectId],
     enabled: !!projectId,
     queryFn: () => api<{ name: string; source_ids: string[] }>(`/projects/${projectId}`),
   });
   const content = useQuery({
-    queryKey: ["content", feed, query],
+    queryKey: ["content", query],
     queryFn: () =>
       api<{ items: PublicContent[]; nextCursor: string | null }>(
-        `/content${feed ? "/feed" : ""}?${query}`,
+        `/content?${query}`,
       ),
   });
   const sources = useQuery({
@@ -106,8 +111,8 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
   });
   return (
     <>
-      <Heading title={feed ? "最新" : "内容库"} note={feed ? undefined : project.data?.name ?? "检索已经收集的内容，保留可追溯的原始证据。"}>
-        {!feed && <button
+      <Heading title="内容库" note={project.data?.name ?? "检索已经收集的内容，保留可追溯的原始证据。"}>
+        <button
           className="primary"
           disabled={exporting}
           onClick={() => {
@@ -144,7 +149,7 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
           }}
         >
           {exporting ? "正在下载…" : "下载当前结果"}
-        </button>}
+        </button>
       </Heading>
       <form
         className="search-bar"
@@ -181,7 +186,7 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
           }
         >
           <option value="">全部可见来源</option>
-          {sources.data?.sources.filter((source) => (!feed || source.deliveryMode === "pull") && (!project.data || project.data.source_ids.includes(source.id))).map((source) => (
+          {sources.data?.sources.filter((source) => !project.data || project.data.source_ids.includes(source.id)).map((source) => (
             <option key={source.id} value={source.id}>
               {source.label}
             </option>
@@ -237,8 +242,8 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
       </form>
       {content.error && <p role="alert">{content.error.message}</p>}
       <div className="result-heading">
-        <span>{feed ? "在线来源" : "已存样本"}</span>
-        {!feed && <button onClick={() => setSavingQuery(!savingQuery)}>保存查询</button>}
+        <span>已存样本</span>
+        <button onClick={() => setSavingQuery(!savingQuery)}>保存查询</button>
       </div>
       {savingQuery && (
         <form
@@ -271,6 +276,16 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
           <button>确认保存查询</button>
         </form>
       )}
+      <button type="button" aria-expanded={showAnalysis} onClick={() => setShowAnalysis(!showAnalysis)}>分析内容</button>
+      {showAnalysis && <ContentAnalysis scope={scope.toString()} onPick={({ from, platform }) => {
+        const start = Math.max(Date.parse(from), Date.parse(scope.get("from") ?? "") || -Infinity);
+        const end = Math.min(Date.parse(from) + 86_400_000, Date.parse(scope.get("to") ?? "") || Infinity);
+        scope.set("from", new Date(start).toISOString());
+        scope.set("to", new Date(end).toISOString());
+        if (platform) scope.set("platform", platform);
+        if (!projectId && !scope.has("deliveryMode")) scope.set("deliveryMode", "pull");
+        setParams(scope);
+      }} />}
       {content.data?.items.length === 0 && (
         <Empty>当前范围没有匹配内容。尝试调整关键词或来源。</Empty>
       )}
@@ -278,24 +293,7 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
         <form className="panel search-bar" onSubmit={(event) => {
           event.preventDefault();
           const form = new FormData(event.currentTarget);
-          const body = JSON.stringify({ contentIds: picked, maxCommentsPerPost: Number(form.get("comments")) });
-          const signature = `${projectId}:${body}`;
-          if (hydrationKey.current?.body !== signature)
-            hydrationKey.current = { body: signature, key: crypto.randomUUID() };
-          const key = hydrationKey.current.key;
-          setHydrating(true);
-          void run(async () => {
-            try {
-              const result = await api<{ jobIds: string[] }>(`/projects/${projectId}/hydrate`, {
-                method: "POST", headers: { "Idempotency-Key": key }, body,
-              });
-              setHydrated(result.jobIds.length);
-              setSelection({ scope: query, ids: [] });
-              hydrationKey.current = null;
-            } finally {
-              setHydrating(false);
-            }
-          });
+          hydrate(picked, Number(form.get("comments")));
         }}>
           <Field label="每帖评论上限"><input type="number" name="comments" min={1} max={50} defaultValue={15} required /></Field>
           <button disabled={hydrating}>水合已选根帖（{picked.length}）</button>
@@ -393,26 +391,13 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
                 查看原文 ↗
               </a>
             )}
-            <Thread key={selected.id} id={selected.id} scope={new URLSearchParams(
-              [...params].filter(([key]) => !["cursor", "limit"].includes(key)),
-            ).toString()} />
+            <Thread key={selected.id} id={selected.id} scope={scope.toString()} run={run}
+              onHydrate={projectId && canCollect ? id => hydrate([id], 15) : undefined} hydrating={hydrating} />
             <hr />
-            {annotation.isPending ? (
-              <p role="status">正在读取批注…</p>
-            ) : annotation.error ? (
-              <p role="alert">{annotation.error.message}</p>
-            ) : (
-              <AnnotationForm
-                key={selected.id}
-                contentId={selected.id}
-                initial={annotation.data?.annotation ?? null}
-                run={run}
-              />
-            )}
-            <details>
-              <summary>采集记录</summary>
-              <pre>{JSON.stringify(selected.observations, null, 2)}</pre>
-            </details>
+            <AnnotationEditor key={selected.id} contentId={selected.id} run={run} />
+            {selected.observations.length > 0 &&
+              <Observations key={selected.id} observations={selected.observations} sources={sources.data?.sources ?? []} />}
+
           </section>
         </div>
       )}
@@ -420,57 +405,13 @@ export default function ContentLibrary({ run, canCollect, feed = false }: { run:
   );
 }
 
-function AnnotationForm({
-  contentId,
-  initial,
-  run,
-}: {
-  contentId: string;
-  initial: { favorite: boolean; note: string; revision: number } | null;
-  run: Run;
-}) {
-  const [note, setNote] = useState(initial?.note ?? "");
-  const [favorite, setFavorite] = useState(initial?.favorite ?? false);
-  const [revision, setRevision] = useState(initial?.revision ?? 0);
-  const [saving, setSaving] = useState(false);
-  return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        setSaving(true);
-        void run(async () => {
-          try {
-            const result = await api<{ revision: number }>(
-              `/workspace/annotations/${contentId}`,
-              {
-                method: "PUT",
-                body: JSON.stringify({ note, favorite, revision }),
-              },
-            );
-            setRevision(result.revision);
-          } finally {
-            setSaving(false);
-          }
-        });
-      }}
-    >
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={favorite}
-          onChange={(event) => setFavorite(event.target.checked)}
-        />
-        收藏这条证据
-      </label>
-      <Field label="研究批注">
-        <textarea
-          rows={5}
-          maxLength={2000}
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-        />
-      </Field>
-      <button disabled={saving}>保存到我的研究</button>
-    </form>
-  );
+function Observations({ observations, sources }: { observations: PublicContent["observations"]; sources: CollectionSource[] }) {
+  const [open, setOpen] = useState(false);
+  return <details onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>采集记录</summary>
+    {open && <>
+      <LazyChart kind="observations" observations={observations} sources={new Map(sources.map(source => [source.id, source.label]))} />
+      <pre>{JSON.stringify(observations, null, 2)}</pre>
+    </>}
+  </details>;
 }

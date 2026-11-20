@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { sourceGroups, tierLabels, languages } from "../sourceLabels";
+import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import type { StoryEvidence, StoryFeed } from "../../../../packages/contracts/src/content-stories";
 import { api } from "../api";
@@ -7,19 +8,39 @@ import { Empty, Heading } from "../ui";
 
 const views = { latest: "最新", hot: "48 小时热度", digest: "08:00 日报" } as const;
 const badgeLabels = { surge: "飙升", rising: "升温", new: "新上榜" } as const;
-const sourceGroups = {
-  "ai-firsthand": "AI 一手与研发",
-  "dev-infra": "工程与基础",
-  "tech-media": "科技与数码",
-  lifestyle: "生活与旅行",
-  "design-visual": "设计与视觉",
-  science: "科研与科普",
-  "public-affairs": "公共与文化",
-  "social-trends": "热榜与泛娱乐",
-} as const;
-const tierLabels = { T1: "T1 · 官方一手", T1_5: "T1_5 · 主创", T2: "T2 · 媒体与社区" } as const;
-const languages = { zh: "中文", en: "English", ja: "日本語", ko: "한국어" } as const;
 const time = new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Shanghai" });
+
+function StoryMicrocharts({ story }: { story: StoryFeed["items"][number] }) {
+  const { tierBreakdown, sparkline48h } = story;
+  if (!tierBreakdown || sparkline48h?.length !== 8) return null;
+  const tiers = ["T1", "T1_5", "T2"] as const;
+  const total = tiers.reduce((sum, tier) => sum + tierBreakdown[tier], 0);
+  const peak = Math.max(...sparkline48h, 0.01);
+  const points = sparkline48h.map((value, index) => `${2 + index * 12},${14 - 12 * value / peak}`).join(" ");
+  return <div className="story-microcharts">
+    {total > 0 && <span>
+      <span aria-hidden="true">来源分布</span>
+      <svg width="72" height="16" viewBox="0 0 72 16" role="img"
+        aria-label={`来源分布：${tiers.map(tier => `${tier} ${tierBreakdown[tier]}`).join("，")}`}>
+        <title>{tiers.map(tier => `${tier}：${tierBreakdown[tier]}`).join("，")}</title>
+        {tiers.map((tier, index) => (
+          <rect key={tier} className={`story-tier-${tier.toLowerCase()}`}
+            x={72 * tiers.slice(0, index).reduce((sum, earlier) => sum + tierBreakdown[earlier], 0) / total}
+            y="5" width={72 * tierBreakdown[tier] / total} height="6" />
+        ))}
+      </svg>
+    </span>}
+    <span>
+      <span aria-hidden="true">48 小时热度</span>
+      <svg width="88" height="16" viewBox="0 0 88 16" role="img"
+        aria-label={`已采样热度，从早到晚每 6 小时：${sparkline48h.map(value => value.toFixed(2)).join("，")}`}>
+        <title>已采样热度 · 每 6 小时</title>
+        <path className="story-chart-guide" d="M2 14H86" />
+        <polyline className="story-chart-line" points={points} fill="none" strokeWidth="1.5" strokeLinejoin="round" />
+      </svg>
+    </span>
+  </div>;
+}
 
 function EvidenceLink({ item }: { item: StoryEvidence }) {
   return item.url && /^https?:\/\//i.test(item.url)
@@ -29,6 +50,54 @@ function EvidenceLink({ item }: { item: StoryEvidence }) {
 
 export default function Stories() {
   const [params, setParams] = useSearchParams();
+  const list = useRef<HTMLDivElement>(null);
+  const saving = useRef(false);
+  const client = useQueryClient();
+  const [saveStatus, setSaveStatus] = useState("");
+  useEffect(() => {
+    const keyboard = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.isComposing ||
+        document.querySelector('[role="dialog"], dialog[open]') ||
+        (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable]"))) return;
+      const key = event.key.toLowerCase();
+      if (!["j", "k", "o", "s", "m"].includes(key)) return;
+      const cards = [...(list.current?.querySelectorAll<HTMLElement>("article[data-content-id]") ?? [])];
+      if (!cards.length) return;
+      const index = cards.findIndex(card => card.contains(document.activeElement));
+      if (key === "j" || key === "k") {
+        event.preventDefault();
+        const next = index < 0 ? (key === "j" ? 0 : cards.length - 1) : index + (key === "j" ? 1 : -1);
+        cards[Math.max(0, Math.min(cards.length - 1, next))].focus();
+        return;
+      }
+      if (index < 0 || event.repeat) return;
+      const card = cards[index];
+      event.preventDefault();
+      if (key === "o") card.querySelector<HTMLAnchorElement>("h2 a")?.click();
+      if (key === "m") card.querySelector<HTMLElement>("summary")?.click();
+      if (key === "s" && !saving.current) {
+        saving.current = true;
+        const id = card.dataset.contentId!;
+        const path = `/workspace/annotations/${id}`;
+        void (async () => {
+          try {
+            const { annotation } = await api<{ annotation: { note: string; revision: number; favorite: boolean } | null }>(path);
+            if (!annotation?.favorite) await api(path, {
+              method: "PUT",
+              body: JSON.stringify({ note: annotation?.note ?? "", revision: annotation?.revision ?? 0, favorite: true }),
+            });
+            await client.invalidateQueries({ queryKey: ["annotations"] });
+            await client.invalidateQueries({ queryKey: ["annotation", id] });
+            setSaveStatus("已收藏到我的研究。");
+          } catch (error) {
+            setSaveStatus(error instanceof Error ? error.message : "收藏失败，请重试。");
+          } finally { saving.current = false; }
+        })();
+      }
+    };
+    window.addEventListener("keydown", keyboard);
+    return () => window.removeEventListener("keydown", keyboard);
+  }, [client]);
   const tab = params.get("view");
   const view = tab === "hot" || tab === "digest" ? tab : "latest";
   const date = view === "digest" ? params.get("date") : null;
@@ -122,10 +191,11 @@ export default function Stories() {
       </div>
       {view === "digest" && copyStatus && <p role="status">{copyStatus}</p>}
       {!feed.data.items.length && <Empty>这个时段暂无事件。</Empty>}
-      <div className="content-list">
+      {saveStatus && <p role="status">{saveStatus}</p>}
+      <div className="content-list" ref={list}>
         {feed.data.items.map(story => {
           const item = story.representative;
-          return <article className="content-row story-card" key={story.storyKey}>
+          return <article className="content-row story-card" key={story.storyKey} tabIndex={-1} data-content-id={item.id}>
             <div className="content-meta">
               <span>{item.tier}</span><span>{item.sourceLabel}</span>
               {item.author && item.author !== item.sourceLabel && <span>{item.author}</span>}
@@ -143,6 +213,7 @@ export default function Stories() {
                 {story.badges.map(badge => <span className="badge" key={badge}>{badgeLabels[badge]}</span>)}
               </>}
             </div>
+            <StoryMicrocharts story={story} />
             {story.relatedCount > 0 && <details>
               <summary>{view === "digest" ? "当日进展" : "相关报道"}（{story.relatedCount}）</summary>
               <ul>{story.related.map(related => <li key={related.id}>

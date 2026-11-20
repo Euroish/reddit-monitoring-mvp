@@ -1,13 +1,13 @@
 :root {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  color: #272b2a;
-  background: #f7f8f5;
+  color: #20271f;
+  background: #f7f8f4;
   font-synthesis: none;
   font-weight: 400;
   line-height: 1.6;
-  --accent: #286550;
-  --line: #e2e6df;
-  --muted: #626b64;
+  --accent: #1f7471;
+  --line: #e3e6dc;
+  --muted: #59645c;
 }
 * {
   box-sizing: border-box;
@@ -823,6 +823,8 @@ summary {
 }
 
 .story-tabs {
+  flex-direction: row;
+  justify-content: flex-start;
   margin-bottom: 20px;
 }
 
@@ -967,3 +969,74 @@ h1 {
   font-size: 12px;
   color: #a24c33;
 }
+
+.story-microcharts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.story-microcharts > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.story-tier-t1 { fill: var(--accent); }
+.story-tier-t1_5 { fill: #527bc5; }
+.story-tier-t2 { fill: #d68245; }
+.story-chart-guide { stroke: var(--line); }
+.story-chart-line { stroke: var(--accent); }
+
+.analysis-chart {
+  width: 100%;
+  min-width: 0;
+  height: 260px;
+}
+
+.workbench-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.workbench-controls button { padding: 4px 8px; }
+.command-menu {
+  width: min(26rem, calc(100% - 2rem));
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: inherit;
+}
+.command-menu::backdrop { background: rgb(32 39 31 / 40%); }
+.command-menu form { text-align: right; }
+.command-menu ul { list-style: none; padding: 0; }
+.command-menu a { display: block; padding: 6px 0; }
+
+@media (min-width: 651px) {
+  .shell-collapsed .sidebar { width: 64px; padding-inline: 8px; }
+  .shell-collapsed .main { margin-left: 64px; width: calc(100% - 64px); }
+  .shell-collapsed .brand > span,
+  .shell-collapsed .sidebar nav a > span,
+  .shell-collapsed .identity { display: none; }
+  .shell-collapsed .sidebar nav a { justify-content: center; padding-inline: 0; }
+}
+@media (max-width: 650px) {
+  .workbench-controls .sidebar-toggle { display: none; }
+}
+
+.story-card:focus { outline: 2px solid var(--accent); scroll-margin-block: 148px 20px; }
+
+.quota-meters { list-style: none; padding: 0; font-variant-numeric: tabular-nums; }
+.quota-meters li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(3rem, 30%); align-items: center; gap: 8px; }
+.quota-meters meter { width: 100%; accent-color: var(--accent); }
+
+.facet-picker { display: grid; gap: 4px; max-width: 22rem; font-size: 12px; }

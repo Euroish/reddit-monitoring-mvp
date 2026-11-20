@@ -6,8 +6,10 @@ import { mkdir } from "node:fs/promises";
 import test from "node:test";
 import { chromium } from "playwright";
 import { buildApp } from "../../apps/api/src/app";
+import { commitContentBatch, prepareContentBatch } from "../../src/modules/content/sql";
+import { transaction } from "../../src/storage/db";
 import { bootstrapOwner } from "../../src/modules/access/sql";
-import { batchItem } from "../helpers/content-batch-fixtures";
+import { BATCH_NOW, batchItem } from "../helpers/content-batch-fixtures";
 import { testDatabase } from "../helpers/database";
 
 async function freePort() {
@@ -31,6 +33,10 @@ test("browser: keyboard login, six navigation entries, saved query and responsiv
     sessionSecret: "synthetic-secret-".repeat(3),
     origin,
     secureCookies: false,
+  });
+  const serverErrors: string[] = [];
+  app.addHook("onError", async (_request, _reply, error) => {
+    serverErrors.push(error.message);
   });
   const address = await app.listen({ host: "127.0.0.1", port: 0 });
   t.after(() => app.close());
@@ -92,7 +98,12 @@ test("browser: keyboard login, six navigation entries, saved query and responsiv
   });
   t.after(() => browser.close());
   const page = await browser.newPage();
+  page.setDefaultTimeout(12_000);
   const errors: string[] = [];
+  const scripts: string[] = [];
+  page.on("request", request => {
+    if (request.resourceType() === "script") scripts.push(request.url());
+  });
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(origin);
   assert.equal(await page.title(), "信号研究");
@@ -101,6 +112,20 @@ test("browser: keyboard login, six navigation entries, saved query and responsiv
   await page.keyboard.type("fixture-password-123");
   await page.keyboard.press("Enter");
   await page.getByRole("heading", { name: "最新" }).waitFor();
+  assert.ok(scripts.every(url => !/charts-|echarts|AnalysisChart/.test(url)));
+  await page.getByRole("button", { name: "快速导航" }).focus();
+  await page.keyboard.press("Control+k");
+  const palette = page.getByRole("dialog", { name: "快速导航" });
+  await palette.waitFor();
+  await palette.getByRole("textbox", { name: "查找页面" }).fill("来源");
+  assert.equal(await palette.getByRole("link").count(), 1);
+  await page.keyboard.press("Escape");
+  await palette.waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "快速导航" }).focus();
+  await page.keyboard.press("[");
+  await page.getByRole("button", { name: "展开侧栏" }).waitFor();
+  await page.keyboard.press("[");
+  await page.getByRole("button", { name: "折叠侧栏" }).waitFor();
   const views = page.getByRole("navigation", { name: "信息流视图" });
   await views.getByRole("link", { name: "48 小时热度" }).click();
   await page.getByRole("heading", { name: "48 小时热度" }).waitFor();
@@ -123,12 +148,14 @@ test("browser: keyboard login, six navigation entries, saved query and responsiv
   const sourceId = (await sourceResponse.json()).sources[0].id;
   const item = batchItem(sourceId, {
     title: "研究证据",
+    publishedAt: BATCH_NOW,
     text: "来自内部样本的讨论证据。",
   });
   item.observation.provider = "external_ingest";
   const comment = batchItem(sourceId, {
     externalId: "t1_browsercomment12345",
     kind: "comment",
+    publishedAt: BATCH_NOW,
     title: null,
     text: "内部讨论的补充评论。",
     references: [
@@ -204,11 +231,28 @@ test("browser: keyboard login, six navigation entries, saved query and responsiv
   await page.getByRole("button", { name: "保存项目", exact: true }).click();
   await page.getByText("· 包含导入样本", { exact: false }).waitFor();
   assert.equal(await page.locator(".big-number").innerText(), "1");
-  await page.getByRole("link", { name: "查看项目内容" }).click();
+  await page.getByRole("img", { name: "按日与平台的内容量" }).locator("canvas").waitFor();
+  await page.getByLabel("按日期与平台查看内容").selectOption("0");
+  await page.waitForURL(url => url.searchParams.has("from") && url.searchParams.get("platform") === "reddit");
+  const facetsResponse = page.waitForResponse(response => new URL(response.url()).pathname === "/api/v1/content/facets");
+  await page.getByRole("button", { name: "分析内容" }).click();
+  const facetResult = await facetsResponse;
+  assert.equal(facetResult.status(), 200, [await facetResult.text(), ...serverErrors].join("\n"));
+  await page.getByRole("img", { name: "按日与平台的内容量" }).locator("canvas").waitFor();
   await page.getByRole("button", { name: /研究证据/ }).click();
   await page.getByRole("button", { name: "展开评论树" }).click();
   await page.getByRole("button", { name: "命中", exact: true }).click();
   await page.getByText("内部讨论的补充评论。", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "楼主", exact: true }).click();
+  await page.getByText("当前视图没有评论。").waitFor();
+  await page.getByRole("button", { name: "高赞", exact: true }).click();
+  await page.getByRole("button", { name: "评论笔记" }).click();
+  const commentEditor = page.locator(".annotation").filter({ hasText: "内部讨论的补充评论。" });
+  await commentEditor.getByLabel("研究批注").fill("独立评论笔记");
+  await commentEditor.getByRole("button", { name: "保存到我的研究" }).click();
+  await commentEditor.getByRole("button", { name: "保存到我的研究" }).waitFor();
+  await page.getByText("采集记录", { exact: true }).click();
+  await page.getByRole("img", { name: "采集指标时间序列" }).locator("canvas").waitFor();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "保存查询", exact: true }).click();
   await page.getByLabel("查询名称").fill("项目讨论证据");
@@ -216,6 +260,30 @@ test("browser: keyboard login, six navigation entries, saved query and responsiv
   const projectDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "下载当前结果" }).click();
   assert.equal((await projectDownload).suggestedFilename(), "content.json");
+  const { rows: storySources } = await db.pool.query<{ id: string; platform_id: string }>(`
+    INSERT INTO collection_source(id,platform_id,primary_provider,label,target,content_kind,delivery_mode,tier,created_at,updated_at)
+    SELECT gen_random_uuid(),id,'kaix',label,jsonb_build_object('type','search','query',label),'post','pull',tier,now(),now()
+    FROM source CROSS JOIN (VALUES ('研发团队','T1'),('开发者社区','T1_5'),('行业媒体','T2')) fixture(label,tier)
+    WHERE code='reddit' RETURNING id,platform_id`);
+  const fetchedAt = new Date(Date.now() - 60_000).toISOString();
+  const storyTitle = "研发团队发布多语言检索工具";
+  await transaction(db.pool, async client => {
+    for (const [index, source] of storySources.entries()) {
+      const story = batchItem(source.id, {
+        externalId: `t3_uistory${index}`,
+        title: storyTitle,
+        language: "zh",
+        text: "新版工具支持中文短词检索，并公开了用于复现结果的评估样本。",
+        url: "https://example.com/multilingual-search",
+        publishedAt: new Date(Date.now() - [28, 9, 2][index] * 3600_000).toISOString(),
+        fetchedAt,
+      });
+      story.observation.fetchedAt = fetchedAt;
+      await commitContentBatch(client, {
+        id: source.id, platformId: source.platform_id, platform: "reddit", provider: "kaix", contentKinds: ["post"],
+      }, prepareContentBatch([story]), fetchedAt);
+    }
+  });
   await mkdir("output/validation/kernel", { recursive: true });
   for (const viewport of [
     { width: 1440, height: 900 },
@@ -241,6 +309,25 @@ test("browser: keyboard login, six navigation entries, saved query and responsiv
       path: `output/validation/kernel/workbench-${viewport.width}.png`,
       fullPage: true,
     });
+    await page.goto(`${origin}/?language=zh`);
+    if (viewport.width === 1440) {
+      const tabRows = await page.getByRole("navigation", { name: "信息流视图" }).getByRole("link")
+        .evaluateAll(links => links.map(link => link.getBoundingClientRect().top));
+      assert.equal(new Set(tabRows).size, 1);
+    }
+    const storyCard = page.getByRole("article").filter({ hasText: storyTitle });
+    await storyCard.getByRole("img", { name: /来源分布.*T1 1.*T1_5 1.*T2 1/ }).waitFor();
+    await storyCard.getByRole("img", { name: /已采样热度/ }).waitFor();
+    await page.keyboard.press("j");
+    assert.equal(await storyCard.evaluate(card => card === document.activeElement), true);
+    await page.keyboard.press("m");
+    assert.ok(await storyCard.locator("details").evaluate(details => details.hasAttribute("open")));
+    await page.keyboard.press("m");
+    assert.ok(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      `Stories at ${viewport.width}px overflow`,
+    );
+    await page.screenshot({ path: `output/validation/kernel/stories-${viewport.width}.png` });
   }
   assert.deepEqual(errors, []);
 });

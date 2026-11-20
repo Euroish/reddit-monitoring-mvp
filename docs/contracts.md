@@ -19,7 +19,9 @@
 
 - **`[LIVE]` `GET /v1/content/stories?view=latest\|hot\|digest`**：复用 `read` 权限与 `allowedSourceIds` 隔离；支持 `sourceId`、`platform`、`sourceGroup`、`tier`、`language`、`date`（`YYYY-MM-DD`，仅 `digest`）与 `limit`（`1..50`，默认 `20`）。默认全范围在 `30s` 槽内共享聚合并在异常时驱逐坏槽；附带过滤或受限机器 Key 走独立精确查询。
 - **`[LIVE]` 归组与热度算法**：基于规范 URL（arXiv、GitHub Release/Issue 等）+ 标题词项 + 数字版本分桶 + 64-bit SimHash（4×16-bit LSH）聚簇；代表选举按 **`T1 > T1_5 > T2` → 英文原题优先 → 有正文 → 发布/发现时间**；返回代表报道与最多 6 条 `related`。48h 热度按独立主体计最大衰减权重（`T1=3.0`/`T1_5=2.0`/`T2=1.0`，24h 半衰期）；仅两端存在可比源（非逾期停采且接入 `>=6h`）才输出 `trend: up\|down\|flat\|new`，否则返回 `trend: 'unknown'`。
-- **`[V2 Phase A 增补]`**：`readStoryWindow` 在不改表下随响应返回 `tierBreakdown: { T1, T1_5, T2 }` 与 `sparkline48h`（8 个 6h 桶），直接供首页卡片 SVG 微图使用；`GET /v1/projects/:id/overview` `GROUPING SETS` 补齐 `(day, platform)` 分面。
+- **`[V2 Phase A 后端已实现，待发布]`**：事件响应的 `tierBreakdown` 按等级统计最近 48 小时簇内可见采集源 ID（各等级内去重）。`sparkline48h` 以响应 `to` 为终点，按从早到晚排列 8 个左闭右开的 6 小时桶。每桶按发布/发现时间归入截至 `to` 可见的证据，并用桶末时间计算衰减，每个独立主体取该桶最大权重。空桶为 0，表示已存样本无贡献。
+- **`[V2 Phase A 后端已实现，待发布]`**：`GET /v1/sources/budgets` 为管理员返回 UTC 日/月请求次数和预留记录数，供额度计量与告警使用。
+- **`[V2 Phase A 后端已实现，待发布]`**：专题概览新增 `dayPlatformFacets: [{ day, platform, count, matchedContentCount }]`，使用 UTC 日界线，与现有分面共享采集范围及讨论串去重口径。仅返回存在命中且日期已知的日与平台组合。
 
 ---
 

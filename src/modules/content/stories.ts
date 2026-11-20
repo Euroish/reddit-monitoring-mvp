@@ -46,6 +46,29 @@ function participantHeat(group: Entry[], at: number, comparable: boolean) {
   return { count: contributions.size, heat: [...contributions.values()].reduce((sum, score) => sum + score, 0) };
 }
 
+function storyMicrocharts(group: Entry[], to: number) {
+  const from = to - 48 * hour;
+  const bucketDuration = 6 * hour;
+  const sources = { T1: new Set<string>(), T1_5: new Set<string>(), T2: new Set<string>() };
+  const buckets = Array.from({ length: 8 }, () => new Map<string, number>());
+  for (const item of group) {
+    for (const row of item.discoveries) {
+      const time = row.event_at.getTime();
+      if (time < from || time >= to) continue;
+      sources[row.tier].add(row.source_id);
+      const index = Math.floor((time - from) / bucketDuration);
+      const bucketEnd = from + (index + 1) * bucketDuration;
+      const score = tierWeight[row.tier] * 0.5 ** ((bucketEnd - time) / (24 * hour));
+      const bucket = buckets[index];
+      bucket.set(row.participant, Math.max(bucket.get(row.participant) ?? 0, score));
+    }
+  }
+  return {
+    tierBreakdown: { T1: sources.T1.size, T1_5: sources.T1_5.size, T2: sources.T2.size },
+    sparkline48h: buckets.map(bucket => [...bucket.values()].reduce((sum, score) => sum + score, 0)),
+  };
+}
+
 function dateWindow(query: Query, now: number) {
   const view = query.view ?? "latest";
   if (query.date && view !== "digest") fail(422, "date is only available for the digest");
@@ -133,6 +156,7 @@ export async function readStoryWindow(pool: Pool | PoolClient, actor: Actor, que
     const story: StoryFeed["items"][number] = {
       storyKey: group[0].id, representative: representative.evidence, excerpt: representative.excerpt,
       related: related.slice(0, 6).map(item => item.evidence), relatedCount: related.length,
+      ...storyMicrocharts(active, to),
       sourceCount: current.count, heat48h: current.heat, change6h: change, trend, badges: badge ? [badge] : [], updatedAt,
     };
     return [story];

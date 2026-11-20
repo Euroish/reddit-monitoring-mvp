@@ -147,6 +147,8 @@ test("visible story evidence selects the best tier, deduplicates owners and roll
   assert.equal(event.representative.tier, "T1");
   assert.equal(event.relatedCount, 2);
   assert.equal(event.sourceCount, 2);
+  assert.deepEqual(event.tierBreakdown, { T1: 1, T1_5: 1, T2: 1 });
+  assert.deepEqual(event.sparkline48h, [0, 0, 0, 0, 0, 0, 3 * 0.5 ** (3 / 24), 0.5 ** (2 / 24)]);
   assert.ok(Math.abs(event.heat48h - (3 * 0.5 ** (9 / 24) + 0.5 ** (2 / 24))) < 1e-8);
   assert.equal(event.trend, "up");
   assert.equal(hot.items.length, 3);
@@ -154,8 +156,11 @@ test("visible story evidence selects the best tier, deduplicates owners and roll
   assert.equal(latest.items[0].representative.title, "Acme releases Atlas 9 for local developers");
   const restricted = selectStoryFeed(await readStoryWindow(db.pool, { ...actor, allowedSourceIds: [media] }, { view: "hot" }, at), "hot", 20);
   assert.equal(restricted.items[0].representative.tier, "T2");
-  assert.equal(restricted.items.find(item => item.representative.title === "Acme 发布 Orbit 2")?.sourceCount, 1);
+  const restrictedOrbit = restricted.items.find(item => item.representative.title === "Acme 发布 Orbit 2");
+  assert.equal(restrictedOrbit?.sourceCount, 1);
   assert.ok(restricted.items.every(item => !item.relatedCount));
+  assert.ok(restricted.items.every(item => item.tierBreakdown.T1 === 0 && item.tierBreakdown.T1_5 === 0));
+  assert.deepEqual(restrictedOrbit?.sparkline48h, [0, 0, 0, 0, 0, 0, 0, 0.5 ** (2 / 24)]);
   const digest = selectStoryFeed(await readStoryWindow(db.pool, actor, { view: "digest" }, at + h), "digest", 20);
   assert.equal(digest.to, ago(0));
   assert.equal(digest.from, ago(24));
@@ -223,6 +228,8 @@ test("stories and content endpoints filter cleanly by sourceGroup, tier and lang
   const aiStories = await app.inject({ url: "/v1/content/stories?sourceGroup=ai-firsthand&tier=T1&language=en", headers });
   assert.equal(aiStories.statusCode, 200, aiStories.body);
   assert.deepEqual(aiStories.json().items.map((x: { representative: { title: string } }) => x.representative.title), ["New Model Launch"]);
+  assert.deepEqual(aiStories.json().items[0].tierBreakdown, { T1: 1, T1_5: 0, T2: 0 });
+  assert.equal(aiStories.json().items[0].sparkline48h.length, 8);
   const zhMedia = await app.inject({ url: "/v1/content?sourceGroup=lifestyle&language=zh&hasMedia=false", headers });
   assert.equal(zhMedia.statusCode, 200, zhMedia.body);
   assert.deepEqual(zhMedia.json().items.map((x: { title: string; language: string }) => [x.title, x.language]), [["家庭料理指南", "zh"]]);

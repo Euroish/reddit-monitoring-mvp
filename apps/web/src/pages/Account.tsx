@@ -17,6 +17,7 @@ const scopeLabels: Record<(typeof Scopes)[number], string> = {
 };
 export default function Account({ run, user }: { run: Run; user: Actor }) {
   const [token, setToken] = useState("");
+  const [copyStatus, setCopyStatus] = useState("");
   const sources = useQuery({
     queryKey: ["sources"],
     queryFn: () => api<{ sources: CollectionSource[] }>("/sources"),
@@ -56,6 +57,7 @@ export default function Account({ run, user }: { run: Run; user: Actor }) {
                   }),
                 });
                 setToken(result.token);
+                setCopyStatus("");
               });
             }}
           >
@@ -86,6 +88,15 @@ export default function Account({ run, user }: { run: Run; user: Actor }) {
             <div role="status" className="token">
               <p>请保存此密钥（30 天后过期）</p>
               <code>{token}</code>
+              <button onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(token);
+                  setCopyStatus("已复制密钥。");
+                } catch {
+                  setCopyStatus("无法访问剪贴板，请手动复制。");
+                }
+              }}>复制密钥</button>
+              {copyStatus && <p>{copyStatus}</p>}
               <button onClick={() => setToken("")}>已保存，隐藏</button>
             </div>
           )}

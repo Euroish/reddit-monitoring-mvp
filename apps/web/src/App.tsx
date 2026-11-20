@@ -1,18 +1,31 @@
-import { useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Radar, Library, Radio, Bookmark, Settings, X } from "lucide-react";
 import type { Actor } from "../../../packages/contracts/src/source-content";
 import { api, type Run } from "./api";
 import { Field, Empty } from "./ui";
-import Projects from "./pages/Projects";
-import ContentLibrary from "./pages/ContentLibrary";
 import Stories from "./pages/Stories";
-import Sources from "./pages/Sources";
-import Workspace from "./pages/Workspace";
-import Account from "./pages/Account";
+import WorkbenchControls from "./WorkbenchControls";
+
+const Projects = lazy(() => import("./pages/Projects"));
+const ContentLibrary = lazy(() => import("./pages/ContentLibrary"));
+const Sources = lazy(() => import("./pages/Sources"));
+const Workspace = lazy(() => import("./pages/Workspace"));
+const Account = lazy(() => import("./pages/Account"));
+const navigation = [
+  { path: "/", label: "最新", Icon: Library },
+  { path: "/projects", label: "项目", Icon: Radar },
+  { path: "/content", label: "内容库", Icon: Library },
+  { path: "/sources", label: "来源", Icon: Radio },
+  { path: "/workspace", label: "我的研究", Icon: Bookmark },
+  { path: "/settings", label: "设置", Icon: Settings },
+] as const;
+
 export default function App() {
   const client = useQueryClient();
+  const [collapsed, setCollapsed] = useState(false);
+  const toggleSidebar = useCallback(() => setCollapsed(value => !value), []);
   const session = useQuery({
     queryKey: ["session"],
     queryFn: () => api<{ user: Actor | null }>("/auth/session"),
@@ -89,7 +102,7 @@ export default function App() {
     );
   const user = session.data.user;
   return (
-    <div className="shell" aria-busy={busy}>
+    <div className={collapsed ? "shell shell-collapsed" : "shell"} aria-busy={busy}>
       <aside className="sidebar">
         <NavLink to="/" className="brand">
           <Radar />
@@ -98,19 +111,10 @@ export default function App() {
           </span>
         </NavLink>
         <nav aria-label="主导航">
-          {(
-            [
-              ["/", "最新", Library],
-              ["/projects", "项目", Radar],
-              ["/content", "内容库", Library],
-              ["/sources", "来源", Radio],
-              ["/workspace", "我的研究", Bookmark],
-              ["/settings", "设置", Settings],
-            ] as const
-          ).map(([to, label, Icon]) => (
-            <NavLink key={String(to)} to={String(to)} end>
+          {navigation.map(({ path, label, Icon }) => (
+            <NavLink key={path} to={path} end aria-label={label} title={label}>
               <Icon size={19} />
-              <span>{String(label)}</span>
+              <span>{label}</span>
             </NavLink>
           ))}
         </nav>
@@ -127,7 +131,7 @@ export default function App() {
           <span>
             <i /> 个人研究空间
           </span>
-          <span>以已存样本为依据</span>
+          <WorkbenchControls routes={navigation} collapsed={collapsed} onToggle={toggleSidebar} admin={user.role !== "viewer"} />
         </div>
         {message && (
           <div role="alert" className="alert">
@@ -137,6 +141,7 @@ export default function App() {
             </button>
           </div>
         )}
+        <Suspense fallback={<p role="status">正在加载页面…</p>}>
         <Routes>
           <Route path="/" element={<Stories />} />
           <Route
@@ -155,6 +160,7 @@ export default function App() {
             element={<Empty>页面不存在。请从左侧导航继续。</Empty>}
           />
         </Routes>
+        </Suspense>
       </main>
     </div>
   );

@@ -8,6 +8,7 @@ import { compileContentFilter, matchingNodes } from "./search";
 type Facets = Static<typeof ContentFacets>;
 type FacetRow = {
   bucket: Date | null;
+  grouping: number;
   platform: Facets["distributions"]["platforms"][number]["platform"] | null;
   kind: Facets["distributions"]["kinds"][number]["kind"] | null;
   count: string;
@@ -31,22 +32,37 @@ export async function contentFacets(pool: Pool | PoolClient, actor: Actor, query
         platform, kind, anchor_id
       FROM (${matchingNodes(compiled, threadAware)}) matched
     )
-    SELECT bucket, platform, kind, ${threadAware ? "COUNT(DISTINCT anchor_id)" : "COUNT(*)"} AS count, COUNT(*) AS matched
+    SELECT bucket, platform, kind, GROUPING(bucket, platform, kind) AS grouping, ${threadAware ? "COUNT(DISTINCT anchor_id)" : "COUNT(*)"} AS count, COUNT(*) AS matched
     FROM matches
     GROUP BY GROUPING SETS ((), (bucket), (bucket, platform), (platform), (kind))
-    ORDER BY bucket NULLS FIRST, platform NULLS FIRST, kind NULLS FIRST`, compiled.values);
+    ORDER BY grouping DESC, bucket, platform, kind`, compiled.values);
 
-  const [total, ...groups] = rows;
-  const timeline: Facets["timeline"] = [];
+  const timeline = new Map<string, Facets["timeline"][number]>();
   const distributions: Facets["distributions"] = { platforms: [], kinds: [] };
-  for (const row of groups) {
+  let total = { count: 0, matchedContentCount: 0 };
+  for (const row of rows) {
     const counts = { count: Number(row.count), matchedContentCount: Number(row.matched) };
-    if (row.bucket) {
-      // The bucket total sorts before its platform rows.
-      if (row.platform) timeline.at(-1)!.byPlatform.push({ platform: row.platform, ...counts });
-      else timeline.push({ bucket: row.bucket.toISOString(), byPlatform: [], ...counts });
-    } else if (row.platform) distributions.platforms.push({ platform: row.platform, ...counts });
-    else if (row.kind) distributions.kinds.push({ kind: row.kind, ...counts });
+    switch (row.grouping) {
+      case 7: // Grand total.
+        total = counts;
+        break;
+      case 3: // Bucket total.
+        if (row.bucket) {
+          const bucket = row.bucket.toISOString();
+          timeline.set(bucket, { bucket, byPlatform: [], ...counts });
+        }
+        break;
+      case 1: // Bucket and platform.
+        if (row.bucket && row.platform)
+          timeline.get(row.bucket.toISOString())?.byPlatform.push({ platform: row.platform, ...counts });
+        break;
+      case 5: // Platform total.
+        if (row.platform) distributions.platforms.push({ platform: row.platform, ...counts });
+        break;
+      case 6: // Kind total.
+        if (row.kind) distributions.kinds.push({ kind: row.kind, ...counts });
+        break;
+    }
   }
-  return { count: Number(total.count), matchedContentCount: Number(total.matched), timeline, distributions, coverage: "stored_sample" };
+  return { ...total, timeline: [...timeline.values()], distributions, coverage: "stored_sample" };
 }

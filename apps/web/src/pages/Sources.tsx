@@ -1,3 +1,4 @@
+import { sourceGroups, tierLabels, languages } from "../sourceLabels";
 import { useState, useRef, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Radio } from "lucide-react";
@@ -11,6 +12,7 @@ import type {
 import { webBoards } from "../../../../packages/contracts/src/web-boards";
 import { Field, Heading, Empty } from "../ui";
 import { api, type Run } from "../api";
+import { providerBudgetQuery, quotaFields } from "../budgets";
 
 const budgetFields = {
   daily_requests: ["dailyRequests", "每日请求"],
@@ -19,19 +21,6 @@ const budgetFields = {
   monthly_resources: ["monthlyResources", "每月记录额度"],
   minimum_interval_ms: ["minimumIntervalMs", "最短请求间隔（毫秒）"],
 } as const;
-const tierLabels = { T1: "T1 · 官方一手", T1_5: "T1_5 · 主创", T2: "T2 · 媒体与社区" } as const;
-const sourceGroups = {
-  "ai-firsthand": "AI 一手与研发",
-  "dev-infra": "工程与基础",
-  "tech-media": "科技与数码",
-  lifestyle: "生活与旅行",
-  "design-visual": "设计与视觉",
-  science: "科研与科普",
-  "public-affairs": "公共与文化",
-  "social-trends": "热榜与泛娱乐",
-} as const;
-const languages = { zh: "中文", en: "English", ja: "日本語", ko: "한국어" } as const;
-type Budget = { provider: string; enabled: boolean; revision: number } & Record<keyof typeof budgetFields, number>;
 type ImportError = string | { index?: number; label?: string; url?: string; error?: string; message?: string };
 type ImportResult = { created: number | unknown[]; skipped: number | unknown[]; errors: ImportError[] | number };
 
@@ -89,9 +78,8 @@ export default function Sources({ run, canEdit }: { run: Run; canEdit: boolean }
   });
   const selected = allSources.find((source) => source.id === selectedId);
   const budgets = useQuery({
-    queryKey: ["provider-budgets"],
+    ...providerBudgetQuery,
     enabled: canEdit && selected?.deliveryMode === "pull",
-    queryFn: () => api<{ budgets: Budget[] }>("/sources/budgets"),
   });
   const budget = budgets.data?.budgets.find(({ provider }) => provider === selected?.primaryProvider);
   const jobs = useQuery({
@@ -590,6 +578,16 @@ export default function Sources({ run, canEdit }: { run: Run; canEdit: boolean }
             )}
             {budget && <details>
               <summary>供应商预算 · {budget.provider}</summary>
+              {budget.enabled && <ul className="quota-meters">
+                {quotaFields.map(([limitKey, usageKey, label]) => {
+                  const used = budget[usageKey], limit = budget[limitKey];
+                  if (used === undefined) return null;
+                  return <li key={limitKey}>
+                    <span>{label} · {used.toLocaleString()} / {limit.toLocaleString()}</span>
+                    {limit > 0 && <meter aria-label={label} max={limit} value={Math.min(used, limit)} />}
+                  </li>;
+                })}
+              </ul>}
               <form key={`${budget.provider}:${budget.revision}`} onSubmit={(event) => {
                 event.preventDefault();
                 const form = new FormData(event.currentTarget);

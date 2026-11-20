@@ -31,7 +31,7 @@
 
 - **已修复项**：`BUG-01..06`（`047..050` + `8e436ac`）及后续代码/文档漂移加固（`check-docs <= 50` 守卫、`app.ts` `/v1/content/*` 方法门控、`search.ts` `LEFT JOIN` 防冷删隐身、`docker-compose.yml` 透传 `WORKER_CONCURRENCY`）。
 - **当前 `[V2]` 开放缺口**：
-  1. 前端仍为 104 KB 极简运维样式，缺少首页卡片 SVG 微图、后端分面交互图与 `ThreadTreeView`；
+  1. 当前生产镜像仍使用上一版工作台；Phase A 的待发布实现见下文；
   2. `content_annotation` 无阅读水位线，`readStoryWindow` 尚未沉淀跨周事件成员归属，尚无 `stream_class` 使 L3 推流融入首页；
   3. 仅开通 3/7 个内置 `newsnow` 榜与 0 个 `bluesky` 源，尚未引入 `linkedom`/`Readability` 提取 RSS 原文与外链；
   4. `/v1/discovery/query` 与 `/v1/content/:id/enrich` 均未实现。
@@ -39,6 +39,8 @@
 ---
 
 ## 3. `[V2]` 四阶段纵深路线（Phase A – D，总表数严格 `20 → <= 24`）
+
+Phase A 待上线版本已实现故事卡微图与键盘速读、侧栏折叠与命令面板、采集告警与额度计量、内容库与专题的日 × 平台下钻、热度四象限、观测折线及评论三视图。无命中分面仅凭已存样本无法确认采集覆盖，显示斜线；0 仅用于服务端明确返回的零值。生产镜像状态仍以本页基线为准。
 
 | 阶段 | 核心交付切片 | 表数量与关键文件 | 完成验收门禁 |
 | :--- | :--- | :--- | :--- |

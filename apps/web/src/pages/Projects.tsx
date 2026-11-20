@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Radar, ArrowUpRight } from "lucide-react";
 import type { CollectionSource, Filter } from "../../../../packages/contracts/src/source-content";
 import { Field, Heading, Empty } from "../ui";
 import { api, type Run } from "../api";
+import PulseChart from "../components/PulseChart";
+import { dailyBuckets } from "../components/buckets";
 type Project = {
   id: string;
   name: string;
@@ -26,6 +28,7 @@ export default function Projects({
   run: Run;
   canEdit: boolean;
 }) {
+  const navigate = useNavigate();
   const projects = useQuery({
     queryKey: ["projects"],
     queryFn: () =>
@@ -49,6 +52,7 @@ export default function Projects({
       api<{
         contentCount: number;
         matchedContentCount: number;
+        dayPlatformFacets?: { day: string; platform: string; count: number; matchedContentCount: number }[];
         facets: {
           day_group: number;
           platform_group: number;
@@ -60,6 +64,26 @@ export default function Projects({
         }[];
       }>(`/projects/${selected}/overview`),
   });
+  const dated = overview.data?.facets.filter(facet => facet.day_group === 0 && facet.day) ?? [];
+  const samples = new Map<string, { platform: string; count: number }[]>();
+  for (const { day, platform, count } of overview.data?.dayPlatformFacets ?? []) {
+    const bucket = day.slice(0, 10);
+    if (!samples.has(bucket)) samples.set(bucket, []);
+    samples.get(bucket)!.push({ platform, count });
+  }
+  const last = Date.parse(dated.at(-1)?.day ?? "");
+  const buckets = samples.size ? dailyBuckets(
+    Math.max(last - 29 * 86_400_000, Date.parse(dated[0]?.day ?? "")),
+    last + 86_400_000,
+    [...samples].map(([bucket, byPlatform]) => ({ bucket, byPlatform })),
+  ) : [];
+  const drillDown = (from: string, platform?: string) => {
+    const to = new Date(Date.parse(from) + 86_400_000).toISOString();
+    const url = new URLSearchParams({ projectId: selected, from, to });
+    if (platform) url.set("platform", platform);
+    if (!project?.include_push_in_trends) url.set("deliveryMode", "pull");
+    return `/content?${url}`;
+  };
   return (
     <>
       <Heading title="监测项目" note="从一个明确的问题开始，持续整理相关证据。">
@@ -173,13 +197,14 @@ export default function Projects({
                 </span>
               ))}
           </div>
+          {buckets.length > 0 && <>
+            <p className="muted">UTC 日期 · 最近有样本的 30 天 · 斜线表示覆盖未知</p>
+            <PulseChart buckets={buckets} onPick={({ from, platform }) => navigate(drillDown(from, platform))} />
+          </>}
           <div className="facets" aria-label="按日命中">
-            {overview.data.facets.filter((facet) => facet.day_group === 0 && facet.day).map((facet) => {
+            {dated.slice(-30).map(facet => {
               const from = new Date(facet.day!).toISOString();
-              const to = new Date(Date.parse(from) + 86400000).toISOString();
-              const url = new URLSearchParams({ projectId: project.id, from, to });
-              if (!project.include_push_in_trends) url.set("deliveryMode", "pull");
-              return <Link key={from} to={`/content?${url}`}>{from.slice(0, 10)} · {facet.count}</Link>;
+              return <Link key={from} to={drillDown(from)}>{from.slice(0, 10)} · {facet.count}</Link>;
             })}
           </div>
           <div className="facets">
