@@ -12,6 +12,12 @@ import { accessRoutes } from "../../../src/modules/access/routes";
 import { jobRoutes } from "../../../src/modules/collection/jobs";
 import { refreshRoutes } from "../../../src/modules/collection/refresh";
 import { collectionRoutes } from "../../../src/modules/collection/routes";
+import {
+  createCredentialVault,
+  credentialRoutes,
+  type CredentialVault,
+} from "../../../src/modules/collection/credentials";
+import { policyRoutes } from "../../../src/modules/collection/policy";
 import { contentRoutes } from "../../../src/modules/content/routes";
 import { workspaceRoutes } from "../../../src/modules/workspace/routes";
 import { projectRoutes } from "../../../src/modules/projects/routes";
@@ -27,6 +33,7 @@ const PUBLIC_GUEST_ACTOR: Actor = {
   userId: "00000000-0000-0000-0000-000000000000",
   email: "",
   role: "viewer",
+  planTier: "free",
   clientKind: "browser",
   scopes: ["read"],
   allowedSourceIds: null,
@@ -46,6 +53,7 @@ export async function buildApp(options: {
   origin: string;
   secureCookies?: boolean;
   providers?: ContentProvider[];
+  credentialVault?: CredentialVault;
   logger?: boolean;
   rateLimitMax?: number;
   trustProxy?: false | 1;
@@ -179,11 +187,22 @@ export async function buildApp(options: {
       fail(403, "Same-origin request required");
     const actor = request.actor;
     if (!actor || publicRoute) return;
+    const viewerAllowedPost =
+      method === "POST" &&
+      [
+        "/v1/auth/logout",
+        "/v1/sources/:id/collect",
+        "/v1/sources/:id/refresh",
+        "/v1/projects/:id/hydrate",
+        "/v1/source-jobs/:id/cancel",
+        "/v1/source-jobs/:id/retry",
+        "/v1/source-jobs/:id/continue",
+      ].includes(route);
     if (
       actor.role === "viewer" &&
       !["GET", "HEAD"].includes(method) &&
       !route.startsWith("/v1/workspace/") &&
-      route !== "/v1/auth/logout"
+      !viewerAllowedPost
     )
       fail(403, "Administrator access required");
     if (actor.clientKind === "machine") {
@@ -220,6 +239,8 @@ export async function buildApp(options: {
       if (
         route.startsWith("/v1/access/") ||
         route.startsWith("/v1/workspace/") ||
+        route.startsWith("/v1/sources/credentials") ||
+        route.startsWith("/v1/quotas") ||
         (!scope && !["/v1/capabilities", "/v1/openapi.json"].includes(route)) ||
         (scope && !actor.scopes.includes(scope))
       )
@@ -235,6 +256,11 @@ export async function buildApp(options: {
     publicRead: Boolean(options.publicRead),
     publicRegistration: Boolean(options.publicRegistration),
   });
+  const vault =
+    options.credentialVault ??
+    createCredentialVault(options.pool, options.sessionSecret);
+  await credentialRoutes(app, vault);
+  await policyRoutes(app, options.pool, providers);
   await collectionRoutes(app, options.pool, providers);
   await refreshRoutes(app, options.pool, providers);
   await jobRoutes(app, options.pool);

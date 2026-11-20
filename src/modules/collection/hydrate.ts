@@ -5,6 +5,7 @@ import type { Actor, Hydrate } from "../../../packages/contracts/src/source-cont
 import { fail, transaction } from "../../storage/db";
 import { compileContentFilter, matchedAnchors } from "../content/search";
 import { projectSources } from "../projects/sql";
+import { admitViewerCollection } from "./policy";
 
 export async function enqueueHydration(pool: Pool, actor: Actor, projectId: string, key: string, input: Static<typeof Hydrate>) {
   const ids = [...input.contentIds].sort();
@@ -41,13 +42,25 @@ export async function enqueueHydration(pool: Pool, actor: Actor, projectId: stri
     if (roots.length !== ids.length) fail(422, "Select Reddit root posts with an active kaix source in this project");
     const jobIds = [];
     for (const root of roots) {
+      await admitViewerCollection(client, actor, {
+        provider: "kaix",
+        sourceId: root.source_id,
+        limit: input.maxCommentsPerPost,
+        resources: input.maxCommentsPerPost + 1,
+        includeComments: true,
+        maxCommentsPerPost: input.maxCommentsPerPost,
+      });
       const id = randomUUID();
       const request = { postId: root.external_id, includeComments: true, maxCommentsPerPost: input.maxCommentsPerPost };
       await client.query(`
         INSERT INTO source_collection_job(id,collection_source_id,status,purpose,operation,provider,from_at,to_at,
-          page_size,max_pages,next_run_at,created_at,request_key,payload_hash,request_json)
-        VALUES($1,$2,'queued','manual','hydrate','kaix',NOW()-interval '1 second',NOW(),$3,1,NOW(),NOW(),$4,$5,$6)`,
-        [id, root.source_id, input.maxCommentsPerPost, requestKey, hash, request]);
+          page_size,max_pages,next_run_at,created_at,request_key,payload_hash,request_json,
+          requested_by_user_id,requested_by_client_kind)
+        VALUES($1,$2,'queued','manual','hydrate','kaix',NOW()-interval '1 second',NOW(),$3,1,NOW(),NOW(),$4,$5,$6,$7,$8)`,
+        [
+          id, root.source_id, input.maxCommentsPerPost, requestKey, hash, request,
+          actor.userId, actor.clientKind,
+        ]);
       jobIds.push(id);
     }
     return { jobIds };

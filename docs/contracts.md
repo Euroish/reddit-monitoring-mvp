@@ -61,19 +61,19 @@
 | QRY-01 | MUST | `compileContentFilter` 编译权限交集、`sourceGroup`/`tier`/`language`/`hasMedia`、`from`/`to`（UTC 半开）、三段词与 `signal`（`discussion`\|`pain`）；`>=3` 连续字符走 `pg_trgm`，2 字中文/短代号走 `public_search_bigrams` GIN 后精确回表匹配；`[V2]` 引入 `stream_class` 前，默认流/趋势仅查 `pull`。 | 多维过滤与 GIN 命中 PG 测试 |
 | QRY-02 | MUST | 列表采用 Keyset Seek 游标并在范围/项目 `revision` 变化时返 `409 cursor_scope_changed`；`GET /v1/content/facets` 强校验正区间 `<=90` 天，单 CTE 输出 `day`\|`6h`、`byPlatform` 与 `kinds`。 | 游标与分面 PG 测试 |
 | QRY-03 | MUST | `threadAware=true` 归约至可见 `anchor`；`GET /v1/content/:id/thread?view=top\|matches\|op` 递归上限 32 跳、返回上限 200 节点；`[V2]` `POST /v1/project-comparisons` 仅基于 GIN 词项/项目对比内容量与事件热度，跨平台对比原分数返回 `422`。 | 嵌套闭包三视图 E2E |
-| SEC-01 | MUST | 主体分 `owner`/`admin`、`viewer` 与 `machine` API Key；作用域枚举 `read`、`sources:write`、`projects:write`、`collect`、`ingest`、`export`；**`/v1/content/*` 仅 `GET/HEAD` 映射为 `read` scope**，`machine` Key 禁访 `/v1/access/*` 与 `/v1/workspace/*`。 | 角色越权与 Scope 边界 E2E |
+| SEC-01 | MUST | 主体分 `owner`/`admin`、`viewer` 与 `machine` API Key；作用域枚举 `read`、`sources:write`、`projects:write`、`collect`、`ingest`、`export`；**`/v1/content/*` 仅 `GET/HEAD` 映射为 `read` scope**，`machine` Key 禁访 `/v1/access/*`、`/v1/workspace/*`、`/v1/sources/credentials*` 与 `/v1/quotas/*`；`viewer` 仅在 `plan_collection_policy` 显式授权与个人额度内可触发手动采集与本人任务控制。 | 角色越权与 Scope 边界 E2E |
 | OP-01 | MUST | 鉴权提供 `/v1/capabilities` 与 `/v1/openapi.json`；任何 AI/Agent 均把抓取正文视作不可信数据，且 `[V2]` 产费操作（含 `/content/:id/enrich` 与 `/discovery/query`）只接受浏览器管理员或专用受限写授权，严禁向只读 `read` Key 暴露。 | Capabilities 与安全边界测试 |
 | EXP-01 | MUST | `GET /v1/content/export?format=csv\|json` 默认 1 万、上限 5 万行，单进程单槽并发锁（冲突 `429 + Retry-After: 5`）、`30s` 超时、`REPEATABLE READ READ ONLY` + `pg-query-stream` 流式写出；JSON 尾块验真 `complete: true`，CSV 遵守 RFC 4180 并中和 `=+-@` 公式注入。 | 并发导出、断流与 CSV 注入测试 |
 
 ---
 
-## 3. 全量 HTTP 路由注册清单（`[LIVE]` 43 URL 路径 / 50 条 HTTP 操作）
+## 3. 全量 HTTP 路由注册清单（`[LIVE]` 随 `/v1/openapi.json` 导出）
 
-| 资源域 | `[LIVE]` 已注册并随 `/v1/openapi.json` 导出（共 43 路径 / 50 操作） | `[V2]` 规划增补路由（Phase A–D，当前未注册） |
+| 资源域 | `[LIVE]` 已注册并随 `/v1/openapi.json` 导出 | `[V2]` 规划增补路由（Phase B–D，当前未注册） |
 | :--- | :--- | :--- |
 | **系统与元信息 (4)** | `GET /healthz`、`GET /readyz`、`GET /v1/openapi.json`、`GET /v1/capabilities` | — |
-| **Access 鉴权 (8)** | `GET /v1/auth/session`、`POST /v1/auth/{login,register,logout}`、`GET/POST /v1/access/keys`、`DELETE /v1/access/keys/:id`、`POST /v1/access/invites` | — |
-| **Collection (15)** | `GET/POST /v1/sources`、`POST /v1/sources/{preview,import}`、`PATCH /v1/sources/:id`、`GET /v1/sources/budgets`、`PUT /v1/sources/budgets/:provider`、`POST /v1/sources/:id/{collect,ingest,refresh,unblock}`、`GET /v1/sources/:id/jobs`、`GET /v1/source-jobs`、`GET /v1/source-jobs/:id`、`POST /v1/source-jobs/:id/{cancel,retry,continue}` | `GET /v1/sources/budgets` 可选增配 `ai_enrich` 预算行 |
-| **Content (8)** | `GET /v1/content`、`GET /v1/content/{feed,facets,stories,export}`、`GET /v1/projects/:id/content`、`GET /v1/content/:id`、`GET /v1/content/:id/thread` | Phase A：`stories` 补 `tierBreakdown`/`sparkline48h`；Phase D：`POST /v1/content/:id/enrich`（禁只读 `read` Key） |
-| **Projects (8)** | `GET/POST /v1/projects`、`GET/PATCH/DELETE /v1/projects/:id`、`GET /v1/projects/:id/overview`、`POST /v1/projects/:id/hydrate` | Phase A：`/overview` 补 `(day, platform)`；Phase B：`POST /v1/project-comparisons`；Phase D：`POST /v1/discovery/query` & `GET /v1/discovery/jobs/:id` |
+| **Access 鉴权 (11)** | `GET /v1/auth/session`、`POST /v1/auth/{login,register,logout}`、`GET/POST /v1/access/keys`、`DELETE /v1/access/keys/:id`、`POST /v1/access/invites`、`GET/PATCH /v1/access/users*`、`GET /v1/access/audit` | — |
+| **Collection & Quotas (26)** | `GET /v1/public/sources`、`GET/POST /v1/sources`、`POST /v1/sources/{preview,import}`、`PATCH /v1/sources/:id`、`GET /v1/sources/budgets`、`PUT /v1/sources/budgets/:provider`、`GET /v1/sources/credentials`、`PUT/DELETE /v1/sources/credentials/:provider`、`POST /v1/sources/credentials/:provider/test`、`GET /v1/quotas/summary`、`PUT /v1/quotas/{plans/:tier,users/:id}`、`POST /v1/sources/:id/{collect,ingest,refresh,unblock}`、`GET /v1/sources/:id/jobs`、`GET /v1/source-jobs`、`GET /v1/source-jobs/recent`、`GET /v1/source-jobs/:id`、`POST /v1/source-jobs/:id/{cancel,retry,continue}` | `GET /v1/sources/budgets` 可选增配 `ai_enrich` 预算行 |
+| **Content (8)** | `GET /v1/content`、`GET /v1/content/{feed,facets,stories,export}`、`GET /v1/projects/:id/content`、`GET /v1/content/:id`、`GET /v1/content/:id/thread` | Phase D：`POST /v1/content/:id/enrich`（禁只读 `read` Key） |
+| **Projects (8)** | `GET/POST /v1/projects`、`GET/PATCH/DELETE /v1/projects/:id`、`GET /v1/projects/:id/overview`、`POST /v1/projects/:id/hydrate` | Phase B：`POST /v1/project-comparisons`；Phase D：`POST /v1/discovery/query` & `GET /v1/discovery/jobs/:id` |
 | **Workspace (7)** | `GET/POST /v1/workspace/queries`、`DELETE /v1/workspace/queries/:id`、`GET /v1/workspace/annotations`、`GET/PUT /v1/workspace/annotations/:id` | Phase B：水位线与解耦 `readAt`/`muted`/`tags` 扩展、评论节点级独立批注 |

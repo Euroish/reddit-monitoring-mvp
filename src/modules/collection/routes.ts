@@ -27,14 +27,8 @@ import { commitContentBatch, prepareContentBatch } from "../content/sql";
 import { fail, transaction } from "../../storage/db";
 import { sourcePreviewRoute, validateFallback, validateSource } from "./config";
 import { sourceImportRoute } from "./import";
-import {
-  assertSource,
-  insertSource,
-  listPublicSources,
-  listSources,
-  lockSource,
-  audit,
-} from "./sql";
+import { admitViewerCollection } from "./policy";
+import { assertSource, insertSource, listPublicSources, listSources, lockSource, audit } from "./sql";
 
 export async function collectionRoutes(
   app: FastifyInstance,
@@ -130,7 +124,10 @@ export async function collectionRoutes(
       const input = request.body;
       return transaction(pool, async (client) => {
         const result = await client.query(
-          `UPDATE source_provider_budget SET enabled=$2,daily_requests=$3,monthly_requests=$4,daily_resources=$5,monthly_resources=$6,minimum_interval_ms=$7,revision=revision+1 WHERE provider=$1 AND revision=$8 RETURNING revision`,
+          `UPDATE source_provider_budget
+           SET enabled=$2,daily_requests=$3,monthly_requests=$4,daily_resources=$5,
+               monthly_resources=$6,minimum_interval_ms=$7,revision=revision+1
+           WHERE provider=$1 AND revision=$8 RETURNING revision`,
           [
             request.params.provider,
             input.enabled,
@@ -393,23 +390,29 @@ export async function collectionRoutes(
             "Provider networking is disabled or credentials are missing",
           );
         if (source.automatic_collection_blocked)
-          fail(
-            409,
-            "Collection is blocked pending review of an unresolved operation",
-          );
+          fail(409, "Collection is blocked pending review of an unresolved operation");
+        const pageSize =
+          providerName === "twitterapis" ? Math.min(request.body.limit, 20) : request.body.limit;
+        const resources =
+          providerName === "kaix" && request.body.includeComments
+            ? pageSize * (maxComments + 1)
+            : pageSize;
+        await admitViewerCollection(client, request.actor!, {
+          provider: providerName,
+          sourceId: source.id,
+          limit: pageSize,
+          resources,
+          includeComments: request.body.includeComments,
+          maxCommentsPerPost: request.body.maxCommentsPerPost,
+        });
         const id = randomUUID();
         await client.query(
-          `INSERT INTO source_collection_job(id,collection_source_id,status,purpose,operation,provider,from_at,to_at,page_size,max_pages,next_run_at,created_at,request_key,request_json)
-      VALUES($1,$2,'queued','collect','radar',$3,$4,$5,$6,1,NOW(),NOW(),$7,$8)`,
+          `INSERT INTO source_collection_job(id,collection_source_id,status,purpose,operation,provider,from_at,to_at,
+            page_size,max_pages,next_run_at,created_at,request_key,request_json,requested_by_user_id,requested_by_client_kind)
+      VALUES($1,$2,'queued','collect','radar',$3,$4,$5,$6,1,NOW(),NOW(),$7,$8,$9,$10)`,
           [
-            id,
-            source.id,
-            providerName,
-            request.body.from,
-            request.body.to,
-            providerName === "twitterapis" ? Math.min(request.body.limit, 20) : request.body.limit,
-            key,
-            request.body,
+            id, source.id, providerName, request.body.from, request.body.to,
+            pageSize, key, request.body, request.actor!.userId, request.actor!.clientKind,
           ],
         );
         return { jobId: id };
@@ -420,11 +423,16 @@ export async function collectionRoutes(
     { schema: { params: ParamsId } },
     async (request) => {
       assertSource(request.actor!, request.params.id);
+      const isViewer = request.actor!.role === "viewer";
       return {
         jobs: (
           await pool.query(
-            "SELECT id,status,operation,provider,provider_state,records_processed,error,created_at FROM source_collection_job WHERE collection_source_id=$1 ORDER BY created_at DESC LIMIT 50",
-            [request.params.id],
+            `SELECT id,status,operation,provider,provider_state,records_processed,error,created_at
+             FROM source_collection_job
+             WHERE collection_source_id=$1
+               AND ($2 OR (requested_by_user_id=$3 AND requested_by_client_kind='browser'))
+             ORDER BY created_at DESC LIMIT 50`,
+            [request.params.id, !isViewer, request.actor!.userId],
           )
         ).rows,
       };

@@ -1,29 +1,28 @@
 # 当前状态与下一阶段规划（STD-100 唯一真源）
 
-> **核对基准**：`prod@2026-11-20`（开放阅读、防刷屏分页、编辑部重构与源治理上线）（见[开发台账](development.md#5-全阶段交付与演进台账)） · **运行镜像**：`monitoring-unified:20261120-v3` / `monitoring-unified-web:20261120-v3`。
+> **核对基准**：`main@2026-11-20`（单主干统一收口：开放阅读 + `051`/`052` 凭证与动态配额 + 精简 Siftline 前端）（见[开发台账](development.md#5-全阶段交付与演进台账)） · **运行镜像**：`monitoring-unified:20261120-v3` / `monitoring-unified-web:20261120-v3`（下次发版按 `main` 构建）。
 > 严格分离 **`[LIVE]` 实码真源** 与 **`[V2]` 演进计划**；文中实库行数为生产运行采样快照，持续采集会自然增长。
 
 ---
 
-## 0. 当前生产基线与实测资产清单（`[LIVE]`）
+## 0. 当前主干基线与实测资产清单（`[LIVE]`）
 
-| 维度 | 实测基线数据（`2026-11-19` 采样） |
+| 维度 | 实测基线数据（`2026-11-20` 统一收口） |
 | :--- | :--- |
-| **源码规模** | 后端核心 `42` 个 TS 文件（`~6,900` LOC：`apps/api` 2 + `src/modules` 24 + `src/connectors` 9 + `packages/contracts` 3 + `src/shared` 2 + `src/storage` 2）；前端 `apps/web/src` `12` 文件 / `3,038` 行 / `104 KB` |
-| **PG16 数据库** | **20 张公网表**（`050` 实删 27 张历史表）、`52` 条已应用迁移（`001..050`，含历史重复编号 `018`/`020`）；采样规模：`content` ~2,005、`content_observation` ~5,957、`source_collection_job` ~1,926、总库 ~40 MB |
-| **活跃来源分布** | **100 个活跃排期源**（`97` `feed` + `3` `newsnow`，另有 2 个归档来源），覆盖 **8 个 `source_group`**：`ai-firsthand` (16)、`dev-infra` (16)、`lifestyle` (15)、`public-affairs` (13)、`tech-media` (12)、`science` (11)、`design-visual` (9)、`social-trends` (8)，`missing_group=0`、`missing_locale=0` |
-| **接口与安全** | **`43` URL 路径 / `50` 条 HTTP 操作**（与 `/v1/openapi.json` 一致）；`onRequest` 限流早于 `preParsing` 鉴权（`429` 零查库）；`/v1/content/*` 仅 `GET/HEAD` 允许 `read` Key；`scripts/check-docs.ts` 守卫 `001..050` 迁移不可变；`search.ts` 使用 `LEFT JOIN public_content_search_document` |
+| **源码结构** | 后端五模块扁平内核（含 `credentials.ts`、`policy.ts`、`jobs.ts`、`stories.ts` 与开放阅读路由）；前端统一为裁剪后的 Siftline 工作台（开放阅读 `/` 零 ECharts 依赖，分析页 `React.lazy` 模块化 `echarts/core`，已清除营销页/多主题工坊/R4 面板与虚假图表） |
+| **PG16 数据库** | **23 张公网表**（`001..050` 基线 `20` 表 + `051`/`052` 新增 `source_provider_credential`、`plan_collection_policy`、`user_provider_usage`，距 `<= 24` 上限余 `1` 槽） |
+| **活跃来源分布** | **100 个活跃排期源**（`97` `feed` + `3` `newsnow`，覆盖 8 个 `source_group`），支持开放匿名阅读 `/v1/public/sources` 与防刷屏 7d 分页故事流 |
+| **接口与安全** | `onRequest` 限流早于 `preParsing` 鉴权；`/v1/content/*` 仅 `GET/HEAD` 允许 `read` Key；`machine` Key 禁访 `/v1/access/*`、`/v1/workspace/*`、`/v1/sources/credentials*` 与 `/v1/quotas/*`；`scripts/check-docs.ts` 守卫 `001..050` 迁移不可变与五模块边界 |
 
 ---
 
-## 1. 跨分支客观审计与融合立场
+## 1. 分支统一收口状态
 
-| 分支 / 引用 | 状态与特征 | 审计结论与执行动作 |
+| 分支 / 引用 | 状态与特征 | 治理结论 |
 | :--- | :--- | :--- |
-| **`prod`** | 当前唯一主干与部署源 | 所有后端加固、文档同步与 V2 演进都在此分支推进。 |
-| **`origin/main` (`c75506b`)** | 停留在 `7ff733c` 合并快照（落后 `050` 升级） | 保持只读上游角色，由管理员按发布节奏反向合并。 |
-| **`origin/feat/semrush-frontend-rebuild` (`dbf8713`)** | 位于 GitHub 远端（本地/服务端拉取需 `git fetch origin feat/semrush-frontend-rebuild`），分叉自旧 `dd2feb2`，含 `40fb284`（R4 `.zst` 插件）+ `dbf8713`（36 文件 / `637.8 KB` + 全量 `echarts`） | **`MUST NOT` 整支合并**：严格按[融合矩阵](design.md#2-featsemrush-frontend-rebuild-分支审计与融合矩阵)抽取样式令牌、`api/hooks`、快捷键壳、`ThreadTreeView`、`ObservationChart`、`vite.config`/`i18n` 与设置/导出逻辑，丢弃营销页、`AuthModal`、`ThemeStudio`、`SignalScoreGauge` 与 `R4ArchivePanel`。 |
-| **`r1-content-batch` & `feat/r1-core-and-r2-wip`** | R1–R3 历史参考分支 | 历史任务已完结。 |
+| **`main`** | **全仓唯一常驻主干与发布源** | 完整继承原 `prod@254213b` 历史并融合 `dev/siftline-workbench` 的 `051`/`052` 后端能力与精简前端；后续所有迭代均从 `main` 切短分支经 PR + CI 绿灯合入，见[分支治理准则](development.md#0-团队分支治理与-ai-协作准则)。 |
+| **`archive/dev-siftline-20261120`（Tag）** | 原 `dev/siftline-workbench@d10d631` 只读归档快照 | 仅作历史追溯，原分支与旧 `prod`/`r1-content-batch` 分支均已退役。 |
+| **`archive/frontend-prototype`** | 早期独立原型归档 | 只读历史存档，不再合并。 |
 
 ---
 

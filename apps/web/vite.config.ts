@@ -4,7 +4,6 @@ import path from 'path'
 
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:3000'
 
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
   build: {
@@ -12,10 +11,11 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined
-          if (id.includes('/echarts/') || id.includes('/zrender/')) return 'charts'
-          if (id.includes('@tanstack/react-query')) return 'react-query'
-          if (id.includes('react-router')) return 'router'
-          if (id.includes('/react/') || id.includes('/react-dom/')) return 'react-vendor'
+          const norm = id.replace(/\\/g, '/')
+          if (norm.includes('/echarts/') || norm.includes('/zrender/')) return 'charts'
+          if (norm.includes('@tanstack/react-query')) return 'react-query'
+          if (norm.includes('react-router')) return 'router'
+          if (norm.includes('/react/') || norm.includes('/react-dom/')) return 'react-vendor'
           return 'vendor'
         },
       },
@@ -26,7 +26,15 @@ export default defineConfig({
       '/api': {
         target: apiProxyTarget,
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
+        rewrite: (p) => p.replace(/^\/api/, ''),
+      },
+      '/healthz': {
+        target: apiProxyTarget,
+        changeOrigin: true,
+      },
+      '/readyz': {
+        target: apiProxyTarget,
+        changeOrigin: true,
       },
     },
   },

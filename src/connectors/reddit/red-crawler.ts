@@ -99,11 +99,19 @@ function normalize(row: RedditRow, sourceId: string, fetchedAt: string, runId: s
   };
 }
 
-export function redCrawler(env = process.env, fetchPage = fetch): ContentProvider {
-  const config = resolveKaixConfig(env);
+export function redCrawler(
+  env = process.env,
+  fetchPage = fetch,
+  getSecret?: () => string | undefined,
+): ContentProvider {
+  const baseConfig = resolveKaixConfig(env);
+  const config = getSecret ? { ...baseConfig, getApiToken: getSecret } : baseConfig;
   const kaix = new KaixContentConnector(config);
   const capability = {
     ...kaix.capability, provider: "red_crawler",
+    get enabled() {
+      return config.networkEnabled && Boolean(config.getApiToken?.() ?? config.apiToken);
+    },
     targetTypes: ["search", "community", "post"] as SourceTarget["type"][],
     refreshByIds: false, limitations: ["One bounded search, community feed or post comment run per task"],
   };
@@ -143,7 +151,7 @@ export function redCrawler(env = process.env, fetchPage = fetch): ContentProvide
         const response = await fetchPage(`https://api.apify.com/v2/${path}`, {
           method: body ? "POST" : "GET",
           body: body ? JSON.stringify(body) : undefined,
-          headers: { Authorization: `Bearer ${config.apiToken}`, "Content-Type": "application/json" },
+          headers: { Authorization: `Bearer ${config.getApiToken?.() ?? config.apiToken}`, "Content-Type": "application/json" },
           signal: request.signal ? AbortSignal.any([timer, request.signal]) : timer,
           redirect: "error",
         });

@@ -1,0 +1,107 @@
+:root {
+  /* SIFTLINE Mineral & Ink Light Palette (WCAG AA contrast) */
+  --ink: #20271f;
+  --ink-rgb: 32, 39, 31;
+  --ink-90: rgba(var(--ink-rgb), 0.9);
+  --ink-70: rgba(var(--ink-rgb), 0.72);
+  --ink-50: rgba(var(--ink-rgb), 0.56);
+  --ink-12: rgba(var(--ink-rgb), 0.12);
+  --ink-hover: #353f34;
+  --ink-2: #2b332a;
+  --ink-3: #485247;
+
+  --accent-rgb: 219, 244, 119;
+  --accent-deep-rgb: 31, 116, 113;
+  --accent2-rgb: 37, 140, 137;
+
+  --citron: #dbf477;
+  --apricot: #c96f2d;
+  --opal: #d8ebe7;
+  --opal-soft: #e6f2ef;
+  --wisteria: #dbf477;
+  --wisteria-soft: #eef6f3;
+  --on-accent: #20271f;
+  --cta-bg: #dbf477;
+  --cta-hover-bg: #d0ec68;
+
+  --paper: #f7f8f4;
+  --paper-2: #f0f2ea;
+  --paper-3: #e9ece4;
+  --mist: #e9ece6;
+  --muted: #525d54;
+  --faint: #677166;
+  --line: #e3e6dc;
+  --line-2: #d3d8cc;
+  --purple: #1f7471;
+  --teal: #1d7572;
+  --accent2-soft: #e1f3f2;
+  --white: #ffffff;
+
+  /* Analytical Chart Series Palette */
+  --chart-1: #1f7471;
+  --chart-2: #3b6fd8;
+  --chart-3: #c96f2d;
+  --chart-4: #527bc5;
+  --chart-5: #6b7d2c;
+  --chart-6: #a84e7d;
+
+  /* Workbench Operational Neutrals & Semantics */
+  --wb-bg: #f3f5ee;
+  --wb-canvas: #f3f5ee;
+  --wb-side: #fbfcf7;
+  --wb-rail: #ffffff;
+  --wb-card: #ffffff;
+  --wb-border: #e3e6dc;
+  --wb-border-soft: #f1f3ec;
+  --wb-hover: #fafbf6;
+  --wb-active: #e6f3f2;
+  --wb-accent: #dbf477;
+  --wb-accent-end: #cbe86b;
+  --wb-on-accent: #20271f;
+  --wb-purple: #1f7471;
+  --wb-purple-deep: #175754;
+  --wb-teal: #1d7572;
+  --wb-teal-deep: #155c5a;
+  --wb-tint: #eef6f3;
+  --wb-teal-tint: #e1f3f2;
+  --wb-dark-bg: #151b14;
+
+  /* Motion */
+  --e-out: cubic-bezier(0.22, 0.68, 0, 1);
+  --e-inout: cubic-bezier(0.65, 0, 0.35, 1);
+  --t-fast: 0.16s;
+  --t: 0.24s;
+  --t-slow: 0.42s;
+
+  /* Semantics */
+  --sem-green: #147a57;
+  --sem-green-bg: #e3f5ee;
+  --sem-amber: #a86411;
+  --sem-amber-bg: #fdf3e1;
+  --sem-red: #c12b3b;
+  --sem-red-bg: #fdebec;
+  --sem-blue: #2d5ec2;
+  --sem-blue-bg: #ebf1fc;
+
+  /* Tier Badges */
+  --tier-t1-bg: #e1f3f2;
+  --tier-t1-fg: #145b58;
+  --tier-t15-bg: #eef2fb;
+  --tier-t15-fg: #2b509c;
+  --tier-t2-bg: #f2f3ee;
+  --tier-t2-fg: #4b554a;
+
+  /* System Typography (Zero external font requests) */
+  --font-display: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Radii & Shadows */
+  --radius-card: 6px;
+  --radius-wb-card: 6px;
+  --radius-pill: 100px;
+  --shadow-sm: 0 1px 2px rgba(var(--ink-rgb), 0.05);
+  --shadow-md: 0 8px 28px rgba(var(--ink-rgb), 0.08);
+  --shadow-lg: 0 20px 56px rgba(var(--ink-rgb), 0.14);
+  --ease-sem: cubic-bezier(0.22, 1, 0.36, 1);
+}

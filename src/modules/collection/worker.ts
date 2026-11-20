@@ -1,15 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { Pool } from "pg";
-import {
-  ContentProviderError,
-  type CollectedPage,
-  type ContentProvider,
-} from "../../connectors/shared/content-provider.interface";
+import { ContentProviderError, type CollectedPage, type ContentProvider } from "../../connectors/shared/content-provider.interface";
 import type { JsonValue, Actor } from "../../../packages/contracts/src/source-content";
 import { commitContentBatch, prepareContentBatch } from "../content/sql";
 import { fail, transaction } from "../../storage/db";
 import { lockSource, sourceFromRow } from "./sql";
+import { isViewerJobStillAuthorized, recordUserExecutedRequest } from "./policy";
 import { scheduleDueSourcesOnce } from "./schedule";
 
 const workerActor = { allowedSourceIds: null } as Actor;
@@ -17,10 +14,7 @@ const hostCooldownMs = 1500;
 const cleanupIntervalMs = 3600_000;
 
 export async function workOnce(
-  pool: Pool,
-  providers: ContentProvider[],
-  signal?: AbortSignal,
-  hostCooldown?: Map<string, number>,
+  pool: Pool, providers: ContentProvider[], signal?: AbortSignal, hostCooldown?: Map<string, number>,
 ) {
   if (signal?.aborted) return false;
   const nowMs = Date.now();
@@ -136,6 +130,13 @@ export async function workOnce(
               lease_token=NULL,lease_until=NULL,attempts=attempts-1 WHERE id=$1 AND lease_token=$2`, [job.id, token]);
           return false;
         }
+        if (job.requested_by_user_id && !(await isViewerJobStillAuthorized(client, job))) {
+          await client.query(`
+            UPDATE source_collection_job SET status='cancelled',finished_at=now(),
+              lease_token=NULL,lease_until=NULL,error='Collection policy revoked before dispatch'
+            WHERE id=$1 AND lease_token=$2`, [job.id, token]);
+          return false;
+        }
         await client.query("SELECT 1 FROM source_provider_budget WHERE provider=$1 FOR UPDATE", [job.provider]);
         const deferred = await client.query(
           `UPDATE source_collection_job SET status='queued',next_run_at=ready.at,lease_token=NULL,lease_until=NULL,
@@ -146,18 +147,24 @@ export async function workOnce(
         );
         if (deferred.rowCount) return false;
         const updated = await client.query(
-          `UPDATE source_collection_job SET provider_state='{"phase":"starting"}',error=NULL,request_count=request_count+1,page_request_attempts=page_request_attempts+1 WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id`,
+          `UPDATE source_collection_job SET provider_state='{"phase":"starting"}',error=NULL,
+            request_count=request_count+1,page_request_attempts=page_request_attempts+1
+           WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id`,
           [job.id, token],
         );
         if (!updated.rowCount) fail(409, "Collection lease lost");
         await client.query(
-          `INSERT INTO source_provider_usage(provider,day,requests,resources_reserved) VALUES($1,(NOW() AT TIME ZONE 'UTC')::date,1,$2) ON CONFLICT(provider,day) DO UPDATE SET requests=source_provider_usage.requests+1,resources_reserved=source_provider_usage.resources_reserved+EXCLUDED.resources_reserved`,
+          `INSERT INTO source_provider_usage(provider,day,requests,resources_reserved)
+           VALUES($1,(NOW() AT TIME ZONE 'UTC')::date,1,$2)
+           ON CONFLICT(provider,day) DO UPDATE SET requests=source_provider_usage.requests+1,
+             resources_reserved=source_provider_usage.resources_reserved+EXCLUDED.resources_reserved`,
           [job.provider, resources],
         );
         await client.query(
           "UPDATE source_provider_budget SET last_request_at=NOW() WHERE provider=$1",
           [job.provider],
         );
+        await recordUserExecutedRequest(client, job.id, job.provider);
         return true;
       });
       if (!admitted) return true;

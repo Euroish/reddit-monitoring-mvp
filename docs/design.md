@@ -6,8 +6,8 @@
 
 ## 1. `[LIVE]` 现状 vs `[V2]` 三模态界面演进
 
-- **`[LIVE]` 现行线上前端（`apps/web/src`，12 文件 / `3,038` 行 / `104 KB`）**：极简六页工作台（`/` `Stories.tsx`、`/projects` `Projects.tsx`、`/content` `ContentLibrary.tsx`、`/sources` `Sources.tsx`、`/workspace` `Workspace.tsx`、`/settings` `Account.tsx` + `index.css`/`ui.tsx`）。已支持 `sourceGroup`/`tier`/`language`/`hasMedia` 筛选、OPML/JSON 导入、preview 预览与任务恢复；**尚无 SVG 微图、`echarts` 分析图、`ThreadTreeView`、`ObservationChart` 与全局快捷键**。
-- **`[V2 Phase A–D]` 目标三模态演进**：
+- **`[LIVE]` 现行统一前端（`apps/web/src`，裁剪后 Siftline 工作台）**：覆盖 `/`（开放阅读 `StoriesPage` + 零 ECharts 原生 SVG 微图 + `ReaderDrawer`）、`/content`（`ContentExplorerPage` + `ThreadTreeView` + `ObservationChart`）、`/projects`（`ProjectsPage` + `dayPlatformFacets` 懒加载 `echarts/core`）、`/sources`（`SourcesPage` + `CollectionJobsView` + `QuotasManagementView`）、`/workspace`（`WorkspacePage`）与 `/settings`（`SettingsPage` + `ProviderCredentialsTab` + RBAC）；已剔除静态营销页、`ThemeStudio`、`R4ArchivePanel`、`SignalScoreGauge`、`TrendRadarCharts` 及 1.7 MB 无用图。
+- **`[V2 Phase B–D]` 目标演进**：
 
 | 表面模态 | 路由与阶段 | 核心阅读与分析体验 |
 | :--- | :--- | :--- |
@@ -30,7 +30,7 @@
 | `components/charts/ThreadTreeView.tsx`（154 L） | **Adopt** | 迁移三视图结构（`top`\|`matches`\|`op`、32 跳预警、OP 徽章），补单条评论独立笔记与显式水合入口。 |
 | `components/charts/ObservationChart.tsx`（183 L） & `chartUtils.ts` | **Rewrite** | 完整保留按 `(sourceId, provider, metricKey)` 分线、`sourceObservedAt` 回退与 `null` 断档；**将 `chartUtils.ts` 的 `createHatchPattern` 从被丢弃的 `useTheme()` 解耦为静态 token**，切至按需加载的 `echarts/core`。 |
 | `DailyTrendChart.tsx`（452 L） & `QuotaMeters.tsx` | **Rewrite** | 原 `DailyTrendChart` 截断前 100 行且伪造 `{ reddit: 1 }` 分平台柱图、并因后端缺 `(day, platform)` 造假：改造为**直连后端补充 `(day, platform)` 后的 `GET /v1/projects/:id/overview` 与 `GET /v1/content/facets`**；`QuotaMeters` 改用零依赖 SVG/CSS。 |
-| `Homepage.tsx`（含假排行榜）、`AuthModal.tsx`（含虚假 `42M+` 指标）、`ThemeStudio.tsx`、`themes.ts`、`SignalScoreGauge.tsx`、`KpiSparkChart.tsx`、`TrendRadarCharts.tsx`（跨平台相加违背 `MET-04`）、`SourcesPage.tsx`（缺 OPML/`050`/预览且 `snake_case`）、`R4ArchivePanel.tsx`（硬编码 `D:/`） | **Discard** | **整文件丢弃，严禁入 `prod`**。 |
+| `Homepage.tsx`（含假排行榜）、`AuthModal.tsx`（含虚假 `42M+` 指标）、`ThemeStudio.tsx`、`themes.ts`、`SignalScoreGauge.tsx`、`KpiSparkChart.tsx`、`TrendRadarCharts.tsx`（跨平台相加违背 `MET-04`）、`SourcesPage.tsx`（缺 OPML/`050`/预览且 `snake_case`）、`R4ArchivePanel.tsx`（硬编码 `D:/`） | **Discard** | **整文件丢弃，严禁入 `main`**（已在 `2026-11-20` 统一收口中清除）。 |
 
 ### 双层图表架构锁定（Phase A 唯一技术路线）
 

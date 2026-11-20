@@ -47,7 +47,9 @@ export class KaixContentConnector implements ContentProvider {
     this.capability = {
       platform: "reddit",
       provider: "kaix",
-      enabled: config.networkEnabled && Boolean(config.apiToken),
+      get enabled() {
+        return config.networkEnabled && Boolean(config.getApiToken?.() ?? config.apiToken);
+      },
       contentKinds: ["post", "comment"],
       targetTypes: ["community", "account", "post", "search"],
       keywordSearch: "global",
@@ -87,7 +89,7 @@ export class KaixContentConnector implements ContentProvider {
         WARNING,
         "Apify Actor build 0.2.25.",
         "Source metric observation time is unknown. No automatic maturity refresh.",
-        ...(!config.networkEnabled || !config.apiToken
+        ...(!config.networkEnabled || !(config.getApiToken?.() ?? config.apiToken)
           ? ["Requires live networking and private APIFY_API_TOKEN."]
           : []),
       ],
@@ -413,7 +415,7 @@ export class KaixContentConnector implements ContentProvider {
         signal,
         redirect: "error",
         headers: {
-          Authorization: `Bearer ${this.config.apiToken}`,
+          Authorization: `Bearer ${this.config.getApiToken?.() ?? this.config.apiToken}`,
           Accept: "application/json",
           "Content-Type": "application/json",
         },

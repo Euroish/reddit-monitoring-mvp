@@ -8,6 +8,7 @@ import {
   ActorSchema,
   Login,
   MachineKeyInput,
+  PlanTier,
   Scopes,
   ParamsId,
   type Actor,
@@ -16,7 +17,10 @@ import {
   createSession,
   findActor,
   hashPassword,
+  listAccessAudit,
+  listUsers,
   tokenHash,
+  updateUserAccess,
   verifyPassword,
 } from "./sql";
 import { fail, transaction } from "../../storage/db";
@@ -145,6 +149,7 @@ export async function accessRoutes(
           userId: id,
           email,
           role: "viewer",
+          planTier: "free",
           clientKind: "browser",
           scopes: [...Scopes],
           allowedSourceIds: null,
@@ -243,4 +248,38 @@ export async function accessRoutes(
       return { revoked: true };
     },
   );
+  api.get("/v1/access/users", async (request) => {
+    const actor = request.actor!;
+    if (actor.clientKind !== "browser" || actor.role === "viewer")
+      fail(403, "Administrator browser session required");
+    return { users: await listUsers(pool) };
+  });
+  api.patch(
+    "/v1/access/users/:id",
+    {
+      schema: {
+        params: ParamsId,
+        body: Type.Object(
+          {
+            role: Type.Optional(Type.Union([Type.Literal("admin"), Type.Literal("viewer")])),
+            status: Type.Optional(Type.Union([Type.Literal("active"), Type.Literal("disabled")])),
+            planTier: Type.Optional(PlanTier),
+          },
+          { additionalProperties: false, minProperties: 1 },
+        ),
+      },
+    },
+    async (request) => {
+      const actor = request.actor!;
+      if (actor.clientKind !== "browser" || actor.role === "viewer")
+        fail(403, "Administrator browser session required");
+      return { user: await updateUserAccess(pool, actor, request.params.id, request.body) };
+    },
+  );
+  api.get("/v1/access/audit", async (request) => {
+    const actor = request.actor!;
+    if (actor.clientKind !== "browser" || actor.role === "viewer")
+      fail(403, "Administrator browser session required");
+    return { events: await listAccessAudit(pool) };
+  });
 }

@@ -1,6 +1,47 @@
 # 开发记录与运维交付手册（STD-100 唯一真源）
 
-> **核对基准**：`2026-11-19` · 环境构造、Docker 多阶段构建、PG16 运维与历史交付台账唯一真源（禁另起 `handoff.md`）。架构见[主线架构](architecture.md)，现状与规划见[当前状态](status.md)。
+> **核对基准**：`2026-11-20` · 团队分支治理、环境构造、Docker 多阶段构建、PG16 运维与历史交付台账唯一真源（禁另起 `handoff.md`）。架构见[主线架构](architecture.md)，现状与规划见[当前状态](status.md)。
+
+---
+
+## 0. 团队分支治理与 AI 协作准则
+
+本仓面向 2–3 人 + AI 高频并行开发，采用 **单主干（Trunk-Based）+ 短任务分支 + 不可变发布 Tag**，不设常驻 `develop` / `prod` 双主干，直接匹配 `.github/workflows/verify.yml`（PR 全量门禁）与 `.github/workflows/release.yml`（`v*` Tag 镜像构建）。
+
+### 0.1 分支与发布角色
+
+| 引用 | 职责与权限 | 生命周期 |
+| :--- | :--- | :--- |
+| **`main`** | **全仓唯一集成与发布主干**。开启分支保护，禁直接 `push` / `force-push`，仅接受 CI 全绿 PR 的 `Squash and Merge`。 | 永久 |
+| **`feat/<模块>-<短名>`** | 新功能分支（如 `feat/access-quotas`、`feat/web-reader`），永远从最新 `origin/main` 切出。 | `<= 3` 天，合后即删 |
+| **`fix/<短名>`** | 缺陷修复或线上紧急热修，从 `origin/main` 切出。 | `<= 1` 天，合后即删 |
+| **`vX.Y.Z`（Tag）** | 正式发版与回滚锚点（触发 `release.yml` 构建 `runtime`/`proxy` 镜像）；预演使用 `vX.Y.Z-rc.1`，不另建长期分支。 | 永久不可变 |
+
+### 0.2 合并秩序与 AI 解冲突四条护栏
+
+原则：**先过审先合入，后合者自行同步最新 `main` 解冲突并自证无回归**。
+
+```sh
+# 1. 开工前基于最新 main 切短分支
+git fetch origin && git checkout -b feat/<module>-<topic> origin/main
+# 2. 合入前若 main 已推进，同步最新 main（严禁跨分支拷贝文件覆盖提交，防止切断共同祖先链）
+git fetch origin && git merge origin/main   # 个人短分支可用 git rebase origin/main
+# 3. 冲突解决后必须核对变更边界再推送
+git diff origin/main --stat
+npm run docs:check && npm run lint && npm run typecheck && npm run test:unit && npm run build
+```
+
+1. **明确 AI 解冲突底线**：要求 AI *“以 `origin/main` 现有行为、鉴权与测试为不可破坏底线，仅叠加本分支增量，不得为编译通过删改 `origin/main` 新增逻辑或测试”*。
+2. **强制 `diff --stat` 审计**：推送前人工扫一眼 `git diff origin/main --stat`，凡出现无关模块改动或测试大段删减立即拦截重解。
+3. **只认全量 CI 绿灯**：含冲突解决的 PR 须过 `verify.yml` 全链（`gitleaks`、`docs:check`、`lint`、`typecheck`、`test:unit`、`test:postgres`、`build`、`smoke:compiled`、`test:browser`），且统一 **Squash and Merge** 以便一键 `git revert`。
+4. **控制 PR 体积消灭巨型冲突**：单 PR 目标 `<= 500` 行净变动；超 `1,500` 行必须拆为垂直小切片（`迁移/契约 PR → 后端 PR → 前端接入 PR`），未完结入口先用开关隐藏、每日合入 `main`。
+
+### 0.3 四大冲突热区与轻量同步约定
+
+- **SQL 迁移（`src/storage/schema/`）**：`001..050` 及已合入 `main` 的迁移严禁改写；**编号先合先占**，后合者同步时顺延重编号；PR 必须声明 `表变更：+N（总计 X/24）`。
+- **共享契约（`packages/contracts/src/*`）**：唯一契约真源，严禁在前端复制平行副本或做破坏式字段重命名；多方共享契约变更先发小 PR 合入 `main`。
+- **入口与前端架构**：`app.ts` / `App.tsx` 保持薄装配；首页 `/` 严禁引入 ECharts（原生 SVG 微图），分析页统一 `React.lazy` 模块化 `echarts/core`；后端守五模块 `<= 450` 行/文件与 `<= 220` 字/代码行。
+- **文档白名单与开工声明**：严禁在 `DOCUMENTATION_FILES`（15 份）外随意新建 `.md`，代码变动同 PR 增量更新对应文档条目。开分支前发 1 行同步：`[feat/xxx] 负责人：@A | 触碰区域：... | 新迁移：无/+N表`；PR 描述附 3 行：**变更摘要 / 影响范围（表、契约、冲突清单）/ 验证结果**。
 
 ---
 
@@ -42,7 +83,7 @@ docker compose -p monitoring-local stop && docker compose -p monitoring-local up
 
 ## 2. 仓外环境变量、渠道配额、批量导入与采集工具
 
-真实密钥仅存于仓外受限文件（本机 `~/.config/reddit-monitoring/credentials.env` 或生产 `/etc/reddit-monitoring/unified.env`，权限 `700/600`），`MUST NOT` 写入 Git 或 `VITE_*`。运行实例核查见[当前生产基线](status.md#0-当前生产基线与实测资产清单live)。
+真实密钥仅存于仓外受限文件（本机 `~/.config/reddit-monitoring/credentials.env` 或生产 `/etc/reddit-monitoring/unified.env`，权限 `700/600`），`MUST NOT` 写入 Git 或 `VITE_*`。运行实例核查见[当前主干基线](status.md#0-当前主干基线与实测资产清单live)。
 
 ```dotenv
 NODE_ENV=production
@@ -50,6 +91,7 @@ SOURCE_NETWORK_ENABLED=true
 # 留空 = 开启全 DNS 公网 IP 校验下的动态 HTTPS 抓取；非空 = 仅放行逗号分隔白名单
 FEED_ALLOWED_URLS=
 WORKER_CONCURRENCY=6
+CREDENTIALS_MASTER_KEY=
 APIFY_API_TOKEN=
 TWITTERAPIS_API_KEY=
 TWITTERAPIS_TIMEOUT_MS=20000
@@ -155,3 +197,4 @@ ORDER BY u.day DESC, u.provider;
 | **`f4ef2a8` + STD-100 加固** | 升级 `check-docs <= 50` 迁移守卫、`app.ts` `/v1/content/*` 方法级鉴权、`search.ts` `LEFT JOIN` 防冷删隐身、`docker-compose.yml` 透传 `WORKER_CONCURRENCY`；全套 15 文档收敛为 STD-100 精确规格与 V2 Phase A–D 蓝图并同步至 `origin/prod`。 | `docs:check`、`lint`、`typecheck`、`build`、`test:unit`、隔离 PG16 `test:postgres` 与 `smoke:compiled` 全通过 |
 
 - **`2026-11-20` 开放式编辑部重构与源治理（`20261120-v3`）**：开放匿名只读白名单（`/v1/public/sources` 与内容只读接口）及 `PUBLIC_REGISTRATION_ENABLED` 免邀请码 `viewer` 注册；`/v1/content/stories` 升级为 7 天 `latest` 窗 + `offset/nextOffset/totalCount` 分页 + 单源防刷屏混排 + 默认隔离 `social-trends`；修复 `google-trends-us` 优先取 `<ht:news_item_url>` 主链与真实标题并新增 `excludeTitlePatterns` 与 4h 退避上限；重做编辑部纸面 UI、左侧 8 频道导航、右侧阅读抽屉与登录注册弹窗；完成 `pg_dump` 物理备份后归档 7 个重度营销/灌水源、升级 V2EX 技术节点并补入 8 个高信噪一手源。
+- **`2026-11-20` 单主干 `main` 统一融合与冗余裁剪**：将 `prod@254213b` 完整历史无强推合入 `main`，融合 `dev/siftline-workbench`（归档于 `archive/dev-siftline-20261120`）的加密凭证库（`051`）、Free/Pro 动态配额与 RBAC（`052`，总表 `23/24`）及裁剪后的 Siftline 前端（去除静态营销页、1.7 MB 无用图、多主题工坊、R4 离线面板与违背 `MET-04` 的虚假图表，改用 `React.lazy` 模块化 `echarts/core` 并补齐开放阅读 `StoriesPage` 与 `/v1/public/sources` 适配）；同步修复 `worker.ts` 连接池潜在死锁、`policy.ts` 跨渠道配额竞态、`credentials.ts` 探测异常与 `jobs.ts` 重试配额计算，退役 `prod` 与 `dev/siftline-workbench` 分支并落地团队单主干协作准则。

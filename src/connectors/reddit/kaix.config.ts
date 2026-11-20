@@ -1,5 +1,6 @@
 export interface KaixConfig {
   apiToken?: string;
+  getApiToken?: () => string | undefined;
   networkEnabled: boolean;
 }
 

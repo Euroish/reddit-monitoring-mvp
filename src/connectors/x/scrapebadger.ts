@@ -2,19 +2,24 @@ import type { ContentProvider } from "../shared/content-provider.interface";
 import { ContentProviderError } from "../shared/content-provider.interface";
 import { metricFields, normalizeTweet, normalizeXTarget } from "./twitterapis";
 
-export function scrapeBadger(env = process.env, fetchPage = fetch): ContentProvider {
-  const apiKey = env.SCRAPEBADGER_API_KEY?.trim();
+export function scrapeBadger(
+  env = process.env,
+  fetchPage = fetch,
+  getSecret?: () => string | undefined,
+): ContentProvider {
+  const resolveKey = () => (getSecret?.() ?? env.SCRAPEBADGER_API_KEY)?.trim() || undefined;
   const timeout = Number(env.SCRAPEBADGER_TIMEOUT_MS ?? 20000);
   if (!Number.isInteger(timeout) || timeout < 100 || timeout > 120000)
     throw new Error("SCRAPEBADGER_TIMEOUT_MS must be an integer between 100 and 120000");
   const provider = "scrapebadger";
-  const enabled = Boolean(apiKey) && env.SOURCE_NETWORK_ENABLED === "true";
+  const isEnabled = () => Boolean(resolveKey()) && env.SOURCE_NETWORK_ENABLED === "true";
 
   async function read(path: string, params: URLSearchParams, sourceId: string, signal?: AbortSignal) {
-    if (!enabled) throw new ContentProviderError("ScrapeBadger networking is disabled or credentials are missing", false);
+    const apiKey = resolveKey();
+    if (!isEnabled() || !apiKey) throw new ContentProviderError("ScrapeBadger networking is disabled or credentials are missing", false);
     const timer = AbortSignal.timeout(timeout);
     const response = await fetchPage(`https://scrapebadger.com/v1/twitter/${path}?${params}`, {
-      headers: { "x-api-key": apiKey! },
+      headers: { "x-api-key": apiKey },
       signal: signal ? AbortSignal.any([timer, signal]) : timer,
       redirect: "error",
     });
@@ -41,7 +46,11 @@ export function scrapeBadger(env = process.env, fetchPage = fetch): ContentProvi
 
   return {
     capability: {
-      platform: "x", provider, enabled, contentKinds: ["post"], targetTypes: ["search", "account"],
+      platform: "x", provider,
+      get enabled() {
+        return isEnabled();
+      },
+      contentKinds: ["post"], targetTypes: ["search", "account"],
       keywordSearch: "global", observationModel: "snapshot", automaticRequestReplay: false,
       refreshByIds: true, requestResourceUpperBound: 100,
       limitations: ["One recent-search page per task, up to 20 IDs per refresh"],

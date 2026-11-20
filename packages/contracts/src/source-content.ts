@@ -468,6 +468,82 @@ export const ContentFacets = strictMerge([
     coverage: Type.Literal("stored_sample"),
   }),
 ]);
+export const PlanTier = Type.Union([Type.Literal("free"), Type.Literal("pro")]);
+export const CredentialProvider = Type.Union([
+  Type.Literal("apify"),
+  Type.Literal("kaix"),
+  Type.Literal("red_crawler"),
+  Type.Literal("twitterapis"),
+  Type.Literal("scrapebadger"),
+]);
+export const PlanPolicyInput = Type.Object(
+  {
+    manualCollectEnabled: Type.Boolean(),
+    allowedProviders: Type.Array(Type.String({ minLength: 1, maxLength: 64 }), {
+      maxItems: 20,
+      uniqueItems: true,
+    }),
+    allowedSourceIds: Type.Union([
+      Type.Array(Id, { maxItems: 1000, uniqueItems: true }),
+      Type.Null(),
+    ]),
+    dailyRequests: Type.Union([
+      Type.Integer({ minimum: 0, maximum: 100000 }),
+      Type.Null(),
+    ]),
+    dailyResources: Type.Union([
+      Type.Integer({ minimum: 0, maximum: 10000000 }),
+      Type.Null(),
+    ]),
+    maxBatchLimit: Type.Integer({ minimum: 1, maximum: 2000 }),
+    maxCommentsPerPost: Type.Integer({ minimum: 0, maximum: 50 }),
+    revision: Type.Integer({ minimum: 1 }),
+  },
+  { additionalProperties: false },
+);
+export const UserQuotaOverrideInput = Type.Object(
+  {
+    manualCollectEnabled: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
+    allowedProviders: Type.Optional(
+      Type.Union([
+        Type.Array(Type.String({ minLength: 1, maxLength: 64 }), {
+          maxItems: 20,
+          uniqueItems: true,
+        }),
+        Type.Null(),
+      ]),
+    ),
+    allowedSourceIds: Type.Optional(
+      Type.Union([
+        Type.Array(Id, { maxItems: 1000, uniqueItems: true }),
+        Type.Null(),
+      ]),
+    ),
+    dailyRequests: Type.Optional(
+      Type.Union([Type.Integer({ minimum: 0, maximum: 100000 }), Type.Null()]),
+    ),
+    dailyResources: Type.Optional(
+      Type.Union([Type.Integer({ minimum: 0, maximum: 10000000 }), Type.Null()]),
+    ),
+    maxBatchLimit: Type.Optional(
+      Type.Union([Type.Integer({ minimum: 1, maximum: 2000 }), Type.Null()]),
+    ),
+  },
+  { additionalProperties: false },
+);
+export const ProviderCredentialInput = Type.Object(
+  {
+    apiKey: Type.String({ minLength: 8, maxLength: 512 }),
+    revision: Type.Optional(Type.Integer({ minimum: 1 })),
+  },
+  { additionalProperties: false },
+);
+export const ProviderCredentialTestInput = Type.Object(
+  {
+    confirmPaidProbe: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
 export const ActorSchema = Type.Object({
   userId: Id,
   email: Type.String(),
@@ -476,6 +552,7 @@ export const ActorSchema = Type.Object({
     Type.Literal("admin"),
     Type.Literal("viewer"),
   ]),
+  planTier: Type.Optional(PlanTier),
   clientKind: Type.Union([Type.Literal("browser"), Type.Literal("machine")]),
   sessionId: Id,
   scopes: Type.Array(Type.String()),

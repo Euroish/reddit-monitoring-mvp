@@ -1,0 +1,134 @@
+import React, { useEffect, useRef } from 'react';
+import * as echarts from 'echarts/core';
+import type { ECharts, EChartsCoreOption } from 'echarts/core';
+import { BarChart, LineChart, ScatterChart } from 'echarts/charts';
+import {
+  DataZoomComponent,
+  GridComponent,
+  LegendComponent,
+  MarkAreaComponent,
+  TitleComponent,
+  TooltipComponent,
+} from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
+
+echarts.use([
+  CanvasRenderer,
+  BarChart,
+  LineChart,
+  ScatterChart,
+  GridComponent,
+  TooltipComponent,
+  LegendComponent,
+  MarkAreaComponent,
+  DataZoomComponent,
+  TitleComponent,
+]);
+
+export interface EChartCanvasProps {
+  option: EChartsCoreOption;
+  height?: number | string;
+  className?: string;
+  style?: React.CSSProperties;
+  ariaLabel?: string;
+  onEvents?: Record<string, (params: unknown) => void>;
+}
+
+export default function EChartCanvas({
+  option,
+  height = 240,
+  className = '',
+  style,
+  ariaLabel,
+  onEvents,
+}: EChartCanvasProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const instanceRef = useRef<ECharts | null>(null);
+  const eventsRef = useRef(onEvents);
+
+  useEffect(() => {
+    eventsRef.current = onEvents;
+  }, [onEvents]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const chart = echarts.init(el, undefined, { renderer: 'canvas' });
+    instanceRef.current = chart;
+
+    const handleResize = () => {
+      if (instanceRef.current && !instanceRef.current.isDisposed()) {
+        instanceRef.current.resize();
+      }
+    };
+
+    const ro = new ResizeObserver(() => {
+      requestAnimationFrame(handleResize);
+    });
+    ro.observe(el);
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      ro.disconnect();
+      chart.dispose();
+      instanceRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const chart = instanceRef.current;
+    if (!chart || chart.isDisposed()) return;
+    const reduced =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    chart.setOption(
+      {
+        animation: !reduced,
+        animationDuration: reduced ? 0 : 280,
+        animationEasing: 'cubicOut',
+        animationDurationUpdate: reduced ? 0 : 200,
+        animationEasingUpdate: 'cubicOut',
+        ...option,
+      },
+      { notMerge: true, lazyUpdate: false },
+    );
+  }, [option]);
+
+  useEffect(() => {
+    const chart = instanceRef.current;
+    if (!chart || chart.isDisposed()) return;
+    const map = eventsRef.current;
+    if (!map) return;
+
+    const entries = Object.entries(map);
+    entries.forEach(([evt, handler]) => {
+      chart.on(evt, handler);
+    });
+    return () => {
+      if (!chart.isDisposed()) {
+        entries.forEach(([evt, handler]) => {
+          chart.off(evt, handler);
+        });
+      }
+    };
+  }, [option, onEvents]);
+
+  return (
+    <div
+      ref={containerRef}
+      role={ariaLabel ? 'img' : undefined}
+      aria-label={ariaLabel}
+      className={className}
+      style={{
+        width: '100%',
+        height,
+        minHeight: typeof height === 'number' ? height : undefined,
+        ...style,
+      }}
+    />
+  );
+}
