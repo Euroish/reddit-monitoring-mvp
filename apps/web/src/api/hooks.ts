@@ -440,7 +440,7 @@ export function useSaveProviderCredentialMutation() {
       apiKey,
       revision,
     }: {
-      provider: 'kaix' | 'red_crawler' | 'twitterapis' | 'scrapebadger';
+      provider: 'apify' | 'twitterapis' | 'scrapebadger';
       apiKey: string;
       revision?: number;
     }) => apiClient.saveProviderCredential(provider, { apiKey, revision }),
@@ -455,12 +455,61 @@ export function useSaveProviderCredentialMutation() {
 export function useRevokeProviderCredentialMutation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (provider: 'kaix' | 'red_crawler' | 'twitterapis' | 'scrapebadger') =>
+    mutationFn: (provider: 'apify' | 'twitterapis' | 'scrapebadger') =>
       apiClient.revokeProviderCredential(provider),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['providerCredentials'] });
       qc.invalidateQueries({ queryKey: ['capabilities'] });
       qc.invalidateQueries({ queryKey: ['sources'] });
+    },
+  });
+}
+
+export function useRecentJobsQuery(params: { status?: string; sourceId?: string; limit?: number; offset?: number } = {}, enabled = true) {
+  return useQuery({
+    queryKey: ['recentJobs', params],
+    queryFn: () => apiClient.getRecentJobs(params),
+    enabled,
+  });
+}
+
+export function useQuotasSummaryQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['quotasSummary'],
+    queryFn: () => apiClient.getQuotasSummary(),
+    enabled,
+  });
+}
+
+export function useUpdatePlanPolicyMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      tier,
+      payload,
+    }: {
+      tier: 'free' | 'pro';
+      payload: Parameters<typeof apiClient.updatePlanPolicy>[1];
+    }) => apiClient.updatePlanPolicy(tier, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
+    },
+  });
+}
+
+export function useUpdateUserQuotaOverrideMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      userId,
+      payload,
+    }: {
+      userId: string;
+      payload: Parameters<typeof apiClient.updateUserQuotaOverride>[1];
+    }) => apiClient.updateUserQuotaOverride(userId, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
+      qc.invalidateQueries({ queryKey: ['accessUsers'] });
     },
   });
 }

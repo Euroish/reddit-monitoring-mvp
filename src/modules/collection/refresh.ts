@@ -5,6 +5,7 @@ import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import { IdempotencyHeaders, ParamsId, Refresh } from "../../../packages/contracts/src/source-content";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { fail, transaction } from "../../storage/db";
+import { admitViewerCollection } from "./policy";
 import { lockSource } from "./sql";
 
 export async function refreshRoutes(app: FastifyInstance, pool: Pool, providers: ContentProvider[]) {
@@ -35,12 +36,21 @@ export async function refreshRoutes(app: FastifyInstance, pool: Pool, providers:
       [source.id, contentIds],
     )).rows.map(({ external_id }) => external_id);
     if (externalIds.length !== contentIds.length) fail(404, "Some content IDs were not found in this source");
+    await admitViewerCollection(client, request.actor!, {
+      provider: provider.capability.provider,
+      sourceId: source.id,
+      limit: externalIds.length,
+      resources: externalIds.length,
+    });
     const jobId = randomUUID();
     await client.query(`
       INSERT INTO source_collection_job(id,collection_source_id,status,purpose,operation,provider,from_at,to_at,
-        page_size,max_pages,next_run_at,created_at,request_key,request_json)
-      VALUES($1,$2,'queued','refresh','hydrate',$3,NOW()-interval '1 second',NOW(),$4,1,NOW(),NOW(),$5,$6)`,
-      [jobId, source.id, provider.capability.provider, externalIds.length, key, { contentIds, externalIds }]);
+        page_size,max_pages,next_run_at,created_at,request_key,request_json,requested_by_user_id,requested_by_client_kind)
+      VALUES($1,$2,'queued','refresh','hydrate',$3,NOW()-interval '1 second',NOW(),$4,1,NOW(),NOW(),$5,$6,$7,$8)`,
+      [
+        jobId, source.id, provider.capability.provider, externalIds.length,
+        key, { contentIds, externalIds }, request.actor!.userId, request.actor!.clientKind,
+      ]);
     return { jobId };
   }));
 }

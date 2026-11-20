@@ -20,6 +20,7 @@ import {
   useIngestSourceMutation,
   useJobActionMutation,
   useJobDetailQuery,
+  useQuotasSummaryQuery,
   useRefreshSourceMutation,
   useSourceJobsQuery,
   useSourcesQuery,
@@ -27,7 +28,9 @@ import {
   useUpdateBudgetMutation,
   useUpdateSourceMutation,
 } from '../api/hooks';
-import { QuotaMeters } from '../components/charts/QuotaMeters';
+import { CollectionJobsView } from '../components/CollectionJobsView';
+import { ProviderCredentialsTab } from '../components/ProviderCredentialsTab';
+import { QuotasManagementView } from '../components/QuotasManagementView';
 import { R4ArchivePanel } from '../components/R4ArchivePanel';
 import {
   type Actor,
@@ -63,14 +66,17 @@ export function SourcesPage({
 
   const sourcesQuery = useSourcesQuery(true);
   const budgetsQuery = useBudgetsQuery(canWrite);
+  const quotasSummaryQuery = useQuotasSummaryQuery(true);
   const sources = useMemo(() => sourcesQuery.data?.sources ?? [], [sourcesQuery.data?.sources]);
   const capabilities = sourcesQuery.data?.capabilities || DEFAULT_CAPABILITIES;
   const budgets = budgetsQuery.data?.budgets || [];
 
-  const defaultTab: 'sources' | 'budgets' = urlTab === 'budgets' && canWrite ? 'budgets' : 'sources';
-  const [tabState, setTabState] = useState<{ key: string; val: 'sources' | 'budgets' } | null>(null);
+  type SourcesTab = 'sources' | 'jobs' | 'budgets';
+  const defaultTab: SourcesTab = urlTab === 'budgets' ? 'budgets' : urlTab === 'jobs' ? 'jobs' : 'sources';
+  const [tabState, setTabState] = useState<{ key: string; val: SourcesTab } | null>(null);
   const tab = tabState?.key === `${urlTab}:${canWrite}` ? tabState.val : defaultTab;
-  const setTab = (val: 'sources' | 'budgets') => setTabState({ key: `${urlTab}:${canWrite}`, val });
+  const setTab = (val: SourcesTab) => setTabState({ key: `${urlTab}:${canWrite}`, val });
+  const [channelsOpen, setChannelsOpen] = useState(false);
 
   const [stateFilter, setStateFilter] = useState<'all' | 'active' | 'paused'>('all');
   const [selectedSourceId, setSelectedSourceId] = useState<string>('');
@@ -475,20 +481,47 @@ export function SourcesPage({
       <div style={{ borderBottom: '1px solid var(--line)', marginBottom: 16 }}>
         <div className="tabs">
           <button type="button" aria-selected={tab === 'sources'} onClick={() => setTab('sources')}>
-            {t('Sources & Job Control', '来源列表与采集调度')} ({sources.length})
+            {t('Sources Center', '来源中心')} ({sources.length})
           </button>
-          {canWrite && (
-            <button type="button" aria-selected={tab === 'budgets'} onClick={() => setTab('budgets')}>
-              {t('Provider Quotas (ECharts)', '渠道日/月预算监控 (ECharts)')} ({budgets.length})
-            </button>
-          )}
+          <button type="button" aria-selected={tab === 'jobs'} onClick={() => setTab('jobs')}>
+            {t('Collection Jobs', '采集任务')}
+          </button>
+          <button type="button" aria-selected={tab === 'budgets'} onClick={() => setTab('budgets')}>
+            {canWrite ? t('Channel Quotas & Policies', '渠道配额与策略') : t('My Quotas', '我的配额')}
+          </button>
         </div>
       </div>
 
-      {tab === 'budgets' && canWrite ? (
-        <QuotaMeters budgets={budgets} onSelectEdit={openBudgetModal} />
+      {tab === 'jobs' ? (
+        <CollectionJobsView actor={actor} sources={sources} />
+      ) : tab === 'budgets' ? (
+        <QuotasManagementView actor={actor} budgets={budgets} providers={capabilities} onEditBudget={openBudgetModal} />
       ) : (
-        <div className="ds-grid">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {canWrite && (
+            <div className="ds-card">
+              <div className="ds-card-hd">
+                <div>
+                  <div className="ds-card-title">
+                    <Shield size={14} color="var(--wb-teal)" />
+                    <span>{t('Channel Onboarding & Vendor Credentials', '渠道接入与第三方服务商凭证')}</span>
+                  </div>
+                  <div className="ds-card-sub">
+                    {t('Unified Apify (kaix + red_crawler), TwitterAPIs & ScrapeBadger keys · encrypted at rest', '按服务商聚合 Apify (kaix + red_crawler)、TwitterAPIs 与 ScrapeBadger 密钥，静态加密热生效')}
+                  </div>
+                </div>
+                <button type="button" className="ds-btn ds-btn--ghost" style={{ height: 28, fontSize: 11.5 }} onClick={() => setChannelsOpen((v) => !v)}>
+                  {channelsOpen ? t('Collapse', '收起') : t('Manage Credentials', '管理服务商密钥')}
+                </button>
+              </div>
+              {channelsOpen && (
+                <div className="ds-card-bd">
+                  <ProviderCredentialsTab canManage={canWrite} />
+                </div>
+              )}
+            </div>
+          )}
+          <div className="ds-grid">
           {/* Left Source List (c5) */}
           <div className="c5">
             <div className="ds-card">
@@ -636,11 +669,11 @@ export function SourcesPage({
 
                     {opsMsg && <div className={`wb-alert ${opsMsg.isError ? 'wb-alert--error' : 'wb-alert--success'}`}>{opsMsg.text}</div>}
 
-                    {canWrite && selectedSource.delivery_mode === 'pull' && (
+                    {selectedSource.delivery_mode === 'pull' && (canWrite || quotasSummaryQuery.data?.effectivePolicy.manualCollectEnabled) && (
                       <form onSubmit={handleCollect} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 650 }}>
                           <Play size={13} color="var(--wb-purple)" />
-                          <span>{t('Dispatch Pull Collect Job', '下发主动采集任务')}</span>
+                          <span>{canWrite ? t('Dispatch Pull Collect Job', '下发主动采集任务') : t('Personal Manual Collection (Subject to Plan Quota)', '个人手动采集（受套餐策略与个人额度限制）')}</span>
                           <span className="tag tag--line" style={{ height: 18, fontSize: 9 }}>Idempotency-Key auto</span>
                         </div>
                         <div className="wb-grid-2">
@@ -702,8 +735,6 @@ export function SourcesPage({
 
                     {canWrite && selectedSource.delivery_mode === 'push' && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        <R4ArchivePanel sourceId={selectedSource.id} />
-
                         <form onSubmit={handleIngest} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 650 }}>
@@ -784,6 +815,20 @@ export function SourcesPage({
               </>
             )}
           </div>
+        </div>
+        {canWrite && selectedSource?.delivery_mode === 'push' && (
+          <div className="ds-card">
+            <div className="ds-card-hd">
+              <div>
+                <div className="ds-card-title">{t('Admin-Only Offline Archive Plugin (R4)', '管理员专用离线归档外挂工具 (R4)')}</div>
+                <div className="ds-card-sub">{t('Isolated external Python/DuckDB command generator · never runs inside main server', '独立仓外插件命令生成器，严格遵循主线隔离与推流契约')}</div>
+              </div>
+            </div>
+            <div className="ds-card-bd">
+              <R4ArchivePanel sourceId={selectedSource.id} />
+            </div>
+          </div>
+        )}
         </div>
       )}
 

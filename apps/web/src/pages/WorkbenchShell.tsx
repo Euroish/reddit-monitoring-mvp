@@ -38,6 +38,7 @@ import {
   useBudgetsQuery,
   useLogoutMutation,
   useProjectsQuery,
+  useQuotasSummaryQuery,
   useSavedQueriesQuery,
   useSourcesQuery,
 } from '../api/hooks';
@@ -82,6 +83,7 @@ export function WorkbenchShell({
   const queriesQuery = useSavedQueriesQuery(true);
   const annotationsQuery = useAnnotationsListQuery(true);
   const budgetsQuery = useBudgetsQuery(canWrite);
+  const quotasSummaryQuery = useQuotasSummaryQuery(true);
 
   const projects = projectsQuery.data?.projects || [];
   const sources = useMemo(() => sourcesQuery.data?.sources ?? [], [sourcesQuery.data?.sources]);
@@ -167,21 +169,26 @@ export function WorkbenchShell({
     return () => window.removeEventListener('keydown', onKey);
   }, [paletteOpen, shortcutsOpen, openPop]);
 
-  // Dynamic quota summary from provider budgets
+  // Dynamic quota summary from real backend budgets / personal policy
   const quotaStats = useMemo(() => {
-    if (!budgets.length) return { pct: 68, used: '1.36K', cap: '2.0K' };
-    const totalUsed = budgets.reduce((s, b) => s + (b.used_daily_resources ?? 0), 0);
-    const totalCap = Math.max(
-      1,
-      budgets.reduce((s, b) => s + Math.max(0, b.daily_resources), 0),
-    );
+    const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n));
+    if (!canWrite) {
+      const q = quotasSummaryQuery.data;
+      if (!q) return { pct: 0, used: '0', cap: '—' };
+      const used = q.myUsage.requestsReserved;
+      const cap = q.effectivePolicy.dailyRequests;
+      if (!q.effectivePolicy.manualCollectEnabled) return { pct: 0, used: fmt(used), cap: 'Off' };
+      if (cap === null) return { pct: 0, used: fmt(used), cap: '∞' };
+      if (cap <= 0) return { pct: 0, used: fmt(used), cap: '0 cap' };
+      return { pct: Math.min(100, Math.round((used / cap) * 100)), used: fmt(used), cap: fmt(cap) };
+    }
+    if (!budgets.length) return { pct: 0, used: '0', cap: '0' };
+    const totalUsed = budgets.reduce((s, b) => s + (b.requests_today ?? 0), 0);
+    const totalCap = budgets.reduce((s, b) => s + (b.enabled ? Math.max(0, b.daily_requests) : 0), 0);
+    if (totalCap <= 0) return { pct: 0, used: fmt(totalUsed), cap: '0 cap' };
     const pct = Math.min(100, Math.round((totalUsed / totalCap) * 100));
-    return {
-      pct,
-      used: totalUsed >= 1000 ? `${(totalUsed / 1000).toFixed(1)}K` : String(totalUsed),
-      cap: totalCap >= 1000 ? `${(totalCap / 1000).toFixed(1)}K` : String(totalCap),
-    };
-  }, [budgets]);
+    return { pct, used: fmt(totalUsed), cap: fmt(totalCap) };
+  }, [canWrite, budgets, quotasSummaryQuery.data]);
 
   const handleGlobalSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();

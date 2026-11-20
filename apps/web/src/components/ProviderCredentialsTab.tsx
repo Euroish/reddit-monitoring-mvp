@@ -11,17 +11,11 @@ import type { CredentialProviderName, ProviderCredentialStatus } from '../contra
 import { useI18n } from '../i18n/translations';
 
 const PROVIDER_META: Record<CredentialProviderName, { title: string; platform: string; noteEn: string; noteZh: string }> = {
-  kaix: {
-    title: 'Apify · kaix',
-    platform: 'Reddit (primary)',
-    noteEn: 'Shared Apify token for Reddit search, community & comment hydration.',
-    noteZh: 'Reddit 主采集渠道与帖子评论水合（共用 APIFY_API_TOKEN）。',
-  },
-  red_crawler: {
-    title: 'Apify · red_crawler',
-    platform: 'Reddit (fallback)',
-    noteEn: 'Fallback Apify actor token for Reddit scheduled tasks.',
-    noteZh: 'Reddit 定时采集备源渠道（Apify Token）。',
+  apify: {
+    title: 'Apify (kaix + red_crawler)',
+    platform: 'Reddit (primary & fallback)',
+    noteEn: 'Unified APIFY_API_TOKEN shared by kaix (primary/hydrate) and red_crawler (fallback).',
+    noteZh: '统一管理的 APIFY_API_TOKEN，同时驱动 kaix（主采集与评论水合）与 red_crawler（备源）。',
   },
   twitterapis: {
     title: 'TwitterAPIs',
@@ -153,6 +147,15 @@ export function ProviderCredentialsTab({ canManage }: { canManage: boolean }) {
                 </div>
                 <div className="ds-card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>{t(meta.noteEn, meta.noteZh)}</p>
+
+                  {item.conflict && (
+                    <div className="wb-alert wb-alert--error" style={{ fontSize: 11 }}>
+                      {t(
+                        'Legacy kaix and red_crawler DB rows hold different tokens. Saving a unified Apify token below will resolve the conflict.',
+                        '检测到旧版 kaix 与 red_crawler 存在不同密钥；在下方重新保存统一 Apify Token 即可安全消歧。',
+                      )}
+                    </div>
+                  )}
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, padding: '6px 10px', background: '#fbfcf7', border: '1px solid var(--line)', borderRadius: 6 }}>
                     <span>{t('Active Hint', '当前掩码')}</span>

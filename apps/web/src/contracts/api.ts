@@ -59,7 +59,7 @@ export class ApiError extends Error {
 }
 
 export type PlanTier = 'free' | 'pro';
-export type CredentialProviderName = 'kaix' | 'red_crawler' | 'twitterapis' | 'scrapebadger';
+export type CredentialProviderName = 'apify' | 'twitterapis' | 'scrapebadger';
 
 export interface Actor {
   userId: string;
@@ -74,15 +74,112 @@ export interface Actor {
 
 export interface ProviderCredentialStatus {
   provider: CredentialProviderName;
+  connectors: string[];
   envVar: string;
   source: 'db' | 'env' | 'none';
   configured: boolean;
   keyHint: string | null;
   envConfigured: boolean;
   envHint: string | null;
+  conflict?: boolean;
   revision: number;
   updatedAt: string | null;
   updatedByEmail: string | null;
+}
+
+export interface PlanPolicyDto {
+  planTier: PlanTier;
+  manualCollectEnabled: boolean;
+  allowedProviders: string[];
+  allowedSourceIds: string[] | null;
+  dailyRequests: number | null;
+  dailyResources: number | null;
+  maxBatchLimit: number;
+  maxCommentsPerPost: number;
+  updatedAt: string;
+  revision: number;
+}
+
+export interface EffectivePolicyDto {
+  planTier: PlanTier;
+  manualCollectEnabled: boolean;
+  allowedProviders: string[];
+  allowedSourceIds: string[] | null;
+  dailyRequests: number | null;
+  dailyResources: number | null;
+  maxBatchLimit: number;
+  maxCommentsPerPost: number;
+  hasOverride: boolean;
+}
+
+export interface QuotaOverrideDto {
+  manualCollectEnabled?: boolean | null;
+  allowedProviders?: string[] | null;
+  allowedSourceIds?: string[] | null;
+  dailyRequests?: number | null;
+  dailyResources?: number | null;
+  maxBatchLimit?: number | null;
+}
+
+export interface QuotasSummaryResponse {
+  scope: 'personal' | 'admin';
+  resetsAtUtc: string;
+  effectivePolicy: EffectivePolicyDto;
+  myUsage: {
+    requestsReserved: number;
+    requestsExecuted: number;
+    resourcesReserved: number;
+    byProvider: Array<{
+      provider: string;
+      requests_reserved: number;
+      requests_executed: number;
+      resources_reserved: number;
+    }>;
+  };
+  providerAvailability?: Array<{
+    provider: string;
+    platform: Platform;
+    enabled: boolean;
+    planAllowed: boolean;
+  }>;
+  planPolicies?: PlanPolicyDto[];
+  users?: Array<{
+    id: string;
+    email: string;
+    role: Role;
+    status: string;
+    planTier: PlanTier;
+    quotaOverride: QuotaOverrideDto | null;
+    todayUsage: {
+      requestsReserved: number;
+      requestsExecuted: number;
+      resourcesReserved: number;
+    };
+  }>;
+}
+
+export interface RecentJobDto {
+  id: string;
+  sourceId: string;
+  sourceLabel: string;
+  platform: Platform;
+  status: JobStatus;
+  purpose: string;
+  operation: 'collect' | 'refresh' | 'hydrate' | 'ingest';
+  provider: ProviderName;
+  phase: ProviderPhase | null;
+  pageSize: number | null;
+  recordsProcessed: number;
+  recordsInserted: number;
+  recordsUpdated: number;
+  requestCount: number;
+  requestDurationMs: number;
+  error: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+  requestedByUserId: string | null;
+  requestedByClientKind: ClientKind | null;
+  requesterEmail: string | null;
 }
 
 export interface UserAccountDto {
@@ -346,10 +443,10 @@ export interface ProviderBudget {
   monthly_requests: number;
   daily_resources: number;
   monthly_resources: number;
-  used_daily_requests?: number;
-  used_monthly_requests?: number;
-  used_daily_resources?: number;
-  used_monthly_resources?: number;
+  requests_today?: number;
+  requests_month?: number;
+  resources_today?: number;
+  resources_month?: number;
   minimum_interval_ms: number;
   revision: number;
 }

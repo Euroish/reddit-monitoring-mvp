@@ -10,6 +10,7 @@ import type { JsonValue, Actor } from "../../../packages/contracts/src/source-co
 import { commitContentBatch, prepareContentBatch } from "../content/sql";
 import { fail, transaction } from "../../storage/db";
 import { lockSource, sourceFromRow } from "./sql";
+import { isViewerJobStillAuthorized, recordUserExecutedRequest } from "./policy";
 import { scheduleDueSourcesOnce } from "./schedule";
 
 const workerActor = { allowedSourceIds: null } as Actor;
@@ -136,6 +137,13 @@ export async function workOnce(
               lease_token=NULL,lease_until=NULL,attempts=attempts-1 WHERE id=$1 AND lease_token=$2`, [job.id, token]);
           return false;
         }
+        if (job.requested_by_user_id && !(await isViewerJobStillAuthorized(pool, job))) {
+          await client.query(`
+            UPDATE source_collection_job SET status='cancelled',finished_at=now(),
+              lease_token=NULL,lease_until=NULL,error='Collection policy revoked before dispatch'
+            WHERE id=$1 AND lease_token=$2`, [job.id, token]);
+          return false;
+        }
         await client.query("SELECT 1 FROM source_provider_budget WHERE provider=$1 FOR UPDATE", [job.provider]);
         const deferred = await client.query(
           `UPDATE source_collection_job SET status='queued',next_run_at=ready.at,lease_token=NULL,lease_until=NULL,
@@ -158,6 +166,7 @@ export async function workOnce(
           "UPDATE source_provider_budget SET last_request_at=NOW() WHERE provider=$1",
           [job.provider],
         );
+        await recordUserExecutedRequest(client, job.id, job.provider);
         return true;
       });
       if (!admitted) return true;

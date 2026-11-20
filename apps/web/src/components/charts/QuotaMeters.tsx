@@ -17,12 +17,14 @@ export function QuotaMeters({
 
   const option: EChartsOption = useMemo(() => {
     const names = budgets.map((b) => b.provider);
-    const dailyPcts = budgets.map((b) =>
-      b.daily_requests <= 0 ? 100 : Math.min(100, Math.round(((b.used_daily_requests ?? 0) / b.daily_requests) * 100)),
-    );
-    const monthlyPcts = budgets.map((b) =>
-      b.monthly_requests <= 0 ? 100 : Math.min(100, Math.round(((b.used_monthly_requests ?? 0) / b.monthly_requests) * 100)),
-    );
+    const dailyPcts = budgets.map((b) => {
+      const used = b.requests_today ?? 0;
+      return b.daily_requests <= 0 ? 0 : Math.min(100, Math.round((used / b.daily_requests) * 100));
+    });
+    const monthlyPcts = budgets.map((b) => {
+      const used = b.requests_month ?? 0;
+      return b.monthly_requests <= 0 ? 0 : Math.min(100, Math.round((used / b.monthly_requests) * 100));
+    });
 
     return {
       tooltip: {
@@ -100,9 +102,11 @@ export function QuotaMeters({
       {/* DeepSeek Budget Cards Strip */}
       <div className="budget-strip">
         {budgets.map((b) => {
-          const dailyPct = b.daily_requests <= 0 ? 100 : Math.min(100, Math.round(((b.used_daily_requests ?? 0) / b.daily_requests) * 100));
-          const monthlyPct = b.monthly_requests <= 0 ? 100 : Math.min(100, Math.round(((b.used_monthly_requests ?? 0) / b.monthly_requests) * 100));
-          const meterClass = dailyPct > 85 ? 'hot' : dailyPct > 65 ? 'warn' : '';
+          const usedDaily = b.requests_today ?? 0;
+          const usedMonthly = b.requests_month ?? 0;
+          const dailyPct = b.daily_requests <= 0 ? 0 : Math.min(100, Math.round((usedDaily / b.daily_requests) * 100));
+          const monthlyPct = b.monthly_requests <= 0 ? 0 : Math.min(100, Math.round((usedMonthly / b.monthly_requests) * 100));
+          const meterClass = b.daily_requests > 0 && dailyPct > 85 ? 'hot' : b.daily_requests > 0 && dailyPct > 65 ? 'warn' : '';
           return (
             <div key={b.provider} className="budget-card">
               <div className="bc-top">
@@ -119,13 +123,13 @@ export function QuotaMeters({
                   />
                   <span>{b.provider}</span>
                 </span>
-                <span className="bc-rev">rev {b.revision}</span>
+                <span className="bc-rev">{b.enabled ? `rev ${b.revision}` : t('disabled', '已停用')}</span>
               </div>
 
               <div className="bc-meter">
                 <div className="bm-top">
-                  <span>{t('Daily Req', '日请求')}</span>
-                  <b>{b.daily_requests === 0 ? '0 cap' : `${dailyPct}%`}</b>
+                  <span>{t('Daily Req', '日请求')} ({usedDaily}/{b.daily_requests})</span>
+                  <b>{b.daily_requests <= 0 ? t('0 cap', '零上限') : `${dailyPct}%`}</b>
                 </div>
                 <div className="meter">
                   <i className={meterClass} style={{ width: `${dailyPct}%` }} />
@@ -134,8 +138,8 @@ export function QuotaMeters({
 
               <div className="bc-meter">
                 <div className="bm-top">
-                  <span>{t('Monthly Req', '月请求')}</span>
-                  <b>{b.monthly_requests === 0 ? '0 cap' : `${monthlyPct}%`}</b>
+                  <span>{t('Monthly Req', '月请求')} ({usedMonthly}/{b.monthly_requests})</span>
+                  <b>{b.monthly_requests <= 0 ? t('0 cap', '零上限') : `${monthlyPct}%`}</b>
                 </div>
                 <div className="meter">
                   <i style={{ width: `${monthlyPct}%` }} />

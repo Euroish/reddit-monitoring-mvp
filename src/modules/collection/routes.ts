@@ -26,6 +26,7 @@ import { commitContentBatch, prepareContentBatch } from "../content/sql";
 import { fail, transaction } from "../../storage/db";
 import { sourcePreviewRoute, validateFallback, validateSource } from "./config";
 import { sourceImportRoute } from "./import";
+import { admitViewerCollection } from "./policy";
 import {
   assertSource,
   insertSource,
@@ -390,19 +391,35 @@ export async function collectionRoutes(
             409,
             "Collection is blocked pending review of an unresolved operation",
           );
+        const pageSize = providerName === "twitterapis" ? Math.min(request.body.limit, 20) : request.body.limit;
+        const resources =
+          providerName === "kaix" && request.body.includeComments
+            ? pageSize * (maxComments + 1)
+            : pageSize;
+        await admitViewerCollection(client, request.actor!, {
+          provider: providerName,
+          sourceId: source.id,
+          limit: pageSize,
+          resources,
+          includeComments: request.body.includeComments,
+          maxCommentsPerPost: request.body.maxCommentsPerPost,
+        });
         const id = randomUUID();
         await client.query(
-          `INSERT INTO source_collection_job(id,collection_source_id,status,purpose,operation,provider,from_at,to_at,page_size,max_pages,next_run_at,created_at,request_key,request_json)
-      VALUES($1,$2,'queued','collect','radar',$3,$4,$5,$6,1,NOW(),NOW(),$7,$8)`,
+          `INSERT INTO source_collection_job(id,collection_source_id,status,purpose,operation,provider,from_at,to_at,
+            page_size,max_pages,next_run_at,created_at,request_key,request_json,requested_by_user_id,requested_by_client_kind)
+      VALUES($1,$2,'queued','collect','radar',$3,$4,$5,$6,1,NOW(),NOW(),$7,$8,$9,$10)`,
           [
             id,
             source.id,
             providerName,
             request.body.from,
             request.body.to,
-            providerName === "twitterapis" ? Math.min(request.body.limit, 20) : request.body.limit,
+            pageSize,
             key,
             request.body,
+            request.actor!.userId,
+            request.actor!.clientKind,
           ],
         );
         return { jobId: id };

@@ -14,6 +14,7 @@ import {
   type ListQuery,
   type MachineKeyDto,
   type MachineScope,
+  type PlanPolicyDto,
   type PlanTier,
   type Project,
   type ProjectInput,
@@ -22,6 +23,9 @@ import {
   type ProviderCredentialStatus,
   type PublicContent,
   type PullProviderName,
+  type QuotaOverrideDto,
+  type QuotasSummaryResponse,
+  type RecentJobDto,
   type SavedQueryDto,
   type SourceInput,
   type SourceJob,
@@ -481,5 +485,39 @@ export const apiClient = {
 
   async getAccessAudit(): Promise<{ events: AuditEventDto[] }> {
     return liveFetch('/access/audit');
+  },
+
+  async getRecentJobs(params: {
+    status?: string;
+    sourceId?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<{ jobs: RecentJobDto[]; scope: 'all' | 'personal' }> {
+    const qs = buildQueryParams(params as Record<string, unknown>);
+    return liveFetch(`/source-jobs/recent${qs}`);
+  },
+
+  async getQuotasSummary(): Promise<QuotasSummaryResponse> {
+    return liveFetch('/quotas/summary');
+  },
+
+  async updatePlanPolicy(
+    tier: PlanTier,
+    payload: Omit<PlanPolicyDto, 'planTier' | 'updatedAt'>,
+  ): Promise<{ policy: PlanPolicyDto }> {
+    return liveFetch(`/quotas/plans/${tier}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateUserQuotaOverride(
+    userId: string,
+    payload: QuotaOverrideDto | null,
+  ): Promise<{ updated: boolean; quotaOverride: QuotaOverrideDto | null }> {
+    return liveFetch(`/quotas/users/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
   },
 };
