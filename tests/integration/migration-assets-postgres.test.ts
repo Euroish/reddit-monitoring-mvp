@@ -9,7 +9,7 @@ import { runMigrations } from "../../src/storage/schema/run-migrations";
 import { bootstrapOwner } from "../../src/modules/access/sql";
 import { exportLegacyAssets } from "../../scripts/export-legacy-assets";
 
-test("PG16 forward migration failure rolls back DDL/ledger and legacy assets export by original owner without writes", async (t) => {
+test("PG16 forward migration failure rolls back DDL/ledger, 050 drops legacy schema, and asset export works post-050", async (t) => {
   const db = await testDatabase();
   t.after(db.close);
   const directory = await mkdtemp(join(tmpdir(), "monitor-migration-"));
@@ -38,39 +38,39 @@ test("PG16 forward migration failure rolls back DDL/ledger and legacy assets exp
     ).rowCount,
     0,
   );
+  // Verify 050 removed retired tables and dead columns cleanly.
+  const tables = (
+    await db.pool.query("SELECT tablename FROM pg_tables WHERE schemaname='public'")
+  ).rows.map((r) => r.tablename);
+  assert.equal(tables.length, 20);
+  for (const dropped of ["research_export", "research_export_member", "saved_workbench_view", "collection_job", "monitor_target"]) {
+    assert.equal(tables.includes(dropped), false, `${dropped} should be dropped`);
+  }
+  const deadCols = await db.pool.query(`
+    SELECT table_name, column_name FROM information_schema.columns
+    WHERE table_schema='public' AND (
+      (table_name='public_content_search_document' AND column_name IN ('normalized_title','normalized_text'))
+      OR (table_name='collection_source' AND column_name IN ('provider','refresh','next_recheck_at'))
+      OR (table_name='content' AND column_name IN ('target_id','account_id','total_eligible'))
+    )`);
+  assert.equal(deadCols.rowCount, 0);
+
   await bootstrapOwner(db.pool, "fixture-password-123", "owner@example.test");
   const user = (await db.pool.query("SELECT id FROM app_user")).rows[0].id;
-  const exportId = randomUUID();
   await db.pool.query(
-    "INSERT INTO research_export(id,user_id,name,total,manifest,payload_bytes,created_at) VALUES($1,$2,'Historic research',1,'{\"formatVersion\":1,\"total\":1}',100,NOW())",
-    [exportId, user],
-  );
-  await db.pool.query(
-    "INSERT INTO research_export_member(export_id,ordinal,content_id,identity_key,payload) VALUES($1,1,'historical','reddit:post:historical','{\"text\":\"Private historic evidence\"}')",
-    [exportId],
-  );
-  await db.pool.query(
-    "INSERT INTO content_saved_query(id,user_id,name,query,created_at,updated_at) VALUES($1,$2,'Private query','{}',NOW(),NOW())",
+    "INSERT INTO content_saved_query(id,user_id,name,query,created_at,updated_at) VALUES($1,$2,'Private query','{\"query\":\"ai\"}',NOW(),NOW())",
     [randomUUID(), user],
   );
   const destination = join(directory, "assets");
   const manifest = await exportLegacyAssets(db.url, destination);
   const entry = manifest.files.find(
-    (file) => file.file === `${user}-research_export_member.json`,
+    (file) => file.file === `${user}-content_saved_query.json`,
   )!;
   assert.equal(entry.rows, 1);
   assert.equal(entry.ownerId, user);
   const bytes = await readFile(join(destination, entry.file));
   assert.equal(createHash("sha256").update(bytes).digest("hex"), entry.sha256);
-  assert.equal(
-    JSON.parse(bytes.toString())[0].payload.text,
-    "Private historic evidence",
-  );
-  assert.equal(
-    (await db.pool.query("SELECT COUNT(*) FROM research_export_member")).rows[0]
-      .count,
-    "1",
-  );
+  assert.equal(JSON.parse(bytes.toString())[0].name, "Private query");
   assert.equal(manifest.databaseChanged, false);
   await assert.rejects(exportLegacyAssets(db.url, destination), /EEXIST/);
 });

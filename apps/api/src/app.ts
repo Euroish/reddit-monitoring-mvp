@@ -38,6 +38,8 @@ export async function buildApp(options: {
   const app = Fastify({
     forceCloseConnections: "idle",
     keepAliveTimeout: 5000,
+    requestTimeout: 30_000,
+    connectionTimeout: 10_000,
     bodyLimit: 16 * 1024 * 1024,
     trustProxy: options.trustProxy === 1 ? (_address, hop) => hop < 1 : false,
     logger: options.logger
@@ -80,10 +82,11 @@ export async function buildApp(options: {
     route.schema.operationId ??= `${Array.isArray(route.method) ? route.method[0] : route.method}_${route.url.replace(/[^a-zA-Z0-9]/g, "_")}`;
   });
   await app.register(rateLimit, {
+    hook: "onRequest",
     global: true,
     max: options.rateLimitMax ?? 120,
     timeWindow: "1 minute",
-    allowList: (request) => request.routeOptions.url === "/healthz",
+    allowList: (request) => request.routeOptions?.url === "/healthz",
   });
   app.setErrorHandler((error, request, reply) => {
     const failure = error as Error & { code?: string; statusCode?: number };
@@ -108,7 +111,7 @@ export async function buildApp(options: {
       },
     });
   });
-  app.addHook("onRequest", async (request) => {
+  app.addHook("preParsing", async (request) => {
     const route = request.routeOptions.url ?? request.url.split("?")[0],
       method = request.method;
     const publicRoute =
@@ -172,7 +175,9 @@ export async function buildApp(options: {
                 : route.endsWith("/unblock")
                   ? "collect"
                   : route.startsWith("/v1/content")
-                    ? "read"
+                    ? ["GET", "HEAD"].includes(method)
+                      ? "read"
+                      : null
                     : route.startsWith("/v1/sources")
                       ? ["GET", "HEAD"].includes(method)
                         ? "read"
@@ -215,8 +220,13 @@ export async function buildApp(options: {
       "radar",
       "hydrate",
       "refresh_by_ids",
+      "source_preview",
       "thread",
       "search",
+      "content_facets",
+      "stories",
+      "story_heat",
+      "daily_digest",
       "stream_export",
       "saved_queries",
       "annotations",

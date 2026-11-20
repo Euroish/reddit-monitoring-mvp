@@ -1,83 +1,111 @@
-# 主线架构规范
+# 主线架构规范（STD-100）
 
-本文定义系统的架构边界、运行不变量与单机交付蓝图。已落地能力、旧版本对照与后续工作见[当前状态](status.md)，接口及交互细节见[数据与 API 契约](contracts.md)和[产品交互规范](design.md)。
+本文定义系统运行拓扑、Post-050 `20 → <= 24` 表节制演进约束、L1–L3 扩源路线与单机安全基线。实码状态与 V2 排期见[当前状态与规划](status.md)，契约路由见[数据与 API 契约](contracts.md)，前端融合与可视化规范见[前端交互规范](design.md)。
 
-## 1. 架构鸟瞰与刻意不做列表（Bird's Eye & Deliberate Absences）
+---
+
+## 0. 微内核总览与开源借鉴约束
+
+在 **4 vCPU / 3.8 GiB RAM / 58 GiB 系统盘 / \$0 额外基础设施** 约束下，系统只吸收成熟开源生态的最小高收益机制：
+
+| 参考来源 | 采纳机制 | 拒绝复杂度（适配单机 4 GB） |
+| :--- | :--- | :--- |
+| **`miniflux/v2`** | 持久自适应调度、同域冷却、真 `ETag`/`304` 与 URL 去追踪参数 | 独立 Go 守护进程（合入 Node Worker） |
+| **`newsnext/newsnow`** | 零依赖纯函数热榜 getter（7 个已落地 `webBoards`） | 独立 `h3` 服务端与 SQLite 缓存 |
+| **`KKKKhazix/AIHOT`** | `T1`/`T1_5`/`T2` 分级、`T1` 一手代表选举、48h/6h 热度与 08:00 日报 | 3 Node 容器、105 迁移与入库串行 6 次 LLM |
+| **`Folo` / `Karakeep`** | 多模态冷静流、`[V2]` 阅读状态、`read`/`archived`/`muted` 与按需阅读器/摘要 | 常驻 Next.js SSR + Meilisearch + Puppeteer |
+| **`Vane` / `Ground News`** | 卡片内 16px 来源权威分布微条、`[V2]` 正交按题探索与 `keepKPerHostname` | 外部向量库与无头浏览器集群 |
+
+---
+
+## 1. `[LIVE]` 运行时拓扑与刻意不做列表
 
 ```text
-Web 浏览器 / 外部 AI Agent / 未来 R4 外挂 (plugins/zst-archive/)
-                       │  HTTPS :443
-         Caddy (Compose 服务 proxy，对外映射 HTTPS，托管静态 Web，/api/* 去前缀反代，导出关闭缓冲)
-                       │  Compose 内部网络
-        Fastify 5 单体应用 + 进程内有界调度器 (concurrency=2)
-                       │  单一 pg.Pool (max=10)
-          PostgreSQL 16 (仅内部网络，禁止宿主机端口映射)
+Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/zst-archive
+                       │  HTTPS :443 (Cloudflare Edge + Authenticated Origin Pulls mTLS)
+                 Caddy 2 (proxy, mem_limit=128m, deploy/Caddyfile)
+                       │  Docker 内部网络（proxy 可选；宿主机仅绑 127.0.0.1 或零暴露端口）
+        Fastify 5 单容器应用 (app, mem_limit=1536m, Dockerfile --target runtime)
+        ├── HTTP 读平面：onRequest @fastify/rate-limit -> preParsing 鉴权 -> apiPool (max=8)
+        └── 后台调度平面：5s 到期扫描 (LIMIT 32) + 6 协程并发 (hostCooldown=1500ms) + workerPool (max=4)
+                       │
+      PostgreSQL 16 (db, postgres:16-alpine, mem_limit=1350m, pg_trgm, LZ4 TOAST)
 ```
 
-借鉴成熟开源工程实践的架构取舍：**刻意不引入** ORM（Prisma/Drizzle）、通用 DI 容器、微服务拆分、Redis/BullMQ、Elasticsearch/ClickHouse、在线 Python/DuckDB 运行时，也不维护第二套 `systemd` 生产发布流或通用规则引擎。
+- **镜像构建陷阱**：[Dockerfile](../Dockerfile) 末段 stage 为 `AS proxy`（`caddy:2-alpine`），构建服务端必须显式传 **`--target runtime`**，构建静态反代传入 `--target proxy`。
+- **刻意不做列表**：`MUST NOT` 引入 ORM、单实现 `*Repository`/`InMemory*`、Redis/BullMQ、Elasticsearch/ClickHouse、多 Node 容器拆分、容器内 Headless Chromium/Python，或首页同步加载重型全量图表包。
 
 | ID | 等级 | 运行时与结构基线 | 验收出口 |
 | --- | --- | --- | --- |
-| ARC-01 | MUST | 后端锁定 Node 24+、TypeScript、Fastify 5、`@sinclair/typebox`（`TypeBoxValidatorCompiler` + `registerAjvFormats` 保持 `removeAdditional: false`）、`pg`、`pg-query-stream`、PostgreSQL 16；前端使用 React / Vite / Router / TanStack Query；单容器 `app` 整合 API、调度器与静态产物，构建阶段必须复制 `src/storage/schema/*.sql` 至 `dist/` 且迁移脚本在发现 0 个 SQL 或错误前缀时立即报错。 | 构建与编译态启动验收 |
-| ARC-02 | MUST | 单机 Compose（`proxy` / `app` / `db`）为唯一生产交付拓扑；应用监听 `SIGTERM` / `SIGINT`（如 `closeWithGrace` `15_000ms`，严格大于 SQL `10_000ms` 超时），构建与日常 CI 严禁打入 Python / DuckDB / `plugins/`。 | Compose 启动与退出测试 |
-| ARC-03 | MUST | 仅外部多实现采集契约保留 `ContentProvider` 接口；业务模块内部直接调用接收 `Pool | PoolClient` 的命名 SQL 函数（写事务强制 `PoolClient`），彻底清除单实现 `*Repository` 与 `InMemory*` 模拟；`src/modules/` 内按职责自然拆分文件，由 `scripts/check-docs.ts` 守住 5 模块顶层结构、禁类/旧层 AST、<= 450 行/文件与 <= 220 字符非字符串代码行上限。 | `docs:check` 与 AST lint |
+| ARC-01 | MUST | 后端锁定 Node 24+、TypeScript、Fastify 5、`@sinclair/typebox`（`removeAdditional: false`）、`pg`、`pg-query-stream`、PostgreSQL 16；**`[LIVE]` 网页解析依赖 `rss-parser`、`cheerio`、`sanitize-html`（`linkedom` + `@mozilla/readability` 属 `[V2]` Phase C 按需引入）**；构建复制 `src/storage/schema/*.sql` 至 `dist/` 并校验 SHA-256。 | 构建与编译态启动验收 |
+| ARC-02 | MUST | Compose 内存配额锁定 `db: 1350m`、`app: 1536m`、`proxy: 128m` 与 `json-file` 日志轮转（`max-size: 10m, max-file: 3`），透传 `WORKER_CONCURRENCY`（默认 6）；优雅停机 `SIGTERM`/`SIGINT` 限 `15_000ms`；主线镜像零 Python/DuckDB/Chromium。 | Compose 配置与停机测试 |
+| ARC-03 | MUST | 仅多实现采集边界保留 `ContentProvider` 接口；业务模块内部直写接收 `Pool \| PoolClient` 的命名 SQL 函数（写事务用 `PoolClient`）；`scripts/check-docs.ts` 守卫禁旧层导入、禁类封装、`<= 450` 行/文件与 `<= 220` 字/非模板行。 | `docs:check` 与 AST lint |
 
-## 2. 入口地图与五模块所有权（Code Map）
+---
 
-目标代码组织维持清晰的单向依赖（`apps/api/src/` -> `src/modules/*` -> `src/storage/db` & `packages/contracts`；`src/connectors/*` 零数据库依赖）：
+## 2. `[LIVE]` 入口地图与五模块所有权（`42` 后端核心 TS 文件）
 
-- **`apps/api/src/app.ts` & `server.ts`**：Fastify 5 实例、Default-Deny Auth Hook、`@fastify/rate-limit`（`HOST=0.0.0.0`、受控 `trustProxy: 1` behind Caddy，禁止全局 `true` 或反代后 `false`）、连接与头超时（`connectionTimeout`/`headersTimeout`/`keepAliveTimeout`/`requestTimeout` 且不误杀有界流式导出）、Swagger/Capabilities 与 `15s` 优雅停机。
-- **`src/modules/access/`**：独家管理 `app_user`、`app_user_password`、`app_invite`、`app_audit_log` 与扩展后的 `app_session`（`client_kind`、`label`、`scopes`、`allowed_source_ids`）；不新建通用 Token 表。
-- **`src/modules/collection/`**：独家管理 `source`、`collection_source`、`source_collection_job`（含 `operation`、`provider_state` 及 `purpose='ingest'` 幂等回执，沿用 `030` 已有的 `parent_job_id` 不重造列）、`source_provider_budget`、`source_provider_usage`、`source_worker_heartbeat` 与进程内 `worker.ts`。
-- **`src/modules/content/`**：独家管理 `content`、`content_discovery`、`content_observation`、`public_content_search_document`（收敛为单列 `search_text` + `title_length`），暴露唯一混合入库写函数 `commitContentBatch`、唯一纯过滤函数 `compileContentFilter` 与有界流式导出。
-- **`src/modules/projects/`**：独家管理全系统**仅有的两张新表** `monitor_project`（`owner_user_id`、`filter`、`hydration`、`thread_aware`、`include_push_in_trends`、`revision`）与 `monitor_project_source`（外键 `ON DELETE CASCADE`）。
-- **`src/modules/workspace/`**：独家管理 `content_saved_query` 与 `content_annotation`（与旧冻结表 `research_export` 解耦并在 R3 清理后删表）。
+| 模块路径 | 文件数 / 体量 | 独家表所有权与核心职责 |
+| :--- | :--- | :--- |
+| **`apps/api/src/`** | 2F · 320L | `app.ts`（`requestTimeout: 30_000`、`connectionTimeout: 10_000`、`onRequest` 全局限流 120/min、`preParsing` Default-Deny 鉴权、Swagger `/v1/openapi.json`、`/v1/capabilities`）、`server.ts`（`apiPool: 8` + `workerPool: 4` + 7 Providers）。 |
+| **`src/modules/access/`** | 2F (`routes`, `sql`) | `app_user`、`app_user_password`、`app_invite`、`app_audit_log`、`app_session`（浏览器 Cookie + 43 字符一次性 SHA-256 `machine` API Key）。 |
+| **`src/modules/collection/`** | 9F (`config`, `hydrate`, `import`, `jobs`, `refresh`, `routes`, `schedule`, `sql`, `worker`) | `source`、`collection_source`、`source_collection_job`、`source_provider_budget`、`source_provider_usage`、`source_worker_heartbeat`；含预览、OPML/JSON 导入、到期扫描与 6 协程 Worker。 |
+| **`src/modules/content/`** | 9F (`batch`, `export`, `facets`, `routes`, `search`, `sql`, `stories`, `story-groups`, `thread`) | `content`、`content_discovery`、`content_observation`、`public_content_search_document`；唯一写函数 `commitContentBatch`、唯一过滤 `compileContentFilter`、48h 事件聚簇、分面、闭包树与流式导出。 |
+| **`src/modules/projects/`** | 2F (`routes`, `sql`) | `monitor_project`、`monitor_project_source`；项目三段词 `GROUPING SETS` 概览与显式 `kaix` 水合。 |
+| **`src/modules/workspace/`** | 2F (`routes`, `sql`) | `content_saved_query`、`content_annotation`（仅限浏览器会话隔离读写）。 |
+| **`src/connectors/`** | 9F · 2,162L | `web/{http,sources}`、`reddit/{kaix,red-crawler,kaix.config}`、`x/{twitterapis,scrapebadger}`、`bluesky/bluesky-appview-content.connector`、`shared/content-provider.interface`（**零 `pg` 依赖**）。 |
+| **`packages/contracts/src/` & `src/shared/` & `src/storage/`** | 3F + 2F + 2F | TypeBox 契约真源、`stable-id` / `language` 语言与通道识别、`db` 池/事务与 SQL 迁移运行器（合计后端核心 `42` 文件 · `~6,900` LOC）。 |
 
-| ID | 等级 | 模块所有权与数据安全约束 | 验收出口 |
+| ID | 等级 | 模块边界与不可变迁移规则 | 验收出口 |
 | --- | --- | --- | --- |
-| MOD-01 | MUST | 模块间禁止越权写他方独占表；`src/connectors/` 仅作协议适配（可含流式 HTTP 大小/SSRF 保护与 XML 消毒）且绝不访问 PG。迁移严格遵循 Expand-Migrate-Contract：`001..040` 不可修改，新结构经 `041+` 前向迁移落地，且不在首次切换同事务立即 `DROP` 上一版仍读写的旧列。 | 模块边界 AST 与 PG 迁移检验 |
+| MOD-01 | MUST | 模块间 `MUST NOT` 越权写他方独占表；`src/connectors/`、`src/shared/` `MUST NOT` 导入 `pg` 连接；`001..050` 已应用 SQL `MUST NOT` 修改（由 `scripts/check-docs.ts` 强制拦截），结构变更 `MUST` 通过 `051+` 前向迁移推进。 | `docs:check` 与 PG 迁移验证 |
 
-### 新需求落在哪里
+---
 
-| 变化 | 最小改动面 | 复用的稳定边界 |
-| --- | --- | --- |
-| 新增一个 RSS 站点 | 兼容现有协议时加入允许的目标并配置逻辑来源 | 现有 Feed 解析、任务和入库 |
-| 新增一类供应商协议 | 在 connectors 映射分页、身份、时间与能力，在启动入口注册并同步来源契约 | collection 管任务预算与续跑，content 管去重，页面按能力显示操作 |
-| 新增趋势视图 | content 提供按已有可见范围聚合的 SQL，React 同步图的选区和列表条件；项目维度沿用 projects | 同一过滤编译器、同一内容身份 |
-| 新增一种个人排序 | workspace 解析当前用户选择，content 对已授权候选排序；先写一个具名函数 | 返回内容 ID 与理由，详情复用原有查询 |
+## 3. 存储、检索引擎与 `[V2]` 内容价值复利（`20 → <= 24` 表上限）
 
-首版为请求时读取 PostgreSQL。排序结果只引用正文，不保存每个人的一份内容副本。关注条件沿用保存查询，首轮由用户在页面选择；跨设备默认偏好有实际需求时再设计其持久化。只有相同读查询确实拖慢交互且索引与执行计划已核查，才引入预计算；只有任务需要独立的故障恢复或资源预算，才讨论拆进程。
+### 3.1 `[LIVE]` `commitContentBatch` 与双字词 GIN 检索
 
-Bluesky 的 Feed Generator 返回有序帖子引用，由读取方补全展示内容；这里借用引用与展示分工，在现有进程内实现。Miniflux 将过滤条件分为全局与单源两级；这里借用范围可见的交互，把个人兴趣放在读取侧，让其他用户仍能看到完整的采集样本。[Bluesky Feed Generator](https://github.com/bluesky-social/feed-generator) · [Miniflux 过滤规则](https://miniflux.app/docs/rules.html)
+- **4×`UNNEST` 短事务**：`content` 以 `(content_observed_at IS NOT NULL, COALESCE(content_observed_at, content_version_fetched_at), content_evidence_key COLLATE "C")` 决胜并自动识别 `language`；`public_content_search_document` 仅在 `changed=true` 时更新且正文截断于 **`MAX_INDEXED_BODY_CHARS = 1500`**（`050` 已物理移除 `normalized_title`/`normalized_text`）；`content_discovery` 维护发现关系；`content_observation` 仅在 `payload_hash` 异同时入库（零重写死元组）。
+- **无痛冷裁剪兼容**：`contentTables`、`matchingNodes`（`src/modules/content/search.ts`）使用 **`LEFT JOIN public_content_search_document`**，`listAnnotations`（`src/modules/workspace/sql.ts`）不连搜索表。关键词检索时自然走 GIN 匹配，非关键词读取或 90 天冷删搜索投影行时仍保证 `content`、评论树、收藏与导出完整可读。
 
-## 3. 唯一入库与查询检索不变量
-
-所有在线采集与外部推流统一在事务外完成 TypeBox 校验与按 `(kind, externalId)` 的单轮确定性版本归约后，按 **`source -> job -> content identity 升序`** 获取行锁并进入 `commitContentBatch` 短事务：
-
-1. **四组 `UNNEST` 集合写**：依次提交 `content` upsert、`public_content_search_document` upsert、`content_discovery` upsert 与按确定顺序预排序的 `content_observation` insert，消除页内逐条 SQL 往返与并发死锁风险。
-2. **三元版本元组与零无效更新**：服务端统一派生确定性 UUID 作为 `content.id`（拒绝外部 `/ingest` 指定任意 `id` 引发 `23505` 碰撞）；正文比较严格使用 `(content_observed_at IS NOT NULL, COALESCE(content_observed_at, content_version_fetched_at), content_evidence_key COLLATE "C")`；`ON CONFLICT DO UPDATE` 附带 `IS DISTINCT FROM` 判断确保重复入库返回 `updated = 0` 且不重写搜索表；`deleted`/`removed` 清理正文后绝不允许落后 `available` 借 `COALESCE` 复活。
-3. **统一过滤与无 `COUNT(*)` 翻页**：唯一纯函数 `compileContentFilter(scope, filter)` 在同一个 `EXISTS(content_discovery JOIN collection_source)` 内完成操作者、项目、来源与交付模式交集；列表分页统一按 `created_at_source DESC NULLS LAST, id DESC`（联动模式按 `matchedAt DESC NULLS LAST, anchorId DESC`）做双分支 `limit + 1` Seek，彻底删除翻页全表 `coverage COUNT(*)`。
-4. **单列三段词检索与防扫表守卫**：`public_content_search_document` 用 `U+001F` 拼接标题与正文并由 PG `char_length` 记 `title_length`，字面转义 `%`、`_`、`\` 后生成参数化 `LIKE` 激活 `gin_trgm_ops` 索引（禁热路径 `strpos()`），并用 `substring` 守住 `title`/`text` 跨界短语；**即使在 `projectSourceIds` 范围内，也不允许豁免最小词长限制而放行多个 1–2 字符无索引扫描**。
-5. **项目统计与评论树有界策略**：`projects` 概览经单 CTE + `GROUPING SETS ((), (pub_day), (source_id), (evidence_kind))` 与独立去重 `providers` 聚合消除 `contentStats` 循环全扫；基线 R2 评论树依托 `reply_to` / `thread_root` 索引做单次有界查询（`LIMIT 200`、32 跳环检测与缺根标 `contextMissing`），不预建重型游标分页树引擎。
-
-| ID | 等级 | 存储、检索与迁移执行规则 | 验收出口 |
+| ID | 等级 | 存储、索引与检索执行规则 | 验收出口 |
 | --- | --- | --- | --- |
-| SQL-01 | MUST | 批量写入固定 4 组 `UNNEST`，禁止循环内逐条 SQL；版本元组使用独立 `content_version_fetched_at` 与 `C` 序 `content_evidence_key`，零变化重放不得刷新搜索表或虚增 `updated` 计数。 | 逆序/平局/幂等 PG 测试 |
-| SQL-02 | MUST | 在线查询禁止全表 `coverage COUNT(*)` 与 `strpos()` 热扫，统一用 `::bigint` 计数；大索引建表与 SQL 迁移必须使用独立长超时连接（绕开业务池 `10_000ms` 语句熔断）。 | EXPLAIN 与迁移实测 |
+| SQL-01 | MUST | 批量入库固定 4 组 `UNNEST`；零变更重放 `MUST NOT` 重写 `public_content_search_document`、插入同哈希 `content_observation` 或虚增 `updated` 计数；90 天冷裁剪若移除搜索投影行，仅允许依赖 `LEFT JOIN` 与清文本语义，禁止造成内容静默不可读。 | 版本幂等与冷删可读性 PG 测试 |
+| SQL-02 | MUST | 列表与分面 `MUST NOT` 全表 `COUNT(*)`；`>=3` 连续字母数字走 `gin_trgm_ops`，2 字中文/短代号（`算力`/`o3`）走 `public_search_bigrams(search_text)` GIN 索引并回表精确匹配原文；结构迁移与大索引使用独立长超时连接。 | `EXPLAIN` 索引计划验证 |
 
-## 4. 进程内调度与单机安全基线
+### 3.2 `[V2]` 高收益低复杂度内容演进路径（`20 → <= 24` 表上限）
 
-| ID | 等级 | 调度、收费保护与边缘安全约束 | 验收出口 |
+经写入放大与权限压测，放弃高维护 `entity_catalog` 关联表与无输入源 `source_candidate` 表，全库演进精确收敛为以下高收益设计：
+
+| 阶段与表 delta | 设计要点（防写放大 · 防越权 · 零冻结） |
+| :--- | :--- |
+| **Phase A · 卡片微图与平台分组分面**<br>（`+0` 表 → 保持 `20`） | 复用现有 `readStoryWindow` 计算并附加 `tierBreakdown`（全簇各等级去重源数）与 `sparkline48h`（8×6h 桶）；`projectOverview` `GROUPING SETS` 补齐 `(day, platform)`，零建表支撑 `/` 内嵌微图与联动日柱图。 |
+| **Phase B · `051` 水位线阅读态**<br>（`+0` 表 · 扩 1 表 → 保持 `20`） | 在 `content_annotation` 增配 `read_at`/`muted`/`tags` 且**将阅读状态更新与笔记 `revision` 锁隔离**；叠加按频道/全局的 **`read_before_at` 水位线**（存入 `app_user` 轻量偏好 JSONB 或专用稀疏状态，避免“一键已读”触发万行写入风暴），事件流已读键锚定稳定 `storyKey`。 |
+| **Phase B · `052` 仅存事件成员归属**<br>（`+2` 表 → `22`） | 新增 `story_cluster` + `story_cluster_member` **仅持久化 `(cluster_id, content_id)` 归属关系与规范链接/SimHash 指纹**；`representative` 选举、关联计数与指数半衰期 `heat48h(now)` **MUST 在读路径按当前 `actor.allowedSourceIds` 与过滤范围实时归约**（杜绝全局字段导致的 `SEC-01` 越权泄露、指数衰减冻结及高并发写冲突）。 |
+| **Phase B · 跨专题/实体声量对比**<br>（`+0` 表 → `22`） | `POST /v1/project-comparisons` 直接复用 `monitor_project` + 既有双字词/trigram GIN 查询并排比较多个三段词主题，无需 `content_entity` 百万行关联表或中文误命中折腾。 |
+| **Phase D · 外链雷达与主动推送**<br>（可选 `+1..2` 表 → `<= 24`） | 仅在 Phase C 落地 `Readability` 保留原文 `<a>` 外链后，直接对库内提取链接做高频未订阅域名查询；仅在确有通知需求时新增轻量 `alert_rule`/`alert_delivery`。 |
+
+> **`ParadeDB (pg_search)` 与 `pgvector` 准入门槛**：当前 `pg_trgm` + `public_search_bigrams` 足以覆盖当前量级；**仅当有效去重正文突破 `200,000+` 篇且明确调配或扩容内存**后，方经隔离基准引入 `pgvector`（`halfvec` HNSW，仅嵌入 `title + 300 字`）或 ParadeDB BM25，未达阈值前禁止引入。
+
+---
+
+## 4. `[V2]` L1–L3 扩源、自适应调度与单机安全基线
+
+- **L1（主线零费直采）**：`feed`（动态放行公网 HTTPS，支持 OPML 批量导入与 `web_list`/`json_list`）+ `newsnow`（7 个内置 `webBoards` 可扩充 IT之家/少数派等 MIT getter，UTC 1h 桶）+ `bluesky_appview`；`[V2]` Phase C 按需补 `linkedom` + `@mozilla/readability` 提取摘要类 RSS 全文与出站链接。
+- **L2（预算门控付费 API）**：`twitterapis` 批次 `from:u1 OR from:u2`（较单号省 ~95% 调用）+ `scrapebadger` 备源/批量刷新；Reddit 日常走 `.rss` 雷达，高热帖由用户按需触发 `POST /v1/projects/:id/hydrate`（`kaix`）。
+- **L3（外部隔离 Sidecar · `stream_class` 架构修补）**：`[LIVE]` 默认流与趋势 `pullOnly = true` 会屏蔽 `delivery_mode='push'`；因此在 `[V2]` Phase C 接入外部 Sidecar（小红书、豆瓣、Telegram、Instagram 等强反爬源）前，`MUST` 为 `collection_source` 区分 **`stream_class` (`live \| archive \| adhoc`)**：L3 实时采集器推流源标为 **`live`**（进入默认首页流与趋势，解决推送隐形悖论），R4 `.zst` 标 **`archive`**、按题探索 `radar` 源标 **`adhoc`**；显式传 `deliveryMode` 时覆盖默认过滤。
+
+| ID | 等级 | 调度、抗滥用与 SSRF 安全规则 | 验收出口 |
 | --- | --- | --- | --- |
-| RUN-01 | MUST | `app` 内置轮询调度器上限并发 `2`、同逻辑来源互斥，采用 `FOR UPDATE SKIP LOCKED` 与租约字段领单；无任务按 `clamp(nextDue - now, 500ms, 5000ms)` 休眠。对 `automaticRequestReplay = false` 的来源实行 `starting -> running -> reading -> committed` 状态机，创建 Run 前先落库 `starting`，拿到 `runId`/`datasetId` 立即持久化；**收到 `SIGTERM` 优雅退场中断时仅释放租约退回 `queued` 并保留 `runId`，绝不可误标 `failed` 或置位 `automatic_collection_blocked=TRUE`**，仅未拿回执前异常失联才转入 `unknown` 待人工确认恢复。 | 停机恢复与故障注入 E2E |
-| SAFE-01 | MUST | 全局 `/v1/*` 执行 Default-Deny（仅精确放行 `/healthz`、`POST /v1/auth/login`、`GET /v1/auth/session`、`POST /v1/auth/register`，以及内网健康检查路径 `/readyz`）；浏览器 Cookie 写操作校验同源 `Origin`；`@fastify/rate-limit` 登录 `5 次/分/IP`、API `120 次/分/IP`，Caddy 覆写 `X-Forwarded-For` 且 `app` 配置精确反代 hop（`trustProxy: 1`），`db` 服务严禁暴露宿主机 `ports`。 | 权限、CSRF 与反代限流测试 |
-| SAFE-02 | MUST | 业务池锁定 `max: 10`、`statement_timeout: 10000ms`、`lock_timeout: 3000ms`、`idle_in_transaction_session_timeout: 10000ms`；流式导出使用全局+单用户 `concurrency=1` 信号量、事务内 `SET LOCAL idle_in_transaction_session_timeout = '35s'`、`X-Accel-Buffering: no`（Caddy `flush_interval -1`），客户断连立即中止游标并回滚。 | 并发导出与断连清理实测 |
-| SAFE-03 | MUST | 首次冷启动仅强制核心应用配置（`DATABASE_URL`、`SESSION_SECRET`、`ADMIN_BOOTSTRAP_PASSWORD` 引导首号后清除），来源凭证按需配置；对 `feed` 外部 URL 必须使用固定解析 IP（如 `undici` 自定义 `lookup` + `redirect: 'error'` + 全量 IPv4/IPv6 保留段检查）阻断 DNS 重绑定 SSRF，HTML 与 XML 分别经专业库清洗并禁外部实体。 | 冷启动与 SSRF 安全单测 |
+| RUN-01 | MUST | 进程内 Worker 运行 `WORKER_CONCURRENCY`（`[1, 12]`，默认 `6`）、5s 到期扫描（`LIMIT 32`）与同域 `1500ms` 冷却；Feed 遇 `304` 或无新增按 `1.5x` 指数退避（上限 12h），截断保持配置周期不空转；每小时清理保留各源最新 5 条以外且超 14 天的终结 `source_collection_job`；付费 `unknown` 永不重放。 | 并发冷却、清理与停发 E2E |
+| SAFE-01 | MUST | `/v1/*` Default-Deny；`@fastify/rate-limit` 置于 `onRequest`（先于 `preParsing` `findActor` 保证 429 零查库）；`/v1/content/*` 仅 `GET/HEAD` 允许 `machine` `read` scope（任何写/AI 端点需管理员浏览器会话或独立作用域）；浏览器写操作校验同源 `Origin`；公网须配 Cloudflare mTLS + `DOCKER-USER` 防墙，禁暴露 `db` 端口。 | `429` 零查库与 `POST /v1/content/*` 403 测试 |
+| SAFE-02 | MUST | 连接池预算总计 `12`（`apiPool: 8` + `workerPool: 4`）；流式导出全局单槽、`REPEATABLE READ READ ONLY`、`35s` 空闲超时与 `X-Accel-Buffering: no`，断流即销毁 `QueryStream` 释放连接。 | 并发导出与断流测试 |
+| SAFE-03 | MUST | 全部 Web 请求经 `src/connectors/web/http.ts`：拒绝非 HTTPS、带凭证/端口/裸 IP URL；DNS `resolve4`/`resolve6` 纳入 `[3000, 15000]ms` 总超时并要求 **`addresses.every(isPublicIp)`**；手动跟跳最多 3 跳且逐跳重验 DNS 与 Socket `lookup` 绑定；传输与解压上限 `2 MiB`。 | SSRF 与重定向单测 |
 
-## 5. CI/CD 与可观测基线
+---
 
-借鉴 `actualbudget/actual`、`umami`、`fastify/demo` 与 `DIYgod/RSSHub` 工程实践，收敛为低开销的双阶段验证 + 发布纪律：
+## 5. 单机容量与 CI 门禁基线
 
-1. **Fast Gate（所有改动快速执行）**：所有 Action 锁定 40 位 Commit SHA 并全量启用 `npm ci --ignore-scripts`；依次运行 `docs:check`（含 `041+` 迁移号不可重复与 `001..040` 不可变检查）、`lint` / formatter、全局 `typecheck`、构建检查（校验 `dist/src/storage/schema/*.sql` 存在）与离线纯函数单测；并辅以 `gitleaks` 防密钥提交。
-2. **Compiled + PG16 E2E Gate（代码改动必过）**：拉起固定 `postgres:16-alpine` 容器，直接用编译产物 `dist/` 运行 `npm run db:migrate:compiled` 与核心 PG16/HTTP 契约测试（不再双跑 `InMemory`）+ 1 条主流程 Playwright 浏览器冒烟。
-3. **单一单机运营约束**：生产只输出高信号结构化字段（`requestId`、慢 SQL、队列深度、真实来源延迟/错误、计费头 `X-Credits-Used` 与当前迁移版本）；保留已演练的 `pg_dump`/`pg_restore` 离机备份；14–30 天运行期内若 10 万行级导出导致 `pg.Pool` 排队 `P95 > 500ms` 再拆只读导出池或独立 Worker，无实测瓶颈前不提前拆分。
+- **Compose 实配**（`docker-compose.yml`）：`db: 1350m`、`app: 1536m`、`proxy: 128m`，容器日志 `json-file (10m×3)`；`prod@8e436ac` 实测闲时 RAM `< 200 MiB`（`app ~104 MiB`、`db ~91 MiB`）、全库 `40 MB`。
+- **CI 门禁**：`npm run docs:check` → `npm run lint` → `npm run typecheck` → `npm run build` → `npm run test:unit` → 隔离 PG16 `test:postgres` + `smoke:compiled`。

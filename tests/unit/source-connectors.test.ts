@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { CollectionSource } from "../../packages/contracts/src/source-content";
 import { redCrawler } from "../../src/connectors/reddit/red-crawler";
+import { canonicalizeUrl, isPublicIp } from "../../src/connectors/web/http";
 import { webSource } from "../../src/connectors/web/sources";
+import { detectLanguage, detectWebChannel } from "../../src/shared/text/language";
+import { twitterApis } from "../../src/connectors/x/twitterapis";
 import { scrapeBadger } from "../../src/connectors/x/scrapebadger";
 
 const from = "2026-11-15T00:00:00.000Z";
@@ -78,4 +81,78 @@ test("ScrapeBadger scopes account searches upstream and records refresh credits"
   const refreshed = await connector.refreshIds!({ source: account, externalIds: ["123456"] });
   assert.equal(refreshed.creditsUsed, 2);
   assert.equal(refreshed.items.length, 1);
+});
+
+test("TwitterAPIs queries an account window and preserves attached media and links", async () => {
+  const connector = twitterApis({ ...env, TWITTERAPIS_API_KEY: "fixture" }, async (raw) => {
+    const url = new URL(String(raw));
+    assert.equal(url.pathname, "/twitter/tweet/advanced_search");
+    assert.match(url.searchParams.get("query")!, /^from:fixture since_time:\d+ until_time:\d+$/);
+    return Response.json({ tweets: [{
+      id: "123456", created_at: from, text: "Example", author: { username: "Fixture" },
+      media: [{
+        type: "video", media_url_https: "https://example.com/preview.jpg",
+        video_info: { duration_millis: 1500, variants: [{ content_type: "video/mp4", url: "https://example.com/video.mp4" }] },
+      }],
+      entities: { urls: [{ expanded_url: "https://example.com/release" }] },
+    }] });
+  });
+  const account = source({ type: "account", account: "@Fixture" }, "post");
+  const page = await connector.collectPage({ ...request, source: account, limit: 25 });
+  assert.deepEqual(page.items[0]?.media.map(({ type, durationSeconds }) => [type, durationSeconds]), [["video", 1.5], ["link", null]]);
+});
+
+test("web helper canonicalizes tracking params, validates public IPs, detects language/channel and supports dynamic feeds up to 100", async () => {
+  assert.equal(
+    canonicalizeUrl("https://example.com/post?b=2&utm_source=hn&fbclid=xyz&a=1#frag")?.href,
+    "https://example.com/post?a=1&b=2",
+  );
+  assert.equal(isPublicIp("93.184.216.34"), true);
+  assert.equal(isPublicIp("127.0.0.1"), false);
+  assert.equal(isPublicIp("10.0.0.1"), false);
+  assert.equal(isPublicIp("::1"), false);
+  assert.equal(detectLanguage("开源算力工具", null), "zh");
+  assert.equal(detectLanguage("東京アート展示", null), "ja");
+  assert.equal(detectLanguage("OpenAI Codex", null), "en");
+  assert.equal(detectWebChannel(new URL("https://www.youtube.com/feeds/videos.xml?channel_id=1")), "youtube");
+
+  const dynUrl = "https://open.example/rss.xml";
+  const itemsXml = Array.from({ length: 45 }, (_, i) =>
+    `<item><title>Story ${i}</title><link>https://open.example/p/${i}?utm_medium=rss</link><pubDate>Sun, 15 Nov 2026 12:${String(i % 60).padStart(2, "0")}:00 GMT</pubDate></item>`,
+  ).join("");
+  const rss = `<rss version="2.0"><channel><title>Open</title>${itemsXml}</channel></rss>`;
+  const calls: (string | undefined)[] = [];
+  const dynamicFeed = webSource(
+    "feed",
+    { SOURCE_NETWORK_ENABLED: "true" },
+    async (_u, _s, headers) => {
+      const tag = headers?.["If-None-Match"];
+      calls.push(tag);
+      return tag ? { status: 304, body: "", etag: '"v1"' } : { status: 200, body: rss, etag: '"v1"' };
+    },
+  );
+  const src = {
+    ...source({ type: "feed", url: dynUrl }, "article"),
+    fetchPolicy: { maxItems: 40 },
+  };
+  const first = await dynamicFeed.collectPage({ from, to, limit: 100, checkpoint: null, source: src });
+  assert.equal(first.items.length, 40);
+  assert.equal(first.truncated, true);
+  assert.equal(first.items[0]?.url, "https://open.example/p/44");
+  assert.equal(first.items[0]?.language, "en");
+  assert.equal((first.items[0]?.platformDetails as { channel?: string }).channel, "rss");
+
+  // Forward-moving window with same limit <= prior.limit revalidates via 304 even after truncation
+  const second = await dynamicFeed.collectPage({
+    from: "2026-11-15T01:00:00.000Z", to, limit: 40, checkpoint: first.nextCheckpoint,
+    httpEtag: first.httpEtag, source: src,
+  });
+  assert.equal(second.notModified, true);
+  // Expanding limit > prior.limit bypasses 304 so truncated items can be recovered
+  const expanded = await dynamicFeed.collectPage({
+    from: "2026-11-15T01:00:00.000Z", to, limit: 50, checkpoint: first.nextCheckpoint,
+    httpEtag: first.httpEtag, source: { ...src, fetchPolicy: { maxItems: 50 } },
+  });
+  assert.equal(expanded.items.length, 45);
+  assert.deepEqual(calls, [undefined, '"v1"', undefined]);
 });

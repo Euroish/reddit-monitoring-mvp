@@ -2,17 +2,22 @@ import { Type, type Static } from "@sinclair/typebox";
 import type { Pool } from "pg";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
+import { StoryFeed, StoryQuery } from "../../../packages/contracts/src/content-stories";
 import {
   Content,
+  ContentFacets,
+  ContentFacetsQuery,
   type Actor,
   ListQuery,
   ParamsId,
   ResearchFilter,
   strictMerge,
 } from "../../../packages/contracts/src/source-content";
-import { contentSelect, compileContentFilter, decodeCursor, filterSignature, matchedAnchors } from "./search";
+import { contentColumns, contentSelect, contentSourceTables, contentTables, compileContentFilter, decodeCursor, filterSignature, matchedAnchors, pageObservations } from "./search";
 import { contentFromRow } from "./sql";
 import { exportRoutes } from "./export";
+import { contentFacets } from "./facets";
+import { readStoryWindow, selectStoryFeed } from "./stories";
 import { readThread } from "./thread";
 export { csvCell } from "./export";
 import { projectSources } from "../projects/sql";
@@ -28,32 +33,34 @@ const ListResponse = {
   }),
 };
 
-async function listContent(pool: Pool, actor: Actor, query: Static<typeof ListQuery>, pathProjectId?: string) {
+async function listContent(pool: Pool, actor: Actor, query: Static<typeof ListQuery>, pathProjectId?: string, feed = false) {
   const { limit = 50, cursor, projectId: queryProjectId, ...filter } = query;
   const projectId = pathProjectId ?? queryProjectId;
   const project = projectId ? await projectSources(pool, actor, projectId) : undefined;
-  const compiled = compileContentFilter(actor, filter, project?.source_ids, project?.filter);
+  const compiled = compileContentFilter(actor, filter, project?.source_ids, project?.filter, feed);
   const match = matchedAnchors(compiled, filter.threadAware ?? project?.thread_aware ?? false);
-  const signature = filterSignature(actor, filter, project && { id: project.id, revision: project.revision });
-  let seek = "";
+  const signature = filterSignature(actor, filter, project && { id: project.id, revision: project.revision }) + (feed ? ":feed" : "");
+  let seek = feed ? " AND c.created_at_source IS NOT NULL" : "";
   if (cursor) {
     const after = decodeCursor(cursor, signature);
     compiled.values.push(after.id);
     const id = `$${compiled.values.length}`;
     if (after.time === null)
-      seek = ` AND c.created_at_source IS NULL AND c.id<${id}::uuid`;
+      seek += ` AND c.created_at_source IS NULL AND c.id<${id}::uuid`;
     else {
       compiled.values.push(after.time);
       const time = `$${compiled.values.length}`;
-      seek = ` AND ((c.created_at_source,c.id)<(${time}::timestamptz,${id}::uuid) OR c.created_at_source IS NULL)`;
+      seek += ` AND ((c.created_at_source,c.id)<(${time}::timestamptz,${id}::uuid) OR c.created_at_source IS NULL)`;
     }
   }
   compiled.values.push(limit + 1);
-  const selection = contentSelect(match.columns ? compiled.visible : compiled.discovery, match.columns);
+  const tables = compiled.needsSearchDocument ? contentTables : contentSourceTables;
   const rows = (
     await pool.query(
-      `${match.cte} ${selection} ${match.joins} WHERE ${match.where}${seek}
-       ORDER BY c.created_at_source DESC NULLS LAST,c.id DESC LIMIT $${compiled.values.length}`,
+      `${match.cte ? `${match.cte},` : "WITH"} page AS MATERIALIZED (
+        SELECT ${contentColumns}${match.columns} FROM ${tables} ${match.joins} WHERE ${match.where}${seek}
+        ORDER BY c.created_at_source DESC NULLS LAST,c.id DESC LIMIT $${compiled.values.length}
+      ) ${pageObservations(match.columns ? compiled.visible : compiled.discovery)}`,
       compiled.values,
     )
   ).rows;
@@ -83,9 +90,37 @@ export async function contentRoutes(
   shutdown: AbortSignal,
 ) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
+  const storyWindows = new Map<"rolling" | "digest", { slot: number; result: ReturnType<typeof readStoryWindow> }>();
   api.get("/v1/content", { schema: { querystring: ListQuery, response: ListResponse } },
     (request) => listContent(pool, request.actor!, request.query),
   );
+  api.get("/v1/content/facets", { schema: { querystring: ContentFacetsQuery, response: { 200: ContentFacets } } },
+    (request) => contentFacets(pool, request.actor!, request.query),
+  );
+  api.get("/v1/content/stories", { schema: { querystring: StoryQuery, response: { 200: StoryFeed } } },
+    async (request) => {
+      const actor = request.actor!;
+      const { view = "latest", limit = 20, sourceId, platform, date, sourceGroup, tier, language } = request.query;
+      if (actor.allowedSourceIds !== null || sourceId || platform || date || sourceGroup || tier || language)
+        return selectStoryFeed(await readStoryWindow(pool, actor, request.query), view, limit);
+      const now = Date.now();
+      const slot = Math.floor(now / 30_000);
+      const key = view === "digest" ? "digest" : "rolling";
+      let saved = storyWindows.get(key);
+      if (saved?.slot !== slot) {
+        const result = readStoryWindow(pool, actor, request.query, now).catch(error => {
+          if (storyWindows.get(key)?.result === result) storyWindows.delete(key);
+          throw error;
+        });
+        saved = { slot, result };
+        storyWindows.set(key, saved);
+      }
+      return selectStoryFeed(await saved.result, view, limit);
+    },
+  );
+  api.get("/v1/content/feed", { schema: {
+    querystring: Type.Omit(ListQuery, ["projectId", "threadAware"]), response: ListResponse,
+  } }, (request) => listContent(pool, request.actor!, request.query, undefined, true));
   api.get("/v1/projects/:id/content", { schema: {
     params: ParamsId, querystring: Type.Omit(ListQuery, ["projectId"]), response: ListResponse,
   } }, (request) => listContent(pool, request.actor!, request.query, request.params.id));

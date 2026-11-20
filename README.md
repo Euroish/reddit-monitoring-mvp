@@ -1,28 +1,23 @@
-# 多源信息采集、可视化与个人推荐流
+# Signal Studio — 多源信息流与选择性可视化工作台
 
-把分散在资讯、社区和社交平台的信息汇集到一个内容库。产品的目标是让每个人打开首页就能读到关心的更新，看清哪些来源在讨论一件事，并从图上的变化回到原文。
+单机高密度多源信息流、可控数据可视化与个人/Agent 知识库（`Fastify 5 + TypeBox + PostgreSQL 16 + React 19`）。
 
-当前版本已有采集、检索、项目概览、评论树、保存查询和导出。下一步以个人信息流为首页，把现有研究工具接入日常阅读。
+- **`[LIVE]`（`prod@8e436ac`）**：20 张 PG16 核心表、`42` 个后端核心 TS 文件、`43` 个 HTTP 路径（`50` 条 OpenAPI 操作）、`100` 个活跃排期源（`97` `feed` + `3` `newsnow`，8 大 `source_group`）；支持动态 SSRF 校验 HTTPS 订阅、`web_list`/`json_list`、OPML/JSON 批量导入、`GET /v1/content/stories` 事件聚簇与双字词 GIN 检索。
+- **`[V2]`（未上线规划，见 [status.md](docs/status.md)）**：前端融合（卡片内嵌 SVG 微图 + 懒加载分析图）、阅读状态与 `为你` RRF、持久化事件归属、L3 实时推流、Readability 正文提取与按需 AI 摘要。
 
-工作台在单台服务器运行 `Fastify 5 + TypeBox + PostgreSQL 16 + React`，Web 与外部 AI Agent 共用同一 HTTP API。Reddit 采用 `kaix` 主源与 `red_crawler` 备源，X 采用 `TwitterAPIs` 主源与 `ScrapeBadger` 备源，资讯来自精选 NewsNow 榜单与白名单 Feed。
+## 本地门禁与文档校验
 
-## 当前开发基线
-
-开发使用 Node 24+ 与 PostgreSQL 16。版本进度与后续交付见[当前状态](docs/status.md)。
+需要 **Node 24+** 与 **PostgreSQL 16**；运维、多阶段构建（`--target runtime` / `--target proxy`）与备份恢复见 [开发与运维手册](docs/development.md)。
 
 ```sh
 npm ci --ignore-scripts && npm --prefix apps/web ci --ignore-scripts
-npm run lint
-npm run typecheck
+npm run docs:check && npm run lint && npm run typecheck && npm run test:unit
 ```
 
-私有凭证统一存于仓外文件，本机运行命令、安全退役步骤与完整历史交付记录见唯一开发记录：[docs/development.md](docs/development.md)。
+> 私有凭证仅存仓外文件（如 `/etc/reddit-monitoring/unified.env`）；`git push` 不触发自动部署。
 
-## 文档导航
+## 规范与真源索引
 
-- **两大唯一真源记录**：[开发与交付记录](docs/development.md) · [当前状态与下一阶段](docs/status.md)
-- **产品、架构与契约**：[产品总览](docs/README.md) · [主线架构](docs/architecture.md) · [数据与 API 契约](docs/contracts.md) · [交互规范](docs/design.md)
-- **迁移计划与研究证据**：[R1–R4 重建与实删计划](docs/plans/source-expansion.md) · [架构审查母本](docs/research/architecture_audit_and_rebuild_spec.md) · [来源研究](docs/research/data-sources.md) · [来源替换与清理规格](docs/research/source_replacement_and_twitterapi_io_removal_spec.md)
-- **Agent 协同规范**：[AGENTS.md](AGENTS.md)
-
-目标架构说明不冒充主线已实施功能；任何 Git 推送均不自动触发远端服务更新。
+- **唯一真源**：[当前状态与 V2 路线](docs/status.md) · [开发与运维手册](docs/development.md)
+- **标准规范**：[产品口径](docs/README.md) · [主线架构](docs/architecture.md) · [数据与 API 契约](docs/contracts.md) · [前端与融合规范](docs/design.md)
+- **来源与隔离**：[来源矩阵](docs/research/data-sources.md) · [演进边界与外挂隔离](docs/plans/source-expansion.md) · [AGENTS.md](AGENTS.md)

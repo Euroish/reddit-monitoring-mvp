@@ -19,7 +19,8 @@ export async function main() {
     throw new Error(
       "HTTPS APP_ORIGIN required; local testing needs ALLOW_HTTP_DEV=true",
     );
-  const pool = createPool();
+  const pool = createPool(undefined, 8);
+  const workerPool = createPool(undefined, 4);
   const providers = [
     twitterApis(),
     scrapeBadger(),
@@ -51,7 +52,7 @@ export async function main() {
       host: process.env.HOST ?? "127.0.0.1",
       port: Number(process.env.PORT ?? 3000),
     });
-    const worker = startWorker(pool, providers);
+    const worker = startWorker(workerPool, providers, (error) => app.log.error({ err: error }, "Collection worker failed"));
     let stopping = false;
     const stop = async () => {
       if (stopping) return;
@@ -59,7 +60,7 @@ export async function main() {
       const deadline = setTimeout(() => process.exit(1), 15000);
       deadline.unref();
       await Promise.all([app.close(), worker.stop()]);
-      await pool.end();
+      await Promise.all([pool.end(), workerPool.end()]);
       clearTimeout(deadline);
     };
     process.once("SIGTERM", () => {
@@ -69,7 +70,7 @@ export async function main() {
       void stop();
     });
   } catch (error) {
-    await pool.end();
+    await Promise.all([pool.end(), workerPool.end()]);
     throw error;
   }
 }

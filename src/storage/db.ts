@@ -1,11 +1,11 @@
 import { Pool, type PoolClient } from "pg";
 
-export function createPool(connectionString = process.env.DATABASE_URL) {
+export function createPool(connectionString = process.env.DATABASE_URL, max = 10) {
   if (!connectionString) throw new Error("DATABASE_URL is required");
   return new Pool({
     connectionString,
     options: "-c timezone=UTC",
-    max: 10,
+    max,
     connectionTimeoutMillis: 3000,
     statement_timeout: 10000,
     lock_timeout: 3000,

@@ -1,5 +1,13 @@
+x-log-policy: &log-policy
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
+    mem_limit: 1350m
+    logging: *log-policy
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: monitoring
@@ -14,6 +22,8 @@ services:
       retries: 30
     restart: unless-stopped
   app:
+    mem_limit: 1536m
+    logging: *log-policy
     image: ${APP_IMAGE:-monitoring-local-app}
     build:
       context: .
@@ -32,6 +42,7 @@ services:
       TWITTERAPIS_API_KEY: ${TWITTERAPIS_API_KEY:-}
       SCRAPEBADGER_API_KEY: ${SCRAPEBADGER_API_KEY:-}
       FEED_ALLOWED_URLS: ${FEED_ALLOWED_URLS:-}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-6}
     depends_on:
       db:
         condition: service_healthy
@@ -42,6 +53,8 @@ services:
       retries: 30
     restart: unless-stopped
   proxy:
+    mem_limit: 128m
+    logging: *log-policy
     image: ${PROXY_IMAGE:-monitoring-local-proxy}
     build:
       context: .

@@ -1,37 +1,53 @@
-# 产品交互规范
+# 前端架构、双层可视化与 `semrush` 分支融合规范（STD-100）
 
-本规范描述目标体验。当前版本的入口和交付顺序见[当前状态](status.md)。
+本文严格区分 **`[LIVE]` 线上前端现状** 与 **`[V2]` 融合改造规格**，防止误将未实现 UI/图表写成现状。
 
-## 1. 从阅读开始
+---
 
-| 目标入口 | 打开时看到什么 | 从现有页面迁入 |
-| --- | --- | --- |
-| 信息流（首页） | “最新 / 为你”共用紧凑阅读列表；标题、来源、时间和一句入选理由足够做阅读决定 | 首次引入时为项目列表保留独立地址 |
-| 探索 | 默认显示近期采集内容的时间分布，下方是同范围原文；可按来源拆分、保存条件或进入项目 | 内容库、项目概览及项目列表 |
-| 来源 | 最近检查、最近新增、覆盖区间；选中来源可看它带来的内容和运行记录 | 来源列表与任务详情 |
-| 个人空间 | 关注条件、保存查询、收藏和批注 | 我的研究；账户与设置从个人菜单进入 |
+## 1. `[LIVE]` 现状 vs `[V2]` 三模态界面演进
 
-首页已有内容时直接展示。首次进入“为你”可选已有保存查询作为本次关注条件，没有选择时展示最新并说明依据。选中“电池回收”后，一条资讯可以显示“命中电池回收 · 来自某资讯源”；同一条内容被两个来源发现时展示一条卡片，展开可见发现路径。打开评论树、收藏或调整条件后返回原阅读位置。只有首次建库且无内容时才提示管理者连接来源，普通读者看到当前覆盖情况。
+- **`[LIVE]` 现行线上前端（`apps/web/src`，12 文件 / `3,038` 行 / `104 KB`）**：极简六页工作台（`/` `Stories.tsx`、`/projects` `Projects.tsx`、`/content` `ContentLibrary.tsx`、`/sources` `Sources.tsx`、`/workspace` `Workspace.tsx`、`/settings` `Account.tsx` + `index.css`/`ui.tsx`）。已支持 `sourceGroup`/`tier`/`language`/`hasMedia` 筛选、OPML/JSON 导入、preview 预览与任务恢复；**尚无 SVG 微图、`echarts` 分析图、`ThreadTreeView`、`ObservationChart` 与全局快捷键**。
+- **`[V2 Phase A–D]` 目标三模态演进**：
 
-探索图首版用按日柱形图，纵轴注明“已采集的去重内容数”。点某一天，列表同步收窄，再点来源可交叉筛选；清除选区恢复原范围。无采集记录的区间显示覆盖未知，有成功覆盖且无命中才显示零。相同标题的不同平台内容保留各自身份。窄屏将图、选区说明和列表纵向排列。
+| 表面模态 | 路由与阶段 | 核心阅读与分析体验 |
+| :--- | :--- | :--- |
+| **Read · 信息流主视图** | **`/`（Stories）**<br>`[V2 Phase A/B]` | 打开即读。每张事件卡呈现：`T1`/`T1_5`/`T2` 徽章、原题与摘要、**Tier-1 纯原生 SVG 内嵌微图（16px 权威分布条 + 48h 热度火花线，数据由 Phase A `readStoryWindow` 提供）**、关联报道折行及 `j`/`k`/`o`/`s`/`m` 键盘速读；Phase B 接入 `read_before_at` 未读水位线与 `为你` RRF；Phase D 接入轻量 `原文 \| 双语对照 \| AI 综述`（若启用）。 |
+| **Explore & Visualize · 探索与专题** | **`/content` & `/projects`**<br>`[V2 Phase A/B]` | 按需下钻：Tier-2 懒加载模块化 **`echarts/core`** 渲染后端 `GROUPING SETS` **跨平台脉冲柱图（无采集区间显式绘斜线 Hatch，有采零命中标 `0`）**、48h 热度 × 6h 增速四象限、`ObservationChart`（按 `(sourceId, provider, metricKey)` 严格分线、保留 `null` 断档）、多专题对比（Phase B）与三视图评论树 `ThreadTreeView`（`top`/`matches`/`op`）。 |
+| **Operate · 运维与工作区** | **`/sources`、`/workspace`、`/settings`**<br>`[LIVE]` + `[V2 Phase A]` | 维持 `/sources` 作为导入、预览、预算（SVG/CSS `QuotaMeters`）与源健康（`304%`/`lastDurationMs`/截断/错误）主控台；Phase A 融合精简版 `WorkbenchShell`（`[` 折叠、`Cmd/Ctrl+K` 命令面板、告警角标）。 |
 
-| ID | 等级 | 信息架构与首屏克制规范 | 验收出口 |
+---
+
+## 2. `feat/semrush-frontend-rebuild` 分支审计与融合矩阵
+
+> **拉取提醒**：`origin/feat/semrush-frontend-rebuild@dbf8713`（含 `40fb284` + `dbf8713`，36 文件 / `637.8 KB`）目前仅位于 GitHub 远端 `origin`，审阅或提取前须在仓库执行 **`git fetch origin feat/semrush-frontend-rebuild`**。**`MUST NOT` 整支 merge 到 `prod`**，必须逐件执行下表裁剪：
+
+| 分支资产（`@dbf8713`） | 处置决策 | 审计发现的隐患与准确落地方式 |
+| :--- | :--- | :--- |
+| `styles/tokens.css` | **Adopt** | 采纳 Editorial Mineral & Ink 色板（`#f7f8f4` 纸面、`#20271f` 炭墨、`#1f7471` 矿石青、`#e3e6dc` 细线、WCAG AA `--muted >= 4.5:1`、`tabular-nums`）；剔除荧光柠檬绿促销渐变条。 |
+| `api/client.ts` & `api/hooks.ts` | **Distill** | 采纳 React Query 封装模式；**彻底删除其私有拷贝且残余 `THREE_ALNUM_RE`（误杀 `算力`/`o3`）的 `contracts/api.ts`**，改从 `packages/contracts/src/*` 直接引型，并补全 `stories`/`facets`/`preview`/`import` Hooks。 |
+| `vite.config.ts`、`i18n/translations.ts`、`SettingsPage.tsx`（Key 管理）、`ContentExplorerPage.tsx`（导出/并发保护） | **Distill** | 提取分包构建配置、中英文词条骨架、43 位 Machine Key 复制 UX 与并发导出状态保护，接入现行 API。 |
+| `pages/WorkbenchShell.tsx`（919 L） | **Distill (~250 L)** | 仅保留 `[` 侧栏折叠、`Cmd/Ctrl+K` 命令面板与阻塞源/零额度告警角标；剔除 SaaS 品牌切换器与多主题工坊挂件。 |
+| `components/charts/ThreadTreeView.tsx`（154 L） | **Adopt** | 迁移三视图结构（`top`\|`matches`\|`op`、32 跳预警、OP 徽章），补单条评论独立笔记与显式水合入口。 |
+| `components/charts/ObservationChart.tsx`（183 L） & `chartUtils.ts` | **Rewrite** | 完整保留按 `(sourceId, provider, metricKey)` 分线、`sourceObservedAt` 回退与 `null` 断档；**将 `chartUtils.ts` 的 `createHatchPattern` 从被丢弃的 `useTheme()` 解耦为静态 token**，切至按需加载的 `echarts/core`。 |
+| `DailyTrendChart.tsx`（452 L） & `QuotaMeters.tsx` | **Rewrite** | 原 `DailyTrendChart` 截断前 100 行且伪造 `{ reddit: 1 }` 分平台柱图、并因后端缺 `(day, platform)` 造假：改造为**直连后端补充 `(day, platform)` 后的 `GET /v1/projects/:id/overview` 与 `GET /v1/content/facets`**；`QuotaMeters` 改用零依赖 SVG/CSS。 |
+| `Homepage.tsx`（含假排行榜）、`AuthModal.tsx`（含虚假 `42M+` 指标）、`ThemeStudio.tsx`、`themes.ts`、`SignalScoreGauge.tsx`、`KpiSparkChart.tsx`、`TrendRadarCharts.tsx`（跨平台相加违背 `MET-04`）、`SourcesPage.tsx`（缺 OPML/`050`/预览且 `snake_case`）、`R4ArchivePanel.tsx`（硬编码 `D:/`） | **Discard** | **整文件丢弃，严禁入 `prod`**。 |
+
+### 双层图表架构锁定（Phase A 唯一技术路线）
+
+1. **Tier 1 · 原生响应式 `<svg>` 微图（`0 KB` 依赖，常驻首页与来源页）**：渲染故事卡片 `T1`/`T1_5`/`T2` 分布条、48h 热度火花线与预算 `QuotaMeters`。
+2. **Tier 2 · `React.lazy` 懒加载模块化 `echarts/core`（仅 `/content` 与 `/projects` 加载）**：严格按需注册 `BarChart` + `LineChart` + `ScatterChart` + `MarkArea` + `CanvasRenderer`（初始首页零加载，分析模块体积以构建输出为准），**绝不使用全量 `import * as echarts`**；放弃 `uPlot`（缺乏原生堆叠柱、斜线 Hatch 与象限散点支持）。
+
+---
+
+## 3. `[V2]` 排版、动效与 UI 规范（`docs:check` 受控规则）
+
+- **动效物理规范**：高频切页、`j`/`k` 游标与 `Cmd+K` 锁定 **`0ms` 瞬时响应**；抽屉与弹窗使用 `150–220ms cubic-bezier(0.22, 1, 0.36, 1)` 且只允许动画 `transform`/`opacity`（禁 `ease-in` 与 `transition: all`）。
+
+| ID | 等级 | 信息架构、图表联动与多端交互规范 | 验收出口 |
 | --- | --- | --- | --- |
-| UX-01 | MUST NOT | 在默认研究界面暴露 `Phase`、`Legacy`、`Repository`、合同规则代号或大段协议说明框；来源调度明细收入来源详情，账号与运维设置归入右上角及设置页。 | 界面文案与截图审查 |
-| UX-02 | MUST | 任一页面或抽屉同一时刻仅设一个突出主操作，保留项目、时间窗与筛选芯片上下文，技术说明统一收入 tooltip 或折叠诊断抽屉；视觉对比度遵守 WCAG AA（含 `--muted` 辅助文本 `>= 4.5:1`，不单靠颜色区分成败）。 | 首屏检查与对比度验证 |
-
-## 2. 从阅读进入专题研究
-
-```text
-创建监测 (三段词+来源) -> 增量发现 (Radar) -> 确定性筛选 (Signal Gate) -> 按需批量水合 (Hydrate)
-                                     │                                           │
-                                     ▼                                           ▼
-                               项目概览 (同口径) ───────> 根帖联动证据流 ──> 保存查询 / 流式导出
-```
-
-| ID | 等级 | 工作流、导出交互与多端可访问性规范 | 验收出口 |
-| --- | --- | --- | --- |
-| UX-03 | MUST | **项目创建、钻取与返回保全**：创建项目只填名称、三段词与逻辑来源绑定，保存绝不触发付费抓取；修改三段词仅重查库内样本，编辑共享来源前置列出受影响项目清单。点击概览日桶、平台或证据分面钻入列表时完整保留 `filter`、`sourceIds`、日期窗与 `projectRevision`，返回时恢复滚动位与筛选，且始终默认展示含命中评论摘录的根帖联动卡片（缺失根帖显式标“上下文未覆盖”，`push` 标“导入样本”，榜单标“名次”，未知发布时间不补 `first_seen_at`）。 | 概览->钻取->返回 E2E |
-| UX-04 | MUST | **跨平台提示与评论树交互**：跨平台互动对比返 `422` 时就地展示可读说明并提供一键切回“内容量”按钮，不裸弹报错弹窗。详情侧栏 `ThreadTreeDrawer` 基于 `reply_to`、`thread_root`、`depth` 与 `isSubmitter` 渲染真实树及 `top` / `matches` / `op` 三视图（支持 32 跳环截断提示、窄屏面包屑代替深缩进、对单条评论本身记笔记不误挂根帖）；列表多选与详情内均提供**显式批量“补全讨论”按钮**（展示预计根帖数与每帖上限后发 `POST /v1/projects/:id/hydrate`），禁止使用原生 `window.prompt`。 | 三视图与批量水合交互验收 |
-| UX-05 | MUST | **流式导出与恢复明确反馈**：下载使用受控请求发起流式读取（禁止裸 `<a href>` 绕过错误提示与并发门控），JSON 验真尾块 `complete: true` 后才弹出完成提示；CSV 中途断流或返回 `429` 时立即提示失败原因并保留条件；若因 `maxRows` 截断明确提示“本段已导出 N 条，可继续下载下一段”。来源管理区分“最近检查时间”与“实际取到最新证据时间”（HTTP `304` 不冒充新内容）；付费 `unknown` 状态禁用一键盲目重试并指引人工核查；已退役的 `Arctic Shift` 与 `TwitterAPI.io` 只保留只读标签，禁出现重启用按钮。 | 导出冲突、断流与来源矩阵 |
-| UX-06 | MUST | **受控表单与全键盘多端适配**：全部筛选器与编辑器（含保存查询与批注草稿）采用严格受控状态（异步刷新绝不清空未提交草稿，数组参数序列化一致，`Sources` 时间窗不误锁当天零点）；覆盖 `1440×900`、`768×1024`、`390×844` 零横向溢出（移动端表格重构为卡片或抽屉）、清晰焦点环、`Escape` 关闭抽屉、读屏动态状态播报，并精细区分“加载中 / 空来源 / 无匹配 / 部分覆盖 / 无权限 / 传输失败”六种反馈态。 | `1440/768/390` 无鼠标测试 |
+| UX-01 | MUST NOT | 在默认阅读界面暴露 `Phase`、`Legacy`、`Repository` 等内部工程代号或营销落地页；`/` 永远直达信息流，项目分析在 `/projects`，来源管理在 `/sources`。 | 路由与文案审计 |
+| UX-02 | MUST | 任意视图同屏只突出一个主操作；事件与内容卡展示等级（`T1`/`T1_5`/`T2`）、作者/来源名、发布/入库双时间、体裁/语种、互动或榜单名次及 `[V2]` 内嵌微图；数字启用 `tabular-nums`，正文字宽 `55–70ch`，对比度满足 WCAG AA。 | 卡片元数据与对比度审计 |
+| UX-03 | MUST | `[V2 Phase A]` `/content` 与 `/projects` 经双层可视化引擎渲染服务端 `GROUPING SETS` 分面，无采区间明确画斜线“覆盖未知”，有采无命中显式标 `0`；点击柱体/分面联动过滤下方列表并进出细节保留筛选与滚动条。 | 图表联动与状态 E2E |
+| UX-04 | MUST | `[V2 Phase D]` 按题探索实时展示 4 槽取证波次与 `full`/`summary`/`truncated` 完整度并支持一键转 `pull`；若启用 AI 扩展则提供零跳转 `原文 \| 双语对照 \| AI 综述` 胶囊，关闭时不报错。 | 探索与 AI 降级单测 |
+| UX-05 | MUST | 跨平台比较原始互动返 `422` 时提供一键切换“内容量 / 事件热度”；`[V2 Phase A]` `ThreadTreeView` 支持 `top`\|`matches`\|`op`、32 跳预警、单条评论笔记与显式水合；流式下载必须验真 JSON `complete: true` 尾块。 | 三视图、导出与断流 E2E |
+| UX-06 | MUST | `Sources.tsx` 完整支持目标类型切换、预览前 20 条、OPML/JSON 导入、健康面板、预算编辑与任务恢复；页面须在 `1440×900`、`768×1024`、`390×844` 下保持零横向溢出、键盘可达且 `[V2]` 改造须通过 `dom_critic >= 88`。 | 来源全流与三端门禁 |
