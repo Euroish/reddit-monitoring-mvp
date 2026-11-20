@@ -488,8 +488,7 @@ export const DEFAULT_CAPABILITIES: SourceCapability[] = [
   },
 ];
 
-// Validation helpers matching Section 5.2 & Section 3
-const THREE_ALNUM_RE = /[\p{L}\p{N}]{3}/u;
+// Validation helpers aligned with packages/contracts/src/source-content.ts
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function hasControlChars(text: string): boolean {
@@ -512,9 +511,6 @@ export function validateSearchTerm(raw: string): string | null {
   }
   if (normalized.length > 200) {
     return 'Term length must be <= 200 characters.';
-  }
-  if (!THREE_ALNUM_RE.test(normalized)) {
-    return 'Term must contain at least 3 consecutive Unicode letters or digits.';
   }
   return null;
 }
