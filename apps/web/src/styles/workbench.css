@@ -2438,3 +2438,344 @@
   .only-mobile { display: grid; }
   .filter-grid, .adv-inner, .budget-strip, .query-grid, .ws-summary, .wb-grid-2 { grid-template-columns: 1fr; }
 }
+
+
+/* ============================================================
+   Editorial Stories Feed & Reader Drawer (SIFTLINE Mineral & Ink)
+   ============================================================ */
+.story-page {
+  max-width: 1020px;
+}
+
+.story-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.story-channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.story-ch-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 29px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--white);
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.14s, background-color 0.14s, color 0.14s;
+}
+
+.story-ch-pill:hover {
+  border-color: var(--wb-purple);
+  color: var(--ink);
+}
+
+.story-ch-pill.on {
+  background: var(--wb-tint);
+  border-color: var(--wb-purple);
+  color: var(--wb-purple-deep);
+  font-weight: 600;
+}
+
+.story-ch-pill em {
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.story-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.story-card {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 15px 18px;
+  transition: border-color 0.14s, box-shadow 0.14s;
+  outline: none;
+}
+
+.story-card:hover {
+  border-color: var(--line-2);
+}
+
+.story-card:focus {
+  border-color: var(--wb-purple);
+  box-shadow: 0 0 0 2px rgba(var(--accent-deep-rgb), 0.18);
+}
+
+.story-card.is-compact {
+  padding: 10px 14px;
+}
+
+.story-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--faint);
+  margin-bottom: 6px;
+}
+
+.story-tier-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 19px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.story-tier-pill.tier-t1 {
+  background: var(--tier-t1-bg);
+  color: var(--tier-t1-fg);
+}
+
+.story-tier-pill.tier-t1_5 {
+  background: var(--tier-t15-bg);
+  color: var(--tier-t15-fg);
+}
+
+.story-tier-pill.tier-t2 {
+  background: var(--tier-t2-bg);
+  color: var(--tier-t2-fg);
+}
+
+.story-source-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.story-source-btn:hover {
+  color: var(--wb-purple);
+  text-decoration: underline;
+}
+
+.story-author {
+  color: var(--muted);
+}
+
+.story-body {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.story-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.story-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.story-card.is-compact .story-title {
+  font-size: 14.5px;
+}
+
+.story-title-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.story-title-btn:hover {
+  color: var(--wb-purple);
+}
+
+.story-excerpt {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.58;
+  margin-top: 5px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.story-thumb-btn {
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0;
+  background: var(--paper);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.story-thumb-btn img {
+  display: block;
+  width: 112px;
+  height: 72px;
+  object-fit: cover;
+}
+
+.story-microcharts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 9px;
+}
+
+.story-mc-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.story-tier-bar-t1 { fill: var(--wb-purple); }
+.story-tier-bar-t1_5 { fill: var(--sem-blue); }
+.story-tier-bar-t2 { fill: #9ba599; }
+
+.story-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.story-act-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  padding: 2px 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.story-act-btn:hover,
+.story-act-btn.is-saved {
+  color: var(--wb-purple);
+}
+
+.story-related-fold {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--line);
+  font-size: 12px;
+}
+
+.story-related-fold summary {
+  cursor: pointer;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+
+.story-related-fold ul,
+.story-related-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: grid;
+  gap: 6px;
+}
+
+.story-related-fold li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  color: var(--muted);
+}
+
+.story-related-list li {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfcf7;
+}
+
+.story-link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.story-link-btn:hover {
+  color: var(--wb-purple);
+  text-decoration: underline;
+}
+
+.story-reader-prose {
+  font-size: 14px;
+  line-height: 1.72;
+  color: var(--ink-2);
+  display: grid;
+  gap: 12px;
+  word-break: break-word;
+}
+
+.story-guest-note {
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: #fbfcf7;
+  border: 1px solid var(--line);
+}
+
+@media (max-width: 640px) {
+  .ds-page {
+    padding: 14px 12px 36px;
+  }
+  .topbar {
+    padding: 0 10px;
+    gap: 8px;
+  }
+  .global-search .gs-hint {
+    display: none;
+  }
+  .story-card {
+    padding: 12px 13px;
+  }
+  .story-thumb-btn img {
+    width: 86px;
+    height: 58px;
+  }
+}
