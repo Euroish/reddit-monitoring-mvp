@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTheme } from '../themeContext';
 
 /**
  * Generates an offscreen canvas diagonal hatch texture for ECharts markArea
@@ -26,32 +27,43 @@ export function createHatchPattern(bgHex = '#f6f7f1', stripeHex = '#dce0d2'): HT
   return canvas;
 }
 
-function readToken(name: string, fallback: string): string {
-  if (typeof document === 'undefined') return fallback;
-  const val = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return val || fallback;
-}
-
 /**
- * Static Mineral & Ink analytical chart palette sourced directly from CSS tokens.
+ * Live ECharts palette reactive to ThemeProvider and Workbench skin sync setting.
  */
 export function useChartColors() {
-  return useMemo(
-    () => ({
-      ink: readToken('--ink', '#20271f'),
-      purple: readToken('--chart-1', '#1f7471'),
-      wisteria: readToken('--citron', '#dbf477'),
-      teal: readToken('--chart-2', '#3b6fd8'),
-      apricot: readToken('--chart-3', '#c96f2d'),
-      citron: readToken('--citron', '#dbf477'),
-      opal: readToken('--opal', '#d8ebe7'),
-      muted: readToken('--faint', '#677166'),
+  const { palette, syncWorkbench } = useTheme();
+  return useMemo(() => {
+    if (!syncWorkbench) {
+      return {
+        ink: '#1b221a',
+        purple: '#7659bd',
+        wisteria: '#b7a5ed',
+        teal: '#258c89',
+        apricot: '#e08f52',
+        citron: '#dbf477',
+        opal: '#a8d3cc',
+        muted: '#8b9388',
+        gridLine: '#eef0e9',
+        reddit: '#7659bd',
+        x: '#1b221a',
+        bluesky: '#258c89',
+        web: '#f5ae78',
+      };
+    }
+    return {
+      ink: palette.ink,
+      purple: palette.chart1 || palette.accentDeep,
+      wisteria: palette.accent,
+      teal: palette.chart2 || palette.accent2,
+      apricot: '#e08f52',
+      citron: '#dbf477',
+      opal: palette.cardTint,
+      muted: '#8b9388',
       gridLine: '#eef0e9',
-      reddit: readToken('--chart-1', '#1f7471'),
-      x: readToken('--ink', '#20271f'),
-      bluesky: readToken('--chart-2', '#3b6fd8'),
-      web: readToken('--chart-3', '#c96f2d'),
-    }),
-    [],
-  );
+      reddit: palette.chart1 || palette.accentDeep,
+      x: palette.ink,
+      bluesky: palette.chart2 || palette.accent2,
+      web: palette.accent.toLowerCase() === (palette.chart1 || palette.accentDeep).toLowerCase() ? '#e08f52' : '#f5ae78',
+    };
+  }, [palette, syncWorkbench]);
 }

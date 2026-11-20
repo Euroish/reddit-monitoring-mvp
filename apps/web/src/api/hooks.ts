@@ -1,15 +1,12 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ApiError,
   type CollectionSource,
-  type ContentFacetsQuery,
-  type CredentialProviderName,
   type ListQuery,
   type MachineScope,
   type ProjectInput,
   type PullProviderName,
   type SourceInput,
-  type StoryQuery,
 } from '../contracts/api';
 import { apiClient } from './client';
 
@@ -18,45 +15,6 @@ export function useSessionQuery() {
     queryKey: ['session'],
     queryFn: () => apiClient.getSession(),
     retry: false,
-  });
-}
-
-export function usePublicSourcesQuery(enabled = true) {
-  return useQuery({
-    queryKey: ['publicSources'],
-    queryFn: () => apiClient.getPublicSources(),
-    staleTime: 60_000,
-    enabled,
-  });
-}
-
-export function useStoriesQuery(query: StoryQuery, enabled = true) {
-  return useQuery({
-    queryKey: ['stories', query],
-    queryFn: () => apiClient.getStories(query),
-    enabled,
-  });
-}
-
-export function useInfiniteStoriesQuery(query: Omit<StoryQuery, 'offset'>, enabled = true) {
-  return useInfiniteQuery({
-    queryKey: ['storiesInfinite', query],
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
-      apiClient.getStories({
-        ...query,
-        offset: pageParam > 0 ? pageParam : undefined,
-      }),
-    getNextPageParam: (lastPage) => lastPage.nextOffset ?? undefined,
-    enabled,
-  });
-}
-
-export function useContentFacetsQuery(query: ContentFacetsQuery | null, enabled = true) {
-  return useQuery({
-    queryKey: ['contentFacets', query],
-    queryFn: () => apiClient.getContentFacets(query!),
-    enabled: enabled && Boolean(query),
   });
 }
 
@@ -201,20 +159,6 @@ export function useLoginMutation() {
     onSuccess: () => {
       qc.clear();
       qc.invalidateQueries({ queryKey: ['session'] });
-    },
-  });
-}
-
-export function useRegisterMutation() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ email, password, invite }: { email: string; password: string; invite?: string }) =>
-      apiClient.register(email, password, invite),
-    onSuccess: (res) => {
-      if (res.user) {
-        qc.clear();
-        qc.invalidateQueries({ queryKey: ['session'] });
-      }
     },
   });
 }
@@ -496,7 +440,7 @@ export function useSaveProviderCredentialMutation() {
       apiKey,
       revision,
     }: {
-      provider: CredentialProviderName;
+      provider: 'apify' | 'twitterapis' | 'scrapebadger';
       apiKey: string;
       revision?: number;
     }) => apiClient.saveProviderCredential(provider, { apiKey, revision }),
@@ -511,7 +455,7 @@ export function useSaveProviderCredentialMutation() {
 export function useRevokeProviderCredentialMutation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (provider: CredentialProviderName) =>
+    mutationFn: (provider: 'apify' | 'twitterapis' | 'scrapebadger') =>
       apiClient.revokeProviderCredential(provider),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['providerCredentials'] });

@@ -1,18 +1,18 @@
-import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Lock, RefreshCw } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 import { formatApiError, useCapabilitiesQuery, useSessionQuery } from './api/hooks';
 import { AuthModal } from './components/AuthModal';
+import { LogoProvider } from './components/BrandMark';
+import { ThemeProvider } from './components/ThemeStudio';
 import { type Lang, LangContext } from './i18n/translations';
 import { ContentExplorerPage } from './pages/ContentExplorerPage';
+import { Homepage } from './pages/Homepage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SourcesPage } from './pages/SourcesPage';
-import { StoriesPage } from './pages/StoriesPage';
 import { type WorkbenchRoute, WorkbenchShell } from './pages/WorkbenchShell';
 import { WorkspacePage } from './pages/WorkspacePage';
 
-const KNOWN_ROUTES: WorkbenchRoute[] = [
-  '/',
+const WORKBENCH_ROUTES: WorkbenchRoute[] = [
   '/projects',
   '/content',
   '/sources',
@@ -20,20 +20,15 @@ const KNOWN_ROUTES: WorkbenchRoute[] = [
   '/settings',
 ];
 
-const AUTH_REQUIRED_ROUTES: WorkbenchRoute[] = [
-  '/projects',
-  '/sources',
-  '/workspace',
-  '/settings',
-];
-
-function parseLocation(): { pathname: WorkbenchRoute; search: string } {
-  const raw = window.location.pathname || '/';
-  const pathname = KNOWN_ROUTES.includes(raw as WorkbenchRoute) ? (raw as WorkbenchRoute) : '/';
+function parseLocation(): { pathname: string; search: string } {
   return {
-    pathname,
+    pathname: window.location.pathname || '/',
     search: window.location.search.replace(/^\?/, ''),
   };
+}
+
+function isWorkbenchPath(p: string): p is WorkbenchRoute {
+  return WORKBENCH_ROUTES.includes(p as WorkbenchRoute);
 }
 
 export function App() {
@@ -50,19 +45,14 @@ export function App() {
     try {
       localStorage.setItem('siftline.lang', l);
     } catch {
-      // ignore storage failure
+      // ignore
     }
   };
 
   const t = (en: string, zh: string) => (lang === 'zh' ? zh : en);
 
   const [loc, setLoc] = useState(parseLocation);
-  const [authModal, setAuthModal] = useState<{
-    open: boolean;
-    tab: 'login' | 'register';
-    reason?: string;
-    pendingTarget?: string;
-  }>({
+  const [authModal, setAuthModal] = useState<{ open: boolean; tab: 'login' | 'register'; pendingTarget?: string }>({
     open: false,
     tab: 'login',
   });
@@ -75,73 +65,44 @@ export function App() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  const navigate = useCallback((pathWithQuery: string) => {
+  const navigate = (pathWithQuery: string) => {
     window.history.pushState(null, '', pathWithQuery);
     setLoc(parseLocation());
     window.scrollTo({ top: 0, behavior: 'auto' });
-  }, []);
-
-  const openAuth = useCallback(
-    (tab: 'login' | 'register' = 'login', reason?: string, pendingTarget?: string) => {
-      setAuthModal({ open: true, tab, reason, pendingTarget });
-    },
-    [],
-  );
+  };
 
   const sessionQuery = useSessionQuery();
   const actor = sessionQuery.data?.user ?? null;
-  const publicRead = sessionQuery.data?.publicRead ?? false;
   const publicRegistration = sessionQuery.data?.publicRegistration ?? false;
   const capabilitiesQuery = useCapabilitiesQuery(Boolean(actor));
 
-  const needsAuthForRoute = AUTH_REQUIRED_ROUTES.includes(loc.pathname);
+  const handleEnterWorkbench = (targetPath = '/projects') => {
+    if (!actor) {
+      setAuthModal({ open: true, tab: 'login', pendingTarget: targetPath });
+      return;
+    }
+    navigate(targetPath);
+  };
 
-  if (sessionQuery.isLoading) {
-    return (
-      <LangContext.Provider value={{ lang, setLang, t }}>
-        <div
-          style={{
-            minHeight: '100vh',
-            display: 'grid',
-            placeItems: 'center',
-            background: 'var(--wb-bg)',
-            color: 'var(--muted)',
-            fontSize: 13,
-          }}
-        >
-          {t('Loading SIFTLINE...', '正在初始化工作台…')}
-        </div>
-      </LangContext.Provider>
-    );
-  }
+  const onWorkbenchRoute = isWorkbenchPath(loc.pathname);
+  const showWorkbench = Boolean(actor) && onWorkbenchRoute;
+
+  const pendingQueryContext = React.useMemo(() => {
+    const raw = authModal.pendingTarget || (onWorkbenchRoute ? `${loc.pathname}?${loc.search}` : '');
+    const qPart = raw.split('?')[1];
+    if (!qPart) return undefined;
+    const sp = new URLSearchParams(qPart);
+    const q = sp.get('query');
+    const p = sp.get('platform');
+    if (q && p) return `${q} (${p})`;
+    return q || p || undefined;
+  }, [authModal.pendingTarget, onWorkbenchRoute, loc.pathname, loc.search]);
 
   if (sessionQuery.isError) {
     return (
       <LangContext.Provider value={{ lang, setLang, t }}>
-        <div
-          style={{
-            minHeight: '100vh',
-            display: 'grid',
-            placeItems: 'center',
-            background: 'var(--wb-bg)',
-            padding: 24,
-          }}
-        >
+        <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: 'var(--wb-bg)', padding: 24 }}>
           <div className="ds-card" style={{ maxWidth: 440, width: '100%', padding: 28, textAlign: 'center' }}>
-            <div
-              style={{
-                width: 42,
-                height: 42,
-                borderRadius: '50%',
-                background: '#fdf1ee',
-                color: '#a8462f',
-                display: 'grid',
-                placeItems: 'center',
-                margin: '0 auto 12px',
-              }}
-            >
-              <AlertCircle size={18} />
-            </div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
               {t('Unable to connect to SIFTLINE', '无法连接到服务端')}
             </h2>
@@ -154,8 +115,7 @@ export function App() {
               disabled={sessionQuery.isFetching}
               onClick={() => void sessionQuery.refetch()}
             >
-              <RefreshCw size={13} />
-              <span>{sessionQuery.isFetching ? t('Retrying...', '重试中…') : t('Retry', '重试')}</span>
+              {sessionQuery.isFetching ? t('Retrying...', '重试中…') : t('Retry', '重试')}
             </button>
           </div>
         </div>
@@ -163,151 +123,102 @@ export function App() {
     );
   }
 
-  // Private mode: show clean inline login screen with zero fake marketing
-  if (!publicRead && !actor) {
-    return (
-      <LangContext.Provider value={{ lang, setLang, t }}>
-        <AuthModal
-          inline
-          publicRegistration={publicRegistration}
-          onSuccess={() => {
-            const target = loc.search ? `${loc.pathname}?${loc.search}` : loc.pathname;
-            navigate(target || '/');
-          }}
-        />
-      </LangContext.Provider>
-    );
-  }
-
   return (
     <LangContext.Provider value={{ lang, setLang, t }}>
-      <WorkbenchShell
-        actor={actor}
-        publicRead={publicRead}
-        publicRegistration={publicRegistration}
-        capabilities={capabilitiesQuery.data}
-        route={loc.pathname}
-        currentSearch={loc.search}
-        selectedProjectId={selectedProjectId}
-        onSelectProjectId={setSelectedProjectId}
-        onNavigate={navigate}
-        onOpenAuth={openAuth}
-      >
-        {loc.pathname === '/' && (
-          <StoriesPage
-            actor={actor}
-            initialSearchString={loc.search}
-            onNavigate={navigate}
-            onOpenAuth={(tab, reason) => openAuth(tab, reason)}
-          />
-        )}
+      <ThemeProvider>
+        <LogoProvider>
+          {showWorkbench && actor ? (
+            <WorkbenchShell
+              actor={actor}
+              capabilities={capabilitiesQuery.data}
+              route={loc.pathname as WorkbenchRoute}
+              currentSearch={loc.search}
+              selectedProjectId={selectedProjectId}
+              onSelectProjectId={setSelectedProjectId}
+              onNavigate={navigate}
+              onGoHome={() => navigate('/')}
+            >
+              {loc.pathname === '/projects' && (
+                <ProjectsPage
+                  actor={actor}
+                  selectedProjectId={selectedProjectId}
+                  onSelectProjectId={setSelectedProjectId}
+                  initialSearchString={loc.search}
+                  onDrilldown={(projectId, extraQs) => {
+                    const sp = new URLSearchParams(extraQs || '');
+                    if (projectId) sp.set('projectId', projectId);
+                    const suffix = sp.toString() ? `?${sp.toString()}` : '';
+                    navigate(`/content${suffix}`);
+                  }}
+                  onOpenContentDetail={(cid) => {
+                    setContentDetailId(cid);
+                    navigate('/content');
+                  }}
+                />
+              )}
+              {loc.pathname === '/content' && (
+                <ContentExplorerPage
+                  key={loc.search}
+                  actor={actor}
+                  initialQueryString={loc.search}
+                  initialDetailId={contentDetailId}
+                  onClearDetailId={() => setContentDetailId(null)}
+                />
+              )}
+              {loc.pathname === '/sources' && (
+                <SourcesPage actor={actor} initialQueryString={loc.search} />
+              )}
+              {loc.pathname === '/workspace' && (
+                <WorkspacePage
+                  initialQueryString={loc.search}
+                  onRunSavedQuery={(qs) => navigate(`/content${qs ? `?${qs}` : ''}`)}
+                  onOpenContentDetail={(cid) => {
+                    setContentDetailId(cid);
+                    navigate('/content');
+                  }}
+                  onNavigate={navigate}
+                />
+              )}
+              {loc.pathname === '/settings' && (
+                <SettingsPage actor={actor} initialQueryString={loc.search} />
+              )}
+            </WorkbenchShell>
+          ) : (
+            <Homepage
+              isAuthenticated={Boolean(actor)}
+              onOpenAuth={(tab = 'login') =>
+                setAuthModal({
+                  open: true,
+                  tab,
+                  pendingTarget: onWorkbenchRoute
+                    ? loc.pathname + (loc.search ? `?${loc.search}` : '')
+                    : '/projects',
+                })
+              }
+              onEnterWorkbench={handleEnterWorkbench}
+            />
+          )}
 
-        {loc.pathname === '/content' && (
-          <ContentExplorerPage
-            key={loc.search}
-            actor={actor}
-            initialQueryString={loc.search}
-            initialDetailId={contentDetailId}
-            onClearDetailId={() => setContentDetailId(null)}
-            onOpenAuth={(tab, reason) => openAuth(tab, reason)}
-          />
-        )}
-
-        {needsAuthForRoute && !actor && (
-          <div className="ds-page">
-            <div className="ds-card" style={{ maxWidth: 480, margin: '48px auto', padding: 28, textAlign: 'center' }}>
-              <div
-                style={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: '50%',
-                  background: 'var(--wb-tint)',
-                  color: 'var(--wb-purple)',
-                  display: 'grid',
-                  placeItems: 'center',
-                  margin: '0 auto 12px',
-                }}
-              >
-                <Lock size={18} />
-              </div>
-              <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
-                {t('Sign in required', '该模块需要登录后访问')}
-              </h2>
-              <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 16 }}>
-                {t(
-                  'Projects, sources, personal workspace, and settings require an authenticated account.',
-                  '专题监测、来源运维、个人工作区与账户设置需要登录会话权限。',
-                )}
-              </p>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: 10 }}>
-                <button
-                  type="button"
-                  className="ds-btn"
-                  onClick={() => openAuth('login', undefined, `${loc.pathname}${loc.search ? `?${loc.search}` : ''}`)}
-                >
-                  {t('Sign in', '立即登录')}
-                </button>
-                <button type="button" className="ds-btn ds-btn--ghost" onClick={() => navigate('/')}>
-                  {t('Back to Stories', '返回精选信息流')}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {loc.pathname === '/projects' && actor && (
-          <ProjectsPage
-            actor={actor}
-            selectedProjectId={selectedProjectId}
-            onSelectProjectId={setSelectedProjectId}
-            initialSearchString={loc.search}
-            onDrilldown={(projectId, extraQs) => {
-              const sp = new URLSearchParams(extraQs || '');
-              if (projectId) sp.set('projectId', projectId);
-              const suffix = sp.toString() ? `?${sp.toString()}` : '';
-              navigate(`/content${suffix}`);
-            }}
-            onOpenContentDetail={(cid) => {
-              setContentDetailId(cid);
-              navigate('/content');
-            }}
-          />
-        )}
-
-        {loc.pathname === '/sources' && actor && (
-          <SourcesPage actor={actor} initialQueryString={loc.search} />
-        )}
-
-        {loc.pathname === '/workspace' && actor && (
-          <WorkspacePage
-            initialQueryString={loc.search}
-            onRunSavedQuery={(qs) => navigate(`/content${qs ? `?${qs}` : ''}`)}
-            onOpenContentDetail={(cid) => {
-              setContentDetailId(cid);
-              navigate('/content');
-            }}
-            onNavigate={navigate}
-          />
-        )}
-
-        {loc.pathname === '/settings' && actor && (
-          <SettingsPage actor={actor} initialQueryString={loc.search} />
-        )}
-      </WorkbenchShell>
-
-      {authModal.open && (
-        <AuthModal
-          initialTab={authModal.tab}
-          publicRegistration={publicRegistration}
-          reason={authModal.reason}
-          onClose={() => setAuthModal((s) => ({ ...s, open: false }))}
-          onSuccess={() => {
-            const target = authModal.pendingTarget;
-            setAuthModal((s) => ({ ...s, open: false }));
-            if (target) navigate(target);
-          }}
-        />
-      )}
+          {(authModal.open || (!actor && onWorkbenchRoute && !sessionQuery.isLoading)) && (
+            <AuthModal
+              initialTab={authModal.tab}
+              initialQueryContext={pendingQueryContext}
+              publicRegistration={publicRegistration}
+              onClose={() => {
+                setAuthModal((s) => ({ ...s, open: false }));
+                if (!actor && onWorkbenchRoute) navigate('/');
+              }}
+              onSuccess={() => {
+                const target =
+                  authModal.pendingTarget ||
+                  (onWorkbenchRoute ? loc.pathname + (loc.search ? `?${loc.search}` : '') : '/projects');
+                setAuthModal((s) => ({ ...s, open: false }));
+                navigate(target);
+              }}
+            />
+          )}
+        </LogoProvider>
+      </ThemeProvider>
     </LangContext.Provider>
   );
 }

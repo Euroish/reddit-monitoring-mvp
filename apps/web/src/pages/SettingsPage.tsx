@@ -4,9 +4,13 @@ import {
   Check,
   Copy,
   Key,
+  Layers,
   LogOut,
   Mail,
+  Palette,
+  RotateCcw,
   Shield,
+  Sparkles,
   Terminal,
   Trash2,
   User,
@@ -24,7 +28,10 @@ import {
   useUpdateUserAccessMutation,
   useUsersQuery,
 } from '../api/hooks';
+import { SiftlineLogo } from '../components/BrandMark';
+import { useLogo } from '../components/brandContext';
 import { ProviderCredentialsTab } from '../components/ProviderCredentialsTab';
+import { useTheme } from '../components/themeContext';
 import { type Actor, type MachineScope } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
 
@@ -37,14 +44,16 @@ export function SettingsPage({
   actor: Actor;
   initialQueryString?: string;
 }) {
-  const { t } = useI18n();
+  const { lang, t } = useI18n();
+  const { activeLogo, setActiveIdx, setSwitcherOpen } = useLogo();
+  const { palette, setStudioOpen } = useTheme();
   const canManage = actor.role === 'owner' || actor.role === 'admin';
 
-  type SettingsTab = 'account' | 'providers' | 'members' | 'keys';
+  type SettingsTab = 'account' | 'providers' | 'members' | 'keys' | 'brand';
   const sp = new URLSearchParams(initialQueryString);
   const rawTab = sp.get('tab');
   const urlTab: SettingsTab =
-    rawTab === 'keys' || rawTab === 'providers' || rawTab === 'members' || rawTab === 'account'
+    rawTab === 'keys' || rawTab === 'providers' || rawTab === 'members' || rawTab === 'brand' || rawTab === 'account'
       ? rawTab
       : 'account';
   const [tabState, setTabState] = useState<{ key: string; val: SettingsTab } | null>(null);
@@ -132,13 +141,13 @@ export function SettingsPage({
       <div className="page-head">
         <div>
           <div className="page-title-row">
-            <h1 className="page-title">{t('Account, RBAC & Keys', '账户权限、密钥与采集凭证')}</h1>
+            <h1 className="page-title">{t('Account, RBAC & Appearance', '账户权限、密钥与品牌皮肤')}</h1>
             <span className="tag tag--lilac">{actor.role}</span>
           </div>
           <p className="page-desc">
             {t(
-              'Same-origin session security, team invites, RBAC role & plan tiers, SHA-256 machine keys, and encrypted provider credentials.',
-              '同源会话安全、团队邀请码、RBAC 成员与权益等级、SHA-256 机器 API 密钥及第三方服务商凭证管理。',
+              'Same-origin session security, 72-char one-time team invites, SHA-256 machine keys, and SIFTLINE brand/skin preferences.',
+              '浏览器同源会话安全、一次性团队邀请码签发、43 位机器 API 密钥及 SIFTLINE 标识/皮肤外观设置。',
             )}
           </p>
         </div>
@@ -178,6 +187,7 @@ export function SettingsPage({
             ...(canManage ? ([['providers', t('Provider API Keys', '第三方采集密钥')]] as const) : []),
             ['members', t('Members & Invites', '成员与权限')],
             ['keys', t('Machine API Keys', '机器 API 密钥')],
+            ['brand', t('Brand Mark & Skin', '品牌标识与皮肤')],
           ] as const).map(([v, l]) => (
             <button key={v} type="button" aria-selected={tab === v} onClick={() => setTab(v)}>
               {l}
@@ -192,7 +202,7 @@ export function SettingsPage({
             <div className="ds-card">
               <div className="ds-card-hd">
                 <div>
-                  <div className="ds-card-title"><User size={14} /><span>{t('Active Session', '当前账户')}</span></div>
+                  <div className="ds-card-title"><User size={14} /><span>{t('Active Session', '当前会话身份')}</span></div>
                   <div className="ds-card-sub">{t('Same-origin Cookie · clientKind:', '同源会话 · 客户端类型：')} {actor.clientKind}</div>
                 </div>
               </div>
@@ -211,7 +221,7 @@ export function SettingsPage({
                 <div style={{ display: 'grid', gap: 2 }}>
                   {[
                     [t('Client Kind', '客户端类型'), actor.clientKind],
-                    [t('Product Plan Tier', '产品权益层级'), actor.planTier ?? 'free'],
+                    [t('Product Plan Tier', '产品权益层级'), `${actor.planTier ?? 'free'} (reserved)`],
                     [t('Session ID', '会话 ID'), actor.sessionId],
                     [t('Allowed Sources', '受限来源'), actor.allowedSourceIds ? actor.allowedSourceIds.join(', ') : 'null (all)'],
                   ].map(([k, v]) => (
@@ -422,16 +432,29 @@ export function SettingsPage({
                   <form onSubmit={handleCreateKey} style={{ background: '#fbfcf7', border: '1px solid var(--line)', borderRadius: 6, padding: 12, marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <div className="wb-grid-2">
                       <div className="wb-field">
-                        <label htmlFor="mk-label">{t('Key Label', '工具名称')}</label>
-                        <input id="mk-label" className="wb-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="BI Export Sync" required />
+                        <label>{t('Key Label', '密钥名称')}</label>
+                        <input className="wb-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="BI Export Sync" required />
                       </div>
                       <div className="wb-field">
-                        <label htmlFor="mk-days">{t('Expires In Days (1..90)', '有效期（1..90 天）')}</label>
-                        <input id="mk-days" type="number" className="wb-input" min={1} max={90} value={expiresInDays} onChange={(e) => setExpiresInDays(Math.min(90, Math.max(1, Number(e.target.value) || 30)))} />
+                        <label>{t('Expires In Days (1..90)', '有效期（1..90 天）')}</label>
+                        <input type="number" className="wb-input" min={1} max={90} value={expiresInDays} onChange={(e) => setExpiresInDays(Math.min(90, Math.max(1, Number(e.target.value) || 30)))} />
                       </div>
                     </div>
                     <div className="wb-field">
-                      <label>{t('Scopes', '授权作用域')}</label>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <label style={{ margin: 0 }}>{t('Scopes', '授权作用域')}</label>
+                        <button
+                          type="button"
+                          className="ds-btn ds-btn--quiet"
+                          style={{ height: 22, fontSize: 10, padding: '0 8px' }}
+                          onClick={() => {
+                            setLabel((prev) => prev || 'r4-open-corpus-pusher');
+                            setScopes(['ingest', 'read']);
+                          }}
+                        >
+                          {t('Preset: R4 Archive Push (ingest + read)', '一键预设: R4 归档推流 (ingest + read)')}
+                        </button>
+                      </div>
                       <div className="pill-select">
                         {ALL_SCOPES.map((sc) => (
                           <button key={sc} type="button" className={scopes.includes(sc) ? 'on' : ''} onClick={() => toggleScope(sc)}>
@@ -464,14 +487,14 @@ export function SettingsPage({
                     {keyErr && <div className="wb-alert wb-alert--error">{keyErr}</div>}
                     <div>
                       <button type="submit" className="ds-btn" disabled={createKeyMut.isPending}>
-                        {t('Issue Machine Key', '创建访问密钥')}
+                        {t('Issue Machine Key', '生成机器密钥')}
                       </button>
                     </div>
                   </form>
                 )}
 
                 {revealedToken && (
-                  <div role="status" className="wb-alert wb-alert--warn" style={{ marginBottom: 14, flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
+                  <div className="wb-alert wb-alert--warn" style={{ marginBottom: 14, flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
                     <b>{t('Copy Token Now (shown once):', '请立即复制 Token（关闭后永不再显）：')}</b>
                     <div style={{ display: 'flex', gap: 8, width: '100%', alignItems: 'center' }}>
                       <code style={{ flex: 1, wordBreak: 'break-all', fontWeight: 700 }}>{revealedToken.token}</code>
@@ -544,6 +567,68 @@ export function SettingsPage({
                     '严禁将机器密钥放入前端或 localStorage；浏览器一律走同源会话 Cookie。',
                   )}
                 </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'brand' && (
+        <div className="ds-grid">
+          <div className="c6">
+            <div className="ds-card">
+              <div className="ds-card-hd">
+                <div>
+                  <div className="ds-card-title"><Sparkles size={14} /><span>{t('SIFTLINE Logo System (30 Concepts)', 'SIFTLINE 品牌标识（30 套 SVG 候选）')}</span></div>
+                  <div className="ds-card-sub">{t('From brand specification document, live-synced across all surfaces', '来自《新原型设计语言定义稿》，实时同步全站顶栏、登录页与工作台')}</div>
+                </div>
+              </div>
+              <div className="ds-card-bd">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: 14, borderRadius: 7, border: '1px solid var(--line)', background: 'linear-gradient(150deg, var(--wb-tint, #f1edfb), var(--wb-teal-tint, #eef6f3))' }}>
+                  <SiftlineLogo size={50} fontSize={26} />
+                  <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+                    <div style={{ fontSize: 9.5, fontFamily: 'var(--font-mono)', color: 'var(--faint)' }}>ACTIVE MARK</div>
+                    <b style={{ fontSize: 12.5 }}>{activeLogo.num} / {activeLogo.name}</b>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <button type="button" className="ds-btn" onClick={() => setSwitcherOpen(true)}>
+                    <Sparkles size={13} /> {t('Open 30-Logo Studio', '打开 30 套标识浏览器')}
+                  </button>
+                  <button type="button" className="ds-btn ds-btn--ghost" onClick={() => setActiveIdx(0)}>
+                    <RotateCcw size={13} /> {t('Reset Default', '恢复默认')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="c6">
+            <div className="ds-card">
+              <div className="ds-card-hd">
+                <div>
+                  <div className="ds-card-title"><Palette size={14} /><span>{t('Active Interface Color Skin', '工作台界面配色皮肤')}</span></div>
+                  <div className="ds-card-sub">{lang === 'zh' ? palette.nameZh : palette.nameEn} · {palette.hasGradient ? t('Gradient', '渐变版') : t('Flat Solid', '纯色版')}</div>
+                </div>
+              </div>
+              <div className="ds-card-bd">
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                  {[
+                    [palette.ink, 'Ink'],
+                    [palette.accent, 'Accent'],
+                    [palette.accentDeep, 'Deep'],
+                    [palette.accent2, 'Secondary'],
+                    [palette.heroTop, 'Tint'],
+                  ].map(([hex, labelName]) => (
+                    <div key={labelName} style={{ width: 64 }}>
+                      <div style={{ height: 36, borderRadius: 5, background: hex, border: '1px solid rgba(0,0,0,0.1)' }} />
+                      <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 3 }}>{labelName}</div>
+                    </div>
+                  ))}
+                </div>
+                <button type="button" className="ds-btn ds-btn--brand" onClick={() => setStudioOpen(true)}>
+                  <Layers size={13} /> {t('Switch Skin Preset (17 Themes + Custom)', '切换 17 套预置皮肤与自定义调色')}
+                </button>
               </div>
             </div>
           </div>
