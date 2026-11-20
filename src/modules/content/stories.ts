@@ -135,6 +135,7 @@ export async function readStoryWindow(pool: Pool | PoolClient, actor: Actor, que
   const excludeTrends = !query.sourceGroup && !query.sourceId && !query.includeTrends && view !== "digest"
     ? "AND COALESCE(cs.source_group, '') <> 'social-trends'"
     : "";
+  const activeOnly = query.sourceId ? "" : "AND cs.state='active'";
   const { rows } = await pool.query<Row>(`
     WITH candidates AS MATERIALIZED (
       SELECT id FROM content WHERE created_at_source >= ${start} AND created_at_source < ${end}
@@ -160,7 +161,7 @@ export async function readStoryWindow(pool: Pool | PoolClient, actor: Actor, que
           make_interval(secs => GREATEST(21600,2*COALESCE((cs.schedule->>'intervalSeconds')::int,(cs.schedule->>'cadenceSeconds')::int,3600))),false))) AS comparable
     FROM candidates k JOIN ${contentSourceTables} ON c.id=k.id
     JOIN content_discovery d ON d.content_id=c.id JOIN collection_source cs ON cs.id=d.collection_source_id
-    WHERE ${discovery} ${excludeTrends} AND COALESCE(c.created_at_source,d.first_fetched_at) >= ${start}
+    WHERE ${discovery} ${excludeTrends} ${activeOnly} AND COALESCE(c.created_at_source,d.first_fetched_at) >= ${start}
       AND d.first_fetched_at < ${end} AND c.kind<>'comment' AND c.availability NOT IN ('removed','deleted')
       AND COALESCE(NULLIF(btrim(c.title),''),NULLIF(btrim(left(c.body_text,240)),'')) IS NOT NULL ${platform} ${language}
     ORDER BY event_at,c.id,cs.tier,cs.id`, values);

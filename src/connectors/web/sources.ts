@@ -35,7 +35,7 @@ const parser = new Parser<Record<string, never>, {
     ],
   },
 });
-const clean = (value: string) => sanitize(value, { allowedTags: [], allowedAttributes: {} }).trim();
+const clean = (value: string) => load(`<span>${sanitize(value, { allowedTags: [], allowedAttributes: {} })}</span>`)("span").text().trim();
 
 function article(input: {
   provider: "feed" | "newsnow";
