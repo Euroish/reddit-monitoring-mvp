@@ -49,6 +49,7 @@ import {
   utf8ByteLength,
 } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
+import { toSafeUtcIso } from '../lib/sourceLabels';
 
 export function SourcesPage({
   actor,
@@ -184,9 +185,11 @@ export function SourcesPage({
   const [ackUnblockCharge, setAckUnblockCharge] = useState(false);
   const [opsMsg, setOpsMsg] = useState<{ text: string; isError?: boolean } | null>(null);
 
-  // Pull Collect
-  const [collectFrom, setCollectFrom] = useState('2026-11-10T00:00');
-  const [collectTo, setCollectTo] = useState('2026-11-18T23:59');
+  // Pull Collect (default last 7 days to now in UTC)
+  const [collectFrom, setCollectFrom] = useState(() =>
+    new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 16),
+  );
+  const [collectTo, setCollectTo] = useState(() => new Date().toISOString().slice(0, 16));
   const [collectLimit, setCollectLimit] = useState(50);
   const [includeComments, setIncludeComments] = useState(false);
   const [maxComments, setMaxComments] = useState(20);
@@ -217,8 +220,12 @@ export function SourcesPage({
     e.preventDefault();
     if (!selectedSource) return;
     setOpsMsg(null);
-    const fromIso = new Date(collectFrom).toISOString();
-    const toIso = new Date(collectTo).toISOString();
+    const fromIso = toSafeUtcIso(collectFrom);
+    const toIso = toSafeUtcIso(collectTo);
+    if (!fromIso || !toIso) {
+      setOpsMsg({ text: t('Please enter valid UTC start and end dates.', '请输入合法的 UTC 起止时间。'), isError: true });
+      return;
+    }
     if (Date.parse(fromIso) >= Date.parse(toIso)) {
       setOpsMsg({ text: t('from must be strictly earlier than to.', '开始时间必须早于结束时间。'), isError: true });
       return;
@@ -736,14 +743,71 @@ export function SourcesPage({
                     {canWrite && selectedSource.delivery_mode === 'push' && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                         <form onSubmit={handleIngest} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 650 }}>
                               <Upload size={13} color="var(--wb-purple)" />
-                              {t('Push Ingest Batch (1 MiB / 100 items max)', '手工单批推流调试 (external_ingest)')}
+                              {t('Push Ingest Batch (1 MiB / 100 items max)', '手工单批推流导入 (external_ingest)')}
                             </span>
-                            <button type="button" className="ds-btn ds-btn--ghost" style={{ height: 28, fontSize: 11 }} onClick={fillSampleIngest}>
-                              {t('Load Sample JSON', '填充合法样例')}
-                            </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <label className="ds-btn ds-btn--ghost" style={{ height: 28, fontSize: 11, cursor: 'pointer' }}>
+                                <span>{t('Import JSON File', '导入规范 JSON 文件')}</span>
+                                <input
+                                  type="file"
+                                  accept=".json,application/json"
+                                  aria-label={t('Import canonical JSON file', '导入规范 JSON 文件')}
+                                  style={{ display: 'none' }}
+                                  onChange={async (ev) => {
+                                    const file = ev.target.files?.[0];
+                                    ev.target.value = '';
+                                    if (!file || !selectedSource) return;
+                                    setOpsMsg(null);
+                                    if (file.size > 1048576) {
+                                      setOpsMsg({
+                                        text: t('413 Pre-flight: JSON file exceeds 1 MiB limit.', '预检拦截：文件超过 1 MiB 上限，未发送请求。'),
+                                        isError: true,
+                                      });
+                                      return;
+                                    }
+                                    const raw = await file.text();
+                                    setIngestJson(raw);
+                                    if (utf8ByteLength(raw) > 1048576) {
+                                      setOpsMsg({
+                                        text: t('413 Pre-flight: JSON payload exceeds 1 MiB limit.', '预检拦截：负载超过 1 MiB 上限，未发送请求。'),
+                                        isError: true,
+                                      });
+                                      return;
+                                    }
+                                    try {
+                                      JSON.parse(raw);
+                                    } catch {
+                                      setOpsMsg({
+                                        text: t('Invalid JSON syntax in selected file.', '所选文件不是合法的 JSON 格式，未发送请求。'),
+                                        isError: true,
+                                      });
+                                      return;
+                                    }
+                                    try {
+                                      const res = await ingestMut.mutateAsync({
+                                        sourceId: selectedSource.id,
+                                        rawJson: raw,
+                                        idempotencyKey: generateUuidV4(),
+                                      });
+                                      setOpsMsg({
+                                        text: t(
+                                          `Ingested ${res.accepted} items (added ${res.added}, updated ${res.updated}).`,
+                                          `导入成功：${res.accepted} 条（新增 ${res.added}，更新 ${res.updated}）`,
+                                        ),
+                                      });
+                                    } catch (err) {
+                                      setOpsMsg({ text: formatApiError(err), isError: true });
+                                    }
+                                  }}
+                                />
+                              </label>
+                              <button type="button" className="ds-btn ds-btn--ghost" style={{ height: 28, fontSize: 11 }} onClick={fillSampleIngest}>
+                                {t('Load Sample JSON', '填充合法样例')}
+                              </button>
+                            </div>
                           </div>
                           <textarea className="wb-textarea" rows={5} style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }} value={ingestJson} onChange={(e) => setIngestJson(e.target.value)} placeholder='{"items": [...]}' />
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

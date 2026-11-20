@@ -200,15 +200,18 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
 
   // 2. Anonymous ReaderDrawer + bookmark triggers login modal (Escape closes both)
   await initialCard.getByRole("button", { name: storyTitle }).click();
-  await page.getByText("新版工具支持中文短词检索，并公开了用于复现结果的评估样本。").waitFor();
-  await page.getByRole("button", { name: /登录后收藏/ }).click();
-  const authDialog = page.getByRole("dialog");
+  const readerDrawer = page.getByLabel("内容阅读详情");
+  await readerDrawer.getByText("新版工具支持中文短词检索，并公开了用于复现结果的评估样本。").waitFor();
+  await readerDrawer.getByRole("button", { name: /登录后收藏/ }).click();
+  const authDialog = page.getByRole("dialog", { name: /SIFTLINE/ });
   await authDialog.waitFor();
   await authDialog.getByRole("button", { name: "注册账号" }).click();
   assert.equal(await authDialog.getByText("Invite only").count(), 0);
   await page.keyboard.press("Escape");
   await authDialog.waitFor({ state: "detached" });
-  await page.keyboard.press("Escape");
+  if (await readerDrawer.isVisible()) {
+    await page.keyboard.press("Escape");
+  }
 
   // 3. Channel filter, 48h Momentum, 08:00 Digest & date navigation
   await page.getByRole("button", { name: /AI 一手与研发/ }).click();
@@ -220,7 +223,7 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await initialCard.waitFor();
   await nav.getByRole("button", { name: "08:00 日报" }).click();
   assert.ok(page.url().includes("view=digest"));
-  await page.getByRole("button", { name: "前一天" }).click();
+  await page.getByRole("button", { name: "前一日" }).click();
   assert.ok(page.url().includes("date="));
 
   // 4. Marketing Homepage on /product with return link to Stories
@@ -289,6 +292,33 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await page.locator("textarea.wb-textarea").fill(JSON.stringify({ items: [item, comment] }));
   await page.getByRole("button", { name: "提交推流批次" }).click();
   await page.getByText("推流成功：接收 2 条（新增 2，更新 0）").waitFor();
+
+  // 7b. Push JSON File Import: invalid JSON rejected + >1 MiB rejected + valid file accepted
+  const fileInput = page.getByLabel("导入规范 JSON 文件");
+  await fileInput.setInputFiles({
+    name: "bad.json",
+    mimeType: "application/json",
+    buffer: Buffer.from("{not-valid-json", "utf8"),
+  });
+  await page.getByText("所选文件不是合法的 JSON 格式，未发送请求。").waitFor();
+  await fileInput.setInputFiles({
+    name: "oversized.json",
+    mimeType: "application/json",
+    buffer: Buffer.alloc(1048577, "a"),
+  });
+  await page.getByText("预检拦截：文件超过 1 MiB 上限，未发送请求。").waitFor();
+  const fileItem = batchItem(sourceId, {
+    externalId: "t3_fileimport12345",
+    title: "文件导入样本",
+    text: "来自规范 JSON 文件导入的讨论证据。",
+  });
+  fileItem.observation.provider = "external_ingest";
+  await fileInput.setInputFiles({
+    name: "canonical.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ items: [fileItem] }), "utf8"),
+  });
+  await page.getByText("导入成功：1 条（新增 1，更新 0）").waitFor();
 
   // 8. Content Explorer -> Annotation + Thread Tree + Stream Export + Save Query
   await nav.getByRole("button", { name: "内容检索" }).click();

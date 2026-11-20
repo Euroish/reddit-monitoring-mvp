@@ -35,9 +35,7 @@ import {
 } from '../api/hooks';
 import { KpiSparkChart } from '../components/charts/KpiSparkChart';
 import { DailyTrendChart } from '../components/charts/DailyTrendChart';
-import { SignalScoreGauge } from '../components/charts/SignalScoreGauge';
 import { DistributionCards } from '../components/charts/DistributionCharts';
-import { TrendRadarCharts } from '../components/charts/TrendRadarCharts';
 import { useChartColors } from '../components/charts/chartUtils';
 import {
   type Actor,
@@ -336,16 +334,10 @@ export function ProjectsPage({
     [filteredContent],
   );
 
-  // Derived Signal Scores
-  const signalMetrics = useMemo(() => {
-    const total = Math.max(1, overview?.matchedContentCount || filteredContent.length);
-    const painRatio = Math.round((painCount / Math.max(1, filteredContent.length)) * 100);
-    const depth = Math.min(94, 62 + Math.round((overview?.contentCount || 8) * 1.1));
-    const pain = Math.min(92, Math.max(54, painRatio + 28));
-    const velocity = Math.min(89, 52 + (overview?.providers.length || 2) * 7);
-    const overall = Math.round(depth * 0.35 + pain * 0.4 + velocity * 0.25);
-    return { overall, depth, pain, velocity, painRatio, total };
-  }, [overview, filteredContent.length, painCount]);
+  const painRatio = useMemo(
+    () => (filteredContent.length > 0 ? Math.round((painCount / filteredContent.length) * 100) : 0),
+    [filteredContent.length, painCount],
+  );
 
   const handleExportCsv = () => {
     const csvCell = (raw: unknown): string => {
@@ -756,7 +748,7 @@ export function ProjectsPage({
                 <div className="kpi-foot">
                   <span>
                     <span className="kpi-sub">
-                      {signalMetrics.painRatio}% {t('of loaded sample', '占已加载样本')}
+                      {painRatio}% {t('of loaded sample', '占已加载样本')}
                     </span>
                   </span>
                   <KpiSparkChart
@@ -795,8 +787,8 @@ export function ProjectsPage({
             </div>
           </div>
 
-          {/* 2. Trend Bar/Area/Heatmap (c8) + Signal Score Gauge/Radar (c4) */}
-          <div className="c8" id="card-trend">
+          {/* 2. Real UTC Daily Trend Chart (c12) — zero fabricated composite score */}
+          <div className="c12" id="card-trend">
             <div className="ds-card" style={{ height: '100%' }}>
               <DailyTrendChart
                 facets={overview.facets}
@@ -815,31 +807,12 @@ export function ProjectsPage({
             </div>
           </div>
 
-          <div className="c4" id="card-signal">
-            <div className="ds-card" style={{ height: '100%' }}>
-              <SignalScoreGauge
-                score={signalMetrics.overall}
-                depthScore={signalMetrics.depth}
-                painScore={signalMetrics.pain}
-                velocityScore={signalMetrics.velocity}
-              />
-            </div>
-          </div>
-
-          {/* 3. Platform (c5) + Kind (c4) + Attribution (c3) — ECharts Driven */}
+          {/* 3. Platform (c5) + Kind (c4) + Attribution (c3) — Real Backend Facets */}
           <DistributionCards
             facets={overview.facets}
             providers={overview.providers}
             contentItems={filteredContent}
             onDrillPlatform={(plat) => onDrilldown(selectedProject.id, `platform=${plat}`)}
-          />
-
-          {/* 4. Richer ECharts Analytics Suite (Scatter Bubble + Treemap/Sankey/Funnel) */}
-          <TrendRadarCharts
-            items={filteredContent}
-            matchedCount={overview.matchedContentCount}
-            contentCount={overview.contentCount}
-            onSelectContent={(cid) => onOpenContentDetail(cid)}
           />
 
           {/* 5. High-Signal Discussions Table (c8) + Onboarding Guide & Tutorial Card (c4) */}
@@ -1053,7 +1026,7 @@ export function ProjectsPage({
                 <h4>
                   {t(
                     `${painCount} pain-matched discussions identified across ${overview.matchedContentCount} matched nodes`,
-                    `在 ${overview.matchedContentCount} 条命中节点中识别出 ${painCount} 条痛点表达（占比 ${signalMetrics.painRatio}%）`,
+                    `在 ${overview.matchedContentCount} 条命中节点中识别出 ${painCount} 条痛点表达（占比 ${painRatio}%）`,
                   )}
                 </h4>
                 <p>
@@ -1070,7 +1043,7 @@ export function ProjectsPage({
                 </div>
                 <div>
                   <span>Pain Rate</span>
-                  <b>{signalMetrics.painRatio}%</b>
+                  <b>{painRatio}%</b>
                 </div>
                 <div>
                   <span>Unknown UTC</span>

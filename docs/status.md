@@ -9,7 +9,7 @@
 
 | 维度 | 实测基线数据（`2026-11-20` 统一收口） |
 | :--- | :--- |
-| **源码结构** | 后端五模块扁平内核（含 `credentials.ts`、`policy.ts`、`jobs.ts`、`stories.ts` 与开放阅读路由）；前端统一为裁剪后的 Siftline 工作台（开放阅读 `/` 零 ECharts 依赖，分析页 `React.lazy` 模块化 `echarts/core`，已清除营销页/多主题工坊/R4 面板与虚假图表） |
+| **源码结构** | 后端五模块扁平内核（含 `credentials.ts`、`policy.ts`、`jobs.ts`、`stories.ts` 与开放阅读路由）；前端为融合后的 Siftline 应用：`/` 为公开 Stories 信息流（含 `latest`/`hot`/`digest` 三视图、SVG 微图与 `ReaderDrawer`，首屏零 ECharts 依赖），`/product` 保留产品介绍页（已清理虚构排行、评价与假指标），`/content` 支持开放阅读模式与 `/v1/content/facets` 分面分析，工作台保留 Theme Studio（17 套皮肤）、30 套品牌 Logo 与 `R4ArchivePanel`，分析页采用 `React.lazy` 模块化 `echarts/core` 并已隐藏 `SignalScoreGauge`、`TrendRadarCharts` 与个人工作区虚构研判百分比 |
 | **PG16 数据库** | **23 张公网表**（`001..050` 基线 `20` 表 + `051`/`052` 新增 `source_provider_credential`、`plan_collection_policy`、`user_provider_usage`，距 `<= 24` 上限余 `1` 槽） |
 | **活跃来源分布** | **100 个活跃排期源**（`97` `feed` + `3` `newsnow`，覆盖 8 个 `source_group`），支持开放匿名阅读 `/v1/public/sources` 与防刷屏 7d 分页故事流 |
 | **接口与安全** | `onRequest` 限流早于 `preParsing` 鉴权；`/v1/content/*` 仅 `GET/HEAD` 允许 `read` Key；`machine` Key 禁访 `/v1/access/*`、`/v1/workspace/*`、`/v1/sources/credentials*` 与 `/v1/quotas/*`；`scripts/check-docs.ts` 守卫 `001..050` 迁移不可变与五模块边界 |
