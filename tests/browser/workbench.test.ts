@@ -281,10 +281,11 @@ test("browser: siftline open-access stories, reader drawer, auth, workbench & re
   });
   await page.getByText(/导入成功：2 条/).waitFor();
 
-  await page.getByRole("button", { name: "采集任务", exact: true }).click();
-  await page.getByText("全局采集任务队列与执行流水").waitFor();
-  await page.getByRole("button", { name: "渠道配额与策略" }).click();
-  await page.getByText("账户组采集权限与默认额度").waitFor();
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "采集任务", exact: true }).click();
+  await main.getByText("全局采集任务队列与执行流水").waitFor();
+  await main.getByRole("button", { name: "渠道配额与策略" }).click();
+  await main.getByText("账户组采集权限与默认额度").waitFor();
 
   // 6. ContentExplorerPage: search + ThreadTreeView + annotation + export + saved query + facets chart
   await mainNav.getByRole("button", { name: "内容库", exact: true }).click();
@@ -327,16 +328,16 @@ test("browser: siftline open-access stories, reader drawer, auth, workbench & re
 
   // 8. SettingsPage: ProviderCredentialsTab, RBAC users, Machine API Key + Bearer read
   await mainNav.getByRole("button", { name: "设置", exact: true }).click();
-  await page.getByText("当前账户").first().waitFor();
-  await page.getByRole("button", { name: "第三方采集密钥" }).click();
-  await page.getByText("第三方采集服务商密钥").waitFor();
-  await page.getByRole("button", { name: "成员与权限" }).click();
-  await page.getByText("owner@example.test").waitFor();
-  await page.getByRole("button", { name: "机器 API 密钥" }).click();
-  await page.getByLabel("工具名称").fill("只读研究工具");
-  await page.getByRole("checkbox", { name: "内部研究样本" }).check();
-  await page.getByRole("button", { name: "创建访问密钥" }).click();
-  const key = await page.getByRole("status").locator("code").innerText();
+  await main.getByText("当前账户").first().waitFor();
+  await main.getByRole("button", { name: "第三方采集密钥" }).click();
+  await main.getByText("第三方采集服务商密钥").first().waitFor();
+  await main.getByRole("button", { name: "成员与权限" }).click();
+  await main.getByText("owner@example.test").first().waitFor();
+  await main.getByRole("button", { name: "机器 API 密钥" }).click();
+  await main.getByLabel("工具名称").fill("只读研究工具");
+  await main.getByRole("checkbox", { name: "内部研究样本" }).check();
+  await main.getByRole("button", { name: "创建访问密钥" }).click();
+  const key = await main.getByRole("status").locator("code").innerText();
   const read = await fetch(`${address}/v1/content?sourceId=${sourceId}`, {
     headers: { authorization: `Bearer ${key}` },
   });
@@ -353,7 +354,7 @@ test("browser: siftline open-access stories, reader drawer, auth, workbench & re
   await page.getByRole("button", { name: "编辑项目" }).click();
   await page.getByRole("checkbox", { name: "统计纳入导入样本" }).check();
   await page.getByRole("button", { name: "保存项目" }).click();
-  await page.getByText("包含导入样本", { exact: false }).waitFor();
+  await page.getByText("包含导入样本", { exact: false }).first().waitFor();
   await page.getByRole("img", { name: "按日与平台的内容量" }).locator("canvas").waitFor();
 
   // 10. Responsive layout & keyboard navigation verification across 1440 / 768 / 390
