@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
+import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
@@ -92,8 +93,17 @@ test("browser: public landing, modal login, workbench workflows, R4 push & respo
   }
   assert.ok(ready, `Vite HTTP readiness timeout\n${viteOutput}`);
 
+  const executablePath =
+    process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ||
+    (existsSync(chromium.executablePath())
+      ? undefined
+      : [
+          "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+        ].find((p) => existsSync(p)));
+
   const browser = await chromium.launch({
-    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+    executablePath,
     headless: true,
     args: ["--no-sandbox"],
   });

@@ -23,6 +23,7 @@
 | **`prod`** | 当前唯一主干与部署源 | 所有后端加固、文档同步与 V2 演进都在此分支推进。 |
 | **`origin/main` (`c75506b`)** | 停留在 `7ff733c` 合并快照（落后 `050` 升级） | 保持只读上游角色，由管理员按发布节奏反向合并。 |
 | **`origin/feat/semrush-frontend-rebuild` (`dbf8713`)** | 位于 GitHub 远端（本地/服务端拉取需 `git fetch origin feat/semrush-frontend-rebuild`），分叉自旧 `dd2feb2`，含 `40fb284`（R4 `.zst` 插件）+ `dbf8713`（36 文件 / `637.8 KB` + 全量 `echarts`） | **`MUST NOT` 整支合并**：严格按[融合矩阵](design.md#2-featsemrush-frontend-rebuild-分支审计与融合矩阵)抽取样式令牌、`api/hooks`、快捷键壳、`ThreadTreeView`、`ObservationChart`、`vite.config`/`i18n` 与设置/导出逻辑，丢弃营销页、`AuthModal`、`ThemeStudio`、`SignalScoreGauge` 与 `R4ArchivePanel`。 |
+| **`dev/siftline-workbench`（本地分支）** | 保留融合前端并在 `051` + `052` 迁移中新增 `source_provider_credential`、`plan_collection_policy`、`user_provider_usage`（总表 `23 / 24`）及 `app_user.plan_tier` | 开放管理员后台管理 `apify`/`twitterapis`/`scrapebadger` 加密凭证与 Free/Pro 动态采集策略（默认拒绝），`viewer` 在授权下可发起个人手动采集并仅查看本人任务；后续与 Phase B `story_cluster`（`+2`）合并前须协调 `<= 24` 表上限。 |
 | **`r1-content-batch` & `feat/r1-core-and-r2-wip`** | R1–R3 历史参考分支 | 历史任务已完结。 |
 
 ---
