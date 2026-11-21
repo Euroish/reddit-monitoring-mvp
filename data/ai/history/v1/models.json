@@ -1,0 +1,1190 @@
+[
+  {
+    "canonicalKey": "anthropic:claude-fable-5.2",
+    "vendorSlug": "anthropic",
+    "officialName": "Claude Fable 5.2",
+    "family": "Claude Fable",
+    "officialApiId": "claude-fable-5-2",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-fable-5.2"
+    ],
+    "contextWindow": 1000000
+  },
+  {
+    "canonicalKey": "anthropic:claude-haiku-4.5",
+    "vendorSlug": "anthropic",
+    "officialName": "Claude Haiku 4.5",
+    "family": "Claude 4.5",
+    "officialApiId": "claude-haiku-4-5-20251001",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-haiku-4.5"
+    ],
+    "contextWindow": 200000
+  },
+  {
+    "canonicalKey": "anthropic:claude-haiku-5.5",
+    "vendorSlug": "anthropic",
+    "officialName": "Claude Haiku 5.5",
+    "family": "Claude 5.5",
+    "officialApiId": "claude-haiku-5-5",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-haiku-5.5"
+    ],
+    "contextWindow": 1000000
+  },
+  {
+    "canonicalKey": "anthropic:claude-opus-4",
+    "vendorSlug": "anthropic",
+    "officialName": "Claude Opus 4",
+    "family": "Claude 4",
+    "officialApiId": "claude-opus-4-20250514",
+    "kind": "llm",
+    "lifecycle": "retired",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-opus-4"
+    ]
+  },
+  {
+    "canonicalKey": "anthropic:claude-opus-4.5",
+    "vendorSlug": "anthropic",
+    "officialName": "Claude Opus 4.5",
+    "family": "Claude 4.5",
+    "officialApiId": "claude-opus-4-5-20251101",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-opus-4.5"
+    ],
+    "contextWindow": 200000
+  },
+  {
+    "canonicalKey": "anthropic:claude-opus-4.6",
+    "vendorSlug": "anthropic",
+    "officialName": "Claude Opus 4.6",
+    "family": "Claude 4.6",
+    "officialApiId": "claude-opus-4-6",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-opus-4.6"
+    ],
+    "contextWindow": 1000000
+  },
+  {
+    "canonicalKey": "anthropic:claude-opus-4.7",
+    "vendorSlug": "anthropic",
+    "officialName": "Claude Opus 4.7",
+    "family": "Claude 4.7",
+    "officialApiId": "claude-opus-4-7",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-opus-4.7"
+    ],
+    "contextWindow": 1000000
+  },
+  {
+    "canonicalKey": "anthropic:claude-opus-5.5",
+    "vendorSlug": "anthropic",
+    "officialName": "Claude Opus 5.5",
+    "family": "Claude 5.5",
+    "officialApiId": "claude-opus-5-5",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-opus-5.5"
+    ],
+    "contextWindow": 1000000
+  },
+  {
+    "canonicalKey": "anthropic:claude-sonnet-4",
+    "vendorSlug": "anthropic",
+    "officialName": "Claude Sonnet 4",
+    "family": "Claude 4",
+    "officialApiId": "claude-sonnet-4-20250514",
+    "kind": "llm",
+    "lifecycle": "retired",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-sonnet-4"
+    ]
+  },
+  {
+    "canonicalKey": "anthropic:claude-sonnet-4.5",
+    "vendorSlug": "anthropic",
+    "officialName": "Claude Sonnet 4.5",
+    "family": "Claude 4.5",
+    "officialApiId": "claude-sonnet-4-5-20250929",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-sonnet-4.5"
+    ],
+    "contextWindow": 1000000
+  },
+  {
+    "canonicalKey": "anthropic:claude-sonnet-4.6",
+    "vendorSlug": "anthropic",
+    "officialName": "Claude Sonnet 4.6",
+    "family": "Claude 4.6",
+    "officialApiId": "claude-sonnet-4-6",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-sonnet-4.6"
+    ],
+    "contextWindow": 1000000
+  },
+  {
+    "canonicalKey": "anthropic:claude-sonnet-5.5",
+    "vendorSlug": "anthropic",
+    "officialName": "Claude Sonnet 5.5",
+    "family": "Claude 5.5",
+    "officialApiId": "claude-sonnet-5-5",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-sonnet-5.5"
+    ],
+    "contextWindow": 1000000
+  },
+  {
+    "canonicalKey": "deepseek:deepseek-r1-0528",
+    "vendorSlug": "deepseek",
+    "officialName": "DeepSeek-R1-0528",
+    "family": "DeepSeek-R1",
+    "officialApiId": "deepseek-reasoner",
+    "kind": "reasoning",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-r1-0528"
+    ],
+    "contextWindow": 163840
+  },
+  {
+    "canonicalKey": "deepseek:deepseek-v3.1",
+    "vendorSlug": "deepseek",
+    "officialName": "DeepSeek-V3.1",
+    "family": "DeepSeek-V3",
+    "officialApiId": "deepseek-chat",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v3.1"
+    ],
+    "contextWindow": 163840
+  },
+  {
+    "canonicalKey": "deepseek:deepseek-v3.1-terminus",
+    "vendorSlug": "deepseek",
+    "officialName": "DeepSeek-V3.1-Terminus",
+    "family": "DeepSeek-V3",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v3.1-terminus"
+    ],
+    "contextWindow": 163840
+  },
+  {
+    "canonicalKey": "deepseek:deepseek-v3.2",
+    "vendorSlug": "deepseek",
+    "officialName": "DeepSeek-V3.2",
+    "family": "DeepSeek-V3",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v3.2"
+    ],
+    "contextWindow": 163840
+  },
+  {
+    "canonicalKey": "deepseek:deepseek-v3.2-exp",
+    "vendorSlug": "deepseek",
+    "officialName": "DeepSeek-V3.2-Exp",
+    "family": "DeepSeek-V3",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v3.2-exp"
+    ],
+    "contextWindow": 163840
+  },
+  {
+    "canonicalKey": "deepseek:deepseek-v4-flash-vision-exp",
+    "vendorSlug": "deepseek",
+    "officialName": "DeepSeek-V4-Flash-Vision-Exp",
+    "family": "DeepSeek-V4",
+    "officialApiId": "deepseek-v4-flash-vision-exp",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v4-flash-vision-exp"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "deepseek:deepseek-v4-preview",
+    "vendorSlug": "deepseek",
+    "officialName": "DeepSeek V4 Preview",
+    "family": "DeepSeek-V4",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v4-preview"
+    ]
+  },
+  {
+    "canonicalKey": "deepseek:deepseek-v4-pro",
+    "vendorSlug": "deepseek",
+    "officialName": "DeepSeek-V4-Pro",
+    "family": "DeepSeek-V4",
+    "officialApiId": "deepseek-v4-pro",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v4-pro"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "deepseek:deepseek-v4.1-flash",
+    "vendorSlug": "deepseek",
+    "officialName": "DeepSeek-V4.1-Flash",
+    "family": "DeepSeek-V4",
+    "officialApiId": "deepseek-v4.1-flash",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v4.1-flash"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "deepseek:deepseek-v4.1-flash-1017",
+    "vendorSlug": "deepseek",
+    "officialName": "DeepSeek-V4.1-Flash-1017",
+    "family": "DeepSeek-V4",
+    "officialApiId": "deepseek-v4.1-flash-1017",
+    "kind": "code",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v4.1-flash-1017"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "google:gemini-2.5-flash-lite",
+    "vendorSlug": "google",
+    "officialName": "Gemini 2.5 Flash-Lite",
+    "family": "Gemini 2.5",
+    "officialApiId": "gemini-2.5-flash-lite",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-google-gemini-2.5-flash-lite"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "google:gemini-2.5-pro",
+    "vendorSlug": "google",
+    "officialName": "Gemini 2.5 Pro",
+    "family": "Gemini 2.5",
+    "officialApiId": "gemini-2.5-pro",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-google-gemini-2.5-pro"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "google:gemini-3-flash",
+    "vendorSlug": "google",
+    "officialName": "Gemini 3 Flash",
+    "family": "Gemini 3",
+    "officialApiId": "gemini-3-flash",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-google-gemini-3-flash"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "google:gemini-3-pro",
+    "vendorSlug": "google",
+    "officialName": "Gemini 3 Pro",
+    "family": "Gemini 3",
+    "officialApiId": "gemini-3-pro",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-google-gemini-3-pro"
+    ]
+  },
+  {
+    "canonicalKey": "google:gemini-3.5-flash",
+    "vendorSlug": "google",
+    "officialName": "Gemini 3.5 Flash",
+    "family": "Gemini 3.5",
+    "officialApiId": "gemini-3.5-flash",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-google-gemini-3.5-flash"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "google:gemini-3.6-flash",
+    "vendorSlug": "google",
+    "officialName": "Gemini 3.6 Flash",
+    "family": "Gemini 3.6",
+    "officialApiId": "gemini-3.6-flash",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-google-gemini-3.6-flash"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "google:gemini-3.8-flash-tts",
+    "vendorSlug": "google",
+    "officialName": "Gemini 3.8 Flash TTS",
+    "family": "Gemini 3.8",
+    "officialApiId": "gemini-3.8-flash-tts",
+    "kind": "audio",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-google-gemini-3.8-flash-tts"
+    ]
+  },
+  {
+    "canonicalKey": "google:gemini-3.8-live",
+    "vendorSlug": "google",
+    "officialName": "Gemini 3.8 Live",
+    "family": "Gemini 3.8",
+    "officialApiId": "gemini-3.8-live",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-google-gemini-3.8-live"
+    ]
+  },
+  {
+    "canonicalKey": "google:gemini-4-argon",
+    "vendorSlug": "google",
+    "officialName": "Gemini 4 Argon",
+    "family": "Gemini 4",
+    "officialApiId": "gemini-4-argon",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-google-gemini-4-argon"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "google:gemini-4-carbon",
+    "vendorSlug": "google",
+    "officialName": "Gemini 4 Carbon",
+    "family": "Gemini 4",
+    "officialApiId": "gemini-4-carbon",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-google-gemini-4-carbon"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "google:gemini-4-hydrogen",
+    "vendorSlug": "google",
+    "officialName": "Gemini 4 Hydrogen",
+    "family": "Gemini 4",
+    "officialApiId": "gemini-4-hydrogen",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-google-gemini-4-hydrogen"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "google:gemini-4-neon",
+    "vendorSlug": "google",
+    "officialName": "Gemini 4 Neon",
+    "family": "Gemini 4",
+    "officialApiId": "gemini-4-neon",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-google-gemini-4-neon"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "google:translategemma",
+    "vendorSlug": "google",
+    "officialName": "TranslateGemma",
+    "family": "Gemma 3",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-google-translategemma"
+    ]
+  },
+  {
+    "canonicalKey": "meta:llama-4-maverick",
+    "vendorSlug": "meta",
+    "officialName": "Llama 4 Maverick",
+    "family": "Llama 4",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": true,
+    "licenseName": "Llama 4 Community License",
+    "sourceReferenceIds": [
+      "ref-meta-llama-4-maverick"
+    ],
+    "contextWindow": 524288
+  },
+  {
+    "canonicalKey": "meta:llama-4-scout",
+    "vendorSlug": "meta",
+    "officialName": "Llama 4 Scout",
+    "family": "Llama 4",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": true,
+    "licenseName": "Llama 4 Community License",
+    "sourceReferenceIds": [
+      "ref-meta-llama-4-scout"
+    ],
+    "contextWindow": 1310720
+  },
+  {
+    "canonicalKey": "mistral:devstral-2",
+    "vendorSlug": "mistral",
+    "officialName": "Devstral 2",
+    "family": "Devstral",
+    "officialApiId": "devstral-2512",
+    "kind": "code",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-mistral-devstral-2"
+    ],
+    "contextWindow": 262144
+  },
+  {
+    "canonicalKey": "mistral:magistral",
+    "vendorSlug": "mistral",
+    "officialName": "Magistral",
+    "family": "Magistral",
+    "officialApiId": "magistral-medium-2506",
+    "kind": "reasoning",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-mistral-magistral"
+    ]
+  },
+  {
+    "canonicalKey": "mistral:mistral-large-4",
+    "vendorSlug": "mistral",
+    "officialName": "Mistral Large 4",
+    "family": "Mistral Large",
+    "officialApiId": "mistral-large-4-0",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-mistral-mistral-large-4"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "mistral:mistral-medium-3",
+    "vendorSlug": "mistral",
+    "officialName": "Mistral Medium 3",
+    "family": "Mistral Medium",
+    "officialApiId": "mistral-medium-2505",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-mistral-mistral-medium-3"
+    ],
+    "contextWindow": 131072
+  },
+  {
+    "canonicalKey": "mistral:mistral-small-4",
+    "vendorSlug": "mistral",
+    "officialName": "Mistral Small 4",
+    "family": "Mistral Small",
+    "officialApiId": "mistral-small-2603",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-mistral-mistral-small-4"
+    ],
+    "contextWindow": 262144
+  },
+  {
+    "canonicalKey": "mistral:voxtral-transcribe-2",
+    "vendorSlug": "mistral",
+    "officialName": "Voxtral Transcribe 2",
+    "family": "Voxtral",
+    "officialApiId": "voxtral-transcribe-2",
+    "kind": "audio",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-mistral-voxtral-transcribe-2"
+    ]
+  },
+  {
+    "canonicalKey": "moonshot:kimi-k2",
+    "vendorSlug": "moonshot",
+    "officialName": "Kimi K2",
+    "family": "Kimi K2",
+    "officialApiId": "kimi-k2",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-moonshot-kimi-k2"
+    ],
+    "contextWindow": 131072
+  },
+  {
+    "canonicalKey": "moonshot:kimi-k2-thinking",
+    "vendorSlug": "moonshot",
+    "officialName": "Kimi K2 Thinking",
+    "family": "Kimi K2",
+    "officialApiId": "kimi-k2-thinking",
+    "kind": "reasoning",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-moonshot-kimi-k2-thinking"
+    ],
+    "contextWindow": 262144
+  },
+  {
+    "canonicalKey": "moonshot:kimi-k2.5",
+    "vendorSlug": "moonshot",
+    "officialName": "Kimi K2.5",
+    "family": "Kimi K2",
+    "officialApiId": "kimi-k2.5",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-moonshot-kimi-k2.5"
+    ],
+    "contextWindow": 262144
+  },
+  {
+    "canonicalKey": "moonshot:kimi-k2.6",
+    "vendorSlug": "moonshot",
+    "officialName": "Kimi K2.6",
+    "family": "Kimi K2",
+    "officialApiId": "kimi-k2.6",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-moonshot-kimi-k2.6"
+    ],
+    "contextWindow": 262144
+  },
+  {
+    "canonicalKey": "moonshot:kimi-k2.7-code",
+    "vendorSlug": "moonshot",
+    "officialName": "Kimi K2.7 Code",
+    "family": "Kimi K2",
+    "officialApiId": "kimi-k2.7-code",
+    "kind": "code",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-moonshot-kimi-k2.7-code"
+    ],
+    "contextWindow": 262144
+  },
+  {
+    "canonicalKey": "moonshot:kimi-k3",
+    "vendorSlug": "moonshot",
+    "officialName": "Kimi K3",
+    "family": "Kimi K3",
+    "officialApiId": "kimi-k3",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-moonshot-kimi-k3"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "moonshot:kimi-k3.1-pro",
+    "vendorSlug": "moonshot",
+    "officialName": "Kimi K3.1 Pro",
+    "family": "Kimi K3",
+    "officialApiId": "kimi-k3.1-pro",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-moonshot-kimi-k3.1-pro"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "openai:gpt-5",
+    "vendorSlug": "openai",
+    "officialName": "GPT-5",
+    "family": "GPT-5",
+    "officialApiId": "gpt-5",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5"
+    ],
+    "contextWindow": 400000
+  },
+  {
+    "canonicalKey": "openai:gpt-5.1",
+    "vendorSlug": "openai",
+    "officialName": "GPT-5.1",
+    "family": "GPT-5",
+    "officialApiId": "gpt-5.1",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5.1"
+    ],
+    "contextWindow": 400000
+  },
+  {
+    "canonicalKey": "openai:gpt-5.2",
+    "vendorSlug": "openai",
+    "officialName": "GPT-5.2",
+    "family": "GPT-5",
+    "officialApiId": "gpt-5.2",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5.2"
+    ],
+    "contextWindow": 400000
+  },
+  {
+    "canonicalKey": "openai:gpt-5.3-codex",
+    "vendorSlug": "openai",
+    "officialName": "GPT-5.3-Codex",
+    "family": "GPT-5",
+    "officialApiId": "gpt-5.3-codex",
+    "kind": "code",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5.3-codex"
+    ],
+    "contextWindow": 400000
+  },
+  {
+    "canonicalKey": "openai:gpt-5.3-instant",
+    "vendorSlug": "openai",
+    "officialName": "GPT-5.3 Instant",
+    "family": "GPT-5",
+    "officialApiId": "gpt-5.3-chat-latest",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5.3-instant"
+    ]
+  },
+  {
+    "canonicalKey": "openai:gpt-5.4",
+    "vendorSlug": "openai",
+    "officialName": "GPT-5.4",
+    "family": "GPT-5",
+    "officialApiId": "gpt-5.4",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5.4"
+    ],
+    "contextWindow": 1050000
+  },
+  {
+    "canonicalKey": "openai:gpt-5.5",
+    "vendorSlug": "openai",
+    "officialName": "GPT-5.5",
+    "family": "GPT-5",
+    "officialApiId": "gpt-5.5",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5.5"
+    ],
+    "contextWindow": 1050000
+  },
+  {
+    "canonicalKey": "openai:gpt-5.6-sol",
+    "vendorSlug": "openai",
+    "officialName": "GPT-5.6 Sol",
+    "family": "GPT-5",
+    "officialApiId": "gpt-5.6-sol",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5.6-sol"
+    ],
+    "contextWindow": 1050000
+  },
+  {
+    "canonicalKey": "openai:gpt-6-astra",
+    "vendorSlug": "openai",
+    "officialName": "GPT-6 Astra",
+    "family": "GPT-6",
+    "officialApiId": "gpt-6-astra",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-openai-gpt-6-astra"
+    ],
+    "contextWindow": 1050000
+  },
+  {
+    "canonicalKey": "openai:gpt-6-sol",
+    "vendorSlug": "openai",
+    "officialName": "GPT-6 Sol",
+    "family": "GPT-6",
+    "officialApiId": "gpt-6-sol",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-openai-gpt-6-sol"
+    ],
+    "contextWindow": 1050000
+  },
+  {
+    "canonicalKey": "openai:gpt-6.1-sol",
+    "vendorSlug": "openai",
+    "officialName": "GPT-6.1 Sol",
+    "family": "GPT-6",
+    "officialApiId": "gpt-6.1-sol",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-openai-gpt-6.1-sol"
+    ],
+    "contextWindow": 1050000
+  },
+  {
+    "canonicalKey": "openai:gpt-6.2-astra",
+    "vendorSlug": "openai",
+    "officialName": "GPT-6.2 Astra",
+    "family": "GPT-6",
+    "officialApiId": "gpt-6.2-astra",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-openai-gpt-6.2-astra"
+    ],
+    "contextWindow": 1050000
+  },
+  {
+    "canonicalKey": "openai:gpt-6.2-sol",
+    "vendorSlug": "openai",
+    "officialName": "GPT-6.2 Sol",
+    "family": "GPT-6",
+    "officialApiId": "gpt-6.2-sol",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-openai-gpt-6.2-sol"
+    ],
+    "contextWindow": 1050000
+  },
+  {
+    "canonicalKey": "openai:o3-pro",
+    "vendorSlug": "openai",
+    "officialName": "OpenAI o3-pro",
+    "family": "o-series",
+    "officialApiId": "o3-pro",
+    "kind": "reasoning",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-openai-o3-pro"
+    ],
+    "contextWindow": 200000
+  },
+  {
+    "canonicalKey": "qwen:qwen3-coder",
+    "vendorSlug": "qwen",
+    "officialName": "Qwen3-Coder",
+    "family": "Qwen3",
+    "kind": "code",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-qwen-qwen3-coder"
+    ],
+    "contextWindow": 262144
+  },
+  {
+    "canonicalKey": "qwen:qwen3-coder-next",
+    "vendorSlug": "qwen",
+    "officialName": "Qwen3-Coder-Next",
+    "family": "Qwen3",
+    "kind": "code",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-qwen-qwen3-coder-next"
+    ]
+  },
+  {
+    "canonicalKey": "qwen:qwen3-max",
+    "vendorSlug": "qwen",
+    "officialName": "Qwen3-Max",
+    "family": "Qwen3",
+    "officialApiId": "qwen3-max",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-qwen-qwen3-max"
+    ]
+  },
+  {
+    "canonicalKey": "qwen:qwen3-max-thinking",
+    "vendorSlug": "qwen",
+    "officialName": "Qwen3-Max-Thinking",
+    "family": "Qwen3",
+    "officialApiId": "qwen3-max-thinking",
+    "kind": "reasoning",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-qwen-qwen3-max-thinking"
+    ]
+  },
+  {
+    "canonicalKey": "qwen:qwen3.5",
+    "vendorSlug": "qwen",
+    "officialName": "Qwen3.5",
+    "family": "Qwen3.5",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-qwen-qwen3.5"
+    ]
+  },
+  {
+    "canonicalKey": "qwen:qwen3.6-27b",
+    "vendorSlug": "qwen",
+    "officialName": "Qwen3.6-27B",
+    "family": "Qwen3.6",
+    "kind": "code",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-qwen-qwen3.6-27b"
+    ]
+  },
+  {
+    "canonicalKey": "qwen:qwen3.6-35b-a3b",
+    "vendorSlug": "qwen",
+    "officialName": "Qwen3.6-35B-A3B",
+    "family": "Qwen3.6",
+    "kind": "code",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-qwen-qwen3.6-35b-a3b"
+    ]
+  },
+  {
+    "canonicalKey": "qwen:qwen3.6-plus",
+    "vendorSlug": "qwen",
+    "officialName": "Qwen3.6-Plus",
+    "family": "Qwen3.6",
+    "officialApiId": "qwen3.6-plus",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-qwen-qwen3.6-plus"
+    ],
+    "contextWindow": 1000000
+  },
+  {
+    "canonicalKey": "qwen:qwen4-max",
+    "vendorSlug": "qwen",
+    "officialName": "Qwen4-Max",
+    "family": "Qwen4",
+    "officialApiId": "qwen4-max",
+    "kind": "multimodal",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-qwen-qwen4-max"
+    ],
+    "contextWindow": 1000000
+  },
+  {
+    "canonicalKey": "xai:grok-4",
+    "vendorSlug": "xai",
+    "officialName": "Grok 4",
+    "family": "Grok 4",
+    "officialApiId": "grok-4",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-xai-grok-4"
+    ]
+  },
+  {
+    "canonicalKey": "xai:grok-4.1",
+    "vendorSlug": "xai",
+    "officialName": "Grok 4.1",
+    "family": "Grok 4",
+    "officialApiId": "grok-4.1",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-xai-grok-4.1"
+    ]
+  },
+  {
+    "canonicalKey": "xai:grok-4.5",
+    "vendorSlug": "xai",
+    "officialName": "Grok 4.5",
+    "family": "Grok 4",
+    "officialApiId": "grok-4.5",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-xai-grok-4.5"
+    ],
+    "contextWindow": 500000
+  },
+  {
+    "canonicalKey": "xai:grok-4.6",
+    "vendorSlug": "xai",
+    "officialName": "Grok 4.6",
+    "family": "Grok 4",
+    "officialApiId": "grok-4.6",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-xai-grok-4.6"
+    ],
+    "contextWindow": 500000
+  },
+  {
+    "canonicalKey": "xai:grok-4.7",
+    "vendorSlug": "xai",
+    "officialName": "Grok 4.7",
+    "family": "Grok 4",
+    "officialApiId": "grok-4.7",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-xai-grok-4.7"
+    ],
+    "contextWindow": 500000
+  },
+  {
+    "canonicalKey": "xai:grok-build-0.1",
+    "vendorSlug": "xai",
+    "officialName": "Grok Build 0.1",
+    "family": "Grok Build",
+    "officialApiId": "grok-build-0.1",
+    "kind": "code",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-xai-grok-build-0.1"
+    ]
+  },
+  {
+    "canonicalKey": "xai:grok-voice-3.0",
+    "vendorSlug": "xai",
+    "officialName": "Grok Voice 3.0",
+    "family": "Grok Voice",
+    "officialApiId": "grok-voice-3.0",
+    "kind": "audio",
+    "lifecycle": "active",
+    "openWeights": false,
+    "sourceReferenceIds": [
+      "ref-xai-grok-voice-3.0"
+    ]
+  },
+  {
+    "canonicalKey": "zai:glm-4.5",
+    "vendorSlug": "zai",
+    "officialName": "GLM-4.5",
+    "family": "GLM-4.5",
+    "officialApiId": "glm-4.5",
+    "kind": "reasoning",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-zai-glm-4.5"
+    ],
+    "contextWindow": 131072
+  },
+  {
+    "canonicalKey": "zai:glm-4.6",
+    "vendorSlug": "zai",
+    "officialName": "GLM-4.6",
+    "family": "GLM-4.6",
+    "officialApiId": "glm-4.6",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-zai-glm-4.6"
+    ],
+    "contextWindow": 204800
+  },
+  {
+    "canonicalKey": "zai:glm-4.7",
+    "vendorSlug": "zai",
+    "officialName": "GLM-4.7",
+    "family": "GLM-4.7",
+    "officialApiId": "glm-4.7",
+    "kind": "code",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-zai-glm-4.7"
+    ],
+    "contextWindow": 204800
+  },
+  {
+    "canonicalKey": "zai:glm-5",
+    "vendorSlug": "zai",
+    "officialName": "GLM-5",
+    "family": "GLM-5",
+    "officialApiId": "glm-5",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-zai-glm-5"
+    ],
+    "contextWindow": 204800
+  },
+  {
+    "canonicalKey": "zai:glm-5.1",
+    "vendorSlug": "zai",
+    "officialName": "GLM-5.1",
+    "family": "GLM-5",
+    "officialApiId": "glm-5.1",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-zai-glm-5.1"
+    ],
+    "contextWindow": 204800
+  },
+  {
+    "canonicalKey": "zai:glm-5.2",
+    "vendorSlug": "zai",
+    "officialName": "GLM-5.2",
+    "family": "GLM-5",
+    "officialApiId": "glm-5.2",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-zai-glm-5.2"
+    ],
+    "contextWindow": 1048576
+  },
+  {
+    "canonicalKey": "zai:glm-5.3",
+    "vendorSlug": "zai",
+    "officialName": "GLM-5.3",
+    "family": "GLM-5",
+    "officialApiId": "glm-5.3",
+    "kind": "llm",
+    "lifecycle": "active",
+    "openWeights": true,
+    "sourceReferenceIds": [
+      "ref-zai-glm-5.3"
+    ],
+    "contextWindow": 1048576
+  }
+]

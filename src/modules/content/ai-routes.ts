@@ -425,4 +425,13 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
     if (!res.rows[0]) fail(404, "Alert not found");
     return res.rows[0];
   });
+
+  typed.get("/v1/admin/ai/history/status", async (req) => {
+    requireAiAdmin(req.actor);
+    const [imports, backfills] = await Promise.all([
+      pool.query(`SELECT id, dataset_version AS "datasetVersion", dataset_sha256 AS "datasetSha256", trigger_kind AS "triggerKind", status, inserted_models AS "insertedModels", inserted_events AS "insertedEvents", matched_events AS "matchedEvents", skipped_events AS "skippedEvents", conflicts, started_at AS "startedAt", finished_at AS "finishedAt" FROM ai_history_import_run ORDER BY started_at DESC LIMIT 10`),
+      pool.query(`SELECT id, source_code AS "sourceCode", vendor_slug AS "vendorSlug", status, scanned_count AS "scannedCount", published_count AS "publishedCount", candidates_count AS "candidatesCount", skipped_count AS "skippedCount", error_message AS "errorMessage", started_at AS "startedAt", finished_at AS "finishedAt" FROM ai_history_backfill_run ORDER BY started_at DESC LIMIT 10`),
+    ]);
+    return { imports: imports.rows, backfills: backfills.rows };
+  });
 }

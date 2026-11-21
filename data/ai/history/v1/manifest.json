@@ -1,0 +1,46 @@
+{
+  "datasetVersion": "v1",
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-22T01:30:00Z",
+  "verifiedThrough": "2026-11-22",
+  "entries": {
+    "vendors": 10,
+    "models": 87,
+    "aliases": 142,
+    "releases": 90,
+    "references": 89
+  },
+  "files": [
+    {
+      "path": "vendors.json",
+      "bytes": 2883,
+      "sha256": "a9630d445ed18f433b1b7df7d709109c30350da157caa80a03d34aabf55bb0b8"
+    },
+    {
+      "path": "models.json",
+      "bytes": 29750,
+      "sha256": "4f45ca43a713d741e3a2abaa75a384e9dd7b0c7682a0869fef19df8060772121"
+    },
+    {
+      "path": "aliases.json",
+      "bytes": 32498,
+      "sha256": "aa10adfb1ac4ad2b3157bb46af3ccc2dfaac390ef3c49f28ca41210ae5b4b570"
+    },
+    {
+      "path": "releases.json",
+      "bytes": 57936,
+      "sha256": "905fdc0a71f41160d7ff4c5b6b40eea2840944d7655d3b6b7437c692f035bb7f"
+    },
+    {
+      "path": "references.json",
+      "bytes": 31304,
+      "sha256": "9c6581920d3b3c2af8b332afa69cad3fb9cf44e4f3465ac571c25f39ca308a52"
+    }
+  ],
+  "sourcesAttribution": [
+    "Official vendor blogs, newsrooms, and API changelogs (OpenAI, Anthropic, Google/DeepMind, Meta, DeepSeek, Qwen, Moonshot, Z.ai, Mistral, xAI)",
+    "OpenRouter Models API used strictly for model route IDs and context window cross-referencing (never for release dates)"
+  ],
+  "license": "Factual metadata and short titles only; primary source URLs preserved with attribution",
+  "redistributionAllowed": true
+}

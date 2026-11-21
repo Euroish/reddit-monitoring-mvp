@@ -1,0 +1,150 @@
+[
+  {
+    "slug": "openai",
+    "name": "OpenAI",
+    "websiteUrl": "https://openai.com",
+    "officialDomains": [
+      "openai.com",
+      "platform.openai.com",
+      "help.openai.com",
+      "developers.openai.com"
+    ],
+    "officialOrgs": [
+      "openai"
+    ],
+    "displayOrder": 10
+  },
+  {
+    "slug": "anthropic",
+    "name": "Anthropic",
+    "websiteUrl": "https://www.anthropic.com",
+    "officialDomains": [
+      "anthropic.com",
+      "docs.anthropic.com",
+      "www.anthropic.com",
+      "platform.claude.com"
+    ],
+    "officialOrgs": [
+      "anthropic"
+    ],
+    "displayOrder": 20
+  },
+  {
+    "slug": "google",
+    "name": "Google / DeepMind",
+    "websiteUrl": "https://deepmind.google",
+    "officialDomains": [
+      "blog.google",
+      "deepmind.google",
+      "ai.google.dev",
+      "developers.googleblog.com"
+    ],
+    "officialOrgs": [
+      "google",
+      "google-deepmind"
+    ],
+    "displayOrder": 30
+  },
+  {
+    "slug": "meta",
+    "name": "Meta AI",
+    "websiteUrl": "https://ai.meta.com",
+    "officialDomains": [
+      "ai.meta.com",
+      "about.fb.com",
+      "llama.com"
+    ],
+    "officialOrgs": [
+      "meta-llama"
+    ],
+    "displayOrder": 40
+  },
+  {
+    "slug": "deepseek",
+    "name": "DeepSeek",
+    "websiteUrl": "https://www.deepseek.com",
+    "officialDomains": [
+      "deepseek.com",
+      "api-docs.deepseek.com",
+      "www.deepseek.com"
+    ],
+    "officialOrgs": [
+      "deepseek-ai"
+    ],
+    "displayOrder": 50
+  },
+  {
+    "slug": "qwen",
+    "name": "Qwen (Alibaba)",
+    "websiteUrl": "https://qwenlm.github.io",
+    "officialDomains": [
+      "qwen.ai",
+      "qwenlm.github.io",
+      "help.aliyun.com"
+    ],
+    "officialOrgs": [
+      "Qwen"
+    ],
+    "displayOrder": 60
+  },
+  {
+    "slug": "moonshot",
+    "name": "Moonshot / Kimi",
+    "websiteUrl": "https://www.moonshot.cn",
+    "officialDomains": [
+      "moonshot.cn",
+      "moonshot.ai",
+      "platform.moonshot.cn",
+      "platform.moonshot.ai",
+      "kimi.com",
+      "moonshotai.github.io"
+    ],
+    "officialOrgs": [
+      "moonshotai"
+    ],
+    "displayOrder": 70
+  },
+  {
+    "slug": "zai",
+    "name": "Z.ai (Zhipu)",
+    "websiteUrl": "https://z.ai",
+    "officialDomains": [
+      "z.ai",
+      "zhipuai.cn",
+      "bigmodel.cn",
+      "docs.bigmodel.cn",
+      "docs.z.ai"
+    ],
+    "officialOrgs": [
+      "THUDM",
+      "zai-org"
+    ],
+    "displayOrder": 80
+  },
+  {
+    "slug": "mistral",
+    "name": "Mistral AI",
+    "websiteUrl": "https://mistral.ai",
+    "officialDomains": [
+      "mistral.ai",
+      "docs.mistral.ai"
+    ],
+    "officialOrgs": [
+      "mistralai"
+    ],
+    "displayOrder": 90
+  },
+  {
+    "slug": "xai",
+    "name": "xAI",
+    "websiteUrl": "https://x.ai",
+    "officialDomains": [
+      "x.ai",
+      "docs.x.ai"
+    ],
+    "officialOrgs": [
+      "xai-org"
+    ],
+    "displayOrder": 100
+  }
+]

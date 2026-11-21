@@ -1,6 +1,11 @@
-import { createHash } from "node:crypto";
 import type { Pool } from "pg";
 import { fail, transaction } from "../../storage/db";
+import {
+  buildModelSlug,
+  canonicalEventKey,
+  canonicalizeSourceUrl,
+  matchExistingRelease,
+} from "./ai-event-identity";
 import { isOfficialVendorUrl } from "./ai-registry";
 import { extractWithOptionalLlm } from "./ai-llm";
 
@@ -79,10 +84,6 @@ export function classifyOfficialAnnouncement(title: string, bodyText: string | n
     return { eventType: "model_update", eventStatus: "released", modelName, confidence: 0.86, ruleName: "official_model_update_v1" };
   }
   return null;
-}
-
-function dedupeHash(parts: string[]): string {
-  return createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 40);
 }
 
 export async function runOfficialEventDiscovery(
@@ -180,7 +181,12 @@ export async function runOfficialEventDiscovery(
     }
     if (!classified) continue;
 
-    const eventKey = `official:${vendor.slug}:${dedupeHash([vendor.slug, classified.eventType, classified.modelName ?? row.title, officialDate ?? "nodate"])}`;
+    const eventKey = canonicalEventKey({
+      vendorSlug: vendor.slug,
+      eventType: classified.eventType,
+      modelNameOrTitle: classified.modelName ?? row.title,
+      date: officialDate,
+    });
 
     // Tier 3: missing explicit official publication date -> NEVER fabricate today!
     if (!officialDate || !/^\d{4}-\d{2}-\d{2}$/.test(officialDate) || classified.confidence < 0.85 || !classified.modelName) {
@@ -218,17 +224,43 @@ export async function runOfficialEventDiscovery(
       continue;
     }
 
-    // Check if already published with same dedupe_key
-    const existingEv = await pool.query<{ id: string }>(
-      `SELECT id FROM ai_release_event WHERE dedupe_key = $1 LIMIT 1`,
-      [eventKey],
-    );
-    if (existingEv.rows[0]) continue;
+    // Check if already published/unpublished with same dedupe_key or canonical URL + vendor + type + date
+    const canonicalUrl = canonicalizeSourceUrl(url);
+    const matchedExisting = await transaction(pool, async (client) => {
+      const modelSlug = buildModelSlug(vendor.slug, classified!.modelName!);
+      const modelRow = await client.query<{ id: string }>(
+        `SELECT id FROM ai_model WHERE slug = $1 LIMIT 1`,
+        [modelSlug],
+      );
+      const found = await matchExistingRelease(client, {
+        dedupeKey: eventKey,
+        vendorId: vendor.id,
+        modelId: modelRow.rows[0]?.id ?? null,
+        eventType: classified!.eventType,
+        eventDate: officialDate,
+        referenceUrls: [canonicalUrl],
+      });
+      if (!found) return false;
+      const existingRefs = await client.query<{ url: string }>(
+        `SELECT url FROM ai_event_reference WHERE event_id = $1`,
+        [found.id],
+      );
+      const hasUrl = existingRefs.rows.some((r) => canonicalizeSourceUrl(r.url) === canonicalUrl);
+      if (!hasUrl && canonicalUrl) {
+        await client.query(
+          `INSERT INTO ai_event_reference (event_id, content_id, title, url, source_kind, is_primary, verified_at)
+           VALUES ($1, $2, $3, $4, 'official', FALSE, NOW())`,
+          [found.id, row.contentId, row.title.slice(0, 240), canonicalUrl],
+        );
+      }
+      return true;
+    });
+    if (matchedExisting) continue;
 
     // Tier 1: High-confidence official event -> Auto-publish if vendor enabled & not shadow mode
     if (!shadowMode && vendor.auto_publish_enabled) {
       await transaction(pool, async (client) => {
-        const modelSlug = `${vendor.slug}-${classified!.modelName!.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`.slice(0, 90);
+        const modelSlug = buildModelSlug(vendor.slug, classified!.modelName!);
         const modelRes = await client.query<{ id: string }>(
           `INSERT INTO ai_model (vendor_id, slug, official_name, lifecycle_state)
            VALUES ($1, $2, $3, $4)

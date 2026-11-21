@@ -1,0 +1,1980 @@
+[
+  {
+    "sourceEventKey": "official:meta:2e5f90b06e58745f7ef7cbb0d58e4ed3138c4839",
+    "vendorSlug": "meta",
+    "canonicalModelKey": "meta:llama-4-maverick",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Meta releases Llama 4 Maverick",
+    "date": {
+      "value": "2025-04-05",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-04-05",
+    "sourceReferenceIds": [
+      "ref-meta-llama-4-maverick"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:meta:7ff8056a6206937d89d5ad02b973d58774dbcf4e",
+    "vendorSlug": "meta",
+    "canonicalModelKey": "meta:llama-4-scout",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Meta releases Llama 4 Scout",
+    "date": {
+      "value": "2025-04-05",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-04-05",
+    "sourceReferenceIds": [
+      "ref-meta-llama-4-scout"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:mistral:2cfde9082b7d67925802dbbb0a81f68295d6906c",
+    "vendorSlug": "mistral",
+    "canonicalModelKey": "mistral:mistral-medium-3",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Mistral Medium 3",
+    "date": {
+      "value": "2025-05-07",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-05-07",
+    "sourceReferenceIds": [
+      "ref-mistral-mistral-medium-3"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:google:20cd1cc16f9eae8280027e8dc71646aa2a37f146",
+    "vendorSlug": "google",
+    "canonicalModelKey": "google:gemini-2.5-pro",
+    "eventType": "model_update",
+    "eventStatus": "released",
+    "title": "Gemini 2.5: Our most intelligent models are getting even better",
+    "date": {
+      "value": "2025-05-20",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-05-20",
+    "sourceReferenceIds": [
+      "ref-google-gemini-2.5-pro"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:anthropic:74041615f898a5c0c48bee3cf7350793fc3b9a73",
+    "vendorSlug": "anthropic",
+    "canonicalModelKey": "anthropic:claude-sonnet-4",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing Claude 4 (Claude Sonnet 4)",
+    "date": {
+      "value": "2025-05-22",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-05-22",
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-sonnet-4"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:anthropic:7a0553138bada73c32862bd920b36472a9040c1b",
+    "vendorSlug": "anthropic",
+    "canonicalModelKey": "anthropic:claude-opus-4",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing Claude 4 (Claude Opus 4)",
+    "date": {
+      "value": "2025-05-22",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-05-22",
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-opus-4"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:deepseek:ca6608ea05d6d43928abc7ac4ad9c2437e11ea80",
+    "vendorSlug": "deepseek",
+    "canonicalModelKey": "deepseek:deepseek-r1-0528",
+    "eventType": "model_update",
+    "eventStatus": "released",
+    "title": "DeepSeek-R1-0528 Release",
+    "date": {
+      "value": "2025-05-28",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-05-28",
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-r1-0528"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_changelog_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:mistral:c876a7a3112d1d7589f6ff18de981c2283035eb7",
+    "vendorSlug": "mistral",
+    "canonicalModelKey": "mistral:magistral",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Magistral: Mistral's first reasoning model",
+    "date": {
+      "value": "2025-06-10",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-06-10",
+    "sourceReferenceIds": [
+      "ref-mistral-magistral"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:openai:b8e3023ef5cf3d492ba3fc06cf38b088735347dd",
+    "vendorSlug": "openai",
+    "canonicalModelKey": "openai:o3-pro",
+    "eventType": "api_release",
+    "eventStatus": "released",
+    "title": "OpenAI o3-pro available in ChatGPT and API",
+    "date": {
+      "value": "2025-06-10",
+      "precision": "day",
+      "semantics": "api_available"
+    },
+    "officialAnnouncedOn": "2025-06-10",
+    "sourceReferenceIds": [
+      "ref-openai-o3-pro"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:google:782ec480a1fc7a77541b3b7974f7d03b8e423546",
+    "vendorSlug": "google",
+    "canonicalModelKey": "google:gemini-2.5-flash-lite",
+    "eventType": "ga",
+    "eventStatus": "released",
+    "title": "Gemini 2.5 family GA and Flash-Lite preview",
+    "date": {
+      "value": "2025-06-17",
+      "precision": "day",
+      "semantics": "general_availability"
+    },
+    "officialAnnouncedOn": "2025-06-17",
+    "sourceReferenceIds": [
+      "ref-google-gemini-2.5-flash-lite"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:xai:c22e28d0296ec7f820fff3c34df1acb4bf69ada5",
+    "vendorSlug": "xai",
+    "canonicalModelKey": "xai:grok-4",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Grok 4",
+    "date": {
+      "value": "2025-07-09",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-07-09",
+    "sourceReferenceIds": [
+      "ref-xai-grok-4"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:moonshot:9ac02e5882b3d57536620d44e5acaad5b8900f78",
+    "vendorSlug": "moonshot",
+    "canonicalModelKey": "moonshot:kimi-k2",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Kimi K2: Open Agentic Intelligence",
+    "date": {
+      "value": "2025-07-11",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-07-11",
+    "sourceReferenceIds": [
+      "ref-moonshot-kimi-k2"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:qwen:dd881684d1761201e6196d8b171c2982d649e8a1",
+    "vendorSlug": "qwen",
+    "canonicalModelKey": "qwen:qwen3-coder",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Qwen3-Coder: Agentic Coding in the World",
+    "date": {
+      "value": "2025-07-22",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-07-22",
+    "sourceReferenceIds": [
+      "ref-qwen-qwen3-coder"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:zai:cb022323377fb4ec0f16b3c2ee1a446901eae628",
+    "vendorSlug": "zai",
+    "canonicalModelKey": "zai:glm-4.5",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "GLM-4.5: Reasoning, Coding, and Agentic Abilities",
+    "date": {
+      "value": "2025-07-28",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-07-28",
+    "sourceReferenceIds": [
+      "ref-zai-glm-4.5"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:openai:4f59caf60e216be128f15a00953a086404205811",
+    "vendorSlug": "openai",
+    "canonicalModelKey": "openai:gpt-5",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing GPT-5",
+    "date": {
+      "value": "2025-08-07",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-08-07",
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:deepseek:fbe53fa9079d2ef5e9bf81afb82afd21217d84a4",
+    "vendorSlug": "deepseek",
+    "canonicalModelKey": "deepseek:deepseek-v3.1",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "DeepSeek-V3.1 Release",
+    "date": {
+      "value": "2025-08-21",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-08-21",
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v3.1"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_changelog_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:deepseek:c764664baef74e46d4068aa04520a2c90fb008cc",
+    "vendorSlug": "deepseek",
+    "canonicalModelKey": "deepseek:deepseek-v3.1-terminus",
+    "eventType": "model_update",
+    "eventStatus": "released",
+    "title": "DeepSeek-V3.1-Terminus",
+    "date": {
+      "value": "2025-09-22",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-09-22",
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v3.1-terminus"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_changelog_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:qwen:e176d9c34fa07f13ed957519d80f58198c401182",
+    "vendorSlug": "qwen",
+    "canonicalModelKey": "qwen:qwen3-max",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Qwen3-Max",
+    "date": {
+      "value": "2025-09-23",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-09-23",
+    "sourceReferenceIds": [
+      "ref-qwen-qwen3-max"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:anthropic:80fc01dc1e6e01364235d835054f29359fe2ead0",
+    "vendorSlug": "anthropic",
+    "canonicalModelKey": "anthropic:claude-sonnet-4.5",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing Claude Sonnet 4.5",
+    "date": {
+      "value": "2025-09-29",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-09-29",
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-sonnet-4.5"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:deepseek:f27a3ba81fb7ee36a361c851fd11d428a726e835",
+    "vendorSlug": "deepseek",
+    "canonicalModelKey": "deepseek:deepseek-v3.2-exp",
+    "eventType": "preview",
+    "eventStatus": "released",
+    "title": "Introducing DeepSeek-V3.2-Exp",
+    "date": {
+      "value": "2025-09-29",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-09-29",
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v3.2-exp"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_changelog_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:zai:f74003c255307bf2e02b38bef336c814b5a78d46",
+    "vendorSlug": "zai",
+    "canonicalModelKey": "zai:glm-4.6",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "GLM-4.6: Advanced Agentic, Reasoning and Coding Capabilities",
+    "date": {
+      "value": "2025-09-30",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-09-30",
+    "sourceReferenceIds": [
+      "ref-zai-glm-4.6"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:anthropic:04abe5d0f70f423c39071cedd58b523e0bf051f1",
+    "vendorSlug": "anthropic",
+    "canonicalModelKey": "anthropic:claude-haiku-4.5",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing Claude Haiku 4.5",
+    "date": {
+      "value": "2025-10-15",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-10-15",
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-haiku-4.5"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:moonshot:9036facf96167c2c1658968399b9bcd0e5384fe2",
+    "vendorSlug": "moonshot",
+    "canonicalModelKey": "moonshot:kimi-k2-thinking",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Kimi K2 Thinking on Moonshot Open Platform",
+    "date": {
+      "value": "2025-11-01",
+      "precision": "month",
+      "semantics": "announcement"
+    },
+    "sourceReferenceIds": [
+      "ref-moonshot-kimi-k2-thinking"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:openai:37ce84d1e7cfee0c27828709cf910c6d18dc75f5",
+    "vendorSlug": "openai",
+    "canonicalModelKey": "openai:gpt-5.1",
+    "eventType": "model_update",
+    "eventStatus": "released",
+    "title": "GPT-5.1: A smarter, more conversational ChatGPT",
+    "date": {
+      "value": "2025-11-12",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-11-12",
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5.1"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:openai:337ff5ed2f9b84af9100124fed576da0f6735fd6",
+    "vendorSlug": "openai",
+    "canonicalModelKey": "openai:gpt-5.1",
+    "eventType": "api_release",
+    "eventStatus": "released",
+    "title": "Introducing GPT-5.1 for developers",
+    "date": {
+      "value": "2025-11-13",
+      "precision": "day",
+      "semantics": "api_available"
+    },
+    "availableFrom": "2025-11-13",
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5.1-api"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:xai:c0cbf04dcc9e72cf4dd567a0a9f65c5fe840906d",
+    "vendorSlug": "xai",
+    "canonicalModelKey": "xai:grok-4.1",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Grok 4.1",
+    "date": {
+      "value": "2025-11-17",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-11-17",
+    "sourceReferenceIds": [
+      "ref-xai-grok-4.1"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:google:e06d2954237afbee95874f6c855022939945a948",
+    "vendorSlug": "google",
+    "canonicalModelKey": "google:gemini-3-pro",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing Gemini 3",
+    "date": {
+      "value": "2025-11-18",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-11-18",
+    "sourceReferenceIds": [
+      "ref-google-gemini-3-pro"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:google:edb155d01cb70169bc41923bfe9e6b4127285627",
+    "vendorSlug": "google",
+    "canonicalModelKey": "google:gemini-3-pro",
+    "eventType": "api_release",
+    "eventStatus": "released",
+    "title": "Gemini 3 for developers",
+    "date": {
+      "value": "2025-11-18",
+      "precision": "day",
+      "semantics": "api_available"
+    },
+    "availableFrom": "2025-11-18",
+    "sourceReferenceIds": [
+      "ref-google-gemini-3-dev"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:anthropic:be21843b5d4f8649367eb7239d6b5175d5f1015a",
+    "vendorSlug": "anthropic",
+    "canonicalModelKey": "anthropic:claude-opus-4.5",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing Claude Opus 4.5",
+    "date": {
+      "value": "2025-11-24",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-11-24",
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-opus-4.5"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:deepseek:482c66c2a6c1cb0605d43a1e6ac2f2dc198ff692",
+    "vendorSlug": "deepseek",
+    "canonicalModelKey": "deepseek:deepseek-v3.2",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "DeepSeek-V3.2 Release",
+    "date": {
+      "value": "2025-12-01",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-12-01",
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v3.2"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_changelog_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:mistral:4962f8e8d400a4ba50b8895db2da0f2a42768bca",
+    "vendorSlug": "mistral",
+    "canonicalModelKey": "mistral:devstral-2",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing Devstral 2 and Mistral Vibe CLI",
+    "date": {
+      "value": "2025-12-09",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-12-09",
+    "sourceReferenceIds": [
+      "ref-mistral-devstral-2"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:openai:336d98101e34edad3920fdb198286cea8e1c5759",
+    "vendorSlug": "openai",
+    "canonicalModelKey": "openai:gpt-5.2",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing GPT-5.2",
+    "date": {
+      "value": "2025-12-11",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-12-11",
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5.2"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:google:fc2055a5257379f4edf43e9b7044934d1d716e14",
+    "vendorSlug": "google",
+    "canonicalModelKey": "google:gemini-3-flash",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Gemini 3 Flash: frontier intelligence built for speed",
+    "date": {
+      "value": "2025-12-17",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-12-17",
+    "sourceReferenceIds": [
+      "ref-google-gemini-3-flash"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:zai:9c02e94207d3effcbca59431b8c16465adf9d772",
+    "vendorSlug": "zai",
+    "canonicalModelKey": "zai:glm-4.7",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "GLM-4.7: Advancing the Coding Capability",
+    "date": {
+      "value": "2025-12-22",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2025-12-22",
+    "sourceReferenceIds": [
+      "ref-zai-glm-4.7"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:google:9e32c728cddbe6b692320269e5906cb2a95cce0f",
+    "vendorSlug": "google",
+    "canonicalModelKey": "google:translategemma",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "TranslateGemma: A new suite of open translation models",
+    "date": {
+      "value": "2026-01-15",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-01-15",
+    "sourceReferenceIds": [
+      "ref-google-translategemma"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:qwen:b3f6aa029cf22bfcbc8c39f6322d87298ff4ad46",
+    "vendorSlug": "qwen",
+    "canonicalModelKey": "qwen:qwen3-max-thinking",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Pushing Qwen3-Max-Thinking Beyond its Limits",
+    "date": {
+      "value": "2026-01-25",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-01-25",
+    "sourceReferenceIds": [
+      "ref-qwen-qwen3-max-thinking"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:moonshot:1237097f0a25635b48562ec012dccd47e3e3b7d9",
+    "vendorSlug": "moonshot",
+    "canonicalModelKey": "moonshot:kimi-k2.5",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Kimi K2.5: Native Multimodal & Agent Swarm",
+    "date": {
+      "value": "2026-01-27",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-01-27",
+    "sourceReferenceIds": [
+      "ref-moonshot-kimi-k2.5"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:qwen:5bb8abdc98783d174e9c36cfe32d4aadf03538f3",
+    "vendorSlug": "qwen",
+    "canonicalModelKey": "qwen:qwen3-coder-next",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Qwen3-Coder-Next: Pushing Small Hybrid Models on Agentic Coding",
+    "date": {
+      "value": "2026-02-02",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-02-02",
+    "sourceReferenceIds": [
+      "ref-qwen-qwen3-coder-next"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:mistral:c7101e59e2783844cca793ee660cc525a16c290a",
+    "vendorSlug": "mistral",
+    "canonicalModelKey": "mistral:voxtral-transcribe-2",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Voxtral Transcribe 2 & Realtime",
+    "date": {
+      "value": "2026-02-04",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-02-04",
+    "sourceReferenceIds": [
+      "ref-mistral-voxtral-transcribe-2"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:anthropic:7e53387d7cbbe4a398e7069f5680bfd1c9cc39ba",
+    "vendorSlug": "anthropic",
+    "canonicalModelKey": "anthropic:claude-opus-4.6",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Claude Opus 4.6",
+    "date": {
+      "value": "2026-02-05",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-02-05",
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-opus-4.6"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:openai:c67485915d5c6bf2e30425555056827e027b7317",
+    "vendorSlug": "openai",
+    "canonicalModelKey": "openai:gpt-5.3-codex",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing GPT-5.3-Codex",
+    "date": {
+      "value": "2026-02-05",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-02-05",
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5.3-codex"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:zai:b7f2a7718d7808abebd4eda5423b088a704e3f07",
+    "vendorSlug": "zai",
+    "canonicalModelKey": "zai:glm-5",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "GLM-5: From Vibe Coding to Agentic Engineering",
+    "date": {
+      "value": "2026-02-12",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-02-12",
+    "sourceReferenceIds": [
+      "ref-zai-glm-5"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:qwen:b15c1444c219aebfb3e614018ba2cd8043b8f63d",
+    "vendorSlug": "qwen",
+    "canonicalModelKey": "qwen:qwen3.5",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Qwen3.5: Towards Native Multimodal Agents",
+    "date": {
+      "value": "2026-02-15",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-02-15",
+    "sourceReferenceIds": [
+      "ref-qwen-qwen3.5"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:anthropic:c00770fa2233eb9ba6f56496513b69cfd2343dde",
+    "vendorSlug": "anthropic",
+    "canonicalModelKey": "anthropic:claude-sonnet-4.6",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing Claude Sonnet 4.6",
+    "date": {
+      "value": "2026-02-17",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-02-17",
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-sonnet-4.6"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:openai:d032416b2dfa06f815011c84fcffec90c182c515",
+    "vendorSlug": "openai",
+    "canonicalModelKey": "openai:gpt-5.3-instant",
+    "eventType": "model_update",
+    "eventStatus": "released",
+    "title": "GPT-5.3 Instant: Smoother, more useful everyday conversations",
+    "date": {
+      "value": "2026-03-03",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-03-03",
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5.3-instant"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:openai:340adb352f8562923a9c1c8004a393f8a36ef083",
+    "vendorSlug": "openai",
+    "canonicalModelKey": "openai:gpt-5.4",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing GPT-5.4",
+    "date": {
+      "value": "2026-03-05",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-03-05",
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5.4"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:mistral:0e013bf947257fbba1388382e3f1ad6c743d6306",
+    "vendorSlug": "mistral",
+    "canonicalModelKey": "mistral:mistral-small-4",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Mistral Small 4",
+    "date": {
+      "value": "2026-03-16",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-03-16",
+    "sourceReferenceIds": [
+      "ref-mistral-mistral-small-4"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:qwen:0f8020a1a142ba2c5a4c487ace92eeb917147dca",
+    "vendorSlug": "qwen",
+    "canonicalModelKey": "qwen:qwen3.6-plus",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Qwen3.6-Plus: Towards Real World Agents",
+    "date": {
+      "value": "2026-04-01",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-04-01",
+    "sourceReferenceIds": [
+      "ref-qwen-qwen3.6-plus"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:zai:d20a5bd2b3d9eee479d3843f6d3649141f25c143",
+    "vendorSlug": "zai",
+    "canonicalModelKey": "zai:glm-5.1",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "GLM-5.1: Towards Long-Horizon Tasks",
+    "date": {
+      "value": "2026-04-07",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-04-07",
+    "sourceReferenceIds": [
+      "ref-zai-glm-5.1"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:qwen:90b67c5f0f0560c96c37ef545bc885633e35fb84",
+    "vendorSlug": "qwen",
+    "canonicalModelKey": "qwen:qwen3.6-35b-a3b",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Qwen3.6-35B-A3B: Agentic Coding Power, Now Open to All",
+    "date": {
+      "value": "2026-04-14",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-04-14",
+    "sourceReferenceIds": [
+      "ref-qwen-qwen3.6-35b-a3b"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:anthropic:31c6eb2f414c161510f38d70e038d2a585654c7f",
+    "vendorSlug": "anthropic",
+    "canonicalModelKey": "anthropic:claude-opus-4.7",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing Claude Opus 4.7",
+    "date": {
+      "value": "2026-04-16",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-04-16",
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-opus-4.7"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:moonshot:7a404bf5c28bbb1c7644d4e6744c43934e958199",
+    "vendorSlug": "moonshot",
+    "canonicalModelKey": "moonshot:kimi-k2.6",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Kimi K2.6 Release",
+    "date": {
+      "value": "2026-04-20",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-04-20",
+    "sourceReferenceIds": [
+      "ref-moonshot-kimi-k2.6"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:qwen:2640a226c75fd530d54a333cc98670392527d377",
+    "vendorSlug": "qwen",
+    "canonicalModelKey": "qwen:qwen3.6-27b",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Qwen3.6-27B: Flagship-Level Coding in a 27B Dense Model",
+    "date": {
+      "value": "2026-04-21",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-04-21",
+    "sourceReferenceIds": [
+      "ref-qwen-qwen3.6-27b"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:openai:5d00a74d71d21d0566ed238cb3388b0259cfe134",
+    "vendorSlug": "openai",
+    "canonicalModelKey": "openai:gpt-5.5",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing GPT-5.5",
+    "date": {
+      "value": "2026-04-23",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-04-23",
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5.5"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:deepseek:d113504e4dd3c235465a1cfd90304d0ec50986f1",
+    "vendorSlug": "deepseek",
+    "canonicalModelKey": "deepseek:deepseek-v4-preview",
+    "eventType": "preview",
+    "eventStatus": "released",
+    "title": "DeepSeek V4 Preview Release",
+    "date": {
+      "value": "2026-04-24",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-04-24",
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v4-preview"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_changelog_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:google:b90bb6cd9078a5859f5717b265c7baed8a7bfe4f",
+    "vendorSlug": "google",
+    "canonicalModelKey": "google:gemini-3.5-flash",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Gemini 3.5: frontier intelligence with action",
+    "date": {
+      "value": "2026-05-19",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-05-19",
+    "sourceReferenceIds": [
+      "ref-google-gemini-3.5-flash"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:xai:77265b604f442f4b1cfaf7dbff498a0087b2e8f1",
+    "vendorSlug": "xai",
+    "canonicalModelKey": "xai:grok-build-0.1",
+    "eventType": "preview",
+    "eventStatus": "released",
+    "title": "Grok Build 0.1 Public Beta",
+    "date": {
+      "value": "2026-05-29",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-05-29",
+    "sourceReferenceIds": [
+      "ref-xai-grok-build-0.1"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:moonshot:32d09bc6df9d7129c6a78714d84586c0d5b4a119",
+    "vendorSlug": "moonshot",
+    "canonicalModelKey": "moonshot:kimi-k2.7-code",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Kimi K2.7 Code Release",
+    "date": {
+      "value": "2026-06-12",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-06-12",
+    "sourceReferenceIds": [
+      "ref-moonshot-kimi-k2.7-code"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:anthropic:56a82b26f0477945c31fcf3ab03148e39d32521e",
+    "vendorSlug": "anthropic",
+    "canonicalModelKey": "anthropic:claude-opus-4",
+    "eventType": "retirement",
+    "eventStatus": "retired",
+    "title": "Claude Opus 4 (20250514) API Retirement",
+    "date": {
+      "value": "2026-06-15",
+      "precision": "day",
+      "semantics": "retirement"
+    },
+    "effectiveOn": "2026-06-15",
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-opus-4"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_docs_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:zai:af31f4a6b37d725022b6afa932f4edc5ffb7d632",
+    "vendorSlug": "zai",
+    "canonicalModelKey": "zai:glm-5.2",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "GLM-5.2: Built for Long-Horizon Tasks",
+    "date": {
+      "value": "2026-06-16",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-06-16",
+    "sourceReferenceIds": [
+      "ref-zai-glm-5.2"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:openai:82866a620476e85a48b171553092890474093a69",
+    "vendorSlug": "openai",
+    "canonicalModelKey": "openai:gpt-5.6-sol",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "GPT-5.6: Frontier intelligence that scales with your ambition",
+    "date": {
+      "value": "2026-07-09",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-07-09",
+    "sourceReferenceIds": [
+      "ref-openai-gpt-5.6-sol"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:moonshot:632b182e287bc3b8f0eb1fbbe4e3c49399e77f4c",
+    "vendorSlug": "moonshot",
+    "canonicalModelKey": "moonshot:kimi-k3",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Kimi K3 Release",
+    "date": {
+      "value": "2026-07-16",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-07-16",
+    "sourceReferenceIds": [
+      "ref-moonshot-kimi-k3"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:xai:f2c09d94c55cd226f25eb27e80bc6729a4e0305a",
+    "vendorSlug": "xai",
+    "canonicalModelKey": "xai:grok-4.5",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Grok 4.5",
+    "date": {
+      "value": "2026-07-16",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-07-16",
+    "sourceReferenceIds": [
+      "ref-xai-grok-4.5"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:google:c71d4c0e590cc5b9599146cbac197fc721b68bef",
+    "vendorSlug": "google",
+    "canonicalModelKey": "google:gemini-3.6-flash",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing Gemini 3.6 Flash, 3.5 Flash-Lite, and 3.5 Flash Cyber",
+    "date": {
+      "value": "2026-07-21",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-07-21",
+    "sourceReferenceIds": [
+      "ref-google-gemini-3.6-flash"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:zai:15b14f56c9fa9d9ff1b455bea9172899ad7ecafa",
+    "vendorSlug": "zai",
+    "canonicalModelKey": "zai:glm-5.3",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "GLM-5.3 & GLM-5.3-Flash Release",
+    "date": {
+      "value": "2026-08-01",
+      "precision": "month",
+      "semantics": "announcement"
+    },
+    "sourceReferenceIds": [
+      "ref-zai-glm-5.3"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:xai:ab87223012e2b65b04f0c64eeac95bb825d76f0f",
+    "vendorSlug": "xai",
+    "canonicalModelKey": "xai:grok-4.6",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Grok 4.6",
+    "date": {
+      "value": "2026-08-12",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-08-12",
+    "sourceReferenceIds": [
+      "ref-xai-grok-4.6"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:deepseek:fd8f289bc4a8e45b941ca2bb761ab11ed7ceba04",
+    "vendorSlug": "deepseek",
+    "canonicalModelKey": "deepseek:deepseek-v4-pro",
+    "eventType": "ga",
+    "eventStatus": "released",
+    "title": "DeepSeek-V4-Pro GA Release",
+    "date": {
+      "value": "2026-08-13",
+      "precision": "day",
+      "semantics": "general_availability"
+    },
+    "officialAnnouncedOn": "2026-08-13",
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v4-pro"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_changelog_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:deepseek:c169e91862709b6f0120bc1cbe2ae0b93e0ecf5b",
+    "vendorSlug": "deepseek",
+    "canonicalModelKey": "deepseek:deepseek-v4-flash-vision-exp",
+    "eventType": "api_release",
+    "eventStatus": "released",
+    "title": "DeepSeek-V4-Flash-Vision-Exp Release: Multimodal API Now Live",
+    "date": {
+      "value": "2026-08-21",
+      "precision": "day",
+      "semantics": "api_available"
+    },
+    "officialAnnouncedOn": "2026-08-21",
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v4-flash-vision-exp"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_changelog_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:openai:a8b18f06ba0676f836c9bdf7fb3c66274ba71561",
+    "vendorSlug": "openai",
+    "canonicalModelKey": "openai:gpt-6-astra",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "OpenAI GPT-6 Astra public release",
+    "date": {
+      "value": "2026-09-04",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-09-04",
+    "sourceReferenceIds": [
+      "ref-openai-gpt-6-astra"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:deepseek:f612cbb0a04ecc31005382fff9f4bdf8be36e1f4",
+    "vendorSlug": "deepseek",
+    "canonicalModelKey": "deepseek:deepseek-v4.1-flash",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "DeepSeek-V4.1-Flash: Smarter, Faster, More Efficient",
+    "date": {
+      "value": "2026-09-10",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-09-10",
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v4.1-flash"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_changelog_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:google:f976f45e0d6d1580befd0b82cb566e55d9bd8790",
+    "vendorSlug": "google",
+    "canonicalModelKey": "google:gemini-3.8-live",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing Gemini 3.8 Live and 3.8 Live Extended Thinking",
+    "date": {
+      "value": "2026-09-15",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-09-15",
+    "sourceReferenceIds": [
+      "ref-google-gemini-3.8-live"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:xai:5cda9b7ac386bc3de57d661a186efa24a51233c1",
+    "vendorSlug": "xai",
+    "canonicalModelKey": "xai:grok-4.7",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Grok 4.7",
+    "date": {
+      "value": "2026-09-21",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-09-21",
+    "sourceReferenceIds": [
+      "ref-xai-grok-4.7"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:anthropic:46c961efd2c63b91027b62c76449fe56bbc2bd01",
+    "vendorSlug": "anthropic",
+    "canonicalModelKey": "anthropic:claude-opus-5.5",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing Claude Opus 5.5",
+    "date": {
+      "value": "2026-09-22",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-09-22",
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-opus-5.5"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:openai:088973a4a919671c7f31934e1725f4842a67d82c",
+    "vendorSlug": "openai",
+    "canonicalModelKey": "openai:gpt-6-sol",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "OpenAI GPT-6 Sol release",
+    "date": {
+      "value": "2026-09-22",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-09-22",
+    "sourceReferenceIds": [
+      "ref-openai-gpt-6-sol"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:google:340082f704f798293591664534e6651a5f8c7f6b",
+    "vendorSlug": "google",
+    "canonicalModelKey": "google:gemini-3.8-flash-tts",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Gemini 3.8 text-to-speech says hello",
+    "date": {
+      "value": "2026-09-23",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-09-23",
+    "sourceReferenceIds": [
+      "ref-google-gemini-3.8-flash-tts"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:anthropic:6b7ba135aa7dd15bc00cb3b2dd71201255d7173d",
+    "vendorSlug": "anthropic",
+    "canonicalModelKey": "anthropic:claude-sonnet-5.5",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing Claude Sonnet 5.5",
+    "date": {
+      "value": "2026-09-28",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-09-28",
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-sonnet-5.5"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:openai:781f5a0734b82b09d26430bbe63861a74800c40e",
+    "vendorSlug": "openai",
+    "canonicalModelKey": "openai:gpt-6.1-sol",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "OpenAI GPT-6.1 Sol DevDay release",
+    "date": {
+      "value": "2026-09-29",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-09-29",
+    "sourceReferenceIds": [
+      "ref-openai-gpt-6.1-sol"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:anthropic:c85959f2659e9d69451d499fc67aab04b6299266",
+    "vendorSlug": "anthropic",
+    "canonicalModelKey": "anthropic:claude-haiku-5.5",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing Claude Haiku 5.5",
+    "date": {
+      "value": "2026-10-07",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-10-07",
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-haiku-5.5"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:google:56fbcae384dd33ae3813a39a710c0011889dfd85",
+    "vendorSlug": "google",
+    "canonicalModelKey": "google:gemini-4-argon",
+    "eventType": "ga",
+    "eventStatus": "released",
+    "title": "Gemini 4 Argon general availability",
+    "date": {
+      "value": "2026-10-13",
+      "precision": "day",
+      "semantics": "general_availability"
+    },
+    "officialAnnouncedOn": "2026-10-13",
+    "sourceReferenceIds": [
+      "ref-google-gemini-4-argon"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:xai:a15ca83eb37b108ec642229293a4e03c8fa7d659",
+    "vendorSlug": "xai",
+    "canonicalModelKey": "xai:grok-voice-3.0",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Grok Voice 3.0",
+    "date": {
+      "value": "2026-10-14",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-10-14",
+    "sourceReferenceIds": [
+      "ref-xai-grok-voice-3.0"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:deepseek:adb34ba008aaf865d22a58d1140ebfa86a42682c",
+    "vendorSlug": "deepseek",
+    "canonicalModelKey": "deepseek:deepseek-v4.1-flash-1017",
+    "eventType": "model_update",
+    "eventStatus": "released",
+    "title": "DeepSeek-V4.1-Flash-1017: Wish-Driven Programming Made Real",
+    "date": {
+      "value": "2026-10-17",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-10-17",
+    "sourceReferenceIds": [
+      "ref-deepseek-deepseek-v4.1-flash-1017"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_changelog_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:moonshot:bedb2058b2909109bf0a425fb7a21e2730b1225f",
+    "vendorSlug": "moonshot",
+    "canonicalModelKey": "moonshot:kimi-k3.1-pro",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Kimi K3.1 Pro Release",
+    "date": {
+      "value": "2026-10-23",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-10-23",
+    "sourceReferenceIds": [
+      "ref-moonshot-kimi-k3.1-pro"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:mistral:11b28c3810b53a92aece498c74d96bc7ae862272",
+    "vendorSlug": "mistral",
+    "canonicalModelKey": "mistral:mistral-large-4",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Mistral Large 4 Open Weights Release",
+    "date": {
+      "value": "2026-10-29",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-10-29",
+    "sourceReferenceIds": [
+      "ref-mistral-mistral-large-4"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:anthropic:c7863870b884b6a24a166811f7eb8e0b8b5fab39",
+    "vendorSlug": "anthropic",
+    "canonicalModelKey": "anthropic:claude-fable-5.2",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing Claude Fable 5.2",
+    "date": {
+      "value": "2026-11-09",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-11-09",
+    "sourceReferenceIds": [
+      "ref-anthropic-claude-fable-5.2"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:google:781a2aa30cc30352d436b8f1c42a0c0b52088745",
+    "vendorSlug": "google",
+    "canonicalModelKey": "google:gemini-4-carbon",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Gemini 4 Carbon broad release",
+    "date": {
+      "value": "2026-11-10",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-11-10",
+    "sourceReferenceIds": [
+      "ref-google-gemini-4-carbon"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:google:e18652d2a4b990126d8fb7cfb14520e763031b60",
+    "vendorSlug": "google",
+    "canonicalModelKey": "google:gemini-4-hydrogen",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Gemini 4 Hydrogen release",
+    "date": {
+      "value": "2026-11-12",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-11-12",
+    "sourceReferenceIds": [
+      "ref-google-gemini-4-hydrogen"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:qwen:3e4c969a900fa07e667000a86afe29595be900e7",
+    "vendorSlug": "qwen",
+    "canonicalModelKey": "qwen:qwen4-max",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Introducing Qwen4-Max",
+    "date": {
+      "value": "2026-11-16",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-11-16",
+    "sourceReferenceIds": [
+      "ref-qwen-qwen4-max"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:openai:503878f48982c7df8880cd202b664d0aa2f6fbe3",
+    "vendorSlug": "openai",
+    "canonicalModelKey": "openai:gpt-6.2-sol",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "OpenAI GPT-6.2 Sol release",
+    "date": {
+      "value": "2026-11-17",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-11-17",
+    "sourceReferenceIds": [
+      "ref-openai-gpt-6.2-sol"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:openai:bb237195cde41ebb2096c76271686199af93b47a",
+    "vendorSlug": "openai",
+    "canonicalModelKey": "openai:gpt-6.2-astra",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "OpenAI GPT-6.2 Astra release",
+    "date": {
+      "value": "2026-11-17",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-11-17",
+    "sourceReferenceIds": [
+      "ref-openai-gpt-6.2-astra"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  },
+  {
+    "sourceEventKey": "official:google:77b10dae67225ab81d52cd0cd07e8691b1e002cd",
+    "vendorSlug": "google",
+    "canonicalModelKey": "google:gemini-4-neon",
+    "eventType": "model_release",
+    "eventStatus": "released",
+    "title": "Gemini 4 Neon release",
+    "date": {
+      "value": "2026-11-18",
+      "precision": "day",
+      "semantics": "announcement"
+    },
+    "officialAnnouncedOn": "2026-11-18",
+    "sourceReferenceIds": [
+      "ref-google-gemini-4-neon"
+    ],
+    "verification": {
+      "status": "verified",
+      "checkedAt": "2026-11-22T01:30:00Z",
+      "method": "official_article_verified"
+    }
+  }
+]

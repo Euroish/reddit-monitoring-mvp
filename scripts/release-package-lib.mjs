@@ -40,6 +40,7 @@ const allowed = file => !file.split('/').some(part => part.startsWith('.') || pa
   && !/^(?:dist\/)?plugins\//.test(file) && (
   /^dist\/.*\.(js|map)$/.test(file)
   || /^dist\/src\/storage\/schema\/\d{3}_[a-z0-9_]+\.sql$/.test(file)
+  || /^dist\/data\/ai\/history\/v1\/[a-z0-9_-]+\.json$/.test(file)
   || /^apps\/web\/dist\/.*\.(html|js|css|map|svg|png|jpe?g|webp|ico|woff2?|ttf|webmanifest)$/.test(file)
   || /^src\/storage\/schema\/\d{3}_[a-z0-9_]+\.sql$/.test(file)
   || /^deploy\/.*\.(service|conf|example)$/.test(file)
@@ -58,8 +59,16 @@ export async function packRelease({ root = process.cwd(), destination }) {
   let parent = path.dirname(destination); while (!fs.existsSync(parent)) parent = path.dirname(parent);
   const actualParent = fs.realpathSync(parent), actualRoot = fs.realpathSync(root);
   if (actualParent !== actualRoot && actualParent !== path.join(actualRoot, 'output') && !actualParent.startsWith(path.join(actualRoot, 'output') + path.sep)) throw new Error('Release output symlink escape refused');
-  const required = ['dist/apps/api/src/server.js', 'dist/src/storage/schema/run-migrations.js', 'apps/web/dist/index.html', 'package.json', 'package-lock.json'];
+  const required = ['dist/apps/api/src/server.js', 'dist/src/storage/schema/run-migrations.js', 'dist/src/modules/content/ai-history-cli.js', 'dist/data/ai/history/v1/manifest.json', 'apps/web/dist/index.html', 'package.json', 'package-lock.json'];
   for (const file of required) await fsp.access(path.join(root, file)).catch(() => { throw new Error(`Missing release input ${file}; run build and compiled smoke first`); });
+  const historyManifest = JSON.parse(await fsp.readFile(path.join(root, 'dist/data/ai/history/v1/manifest.json'), 'utf8'));
+  for (const entry of historyManifest.files ?? []) {
+    const compiledHistory = path.join(root, 'dist/data/ai/history/v1', entry.path);
+    const sourceHistory = path.join(root, 'data/ai/history/v1', entry.path);
+    if (!fs.existsSync(compiledHistory) || !fs.existsSync(sourceHistory) || await digest(compiledHistory) !== entry.sha256 || await digest(sourceHistory) !== entry.sha256) {
+      throw new Error(`Missing or stale AI history dataset asset: ${entry.path}`);
+    }
+  }
   const sqlFiles = (await fsp.readdir(path.join(root, 'src/storage/schema'))).filter(file => /^\d{3}_[a-z0-9_]+\.sql$/.test(file));
   if (!sqlFiles.length) throw new Error('Missing release SQL migrations');
   for (const file of sqlFiles) {

@@ -10,7 +10,7 @@
 | 维度 | 实测基线数据（`2026-11-20` 统一收口） |
 | :--- | :--- |
 | **源码结构** | 后端五模块扁平内核（含 `credentials.ts`、`policy.ts`、`jobs.ts`、`stories.ts`、`docs.ts` 与开放阅读路由）；前端采用双层导航架构：公开站点（`PublicSiteShell`，含 `/` 公开信息首页、`/product` 产品介绍、`/ai` AI 资讯过渡页、`/docs` 产品文档中心，另保留 `/guide` 使用手册）与专业工作台（`WorkbenchShell`，含 `/app/feed` 完整 Stories 三视图、`/content` 匿名/登录内容检索与 `/v1/content/facets` 分面、`/projects`、`/sources`、`/workspace`、`/settings`）；旧 `/?view=...` 自动兼容跳转至 `/app/feed?...`；`/` 首屏零 ECharts 且按路由懒加载工作台模块 |
-| **PG16 数据库** | **38 张公网表**（`001..050` 基线 `20` 表 + `051`/`052` 凭证与配额 + `053` 文档中心 `doc_page` + `054` AI 发布日历与模型情报 14 表；已取消旧 `<= 24` 固定上限，改为按关系模型必要性与索引/写放大评估治理） |
+| **PG16 数据库** | **43 张公网表**（`001..050` 基线 `20` 表 + `051`/`052` 凭证与配额 + `053` 文档中心 `doc_page` + `054`/`055` AI 发布情报与自动化 `17` 表 + `056` AI 历史导入台账与回填游标 `2` 表；按关系模型必要性与索引/写放大评估治理） |
 | **活跃来源分布** | **100 个活跃排期源**（`97` `feed` + `3` `newsnow`，覆盖 8 个 `source_group`），支持开放匿名阅读 `/v1/public/sources` 与防刷屏 7d 分页故事流 |
 | **接口与安全** | `onRequest` 限流早于 `preParsing` 鉴权；`/v1/content/*` 仅 `GET/HEAD` 允许 `read` Key；`machine` Key 禁访 `/v1/access/*`、`/v1/workspace/*`、`/v1/sources/credentials*` 与 `/v1/quotas/*`；`scripts/check-docs.ts` 守卫 `001..050` 迁移不可变与五模块边界 |
 

@@ -10,12 +10,24 @@ test("release packaging allowlist excludes credentials/data and verification det
   const root = await mkdtemp(path.join(os.tmpdir(), "release-fixture-"));
   t.after(async () => rm(root, { recursive: true, force: true }));
   for (const folder of [
-    "dist/apps/api/src", "dist/src/storage/schema", "dist/workers", "dist/plugins/zst-archive", "plugins/zst-archive",
+    "dist/apps/api/src", "dist/src/storage/schema", "dist/src/modules/content", "dist/data/ai/history/v1", "data/ai/history/v1",
+    "dist/workers", "dist/plugins/zst-archive", "plugins/zst-archive",
     "apps/web/dist", "src/storage/schema", "deploy/env", "docs/research", "docs/plans",
   ]) await mkdir(path.join(root, folder), { recursive: true });
+  const sampleHistoryBody = "[]\n";
+  const sampleHistorySha = createHash("sha256").update(sampleHistoryBody).digest("hex");
+  const sampleHistoryManifest = JSON.stringify({
+    datasetVersion: "v1",
+    files: [{ path: "releases.json", bytes: Buffer.byteLength(sampleHistoryBody), sha256: sampleHistorySha }],
+  });
   for (const [file, content] of [
     ["dist/apps/api/src/server.js", "console.log('synthetic-api');"], ["dist/workers/source-content-worker.js", "console.log('synthetic-worker');"],
     ["dist/src/storage/schema/run-migrations.js", "console.log('synthetic-migration');"],
+    ["dist/src/modules/content/ai-history-cli.js", "console.log('synthetic-history-cli');"],
+    ["dist/data/ai/history/v1/manifest.json", sampleHistoryManifest],
+    ["dist/data/ai/history/v1/releases.json", sampleHistoryBody],
+    ["data/ai/history/v1/manifest.json", sampleHistoryManifest],
+    ["data/ai/history/v1/releases.json", sampleHistoryBody],
     ["dist/src/storage/schema/001_fixture.sql", "SELECT 1;"],
     ["apps/web/dist/index.html", "<html lang='en'>synthetic</html>"], ["src/storage/schema/001_fixture.sql", "SELECT 1;"],
     ["package.json", JSON.stringify({ name: "synthetic", version: "0.7.0" })], ["package-lock.json", "{}"],
@@ -44,6 +56,8 @@ test("release packaging allowlist excludes credentials/data and verification det
   );
   assert.ok(!manifest.files.some(file => file.path === "docs/private-notes.md"));
   assert.ok(!manifest.files.some(file => /^(?:dist\/)?plugins\//.test(file.path)));
+  assert.ok(manifest.files.some(file => file.path === "dist/data/ai/history/v1/manifest.json"));
+  assert.ok(!manifest.files.some(file => file.path === "data/ai/history/v1/manifest.json"));
   assert.equal((await verifyRelease(destination)).verified, true);
   const legacyRoot = path.join(root, "output/release-legacy");
   const legacyManifest = await packRelease({ root, destination: legacyRoot });
