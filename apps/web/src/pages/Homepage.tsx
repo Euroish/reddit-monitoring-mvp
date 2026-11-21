@@ -22,6 +22,7 @@ interface HomepageProps {
   isAuthenticated: boolean;
   onOpenAuth: (tab?: 'login' | 'register') => void;
   onEnterWorkbench: (targetPath?: string) => void;
+  onGoFeed?: () => void;
 }
 
 const PLATFORM_OPTIONS: Array<{ value: '' | Platform; label: string; labelZh: string }> = [
@@ -43,7 +44,7 @@ const SOLUTIONS_DATA = [
     descZh:
       '将 Reddit、X、Bluesky 与 Hacker News 聚合到项目级监测视图中，支持讨论根帖自动去重聚合。',
     route: '/projects',
-    metric: '89 / 100',
+    metric: '4 Platforms',
     sub: 'Thread-Aware Active',
     chartType: 'lines',
   },
@@ -71,8 +72,8 @@ const SOLUTIONS_DATA = [
     descZh:
       '融合中英文痛点正则、高评论比启发式规则与 NFKC 三字符布尔检索组，秒级筛出高价值吐槽。',
     route: '/content',
-    metric: '+373%',
-    sub: 'Pain Signal Hit Rate',
+    metric: 'NFKC >= 3',
+    sub: 'Boolean + Pain Regex',
     chartType: 'bubbles',
   },
   {
@@ -192,43 +193,12 @@ const STATS_DATA = [
   },
 ];
 
-const INDEX_LEADERBOARD = [
-  { community: 'r/devops · Observability', mentions: '1,140', pct: 100, color: 'var(--teal)' },
-  { community: 'r/SaaS · Billing Friction', mentions: '842', pct: 74, color: 'var(--wisteria)' },
-  { community: 'X · Cloud Egress Watch', mentions: '618', pct: 54, color: 'var(--teal)' },
-  { community: 'r/LocalLLaMA · Quantization', mentions: '496', pct: 43, color: 'var(--wisteria)' },
-  { community: 'news.ycombinator · FinOps', mentions: '388', pct: 34, color: 'var(--teal)' },
-  { community: 'bsky.app · DevTools Feed', mentions: '312', pct: 27, color: 'var(--wisteria)' },
-  { community: 'Support Push · Ticket Bridge', mentions: '248', pct: 22, color: 'var(--teal)' },
-];
-
-const TESTIMONIALS = [
-  {
-    company: 'FINOPS LABS',
-    quoteEn:
-      'Siftline replaced brittle social scrapers with a single contract-verified intelligence workbench. Our product team finds pricing friction threads days before churn tickets spike.',
-    quoteZh:
-      'Siftline 用统一且口径透明的情报工作台取代了零散脚本。产品团队往往在客户工单爆发前几天，就已在社区讨论中锁定定价摩擦痛点。',
-    author: 'Elena Vance',
-    role: 'VP of Product Intelligence · FinOps Labs',
-    initials: 'EV',
-    metric: '+373%',
-    metricLabelEn: 'Faster pain-signal discovery across threads',
-    metricLabelZh: '跨社区痛点讨论定位效率提升',
-  },
-  {
-    company: 'INFRA PULSE',
-    quoteEn:
-      'Having non-zero-filled trend gaps and unknown-timestamp counters stops our analysts from misreading collection windows as quiet markets.',
-    quoteZh:
-      '“未采集日期不补零”与“发布时间未知单列统计”彻底杜绝了分析师把采集空窗期误判为市场冷清的情况。',
-    author: 'Marcus Thorne',
-    role: 'Staff Data Strategist · Infra Pulse',
-    initials: 'MT',
-    metric: '0',
-    metricLabelEn: 'Accidental duplicate vendor crawls via Idempotency-Key',
-    metricLabelZh: '幂等键保障下的重复付费采集失误',
-  },
+const CHANNEL_PREVIEW_GROUPS = [
+  { group: 'AI 一手与研发 · AI Firsthand', descEn: 'Official lab blogs, research releases & engineering notes', descZh: '官方研究博客、一手模型发布与研发动态', color: 'var(--teal)' },
+  { group: '工程与基础 · Dev & Infra', descEn: 'Systems engineering, cloud infrastructure & developer tools', descZh: '基础架构、云原生与开发者工具讨论', color: 'var(--wisteria)' },
+  { group: '科技与数码 · Tech Media', descEn: 'Technology reporting and product launches across T1/T2 sources', descZh: 'T1/T2 科技媒体报道与产品动态', color: 'var(--teal)' },
+  { group: '科研与科普 · Science', descEn: 'Scientific preprints, journals & verified science journalism', descZh: '科研进展、学术期刊与科普来源', color: 'var(--wisteria)' },
+  { group: '热榜与趋势 · Social Trends', descEn: 'Cross-community momentum across Reddit, X, Bluesky & HN', descZh: 'Reddit、X、Bluesky 与 HN 跨平台热度讨论', color: 'var(--teal)' },
 ];
 
 const RESOURCES_DATA = [
@@ -272,7 +242,7 @@ function MiniCardVisual({ type }: { type: string }) {
       <div className="hp-sol-mock-inner">
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>
           <span>QUOTA &amp; DENSITY</span>
-          <span style={{ color: 'var(--teal)' }}>LIVE</span>
+          <span style={{ color: 'var(--teal)' }}>DEMO</span>
         </div>
         <svg viewBox="0 0 180 95" style={{ width: '100%', height: 'auto', margin: '6px 0' }}>
           <path d="M 24 80 A 66 66 0 0 1 156 80" fill="none" stroke="#e9ece6" strokeWidth="14" strokeLinecap="round" />
@@ -352,7 +322,7 @@ function MiniCardVisual({ type }: { type: string }) {
   );
 }
 
-export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench }: HomepageProps) {
+export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench, onGoFeed }: HomepageProps) {
   const { lang, setLang, t } = useI18n();
   const { activeLogo, setSwitcherOpen } = useLogo();
   const { palette, setStudioOpen } = useTheme();
@@ -379,9 +349,6 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench }: Home
 
   // Stats active row
   const [activeStat, setActiveStat] = useState(0);
-
-  // Testimonial index
-  const [quoteIdx, setQuoteIdx] = useState(0);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -411,14 +378,9 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench }: Home
     ref.current?.scrollBy({ left: dir * 430, behavior: 'smooth' });
   };
 
-  const promoGaugeScore =
-    promoSignal === 'pain' ? 92 : promoSignal === 'discussion' ? 84 : promoPlatform === 'reddit' ? 91 : 89;
-
   const filteredPlatforms = PLATFORM_OPTIONS.filter((p) =>
     `${p.label} ${p.labelZh} ${p.value}`.toLowerCase().includes(scopeFilter.toLowerCase()),
   );
-
-  const curQuote = TESTIMONIALS[quoteIdx];
 
   return (
     <div className="hp-root" onClick={() => scopeOpen && setScopeOpen(false)}>
@@ -517,6 +479,18 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench }: Home
             >
               {t('Resources', '研究资源')} <ChevronDown size={14} />
             </button>
+            {onGoFeed && (
+              <button
+                type="button"
+                className="hp-nav-item"
+                onClick={() => {
+                  setOpenMega(null);
+                  onGoFeed();
+                }}
+              >
+                {t('Read Stories', '阅读信息流')}
+              </button>
+            )}
             <button
               type="button"
               className="hp-nav-item"
@@ -538,6 +512,15 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench }: Home
             >
               {lang === 'en' ? '中文' : 'EN'}
             </button>
+            {onGoFeed && (
+              <button
+                type="button"
+                className="sr-btn sr-btn--outline sr-btn--sm"
+                onClick={onGoFeed}
+              >
+                {t('Read Stories', '阅读信息流')}
+              </button>
+            )}
             <button
               type="button"
               className="sr-btn sr-btn--outline sr-btn--sm"
@@ -933,11 +916,11 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench }: Home
                       strokeWidth="12"
                       strokeLinecap="round"
                     />
-                    <text x="70" y="72" textAnchor="middle" fontSize="22" fontWeight="700" fill="var(--ink)">
-                      {promoGaugeScore}
+                    <text x="70" y="70" textAnchor="middle" fontSize="13" fontWeight="700" fill="var(--ink)">
+                      {promoPlatform === 'all' ? 'ALL' : promoPlatform.toUpperCase()}
                     </text>
-                    <text x="70" y="90" textAnchor="middle" fontSize="11" fontWeight="600" fill="var(--sem-green)">
-                      {t('High Signal', '高信号密度')}
+                    <text x="70" y="90" textAnchor="middle" fontSize="10" fontWeight="600" fill="var(--sem-green)">
+                      {t('Illustrative Demo', '交互示意')}
                     </text>
                   </svg>
 
@@ -961,9 +944,9 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench }: Home
                       stroke="var(--teal)"
                       strokeWidth="2.2"
                     />
-                    <text x="14" y="100" fontSize="9" fill="#7c857f">Nov 10</text>
-                    <text x="110" y="100" fontSize="9" fill="#7c857f">Nov 14</text>
-                    <text x="200" y="100" fontSize="9" fill="#7c857f">Nov 18</text>
+                    <text x="14" y="100" fontSize="9" fill="#7c857f">{t('Day 1', '第 1 天')}</text>
+                    <text x="100" y="100" fontSize="9" fill="#7c857f">{t('Sample curve', '示意趋势')}</text>
+                    <text x="195" y="100" fontSize="9" fill="#7c857f">{t('Day N', '第 N 天')}</text>
                   </svg>
                 </div>
               </div>
@@ -1225,85 +1208,22 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench }: Home
 
           <div className="hp-leaderboard">
             <div className="hp-lb-head">
-              <span>{t('Community / Source', '社区 / 监测来源')}</span>
-              <span>{t('Signals', '命中数')}</span>
-              <span className="hp-lb-meta">coverage: stored_sample · Nov 2026</span>
+              <span>{t('Channel Group', '信息流频道分组')}</span>
+              <span>{t('Scope', '覆盖范围')}</span>
+              <span className="hp-lb-meta">{t('Live counts available in Stories Feed', '实时条数请查看公开信息流')}</span>
             </div>
-            {INDEX_LEADERBOARD.map((row) => (
-              <div key={row.community} className="hp-lb-row">
-                <span style={{ fontWeight: 500 }}>{row.community}</span>
-                <span className="tabular-nums" style={{ fontWeight: 600 }}>{row.mentions}</span>
-                <div className="hp-lb-bar-track">
-                  <div
-                    className="hp-lb-bar"
-                    style={{
-                      width: `${row.pct}%`,
-                      background: palette.hasGradient
-                        ? `linear-gradient(90deg, ${row.color} 0%, rgba(255,255,255,0.22) 100%)`
-                        : row.color,
-                    }}
-                  />
-                </div>
+            {CHANNEL_PREVIEW_GROUPS.map((row) => (
+              <div key={row.group} className="hp-lb-row">
+                <span style={{ fontWeight: 500 }}>{row.group}</span>
+                <span style={{ fontSize: 12, opacity: 0.8 }}>
+                  {lang === 'zh' ? row.descZh : row.descEn}
+                </span>
+                <span style={{ fontSize: 11, color: row.color, fontWeight: 600 }}>
+                  {t('Configured', '已接入')}
+                </span>
               </div>
             ))}
           </div>
-        </div>
-      </section>
-
-      {/* Customer Testimonials Asymmetric Row (09-customers) */}
-      <section className="hp-section">
-        <div className="hp-section-top">
-          <div>
-            <div className="hp-eyebrow">{t('RESEARCH TEAMS', '研究团队实战反馈')}</div>
-            <h2 className="hp-h2-upper">
-              {t('HOW ANALYSTS TURN NOISE INTO CONVICTION', '研究团队如何将舆论噪音转化为产品笃定')}
-            </h2>
-          </div>
-          <div className="hp-circle-controls">
-            <button
-              type="button"
-              className="hp-circle-btn"
-              onClick={() => setQuoteIdx((i) => (i - 1 + TESTIMONIALS.length) % TESTIMONIALS.length)}
-              aria-label="Previous testimonial"
-            >
-              <ArrowLeft size={18} />
-            </button>
-            <button
-              type="button"
-              className="hp-circle-btn"
-              onClick={() => setQuoteIdx((i) => (i + 1) % TESTIMONIALS.length)}
-              aria-label="Next testimonial"
-            >
-              <ArrowRight size={18} />
-            </button>
-          </div>
-        </div>
-
-        <div className="hp-customer-grid">
-          <article className="hp-quote-card">
-            <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.06em', opacity: 0.85 }}>
-              {curQuote.company}
-            </div>
-            <p className="hp-quote-text">
-              <span className="hp-quote-mark">“</span>
-              {lang === 'zh' ? curQuote.quoteZh : curQuote.quoteEn}
-            </p>
-            <div className="hp-quote-author">
-              <div className="hp-avatar-pill">{curQuote.initials}</div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{curQuote.author}</div>
-                <div style={{ fontSize: 12, opacity: 0.7 }}>{curQuote.role}</div>
-              </div>
-            </div>
-          </article>
-
-          <article className="hp-impact-card">
-            <div className="hp-promo-hatch sem-hatch-wisteria" />
-            <div className="hp-impact-num tabular-nums">{curQuote.metric}</div>
-            <div style={{ fontSize: 15, color: 'var(--ink-70)', maxWidth: 230, position: 'relative', zIndex: 2 }}>
-              {lang === 'zh' ? curQuote.metricLabelZh : curQuote.metricLabelEn}
-            </div>
-          </article>
         </div>
       </section>
 

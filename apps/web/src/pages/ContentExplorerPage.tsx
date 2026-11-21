@@ -1,6 +1,7 @@
-import React, { useMemo, useRef, useState } from 'react';
+﻿import React, { useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  BarChart3,
   Bookmark,
   BookmarkPlus,
   Download,
@@ -18,16 +19,20 @@ import {
   useAnnotationQuery,
   useBatchJobsQuery,
   useContentDetailQuery,
+  useContentFacetsQuery,
   useContentListQuery,
   useCreateSavedQueryMutation,
   useHydrateMutation,
   useProjectsQuery,
+  usePublicSourcesQuery,
   useSaveAnnotationMutation,
   useSourcesQuery,
   useThreadQuery,
 } from '../api/hooks';
+import { EChartBox, type EChartOption } from '../components/charts/EChartBox';
 import { ObservationChart } from '../components/charts/ObservationChart';
 import { ThreadTreeView } from '../components/charts/ThreadTreeView';
+import { useChartColors } from '../components/charts/chartUtils';
 import {
   type Actor,
   ApiError,
@@ -42,6 +47,7 @@ import {
   validateFilterInput,
 } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
+import { safeHttpUrl, toSafeUtcIso, toUtcDatetimeLocal } from '../lib/sourceLabels';
 
 const PAIN_RE =
   /\b(broken|bug|slow|expensive|pricing|sucks|frustrated|unusable|churn|blocked|timeout|hate|pain|issue|fail(?:ed|ing)?|refund|friction|overage)\b|崩溃|卡顿|太贵|难用|踩坑|报错|封号|吐槽|痛/i;
@@ -66,19 +72,26 @@ export function ContentExplorerPage({
   initialQueryString,
   initialDetailId,
   onClearDetailId,
+  onOpenAuth,
 }: {
-  actor: Actor;
+  actor: Actor | null;
   initialQueryString: string;
   initialDetailId: string | null;
   onClearDetailId: () => void;
+  onOpenAuth?: (tab?: 'login' | 'register', reason?: string) => void;
 }) {
   const { t } = useI18n();
-  const canWrite = actor.role === 'owner' || actor.role === 'admin';
+  const colors = useChartColors();
+  const isAuthed = Boolean(actor);
+  const canWrite = actor?.role === 'owner' || actor?.role === 'admin';
 
-  const projectsQuery = useProjectsQuery(true);
-  const sourcesQuery = useSourcesQuery(true);
+  const projectsQuery = useProjectsQuery(isAuthed);
+  const sourcesQuery = useSourcesQuery(isAuthed);
+  const publicSourcesQuery = usePublicSourcesQuery(!isAuthed);
   const projects = projectsQuery.data?.projects || [];
-  const sources = sourcesQuery.data?.sources || [];
+  const sources = isAuthed
+    ? (sourcesQuery.data?.sources || [])
+    : (publicSourcesQuery.data?.sources || []).map((s) => ({ id: s.id, label: s.label }));
 
   const initialSp = useMemo(() => new URLSearchParams(initialQueryString), [initialQueryString]);
   const spView = initialSp.get('view');
@@ -94,13 +107,14 @@ export function ContentExplorerPage({
   const [exclusionsText, setExclusionsText] = useState(() => initialSp.getAll('exclusions').join(', '));
   const [searchScope, setSearchScope] = useState<SearchScope>(() => (initialSp.get('searchScope') as SearchScope) || 'title_text');
   const [signal, setSignal] = useState<'' | SignalType>(() => (initialSp.get('signal') as SignalType) || '');
-  const [fromIso, setFromIso] = useState(() => initialSp.get('from') || '');
-  const [toIso, setToIso] = useState(() => initialSp.get('to') || '');
+  const [fromIso, setFromIso] = useState(() => toUtcDatetimeLocal(initialSp.get('from')));
+  const [toIso, setToIso] = useState(() => toUtcDatetimeLocal(initialSp.get('to')));
   const [threadAware, setThreadAware] = useState<boolean>(() => {
     const ta = initialSp.get('threadAware');
     return ta === null ? true : ta === 'true';
   });
   const [advOpen, setAdvOpen] = useState(false);
+  const [facetsOpen, setFacetsOpen] = useState(false);
 
   const [detailState, setDetailState] = useState<{
     id: string | null;
@@ -132,6 +146,8 @@ export function ContentExplorerPage({
     const anyTerms = parseTermsInput(anyTermsText);
     const allTerms = parseTermsInput(allTermsText);
     const exclusions = parseTermsInput(exclusionsText);
+    const parsedFrom = toSafeUtcIso(fromIso);
+    const parsedTo = toSafeUtcIso(toIso);
     return {
       ...(projectId ? { projectId } : {}),
       ...(sourceId ? { sourceId } : {}),
@@ -143,8 +159,8 @@ export function ContentExplorerPage({
       ...(exclusions.length ? { exclusions } : {}),
       searchScope,
       ...(signal ? { signal } : {}),
-      ...(fromIso && !Number.isNaN(new Date(fromIso).getTime()) ? { from: new Date(fromIso).toISOString() } : {}),
-      ...(toIso && !Number.isNaN(new Date(toIso).getTime()) ? { to: new Date(toIso).toISOString() } : {}),
+      ...(parsedFrom ? { from: parsedFrom } : {}),
+      ...(parsedTo ? { to: parsedTo } : {}),
       threadAware,
       limit: 25,
       ...(cursor ? { cursor } : {}),
@@ -174,6 +190,44 @@ export function ContentExplorerPage({
     return clean;
   }, [activeFilter]);
   const contentQuery = useContentListQuery(activeFilter, projectId || undefined, !filterValidationMsg);
+  const [defaultFacetWindow] = useState(() => {
+    const now = Date.now();
+    return {
+      from: new Date(now - 30 * 86_400_000).toISOString(),
+      to: new Date(now + 60_000).toISOString(),
+    };
+  });
+  const { from: facetFrom = defaultFacetWindow.from, to: facetTo = defaultFacetWindow.to, ...facetScope } = threadScope;
+  const facetSpan = Date.parse(facetTo) - Date.parse(facetFrom);
+  const facetRangeInvalid = facetSpan <= 0 || facetSpan > 90 * 86_400_000;
+  const facetsQuery = useContentFacetsQuery(facetsOpen && !filterValidationMsg && !facetRangeInvalid
+    ? { ...facetScope, from: facetFrom, to: facetTo, bucket: 'day' }
+    : null);
+  const facetsChartOption: EChartOption = useMemo(() => {
+    const timeline = facetsQuery.data?.timeline ?? [];
+    const labels = timeline.map((b) => b.bucket.slice(5, 10));
+    const platforms: Array<{ key: Platform; name: string; color: string }> = [
+      { key: 'reddit', name: 'Reddit', color: colors.reddit },
+      { key: 'x', name: 'X', color: colors.x },
+      { key: 'bluesky', name: 'Bluesky', color: colors.bluesky },
+      { key: 'web', name: 'Web', color: colors.web },
+    ];
+    return {
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      legend: { bottom: 0, left: 0, itemWidth: 9, itemHeight: 9, textStyle: { fontSize: 10.5 } },
+      grid: { left: 36, right: 12, top: 14, bottom: 34 },
+      xAxis: { type: 'category', data: labels, axisLabel: { fontSize: 10, color: '#677166' } },
+      yAxis: { type: 'value', minInterval: 1, axisLabel: { fontSize: 10, color: '#677166' } },
+      series: platforms.map((p) => ({
+        name: p.name,
+        type: 'bar',
+        stack: 'total',
+        barMaxWidth: 22,
+        itemStyle: { color: p.color },
+        data: timeline.map((b) => b.byPlatform.find((x) => x.platform === p.key)?.count ?? 0),
+      })),
+    };
+  }, [facetsQuery.data, colors]);
 
   const cursorScopeChanged =
     contentQuery.error instanceof ApiError &&
@@ -360,8 +414,23 @@ export function ContentExplorerPage({
         <div className="page-actions" style={{ position: 'relative' }}>
           <button
             type="button"
+            className={`ds-btn ${facetsOpen ? '' : 'ds-btn--ghost'}`}
+            onClick={() => setFacetsOpen((v) => !v)}
+          >
+            <BarChart3 size={14} />
+            <span>{t('Analyze Content', '分析内容')}</span>
+          </button>
+
+          <button
+            type="button"
             className="ds-btn ds-btn--ghost"
-            onClick={() => setSaveQueryOpen((v) => !v)}
+            onClick={() => {
+              if (!isAuthed) {
+                onOpenAuth?.('login', t('Sign in to save search queries.', '登录后可保存常用查询到我的研究。'));
+                return;
+              }
+              setSaveQueryOpen((v) => !v);
+            }}
           >
             <BookmarkPlus size={14} />
             <span>{t('Save Query', '保存查询')}</span>
@@ -370,7 +439,13 @@ export function ContentExplorerPage({
           <button
             type="button"
             className="ds-btn ds-btn--ghost"
-            onClick={() => setExportOpen((v) => !v)}
+            onClick={() => {
+              if (!isAuthed) {
+                onOpenAuth?.('login', t('Sign in to export filtered results.', '登录后可导出筛选结果。'));
+                return;
+              }
+              setExportOpen((v) => !v);
+            }}
           >
             <Download size={14} />
             <span>{t('Stream Export', '流式导出')}</span>
@@ -411,12 +486,63 @@ export function ContentExplorerPage({
                 disabled={exporting}
                 onClick={() => runExport()}
               >
-                {exporting ? t('Exporting...', '流式导出中...') : t('Download Verified Export', '开始校验并导出')}
+                {exporting ? t('Exporting...', '流式导出中...') : t('Download Verified Export', '下载当前结果')}
               </button>
             </div>
           )}
         </div>
       </div>
+
+      {facetsOpen && (
+        <div className="ds-card" style={{ marginBottom: 14 }}>
+          <div className="ds-card-hd">
+            <div>
+              <div className="ds-card-title">
+                <BarChart3 size={14} color={colors.purple} />
+                <span>{t('Filtered Content Volume by Day & Platform', '按日与平台的内容量')}</span>
+              </div>
+              <div className="ds-card-sub">
+                {facetsQuery.data
+                  ? t(
+                      `${facetsQuery.data.count} items · ${facetsQuery.data.matchedContentCount} matched (${facetsQuery.data.coverage})`,
+                      `共 ${facetsQuery.data.count} 条内容 · 命中 ${facetsQuery.data.matchedContentCount} 条 (${facetsQuery.data.coverage})`,
+                    )
+                  : null}
+              </div>
+              <div className="ds-card-sub">
+                {facetFrom.slice(0, 10)} – {facetTo.slice(0, 10)} UTC · {t(
+                  'Dated samples only. Push data is excluded unless enabled for the project.',
+                  '仅统计有发布日期的样本。推流数据仅在专题启用推流趋势时计入。',
+                )}
+              </div>
+            </div>
+            <button type="button" className="icon-square" style={{ width: 28, height: 28 }} onClick={() => setFacetsOpen(false)}>
+              <X size={13} />
+            </button>
+          </div>
+          <div className="ds-card-bd">
+            {filterValidationMsg || facetRangeInvalid ? (
+              <div className="wb-alert wb-alert--error">
+                {filterValidationMsg || t('Select a positive date range of at most 90 days for analysis.', '分析需要大于零且不超过 90 天的日期范围。')}
+              </div>
+            ) : facetsQuery.error ? (
+              <div className="wb-alert wb-alert--error">{formatApiError(facetsQuery.error)}</div>
+            ) : (facetsQuery.data?.timeline.length ?? 0) === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--muted)' }}>
+                {facetsQuery.isLoading
+                  ? t('Computing facets...', '正在汇总分桶…')
+                  : t('No dated content in current window.', '当前时间窗内暂无带发布日期的内容。')}
+              </div>
+            ) : (
+              <EChartBox
+                option={facetsChartOption}
+                height={210}
+                ariaLabel={t('Content volume by day and platform', '按日与平台的内容量')}
+              />
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Inline Save Query Box */}
       {saveQueryOpen && (
@@ -424,8 +550,9 @@ export function ContentExplorerPage({
           onSubmit={handleSaveQuery}
           style={{ background: '#ffffff', border: '1px solid var(--line)', borderRadius: 7, padding: '12px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}
         >
-          <span style={{ fontSize: 12, fontWeight: 600 }}>{t('Query Name:', '查询名称：')}</span>
+          <label htmlFor="save-query-name" style={{ fontSize: 12, fontWeight: 600 }}>{t('Query Name:', '查询名称')}</label>
           <input
+            id="save-query-name"
             className="wb-input"
             style={{ minWidth: 240, flex: 1 }}
             value={saveQueryName}
@@ -433,7 +560,7 @@ export function ContentExplorerPage({
             placeholder={t('e.g. FinOps Billing Pain · 30d', '例如：账单波动痛点 · 近30天')}
             required
           />
-          <button type="submit" className="ds-btn">{t('Confirm Save', '确认保存')}</button>
+          <button type="submit" className="ds-btn">{t('Confirm Save', '确认保存查询')}</button>
           <button type="button" className="ds-btn ds-btn--ghost" onClick={() => setSaveQueryOpen(false)}>{t('Cancel', '取消')}</button>
         </form>
       )}
@@ -451,7 +578,7 @@ export function ContentExplorerPage({
         </div>
       )}
 
-      {/* DeepSeek Search Card */}
+      {/* Search Card */}
       <div className="search-card">
         <form className="search-main" onSubmit={handleTermSubmit}>
           <Search size={15} color="var(--faint)" />
@@ -469,7 +596,7 @@ export function ContentExplorerPage({
             className="search-input"
             value={termDraft}
             onChange={(e) => setTermDraft(e.target.value)}
-            placeholder={t('Enter search phrase (>=3 alnum chars) and press Enter...', '输入核心检索词后回车（至少 3 个连续字母或数字）…')}
+            placeholder={t('Enter search term (supports CJK bigrams & short codes like 算力 / o3)...', '输入检索词后回车（支持中文双字词与短代码如 算力 / o3）…')}
           />
           <button type="submit" className="ds-btn" style={{ height: 34, padding: '0 16px' }}>
             {t('Search', '检索')}
@@ -854,13 +981,15 @@ export function ContentExplorerPage({
         </div>
       </div>
 
-      {/* DeepSeek Tabbed Content Detail Drawer */}
+      {/* Tabbed Content Detail Drawer */}
       {detailId && (
         <ContentDetailDrawer
           key={`${detailId}:${defaultDrawerTab}`}
+          actor={actor}
           contentId={detailId}
           initialTab={defaultDrawerTab}
           scopeQuery={threadScope}
+          onOpenAuth={onOpenAuth}
           onClose={() => {
             setDetailId(null);
             onClearDetailId();
@@ -888,20 +1017,34 @@ export function ContentExplorerPage({
 }
 
 function ContentDetailDrawer({
+  actor,
   contentId,
   initialTab = 'overview',
   scopeQuery,
+  onOpenAuth,
   onClose,
 }: {
+  actor: Actor | null;
   contentId: string;
   initialTab?: 'overview' | 'thread' | 'note';
   scopeQuery: ListQuery;
+  onOpenAuth?: (tab?: 'login' | 'register', reason?: string) => void;
   onClose: () => void;
 }) {
   const { t } = useI18n();
   const detailQuery = useContentDetailQuery(contentId);
-  const annQuery = useAnnotationQuery(contentId);
-  const saveAnnMut = useSaveAnnotationMutation(contentId);
+  const annQuery = useAnnotationQuery(actor ? contentId : null);
+  const saveAnnMut = useSaveAnnotationMutation();
+
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !document.querySelector('.auth-overlay')) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const [tab, setTab] = useState<'overview' | 'thread' | 'note'>(initialTab);
   const [threadView, setThreadView] = useState<'top' | 'matches' | 'op'>('top');
@@ -924,7 +1067,7 @@ function ContentDetailDrawer({
     e.preventDefault();
     setAnnMsg(null);
     try {
-      const res = await saveAnnMut.mutateAsync({ favorite, note, revision: annRev });
+      const res = await saveAnnMut.mutateAsync({ contentId, edit: { favorite, note, revision: annRev } });
       setRevOverride({ key: contentId, rev: res.revision });
       setAnnDraft({ key: `${contentId}:${res.revision}`, favorite, note });
       setAnnMsg(t(`Saved cleanly · revision ${res.revision}`, `批注已保存 · 乐观锁 rev ${res.revision}`));
@@ -1051,42 +1194,62 @@ function ContentDetailDrawer({
           )}
 
           {tab === 'note' && (
-            <form onSubmit={handleSaveAnn} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 12, fontWeight: 650 }}>
-                  {t('Personal Annotation (Optimistic Lock)', '个人研究批注（乐观锁并发控制）')}
-                </span>
-                <span className="tag tag--line">revision {annRev}</span>
-              </div>
+            actor ? (
+              <form onSubmit={handleSaveAnn} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, fontWeight: 650 }}>
+                    {t('Personal Annotation (Optimistic Lock)', '个人研究批注（乐观锁并发控制）')}
+                  </span>
+                  <span className="tag tag--line">revision {annRev}</span>
+                </div>
 
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, cursor: 'pointer' }}>
-                <input type="checkbox" checked={favorite} onChange={(e) => setFavorite(e.target.checked)} />
-                <span>{t('Bookmark as high-signal evidence', '标星收藏为高价值证据')}</span>
-              </label>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={favorite} onChange={(e) => setFavorite(e.target.checked)} />
+                  <span>{t('Bookmark as high-signal evidence', '收藏这条证据')}</span>
+                </label>
 
-              <textarea
-                className="wb-textarea"
-                rows={5}
-                maxLength={2000}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder={t('Write researcher insights or next actions (up to 2000 chars)...', '写下你的判断、证据出处或下一步动作（不超过 2000 字符）…')}
-              />
+                <textarea
+                  className="wb-textarea"
+                  aria-label={t('Research note', '研究批注')}
+                  rows={5}
+                  maxLength={2000}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder={t('Write researcher insights or next actions (up to 2000 chars)...', '写下你的判断、证据出处或下一步动作（不超过 2000 字符）…')}
+                />
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--faint)' }}>
-                <span>{t('Preserves local draft on 409 conflict', '发生乐观锁 409 冲突时自动保留本地草稿')}</span>
-                <span>{note.length} / 2000</span>
-              </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--faint)' }}>
+                  <span>{t('Preserves local draft on 409 conflict', '发生乐观锁 409 冲突时自动保留本地草稿')}</span>
+                  <span>{note.length} / 2000</span>
+                </div>
 
-              {annMsg && <div className="wb-alert wb-alert--info">{annMsg}</div>}
+                {annMsg && <div className="wb-alert wb-alert--info">{annMsg}</div>}
 
-              <div>
-                <button type="submit" className="ds-btn" disabled={saveAnnMut.isPending}>
+                <div>
+                  <button type="submit" className="ds-btn" disabled={saveAnnMut.isPending}>
+                    <Bookmark size={13} />
+                    <span>{saveAnnMut.isPending ? t('Saving...', '保存中...') : t('Save Annotation', '保存到我的研究')}</span>
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="story-guest-note">
+                <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>
+                  {t(
+                    'Sign in to bookmark items and save personal research annotations.',
+                    '登录后即可收藏证据并保存个人研究批注。',
+                  )}
+                </p>
+                <button
+                  type="button"
+                  className="ds-btn"
+                  onClick={() => onOpenAuth?.('login', t('Sign in to annotate content.', '登录后可保存研究批注'))}
+                >
                   <Bookmark size={13} />
-                  <span>{saveAnnMut.isPending ? t('Saving...', '保存中...') : t('Save Annotation', '保存批注')}</span>
+                  <span>{t('Sign in to annotate', '登录后收藏与记录笔记')}</span>
                 </button>
               </div>
-            </form>
+            )
           )}
         </div>
 
@@ -1100,12 +1263,15 @@ function ContentDetailDrawer({
             <span>{favorite ? t('Bookmarked', '已收藏') : t('Bookmark', '收藏与批注')}</span>
           </button>
           <span style={{ flex: 1 }} />
-          {item?.url && (
-            <a href={/^https?:\/\//i.test(item.url || "") ? item.url! : "#"} target="_blank" rel="noopener noreferrer" className="ds-btn ds-btn--ghost">
-              <ExternalLink size={13} />
-              <span>{t('Open Original', '打开原帖')}</span>
-            </a>
-          )}
+          {(() => {
+            const safeUrl = safeHttpUrl(item?.url);
+            return safeUrl ? (
+              <a href={safeUrl} target="_blank" rel="noreferrer" className="ds-btn ds-btn--ghost">
+                <ExternalLink size={13} />
+                <span>{t('Open Original', '打开原帖')}</span>
+              </a>
+            ) : null;
+          })()}
         </footer>
       </aside>
     </div>

@@ -1,13 +1,10 @@
-import { useMemo, useState } from 'react';
-import type { EChartsOption } from 'echarts';
+import { useState } from 'react';
 import { ArrowUpRight, Bookmark, ChevronRight, Heart, Play, Plus, Star, Trash2, Users } from 'lucide-react';
 import {
   useAnnotationsListQuery,
   useDeleteSavedQueryMutation,
   useSavedQueriesQuery,
 } from '../api/hooks';
-import { EChartBox } from '../components/charts/EChartBox';
-import { useChartColors } from '../components/charts/chartUtils';
 import { useI18n } from '../i18n/translations';
 
 export function WorkspacePage({
@@ -22,7 +19,6 @@ export function WorkspacePage({
   onNavigate?: (path: string) => void;
 }) {
   const { t } = useI18n();
-  const colors = useChartColors();
   const queriesQuery = useSavedQueriesQuery(true);
   const annotationsQuery = useAnnotationsListQuery(true);
   const deleteQueryMut = useDeleteSavedQueryMutation();
@@ -49,41 +45,8 @@ export function WorkspacePage({
     onRunSavedQuery(out.toString());
   };
 
-  const reviewedPct = Math.min(100, Math.round((annotations.length / Math.max(4, annotations.length + 2)) * 100));
-
-  const reviewGaugeOption: EChartsOption = useMemo(
-    () => ({
-      series: [
-        {
-          type: 'gauge',
-          startAngle: 90,
-          endAngle: -270,
-          radius: '92%',
-          pointer: { show: false },
-          progress: {
-            show: true,
-            roundCap: true,
-            itemStyle: { color: colors.purple },
-          },
-          axisLine: { lineStyle: { width: 9, color: [[1, '#f0f2ec']] } },
-          splitLine: { show: false },
-          axisTick: { show: false },
-          axisLabel: { show: false },
-          data: [{ value: reviewedPct, name: t('Reviewed', '已研判') }],
-          title: { offsetCenter: [0, '26%'], fontSize: 9, color: '#8b9388' },
-          detail: {
-            valueAnimation: true,
-            offsetCenter: [0, '-8%'],
-            fontSize: 22,
-            fontWeight: 700,
-            color: colors.ink,
-            formatter: '{value}%',
-          },
-        },
-      ],
-    }),
-    [reviewedPct, colors.purple, colors.ink, t],
-  );
+  const favoriteCount = annotations.filter((a) => a.favorite).length;
+  const noteCount = annotations.filter((a) => Boolean(a.note && a.note.trim())).length;
 
   return (
     <div className="ds-page">
@@ -236,7 +199,7 @@ export function WorkspacePage({
               <div className="ds-card-hd">
                 <div>
                   <div className="ds-card-title">
-                    <Heart size={14} color={colors.purple} />
+                    <Heart size={14} color="var(--wb-purple)" />
                     <span>{t('Annotations & Starred Evidence', '批注与收藏列表')}</span>
                   </div>
                   <div className="ds-card-sub">{t('Optimistic lock protected up to 2,000 chars', '批注上限 2,000 字符 · 乐观锁并发校验')}</div>
@@ -291,24 +254,28 @@ export function WorkspacePage({
             <div className="ds-card" style={{ height: '100%' }}>
               <div className="ds-card-hd">
                 <div>
-                  <div className="ds-card-title">{t('Review Progress', '研判进度')}</div>
-                  <div className="ds-card-sub">{t('High-signal cohort status', '高信号讨论研判完成度')}</div>
+                  <div className="ds-card-title">{t('Research Summary', '研究记录概览')}</div>
+                  <div className="ds-card-sub">{t('Direct counts from your workspace', '当前工作区真实统计口径')}</div>
                 </div>
               </div>
               <div className="ds-card-bd">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                  <div style={{ width: 112, flexShrink: 0 }}>
-                    <EChartBox option={reviewGaugeOption} height={112} />
+                <div style={{ display: 'grid', gap: 10, fontSize: 12, color: 'var(--muted)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 10px', background: 'var(--surface-2, #f7f9f4)', borderRadius: 6 }}>
+                    <span>{t('Total annotated items', '已保存批注条目')}</span>
+                    <b className="tabular-nums" style={{ color: 'var(--ink)' }}>{annotations.length}</b>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.6 }}>
-                    {t('Reviewed & annotated', '已完成批注研判')}{' '}
-                    <b style={{ color: 'var(--ink)' }}>{annotations.length}</b>{' '}
-                    {t('threads in current workspace.', '条关键讨论证据。')}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 10px', background: 'var(--surface-2, #f7f9f4)', borderRadius: 6 }}>
+                    <span>{t('Bookmarked evidence', '标星收藏证据')}</span>
+                    <b className="tabular-nums" style={{ color: 'var(--ink)' }}>{favoriteCount}</b>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 10px', background: 'var(--surface-2, #f7f9f4)', borderRadius: 6 }}>
+                    <span>{t('Items with written notes', '含文字笔记条目')}</span>
+                    <b className="tabular-nums" style={{ color: 'var(--ink)' }}>{noteCount}</b>
                   </div>
                 </div>
               </div>
               <div className="ds-card-ft">
-                <span>{t('Progress tracks saved annotations', '进度按个人批注保存记录统计')}</span>
+                <span>{t('No estimated completion ratio', '仅展示真实记录条数')}</span>
                 <button type="button" onClick={() => (onNavigate ? onNavigate('/content') : onRunSavedQuery(''))}>
                   {t('Continue →', '继续研判 →')}
                 </button>

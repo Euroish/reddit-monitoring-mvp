@@ -9,6 +9,8 @@ import test from "node:test";
 import { chromium } from "playwright";
 import { buildApp } from "../../apps/api/src/app";
 import { bootstrapOwner } from "../../src/modules/access/sql";
+import { commitContentBatch, prepareContentBatch } from "../../src/modules/content/sql";
+import { transaction } from "../../src/storage/db";
 import { batchItem } from "../helpers/content-batch-fixtures";
 import { testDatabase } from "../helpers/database";
 
@@ -21,23 +23,7 @@ async function freePort() {
   return port;
 }
 
-test("browser: public landing, modal login, workbench workflows, R4 push & responsive layouts", async (t) => {
-  const db = await testDatabase();
-  t.after(db.close);
-  await bootstrapOwner(db.pool, "fixture-password-123", "owner@localhost");
-  const port = await freePort();
-  const origin = `http://127.0.0.1:${port}`;
-  const createApp: typeof buildApp = process.env.TEST_COMPILED === "true"
-    ? require("../../dist/apps/api/src/app.js").buildApp
-    : buildApp;
-  const app = await createApp({
-    pool: db.pool,
-    sessionSecret: "synthetic-secret-".repeat(3),
-    origin,
-    secureCookies: false,
-  });
-  const address = await app.listen({ host: "127.0.0.1", port: 0 });
-  t.after(() => app.close());
+async function launchVite(t: test.TestContext, address: string, port: number, origin: string) {
   const webRoot = path.resolve(process.cwd(), "apps/web");
   const viteBin = path.join(webRoot, "node_modules/vite/bin/vite.js");
   const viteArgs = [
@@ -78,7 +64,7 @@ test("browser: public landing, modal login, workbench workflows, R4 push & respo
   vite.stdout.on("data", capture);
   vite.stderr.on("data", capture);
   vite.once("error", (error) => { viteError = error; });
-  const deadline = Date.now() + 25000;
+  const deadline = Date.now() + 25_000;
   let ready = false;
   while (Date.now() < deadline) {
     if (viteError) throw viteError;
@@ -92,18 +78,92 @@ test("browser: public landing, modal login, workbench workflows, R4 push & respo
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   assert.ok(ready, `Vite HTTP readiness timeout\n${viteOutput}`);
+}
 
-  const executablePath =
+function resolveChromiumPath(): string | undefined {
+  return (
     process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ||
     (existsSync(chromium.executablePath())
       ? undefined
       : [
           "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
           "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-        ].find((p) => existsSync(p)));
+        ].find((p) => existsSync(p)))
+  );
+}
+
+test("browser: open-access stories, reader drawer, /product, anonymous content/facets, auth gate, workbench & responsive layouts", async (t) => {
+  const db = await testDatabase();
+  t.after(db.close);
+  await bootstrapOwner(db.pool, "fixture-password-123", "owner@localhost");
+
+  // Seed multi-source story (T1 / T1_5 / T2) so anonymous visitors immediately see live stories on /
+  const { rows: storySources } = await db.pool.query<{ id: string; platform_id: string }>(`
+    INSERT INTO collection_source(
+      id, platform_id, primary_provider, label, target, content_kind,
+      delivery_mode, tier, source_group, locale, created_at, updated_at
+    )
+    SELECT gen_random_uuid(), id, 'kaix', label,
+           jsonb_build_object('type', 'search', 'query', label),
+           'post', 'pull', tier, 'ai-firsthand', 'zh', now(), now()
+    FROM source CROSS JOIN (
+      VALUES ('研发团队', 'T1'), ('开发者社区', 'T1_5'), ('行业媒体', 'T2')
+    ) fixture(label, tier)
+    WHERE code = 'reddit'
+    RETURNING id, platform_id
+  `);
+  const fetchedAt = new Date(Date.now() - 60_000).toISOString();
+  const storyTitle = "研发团队发布多语言检索工具";
+  await transaction(db.pool, async (client) => {
+    for (const [index, source] of storySources.entries()) {
+      const story = batchItem(source.id, {
+        externalId: `t3_uistory${index}`,
+        title: storyTitle,
+        language: "zh",
+        text: "新版工具支持中文短词检索，并公开了用于复现结果的评估样本。",
+        url: "https://example.com/multilingual-search",
+        publishedAt: new Date(Date.now() - [28, 9, 2][index] * 3600_000).toISOString(),
+        fetchedAt,
+      });
+      story.observation.fetchedAt = fetchedAt;
+      await commitContentBatch(
+        client,
+        {
+          id: source.id,
+          platformId: source.platform_id,
+          platform: "reddit",
+          provider: "kaix",
+          contentKinds: ["post"],
+        },
+        prepareContentBatch([story]),
+        fetchedAt,
+      );
+    }
+  });
+
+  const port = await freePort();
+  const origin = `http://127.0.0.1:${port}`;
+  const createApp: typeof buildApp = process.env.TEST_COMPILED === "true"
+    ? require("../../dist/apps/api/src/app.js").buildApp
+    : buildApp;
+  const app = await createApp({
+    pool: db.pool,
+    sessionSecret: "synthetic-secret-".repeat(3),
+    origin,
+    secureCookies: false,
+    publicRead: true,
+    publicRegistration: true,
+  });
+  const serverErrors: string[] = [];
+  app.addHook("onError", async (_request, _reply, error) => {
+    serverErrors.push(error.message);
+  });
+  const address = await app.listen({ host: "127.0.0.1", port: 0 });
+  t.after(() => app.close());
+  await launchVite(t, address, port, origin);
 
   const browser = await chromium.launch({
-    executablePath,
+    executablePath: resolveChromiumPath(),
     headless: true,
     args: ["--no-sandbox"],
   });
@@ -111,22 +171,98 @@ test("browser: public landing, modal login, workbench workflows, R4 push & respo
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors: string[] = [];
   const scripts: string[] = [];
-  page.on("request", (req) => { if (req.resourceType() === "script") scripts.push(req.url()); });
+  const guestUnauthorized: string[] = [];
+  let isAuthed = false;
+  page.on("request", (req) => {
+    if (req.resourceType() === "script") scripts.push(req.url());
+  });
+  page.on("response", (res) => {
+    if (!isAuthed && res.status() === 401 && res.url().includes("/api/v1/")) {
+      guestUnauthorized.push(res.url());
+    }
+  });
   page.on("pageerror", (error) => errors.push(error.message));
 
+  // 1. Anonymous Stories on / (zero ECharts, zero 401s, T1/T1_5/T2 microcharts)
   await page.goto(origin);
   assert.equal(await page.title(), "SIFTLINE · 信号研究");
-  assert.ok(scripts.every((url) => !/echarts|EChartCanvas/.test(url)), `Unexpected ECharts script on /: ${scripts.join(", ")}`);
+  const initialCard = page.getByRole("article").filter({ hasText: storyTitle });
+  await initialCard.waitFor();
+  assert.ok(
+    scripts.every((url) => !/echarts|EChartCanvas/.test(url)),
+    `Unexpected ECharts script on /: ${scripts.join(", ")}`,
+  );
+  assert.deepEqual(guestUnauthorized, []);
+  await initialCard.getByRole("img", { name: /来源分布.*T1 1.*T1_5 1.*T2 1/ }).waitFor();
+  await initialCard.getByRole("img", { name: /已采样热度/ }).waitFor();
 
-  // 1. Public Homepage -> Login Modal -> Workbench (/projects)
-  await page.getByRole("button", { name: "登录", exact: true }).click();
+  // 2. Anonymous ReaderDrawer + bookmark triggers login modal (Escape closes both)
+  await initialCard.getByRole("button", { name: storyTitle }).click();
+  const readerDrawer = page.getByLabel("内容阅读详情");
+  await readerDrawer.getByText("新版工具支持中文短词检索，并公开了用于复现结果的评估样本。").waitFor();
+  await readerDrawer.getByRole("button", { name: /登录后收藏/ }).click();
+  const authDialog = page.getByRole("dialog", { name: /SIFTLINE/ });
+  await authDialog.waitFor();
+  await authDialog.getByRole("button", { name: "注册账号" }).click();
+  assert.equal(await authDialog.getByText("Invite only").count(), 0);
+  await page.keyboard.press("Escape");
+  await authDialog.waitFor({ state: "detached" });
+  if (await readerDrawer.isVisible()) {
+    await page.keyboard.press("Escape");
+  }
+
+  // 3. Channel filter, 48h Momentum, 08:00 Digest & date navigation
+  await page.getByRole("button", { name: /AI 一手与研发/ }).click();
+  assert.ok(page.url().includes("sourceGroup=ai-firsthand"));
+  await initialCard.waitFor();
+  const nav = page.getByLabel("工作台导航");
+  await nav.getByRole("button", { name: "48 小时热度" }).click();
+  assert.ok(page.url().includes("view=hot"));
+  await initialCard.waitFor();
+  await nav.getByRole("button", { name: "08:00 日报" }).click();
+  assert.ok(page.url().includes("view=digest"));
+  await page.getByRole("button", { name: "前一日" }).click();
+  assert.ok(page.url().includes("date="));
+
+  // 4. Marketing Homepage on /product with return link to Stories
+  await page.goto(`${origin}/product`);
+  await page.getByRole("button", { name: "阅读信息流" }).first().click();
+  assert.equal(new URL(page.url()).pathname, "/");
+  await initialCard.waitFor();
+
+  // 5. Anonymous Content Explorer + Content Facets (/v1/content/facets)
+  await page.goto(`${origin}/content`);
+  await page.getByText(storyTitle).first().waitFor();
+  assert.deepEqual(guestUnauthorized, []);
+  const facetsResponse = page.waitForResponse(
+    (res) => res.url().includes("/api/v1/content/facets") && res.status() === 200,
+  );
+  await page.getByRole("button", { name: "分析内容" }).click();
+  await facetsResponse;
+
+  await page.goto(`${origin}/content?from=2025-01-01T00%3A00%3A00Z&to=2025-05-01T00%3A00%3A00Z`);
+  await page.getByRole("button", { name: "分析内容" }).click();
+  await page.getByText("分析需要大于零且不超过 90 天的日期范围。").waitFor();
+
+  // 6. Protected route gate -> Sign in -> Redirect preserves target path & query
+  await page.goto(`${origin}/projects?section=platform`);
+  await page.getByText("该模块需要登录后访问").waitFor();
+  await page.getByRole("button", { name: "立即登录" }).click();
   await page.getByLabel("工作邮箱").fill("owner@localhost");
   await page.getByLabel("密码", { exact: true }).fill("fixture-password-123");
+  isAuthed = true;
   await page.getByRole("button", { name: "登录工作台" }).click();
   await page.getByRole("heading", { name: "监测总览" }).waitFor();
+  assert.ok(page.url().includes("/projects?section=platform"), `Expected preserved target URL, got ${page.url()}`);
 
-  // 2. Sources -> Create Push Source & UI Ingest
-  await page.getByRole("button", { name: /来源列表/ }).click();
+  await page.goto(origin);
+  await initialCard.getByRole("button", { name: "收藏", exact: true }).click();
+  await initialCard.getByRole("button", { name: "已收藏", exact: true }).waitFor();
+  await page.reload();
+  await initialCard.getByRole("button", { name: "已收藏", exact: true }).waitFor();
+
+  // 7. Sources -> Create Push Source & R4 Panel + UI Ingest
+  await nav.getByRole("button", { name: /来源列表/ }).click();
   await page.getByRole("button", { name: "新建来源" }).click();
   const modal = page.locator(".sr-modal");
   await modal.locator("select").first().selectOption("push");
@@ -140,7 +276,10 @@ test("browser: public landing, modal login, workbench workflows, R4 push & respo
   await page.getByRole("button", { name: "全部可用月份", exact: true }).click();
 
   const sourceResponse = await page.request.get(`${origin}/api/v1/sources`);
-  const sourceId = (await sourceResponse.json()).sources[0].id as string;
+  const allSources = (await sourceResponse.json()).sources as Array<{ id: string; label: string }>;
+  const pushSource = allSources.find((s) => s.label === "内部研究样本");
+  assert.ok(pushSource);
+  const sourceId = pushSource.id;
   const item = batchItem(sourceId, {
     title: "研究证据",
     text: "来自内部样本的讨论证据。",
@@ -161,15 +300,68 @@ test("browser: public landing, modal login, workbench workflows, R4 push & respo
   await page.getByRole("button", { name: "提交推流批次" }).click();
   await page.getByText("推流成功：接收 2 条（新增 2，更新 0）").waitFor();
 
-  // 3. Content Explorer -> Annotation + Thread Tree + Stream Export + Save Query
-  const nav = page.getByLabel("工作台导航");
+  // 7b. File import prepares the editor. Retrying a lost response reuses the same ingest job.
+  const fileInput = page.getByLabel("导入规范 JSON 文件");
+  await fileInput.setInputFiles({
+    name: "bad.json",
+    mimeType: "application/json",
+    buffer: Buffer.from("{not-valid-json", "utf8"),
+  });
+  await page.getByText("所选文件不是合法的 JSON 格式，未发送请求。").waitFor();
+  await fileInput.setInputFiles({
+    name: "oversized.json",
+    mimeType: "application/json",
+    buffer: Buffer.alloc(1048577, "a"),
+  });
+  await page.getByText("预检拦截：文件超过 1 MiB 上限，未发送请求。").waitFor();
+  const fileItem = batchItem(sourceId, {
+    externalId: "t3_fileimport12345",
+    title: "文件导入样本",
+    text: "来自规范 JSON 文件导入的讨论证据。",
+  });
+  fileItem.observation.provider = "external_ingest";
+  const ingestRoute = "**/api/v1/sources/*/ingest";
+  const ingestAttempts: Array<{ key: string | undefined; jobId: string }> = [];
+  await page.route(ingestRoute, async (route) => {
+    const response = await route.fetch();
+    ingestAttempts.push({
+      key: route.request().headers()["idempotency-key"],
+      jobId: (await response.json()).jobId,
+    });
+    if (ingestAttempts.length === 1) await route.abort("failed");
+    else await route.fulfill({ response });
+  });
+  await fileInput.setInputFiles({
+    name: "canonical.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ items: [fileItem] }), "utf8"),
+  });
+  await page.waitForFunction(() => {
+    const editor = document.querySelector<HTMLTextAreaElement>("textarea.wb-textarea");
+    return editor?.value.includes("t3_fileimport12345");
+  });
+  assert.deepEqual([...ingestAttempts], []);
+  const submitIngest = page.getByRole("button", { name: "提交推流批次" });
+  const lostIngestResponse = page.waitForEvent("requestfailed", {
+    predicate: (request) => request.url().endsWith(`/sources/${sourceId}/ingest`),
+  });
+  await submitIngest.click();
+  await lostIngestResponse;
+  await submitIngest.click();
+  await page.getByText(/推流成功：接收 1 条（新增 1，更新 0）/).waitFor();
+  assert.equal(ingestAttempts.length, 2);
+  assert.ok(ingestAttempts[0]?.key && ingestAttempts[0]?.jobId);
+  assert.deepEqual(ingestAttempts[0], ingestAttempts[1]);
+  await page.unroute(ingestRoute);
+
+  // 8. Content Explorer -> Annotation + Thread Tree + Stream Export + Save Query
   await nav.getByRole("button", { name: "内容检索" }).click();
   await page.getByText("研究证据").first().click();
   const drawer = page.locator(".drawer-panel");
   await drawer.getByRole("button", { name: /研究批注/ }).click();
-  await drawer.getByRole("checkbox", { name: "标星收藏为高价值证据" }).check();
+  await drawer.getByRole("checkbox", { name: "收藏这条证据" }).check();
   await drawer.locator("textarea.wb-textarea").fill("保留这条研究判断");
-  await drawer.getByRole("button", { name: "保存批注" }).click();
+  await drawer.getByRole("button", { name: "保存到我的研究" }).click();
   await drawer.getByText(/批注已保存/).waitFor();
 
   await drawer.getByRole("button", { name: /讨论树/ }).click();
@@ -179,22 +371,22 @@ test("browser: public landing, modal login, workbench workflows, R4 push & respo
   await page.getByRole("button", { name: "流式导出" }).click();
   await page.getByRole("button", { name: "JSON", exact: true }).click();
   const downloadEvent = page.waitForEvent("download");
-  await page.getByRole("button", { name: "开始校验并导出" }).click();
+  await page.getByRole("button", { name: "下载当前结果" }).click();
   const download = await downloadEvent;
   assert.equal(download.suggestedFilename(), "content.json");
 
   await page.getByRole("button", { name: "保存查询" }).click();
   await page.getByPlaceholder("例如：账单波动痛点 · 近30天").fill("常用研究查询");
-  await page.getByRole("button", { name: "确认保存" }).click();
+  await page.getByRole("button", { name: "确认保存查询" }).click();
   await page.getByText("已保存查询至个人工作区。").waitFor();
 
-  // 4. Personal Workspace verification
+  // 9. Personal Workspace verification
   await nav.getByRole("button", { name: /保存的查询/ }).click();
   await page.getByText("常用研究查询").waitFor();
   await nav.getByRole("button", { name: /批注与收藏/ }).click();
   await page.getByText("保留这条研究判断").waitFor();
 
-  // 5. Settings -> Mint R4 ingest + read machine key
+  // 10. Settings -> Mint R4 ingest + read machine key
   await page.getByRole("button", { name: "账户与权限" }).click();
   await page.getByRole("button", { name: "机器 API 密钥" }).click();
   await page.getByPlaceholder("BI Export Sync").fill("R4 验证密钥");
@@ -207,7 +399,7 @@ test("browser: public landing, modal login, workbench workflows, R4 push & respo
   });
   assert.equal(readRes.status, 200);
 
-  // 6. Projects -> Push exclusion & includePushInTrends toggle
+  // 11. Projects -> Push exclusion & includePushInTrends toggle
   await nav.getByRole("button", { name: "项目总览" }).click();
   await page.getByRole("button", { name: "新建监测" }).click();
   const projModal = page.locator(".sr-modal");
@@ -224,7 +416,7 @@ test("browser: public landing, modal login, workbench workflows, R4 push & respo
   await page.getByText("趋势已计入推流/归档样本").waitFor();
   assert.equal(await page.locator(".kpi .kpi-val").nth(1).innerText(), "1");
 
-  // 7. Responsive checks across desktop / tablet / mobile
+  // 12. Responsive checks across desktop / tablet / mobile on Stories + keyboard j/m
   await mkdir("output/validation/kernel", { recursive: true });
   for (const viewport of [
     { width: 1440, height: 900 },
@@ -232,15 +424,78 @@ test("browser: public landing, modal login, workbench workflows, R4 push & respo
     { width: 390, height: 844 },
   ]) {
     await page.setViewportSize(viewport);
-    await page.waitForTimeout(150);
+    await page.goto(`${origin}/?language=zh`);
+    const storyCard = page.getByRole("article").filter({ hasText: storyTitle });
+    await storyCard.getByRole("img", { name: /来源分布.*T1 1.*T1_5 1.*T2 1/ }).waitFor();
+    await storyCard.getByRole("img", { name: /已采样热度/ }).waitFor();
+    await page.keyboard.press("j");
+    assert.equal(await storyCard.evaluate((card) => card === document.activeElement), true);
+    await page.keyboard.press("m");
+    assert.ok(await storyCard.locator("details").evaluate((details) => details.hasAttribute("open")));
+    await page.keyboard.press("m");
     assert.ok(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-      `${viewport.width}px horizontal overflow detected`,
+      `Stories at ${viewport.width}px horizontal overflow detected`,
     );
     await page.screenshot({
-      path: `output/validation/kernel/semrush-workbench-${viewport.width}.png`,
-      fullPage: true,
+      path: `output/validation/kernel/stories-${viewport.width}.png`,
     });
   }
+
+  assert.deepEqual(serverErrors, []);
+  assert.deepEqual(errors, []);
+});
+
+test("browser: private deployment mode (publicRead=false) blocks anonymous access cleanly", async (t) => {
+  const db = await testDatabase();
+  t.after(db.close);
+  await bootstrapOwner(db.pool, "fixture-password-123", "owner@localhost");
+  const port = await freePort();
+  const origin = `http://127.0.0.1:${port}`;
+  const createApp: typeof buildApp = process.env.TEST_COMPILED === "true"
+    ? require("../../dist/apps/api/src/app.js").buildApp
+    : buildApp;
+  const app = await createApp({
+    pool: db.pool,
+    sessionSecret: "synthetic-secret-".repeat(3),
+    origin,
+    secureCookies: false,
+    publicRead: false,
+    publicRegistration: false,
+  });
+  const address = await app.listen({ host: "127.0.0.1", port: 0 });
+  t.after(() => app.close());
+  await launchVite(t, address, port, origin);
+
+  const browser = await chromium.launch({
+    executablePath: resolveChromiumPath(),
+    headless: true,
+    args: ["--no-sandbox"],
+  });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const leakedRequests: string[] = [];
+  const errors: string[] = [];
+  page.on("request", (req) => {
+    if (/\/api\/v1\/(content|projects|sources|workspace|public)/.test(req.url())) {
+      leakedRequests.push(req.url());
+    }
+  });
+  page.on("pageerror", (error) => errors.push(error.message));
+
+  await page.goto(origin);
+  await page.getByText("当前为私有部署模式").waitFor();
+  assert.deepEqual(leakedRequests, []);
+
+  await page.goto(`${origin}/content`);
+  await page.getByText("当前为私有部署模式").waitFor();
+  assert.deepEqual(leakedRequests, []);
+
+  // Signing in from private-mode gate immediately unmounts the gate and loads the page
+  await page.getByLabel("工作邮箱").fill("owner@localhost");
+  await page.getByLabel("密码", { exact: true }).fill("fixture-password-123");
+  await page.getByRole("button", { name: "登录工作台" }).click();
+  await page.getByText("当前为私有部署模式").waitFor({ state: "detached" });
+  await page.getByRole("heading", { name: "内容检索" }).waitFor();
   assert.deepEqual(errors, []);
 });

@@ -7,6 +7,8 @@ import {
   type AuditEventDto,
   type CapabilitiesResponse,
   type CollectionSource,
+  type ContentFacets,
+  type ContentFacetsQuery,
   type ContentListResponse,
   type ContentThreadResponse,
   type CredentialProviderName,
@@ -22,6 +24,7 @@ import {
   type ProviderBudget,
   type ProviderCredentialStatus,
   type PublicContent,
+  type PublicSourceDirectory,
   type PullProviderName,
   type QuotaOverrideDto,
   type QuotasSummaryResponse,
@@ -30,6 +33,8 @@ import {
   type SessionPayload,
   type SourceInput,
   type SourceJob,
+  type StoryFeed,
+  type StoryQuery,
   type UserAccountDto,
   mergeServerCapabilities,
   normalizeCollectionSource,
@@ -132,6 +137,20 @@ export const apiClient = {
 
   async logout(): Promise<{ loggedOut: boolean }> {
     return liveFetch('/auth/logout', { method: 'POST' });
+  },
+
+  async getPublicSources(): Promise<PublicSourceDirectory> {
+    return liveFetch('/public/sources');
+  },
+
+  async getStories(query: StoryQuery = {}): Promise<StoryFeed> {
+    const qs = buildQueryParams({ ...query });
+    return liveFetch(`/content/stories${qs}`);
+  },
+
+  async getContentFacets(query: ContentFacetsQuery): Promise<ContentFacets> {
+    const qs = buildQueryParams({ ...query });
+    return liveFetch(`/content/facets${qs}`);
   },
 
   async getCapabilities(): Promise<CapabilitiesResponse> {
