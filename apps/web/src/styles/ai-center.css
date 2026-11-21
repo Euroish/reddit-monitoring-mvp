@@ -5,15 +5,15 @@
    ============================================================ */
 
 .ai-page {
-  background: var(--paper, #f7f9f8);
-  color: var(--ink, #0b1615);
-  min-height: calc(100vh - 64px);
+  background: transparent;
+  color: var(--ink, #20271f);
+  min-height: calc(100vh - 68px);
 }
 
 .ai-container {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 28px 24px 64px;
+  padding: 24px 24px 64px;
 }
 
 .ai-hero {
@@ -22,10 +22,12 @@
   justify-content: space-between;
   align-items: flex-end;
   gap: 20px;
-  padding: 24px 28px;
-  border-radius: var(--radius-wb-card, 18px);
-  background: linear-gradient(135deg, var(--hero-bg, #eef5f2) 0%, #ffffff 70%);
-  border: 1px solid var(--line, rgba(11, 22, 21, 0.1));
+  padding: 26px 30px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(32, 39, 31, 0.1);
+  box-shadow: 0 8px 28px rgba(32, 39, 31, 0.05);
   margin-bottom: 24px;
 }
 
@@ -33,13 +35,13 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11.5px;
+  font-weight: 650;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--teal, #009f81);
-  background: rgba(0, 159, 129, 0.1);
-  padding: 4px 10px;
+  color: var(--ink, #20271f);
+  background: var(--wisteria, #dbf477);
+  padding: 4px 11px;
   border-radius: 999px;
   margin-bottom: 10px;
 }

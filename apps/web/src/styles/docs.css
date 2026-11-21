@@ -16,31 +16,34 @@
 .dc-root--embedded {
   height: auto;
   min-height: calc(100vh - 68px);
-  background: var(--paper, #f7f8f4);
+  background: transparent;
 }
 
 .dc-root--embedded .dc-layout {
   max-width: 1280px;
-  padding: 20px 24px 36px;
+  padding: 24px 24px 40px;
   gap: 24px;
 }
 
 .dc-root--embedded .dc-nav {
-  background: var(--white, #ffffff);
-  border: 1px solid var(--line, #e3e6dc);
-  border-radius: var(--radius-wb-card, 12px);
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(32, 39, 31, 0.1);
+  border-radius: 16px;
   padding: 16px;
   height: fit-content;
   position: sticky;
   top: 84px;
+  box-shadow: 0 6px 22px rgba(32, 39, 31, 0.04);
 }
 
 .dc-root--embedded .dc-scroll {
   overflow: visible;
-  background: var(--white, #ffffff);
-  border: 1px solid var(--line, #e3e6dc);
-  border-radius: var(--radius-wb-card, 12px);
-  padding: 26px 32px;
+  background: #ffffff;
+  border: 1px solid rgba(32, 39, 31, 0.1);
+  border-radius: 18px;
+  padding: 28px 34px;
+  box-shadow: 0 8px 28px rgba(32, 39, 31, 0.05);
 }
 
 .dc-root .doc-body {

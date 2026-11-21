@@ -20,6 +20,8 @@ export function AiRankingsSection() {
 
   const snapshots = rankingsQ.data?.items ?? [];
   const configured = rankingsQ.data?.configured ?? false;
+  const publicAllowed = rankingsQ.data?.publicRedistributionAllowed ?? false;
+  const internalCount = rankingsQ.data?.internalSnapshotCount ?? 0;
 
   return (
     <section className="ai-section" id="rankings" aria-label={t('AI Model Rankings', '模型能力榜单')}>
@@ -57,20 +59,27 @@ export function AiRankingsSection() {
           <div className="ai-empty-box">
             <BarChart3 size={24} style={{ marginBottom: 8, color: 'var(--teal)' }} />
             <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)', marginBottom: 6 }}>
-              {configured
-                ? t('No benchmark snapshot in this category yet', '当前分类暂无已同步评测快照')
-                : t('External benchmark feed not configured', '外部授权评测数据源尚未配置')}
+              {internalCount > 0 && !publicAllowed
+                ? t('Benchmark snapshots synced for internal use only', '外部评测快照已内部同步（暂未开启公开再分发授权）')
+                : configured
+                  ? t('No benchmark snapshot in this category yet', '当前分类暂无已同步评测快照')
+                  : t('External benchmark feed not configured', '外部授权评测数据源尚未配置')}
             </div>
             <p style={{ margin: '0 auto', maxWidth: 560, lineHeight: 1.6 }}>
-              {configured
+              {internalCount > 0 && !publicAllowed
                 ? t(
-                    'Trigger a sync from the AI Review Queue to capture the latest licensed snapshot.',
-                    '请在管理后台 AI 审核队列中手动触发一次同步，以拉取最新授权快照。',
+                    'Current Artificial Analysis snapshots were synced under the free/internal-use API tier. Public display is intentionally gated until commercial redistribution licensing (ARTIFICIAL_ANALYSIS_PUBLIC_REDISTRIBUTION=true) is enabled. Administrators can inspect internal snapshots in /admin/queue.',
+                    '当前 Artificial Analysis 快照通过免费内部使用端点同步。为严格遵守第三方数据再分发许可，在未获得商业公开授权（ARTIFICIAL_ANALYSIS_PUBLIC_REDISTRIBUTION=true）前不在公开页展示；管理员可在 /admin/queue 内部查看已同步数据。',
                   )
-                : t(
-                    'SIFTLINE does not fabricate benchmark scores or scrape unlicensed leaderboards. Configure ARTIFICIAL_ANALYSIS_API_KEY (or import a licensed snapshot) to display live rankings with full attribution.',
-                    'SIFTLINE 不虚构评测分数，也不抓取未授权榜单。配置 ARTIFICIAL_ANALYSIS_API_KEY（或导入已授权快照）后，此处将自动展示带完整署名的真实榜单。',
-                  )}
+                : configured
+                  ? t(
+                      'Trigger a sync from the AI Review Queue to capture the latest licensed snapshot.',
+                      '请在管理后台 AI 审核队列中手动触发一次同步，以拉取最新授权快照。',
+                    )
+                  : t(
+                      'SIFTLINE does not fabricate benchmark scores or scrape unlicensed leaderboards. Configure ARTIFICIAL_ANALYSIS_API_KEY (or import a licensed snapshot) to display live rankings with full attribution.',
+                      'SIFTLINE 不虚构评测分数，也不抓取未授权榜单。配置 ARTIFICIAL_ANALYSIS_API_KEY（或导入已授权快照）后，此处将自动展示带完整署名的真实榜单。',
+                    )}
             </p>
           </div>
         ) : (

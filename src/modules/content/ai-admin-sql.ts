@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { fail, transaction } from "../../storage/db";
+import { isOfficialVendorUrl } from "./ai-registry";
 
 function isSafeHttpUrl(url: string): boolean {
   try {
@@ -148,8 +149,18 @@ export async function publishAiCandidate(
     if (cand.rows[0].revision !== body.expectedRevision) {
       fail(409, `Candidate revision conflict (current revision: ${cand.rows[0].revision})`);
     }
-    const vendorCheck = await client.query(`SELECT id FROM ai_vendor WHERE id = $1::uuid`, [body.vendorId]);
+    const vendorCheck = await client.query<{ id: string; slug: string; official_domains: string[] }>(
+      `SELECT id, slug, official_domains FROM ai_vendor WHERE id = $1::uuid`,
+      [body.vendorId],
+    );
     if (!vendorCheck.rows[0]) fail(400, "Invalid vendorId");
+    const tier = body.sourceTier ?? "official";
+    const officialDomains = Array.isArray(vendorCheck.rows[0].official_domains)
+      ? vendorCheck.rows[0].official_domains
+      : [];
+    if (tier === "official" && officialDomains.length > 0 && !isOfficialVendorUrl(body.primaryReferenceUrl, officialDomains)) {
+      fail(422, `Official tier requires a verified ${vendorCheck.rows[0].slug} official domain (${officialDomains.join(", ")}); use manual_verified for non-official references`);
+    }
 
     const evRes = await client.query<{ id: string }>(
       `INSERT INTO ai_release_event (

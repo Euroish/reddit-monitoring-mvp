@@ -287,6 +287,20 @@ export function parseEpochCsv(csvText: string, limit = 100): NormalizedRegistryI
   return out;
 }
 
+export function isOfficialVendorUrl(url: string, officialDomains: string[]): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+    const host = parsed.hostname.toLowerCase();
+    return officialDomains.some((raw) => {
+      const dom = raw.trim().toLowerCase();
+      return dom.length > 0 && (host === dom || host.endsWith(`.${dom}`));
+    });
+  } catch {
+    return false;
+  }
+}
+
 export function parseArtificialAnalysisPayload(raw: unknown): ParsedBenchmarkSnapshot[] {
   const list = Array.isArray((raw as { data?: unknown[] })?.data)
     ? ((raw as { data: unknown[] }).data)
@@ -294,14 +308,43 @@ export function parseArtificialAnalysisPayload(raw: unknown): ParsedBenchmarkSna
   const defs: Array<{
     category: ParsedBenchmarkSnapshot["category"];
     metricName: string;
-    field: string;
+    fields: string[];
+    nestedKey?: "evaluations" | "performance" | "performance_v3";
     direction: "higher" | "lower";
     unit: string | null;
   }> = [
-    { category: "general", metricName: "Artificial Analysis Intelligence Index", field: "artificial_analysis_intelligence_index", direction: "higher", unit: "pts" },
-    { category: "coding", metricName: "Artificial Analysis Coding Index", field: "artificial_analysis_coding_index", direction: "higher", unit: "pts" },
-    { category: "reasoning", metricName: "Artificial Analysis Math Index", field: "artificial_analysis_math_index", direction: "higher", unit: "pts" },
-    { category: "speed_price", metricName: "Median Output Tokens/sec", field: "median_output_tokens_per_second", direction: "higher", unit: "tok/s" },
+    {
+      category: "general",
+      metricName: "Artificial Analysis Intelligence Index",
+      fields: ["artificial_analysis_intelligence_index"],
+      nestedKey: "evaluations",
+      direction: "higher",
+      unit: "pts",
+    },
+    {
+      category: "coding",
+      metricName: "Artificial Analysis Coding Index",
+      fields: ["artificial_analysis_coding_index"],
+      nestedKey: "evaluations",
+      direction: "higher",
+      unit: "pts",
+    },
+    {
+      category: "reasoning",
+      metricName: "Artificial Analysis Agentic / Reasoning Index",
+      fields: ["artificial_analysis_agentic_index", "artificial_analysis_math_index"],
+      nestedKey: "evaluations",
+      direction: "higher",
+      unit: "pts",
+    },
+    {
+      category: "speed_price",
+      metricName: "Median Output Tokens/sec",
+      fields: ["median_output_tokens_per_second", "mean_output_tokens_per_second"],
+      nestedKey: "performance",
+      direction: "higher",
+      unit: "tok/s",
+    },
   ];
   const snapshots: ParsedBenchmarkSnapshot[] = [];
   for (const def of defs) {
@@ -310,7 +353,14 @@ export function parseArtificialAnalysisPayload(raw: unknown): ParsedBenchmarkSna
       if (!item || typeof item !== "object") continue;
       const obj = item as Record<string, unknown>;
       const evals = (obj.evaluations && typeof obj.evaluations === "object" ? obj.evaluations : {}) as Record<string, unknown>;
-      const rawVal = evals[def.field] ?? obj[def.field];
+      const perf = (obj.performance && typeof obj.performance === "object" ? obj.performance : {}) as Record<string, unknown>;
+      const perfV3 = (obj.performance_v3 && typeof obj.performance_v3 === "object" ? obj.performance_v3 : {}) as Record<string, unknown>;
+      const bag = def.nestedKey === "performance" ? { ...perfV3, ...perf } : evals;
+      let rawVal: unknown = undefined;
+      for (const f of def.fields) {
+        if (bag[f] !== null && bag[f] !== undefined) { rawVal = bag[f]; break; }
+        if (obj[f] !== null && obj[f] !== undefined) { rawVal = obj[f]; break; }
+      }
       const score = Number(rawVal);
       const id = typeof obj.id === "string" || typeof obj.slug === "string" ? String(obj.id ?? obj.slug) : "";
       const name = typeof obj.name === "string" ? obj.name : id;

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  isOfficialVendorUrl,
   parseArtificialAnalysisPayload,
   parseEpochCsv,
   parseEpochDate,
@@ -8,6 +9,7 @@ import {
   parseLiteLlmPayload,
   parseOpenRouterPayload,
 } from "../../src/modules/content/ai-registry.js";
+import { classifyOfficialAnnouncement } from "../../src/modules/content/ai-discovery.js";
 import { validateLlmExtraction } from "../../src/modules/content/ai-sync.js";
 
 test("parseOpenRouterPayload extracts vendor hint, context and raw pricing with unit", () => {
@@ -122,33 +124,57 @@ test("parseEpochDate and parseEpochCsv preserve date precision without fabricati
   assert.equal(rows[2].historicalDate?.date, null);
 });
 
-test("parseArtificialAnalysisPayload separates metric categories without cross-mixing", () => {
-  const payload = {
+test("parseArtificialAnalysisPayload parses real v2 /language/models/free nested performance and agentic metrics", () => {
+  const realV2Fixture = {
     data: [
       {
-        id: "aa-1",
-        name: "Claude Sonnet 4",
-        slug: "claude-sonnet-4",
-        model_creator: { name: "Anthropic", slug: "anthropic" },
+        id: "0081ab31-d10a-44a0-a10d-eee5533fec65",
+        name: "GLM-4.5V (Non-reasoning)",
+        slug: "glm-4-5v",
+        release_date: "2025-08-11",
+        model_creator: { id: "67437eb6", name: "Z AI" },
         evaluations: {
-          artificial_analysis_intelligence_index: 68.5,
-          artificial_analysis_coding_index: 74.2,
-          artificial_analysis_math_index: 71.0,
+          artificial_analysis_intelligence_index: 61.2,
+          artificial_analysis_coding_index: 66.8,
+          artificial_analysis_agentic_index: 59.4,
         },
-        median_output_tokens_per_second: 82.4,
+        pricing: { price_1m_input_tokens: 0.6, price_1m_output_tokens: 1.8 },
+        performance: { median_output_tokens_per_second: 41.1, median_time_to_first_token_seconds: 3.76 },
+        performance_v3: { mean_output_tokens_per_second: 35.76 },
       },
     ],
   };
 
-  const snapshots = parseArtificialAnalysisPayload(payload);
+  const snapshots = parseArtificialAnalysisPayload(realV2Fixture);
   assert.equal(snapshots.length, 4);
   const byCat = Object.fromEntries(snapshots.map((s) => [s.category, s]));
-  assert.equal(byCat.general.entries[0].score, 68.5);
-  assert.equal(byCat.coding.entries[0].score, 74.2);
-  assert.equal(byCat.reasoning.entries[0].score, 71.0);
-  assert.equal(byCat.speed_price.entries[0].score, 82.4);
+  assert.equal(byCat.general.entries[0].score, 61.2);
+  assert.equal(byCat.coding.entries[0].score, 66.8);
+  assert.equal(byCat.reasoning.entries[0].score, 59.4);
+  assert.equal(byCat.speed_price.entries[0].score, 41.1);
   assert.equal(byCat.speed_price.unit, "tok/s");
   assert.match(byCat.general.attributionText, /Artificial Analysis/i);
+});
+
+test("isOfficialVendorUrl and classifyOfficialAnnouncement enforce domain allowlist and deterministic extraction", () => {
+  assert.equal(isOfficialVendorUrl("https://www.anthropic.com/news/claude-4", ["anthropic.com"]), true);
+  assert.equal(isOfficialVendorUrl("https://docs.anthropic.com/en/release-notes", ["anthropic.com"]), true);
+  assert.equal(isOfficialVendorUrl("https://evil-anthropic.com/news/claude-4", ["anthropic.com"]), false);
+  assert.equal(isOfficialVendorUrl("https://medium.com/@someone/claude-4", ["anthropic.com"]), false);
+  assert.equal(isOfficialVendorUrl("javascript:alert(1)", ["anthropic.com"]), false);
+
+  const rel = classifyOfficialAnnouncement("Introducing Claude Sonnet 4", "Available today via API.");
+  assert.ok(rel);
+  assert.equal(rel.eventType, "model_release");
+  assert.equal(rel.eventStatus, "released");
+  assert.match(rel.modelName ?? "", /Claude Sonnet 4/i);
+
+  const dep = classifyOfficialAnnouncement("Deprecating GPT-4.5 preview in the API", null);
+  assert.ok(dep);
+  assert.equal(dep.eventType, "deprecation");
+  assert.equal(dep.eventStatus, "deprecated");
+
+  assert.equal(classifyOfficialAnnouncement("Our company culture and hiring values", "Join us."), null);
 });
 
 test("validateLlmExtraction enforces TypeBox schema and grounded reference IDs", () => {

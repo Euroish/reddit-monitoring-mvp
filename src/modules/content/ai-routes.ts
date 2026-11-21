@@ -27,6 +27,12 @@ import {
   publishAiCandidate,
   unpublishAiEvent,
 } from "./ai-admin-sql";
+import {
+  archiveLowValueCandidates,
+  getAiOpsSummary,
+  rollbackAiEvent,
+  runOfficialEventDiscovery,
+} from "./ai-discovery";
 import { syncRegistrySourceByCode } from "./ai-sync";
 
 function requireAiAdmin(actor: Actor | null): Actor {
@@ -145,15 +151,21 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
   });
 
   typed.get("/v1/ai/rankings", { schema: { querystring: RankingsQuery } }, async (req) => {
-    const items = await listAiRankings(pool, req.query.category);
+    const items = await listAiRankings(pool, req.query.category, false);
+    const internalCnt = Number(
+      (await pool.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM ai_benchmark_snapshot WHERE public_redistribution_allowed = FALSE`)).rows[0]?.count ?? "0",
+    );
+    const publicAllowed = process.env.ARTIFICIAL_ANALYSIS_PUBLIC_REDISTRIBUTION === "true";
     return {
       items,
-      configured: Boolean(process.env.ARTIFICIAL_ANALYSIS_API_KEY?.trim()) || items.length > 0,
+      configured: Boolean(process.env.ARTIFICIAL_ANALYSIS_API_KEY?.trim()) || items.length > 0 || internalCnt > 0,
+      publicRedistributionAllowed: publicAllowed || items.length > 0,
+      internalSnapshotCount: internalCnt,
     };
   });
 
   typed.get("/v1/ai/rankings/:id", { schema: { params: ParamsId } }, async (req) => {
-    return getAiRankingDetail(pool, req.params.id);
+    return getAiRankingDetail(pool, req.params.id, false);
   });
 
   // ── Admin-only AI review queue & catalog management ────────────────────────
@@ -323,5 +335,94 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
        ORDER BY r.started_at DESC LIMIT 40`,
     );
     return { items: res.rows };
+  });
+
+  // ── Automation ops: summary, audit, rollback, internal rankings, vendor rollout ──
+  typed.get("/v1/admin/ai/ops/summary", async (req) => {
+    requireAiAdmin(req.actor);
+    const q = req.query as { days?: string };
+    const days = q?.days ? Number(q.days) || 7 : 7;
+    return getAiOpsSummary(pool, days);
+  });
+
+  typed.get("/v1/admin/ai/ops/audit", async (req) => {
+    requireAiAdmin(req.actor);
+    const res = await pool.query(
+      `SELECT a.id, a.mode, a.vendor_id AS "vendorId", v.name AS "vendorName",
+              a.event_id AS "eventId", a.candidate_id AS "candidateId",
+              a.confidence::float AS confidence, a.rule_name AS "ruleName",
+              a.reason, a.evidence_snapshot AS "evidenceSnapshot", a.created_at AS "createdAt"
+       FROM ai_auto_publish_audit a
+       LEFT JOIN ai_vendor v ON v.id = a.vendor_id
+       ORDER BY a.created_at DESC LIMIT 60`,
+    );
+    return { items: res.rows };
+  });
+
+  typed.get("/v1/admin/ai/rankings", { schema: { querystring: RankingsQuery } }, async (req) => {
+    requireAiAdmin(req.actor);
+    const items = await listAiRankings(pool, req.query.category, true);
+    return { items };
+  });
+
+  typed.post(
+    "/v1/admin/ai/events/:id/rollback",
+    { schema: { params: ParamsId, body: UnpublishBody } },
+    async (req) => {
+      requireAiAdmin(req.actor);
+      return rollbackAiEvent(pool, req.params.id, req.body?.reason?.trim() || "Manual admin rollback", "manual_rollback");
+    },
+  );
+
+  typed.post(
+    "/v1/admin/ai/discovery/run",
+    {
+      schema: {
+        body: Type.Object({
+          shadowMode: Type.Optional(Type.Boolean()),
+          lookbackHours: Type.Optional(Type.Integer({ minimum: 1, maximum: 8760 })),
+          archiveLowValue: Type.Optional(Type.Boolean()),
+        }, { additionalProperties: false }),
+      },
+    },
+    async (req) => {
+      requireAiAdmin(req.actor);
+      const discovery = await runOfficialEventDiscovery(pool, {
+        shadowMode: req.body?.shadowMode,
+        lookbackHours: req.body?.lookbackHours,
+      });
+      const archived = req.body?.archiveLowValue ? await archiveLowValueCandidates(pool, 24) : { archived: 0 };
+      return { ...discovery, ...archived };
+    },
+  );
+
+  typed.patch(
+    "/v1/admin/ai/vendors/:id/autopublish",
+    {
+      schema: {
+        params: ParamsId,
+        body: Type.Object({ enabled: Type.Boolean() }, { additionalProperties: false }),
+      },
+    },
+    async (req) => {
+      requireAiAdmin(req.actor);
+      const res = await pool.query(
+        `UPDATE ai_vendor SET auto_publish_enabled = $2, updated_at = NOW()
+         WHERE id = $1::uuid RETURNING id, slug, name, auto_publish_enabled AS "autoPublishEnabled"`,
+        [req.params.id, req.body.enabled],
+      );
+      if (!res.rows[0]) fail(404, "AI vendor not found");
+      return res.rows[0];
+    },
+  );
+
+  typed.post("/v1/admin/ai/alerts/:id/resolve", { schema: { params: ParamsId } }, async (req) => {
+    requireAiAdmin(req.actor);
+    const res = await pool.query(
+      `UPDATE ai_ops_alert SET resolved_at = NOW() WHERE id = $1::uuid RETURNING id, resolved_at AS "resolvedAt"`,
+      [req.params.id],
+    );
+    if (!res.rows[0]) fail(404, "Alert not found");
+    return res.rows[0];
   });
 }

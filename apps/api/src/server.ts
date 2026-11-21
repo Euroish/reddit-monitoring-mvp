@@ -2,7 +2,7 @@ import { createPool } from "../../../src/storage/db";
 import { bootstrapOwner } from "../../../src/modules/access/sql";
 import { createCredentialVault } from "../../../src/modules/collection/credentials";
 import { startWorker } from "../../../src/modules/collection/worker";
-import { startAiSyncScheduler } from "../../../src/modules/content/ai-sync";
+import { startAiSyncScheduler } from "../../../src/modules/content/ai-scheduler";
 import { KaixContentConnector } from "../../../src/connectors/reddit/kaix-content.connector";
 import { redCrawler } from "../../../src/connectors/reddit/red-crawler";
 import { createApifyFetch } from "../../../src/connectors/reddit/apify-fetch";

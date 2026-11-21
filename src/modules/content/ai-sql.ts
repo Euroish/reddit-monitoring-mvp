@@ -330,14 +330,22 @@ export async function listAiOfficialUpdates(
     }));
 }
 
-export async function listAiRankings(pool: Pool, category?: string) {
+export async function listAiRankings(pool: Pool, category?: string, includeInternal = false) {
   const params: unknown[] = [];
-  const where = category ? (params.push(category), `WHERE s.category = $1`) : "";
+  const clauses: string[] = [];
+  if (!includeInternal) clauses.push(`s.public_redistribution_allowed = TRUE`);
+  if (category) {
+    params.push(category);
+    clauses.push(`s.category = $${params.length}`);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   const snaps = await pool.query(
     `SELECT DISTINCT ON (s.category, s.metric_name)
             s.id, s.provider_code AS "providerCode", s.category,
             s.metric_name AS "metricName", s.metric_version AS "metricVersion",
             s.metric_direction AS "metricDirection", s.unit,
+            s.license_tier AS "licenseTier",
+            s.public_redistribution_allowed AS "publicRedistributionAllowed",
             s.captured_at AS "capturedAt", s.attribution_text AS "attributionText",
             s.attribution_url AS "attributionUrl"
      FROM ai_benchmark_snapshot s
@@ -359,14 +367,18 @@ export async function listAiRankings(pool: Pool, category?: string) {
   return out;
 }
 
-export async function getAiRankingDetail(pool: Pool, id: string) {
+export async function getAiRankingDetail(pool: Pool, id: string, includeInternal = false) {
   const snap = await pool.query(
     `SELECT id, provider_code AS "providerCode", category,
             metric_name AS "metricName", metric_version AS "metricVersion",
             metric_direction AS "metricDirection", unit,
+            license_tier AS "licenseTier",
+            public_redistribution_allowed AS "publicRedistributionAllowed",
             captured_at AS "capturedAt", attribution_text AS "attributionText",
             attribution_url AS "attributionUrl"
-     FROM ai_benchmark_snapshot WHERE id = $1::uuid LIMIT 1`,
+     FROM ai_benchmark_snapshot
+     WHERE id = $1::uuid ${includeInternal ? "" : "AND public_redistribution_allowed = TRUE"}
+     LIMIT 1`,
     [id],
   );
   if (!snap.rows[0]) fail(404, "Benchmark snapshot not found");

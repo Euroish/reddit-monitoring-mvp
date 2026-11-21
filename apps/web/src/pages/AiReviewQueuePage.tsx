@@ -11,7 +11,10 @@ import {
 import {
   type AiCandidateItem,
   useAiAdminMutations,
+  useAiAdminRankingsQuery,
   useAiEventsQuery,
+  useAiOpsAuditQuery,
+  useAiOpsSummaryQuery,
   useAiQueueQuery,
   useAiSourcesQuery,
   useAiVendorsQuery,
@@ -41,7 +44,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
   const { t } = useI18n();
   const isAdmin = actor.role === 'owner' || actor.role === 'admin';
 
-  const [tab, setTab] = useState<'queue' | 'published' | 'sources'>('queue');
+  const [tab, setTab] = useState<'ops' | 'queue' | 'published' | 'sources'>('ops');
   const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [vendorFilter, setVendorFilter] = useState<string>('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -61,6 +64,9 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
   const [formNote, setFormNote] = useState('');
 
   const vendorsQ = useAiVendorsQuery(isAdmin);
+  const opsSummaryQ = useAiOpsSummaryQuery(7, isAdmin && tab === 'ops');
+  const opsAuditQ = useAiOpsAuditQuery(isAdmin && tab === 'ops');
+  const adminRankingsQ = useAiAdminRankingsQuery(isAdmin && tab === 'ops');
   const queueQ = useAiQueueQuery(
     { status: statusFilter || undefined, vendor: vendorFilter || undefined },
     isAdmin && tab === 'queue',
@@ -83,7 +89,8 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
     setFormTitle(c.title);
     setFormEventType(c.suggestedEventType || 'model_release');
     setFormEventStatus('released');
-    setFormEventDate(c.suggestedDate || new Date().toISOString().slice(0, 10));
+    // Never fabricate today's date when suggestedDate is missing
+    setFormEventDate(c.suggestedDate || '');
     setFormDatePrecision(c.datePrecision === 'month' ? 'month' : 'day');
     const draftUrl = typeof c.draftPayload?.officialUrl === 'string'
       ? c.draftPayload.officialUrl
@@ -224,13 +231,20 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
             )}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className={`ds-btn ${tab === 'ops' ? '' : 'ds-btn--ghost'}`}
+            onClick={() => setTab('ops')}
+          >
+            {t('Automation & Ops', '自动化与运维')}
+          </button>
           <button
             type="button"
             className={`ds-btn ${tab === 'queue' ? '' : 'ds-btn--ghost'}`}
             onClick={() => setTab('queue')}
           >
-            {t('Review Queue', '审核队列')}
+            {t('Exception Queue', '异常审核队列')}
           </button>
           <button
             type="button"
@@ -270,6 +284,152 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
         >
           {feedback.kind === 'ok' ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
           <span>{feedback.text}</span>
+        </div>
+      )}
+
+      {tab === 'ops' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="ds-card" style={{ padding: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+              <div>
+                <h2 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700 }}>{t('7-Day Automation Summary', '近 7 天自动化运行摘要')}</h2>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  {t('Shadow Mode', '影子模式')}: {opsSummaryQ.data?.shadowMode ? 'ON' : 'OFF'} · LLM: {opsSummaryQ.data?.llmConfigured ? 'ON' : 'Rule-Only'} · AA Public: {opsSummaryQ.data?.aaPublicRedistribution ? 'Commercial' : 'Internal Only'}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="ds-btn ds-btn--ghost"
+                  disabled={mutations.runDiscovery.isPending}
+                  onClick={async () => {
+                    const r = await mutations.runDiscovery.mutateAsync({ shadowMode: true, archiveLowValue: true });
+                    setFeedback({ kind: 'ok', text: `Shadow run: scanned=${r.scanned}, shadowPassed=${r.shadowPassed}, queued=${r.candidatesQueued}, archived=${r.archived}` });
+                  }}
+                >
+                  {t('Run Shadow Eval', '执行影子评估')}
+                </button>
+                <button
+                  type="button"
+                  className="ds-btn"
+                  disabled={mutations.runDiscovery.isPending}
+                  onClick={async () => {
+                    const r = await mutations.runDiscovery.mutateAsync({ shadowMode: false, archiveLowValue: true });
+                    setFeedback({ kind: 'ok', text: `Discovery run: scanned=${r.scanned}, autoPublished=${r.autoPublished}, shadowPassed=${r.shadowPassed}, archived=${r.archived}` });
+                  }}
+                >
+                  <RefreshCw size={14} /> {t('Run Auto Discovery', '立即执行官方发现')}
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+              {[
+                { label: t('Auto-Published', '自动发布'), val: opsSummaryQ.data?.metrics.autoPublished ?? 0 },
+                { label: t('Shadow Passed', '影子通过'), val: opsSummaryQ.data?.metrics.shadowPassed ?? 0 },
+                { label: t('Needs Info / Rejected', '缺证据拦截'), val: opsSummaryQ.data?.metrics.shadowRejected ?? 0 },
+                { label: t('Low-Value Archived', '低价值自动归档'), val: opsSummaryQ.data?.metrics.lowValueArchived ?? 0 },
+                { label: t('Rolled Back', '已撤回/纠错'), val: opsSummaryQ.data?.metrics.rolledBack ?? 0 },
+              ].map((m) => (
+                <div key={m.label} style={{ padding: 12, borderRadius: 10, border: '1px solid var(--line)', background: 'var(--paper)' }}>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{m.label}</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, marginTop: 2 }}>{m.val}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {(opsSummaryQ.data?.openAlerts ?? []).length > 0 && (
+            <div className="ds-card" style={{ padding: 16 }}>
+              <h3 style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 700 }}>{t('Open Ops Alerts', '未关闭故障告警')}</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {opsSummaryQ.data!.openAlerts.map((a) => (
+                  <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(220,38,38,0.25)', background: 'rgba(220,38,38,0.05)' }}>
+                    <div style={{ fontSize: 13 }}>
+                      <strong>[{a.severity}]</strong> {a.sourceCode ? `${a.sourceCode}: ` : ''}{a.message}
+                    </div>
+                    <button type="button" className="ds-btn ds-btn--ghost" onClick={() => mutations.resolveAlert.mutate(a.id)}>
+                      {t('Resolve', '标记已处理')}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16 }}>
+            <div className="ds-card" style={{ padding: 16 }}>
+              <h3 style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 700 }}>{t('Per-Vendor Auto-Publish Rollout', '分厂商自动发布灰度开关')}</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {(opsSummaryQ.data?.vendors ?? []).map((v) => (
+                  <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)' }}>
+                    <div>
+                      <div style={{ fontSize: 13.5, fontWeight: 600 }}>{v.name}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{(v.officialDomains ?? []).join(', ')}</div>
+                    </div>
+                    <button
+                      type="button"
+                      className={`ds-btn ${v.autoPublishEnabled ? '' : 'ds-btn--ghost'}`}
+                      onClick={() => mutations.setVendorAutoPublish.mutate({ id: v.id, enabled: !v.autoPublishEnabled })}
+                    >
+                      {v.autoPublishEnabled ? t('Auto ON', '已开启自动') : t('Shadow Only', '仅影子评估')}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="ds-card" style={{ padding: 16 }}>
+              <h3 style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 700 }}>{t('Auto-Publish & Rollback Audit', '自动发布与撤回审计记录')}</h3>
+              {(opsAuditQ.data?.items ?? []).length === 0 ? (
+                <p style={{ fontSize: 13, color: 'var(--muted)' }}>{t('No automation audit records yet.', '暂无自动化审计记录。')}</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 360, overflowY: 'auto' }}>
+                  {(opsAuditQ.data?.items ?? []).map((item) => (
+                    <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', fontSize: 12.5 }}>
+                      <div>
+                        <strong>{item.mode}</strong> · {item.vendorName || '—'} · <span>{item.ruleName}</span>
+                        {item.reason && <div style={{ color: 'var(--muted)', marginTop: 2 }}>{item.reason}</div>}
+                      </div>
+                      {item.mode === 'auto_publish' && item.eventId && (
+                        <button
+                          type="button"
+                          className="ds-btn ds-btn--ghost"
+                          onClick={() => mutations.rollback.mutate({ id: item.eventId!, reason: 'Admin rollback from ops audit' })}
+                        >
+                          {t('Rollback', '一键撤回')}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {(adminRankingsQ.data?.items ?? []).length > 0 && (
+            <div className="ds-card" style={{ padding: 16 }}>
+              <h3 style={{ margin: '0 0 6px', fontSize: 15, fontWeight: 700 }}>
+                {t('Internal Benchmark Snapshots (Admin Preview)', '已同步外部评测快照（内部管理预览）')}
+              </h3>
+              <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--muted)' }}>
+                {t('Free-tier Artificial Analysis snapshots are restricted to internal admin inspection unless commercial public redistribution is enabled.', '免费层 Artificial Analysis 快照仅限内部管理台查看，未获商业授权前不向公开页面分发。')}
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+                {adminRankingsQ.data!.items.map((snap) => (
+                  <div key={snap.id} style={{ padding: 12, borderRadius: 10, border: '1px solid var(--line)' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{snap.metricName}</div>
+                    {snap.entries.slice(0, 5).map((e) => (
+                      <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0', borderBottom: '1px solid var(--line)' }}>
+                        <span>#{e.rank} {e.modelName}</span>
+                        <strong>{e.score.toFixed(1)} {snap.unit ?? ''}</strong>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

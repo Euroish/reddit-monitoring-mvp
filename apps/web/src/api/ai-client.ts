@@ -196,9 +196,67 @@ export const aiApi = {
   listUpdates: (q: { vendor?: string; limit?: number }) =>
     aiFetch<{ items: AiOfficialUpdateItem[] }>(`/v1/ai/updates${toQs(q)}`),
   listRankings: (category?: string) =>
-    aiFetch<{ items: AiBenchmarkSnapshotItem[]; configured: boolean }>(`/v1/ai/rankings${toQs({ category })}`),
+    aiFetch<{
+      items: AiBenchmarkSnapshotItem[];
+      configured: boolean;
+      publicRedistributionAllowed?: boolean;
+      internalSnapshotCount?: number;
+    }>(`/v1/ai/rankings${toQs({ category })}`),
 
   // Admin endpoints
+  listAdminRankings: (category?: string) =>
+    aiFetch<{ items: AiBenchmarkSnapshotItem[] }>(`/v1/admin/ai/rankings${toQs({ category })}`),
+  getOpsSummary: (days = 7) =>
+    aiFetch<{
+      windowDays: number;
+      shadowMode: boolean;
+      llmConfigured: boolean;
+      aaPublicRedistribution: boolean;
+      metrics: {
+        autoPublished: number;
+        shadowPassed: number;
+        shadowRejected: number;
+        lowValueArchived: number;
+        rolledBack: number;
+      };
+      openAlerts: Array<{ id: string; severity: string; sourceCode: string | null; message: string; createdAt: string }>;
+      recentRuns: Array<{ sourceCode: string; status: string; runs: number; candidatesCreated: number }>;
+      vendors: Array<{ id: string; slug: string; name: string; autoPublishEnabled: boolean; officialDomains: string[] }>;
+    }>(`/v1/admin/ai/ops/summary${toQs({ days })}`),
+  listOpsAudit: () =>
+    aiFetch<{
+      items: Array<{
+        id: string;
+        mode: string;
+        vendorName: string | null;
+        eventId: string | null;
+        candidateId: string | null;
+        confidence: number | null;
+        ruleName: string;
+        reason: string | null;
+        createdAt: string;
+      }>;
+    }>('/v1/admin/ai/ops/audit'),
+  runDiscovery: (body: { shadowMode?: boolean; lookbackHours?: number; archiveLowValue?: boolean }) =>
+    aiFetch<{ scanned: number; autoPublished: number; shadowPassed: number; candidatesQueued: number; archived: number }>('/v1/admin/ai/discovery/run', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  rollbackEvent: (id: string, reason?: string) =>
+    aiFetch<{ id: string; visibility: string; rolledBack: boolean }>(`/v1/admin/ai/events/${encodeURIComponent(id)}/rollback`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+  setVendorAutoPublish: (id: string, enabled: boolean) =>
+    aiFetch<{ id: string; slug: string; autoPublishEnabled: boolean }>(`/v1/admin/ai/vendors/${encodeURIComponent(id)}/autopublish`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    }),
+  resolveAlert: (id: string) =>
+    aiFetch<{ id: string; resolvedAt: string }>(`/v1/admin/ai/alerts/${encodeURIComponent(id)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
   listQueue: (q: { status?: string; vendor?: string; limit?: number }) =>
     aiFetch<{ items: AiCandidateItem[] }>(`/v1/admin/ai/queue${toQs(q)}`),
   patchCandidate: (id: string, body: Record<string, unknown>) =>
@@ -293,6 +351,30 @@ export function useAiSourcesQuery(enabled = true) {
   });
 }
 
+export function useAiOpsSummaryQuery(days = 7, enabled = true) {
+  return useQuery({
+    queryKey: ['ai', 'admin', 'ops-summary', days],
+    queryFn: () => aiApi.getOpsSummary(days),
+    enabled,
+  });
+}
+
+export function useAiOpsAuditQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['ai', 'admin', 'ops-audit'],
+    queryFn: aiApi.listOpsAudit,
+    enabled,
+  });
+}
+
+export function useAiAdminRankingsQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['ai', 'admin', 'rankings'],
+    queryFn: () => aiApi.listAdminRankings(),
+    enabled,
+  });
+}
+
 export function useAiAdminMutations() {
   const qc = useQueryClient();
   const invalidate = () => {
@@ -314,6 +396,22 @@ export function useAiAdminMutations() {
     }),
     unpublish: useMutation({
       mutationFn: ({ id, reason }: { id: string; reason?: string }) => aiApi.unpublishEvent(id, reason),
+      onSuccess: invalidate,
+    }),
+    rollback: useMutation({
+      mutationFn: ({ id, reason }: { id: string; reason?: string }) => aiApi.rollbackEvent(id, reason),
+      onSuccess: invalidate,
+    }),
+    runDiscovery: useMutation({
+      mutationFn: (body: { shadowMode?: boolean; lookbackHours?: number; archiveLowValue?: boolean }) => aiApi.runDiscovery(body),
+      onSuccess: invalidate,
+    }),
+    setVendorAutoPublish: useMutation({
+      mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => aiApi.setVendorAutoPublish(id, enabled),
+      onSuccess: invalidate,
+    }),
+    resolveAlert: useMutation({
+      mutationFn: (id: string) => aiApi.resolveAlert(id),
       onSuccess: invalidate,
     }),
     syncSource: useMutation({

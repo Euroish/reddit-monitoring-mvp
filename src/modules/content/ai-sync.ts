@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import { Value } from "@sinclair/typebox/value";
-import { AiLlmExtractionSchema, type AiLlmExtraction } from "../../../packages/contracts/src/ai-catalog";
 import {
   parseArtificialAnalysisPayload,
   parseEpochCsv,
@@ -11,6 +9,7 @@ import {
   stableHash,
   type NormalizedRegistryItem,
 } from "./ai-registry";
+export { validateLlmExtraction } from "./ai-llm";
 
 const AI_SYNC_LOCK_KEY = 9042054;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
@@ -32,28 +31,6 @@ async function defaultFetcher(url: string, headers: Record<string, string>): Pro
     throw new Error(`Response exceeded ${MAX_RESPONSE_BYTES} byte limit`);
   }
   return { status: res.status, etag: res.headers.get("etag"), bodyText: buf.toString("utf8") };
-}
-
-export function validateLlmExtraction(
-  raw: unknown,
-  allowedReferenceIds: Set<string>,
-): { ok: true; data: AiLlmExtraction } | { ok: false; reason: string } {
-  if (!Value.Check(AiLlmExtractionSchema, raw)) {
-    return { ok: false, reason: "LLM output failed TypeBox schema validation" };
-  }
-  const parsed = raw as AiLlmExtraction;
-  for (const ev of parsed.evidence) {
-    if (!allowedReferenceIds.has(ev.source_reference_id)) {
-      return { ok: false, reason: `Unknown source_reference_id: ${ev.source_reference_id}` };
-    }
-    if (/<script|javascript:|data:text\/html/i.test(ev.excerpt) || /<script|javascript:/i.test(ev.claim)) {
-      return { ok: false, reason: "Rejected unsafe markup in evidence" };
-    }
-  }
-  if (parsed.summary_zh && /<script|javascript:/i.test(parsed.summary_zh)) {
-    return { ok: false, reason: "Rejected unsafe markup in summary" };
-  }
-  return { ok: true, data: parsed };
 }
 
 async function resolveAliasAndVendor(
@@ -352,45 +329,70 @@ export async function syncRegistrySourceByCode(
     locked = Boolean(lockRes.rows[0]?.ok);
     if (!locked) return { skippedLocked: true };
 
-    const src = (await pool.query<{ id: string; kind: string; endpoint_url: string; etag: string | null; config: Record<string, unknown> }>(
-      `SELECT id, kind, endpoint_url, etag, config FROM ai_registry_source WHERE code = $1`,
+    const src = (await pool.query<{
+      id: string; kind: string; endpoint_url: string; etag: string | null;
+      sync_interval_seconds: number; backoff_seconds: number; config: Record<string, unknown>;
+    }>(
+      `SELECT id, kind, endpoint_url, etag, sync_interval_seconds, backoff_seconds, config FROM ai_registry_source WHERE code = $1`,
       [sourceCode],
     )).rows[0];
     if (!src) throw new Error(`Unknown ai_registry_source: ${sourceCode}`);
 
     const headers: Record<string, string> = { "user-agent": "SIFTLINE-AI-Catalog/1.0" };
     if (src.etag) headers["if-none-match"] = src.etag;
+    let targetUrl = src.endpoint_url;
+    let aaPublicAllowed = false;
     if (src.kind === "artificial_analysis") {
       const apiKey = process.env.ARTIFICIAL_ANALYSIS_API_KEY?.trim();
       if (!apiKey) throw new Error("ARTIFICIAL_ANALYSIS_API_KEY is not configured");
       headers["x-api-key"] = apiKey;
+      aaPublicAllowed = process.env.ARTIFICIAL_ANALYSIS_PUBLIC_REDISTRIBUTION === "true";
+      if (aaPublicAllowed && typeof src.config?.commercialUrl === "string") {
+        targetUrl = src.config.commercialUrl;
+      }
     }
 
-    const res = await fetcher(src.endpoint_url, headers);
+    const res = await fetcher(targetUrl, headers);
     if (res.status === 304) {
+      await pool.query(
+        `UPDATE ai_registry_source SET last_success_at = NOW(), consecutive_failures = 0, backoff_seconds = 0,
+         circuit_open_until = NULL, last_error = NULL,
+         next_run_at = NOW() + make_interval(secs => sync_interval_seconds), updated_at = NOW() WHERE id = $1`,
+        [src.id],
+      );
+      await pool.query(`UPDATE ai_ops_alert SET resolved_at = NOW() WHERE source_code = $1 AND resolved_at IS NULL`, [sourceCode]);
       return { skippedUnchanged: true, fetchedCount: 0, changedCount: 0, candidatesCreated: 0 };
     }
     if (res.status >= 400 || !res.bodyText) {
-      await pool.query(
-        `UPDATE ai_registry_source
-         SET consecutive_failures = consecutive_failures + 1,
-             circuit_open_until = CASE WHEN consecutive_failures + 1 >= 3 THEN NOW() + INTERVAL '2 hours' ELSE circuit_open_until END,
-             last_error = $2, updated_at = NOW()
-         WHERE id = $1`,
-        [src.id, `HTTP ${res.status}`],
+      const nextBackoff = Math.min(21600, Math.max(300, (src.backoff_seconds || 150) * 2));
+      const failRes = await pool.query<{ consecutive_failures: number }>(
+        `UPDATE ai_registry_source SET consecutive_failures = consecutive_failures + 1, backoff_seconds = $3::int,
+         next_run_at = NOW() + make_interval(secs => $3::int),
+         circuit_open_until = CASE WHEN consecutive_failures + 1 >= 3 THEN NOW() + INTERVAL '2 hours' ELSE circuit_open_until END,
+         last_error = $2, updated_at = NOW() WHERE id = $1 RETURNING consecutive_failures`,
+        [src.id, `HTTP ${res.status}`, nextBackoff],
       );
+      if ((failRes.rows[0]?.consecutive_failures ?? 0) >= 3 || res.status === 429) {
+        await pool.query(
+          `INSERT INTO ai_ops_alert (severity, source_code, alert_key, message, details) VALUES ($1,$2,$3,$4,$5::jsonb)`,
+          [res.status === 429 ? "warning" : "critical", sourceCode, `sync_failure:${sourceCode}`, `AI sync ${sourceCode} failed with HTTP ${res.status} (backoff ${nextBackoff}s)`, JSON.stringify({ status: res.status, backoffSeconds: nextBackoff })],
+        );
+      }
       throw new Error(`Upstream ${sourceCode} returned HTTP ${res.status}`);
     }
 
     if (src.kind === "artificial_analysis") {
       const snapshots = parseArtificialAnalysisPayload(JSON.parse(res.bodyText));
+      const licenseTier = aaPublicAllowed ? "commercial_public" : "free_internal";
       let saved = 0;
       if (!options.dryRun) {
         for (const snap of snapshots) {
           const snapRes = await pool.query<{ id: string }>(
-            `INSERT INTO ai_benchmark_snapshot (provider_code, category, metric_name, metric_version, metric_direction, unit, attribution_text, attribution_url)
-             VALUES ('artificial_analysis',$1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-            [snap.category, snap.metricName, snap.metricVersion, snap.metricDirection, snap.unit, snap.attributionText, snap.attributionUrl],
+            `INSERT INTO ai_benchmark_snapshot (
+               provider_code, category, metric_name, metric_version, metric_direction,
+               unit, attribution_text, attribution_url, license_tier, public_redistribution_allowed
+             ) VALUES ('artificial_analysis',$1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+            [snap.category, snap.metricName, snap.metricVersion, snap.metricDirection, snap.unit, snap.attributionText, snap.attributionUrl, licenseTier, aaPublicAllowed],
           );
           for (const e of snap.entries) {
             await pool.query(
@@ -401,9 +403,15 @@ export async function syncRegistrySourceByCode(
           }
           saved += 1;
         }
-        await pool.query(`UPDATE ai_registry_source SET last_success_at = NOW(), consecutive_failures = 0, last_error = NULL WHERE id = $1`, [src.id]);
+        await pool.query(
+          `UPDATE ai_registry_source SET last_success_at = NOW(), consecutive_failures = 0, backoff_seconds = 0,
+           circuit_open_until = NULL, last_error = NULL,
+           next_run_at = NOW() + make_interval(secs => sync_interval_seconds), updated_at = NOW() WHERE id = $1`,
+          [src.id],
+        );
+        await pool.query(`UPDATE ai_ops_alert SET resolved_at = NOW() WHERE source_code = $1 AND resolved_at IS NULL`, [sourceCode]);
       }
-      return { snapshotsSaved: saved };
+      return { snapshotsSaved: saved, licenseTier, publicRedistributionAllowed: aaPublicAllowed };
     }
 
     let items: NormalizedRegistryItem[] = [];
@@ -415,33 +423,28 @@ export async function syncRegistrySourceByCode(
     } else if (src.kind === "epoch") {
       items = parseEpochCsv(res.bodyText);
     }
-    return applyRegistryItems(pool, sourceCode, items, {
+    const result = await applyRegistryItems(pool, sourceCode, items, {
       dryRun: options.dryRun,
       triggerKind: options.triggerKind,
       blobSha: res.blobSha ?? stableHash(res.bodyText),
       etag: res.etag ?? null,
     });
+    if (!options.dryRun) {
+      await pool.query(
+        `UPDATE ai_registry_source SET consecutive_failures = 0, backoff_seconds = 0, circuit_open_until = NULL,
+         next_run_at = NOW() + make_interval(secs => sync_interval_seconds), updated_at = NOW() WHERE id = $1`,
+        [src.id],
+      );
+      await pool.query(
+        `UPDATE ai_ops_alert SET resolved_at = NOW() WHERE source_code = $1 AND resolved_at IS NULL`,
+        [sourceCode],
+      );
+    }
+    return result;
   } finally {
     if (locked) {
       await lockClient.query(`SELECT pg_advisory_unlock($1)`, [AI_SYNC_LOCK_KEY]).catch(() => {});
     }
     lockClient.release();
   }
-}
-
-export function startAiSyncScheduler(pool: Pool): () => void {
-  if (process.env.AI_SYNC_ENABLED !== "true") return () => {};
-  const intervalSec = Math.max(300, Number(process.env.AI_SYNC_INTERVAL_SECONDS ?? "7200") || 7200);
-  const timer = setInterval(async () => {
-    const sources = await pool.query<{ code: string }>(
-      `SELECT code FROM ai_registry_source
-       WHERE enabled = TRUE AND kind IN ('openrouter', 'litellm', 'hf')
-         AND (circuit_open_until IS NULL OR circuit_open_until < NOW())`,
-    ).catch(() => ({ rows: [] as Array<{ code: string }> }));
-    for (const s of sources.rows) {
-      await syncRegistrySourceByCode(pool, s.code, { triggerKind: "scheduled" }).catch(() => {});
-    }
-  }, intervalSec * 1000);
-  timer.unref();
-  return () => clearInterval(timer);
 }
