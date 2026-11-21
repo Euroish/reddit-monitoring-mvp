@@ -27,3 +27,7 @@
 - **精简建表纪律**：主干已合入迁移不可改写、迁移或删除。追加下一个可用编号，由 PR 基线校验。主干至 `053` 为 **24 张表**，本阶段单机上限 **24**；生产实际版本见[状态](docs/status.md)。PR 声明表增量，调整预算需单独评审数据所有权、负载、迁移和回滚。
 - **主线与外挂隔离**：主线只运行轻量 `Fastify 5 + TypeBox + PG16 + React`（零 Python/DuckDB/Chromium）；R4 `plugins/zst-archive/` 与 L3 重型/强反爬采集器 `MUST` 外置运行，只持带明确 `allowedSourceIds` 与 `ingest` scope 的 Machine Key 调用 `POST /v1/sources/:id/ingest`。
 - **五模块与写入纪律**：`access`、`collection`、`content`、`projects`、`workspace` 仅允许平铺命名 SQL 函数（`<= 450` 行/文件、`<= 220` 字/代码行、禁 `class`/`*Repository`/`InMemory*`）；全库唯一内容写入口为 `commitContentBatch`；`/v1/content/*` 仅 `GET/HEAD` 映射 `read` scope；付费渠道 `unknown` 永不自动重放；禁输出密钥、禁无授权 `git push --force`。
+4.开发代码提交pr原则
+  全面低复杂度，最大程度利用代码效率和性能
+  尽可能轻量/模块化/长期迭代
+  不断提高仓库的代码质量，定期清理漂移
