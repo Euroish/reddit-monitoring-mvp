@@ -11,7 +11,7 @@
 | 参考来源 | 采纳机制 | 拒绝复杂度（适配单机 4 GB） |
 | :--- | :--- | :--- |
 | **`miniflux/v2`** | 持久自适应调度、同域冷却、真 `ETag`/`304` 与 URL 去追踪参数 | 独立 Go 守护进程（合入 Node Worker） |
-| **`newsnext/newsnow`** | 零依赖纯函数热榜 getter（7 个已落地 `webBoards`） | 独立 `h3` 服务端与 SQLite 缓存 |
+| **`newsnext/newsnow`** | 零依赖纯函数热榜 getter（6 个已落地 `webBoards`） | 独立 `h3` 服务端与 SQLite 缓存 |
 | **`KKKKhazix/AIHOT`** | `T1`/`T1_5`/`T2` 分级、`T1` 一手代表选举、48h/6h 热度与 08:00 日报 | 3 Node 容器、105 迁移与入库串行 6 次 LLM |
 | **`Folo` / `Karakeep`** | 多模态冷静流、`[V2]` 阅读状态、`read`/`archived`/`muted` 与按需阅读器/摘要 | 常驻 Next.js SSR + Meilisearch + Puppeteer |
 | **`Vane` / `Ground News`** | 卡片内 16px 来源权威分布微条、`[V2]` 正交按题探索与 `keepKPerHostname` | 外部向量库与无头浏览器集群 |
@@ -92,7 +92,7 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 
 ## 4. `[V2]` L1–L3 扩源、自适应调度与单机安全基线
 
-- **L1（主线零费直采）**：`feed`（动态放行公网 HTTPS，支持 OPML 批量导入与 `web_list`/`json_list`）+ `newsnow`（7 个内置 `webBoards` 可扩充 IT之家/少数派等 MIT getter，UTC 1h 桶）+ `bluesky_appview`；`[V2]` Phase C 按需补 `linkedom` + `@mozilla/readability` 提取摘要类 RSS 全文与出站链接。
+- **L1（主线零费直采）**：`feed`（动态放行公网 HTTPS，支持 OPML 批量导入与 `web_list`/`json_list`）+ `newsnow`（6 个内置 `webBoards` 可扩充 IT之家/少数派等 MIT getter，UTC 1h 桶）+ `bluesky_appview`；`[V2]` Phase C 按需补 `linkedom` + `@mozilla/readability` 提取摘要类 RSS 全文与出站链接。
 - **L2（预算门控付费 API）**：`twitterapis` 批次 `from:u1 OR from:u2`（较单号省 ~95% 调用）+ `scrapebadger` 备源/批量刷新；Reddit 日常走 `.rss` 雷达，高热帖由用户按需触发 `POST /v1/projects/:id/hydrate`（`kaix`）。
 - **L3（外部隔离 Sidecar · `stream_class` 架构修补）**：`[LIVE]` 默认流与趋势 `pullOnly = true` 会屏蔽 `delivery_mode='push'`；因此在 `[V2]` Phase C 接入外部 Sidecar（小红书、豆瓣、Telegram、Instagram 等强反爬源）前，`MUST` 为 `collection_source` 区分 **`stream_class` (`live \| archive \| adhoc`)**：L3 实时采集器推流源标为 **`live`**（进入默认首页流与趋势，解决推送隐形悖论），R4 `.zst` 标 **`archive`**、按题探索 `radar` 源标 **`adhoc`**；显式传 `deliveryMode` 时覆盖默认过滤。
 

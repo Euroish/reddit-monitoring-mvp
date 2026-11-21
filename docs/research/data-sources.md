@@ -17,18 +17,18 @@
 
 ---
 
-## 2. `[LIVE]` 线上 8 大活跃分组实测分布（共 100 源）
+## 2. `[LIVE]` 2026-11-21 线上 8 大活跃分组实测分布（共 99 个已分组源）
 
 | `source_group` | 活跃源数 | 等级与语种分布 | 代表覆盖范围 |
 | :--- | ---: | :--- | :--- |
-| **`ai-firsthand`** | 16 | `T1` 12 · `T1_5` 1 · `T2` 3（全 `en`） | OpenAI News/SDK、Anthropic SDK、DeepMind/Research、HF Blog、Qwen、NVIDIA/AWS ML、Simon Willison、Latent Space 等 |
-| **`dev-infra`** | 16 | `T1` 12 · `T2` 4（全 `en`） | GitHub Blog、Cloudflare、Go/Rust/Django/K8s、PostgreSQL、Debian、CISA、Stack Overflow、HN RSS 等 |
-| **`lifestyle`** | 15 | `T1_5` 2 · `T2` 13（`en` 13 · `zh` 2） | 日常料理（Budget Bytes）、小户型居住（Never Too Small）、独立生活与文化消费精选 |
+| **`ai-firsthand`** | 17 | `T1` 13 · `T1_5` 2 · `T2` 2（`en` 16 · `zh` 1） | OpenAI News/SDK、Anthropic SDK、DeepMind/Research、HF Blog、Qwen、NVIDIA/AWS ML、Simon Willison、Latent Space 等 |
+| **`dev-infra`** | 20 | `T1` 13 · `T1_5` 3 · `T2` 4（`en` 19 · `zh` 1） | GitHub Blog、Cloudflare、Go/Rust/Django/K8s、PostgreSQL、Debian、CISA、Stack Overflow、HN RSS 等 |
+| **`lifestyle`** | 13 | `T1_5` 2 · `T2` 11（`en` 11 · `zh` 2） | 日常料理（Budget Bytes）、小户型居住（Never Too Small）、独立生活与文化消费精选 |
 | **`public-affairs`** | 13 | `T1` 5 · `T2` 8（`en` 9 · `zh` 4） | BBC World、NPR、ProPublica、联合国新闻、德国之声中文等公共与调查报道 |
-| **`tech-media`** | 12 | `T1_5` 2 · `T2` 10（`en` 7 · `zh` 5） | The Verge、Ars Technica、TechCrunch、Eurogamer、InfoQ、爱范儿、泛科学等 |
+| **`tech-media`** | 10 | `T1_5` 4 · `T2` 6（`en` 9 · `zh` 1） | The Verge、Ars Technica、TechCrunch、Eurogamer、InfoQ、爱范儿、泛科学等 |
 | **`science`** | 11 | `T1` 3 · `T1_5` 2 · `T2` 6（`en` 10 · `zh` 1） | NASA、Quanta Magazine、MIT/Nature 科学、科技新报等科研与科普 |
-| **`design-visual`** | 9 | `T1_5` 2 · `T2` 7（`en` 8 · `zh` 1） | Shopping Design、Spoon & Tamago、Colossal、Public Domain Review、NOWNESS 等 |
-| **`social-trends`** | 8 | `T1_5` 1 · `T2` 7（`en` 5 · `zh` 3） | B站热门视频（`newsnow`）、知乎热榜（`newsnow`）、Google Trends US（`newsnow`）、吹音乐及海外讨论 |
+| **`design-visual`** | 8 | `T1_5` 2 · `T2` 6（全 `en`） | Shopping Design、Spoon & Tamago、Colossal、Public Domain Review、NOWNESS 等 |
+| **`social-trends`** | 7 | `T1_5` 1 · `T2` 6（`en` 5 · `zh` 2） | B站热门视频（`newsnow`）、Google Trends US（`newsnow`）、吹音乐及海外讨论 |
 
 ---
 

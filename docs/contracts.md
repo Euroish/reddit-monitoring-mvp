@@ -39,7 +39,7 @@
 
 | ID | 等级 | 内容规范化、版本比较与快照口径 | 验收出口 |
 | --- | --- | --- | --- |
-| DAT-01 | MUST | `externalId` 统一字符串防精度丢失；X 主帖与回复同属 `kind='post'`；`web` 剥离 `utm_*`/`fbclid`/`gclid`/`spm`/`ref` 后规范化 URL；**`newsnow` 自 `8e436ac` 起仅在存在 `web.rank` 或其他 `metrics` 时采用 UTC 1 小时快照桶（`floor(fetchedAt / 3600000)`）生成 `evidenceKey`（无 `rank`/`metrics` 的榜单如 `google-trends-us` 与 `v2ex-share` 不纳入小时桶）**，内置 7 个 `webBoards` 见 `web-boards.ts`。 | URL 规范化与快照桶单测 |
+| DAT-01 | MUST | `externalId` 统一字符串防精度丢失；X 主帖与回复同属 `kind='post'`；`web` 剥离 `utm_*`/`fbclid`/`gclid`/`spm`/`ref` 后规范化 URL；**`newsnow` 自 `8e436ac` 起仅在存在 `web.rank` 或其他 `metrics` 时采用 UTC 1 小时快照桶（`floor(fetchedAt / 3600000)`）生成 `evidenceKey`（无 `rank`/`metrics` 的榜单如 `google-trends-us` 与 `v2ex-share` 不纳入小时桶）**，内置 6 个 `webBoards` 见 `web-boards.ts`。 | URL 规范化与快照桶单测 |
 | DAT-02 | MUST | 版本决胜三元组严格为 `(content_observed_at IS NOT NULL, COALESCE(content_observed_at, content_version_fetched_at), content_evidence_key COLLATE "C")`；同键同版本冲突抛 `409`；`deleted`/`removed` 清空正文并禁止落后 `available` 复活。 | 乱序/平局/防复活 PG 测试 |
 | DAT-03 | MUST | 三轴时间 `publishedAt`、`sourceObservedAt`、`fetchedAt` 彻底分离（未知存 `null`）；指标携带命名空间键名（`reddit.score`/`x.likes`/`web.rank`/`web.views`/`web.likes`）；**`contentFromRow` 仅由 `body_text` 与 `platform_details.textCompleteness === 'summary'` 派生对外 `textState`（`full`\|`summary`\|`missing`），库内不存在 `platform_details.textState`**。 | 时间轴、指标与 `textState` 单测 |
 | DAT-04 | MUST | `content_observation` 唯一键 `(content_id, collection_source_id, provider, evidence_key)`：同键同 `payload_hash` 静默忽略并计 `updated=0`，同键异值返 `409`；回复缺父链时由 `thread.ts` 标 `contextMissing = true`。 | 观测幂等与 409 PG 测试 |
