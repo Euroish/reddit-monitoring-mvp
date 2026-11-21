@@ -183,20 +183,25 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   });
   page.on("pageerror", (error) => errors.push(error.message));
 
-  // 1. Anonymous Stories on / (zero ECharts, zero 401s, T1/T1_5/T2 microcharts)
+  // 1. Public Info Home on / (4-item public nav, zero ECharts, zero workbench chunks, zero 401s, live stories)
   await page.goto(origin);
   assert.equal(await page.title(), "SIFTLINE · 信号研究");
-  const initialCard = page.getByRole("article").filter({ hasText: storyTitle });
+  const publicNav = page.getByLabel("公开导航", { exact: true });
+  assert.deepEqual(
+    await publicNav.getByRole("button").allInnerTexts(),
+    ["信息", "产品介绍", "AI 资讯", "文档"],
+  );
+  const initialCard = page.getByRole("article").filter({ hasText: storyTitle }).first();
   await initialCard.waitFor();
   assert.ok(
-    scripts.every((url) => !/echarts|EChartCanvas/.test(url)),
-    `Unexpected ECharts script on /: ${scripts.join(", ")}`,
+    scripts.every((url) => !/echarts|EChartCanvas|WorkbenchShell|ProjectsPage|SourcesPage|Homepage/.test(url)),
+    `Unexpected heavy script on /: ${scripts.join(", ")}`,
   );
   assert.deepEqual(guestUnauthorized, []);
   await initialCard.getByRole("img", { name: /来源分布.*T1 1.*T1_5 1.*T2 1/ }).waitFor();
   await initialCard.getByRole("img", { name: /已采样热度/ }).waitFor();
 
-  // 2. Anonymous ReaderDrawer + bookmark triggers login modal (Escape closes both)
+  // 2. Anonymous ReaderDrawer on / + bookmark triggers login modal (Escape closes both)
   await initialCard.getByRole("button", { name: storyTitle }).click();
   const readerDrawer = page.getByLabel("内容阅读详情");
   await readerDrawer.getByText("新版工具支持中文短词检索，并公开了用于复现结果的评估样本。").waitFor();
@@ -211,24 +216,40 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
     await page.keyboard.press("Escape");
   }
 
-  // 3. Channel filter, 48h Momentum, 08:00 Digest & date navigation
-  await page.getByRole("button", { name: /AI 一手与研发/ }).click();
-  assert.ok(page.url().includes("sourceGroup=ai-firsthand"));
+  // 2b. Channel filter & search box on / -> anonymous /content?query=...
+  await page.getByLabel("按频道浏览").getByRole("button", { name: /AI 一手与研发/ }).click();
   await initialCard.waitFor();
+  await page.getByLabel("检索公开内容").fill("多语言");
+  await page.getByRole("button", { name: "立即检索" }).click();
+  assert.equal(new URL(page.url()).pathname, "/content");
+  assert.equal(new URL(page.url()).searchParams.get("query"), "多语言");
+  await page.getByText(storyTitle).first().waitFor();
+
+  // 3. Public Site pages (/product no duplicate nav, /docs real content, /ai transition, 404)
+  await page.goto(`${origin}/product`);
+  const productNav = page.getByLabel("公开导航", { exact: true });
+  await productNav.waitFor();
+  assert.equal(await page.locator("header").count(), 1, "Expected single PublicSiteShell header on /product");
+  await productNav.getByRole("button", { name: "文档" }).click();
+  await page.getByRole("heading", { name: "SIFTLINE 使用与口径文档" }).waitFor();
+  await productNav.getByRole("button", { name: "AI 资讯" }).click();
+  await page.getByRole("heading", { name: "AI 资讯即将上线" }).waitFor();
+  await page.goto(`${origin}/non-existent-route-check`);
+  await page.getByText(/404/).waitFor();
+  await page.getByRole("button", { name: "返回公开首页" }).click();
+  assert.equal(new URL(page.url()).pathname, "/");
+
+  // 4. Legacy URL compatibility (/?view=hot & /?view=digest -> /app/feed?...) + full /app/feed Stories
+  await page.goto(`${origin}/?view=hot`);
+  await page.waitForURL("**/app/feed?view=hot");
+  assert.equal(new URL(page.url()).pathname, "/app/feed");
+  assert.equal(new URL(page.url()).searchParams.get("view"), "hot");
+  await page.getByRole("article").filter({ hasText: storyTitle }).first().waitFor();
   const nav = page.getByLabel("工作台导航");
-  await nav.getByRole("button", { name: "48 小时热度" }).click();
-  assert.ok(page.url().includes("view=hot"));
-  await initialCard.waitFor();
   await nav.getByRole("button", { name: "08:00 日报" }).click();
-  assert.ok(page.url().includes("view=digest"));
+  assert.ok(page.url().includes("/app/feed?view=digest"));
   await page.getByRole("button", { name: "前一日" }).click();
   assert.ok(page.url().includes("date="));
-
-  // 4. Marketing Homepage on /product with return link to Stories
-  await page.goto(`${origin}/product`);
-  await page.getByRole("button", { name: "阅读信息流" }).first().click();
-  assert.equal(new URL(page.url()).pathname, "/");
-  await initialCard.waitFor();
 
   // 5. Anonymous Content Explorer + Content Facets (/v1/content/facets)
   await page.goto(`${origin}/content`);
@@ -261,7 +282,8 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await page.reload();
   await initialCard.getByRole("button", { name: "已收藏", exact: true }).waitFor();
 
-  // 7. Sources -> Create Push Source & R4 Panel + UI Ingest
+  // 7. Open Workbench from PublicSiteShell -> Sources -> Create Push Source & R4 Panel + UI Ingest
+  await page.getByRole("button", { name: "打开工作台" }).click();
   await nav.getByRole("button", { name: /来源列表/ }).click();
   await page.getByRole("button", { name: "新建来源" }).click();
   const modal = page.locator(".sr-modal");
@@ -416,18 +438,34 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await page.getByText("趋势已计入推流/归档样本").waitFor();
   assert.equal(await page.locator(".kpi .kpi-val").nth(1).innerText(), "1");
 
-  // 12. Responsive checks across desktop / tablet / mobile on Stories + keyboard j/m
+  // 12. Responsive checks across desktop / tablet / mobile on / (Public Home) & /app/feed (Stories + j/m)
   await mkdir("output/validation/kernel", { recursive: true });
-  for (const viewport of [
+  const viewports = [
     { width: 1440, height: 900 },
     { width: 768, height: 1024 },
     { width: 390, height: 844 },
-  ]) {
+  ];
+  await page.goto(origin);
+  await page.getByRole("heading", { name: "SIFTLINE 公开信息首页" }).waitFor();
+  for (const viewport of viewports) {
     await page.setViewportSize(viewport);
-    await page.goto(`${origin}/?language=zh`);
-    const storyCard = page.getByRole("article").filter({ hasText: storyTitle });
-    await storyCard.getByRole("img", { name: /来源分布.*T1 1.*T1_5 1.*T2 1/ }).waitFor();
-    await storyCard.getByRole("img", { name: /已采样热度/ }).waitFor();
+    await page.waitForTimeout(120);
+    assert.ok(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      `Public home at ${viewport.width}px horizontal overflow detected`,
+    );
+    await page.screenshot({
+      path: `output/validation/kernel/public-home-${viewport.width}.png`,
+    });
+  }
+
+  await page.goto(`${origin}/app/feed?language=zh`);
+  const storyCard = page.getByRole("article").filter({ hasText: storyTitle });
+  await storyCard.getByRole("img", { name: /来源分布.*T1 1.*T1_5 1.*T2 1/ }).waitFor();
+  await storyCard.getByRole("img", { name: /已采样热度/ }).waitFor();
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport);
+    await page.waitForTimeout(120);
     await page.keyboard.press("j");
     assert.equal(await storyCard.evaluate((card) => card === document.activeElement), true);
     await page.keyboard.press("m");
@@ -441,6 +479,16 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
       path: `output/validation/kernel/stories-${viewport.width}.png`,
     });
   }
+
+  // 13. Navigate back to PublicSiteShell from Workbench & Switch Account clears session
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await nav.getByRole("button", { name: "公开首页" }).click();
+  await page.getByRole("button", { name: "切换账号" }).click();
+  const switchDialog = page.getByRole("dialog", { name: /SIFTLINE/ });
+  await switchDialog.getByText(/已退出当前会话/).waitFor();
+  await page.keyboard.press("Escape");
+  await switchDialog.waitFor({ state: "detached" });
+  await page.getByRole("button", { name: "登录", exact: true }).waitFor();
 
   assert.deepEqual(serverErrors, []);
   assert.deepEqual(errors, []);
