@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Calendar, RotateCcw, Search } from 'lucide-react';
 import type { AiReleaseEventItem, AiVendorItem } from '../../api/ai-client';
 import { useI18n } from '../../i18n/translations';
+import { AiVendorLogo } from './AiVendorLogo';
 
 export type TimelineZoom = '6m' | '12m' | 'year' | 'month' | 'week';
 
@@ -20,40 +21,75 @@ interface AiTimelineGridProps {
   onSelectEvent: (eventId: string) => void;
 }
 
-function getWindowBounds(zoom: TimelineZoom, anchor: Date): { start: Date; end: Date; labels: string[] } {
+interface TimeBucket {
+  key: string;
+  label: string;
+  subLabel?: string;
+  startIso: string;
+  endIso: string;
+  isCurrent: boolean;
+}
+
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function toIsoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function buildTimeBuckets(zoom: TimelineZoom, anchor: Date, todayIso: string): TimeBucket[] {
   const y = anchor.getUTCFullYear();
   const m = anchor.getUTCMonth();
-  let start: Date;
-  let end: Date;
+  const buckets: TimeBucket[] = [];
+
   if (zoom === 'week') {
-    start = new Date(Date.UTC(y, m, anchor.getUTCDate() - 14));
-    end = new Date(Date.UTC(y, m, anchor.getUTCDate() + 14));
-  } else if (zoom === 'month') {
-    start = new Date(Date.UTC(y, m - 1, 1));
-    end = new Date(Date.UTC(y, m + 2, 0));
-  } else if (zoom === '6m') {
-    start = new Date(Date.UTC(y, m - 4, 1));
-    end = new Date(Date.UTC(y, m + 2, 0));
-  } else if (zoom === '12m') {
-    start = new Date(Date.UTC(y, m - 9, 1));
-    end = new Date(Date.UTC(y, m + 3, 0));
-  } else {
-    start = new Date(Date.UTC(y, 0, 1));
-    end = new Date(Date.UTC(y, 11, 31));
+    for (let w = -3; w <= 0; w++) {
+      const start = new Date(Date.UTC(y, m, anchor.getUTCDate() + w * 7 - 6));
+      const end = new Date(Date.UTC(y, m, anchor.getUTCDate() + w * 7));
+      const startIso = toIsoDate(start);
+      const endIso = toIsoDate(end);
+      buckets.push({
+        key: `${startIso}_${endIso}`,
+        label: `${startIso.slice(5)} ~ ${endIso.slice(5)}`,
+        startIso,
+        endIso,
+        isCurrent: todayIso >= startIso && todayIso <= endIso,
+      });
+    }
+    return buckets;
   }
 
-  const labels: string[] = [];
-  const totalMs = Math.max(1, end.getTime() - start.getTime());
-  const slots = zoom === 'week' ? 4 : zoom === 'month' ? 3 : zoom === '6m' ? 6 : 12;
-  for (let i = 0; i < slots; i++) {
-    const dt = new Date(start.getTime() + (totalMs * i) / slots);
-    labels.push(
-      zoom === 'week'
-        ? dt.toISOString().slice(5, 10)
-        : `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`,
-    );
+  const monthOffsets =
+    zoom === 'month' ? [-2, -1, 0] :
+    zoom === '6m' ? [-5, -4, -3, -2, -1, 0] :
+    zoom === '12m' ? Array.from({ length: 12 }, (_, i) => i - 11) :
+    Array.from({ length: 12 }, (_, i) => i - m);
+
+  for (const offset of monthOffsets) {
+    const start = new Date(Date.UTC(y, m + offset, 1));
+    const end = new Date(Date.UTC(y, m + offset + 1, 0));
+    const startIso = toIsoDate(start);
+    const endIso = toIsoDate(end);
+    const yr = start.getUTCFullYear();
+    const mo = start.getUTCMonth();
+    buckets.push({
+      key: `${yr}-${String(mo + 1).padStart(2, '0')}`,
+      label: MONTH_SHORT[mo],
+      subLabel: mo === 0 || offset === monthOffsets[0] ? String(yr) : undefined,
+      startIso,
+      endIso,
+      isCurrent: todayIso >= startIso && todayIso <= endIso,
+    });
   }
-  return { start, end, labels };
+  return buckets;
+}
+
+function compactEventLabel(ev: AiReleaseEventItem): string {
+  if (ev.modelName && ev.modelName.trim().length > 0) {
+    if (ev.eventType === 'retirement') return `${ev.modelName} (Retired)`;
+    if (ev.eventType === 'deprecation') return `${ev.modelName} (Deprecated)`;
+    return ev.modelName;
+  }
+  return ev.title;
 }
 
 export function AiTimelineGrid({
@@ -73,39 +109,52 @@ export function AiTimelineGrid({
   const { t } = useI18n();
   const [zoom, setZoom] = useState<TimelineZoom>('12m');
   const [anchor, setAnchor] = useState<Date>(() => new Date());
-  const [todayMs] = useState<number>(() => Date.now());
+  const [todayIso] = useState<string>(() => toIsoDate(new Date()));
   const [hovered, setHovered] = useState<{ ev: AiReleaseEventItem; x: number; y: number } | null>(null);
 
-  const bounds = useMemo(() => getWindowBounds(zoom, anchor), [zoom, anchor]);
-  const totalMs = Math.max(1, bounds.end.getTime() - bounds.start.getTime());
-
-  const todayPct = useMemo(() => {
-    const pct = ((todayMs - bounds.start.getTime()) / totalMs) * 100;
-    return pct >= 0 && pct <= 100 ? pct : null;
-  }, [todayMs, bounds.start, totalMs]);
+  const buckets = useMemo(() => buildTimeBuckets(zoom, anchor, todayIso), [zoom, anchor, todayIso]);
 
   const visibleVendors = useMemo(() => {
     if (!selectedVendor) return vendors;
     return vendors.filter((v) => v.slug === selectedVendor);
   }, [vendors, selectedVendor]);
 
-  const eventsByVendor = useMemo(() => {
+  const windowStartIso = buckets[0]?.startIso ?? '1970-01-01';
+  const windowEndIso = buckets[buckets.length - 1]?.endIso ?? '2999-12-31';
+
+  const eventsByVendorAndBucket = useMemo(() => {
     const map = new Map<string, AiReleaseEventItem[]>();
     for (const ev of events) {
-      const list = map.get(ev.vendorSlug) ?? [];
+      if (ev.eventDate < windowStartIso || ev.eventDate > windowEndIso) continue;
+      const bucket = buckets.find((b) => ev.eventDate >= b.startIso && ev.eventDate <= b.endIso);
+      if (!bucket) continue;
+      const key = `${ev.vendorSlug}::${bucket.key}`;
+      const list = map.get(key) ?? [];
       list.push(ev);
-      map.set(ev.vendorSlug, list);
+      map.set(key, list);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.title.localeCompare(b.title));
     }
     return map;
-  }, [events]);
+  }, [events, buckets, windowStartIso, windowEndIso]);
 
-  const positionPct = (dateStr: string): number | null => {
-    const ts = Date.parse(`${dateStr}T00:00:00Z`);
-    if (!Number.isFinite(ts)) return null;
-    const pct = ((ts - bounds.start.getTime()) / totalMs) * 100;
-    if (pct < -2 || pct > 102) return null;
-    return Math.max(4, Math.min(96, pct));
-  };
+  const vendorCountsInWindow = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const [k, list] of eventsByVendorAndBucket.entries()) {
+      const slug = k.split('::')[0];
+      counts.set(slug, (counts.get(slug) ?? 0) + list.length);
+    }
+    return counts;
+  }, [eventsByVendorAndBucket]);
+
+  const totalVisibleInWindow = useMemo(
+    () => Array.from(vendorCountsInWindow.values()).reduce((sum, n) => sum + n, 0),
+    [vendorCountsInWindow],
+  );
+
+  const colMinWidth = zoom === 'week' ? 180 : zoom === 'month' ? 210 : 148;
+  const gridTrackColumns = `184px repeat(${buckets.length}, minmax(${colMinWidth}px, 1fr))`;
 
   return (
     <section className="ai-section" id="timeline" aria-label={t('AI Release Timeline', 'AI 产品发布时间轴')}>
@@ -123,20 +172,22 @@ export function AiTimelineGrid({
 
       <div className="ai-timeline-shell">
         <div className="ai-timeline-toolbar">
-          <div className="ai-timeline-toolbar__group" role="group" aria-label={t('Time range', '时间缩放')}>
-            {(['week', 'month', '6m', '12m', 'year'] as TimelineZoom[]).map((z) => (
-              <button
-                key={z}
-                type="button"
-                className={`ai-dark-btn ${zoom === z ? 'is-active' : ''}`}
-                onClick={() => setZoom(z)}
-              >
-                {z === 'week' ? t('Week', '周') : z === 'month' ? t('Month', '月') : z === '6m' ? '6M' : z === '12m' ? '12M' : t('Year', '全年')}
-              </button>
-            ))}
+          <div className="ai-timeline-toolbar__group">
+            <div className="ai-zoom-segmented" role="group" aria-label={t('Time range', '时间缩放')}>
+              {(['week', 'month', '6m', '12m', 'year'] as TimelineZoom[]).map((z) => (
+                <button
+                  key={z}
+                  type="button"
+                  className={`ai-dark-btn ${zoom === z ? 'is-active' : ''}`}
+                  onClick={() => setZoom(z)}
+                >
+                  {z === 'week' ? t('Week', '周') : z === 'month' ? t('Month', '月') : z === '6m' ? '6M' : z === '12m' ? '12M' : t('Year', '全年')}
+                </button>
+              ))}
+            </div>
             <button
               type="button"
-              className="ai-dark-btn"
+              className="ai-dark-btn ai-today-reset-btn"
               onClick={() => setAnchor(new Date())}
               title={t('Reset to today', '回到今天')}
             >
@@ -183,12 +234,11 @@ export function AiTimelineGrid({
               <option value="deprecated">{t('Deprecated', '已弃用')}</option>
             </select>
 
-            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-              <Search size={13} style={{ position: 'absolute', left: 9, color: '#9cb5ae', pointerEvents: 'none' }} />
+            <div className="ai-search-wrap">
+              <Search size={13} className="ai-search-icon" />
               <input
                 type="search"
                 className="ai-dark-input"
-                style={{ paddingLeft: 28, width: 170 }}
                 placeholder={t('Search model/event...', '搜索模型或事件...')}
                 value={searchQuery}
                 onChange={(e) => onSearchQueryChange(e.target.value)}
@@ -198,32 +248,37 @@ export function AiTimelineGrid({
         </div>
 
         <div className="ai-timeline-legend">
-          <span>
-            <i className="ai-legend-dot" style={{ background: '#009f81', border: '1px solid #9df264' }} />
-            {t('Verified Released', '官方已发布')}
+          <div className="ai-timeline-legend__items">
+            <span>
+              <i className="ai-legend-dot is-released" />
+              {t('Verified Released', '官方已发布')}
+            </span>
+            <span>
+              <i className="ai-legend-dot is-future" />
+              {t('Announced (Upcoming)', '官宣待发布')}
+            </span>
+            <span>
+              <i className="ai-legend-dot is-today" />
+              {t('Current Period', '当前周期')}
+            </span>
+            <span>{t('~ = Month precision (exact day unconfirmed)', '~ = 仅精确到月（日期待官宣）')}</span>
+          </div>
+          <span className="ai-timeline-count">
+            {t(`${totalVisibleInWindow} events in window`, `当前时间窗共 ${totalVisibleInWindow} 条已核验事件`)}
           </span>
-          <span>
-            <i className="ai-legend-dot" style={{ background: 'transparent', border: '1px dashed #cbd5e1' }} />
-            {t('Announced (Upcoming)', '官宣待发布')}
-          </span>
-          <span>
-            <i className="ai-legend-dot" style={{ background: '#9df264' }} />
-            {t('Today Marker', '今日基准线')}
-          </span>
-          <span>{t('~ = Month precision (exact day unconfirmed)', '~ = 仅精确到月（日期待官宣）')}</span>
         </div>
 
         {loading ? (
-          <div style={{ padding: 36, textAlign: 'center', color: '#9cb5ae', fontSize: 13.5 }}>
+          <div className="ai-timeline-empty">
             {t('Loading verified AI release timeline...', '正在加载官方已核验 AI 发布时间轴...')}
           </div>
         ) : events.length === 0 ? (
-          <div style={{ padding: '42px 24px', textAlign: 'center', color: '#9cb5ae' }}>
-            <Calendar size={26} style={{ marginBottom: 10, opacity: 0.7 }} />
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#edf5f2', marginBottom: 6 }}>
+          <div className="ai-timeline-empty">
+            <Calendar size={26} style={{ marginBottom: 10, opacity: 0.6, color: '#009f81' }} />
+            <div className="ai-timeline-empty__title">
               {t('No verified release events match the current filter', '当前筛选条件下暂无已核验发布事件')}
             </div>
-            <p style={{ margin: 0, fontSize: 13, maxWidth: 480, marginInline: 'auto' }}>
+            <p className="ai-timeline-empty__desc">
               {t(
                 'SIFTLINE only displays release events verified against official announcements or primary changelogs. Try widening the filter or check the official updates stream below.',
                 'SIFTLINE 仅展示经官方一手来源核验的发布事件，不展示未经核实的传闻或占位数据。可尝试放宽筛选或查看下方官方动态。',
@@ -232,59 +287,61 @@ export function AiTimelineGrid({
           </div>
         ) : (
           <>
-            {/* Desktop Horizontal Vendor x Time Matrix */}
+            {/* Desktop Horizontal Vendor x Time-Bucket Matrix */}
             <div className="ai-timeline-scroll">
-              <div className="ai-timeline-grid">
-                <div className="ai-timeline-header-row">
+              <div className="ai-timeline-grid" style={{ minWidth: `${184 + buckets.length * colMinWidth}px` }}>
+                <div className="ai-timeline-header-row" style={{ gridTemplateColumns: gridTrackColumns }}>
                   <div className="ai-timeline-vendor-col">{t('Vendor', '厂商')}</div>
-                  <div
-                    className="ai-timeline-months"
-                    style={{ gridTemplateColumns: `repeat(${bounds.labels.length}, minmax(0, 1fr))` }}
-                  >
-                    {bounds.labels.map((lbl) => (
-                      <div key={lbl} className="ai-timeline-month-cell">{lbl}</div>
-                    ))}
-                  </div>
+                  {buckets.map((b) => (
+                    <div key={b.key} className={`ai-timeline-month-cell ${b.isCurrent ? 'is-current' : ''}`}>
+                      <span>{b.label}</span>
+                      {b.subLabel && <span className="ai-month-year">{b.subLabel}</span>}
+                      {b.isCurrent && <span className="ai-current-pill">{t('Now', '当前')}</span>}
+                    </div>
+                  ))}
                 </div>
 
                 {visibleVendors.map((v) => {
-                  const rowEvents = eventsByVendor.get(v.slug) ?? [];
+                  const rowCount = vendorCountsInWindow.get(v.slug) ?? 0;
+                  const brandColor = v.brandColor || '#009f81';
                   return (
-                    <div key={v.id} className="ai-timeline-row">
+                    <div key={v.id} className="ai-timeline-row" style={{ gridTemplateColumns: gridTrackColumns }}>
                       <div className="ai-timeline-vendor-col">
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 13 }}>
-                          <span className="ai-vendor-dot" style={{ background: v.brandColor || '#009f81' }} />
-                          {v.name}
+                        <span className="ai-vendor-identity">
+                          <span className="ai-vendor-logo-badge" style={{ color: brandColor }}>
+                            <AiVendorLogo slug={v.slug} size={18} color={brandColor} />
+                          </span>
+                          <span className="ai-vendor-name">{v.name}</span>
                         </span>
-                        <span style={{ fontSize: 11, color: '#84a29a' }}>{rowEvents.length}</span>
+                        <span className="ai-vendor-count">{rowCount}</span>
                       </div>
-                      <div className="ai-timeline-track" style={{ minHeight: Math.max(58, 38 + Math.min(rowEvents.length, 3) * 26) }}>
-                        {todayPct !== null && <div className="ai-today-line" style={{ left: `${todayPct}%` }} />}
-                        {rowEvents.map((ev, idx) => {
-                          const left = positionPct(ev.eventDate);
-                          if (left === null) return null;
-                          const lane = idx % 3;
-                          return (
-                            <button
-                              key={ev.id}
-                              type="button"
-                              className={`ai-event-chip ${ev.eventStatus === 'announced_future' ? 'is-future' : ''} ${ev.datePrecision === 'month' ? 'is-month-precision' : ''}`}
-                              style={{ left: `${left}%`, top: `${10 + lane * 30}px` }}
-                              onClick={() => onSelectEvent(ev.id)}
-                              onMouseEnter={(e) => setHovered({ ev, x: e.clientX, y: e.clientY })}
-                              onMouseMove={(e) => setHovered({ ev, x: e.clientX, y: e.clientY })}
-                              onMouseLeave={() => setHovered(null)}
-                              onFocus={(e) => {
-                                const r = e.currentTarget.getBoundingClientRect();
-                                setHovered({ ev, x: r.left, y: r.bottom });
-                              }}
-                              onBlur={() => setHovered(null)}
-                            >
-                              {ev.title}
-                            </button>
-                          );
-                        })}
-                      </div>
+                      {buckets.map((b) => {
+                        const cellEvents = eventsByVendorAndBucket.get(`${v.slug}::${b.key}`) ?? [];
+                        return (
+                          <div key={b.key} className={`ai-timeline-cell ${b.isCurrent ? 'is-current' : ''}`}>
+                            {cellEvents.map((ev) => (
+                              <button
+                                key={ev.id}
+                                type="button"
+                                className={`ai-event-chip ${ev.eventStatus === 'announced_future' ? 'is-future' : ''} ${ev.datePrecision === 'month' ? 'is-month-precision' : ''}`}
+                                onClick={() => onSelectEvent(ev.id)}
+                                onMouseEnter={(e) => setHovered({ ev, x: e.clientX, y: e.clientY })}
+                                onMouseMove={(e) => setHovered({ ev, x: e.clientX, y: e.clientY })}
+                                onMouseLeave={() => setHovered(null)}
+                                onFocus={(e) => {
+                                  const r = e.currentTarget.getBoundingClientRect();
+                                  setHovered({ ev, x: r.left, y: r.bottom });
+                                }}
+                                onBlur={() => setHovered(null)}
+                                title={ev.title}
+                              >
+                                <AiVendorLogo slug={v.slug} size={13} color={brandColor} />
+                                <span className="ai-event-chip__text">{compactEventLabel(ev)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
@@ -300,11 +357,14 @@ export function AiTimelineGrid({
                   className="ai-mobile-event-card"
                   onClick={() => onSelectEvent(ev.id)}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: '#9cb5ae' }}>
-                    <span>{ev.vendorName} · {ev.eventType}</span>
+                  <div className="ai-mobile-event-card__meta">
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <AiVendorLogo slug={ev.vendorSlug} size={14} />
+                      <span>{ev.vendorName} · {ev.eventType}</span>
+                    </span>
                     <span>{ev.datePrecision === 'month' ? `${ev.eventDate.slice(0, 7)} (~)` : ev.eventDate}</span>
                   </div>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>{ev.title}</div>
+                  <div className="ai-mobile-event-card__title">{ev.title}</div>
                 </button>
               ))}
             </div>
@@ -321,16 +381,19 @@ export function AiTimelineGrid({
             top: Math.min(window.innerHeight - 160, Math.max(12, hovered.y + 14)),
           }}
         >
-          <div style={{ fontSize: 11, color: '#9df264', fontWeight: 700, marginBottom: 4 }}>
-            {hovered.ev.vendorName} · {hovered.ev.datePrecision === 'month' ? `${hovered.ev.eventDate.slice(0, 7)} (month)` : hovered.ev.eventDate}
+          <div className="ai-hover-popover__meta">
+            <AiVendorLogo slug={hovered.ev.vendorSlug} size={13} />
+            <span>
+              {hovered.ev.vendorName} · {hovered.ev.datePrecision === 'month' ? `${hovered.ev.eventDate.slice(0, 7)} (~)` : hovered.ev.eventDate}
+            </span>
           </div>
-          <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 4 }}>{hovered.ev.title}</div>
+          <div className="ai-hover-popover__title">{hovered.ev.title}</div>
           {(hovered.ev.summaryZh || hovered.ev.summaryEn) && (
-            <div style={{ color: '#c4dad3', lineHeight: 1.45 }}>
+            <div className="ai-hover-popover__summary">
               {(hovered.ev.summaryZh || hovered.ev.summaryEn || '').slice(0, 140)}
             </div>
           )}
-          <div style={{ marginTop: 6, fontSize: 11, color: '#84a29a' }}>
+          <div className="ai-hover-popover__cta">
             {t('Click to inspect official evidence & specs →', '点击查看官方主证据与规格变动 →')}
           </div>
         </div>
