@@ -42,13 +42,30 @@ test("PG16 forward migration failure rolls back DDL/ledger, 050 drops legacy sch
   const tables = (
     await db.pool.query("SELECT tablename FROM pg_tables WHERE schemaname='public'")
   ).rows.map((r) => r.tablename);
-  // 053 新增文档中心 doc_page，公网表预算上限仍为 24
-  assert.equal(tables.length, 24);
-  assert.ok(tables.length <= 24, "public table budget is 24");
+  // 053 新增文档中心 doc_page，054 新增 AI 发布日历与模型情报 14 张表（总计 38 张业务表）
+  assert.equal(tables.length, 38);
   assert.ok(tables.includes("source_provider_credential"));
   assert.ok(tables.includes("plan_collection_policy"));
   assert.ok(tables.includes("user_provider_usage"));
   assert.ok(tables.includes("doc_page"));
+  for (const aiTable of [
+    "ai_vendor",
+    "ai_vendor_source",
+    "ai_model",
+    "ai_model_alias",
+    "ai_registry_source",
+    "ai_registry_listing",
+    "ai_registry_change",
+    "ai_model_spec_observation",
+    "ai_event_candidate",
+    "ai_release_event",
+    "ai_event_reference",
+    "ai_sync_run",
+    "ai_benchmark_snapshot",
+    "ai_benchmark_entry",
+  ]) {
+    assert.ok(tables.includes(aiTable), `${aiTable} should exist after 054`);
+  }
   for (const dropped of ["research_export", "research_export_member", "saved_workbench_view", "collection_job", "monitor_target"]) {
     assert.equal(tables.includes(dropped), false, `${dropped} should be dropped`);
   }

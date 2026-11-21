@@ -23,6 +23,6 @@
 
 - **真实性红线**：`MUST NOT` 将 `[V2]` 规划项（如 `linkedom`/`Readability`、`story_cluster`、`stream_class`、`/discovery/query`、`/content/:id/enrich`）或未启用渠道写成 `[LIVE]`；用户指令高于规划。
 - **单主干与反漂移红线**：仓库唯一常驻主干为 **`main`**（不设常驻 `develop`/`prod`）；所有改动须从最新 `origin/main` 切短分支（`feat/*` `<= 3` 天、`fix/*` `<= 1` 天），合前以 `git merge/rebase origin/main` 同步（严禁跨分支拷贝覆盖文件），AI 解冲突后必须核对 `git diff origin/main --stat` 且全量 CI 绿灯后 `Squash and Merge`；发版打 `vX.Y.Z` 不可变 Tag。
-- **精简建表纪律**：`001..050` 为不可变已应用迁移（由 `scripts/check-docs.ts` 强制拦截篡改），已合入 `main` 的 `051+` 迁移同样不可改写；当前核心库为 `23` 张表（含 `051`/`052` 凭证与动态配额），总表上限严格 **`<= 24` 张**，PR 须声明表增量与顺延编号，永不恢复已删 27 张历史表、7 张 R4 设想表或冻结导出表。
+- **建表与迁移纪律**：`001..053` 为不可变已应用迁移（`001..050` 由 `scripts/check-docs.ts` 强制拦截篡改，已合入 `main` 的 `051+` 迁移同样不可改写）；取消旧“总表上限 `<= 24`”约束，当前核心库为 `38` 张表（含 `051`/`052` 凭证与配额、`053` 文档中心、`054` AI 发布日历与模型情报 14 表），新 PR 须声明「新建表 `+N` / 当前总计 `X`；索引与写入成本评估」并顺延编号，永不恢复已删 27 张历史表或冻结导出表。
 - **主线与外挂隔离**：主线只运行轻量 `Fastify 5 + TypeBox + PG16 + React`（零 Python/DuckDB/Chromium）；R4 `plugins/zst-archive/` 与 L3 重型/强反爬采集器 `MUST` 外置运行，只持带明确 `allowedSourceIds` 与 `ingest` scope 的 Machine Key 调用 `POST /v1/sources/:id/ingest`。
 - **五模块与写入纪律**：`access`、`collection`、`content`、`projects`、`workspace` 仅允许平铺命名 SQL 函数（`<= 450` 行/文件、`<= 220` 字/代码行、禁 `class`/`*Repository`/`InMemory*`）；全库唯一内容写入口为 `commitContentBatch`；`/v1/content/*` 仅 `GET/HEAD` 映射 `read` scope；付费渠道 `unknown` 永不自动重放；禁输出密钥、禁无授权 `git push --force`。
