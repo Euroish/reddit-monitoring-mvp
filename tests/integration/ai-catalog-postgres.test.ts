@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPool } from "../../src/storage/db";
-import { runMigrations } from "../../src/storage/schema/run-migrations";
+import { testDatabase } from "../helpers/database";
 import { buildApp } from "../../apps/api/src/app";
 import { bootstrapOwner } from "../../src/modules/access/sql";
 import { parseLiteLlmPayload, parseOpenRouterPayload } from "../../src/modules/content/ai-registry";
@@ -23,16 +22,10 @@ function extractCookie(res: { headers: Record<string, unknown> }): string {
 test(
   "AI release intelligence PG16 integration: sync diff, RBAC, revision lock, publish/unpublish, publicRead gate",
   { skip: !dbUrl },
-  async () => {
-    const pool = createPool(dbUrl, 6);
-    await runMigrations({ pool });
-    // Clean AI test tables (keep seeded vendors and registry sources)
-    await pool.query(
-      `TRUNCATE ai_benchmark_entry, ai_benchmark_snapshot, ai_sync_run, ai_event_reference,
-                ai_release_event, ai_event_candidate, ai_model_spec_observation, ai_registry_change,
-                ai_registry_listing, ai_model_alias, ai_model RESTART IDENTITY CASCADE`,
-    );
-    await pool.query(`UPDATE ai_registry_source SET etag = NULL, last_blob_sha = NULL, last_success_at = NULL, consecutive_failures = 0`);
+  async (t) => {
+    const db = await testDatabase();
+    t.after(db.close);
+    const pool = db.pool;
 
     await bootstrapOwner(pool, "OwnerPass123!@#", "ai-owner@example.test");
 
@@ -407,7 +400,6 @@ test(
     } finally {
       await app.close();
       await privateApp.close();
-      await pool.end();
     }
   },
 );
