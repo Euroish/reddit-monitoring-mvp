@@ -9,6 +9,7 @@ import {
   ProviderCredentialTestInput,
   type Actor,
 } from "../../../packages/contracts/src/source-content";
+import { createApifyFetch } from "../../connectors/reddit/apify-fetch";
 import { fail, transaction } from "../../storage/db";
 
 export type CredentialVendorName = "apify" | "twitterapis" | "scrapebadger";
@@ -75,7 +76,9 @@ export function createCredentialVault(pool: Pool, sessionSecret: string, env = p
   const encryptionKey = deriveCredentialKey(sessionSecret, env);
   const dbSecrets = new Map<CredentialVendorName, string>();
   let apifyConflict = false;
-  const envSecret = (vendor: CredentialVendorName) => env[ENV_KEY_BY_VENDOR[vendor]]?.trim() || undefined;
+  const apifyRelay = Boolean(env.APIFY_RELAY_ORIGIN?.trim());
+  const envSecret = (vendor: CredentialVendorName) =>
+    vendor === "apify" && apifyRelay ? "managed-by-apify-relay" : env[ENV_KEY_BY_VENDOR[vendor]]?.trim() || undefined;
 
   async function reload() {
     const res = await pool.query<{ provider: CredentialLookupName; encrypted_secret: string }>(
@@ -83,6 +86,7 @@ export function createCredentialVault(pool: Pool, sessionSecret: string, env = p
     );
     const rawMap = new Map<CredentialLookupName, string>();
     for (const row of res.rows) {
+      if (apifyRelay && toCanonicalVendor(row.provider) === "apify") continue;
       rawMap.set(row.provider, decryptCredentialSecret(row.encrypted_secret, encryptionKey));
     }
     const next = new Map<CredentialVendorName, string>();
@@ -124,7 +128,7 @@ export function createCredentialVault(pool: Pool, sessionSecret: string, env = p
     return VENDORS.map((vendor) => {
       const dbRow =
         vendor === "apify"
-          ? (byKey.get("apify") ?? byKey.get("kaix") ?? byKey.get("red_crawler"))
+          ? (apifyRelay ? undefined : (byKey.get("apify") ?? byKey.get("kaix") ?? byKey.get("red_crawler")))
           : byKey.get(vendor);
       const envVal = envSecret(vendor);
       const source = dbRow ? ("db" as const) : envVal ? ("env" as const) : ("none" as const);
@@ -152,6 +156,7 @@ export function createCredentialVault(pool: Pool, sessionSecret: string, env = p
     revision?: number,
   ) {
     const vendor = toCanonicalVendor(target);
+    if (vendor === "apify" && apifyRelay) fail(409, "Manage the Apify token through the isolated relay");
     const clean = validateApiKeyFormat(rawKey);
     const keyHint = maskSecret(clean);
     const encrypted = encryptCredentialSecret(clean, encryptionKey);
@@ -188,6 +193,7 @@ export function createCredentialVault(pool: Pool, sessionSecret: string, env = p
 
   async function revokeCredential(target: CredentialLookupName, actor: Actor) {
     const vendor = toCanonicalVendor(target);
+    if (vendor === "apify" && apifyRelay) fail(409, "Manage the Apify token through the isolated relay");
     await transaction(pool, async (client) => {
       if (vendor === "apify") {
         await client.query("DELETE FROM source_provider_credential WHERE provider IN ('apify','kaix','red_crawler')");
@@ -229,6 +235,7 @@ export async function credentialRoutes(
   fetchPage: typeof fetch = fetch,
 ) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
+  const apifyFetch = createApifyFetch(vault.env, fetchPage);
   api.get("/v1/sources/credentials", async (request) => {
     requireAdminBrowser(request.actor!);
     return {
@@ -286,7 +293,7 @@ export async function credentialRoutes(
       const timer = AbortSignal.timeout(8000);
       try {
         if (vendor === "apify") {
-          const res = await fetchPage("https://api.apify.com/v2/users/me", {
+          const res = await apifyFetch("https://api.apify.com/v2/users/me", {
             headers: { Authorization: `Bearer ${secret}` },
             signal: timer,
             redirect: "error",
