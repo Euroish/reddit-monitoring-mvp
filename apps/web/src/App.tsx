@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Lock, RefreshCw } from 'lucide-react';
 import { formatApiError, useCapabilitiesQuery, useSessionQuery } from './api/hooks';
 import { AuthModal } from './components/AuthModal';
@@ -14,7 +14,10 @@ import { StoriesPage } from './pages/StoriesPage';
 import { type WorkbenchRoute, WorkbenchShell } from './pages/WorkbenchShell';
 import { WorkspacePage } from './pages/WorkspacePage';
 
-type AppRoute = WorkbenchRoute | '/product' | '__not_found__';
+// The guide ships as its own chunk: it is a long document most sessions never open.
+const GuidePage = lazy(() => import('./pages/GuidePage').then((m) => ({ default: m.GuidePage })));
+
+type AppRoute = WorkbenchRoute | '/product' | '/guide' | '__not_found__';
 
 const WORKBENCH_ROUTES: WorkbenchRoute[] = [
   '/',
@@ -37,6 +40,8 @@ function parseLocation(): { pathname: AppRoute; rawPathname: string; search: str
   let pathname: AppRoute = '__not_found__';
   if (rawPathname === '/product') {
     pathname = '/product';
+  } else if (rawPathname === '/guide') {
+    pathname = '/guide';
   } else if (WORKBENCH_ROUTES.includes(rawPathname as WorkbenchRoute)) {
     pathname = rawPathname as WorkbenchRoute;
   }
@@ -222,6 +227,40 @@ export function App() {
                 }
               }}
             />
+          </LogoProvider>
+        </ThemeProvider>
+      </LangContext.Provider>
+    );
+  }
+
+  // Consumer-facing product guide (Apple Support style), linked from the avatar menu
+  if (loc.pathname === '/guide') {
+    return (
+      <LangContext.Provider value={{ lang, setLang, t }}>
+        <ThemeProvider>
+          <LogoProvider>
+            <Suspense
+              fallback={
+                <div
+                  style={{
+                    minHeight: '100vh',
+                    display: 'grid',
+                    placeItems: 'center',
+                    background: 'var(--wb-bg)',
+                    color: 'var(--muted)',
+                    fontSize: 13,
+                  }}
+                >
+                  {t('Opening the guide…', '正在打开使用手册…')}
+                </div>
+              }
+            >
+              <GuidePage
+                isAuthenticated={Boolean(actor)}
+                onNavigate={navigate}
+                onOpenAuth={() => openAuth('login', undefined, '/projects')}
+              />
+            </Suspense>
           </LogoProvider>
         </ThemeProvider>
       </LangContext.Provider>
