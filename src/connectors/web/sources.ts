@@ -166,7 +166,6 @@ function listEntries(body: string, config: ListConfig, base: string, preview?: b
 const boards = {
   hackernews: hn,
   "bilibili-hot-video": "https://api.bilibili.com/x/web-interface/popular",
-  "zhihu-hot": "https://api.zhihu.com/topstory/hot-lists/total?limit=30",
   "google-trends-us": "https://trends.google.com/trending/rss?geo=US",
   "v2ex-share": "https://www.v2ex.com/feed/share.json",
   "github-trending": "https://github.com/trending",
@@ -344,21 +343,8 @@ export function webSource(provider: "feed" | "newsnow", env = process.env, readP
       }
       const board = (target as Extract<SourceTarget, { type: "search" }>).query as Board;
       const response = await readPage(new URL(boards[board]), input.signal, undefined, timeoutMs);
-      if (board === "zhihu-hot" || board === "google-trends-us") {
+      if (board === "google-trends-us") {
         const common = { provider, sourceId: input.source.id, fetchedAt, feedUrl: null, board };
-        if (board === "zhihu-hot") {
-          const rows = jsonField(jsonDocument(response.body), "data");
-          if (!Array.isArray(rows) || !rows.length) throw new ContentProviderError("Invalid Zhihu hot list", false);
-          const items = rows.slice(0, limit).flatMap((row, index) => {
-            // The URL carries the exact ID. The JSON number can exceed JavaScript's safe integer range.
-            const id = jsonText(row, "target.url")?.match(/\/questions?\/(\d+)(?:[/?#]|$)/u)?.[1];
-            const title = clean(jsonText(row, "target.title") ?? "");
-            return id && title ? [article({ ...common, title, text: clean(jsonText(row, "target.excerpt") ?? "") || null,
-              url: new URL(`https://www.zhihu.com/question/${id}`), publishedAt: null, rank: index + 1 })] : [];
-          });
-          if (!items.length) throw new ContentProviderError("No valid Zhihu questions", false);
-          return boardPage(items);
-        }
         const feed = await parser.parseString(response.body).catch(() => {
           throw new ContentProviderError("Invalid Google Trends RSS", false);
         });

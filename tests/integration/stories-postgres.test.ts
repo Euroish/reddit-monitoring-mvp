@@ -11,7 +11,7 @@ import { transaction } from "../../src/storage/db";
 import { batchItem } from "../helpers/content-batch-fixtures";
 import { testDatabase } from "../helpers/database";
 
-test("new boards preview, schedule and publish stories with real discovery rows", async t => {
+test("Hacker News and Google Trends preview, schedule and publish stories with real discovery rows", async t => {
   const db = await testDatabase();
   t.after(db.close);
   await bootstrapOwner(db.pool, "fixture-password-123", "owner@example.test");
@@ -19,8 +19,8 @@ test("new boards preview, schedule and publish stories with real discovery rows"
   const dated = new Date(Date.now() - 3_600_000).toUTCString();
   const connector = webSource("newsnow", { SOURCE_NETWORK_ENABLED: "true" }, async url => ({
     status: 200,
-    body: url.hostname === "api.zhihu.com"
-      ? JSON.stringify({ data: [{ target: { url: "https://api.zhihu.com/questions/2105702944855287688", title: "一个很热的话题" } }] })
+    body: url.hostname === "news.ycombinator.com"
+      ? `<table><tr class="athing" id="123"><td class="titleline"><a href="item?id=123">A Hacker News story</a></td></tr></table>`
       : `<rss version="2.0"><channel><title>Trends</title><link>${url}</link><description>Trends</description>
         <item><title>Storm warning</title><link>${url}</link><pubDate>${dated}</pubDate></item>
         <item><title>Baseball finals</title><link>${url}</link><pubDate>${dated}</pubDate></item></channel></rss>`,
@@ -32,13 +32,13 @@ test("new boards preview, schedule and publish stories with real discovery rows"
   assert.equal(login.statusCode, 200, login.body);
   const headers = { origin, cookie: login.headers["set-cookie"]!.toString().split(";")[0] };
   const ids: string[] = [];
-  for (const query of ["zhihu-hot", "google-trends-us"]) {
+  for (const query of ["hackernews", "google-trends-us"]) {
     const payload = { label: query, platform: "web", primaryProvider: "newsnow", deliveryMode: "pull", contentKind: "article",
       target: { type: "search", query }, schedule: { enabled: true, pageSize: 20, cadenceSeconds: 900, maxPages: 1 } };
     const preview = await app.inject({ method: "POST", url: "/v1/sources/preview", headers, payload });
     assert.equal(preview.statusCode, 200, preview.body);
-    assert.equal(preview.json().items.length, query === "zhihu-hot" ? 1 : 2);
-    if (query === "zhihu-hot") assert.equal(preview.json().items[0].url, "https://www.zhihu.com/question/2105702944855287688");
+    assert.equal(preview.json().items.length, query === "hackernews" ? 1 : 2);
+    if (query === "hackernews") assert.equal(preview.json().items[0].url, "https://news.ycombinator.com/item?id=123");
     const created = await app.inject({ method: "POST", url: "/v1/sources", headers, payload });
     assert.equal(created.statusCode, 200, created.body);
     assert.equal(created.json().source.tier, "T2");
