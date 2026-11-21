@@ -1,6 +1,6 @@
 # Agent 开发与协作入口（STD-100）
 
-作业前核实当前检出分支（主干统一为 `main`，生产目录 `/root/workspaces/reddit-monitoring-mvp`）及 `git status`，并遵守[团队分支治理与 AI 协作准则](docs/development.md#0-团队分支治理与-ai-协作准则)。`README.md` 硬上限 `<= 60` 行；禁止在 `scripts/release-package-lib.mjs` 允许清单（`DOCUMENTATION_FILES`，共 15 份）之外新增 `.md` 文件。
+作业前核实当前检出分支（主干统一为 `main`，生产目录 `/root/workspaces/reddit-monitoring-mvp`）及 `git status`，并遵守[团队分支治理与 AI 协作准则](docs/development.md#0-团队分支治理与-ai-协作准则)。`README.md` 硬上限 `<= 60` 行。仓库可新增 Markdown 文档，发布包按 `scripts/release-package-lib.mjs` 的 `DOCUMENTATION_FILES` 选档。
 
 ## 1. 两份唯一真源
 
@@ -11,7 +11,7 @@
 
 | 文档 | 唯一管辖范围 |
 | :--- | :--- |
-| [产品边界与口径](docs/README.md) | 信息流优先 + 选择性可视化定位、度量诚实性、建表纪律与全仓 15 文档清单 |
+| [产品边界与口径](docs/README.md) | 信息流优先 + 选择性可视化定位、度量诚实性、建表纪律与规范文档索引 |
 | [主线架构](docs/architecture.md) | 五模块拓扑、`20 -> <= 24` 表结构演进、L1–L3 扩源、SSRF/鉴权安全与 4 GB 预算 |
 | [数据与 API 契约](docs/contracts.md) | Domain 对象、版本/幂等、`[LIVE]` 已注册路径/操作 vs `[V2]` 规划接口规范 |
 | [前端与融合规范](docs/design.md) | 三模态界面、`[LIVE]` vs `[V2]` 边界、双层图表选型与 `semrush` 分支蒸馏矩阵 |
