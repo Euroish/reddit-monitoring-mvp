@@ -177,7 +177,7 @@ export function FigureAvatarMenu() {
         </div>
         <div className="gm-popitem gm-popitem--new">
           <BookOpen size={11} />
-          <span>产品使用说明</span>
+          <span>产品文档</span>
           <em>新增</em>
         </div>
         <div className="gm-popitem"><User size={11} /><span>账户与权限</span></div>

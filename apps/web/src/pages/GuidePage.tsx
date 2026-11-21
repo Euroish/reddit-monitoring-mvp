@@ -169,6 +169,9 @@ export function GuidePage({ isAuthenticated, onNavigate, onOpenAuth }: GuidePage
               aria-label="在本手册中查找主题"
             />
           </label>
+          <button type="button" className="gd-toplink" onClick={() => onNavigate('/docs')}>
+            文档中心
+          </button>
           <button type="button" className="gd-toplink" onClick={() => onNavigate('/product')}>
             产品介绍
           </button>
@@ -347,14 +350,14 @@ export function GuidePage({ isAuthenticated, onNavigate, onOpenAuth }: GuidePage
 
             <h3 className="gd-h3">你的账户菜单</h3>
             <p className="gd-p">
-              点击顶栏右上角的头像缩写，会展开账户菜单。这次我们在「账户与权限」上方新增了「产品使用说明」——无论你走到哪一页，都能从这里一键回到这份手册。
+              点击顶栏右上角的头像缩写，会展开账户菜单。菜单里的「产品文档」位于「账户与权限」上方，点开是文档中心：这份使用说明置顶在第一屏，功能说明、服务条款与运营公告也都在那里。
             </p>
 
             <Figure
               index={2}
               caption={
                 <>
-                  <b>①</b> 头像缩写，点击展开菜单；<b>②</b> 新增的「产品使用说明」入口，位于「账户与权限」与「机器 API 密钥」之上。
+                  <b>①</b> 头像缩写，点击展开菜单；<b>②</b> 「产品文档」入口，位于「账户与权限」与「机器 API 密钥」之上。
                 </>
               }
             >

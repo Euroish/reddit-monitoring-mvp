@@ -2,7 +2,7 @@
 
 单机高密度多源信息流、可控数据可视化与个人/Agent 知识库（`Fastify 5 + TypeBox + PostgreSQL 16 + React 19`）。
 
-- **`[LIVE]`（`main` 单主干）**：`23` 张 PG16 核心表（`001..052`，含凭证加密库与 Free/Pro 动态配额）、开放式匿名阅读故事流、防刷屏 7d 分页与精简 Siftline 前端（首页原生 SVG 零重包 + 分析页 `React.lazy` `echarts/core`）；支持动态 SSRF 校验 HTTPS 订阅、`web_list`/`json_list`、OPML/JSON 批量导入与双字词 GIN 检索。
+- **`[LIVE]`（`main` 单主干）**：`24` 张 PG16 核心表（`001..053`，含凭证加密库、Free/Pro 动态配额与文档中心 `doc_page`）、开放式匿名阅读故事流、防刷屏 7d 分页与精简 Siftline 前端（首页原生 SVG 零重包 + 分析页 `React.lazy` `echarts/core`）；支持动态 SSRF 校验 HTTPS 订阅、`web_list`/`json_list`、OPML/JSON 批量导入与双字词 GIN 检索。
 - **`[V2]`（未上线规划，见 [status.md](docs/status.md)）**：阅读状态与 `为你` RRF、持久化事件归属（须协调 `<= 24` 表预算）、L3 实时推流、Readability 正文提取与按需 AI 摘要。
 
 ## 本地门禁、协作准则与文档校验

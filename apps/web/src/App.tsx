@@ -16,8 +16,9 @@ import { WorkspacePage } from './pages/WorkspacePage';
 
 // The guide ships as its own chunk: it is a long document most sessions never open.
 const GuidePage = lazy(() => import('./pages/GuidePage').then((m) => ({ default: m.GuidePage })));
+const DocsPage = lazy(() => import('./pages/DocsPage').then((m) => ({ default: m.DocsPage })));
 
-type AppRoute = WorkbenchRoute | '/product' | '/guide' | '__not_found__';
+type AppRoute = WorkbenchRoute | '/product' | '/guide' | '/docs' | '__not_found__';
 
 const WORKBENCH_ROUTES: WorkbenchRoute[] = [
   '/',
@@ -42,6 +43,8 @@ function parseLocation(): { pathname: AppRoute; rawPathname: string; search: str
     pathname = '/product';
   } else if (rawPathname === '/guide') {
     pathname = '/guide';
+  } else if (rawPathname === '/docs') {
+    pathname = '/docs';
   } else if (WORKBENCH_ROUTES.includes(rawPathname as WorkbenchRoute)) {
     pathname = rawPathname as WorkbenchRoute;
   }
@@ -233,7 +236,42 @@ export function App() {
     );
   }
 
-  // Consumer-facing product guide (Apple Support style), linked from the avatar menu
+  // Documentation center: feature notes, terms and announcements (editable by admins)
+  if (loc.pathname === '/docs') {
+    return (
+      <LangContext.Provider value={{ lang, setLang, t }}>
+        <ThemeProvider>
+          <LogoProvider>
+            <Suspense
+              fallback={
+                <div
+                  style={{
+                    minHeight: '100vh',
+                    display: 'grid',
+                    placeItems: 'center',
+                    background: 'var(--wb-bg)',
+                    color: 'var(--muted)',
+                    fontSize: 13,
+                  }}
+                >
+                  {t('Opening the docs…', '正在打开文档中心…')}
+                </div>
+              }
+            >
+              <DocsPage
+                actor={actor}
+                search={loc.search}
+                onNavigate={navigate}
+                onOpenAuth={() => openAuth('login', undefined, '/docs')}
+              />
+            </Suspense>
+          </LogoProvider>
+        </ThemeProvider>
+      </LangContext.Provider>
+    );
+  }
+
+  // Consumer-facing product guide (Apple Support style), linked from the docs center
   if (loc.pathname === '/guide') {
     return (
       <LangContext.Provider value={{ lang, setLang, t }}>

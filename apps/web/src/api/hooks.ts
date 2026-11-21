@@ -4,6 +4,7 @@ import {
   type CollectionSource,
   type ContentFacetsQuery,
   type CredentialProviderName,
+  type DocInput,
   type ListQuery,
   type MachineScope,
   type ProjectInput,
@@ -603,6 +604,61 @@ export function useAccessAuditQuery(enabled = true) {
     queryKey: ['accessAudit'],
     queryFn: () => apiClient.getAccessAudit(),
     enabled,
+  });
+}
+
+export function useDocsQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['docs'],
+    queryFn: () => apiClient.getDocs(),
+    enabled,
+  });
+}
+
+export function useDocQuery(slug: string | null) {
+  return useQuery({
+    queryKey: ['doc', slug],
+    queryFn: () => apiClient.getDoc(slug!),
+    enabled: Boolean(slug),
+  });
+}
+
+function useDocInvalidation() {
+  const qc = useQueryClient();
+  return () => {
+    void qc.invalidateQueries({ queryKey: ['docs'] });
+  };
+}
+
+export function useCreateDocMutation() {
+  const invalidate = useDocInvalidation();
+  return useMutation({
+    mutationFn: (input: DocInput) => apiClient.createDoc(input),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateDocMutation() {
+  const invalidate = useDocInvalidation();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<DocInput> }) => apiClient.updateDoc(id, patch),
+    onSuccess: (doc) => {
+      invalidate();
+      qc.setQueryData(['doc', doc.slug], doc);
+    },
+  });
+}
+
+export function useDeleteDocMutation() {
+  const invalidate = useDocInvalidation();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.deleteDoc(id),
+    onSuccess: () => {
+      invalidate();
+      void qc.invalidateQueries({ queryKey: ['doc'] });
+    },
   });
 }
 

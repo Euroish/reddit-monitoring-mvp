@@ -43,18 +43,18 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 
 ---
 
-## 2. `[LIVE]` 入口地图与五模块所有权（`42` 后端核心 TS 文件）
+## 2. `[LIVE]` 入口地图与五模块所有权（`43` 后端核心 TS 文件）
 
 | 模块路径 | 文件数 / 体量 | 独家表所有权与核心职责 |
 | :--- | :--- | :--- |
 | **`apps/api/src/`** | 2F · 320L | `app.ts`（`requestTimeout: 30_000`、`connectionTimeout: 10_000`、`onRequest` 全局限流 120/min、`preParsing` Default-Deny 鉴权、Swagger `/v1/openapi.json`、`/v1/capabilities`）、`server.ts`（`apiPool: 8` + `workerPool: 4` + 7 Providers）。 |
 | **`src/modules/access/`** | 2F (`routes`, `sql`) | `app_user`、`app_user_password`、`app_invite`、`app_audit_log`、`app_session`（浏览器 Cookie + 43 字符一次性 SHA-256 `machine` API Key）。 |
 | **`src/modules/collection/`** | 9F (`config`, `hydrate`, `import`, `jobs`, `refresh`, `routes`, `schedule`, `sql`, `worker`) | `source`、`collection_source`、`source_collection_job`、`source_provider_budget`、`source_provider_usage`、`source_worker_heartbeat`；含预览、OPML/JSON 导入、到期扫描与 6 协程 Worker。 |
-| **`src/modules/content/`** | 9F (`batch`, `export`, `facets`, `routes`, `search`, `sql`, `stories`, `story-groups`, `thread`) | `content`、`content_discovery`、`content_observation`、`public_content_search_document`；唯一写函数 `commitContentBatch`、唯一过滤 `compileContentFilter`、48h 事件聚簇、分面、闭包树与流式导出。 |
+| **`src/modules/content/`** | 10F (`batch`, `docs`, `export`, `facets`, `routes`, `search`, `sql`, `stories`, `story-groups`, `thread`) | `content`、`content_discovery`、`content_observation`、`public_content_search_document`、`doc_page`；唯一写函数 `commitContentBatch`、唯一过滤 `compileContentFilter`、48h 事件聚簇、分面、闭包树、流式导出与文档中心（`markdown`/外链/PDF 单附件三种形态）。 |
 | **`src/modules/projects/`** | 2F (`routes`, `sql`) | `monitor_project`、`monitor_project_source`；项目三段词 `GROUPING SETS` 概览与显式 `kaix` 水合。 |
 | **`src/modules/workspace/`** | 2F (`routes`, `sql`) | `content_saved_query`、`content_annotation`（仅限浏览器会话隔离读写）。 |
 | **`src/connectors/`** | 9F · 2,162L | `web/{http,sources}`、`reddit/{kaix,red-crawler,kaix.config}`、`x/{twitterapis,scrapebadger}`、`bluesky/bluesky-appview-content.connector`、`shared/content-provider.interface`（**零 `pg` 依赖**）。 |
-| **`packages/contracts/src/` & `src/shared/` & `src/storage/`** | 3F + 2F + 2F | TypeBox 契约真源、`stable-id` / `language` 语言与通道识别、`db` 池/事务与 SQL 迁移运行器（合计后端核心 `42` 文件 · `~6,900` LOC）。 |
+| **`packages/contracts/src/` & `src/shared/` & `src/storage/`** | 3F + 2F + 2F | TypeBox 契约真源、`stable-id` / `language` 语言与通道识别、`db` 池/事务与 SQL 迁移运行器（合计后端核心 `43` 文件 · `~7,300` LOC）。 |
 
 | ID | 等级 | 模块边界与不可变迁移规则 | 验收出口 |
 | --- | --- | --- | --- |
