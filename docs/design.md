@@ -11,7 +11,6 @@
     - **`/`（公开信息首页 `PublicInfoHomePage`）**：`publicRead=true` 时匿名直读（`publicRead=false` 时呈现内联登录门控）；提供轻量检索框、8 频道浏览、今日精选、48h 热度、08:00 日报预览、共享 SVG 微图与 `ReaderDrawer`；首屏零 ECharts 且不加载工作台模块；旧 `/?view=...` 自动兼容跳转 `/app/feed?...`；
     - **`/product`（产品介绍页）**：嵌入 `Homepage.tsx` 主体（由 `PublicSiteShell` 统一导航与页脚，无双重导航），已清除虚构排行、客户评价与静态伪指标；
     - **`/ai`（AI 资讯过渡页）** 与 **`/docs`（公开产品文档页）**：统一公开站点布局，无虚构数据；
-    - 四个公开页面共用 `EditorialFooter`，由品牌操作区、白底导航与语言选择器、响应式字标横带组成。语言与页头同步，工作台入口沿用会话门控，数据来源与口径指向文档中心的置顶使用说明。「使用说明」所在的 `/guide` 保留独立布局。
   - **专业工作台（`WorkbenchShell`，路由级 `React.lazy` 分包）**：
     - **`/app/feed`（完整 Stories 信息流）**：保留 `latest`/`hot`/`digest` 三视图、历史日报、8 频道/等级/语种过滤、`j`/`k`/`m` 快捷键与 Markdown 复制；
     - **`/content`（内容检索与分面分析）**：`publicRead=true` 支持匿名检索、详情抽屉与真实 `/v1/content/facets` 按需分面分析（显示实际 UTC 窗口，查询跨度最多 90 天，推流样本按专题趋势设置计入），收藏/批注/保存查询/流式导出严格鉴权门控；

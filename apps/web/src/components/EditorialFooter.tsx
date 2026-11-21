@@ -1,17 +1,17 @@
-import type { MouseEvent } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 import { ArrowRight, ChevronDown } from 'lucide-react';
 import { useI18n } from '../i18n/translations';
-import { SiftlineLogo } from './BrandMark';
 import '../styles/editorial-footer.css';
 
 interface EditorialFooterProps {
+  brand: ReactNode;
   onNavigate: (path: string) => void;
   onOpenWorkbench: (targetPath?: string) => void;
 }
 
 const workbenchPath = '/projects';
 
-export function EditorialFooter({ onNavigate, onOpenWorkbench }: EditorialFooterProps) {
+export function EditorialFooter({ brand, onNavigate, onOpenWorkbench }: EditorialFooterProps) {
   const { lang, setLang, t } = useI18n();
   const groups = [
     {
@@ -79,15 +79,7 @@ export function EditorialFooter({ onNavigate, onOpenWorkbench }: EditorialFooter
       <div className="ef-links-surface">
         <div className="ef-inner">
           <nav className="ef-links-grid" aria-label={t('Footer navigation', '页脚导航')}>
-            <div className="ef-brand">
-              <SiftlineLogo size={34} fontSize={32} />
-              <p>
-                {t(
-                  'SIFTLINE connects the public information feed, AI news, and a research workbench in one place to discover signals.',
-                  'SIFTLINE 将公开信息流、AI 资讯与研究工作台连接为统一的信号发现体验。',
-                )}
-              </p>
-            </div>
+            {brand}
             {groups.map(({ title, links }) => (
               <div className="ef-link-group" key={title}>
                 <h3>{title}</h3>

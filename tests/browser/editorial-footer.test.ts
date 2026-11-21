@@ -112,8 +112,13 @@ test("browser: editorial footer routes, responsive layout, language and workbenc
   assert.equal(await language.inputValue(), "zh");
   assert.equal(await language.evaluate((element) => getComputedStyle(element).outlineStyle), "solid");
   await page.getByRole("navigation", { name: "公开导航", exact: true }).waitFor();
+  await footer.getByText("研究社媒讨论、追踪可信信源的资讯，并回到原始证据。", { exact: true }).waitFor();
   await language.selectOption("en");
   await page.getByRole("navigation", { name: "Public navigation", exact: true }).waitFor();
+  await footer.getByText(
+    "Research social conversations and follow stories from trusted sources, with evidence you can trace.",
+    { exact: true },
+  ).waitFor();
 
   const links = [
     ["Information Feed", "/"],

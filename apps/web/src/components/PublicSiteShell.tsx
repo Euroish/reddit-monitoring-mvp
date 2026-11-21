@@ -193,7 +193,21 @@ export function PublicSiteShell({
 
       <main className="ps-main">{children}</main>
 
-      <EditorialFooter onNavigate={go} onOpenWorkbench={onOpenWorkbench} />
+      <EditorialFooter
+        onNavigate={go}
+        onOpenWorkbench={onOpenWorkbench}
+        brand={
+          <div className="ef-brand">
+            <SiftlineLogo size={34} fontSize={32} />
+            <p>
+              {t(
+                'Research social conversations and follow stories from trusted sources, with evidence you can trace.',
+                '研究社媒讨论、追踪可信信源的资讯，并回到原始证据。',
+              )}
+            </p>
+          </div>
+        }
+      />
     </div>
   );
 }
