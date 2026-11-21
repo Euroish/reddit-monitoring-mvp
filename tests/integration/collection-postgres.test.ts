@@ -555,4 +555,43 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
       await limited.close();
     }
   });
+  await t.test("job retention keeps keyed and unresolved receipts while removing old unkeyed jobs", async () => {
+    const { rows } = await db.pool.query(`
+      INSERT INTO source_collection_job(
+        id,collection_source_id,status,purpose,operation,provider,from_at,to_at,page_size,max_pages,
+        next_run_at,created_at,finished_at,request_key,ingest_key,provider_state
+      )
+      SELECT gen_random_uuid(),cs.id,'succeeded',CASE WHEN kind='push' THEN 'ingest' ELSE 'manual' END,
+        CASE WHEN kind='push' THEN 'ingest' ELSE 'radar' END,'feed',now()-interval '2 days',now()-interval '1 day',1,1,
+        now(),now()-age,now()-age,request_key,ingest_key,provider_state
+      FROM collection_source cs CROSS JOIN (
+        VALUES ('expired', interval '20 days', NULL, NULL, '{}'::jsonb),
+               ('manual', interval '20 days', 'old-manual-key', NULL, '{}'::jsonb),
+               ('push', interval '20 days', NULL, 'old-ingest-key', '{}'::jsonb),
+               ('unknown', interval '20 days', NULL, NULL, '{"phase":"unknown"}'::jsonb)
+        UNION ALL
+        SELECT 'new',make_interval(hours=>age),NULL,NULL,'{}'::jsonb FROM generate_series(1,5) age
+      ) jobs(kind,age,request_key,ingest_key,provider_state)
+      WHERE cs.label='Fixture feed'
+      RETURNING id,request_key,ingest_key,provider_state->>'phase' AS phase,finished_at < now()-interval '14 days' AS aged`);
+    const aged = rows.filter(row => row.aged);
+    assert.equal(aged.length, 4);
+    const expired = aged.find(row => !row.request_key && !row.ingest_key && !row.phase);
+    const worker = startWorker(db.pool, []);
+    try {
+      for (let attempt = 0; attempt < 40; attempt++) {
+        const kept = await db.pool.query("SELECT id FROM source_collection_job WHERE id=ANY($1::uuid[])", [aged.map(row => row.id)]);
+        const keptIds = new Set(kept.rows.map(row => row.id));
+        if (!keptIds.has(expired.id)) {
+          assert.deepEqual(keptIds, new Set(aged.filter(row => row !== expired).map(row => row.id)));
+          return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      assert.fail("Worker did not remove the eligible expired job");
+    } finally {
+      await worker.stop();
+    }
+  });
+
 });

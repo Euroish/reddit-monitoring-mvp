@@ -88,9 +88,9 @@ function checkTypeScriptBoundary(file: string, enforceNoClasses: boolean): void 
 
 function checkMigrations(): void {
   const schemaDir = path.join(root, "src/storage/schema");
-  if (!existsSync(schemaDir)) return;
+  const schemaFiles = existsSync(schemaDir) ? readdirSync(schemaDir) : [];
   const seenPost040 = new Map<string, string>();
-  for (const entry of readdirSync(schemaDir)) {
+  for (const entry of schemaFiles) {
     const m = entry.match(/^(\d{3})_[a-z0-9_]+\.sql$/);
     if (!m) continue;
     const num = Number(m[1]);
@@ -100,15 +100,36 @@ function checkMigrations(): void {
       seenPost040.set(m[1], entry);
     }
   }
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
   try {
-    execFileSync("git", ["rev-parse", "--verify", "HEAD"], { cwd: root, stdio: "ignore" });
-    const changed = execFileSync("git", ["diff", "--name-only", "HEAD", "--", "src/storage/schema"], { cwd: root, encoding: "utf8" })
-      .split(/\r?\n/).filter(Boolean);
-    for (const rel of changed) {
-      const num = Number(path.basename(rel).match(/^(\d{3})_/)?.[1] ?? "999");
-      if (num <= 50) errors.push(`Applied migration ${rel} (<= 050) must not be modified; add a 051+ forward migration.`);
+    git("rev-parse", "--verify", "HEAD");
+  } catch {
+    return; // Test fixtures without a commit have no applied schema baseline.
+  }
+  const requestedBase = process.env.MIGRATION_BASE_SHA;
+  let base: string;
+  try {
+    base = requestedBase ? git("rev-parse", "--verify", `${requestedBase}^{commit}`) : git("merge-base", "HEAD", "origin/main");
+  } catch {
+    if (requestedBase) {
+      errors.push("Cannot resolve the pull request migration baseline.");
+      return;
     }
-  } catch { /* Temp test fixtures without HEAD skip git diff guard. */ }
+    base = "HEAD";
+  }
+  const schemaPath = "src/storage/schema";
+  const baseline = git("ls-tree", "-r", "--name-only", base, "--", schemaPath)
+    .split("\n").filter(file => /^\d{3}_[a-z0-9_]+\.sql$/.test(path.basename(file)));
+  const baselineNames = new Set(baseline.map(file => path.basename(file)));
+  const latestApplied = Math.max(50, ...baseline.map(file => Number(path.basename(file).slice(0, 3))));
+  const changed = git("diff", "--name-only", "--no-renames", base, "--", schemaPath)
+    .split("\n").filter(file => baselineNames.has(path.basename(file)));
+  for (const file of changed) errors.push(`Applied migration ${file} must not be modified, moved, or removed.`);
+  for (const file of schemaFiles) {
+    if (/^\d{3}_[a-z0-9_]+\.sql$/.test(file) && !baselineNames.has(file) && Number(file.slice(0, 3)) <= latestApplied)
+      errors.push(`New migration ${file} must use a number after ${String(latestApplied).padStart(3, "0")}.`);
+  }
 }
 
 for (const file of files) {

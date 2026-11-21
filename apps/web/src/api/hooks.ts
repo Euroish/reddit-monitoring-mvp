@@ -5,6 +5,7 @@ import {
   type ContentFacetsQuery,
   type CredentialProviderName,
   type DocInput,
+  type DocPatch,
   type ListQuery,
   type MachineScope,
   type ProjectInput,
@@ -650,7 +651,7 @@ export function useUpdateDocMutation() {
   const invalidate = useDocInvalidation();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Partial<DocInput> }) => apiClient.updateDoc(id, patch),
+    mutationFn: ({ id, patch }: { id: string; patch: DocPatch }) => apiClient.updateDoc(id, patch),
     onSuccess: (doc) => {
       invalidate();
       qc.setQueryData(['doc', doc.slug], doc);

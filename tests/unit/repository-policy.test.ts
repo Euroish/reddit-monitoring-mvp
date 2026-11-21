@@ -17,17 +17,34 @@ test("repository policy accepts clean multi-helper modules and enforces AST, rec
   for (const file of DOCUMENTATION_FILES) put(file, "# Fixture\n");
   put("AGENTS.md", "# Fixture\n[Dev](docs/development.md)\n[Status](docs/status.md)\n");
   put("src/modules/content/batch.ts", `// ${"reason ".repeat(60)}\nexport const message = "class Wrapper {}";\nexport const sql = \`SELECT ${"a,".repeat(130)}b\`;\n`);
-  const run = () =>
+  const run = (base = "") =>
     spawnSync(process.execPath, ["--import", "tsx", path.resolve("scripts/check-docs.ts"), root], {
       cwd: process.cwd(),
       encoding: "utf8",
-      env: { ...process.env, LOCAL_ENV_FILE: "none" },
+      env: { ...process.env, LOCAL_ENV_FILE: "none", MIGRATION_BASE_SHA: base },
     });
   put("docs/research/additional/study.md", "# Additional research\n");
   put("notes.md", "# Additional notes\n");
   execFileSync("git", ["add", "--", "docs/research/additional/study.md"], { cwd: root });
   const valid = run();
   assert.equal(valid.status, 0, valid.stderr);
+
+  const sql = "src/storage/schema/053_product_docs.sql";
+  const commit = (message: string) => {
+    execFileSync("git", ["add", "--", "src/storage/schema"], { cwd: root });
+    execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", message], { cwd: root });
+    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  };
+  put(sql, "SELECT 1;\n");
+  const applied = commit("Applied migration");
+  put("src/storage/schema/054_forward.sql", "SELECT 2;\n");
+  const forward = run(applied);
+  assert.equal(forward.status, 0, forward.stderr);
+  put(sql, "SELECT 3;\n");
+  commit("Rewritten applied migration");
+  const rewritten = run(applied);
+  assert.equal(rewritten.status, 1, rewritten.stderr);
+  assert.match(rewritten.stderr, /Applied migration .*053_product_docs\.sql must not be modified/);
 
   put("AGENTS.md", "# Missing SSOT pointers\n");
   put("docs/README.md", "# Fixture\n| ARC-01 | MUST | One definition | lint |\n");

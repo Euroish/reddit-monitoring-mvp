@@ -1,6 +1,6 @@
 # 主线数据与 API 契约（STD-100）
 
-结构体与校验真源为 [source-content.ts](../packages/contracts/src/source-content.ts)、[content-stories.ts](../packages/contracts/src/content-stories.ts) 与 [web-boards.ts](../packages/contracts/src/web-boards.ts)，运行时自动派生至 `GET /v1/openapi.json`。下文严格标记 `[LIVE]`（已在 `prod` 实现并可运行）与 `[V2]`（规划契约）。
+结构体与校验真源为 [source-content.ts](../packages/contracts/src/source-content.ts)、[content-stories.ts](../packages/contracts/src/content-stories.ts) 、[product-docs.ts](../packages/contracts/src/product-docs.ts) 与 [web-boards.ts](../packages/contracts/src/web-boards.ts)，运行时自动派生至 `GET /v1/openapi.json`。下文严格标记 `[LIVE]`（主干已实现，生产部署见[状态](status.md)）与 `[V2]`（规划契约）。
 
 ---
 
@@ -17,11 +17,11 @@
 
 ### 已交付的事件 API
 
-- **`[LIVE]` `GET /v1/content/stories?view=latest\|hot\|digest`**：复用 `read` 权限与 `allowedSourceIds` 隔离；支持 `sourceId`、`platform`、`sourceGroup`、`tier`、`language`、`date`（`YYYY-MM-DD`，仅 `digest`）与 `limit`（`1..50`，默认 `20`）。默认全范围在 `30s` 槽内共享聚合并在异常时驱逐坏槽；附带过滤或受限机器 Key 走独立精确查询。
+- **`[LIVE]` `GET /v1/content/stories?view=latest\|hot\|digest`**：复用 `read` 权限与 `allowedSourceIds` 隔离；支持 `sourceId`、`platform`、`sourceGroup`、`tier`、`language`、`date`（`YYYY-MM-DD`，仅 `digest`）与 `limit`（`1..100`，默认 `30`）、`offset`（`0..500`）。默认全范围在 `30s` 槽内共享聚合并在异常时驱逐坏槽；附带过滤或受限机器 Key 走独立查询。响应为已存样本，每种排序最多保留 600 个事件。聚合每进程最多 3 路，单窗超过 10,000 个可见来源关联返回 `503`，不会以截断后的候选排名冒充完整窗口。
 - **`[LIVE]` 归组与热度算法**：基于规范 URL（arXiv、GitHub Release/Issue 等）+ 标题词项 + 数字版本分桶 + 64-bit SimHash（4×16-bit LSH）聚簇；代表选举按 **`T1 > T1_5 > T2` → 英文原题优先 → 有正文 → 发布/发现时间**；返回代表报道与最多 6 条 `related`。48h 热度按独立主体计最大衰减权重（`T1=3.0`/`T1_5=2.0`/`T2=1.0`，24h 半衰期）；仅两端存在可比源（非逾期停采且接入 `>=6h`）才输出 `trend: up\|down\|flat\|new`，否则返回 `trend: 'unknown'`。
-- **`[V2 Phase A 后端已实现，待发布]`**：事件响应的 `tierBreakdown` 按等级统计最近 48 小时簇内可见采集源 ID（各等级内去重）。`sparkline48h` 以响应 `to` 为终点，按从早到晚排列 8 个左闭右开的 6 小时桶。每桶按发布/发现时间归入截至 `to` 可见的证据，并用桶末时间计算衰减，每个独立主体取该桶最大权重。空桶为 0，表示已存样本无贡献。
-- **`[V2 Phase A 后端已实现，待发布]`**：`GET /v1/sources/budgets` 为管理员返回 UTC 日/月请求次数和预留记录数，供额度计量与告警使用。
-- **`[V2 Phase A 后端已实现，待发布]`**：专题概览新增 `dayPlatformFacets: [{ day, platform, count, matchedContentCount }]`，使用 UTC 日界线，与现有分面共享采集范围及讨论串去重口径。仅返回存在命中且日期已知的日与平台组合。
+- **`[LIVE]`**：事件响应的 `tierBreakdown` 按等级统计最近 48 小时簇内可见采集源 ID（各等级内去重）。`sparkline48h` 以响应 `to` 为终点，按从早到晚排列 8 个左闭右开的 6 小时桶。每桶按发布/发现时间归入截至 `to` 可见的证据，并用桶末时间计算衰减，每个独立主体取该桶最大权重。空桶为 0，表示已存样本无贡献。
+- **`[LIVE]`**：`GET /v1/sources/budgets` 为管理员返回 UTC 日/月请求次数和预留记录数，供额度计量与告警使用。
+- **`[LIVE]`**：专题概览新增 `dayPlatformFacets: [{ day, platform, count, matchedContentCount }]`，使用 UTC 日界线，与现有分面共享采集范围及讨论串去重口径。仅返回存在命中且日期已知的日与平台组合。
 
 ---
 
@@ -48,7 +48,7 @@
 
 | ID | 等级 | 采集、幂等、选择器配置与推流契约 | 验收出口 |
 | --- | --- | --- | --- |
-| COL-01 | MUST | `POST /v1/sources/:id/collect` 强制校验 `Idempotency-Key`（同源同键同体复用 `job`，同键异体返 `409`）；`POST /v1/sources/preview` 对启用中 `feed`/`newsnow` 真实试抓前 20 条并嗅探页面 RSS；`POST /v1/sources/import` 支持最多 200 条 JSON 或 `<=512 KiB` OPML 2.0 幂等批量导入；`web_list` 支持有限 CSS 选择器（标签/类/ID/后代/`>`），`json_list` 支持点路径映射（顶层数组 `items: "$"`），均自前 200 候选截取。 | 幂等、预览与导入 E2E |
+| COL-01 | MUST | `POST /v1/sources/:id/collect` 强制校验 `Idempotency-Key`（同源同键同体复用 `job`，同键异体返 `409`；普通任务清理保留幂等回执）；`POST /v1/sources/preview` 对启用中 `feed`/`newsnow` 真实试抓前 20 条并嗅探页面 RSS；`POST /v1/sources/import` 支持最多 200 条 JSON 或 `<=512 KiB` OPML 2.0 幂等批量导入；`web_list` 支持有限 CSS 选择器（标签/类/ID/后代/`>`），`json_list` 支持点路径映射（顶层数组 `items: "$"`），均自前 200 候选截取。 | 幂等、预览与导入 E2E |
 | COL-02 | MUST | 无游标渠道永标 `coverage='partial'`；**`feed` 单次限 `100`（`fetchPolicy.maxItems`），首次未检查源仍限 8 条防刷屏；遇 `304 Not Modified` 保持 `last_success_at` 不变，更新 `last_checked_at`、`incremental_to`、退避 `next_due_at`/`schedule.intervalSeconds`、缓存头与 `health`**；**`Bluesky` 按上游游标翻页并仅本地按 `from` 过滤，不因越过时间窗提前停页**；`[V2]` 为超 48h 历史条目增加首页防刷屏门控。 | 304 退避与 Bluesky 翻页单测 |
 | COL-03 | MUST | 在线批接收上限 `2,000 条 / 16 MiB`；付费源执行 `starting -> running -> reading -> committed` 状态机（`kaix` 支持异步轮询兼容 `65s`）；`twitterapis` 单页自动钳制 `<=20`；`scrapebadger` 兼容 `{ data \| null, next_cursor }` 并记 `X-Credits-Used`；结果 `unknown` 立刻自动阻断该源，须传 `acknowledgePotentialCharge: true` 人工解封；`SIGTERM` 只释放租约保留 `runId`。 | 断线恢复与付费阻断 E2E |
 | COL-04 | MUST | `[LIVE]` `POST /v1/projects/:id/hydrate` 每次限 30 根帖 × 50 评论，**当前实现仅支持 `kaix`（`projects/routes.ts:34` 与 `hydrate.ts` 锁定，`red_crawler` 仅用于 `scheduled` 采集备源）**；`[V2 Phase D]` 按题动态探索 `POST /v1/discovery/query` 拆解 4 正交槽分波写入 `stream_class='adhoc'` 系统源，支持一键转 `pull`。 | 批量水合与探索测试 |
@@ -76,5 +76,5 @@
 | **Collection & Quotas (26)** | `GET /v1/public/sources`、`GET/POST /v1/sources`、`POST /v1/sources/{preview,import}`、`PATCH /v1/sources/:id`、`GET /v1/sources/budgets`、`PUT /v1/sources/budgets/:provider`、`GET /v1/sources/credentials`、`PUT/DELETE /v1/sources/credentials/:provider`、`POST /v1/sources/credentials/:provider/test`、`GET /v1/quotas/summary`、`PUT /v1/quotas/{plans/:tier,users/:id}`、`POST /v1/sources/:id/{collect,ingest,refresh,unblock}`、`GET /v1/sources/:id/jobs`、`GET /v1/source-jobs`、`GET /v1/source-jobs/recent`、`GET /v1/source-jobs/:id`、`POST /v1/source-jobs/:id/{cancel,retry,continue}` | `GET /v1/sources/budgets` 可选增配 `ai_enrich` 预算行 |
 | **Content (8)** | `GET /v1/content`、`GET /v1/content/{feed,facets,stories,export}`、`GET /v1/projects/:id/content`、`GET /v1/content/:id`、`GET /v1/content/:id/thread` | Phase D：`POST /v1/content/:id/enrich`（禁只读 `read` Key） |
 | **Projects (8)** | `GET/POST /v1/projects`、`GET/PATCH/DELETE /v1/projects/:id`、`GET /v1/projects/:id/overview`、`POST /v1/projects/:id/hydrate` | Phase B：`POST /v1/project-comparisons`；Phase D：`POST /v1/discovery/query` & `GET /v1/discovery/jobs/:id` |
-| **Docs 文档中心 (6)** | `GET /v1/docs`、`GET /v1/docs/:slug`、`GET /v1/docs/:slug/file`、`POST /v1/docs`、`PATCH /v1/docs/:id`、`DELETE /v1/docs/:id`（读走 `read` 或匿名公开读；写仅限浏览器会话 `owner`/`admin`，`viewer` 与机器 Key 一律 403） | — |
+| **Docs 文档中心 (6)** | `GET /v1/docs`、`GET /v1/docs/:slug`、`GET /v1/docs/:slug/file`、`POST /v1/docs`、`PATCH /v1/docs/:id`、`DELETE /v1/docs/:id`（已发布文档可用浏览器会话、带 `read` 的机器 Key 访问，开启公开读后也可匿名访问；草稿与写操作限 `owner`/`admin` 浏览器会话） | — |
 | **Workspace (7)** | `GET/POST /v1/workspace/queries`、`DELETE /v1/workspace/queries/:id`、`GET /v1/workspace/annotations`、`GET/PUT /v1/workspace/annotations/:id` | Phase B：水位线与解耦 `readAt`/`muted`/`tags` 扩展、评论节点级独立批注 |

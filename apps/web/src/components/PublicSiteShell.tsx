@@ -30,8 +30,9 @@ export function PublicSiteShell({
   const { lang, setLang, t } = useI18n();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const navItems: Array<{ path: '/' | '/product' | '/ai' | '/docs'; label: string }> = [
-    { path: '/', label: t('Information', '信息') },
+  const navItems: Array<{ path: Exclude<PublicRoute, '__not_found__'> | '/content'; label: string }> = [
+    { path: '/', label: t('Stories', '信息流') },
+    { path: '/content', label: t('Research', '研究分析') },
     { path: '/product', label: t('Product', '产品介绍') },
     { path: '/ai', label: t('AI News', 'AI 资讯') },
     { path: '/docs', label: t('Docs', '文档') },
@@ -198,8 +199,8 @@ export function PublicSiteShell({
             <SiftlineLogo size={24} fontSize={18} />
             <p>
               {t(
-                'SIFTLINE unifies multi-source editorial stories, transparent stored-sample coverage, and a full signal research workbench.',
-                'SIFTLINE 融合多源实时信息流、透明的已存样本口径（stored_sample）与专业信号监测研究工作台。',
+                'Research social conversations and follow stories from trusted sources, with evidence you can trace.',
+                '研究社媒讨论、追踪可信信源的资讯，并回到原始证据。',
               )}
             </p>
           </div>

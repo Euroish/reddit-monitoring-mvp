@@ -6,12 +6,13 @@ import type { JsonValue, Actor } from "../../../packages/contracts/src/source-co
 import { commitContentBatch, prepareContentBatch } from "../content/sql";
 import { fail, transaction } from "../../storage/db";
 import { lockSource, sourceFromRow } from "./sql";
-import { isViewerJobStillAuthorized, recordUserExecutedRequest } from "./policy";
+import { isViewerJobStillAuthorized, recordUserExecutedRequest, requestedCommentLimit } from "./policy";
 import { scheduleDueSourcesOnce } from "./schedule";
 
 const workerActor = { allowedSourceIds: null } as Actor;
 const hostCooldownMs = 1500;
 const cleanupIntervalMs = 3600_000;
+const jobLeaseSeconds = 180; // Allow the supported 120s provider timeout plus local work.
 
 export async function workOnce(
   pool: Pool, providers: ContentProvider[], signal?: AbortSignal, hostCooldown?: Map<string, number>,
@@ -69,8 +70,8 @@ export async function workOnce(
     }
     const token = randomUUID();
     await client.query(
-      "UPDATE source_collection_job SET status='running',lease_token=$2,lease_until=NOW()+interval '2 minutes',attempts=attempts+1 WHERE id=$1",
-      [job.id, token],
+      "UPDATE source_collection_job SET status='running',lease_token=$2,lease_until=NOW()+make_interval(secs=>$3),attempts=attempts+1 WHERE id=$1",
+      [job.id, token, jobLeaseSeconds],
     );
     return { source, job, token };
   });
@@ -85,8 +86,8 @@ export async function workOnce(
     transaction(pool, async (client) => {
       await lockSource(client, workerActor, source.id, false);
       const updated = await client.query(
-        "UPDATE source_collection_job SET provider_state=$3,provider_run_id=$3::jsonb->>'runId',lease_until=NOW()+interval '2 minutes' WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id",
-        [job.id, token, state],
+        "UPDATE source_collection_job SET provider_state=$3,provider_run_id=$3::jsonb->>'runId',lease_until=NOW()+make_interval(secs=>$4) WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id",
+        [job.id, token, state, jobLeaseSeconds],
       );
       if (!updated.rowCount) fail(409, "Collection lease lost");
       job.provider_state = state;
@@ -130,7 +131,9 @@ export async function workOnce(
               lease_token=NULL,lease_until=NULL,attempts=attempts-1 WHERE id=$1 AND lease_token=$2`, [job.id, token]);
           return false;
         }
-        if (job.requested_by_user_id && !(await isViewerJobStillAuthorized(client, job))) {
+        const commentLimit = refresh ? undefined
+          : requestedCommentLimit(job.provider, hydrate ? "post" : currentSource.target.type, job.page_size, job.request_json);
+        if (!(await isViewerJobStillAuthorized(client, job, commentLimit))) {
           await client.query(`
             UPDATE source_collection_job SET status='cancelled',finished_at=now(),
               lease_token=NULL,lease_until=NULL,error='Collection policy revoked before dispatch'
@@ -148,9 +151,9 @@ export async function workOnce(
         if (deferred.rowCount) return false;
         const updated = await client.query(
           `UPDATE source_collection_job SET provider_state='{"phase":"starting"}',error=NULL,
-            request_count=request_count+1,page_request_attempts=page_request_attempts+1
+            request_count=request_count+1,page_request_attempts=page_request_attempts+1,lease_until=NOW()+make_interval(secs=>$3)
            WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id`,
-          [job.id, token],
+          [job.id, token, jobLeaseSeconds],
         );
         if (!updated.rowCount) fail(409, "Collection lease lost");
         await client.query(
@@ -403,6 +406,8 @@ export function startWorker(pool: Pool, providers: ContentProvider[], onError?: 
     DELETE FROM source_collection_job j USING ranked r
     WHERE j.id=r.id AND r.rn>5 AND r.status IN ('succeeded','failed','cancelled')
       AND COALESCE(r.finished_at,r.created_at)<now()-interval '14 days'
+      AND j.request_key IS NULL AND j.ingest_key IS NULL
+      AND COALESCE(j.provider_state->>'phase','') NOT IN ('starting','unknown','running','reading')
       AND NOT EXISTS (
         SELECT 1 FROM source_collection_job child
         WHERE child.parent_job_id=j.id OR child.fallback_of_job_id=j.id
