@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { Pool, PoolClient } from "pg";
+import { ContentProviderError } from "../../connectors/shared/content-provider.interface";
+import { httpsUrl, read } from "../../connectors/web/http";
 import { transaction } from "../../storage/db";
 import { normalizeVendorSlug } from "./ai-event-identity";
 import { isSuspectedEpochPaddingDate } from "./ai-history-schema";
@@ -85,9 +87,18 @@ export async function runEpochCsvBackfill(
   return { runId, sourceCode: opts.sourceCode, status: "succeeded", ...counts, cursor: { imported: counts.candidatesCreated } };
 }
 
-async function defaultArchiveFetcher(url: string, headers: Record<string, string>) {
-  const res = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
-  return { status: res.status, bodyText: await res.text() };
+async function defaultArchiveFetcher(url: string, headers: Record<string, string>, officialDomains: string[]) {
+  const target = httpsUrl(url);
+  if (!target) return { status: 400 };
+  try {
+    const result = await read(target, undefined, headers, 15_000, {
+      allowRedirect: (next) => isOfficialVendorUrl(next.href, officialDomains),
+    });
+    return { status: result.status, bodyText: result.body };
+  } catch (error) {
+    if (error instanceof ContentProviderError) return { status: error.httpStatus ?? 502 };
+    throw error;
+  }
 }
 
 function extractArchiveItems(bodyText: string): Array<{ url: string; title: string; date: string | null }> {
@@ -120,7 +131,6 @@ export async function runOfficialArchiveBackfill(
 ): Promise<BackfillResult> {
   const urls = opts.archiveUrls ?? [];
   if (urls.length === 0) throw new Error("archiveUrls is required for official_archive backfill");
-  const fetcher = opts.fetcher ?? defaultArchiveFetcher;
   const maxItems = Math.min(2000, Math.max(1, opts.maxItems ?? 200));
   const vendorsRes = await pool.query<{ id: string; slug: string; official_domains: string[]; auto_publish_enabled: boolean }>(
     `SELECT id, slug, official_domains, auto_publish_enabled FROM ai_vendor`,
@@ -135,9 +145,12 @@ export async function runOfficialArchiveBackfill(
       counts.conflicts += 1;
       continue;
     }
-    const res = await fetcher(entry.url, { "user-agent": "SIFTLINE-History-Backfill/1.0" });
+    const headers = { "user-agent": "SIFTLINE-History-Backfill/1.0" };
+    const res = opts.fetcher
+      ? await opts.fetcher(entry.url, headers)
+      : await defaultArchiveFetcher(entry.url, headers, vendor.official_domains);
     if (res.status >= 400 || !res.bodyText) {
-      await updateProgress(pool, runId, "paused", counts, { archiveIdx: idx }, `HTTP ${res.status} for ${entry.url}`);
+      await updateProgress(pool, runId, "paused", counts, { archiveIdx: idx }, `Archive returned HTTP ${res.status}`);
       return { runId, sourceCode: opts.sourceCode, status: "paused", ...counts, cursor: { archiveIdx: idx } };
     }
     const items = extractArchiveItems(res.bodyText).slice(0, maxItems - counts.scanned);

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+import { ContentProviderError } from "../../connectors/shared/content-provider.interface";
+import { httpsUrl, read } from "../../connectors/web/http";
 import {
   parseEpochCsv,
   parseHuggingFacePayload,
@@ -24,13 +26,18 @@ export interface SyncFetchResult {
 export type SyncFetcher = (url: string, headers: Record<string, string>) => Promise<SyncFetchResult>;
 
 async function defaultFetcher(url: string, headers: Record<string, string>): Promise<SyncFetchResult> {
-  const res = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
-  if (res.status === 304) return { status: 304, etag: res.headers.get("etag") };
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.byteLength > MAX_RESPONSE_BYTES) {
-    throw new Error(`Response exceeded ${MAX_RESPONSE_BYTES} byte limit`);
+  const target = httpsUrl(url);
+  if (!target) return { status: 400 };
+  try {
+    const res = await read(target, undefined, headers, 15_000, {
+      maxBytes: MAX_RESPONSE_BYTES,
+      allowRedirect: (next) => next.origin === target.origin,
+    });
+    return { status: res.status, etag: res.etag, bodyText: res.body };
+  } catch (error) {
+    if (error instanceof ContentProviderError) return { status: error.httpStatus ?? 502 };
+    throw error;
   }
-  return { status: res.status, etag: res.headers.get("etag"), bodyText: buf.toString("utf8") };
 }
 
 async function resolveAliasAndVendor(
