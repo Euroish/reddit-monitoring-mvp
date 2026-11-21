@@ -95,7 +95,13 @@ Compose 在专用内部网络连接 Caddy 和 Fastify。Fastify 通过 `TRUST_PR
 
 `feat/platform-security-hardening` 开工基于 PR #19 的 `6f53325f6a79577f31a75eba1e7fcf6bbdf55ca7`，其中包含 PR #16 的 `d13d00231a1f3b69372ba66e0ed1d6ee0cc6ca36`。当时主干为 `cd12f63b118e088c340f42572d1d0e671fd80798`，迁移至 053，正式预算 24 表；继承迁移 054–056 增加 19 表，隔离 PG16 合计 43 表。安全切片新增 0 表、0 迁移。两个前序 PR squash 合入后，以此父 SHA 清点自有提交，再在最新 main 上逐个重放并复验迁移、增量 diff 和全链 CI。
 
-发布时先部署能读取 v1/v2 的版本，`AUTH_SCRYPT_V2_WRITE_ENABLED=false` 保持兼容写。v2 为 scrypt N=32768/r=8/p=3，最多并行两次，超限返回 503；生产容量验证后才开启写入和成功登录的惰性重哈希。只读 v1 的旧镜像不能接管已有 v2 的账户。账户限流为每个规范化邮箱 15 分钟内 10 次，包括失败与成功，4096 个并行账户窗口，写入前校验，进程重启清空。生产可独立配置 `AUTH_THROTTLE_KEY`，兼容回退以 Session key 做用途隔离的 HMAC。
+发布时先部署能读取 v1/v2 的版本，`AUTH_SCRYPT_V2_WRITE_ENABLED=false` 保持兼容写。v2 为 scrypt N=32768/r=8/p=3，最多并行两次，超限返回 503；生产容量验证后才开启写入和成功登录的惰性重哈希。启用期间登录对旧、新和不存在的账户均执行两代 KDF，以减小迁移期的邮箱枚举时间差。已写入 v2 后继续使用支持两代且启用均衡校验的构建。只读 v1 的旧镜像不能接管已有 v2 的账户。账户限流为每个规范化邮箱 15 分钟内 10 次，包括失败与成功，4096 个并行账户窗口，写入前校验，进程重启清空。生产可独立配置 `AUTH_THROTTLE_KEY`，兼容回退以 Session key 做用途隔离的 HMAC。
+
+本机 Node 24.14.0、i5-13500H（16 逻辑核）、63.7 GiB RAM，使用合成密码分别串行测 20 次直接 KDF 校验。v1 的 p50/p95 为 24.6/27.0 ms，v2 为 135.4/139.2 ms。各测试的双路并发进程 RSS 峰值约为 97.3/129.3 MiB。该数据只覆盖 KDF。生产 4 GB 宿主机上仍需联测登录 p95、429/503、数据库等待、Worker 心跳和回填推进。
+
+### 服务商凭证主密钥轮换
+
+运维演练先备份并验证恢复，暂停使用旧密钥的应用和 Worker。经授权，在隔离的运维进程内从仓外受限文件载入当前 `DATABASE_URL`、`SESSION_SECRET` 和已有的 `CREDENTIALS_MASTER_KEY`，以及独立的 `NEXT_CREDENTIALS_MASTER_KEY`。先执行 `node dist/src/modules/collection/credential-rotation.js --check`，再执行同一命令的 `--apply`。工具只输出验证行数，批量重加密在一个短事务内完成，解密或写入失败会整体回滚。成功后把新值设为运行环境的 `CREDENTIALS_MASTER_KEY`，再启动应用验证凭证状态。用相同方法从新密钥反向轮换可回退；镜像和密钥必须配套。独立 relay 的仓外密钥另由原流程管理。轮换服务商凭证后可独立轮换 Cookie 签名，旧浏览器需重新登录，机器 Key 的哈希无需随之更改。
 
 ### 本地三服务 Compose 验收
 
