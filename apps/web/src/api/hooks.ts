@@ -30,14 +30,6 @@ export function usePublicSourcesQuery(enabled = true) {
   });
 }
 
-export function useStoriesQuery(query: StoryQuery, enabled = true) {
-  return useQuery({
-    queryKey: ['stories', query],
-    queryFn: () => apiClient.getStories(query),
-    enabled,
-  });
-}
-
 export function useInfiniteStoriesQuery(query: Omit<StoryQuery, 'offset'>, enabled = true) {
   return useInfiniteQuery({
     queryKey: ['storiesInfinite', query],
@@ -52,11 +44,11 @@ export function useInfiniteStoriesQuery(query: Omit<StoryQuery, 'offset'>, enabl
   });
 }
 
-export function useContentFacetsQuery(query: ContentFacetsQuery | null, enabled = true) {
+export function useContentFacetsQuery(query: ContentFacetsQuery | null) {
   return useQuery({
     queryKey: ['contentFacets', query],
     queryFn: () => apiClient.getContentFacets(query!),
-    enabled: enabled && Boolean(query),
+    enabled: Boolean(query),
   });
 }
 
@@ -443,15 +435,26 @@ export function useDeleteSavedQueryMutation() {
   });
 }
 
-export function useSaveAnnotationMutation(contentId: string) {
+export function useSaveAnnotationMutation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { favorite: boolean; note: string; revision: number }) =>
-      apiClient.putAnnotation(contentId, payload),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['annotation', contentId] });
-      qc.invalidateQueries({ queryKey: ['annotations'] });
+    mutationFn: async ({ contentId, edit }: {
+      contentId: string;
+      edit?: { favorite: boolean; note: string; revision: number };
+    }) => {
+      if (edit) return apiClient.putAnnotation(contentId, edit);
+      const { annotation } = await apiClient.getAnnotation(contentId);
+      if (annotation?.favorite) return { revision: annotation.revision };
+      return apiClient.putAnnotation(contentId, {
+        favorite: true,
+        note: annotation?.note ?? '',
+        revision: annotation?.revision ?? 0,
+      });
     },
+    onSuccess: (_result, { contentId }) => Promise.all([
+      qc.invalidateQueries({ queryKey: ['annotation', contentId] }),
+      qc.invalidateQueries({ queryKey: ['annotations'] }),
+    ]),
   });
 }
 

@@ -349,7 +349,7 @@ export function SourcesPage({
 
   const handleIngest = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedSource) return;
+    if (!selectedSource || ingestMut.isPending) return;
     setOpsMsg(null);
     if (utf8ByteLength(ingestJson) > 1048576) {
       setOpsMsg({ text: t('413 Pre-flight: JSON payload exceeds 1 MiB limit.', '预检拦截：负载超过 1 MiB 上限。'), isError: true });
@@ -364,6 +364,39 @@ export function SourcesPage({
       setOpsMsg({ text: t(`Ingested ${res.accepted} items (added ${res.added}, updated ${res.updated}). Job ${res.jobId}`, `推流成功：接收 ${res.accepted} 条（新增 ${res.added}，更新 ${res.updated}），任务 ${res.jobId}`) });
     } catch (err) {
       setOpsMsg({ text: formatApiError(err), isError: true });
+    }
+  };
+
+  const importIngestFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !selectedSource || ingestMut.isPending) return;
+    if (file.size > 1048576) {
+      setOpsMsg({
+        text: t('413 Pre-flight: JSON file exceeds 1 MiB limit.', '预检拦截：文件超过 1 MiB 上限，未发送请求。'),
+        isError: true,
+      });
+      return;
+    }
+    try {
+      const raw = await file.text();
+      if (utf8ByteLength(raw) > 1048576) {
+        setOpsMsg({
+          text: t('413 Pre-flight: JSON payload exceeds 1 MiB limit.', '预检拦截：负载超过 1 MiB 上限，未发送请求。'),
+          isError: true,
+        });
+        return;
+      }
+      JSON.parse(raw);
+      setIngestJson(raw);
+      setOpsMsg(null);
+    } catch (err) {
+      setOpsMsg({
+        text: err instanceof SyntaxError
+          ? t('Invalid JSON syntax in selected file.', '所选文件不是合法的 JSON 格式，未发送请求。')
+          : formatApiError(err),
+        isError: true,
+      });
     }
   };
 
@@ -750,58 +783,14 @@ export function SourcesPage({
                             </span>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                               <label className="ds-btn ds-btn--ghost" style={{ height: 28, fontSize: 11, cursor: 'pointer' }}>
-                                <span>{t('Import JSON File', '导入规范 JSON 文件')}</span>
+                                <span>{t('Load JSON File', '载入 JSON 文件')}</span>
                                 <input
                                   type="file"
                                   accept=".json,application/json"
                                   aria-label={t('Import canonical JSON file', '导入规范 JSON 文件')}
                                   style={{ display: 'none' }}
-                                  onChange={async (ev) => {
-                                    const file = ev.target.files?.[0];
-                                    ev.target.value = '';
-                                    if (!file || !selectedSource) return;
-                                    setOpsMsg(null);
-                                    if (file.size > 1048576) {
-                                      setOpsMsg({
-                                        text: t('413 Pre-flight: JSON file exceeds 1 MiB limit.', '预检拦截：文件超过 1 MiB 上限，未发送请求。'),
-                                        isError: true,
-                                      });
-                                      return;
-                                    }
-                                    const raw = await file.text();
-                                    setIngestJson(raw);
-                                    if (utf8ByteLength(raw) > 1048576) {
-                                      setOpsMsg({
-                                        text: t('413 Pre-flight: JSON payload exceeds 1 MiB limit.', '预检拦截：负载超过 1 MiB 上限，未发送请求。'),
-                                        isError: true,
-                                      });
-                                      return;
-                                    }
-                                    try {
-                                      JSON.parse(raw);
-                                    } catch {
-                                      setOpsMsg({
-                                        text: t('Invalid JSON syntax in selected file.', '所选文件不是合法的 JSON 格式，未发送请求。'),
-                                        isError: true,
-                                      });
-                                      return;
-                                    }
-                                    try {
-                                      const res = await ingestMut.mutateAsync({
-                                        sourceId: selectedSource.id,
-                                        rawJson: raw,
-                                        idempotencyKey: generateUuidV4(),
-                                      });
-                                      setOpsMsg({
-                                        text: t(
-                                          `Ingested ${res.accepted} items (added ${res.added}, updated ${res.updated}).`,
-                                          `导入成功：${res.accepted} 条（新增 ${res.added}，更新 ${res.updated}）`,
-                                        ),
-                                      });
-                                    } catch (err) {
-                                      setOpsMsg({ text: formatApiError(err), isError: true });
-                                    }
-                                  }}
+                                  disabled={ingestMut.isPending}
+                                  onChange={importIngestFile}
                                 />
                               </label>
                               <button type="button" className="ds-btn ds-btn--ghost" style={{ height: 28, fontSize: 11 }} onClick={fillSampleIngest}>

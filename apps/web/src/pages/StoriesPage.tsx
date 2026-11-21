@@ -10,10 +10,10 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import { apiClient } from '../api/client';
 import {
   formatApiError,
   useAnnotationQuery,
+  useAnnotationsListQuery,
   useContentDetailQuery,
   useInfiniteStoriesQuery,
   usePublicSourcesQuery,
@@ -169,7 +169,7 @@ function ReaderDrawer({
   const drawerRef = useRef<HTMLElement>(null);
   const detailQuery = useContentDetailQuery(preview.id);
   const annQuery = useAnnotationQuery(actor ? preview.id : null);
-  const saveAnnMut = useSaveAnnotationMutation(preview.id);
+  const saveAnnMut = useSaveAnnotationMutation();
 
   const serverAnn = annQuery.data?.annotation;
   const serverKey = `${preview.id}:${serverAnn?.revision ?? 0}`;
@@ -225,7 +225,7 @@ function ReaderDrawer({
     e.preventDefault();
     setAnnStatus(null);
     try {
-      const res = await saveAnnMut.mutateAsync({ favorite, note, revision });
+      const res = await saveAnnMut.mutateAsync({ contentId: preview.id, edit: { favorite, note, revision } });
       setRevOverride({ key: preview.id, rev: res.revision });
       setDraft({ key: `${preview.id}:${res.revision}`, favorite, note });
       setAnnStatus(t(`Saved · rev ${res.revision}`, `已保存到我的研究 · rev ${res.revision}`));
@@ -445,7 +445,6 @@ export function StoriesPage({
 }) {
   const { lang, t } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
-  const savingRef = useRef(false);
 
   const sp = useMemo(() => new URLSearchParams(initialSearchString), [initialSearchString]);
   const rawView = sp.get('view');
@@ -458,7 +457,12 @@ export function StoriesPage({
 
   const [density, setDensity] = useState<'comfortable' | 'compact'>(loadDensity);
   const [reader, setReader] = useState<ReaderPreview | null>(null);
-  const [savedIds, setSavedIds] = useState<Record<string, boolean>>({});
+  const annotations = useAnnotationsListQuery(Boolean(actor)).data?.annotations;
+  const savedIds = useMemo(
+    () => new Set(annotations?.filter((item) => item.favorite).map((item) => item.content_id)),
+    [annotations],
+  );
+  const { mutateAsync: saveBookmark, isPending: isSavingBookmark } = useSaveAnnotationMutation();
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
 
   const publicSourcesQuery = usePublicSourcesQuery(true);
@@ -554,30 +558,20 @@ export function StoriesPage({
         onOpenAuth('login', t('Sign in to bookmark stories to your workspace.', '登录后可收藏内容到我的研究。'));
         return;
       }
-      if (savingRef.current) return;
-      savingRef.current = true;
       try {
-        const { annotation } = await apiClient.getAnnotation(contentId);
-        const nextFav = !annotation?.favorite;
-        await apiClient.putAnnotation(contentId, {
-          favorite: nextFav,
-          note: annotation?.note ?? '',
-          revision: annotation?.revision ?? 0,
-        });
-        setSavedIds((prev) => ({ ...prev, [contentId]: nextFav }));
-        setStatusNotice(nextFav ? t('Bookmarked to Workspace.', '已收藏到我的研究。') : t('Removed bookmark.', '已取消收藏。'));
+        await saveBookmark({ contentId });
+        setStatusNotice(t('Bookmarked to Workspace.', '已收藏到我的研究。'));
       } catch (err) {
         setStatusNotice(formatApiError(err));
-      } finally {
-        savingRef.current = false;
       }
     },
-    [actor, onOpenAuth, t],
+    [actor, onOpenAuth, saveBookmark, t],
   );
 
   // Keyboard navigation: j/k step articles, m toggles related details
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'j' && e.key !== 'k' && e.key !== 'm') return;
       const target = e.target as HTMLElement | null;
       if (target && /INPUT|TEXTAREA|SELECT/.test(target.tagName)) return;
       if (e.metaKey || e.ctrlKey || e.altKey || reader) return;
@@ -848,7 +842,7 @@ export function StoriesPage({
             const thumb = safeHttpUrl(item.thumbnail);
             const timestamp = item.publishedAt ?? item.discoveredAt;
             const showMicrocharts = story.sourceCount >= 2 || view === 'hot';
-            const saved = Boolean(savedIds[item.id]);
+            const saved = Boolean(actor) && savedIds.has(item.id);
 
             const openDrawer = () =>
               setReader({
@@ -950,6 +944,7 @@ export function StoriesPage({
                   <button
                     type="button"
                     className={`story-act-btn ${saved ? 'is-saved' : ''}`}
+                    disabled={saved || isSavingBookmark}
                     onClick={() => void handleBookmark(item.id)}
                   >
                     <Bookmark size={13} />

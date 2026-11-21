@@ -9,8 +9,8 @@
 - **`[LIVE]` 现行统一前端（`apps/web/src`，信息流优先 + Siftline 监测工作台融合形态）**：
   - **`/`（公开 Stories 信息流）**：`publicRead=true` 时允许匿名直读（`publicRead=false` 时呈现内联登录门控）；提供 `latest`（今日精选）、`hot`（48h 热度）、`digest`（08:00 日报与历史日期切换）、8 频道/等级/语种过滤、`StoryMicrocharts`（零依赖 SVG）、`ReaderDrawer` 与 `j`/`k`/`m` 快捷键，首屏零 ECharts 依赖；
   - **`/product`（产品介绍页）**：保留 `Homepage.tsx` 与视觉资产，提供直达 `/` 信息流与 `/projects` 工作台入口，已清除虚构排行、客户评价与静态伪指标；
-  - **`/content`（内容检索与分面分析）**：`publicRead=true` 支持匿名检索、详情抽屉与真实 `/v1/content/facets` 按需分面分析，收藏/批注/保存查询/流式导出严格鉴权门控；
-  - **`/projects`、`/sources`、`/workspace`、`/settings`（登录态工作台）**：保留 `WorkbenchShell`、Theme Studio（17 套皮肤）、30 套品牌 Logo 与 `R4ArchivePanel`，恢复 `/sources` 规范 JSON 文件导入（1 MiB 预检）与动态 UTC 采集窗口；`/projects` 保留真实 `DailyTrendChart`、`DistributionCards` 与讨论表并隐藏虚构 `SignalScoreGauge` 与跨平台相加的 `TrendRadarCharts`；`/workspace` 仅展示真实批注/收藏计数；ECharts 保持 `React.lazy` 模块化 `echarts/core` 按需加载。
+  - **`/content`（内容检索与分面分析）**：`publicRead=true` 支持匿名检索、详情抽屉与真实 `/v1/content/facets` 按需分面分析（显示实际 UTC 窗口，查询跨度最多 90 天，推流样本按专题趋势设置计入），收藏/批注/保存查询/流式导出严格鉴权门控；
+  - **`/projects`、`/sources`、`/workspace`、`/settings`（登录态工作台）**：保留 `WorkbenchShell`、Theme Studio（17 套皮肤）、30 套品牌 Logo 与 `R4ArchivePanel`，恢复 `/sources` 规范 JSON 文件导入（1 MiB 预检，载入编辑器后手动提交，失败重试复用幂等键）与动态 UTC 采集窗口；`/projects` 保留真实 `DailyTrendChart`、`DistributionCards` 与讨论表并隐藏虚构 `SignalScoreGauge` 与跨平台相加的 `TrendRadarCharts`；`/workspace` 仅展示真实批注/收藏计数；ECharts 保持 `React.lazy` 模块化 `echarts/core` 按需加载。
 - **`[V2 Phase B–D]` 目标演进**：
 
 | 表面模态 | 路由与阶段 | 核心阅读与分析体验 |

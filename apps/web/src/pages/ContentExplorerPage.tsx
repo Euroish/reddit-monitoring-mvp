@@ -36,7 +36,6 @@ import { useChartColors } from '../components/charts/chartUtils';
 import {
   type Actor,
   ApiError,
-  type ContentFacetsQuery,
   type ContentKind,
   type ListQuery,
   type Platform,
@@ -198,17 +197,12 @@ export function ContentExplorerPage({
       to: new Date(now + 60_000).toISOString(),
     };
   });
-  const facetsQueryInput: ContentFacetsQuery | null = useMemo(() => {
-    if (!facetsOpen || filterValidationMsg) return null;
-    const { from: f, to: tIso, ...rest } = threadScope;
-    return {
-      ...rest,
-      from: f ?? defaultFacetWindow.from,
-      to: tIso ?? defaultFacetWindow.to,
-      bucket: 'day',
-    };
-  }, [facetsOpen, filterValidationMsg, threadScope, defaultFacetWindow]);
-  const facetsQuery = useContentFacetsQuery(facetsQueryInput, facetsOpen && !filterValidationMsg);
+  const { from: facetFrom = defaultFacetWindow.from, to: facetTo = defaultFacetWindow.to, ...facetScope } = threadScope;
+  const facetSpan = Date.parse(facetTo) - Date.parse(facetFrom);
+  const facetRangeInvalid = facetSpan <= 0 || facetSpan > 90 * 86_400_000;
+  const facetsQuery = useContentFacetsQuery(facetsOpen && !filterValidationMsg && !facetRangeInvalid
+    ? { ...facetScope, from: facetFrom, to: facetTo, bucket: 'day' }
+    : null);
   const facetsChartOption: EChartOption = useMemo(() => {
     const timeline = facetsQuery.data?.timeline ?? [];
     const labels = timeline.map((b) => b.bucket.slice(5, 10));
@@ -513,7 +507,13 @@ export function ContentExplorerPage({
                       `${facetsQuery.data.count} items · ${facetsQuery.data.matchedContentCount} matched (${facetsQuery.data.coverage})`,
                       `共 ${facetsQuery.data.count} 条内容 · 命中 ${facetsQuery.data.matchedContentCount} 条 (${facetsQuery.data.coverage})`,
                     )
-                  : t('Loading /v1/content/facets...', '正在统计已存样本分布…')}
+                  : null}
+              </div>
+              <div className="ds-card-sub">
+                {facetFrom.slice(0, 10)} – {facetTo.slice(0, 10)} UTC · {t(
+                  'Dated samples only. Push data is excluded unless enabled for the project.',
+                  '仅统计有发布日期的样本。推流数据仅在专题启用推流趋势时计入。',
+                )}
               </div>
             </div>
             <button type="button" className="icon-square" style={{ width: 28, height: 28 }} onClick={() => setFacetsOpen(false)}>
@@ -521,7 +521,11 @@ export function ContentExplorerPage({
             </button>
           </div>
           <div className="ds-card-bd">
-            {facetsQuery.error ? (
+            {filterValidationMsg || facetRangeInvalid ? (
+              <div className="wb-alert wb-alert--error">
+                {filterValidationMsg || t('Select a positive date range of at most 90 days for analysis.', '分析需要大于零且不超过 90 天的日期范围。')}
+              </div>
+            ) : facetsQuery.error ? (
               <div className="wb-alert wb-alert--error">{formatApiError(facetsQuery.error)}</div>
             ) : (facetsQuery.data?.timeline.length ?? 0) === 0 ? (
               <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--muted)' }}>
@@ -1030,7 +1034,7 @@ function ContentDetailDrawer({
   const { t } = useI18n();
   const detailQuery = useContentDetailQuery(contentId);
   const annQuery = useAnnotationQuery(actor ? contentId : null);
-  const saveAnnMut = useSaveAnnotationMutation(contentId);
+  const saveAnnMut = useSaveAnnotationMutation();
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1063,7 +1067,7 @@ function ContentDetailDrawer({
     e.preventDefault();
     setAnnMsg(null);
     try {
-      const res = await saveAnnMut.mutateAsync({ favorite, note, revision: annRev });
+      const res = await saveAnnMut.mutateAsync({ contentId, edit: { favorite, note, revision: annRev } });
       setRevOverride({ key: contentId, rev: res.revision });
       setAnnDraft({ key: `${contentId}:${res.revision}`, favorite, note });
       setAnnMsg(t(`Saved cleanly · revision ${res.revision}`, `批注已保存 · 乐观锁 rev ${res.revision}`));

@@ -240,6 +240,10 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await page.getByRole("button", { name: "分析内容" }).click();
   await facetsResponse;
 
+  await page.goto(`${origin}/content?from=2025-01-01T00%3A00%3A00Z&to=2025-05-01T00%3A00%3A00Z`);
+  await page.getByRole("button", { name: "分析内容" }).click();
+  await page.getByText("分析需要大于零且不超过 90 天的日期范围。").waitFor();
+
   // 6. Protected route gate -> Sign in -> Redirect preserves target path & query
   await page.goto(`${origin}/projects?section=platform`);
   await page.getByText("该模块需要登录后访问").waitFor();
@@ -250,6 +254,12 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await page.getByRole("button", { name: "登录工作台" }).click();
   await page.getByRole("heading", { name: "监测总览" }).waitFor();
   assert.ok(page.url().includes("/projects?section=platform"), `Expected preserved target URL, got ${page.url()}`);
+
+  await page.goto(origin);
+  await initialCard.getByRole("button", { name: "收藏", exact: true }).click();
+  await initialCard.getByRole("button", { name: "已收藏", exact: true }).waitFor();
+  await page.reload();
+  await initialCard.getByRole("button", { name: "已收藏", exact: true }).waitFor();
 
   // 7. Sources -> Create Push Source & R4 Panel + UI Ingest
   await nav.getByRole("button", { name: /来源列表/ }).click();
@@ -290,7 +300,7 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await page.getByRole("button", { name: "提交推流批次" }).click();
   await page.getByText("推流成功：接收 2 条（新增 2，更新 0）").waitFor();
 
-  // 7b. Push JSON File Import: invalid JSON rejected + >1 MiB rejected + valid file accepted
+  // 7b. File import prepares the editor. Retrying a lost response reuses the same ingest job.
   const fileInput = page.getByLabel("导入规范 JSON 文件");
   await fileInput.setInputFiles({
     name: "bad.json",
@@ -310,12 +320,39 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
     text: "来自规范 JSON 文件导入的讨论证据。",
   });
   fileItem.observation.provider = "external_ingest";
+  const ingestRoute = "**/api/v1/sources/*/ingest";
+  const ingestAttempts: Array<{ key: string | undefined; jobId: string }> = [];
+  await page.route(ingestRoute, async (route) => {
+    const response = await route.fetch();
+    ingestAttempts.push({
+      key: route.request().headers()["idempotency-key"],
+      jobId: (await response.json()).jobId,
+    });
+    if (ingestAttempts.length === 1) await route.abort("failed");
+    else await route.fulfill({ response });
+  });
   await fileInput.setInputFiles({
     name: "canonical.json",
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify({ items: [fileItem] }), "utf8"),
   });
-  await page.getByText("导入成功：1 条（新增 1，更新 0）").waitFor();
+  await page.waitForFunction(() => {
+    const editor = document.querySelector<HTMLTextAreaElement>("textarea.wb-textarea");
+    return editor?.value.includes("t3_fileimport12345");
+  });
+  assert.deepEqual([...ingestAttempts], []);
+  const submitIngest = page.getByRole("button", { name: "提交推流批次" });
+  const lostIngestResponse = page.waitForEvent("requestfailed", {
+    predicate: (request) => request.url().endsWith(`/sources/${sourceId}/ingest`),
+  });
+  await submitIngest.click();
+  await lostIngestResponse;
+  await submitIngest.click();
+  await page.getByText(/推流成功：接收 1 条（新增 1，更新 0）/).waitFor();
+  assert.equal(ingestAttempts.length, 2);
+  assert.ok(ingestAttempts[0]?.key && ingestAttempts[0]?.jobId);
+  assert.deepEqual(ingestAttempts[0], ingestAttempts[1]);
+  await page.unroute(ingestRoute);
 
   // 8. Content Explorer -> Annotation + Thread Tree + Stream Export + Save Query
   await nav.getByRole("button", { name: "内容检索" }).click();
