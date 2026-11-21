@@ -575,6 +575,15 @@ export const Login = Type.Object(
   { additionalProperties: false },
 );
 export const BrowserLogin = strictMerge([Login, Type.Object({ remember: Type.Optional(Type.Boolean()) })]);
+export const BrowserSession = Type.Object({
+  id: Id,
+  label: Type.String(),
+  current: Type.Boolean(),
+  createdAt: Type.String({ format: "date-time" }),
+  lastSeenAt: Type.String({ format: "date-time" }),
+  expiresAt: Type.String({ format: "date-time" }),
+}, { additionalProperties: false });
+export type BrowserSessionDto = Static<typeof BrowserSession>;
 export const MachineKeyInput = Type.Object(
   {
     label: Type.String({ minLength: 1, maxLength: 100 }),

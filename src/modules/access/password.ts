@@ -37,3 +37,11 @@ export async function verifyPassword(password: string, hash: string) {
   const key = await derive(password, Buffer.from(match[2], "hex"), match[1] ? current : legacy);
   return timingSafeEqual(key, Buffer.from(match[3], "hex"));
 }
+
+export async function verifyLoginPassword(password: string, hash: string, balanced: boolean) {
+  if (!balanced) return verifyPassword(password, hash);
+  const currentHash = isCurrentPasswordHash(hash);
+  const legacyMatch = await verifyPassword(password, currentHash ? dummyPasswordHash() : hash);
+  const currentMatch = await verifyPassword(password, currentHash ? hash : dummyPasswordHash(true));
+  return currentHash ? currentMatch : legacyMatch;
+}

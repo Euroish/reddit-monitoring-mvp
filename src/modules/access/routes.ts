@@ -8,6 +8,7 @@ import {
   ActorSchema,
   Login,
   BrowserLogin,
+  BrowserSession,
   MachineKeyInput,
   PlanTier,
   Scopes,
@@ -20,12 +21,14 @@ import {
   findActor,
   hashPassword,
   listAccessAudit,
+  listBrowserSessions,
+  revokeBrowserSessions,
+  recordAuthEvent,
   listUsers,
   tokenHash,
   updateUserAccess,
-  verifyPassword,
 } from "./sql";
-import { dummyPasswordHash, isCurrentPasswordHash } from "./password";
+import { dummyPasswordHash, isCurrentPasswordHash, verifyLoginPassword } from "./password";
 import { fail, transaction } from "../../storage/db";
 
 export async function accessRoutes(
@@ -80,17 +83,22 @@ export async function accessRoutes(
         )
       ).rows[0];
       if (
-        !(await verifyPassword(
+        !(await verifyLoginPassword(
           request.body.password,
-          row?.password_hash ?? dummyPasswordHash(options.strongerPasswords),
+          row?.password_hash ?? dummyPasswordHash(),
+          Boolean(options.strongerPasswords),
         )) ||
         row?.status !== "active"
-      )
+      ) {
+        request.log.info({ event: "auth.login.rejected" });
         fail(401, "Invalid email or password");
+      }
       const rehash = options.strongerPasswords && !isCurrentPasswordHash(row.password_hash)
         ? { previous: row.password_hash, next: await hashPassword(request.body.password, true) }
         : undefined;
-      const session = await createLoginSession(pool, row.id, row.credential_version, Scopes, request.body.remember, rehash);
+      const session = await createLoginSession(
+        pool, row.id, row.credential_version, Scopes, request.body.remember, rehash, request.id,
+      );
       request.actor = await findActor(pool, session.token, "browser");
       if (!request.actor) fail(401, "Invalid email or password");
       reply.header("Set-Cookie", cookie(session.token, session.maxAge));
@@ -118,6 +126,7 @@ export async function accessRoutes(
       if (!inviteCode && !options.publicRegistration)
         fail(403, "Invitation required");
       const email = request.body.email.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+$/.test(email)) fail(422, "Invalid email address");
       const password = await hashPassword(request.body.password, options.strongerPasswords);
       const outcome = await transaction(pool, async (client) => {
         let role: Actor["role"] = "viewer";
@@ -153,6 +162,7 @@ export async function accessRoutes(
             "UPDATE app_invite SET used_count=used_count+1 WHERE id=$1",
             [inviteId],
           );
+          await recordAuthEvent(client, id, "auth.invite.accepted", request.id);
           return null;
         }
         const session = await createSession(client, id, "browser", Scopes, null, 1);
@@ -174,11 +184,24 @@ export async function accessRoutes(
       return { registered: true, user: outcome.actor };
     },
   );
-  api.post("/v1/auth/logout", async (request, reply) => {
-    if (request.actor) {
-      await pool.query("DELETE FROM app_session WHERE id=$1 AND client_kind='browser'", [request.actor.sessionId]);
-    }
-    reply.header("Set-Cookie", `${cookie("")}; Max-Age=0`);
+  api.post("/v1/auth/logout", { bodyLimit: 8192 }, async (request, reply) => {
+    const actor = request.actor;
+    if (actor) await revokeBrowserSessions(pool, actor, request.id, actor.sessionId);
+    reply.header("Set-Cookie", cookie("", 0));
+    return { loggedOut: true };
+  });
+  api.get("/v1/auth/sessions", {
+    schema: { response: { 200: Type.Object({ sessions: Type.Array(BrowserSession) }) } },
+  }, async (request) => ({ sessions: await listBrowserSessions(pool, request.actor!) }));
+  api.delete("/v1/auth/sessions/:id", { schema: { params: ParamsId } }, async (request, reply) => {
+    const actor = request.actor!;
+    await revokeBrowserSessions(pool, actor, request.id, request.params.id);
+    if (actor.sessionId === request.params.id) reply.header("Set-Cookie", cookie("", 0));
+    return { revoked: true };
+  });
+  api.post("/v1/auth/logout-all", { bodyLimit: 8192 }, async (request, reply) => {
+    await revokeBrowserSessions(pool, request.actor!, request.id);
+    reply.header("Set-Cookie", cookie("", 0));
     return { loggedOut: true };
   });
   api.get("/v1/access/keys", async (request) => {

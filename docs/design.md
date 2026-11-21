@@ -22,6 +22,8 @@
 
 ### 已有实现与待补体验
 
+安全开发分支在现有账户设置页增加浏览器会话列表，显示当前设备和最近活动，支持确认退出指定设备或所有浏览器。账户找回、邮箱验证和管理员 MFA 仍处于规划阶段。
+
 | 能力 | `main` 已实现 | `[V2]` 待交付 |
 | --- | --- | --- |
 | 图表 | `StoryMicrocharts` 原生 SVG；`DailyTrendChart`、`DistributionCards`、`ObservationChart` 按需使用模块化 ECharts | 图表筛选联动、并排对比、覆盖条、分享与回放 |

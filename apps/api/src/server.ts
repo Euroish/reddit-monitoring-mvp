@@ -1,5 +1,5 @@
 import { createPool } from "../../../src/storage/db";
-import { bootstrapOwner } from "../../../src/modules/access/sql";
+import { bootstrapOwner, pruneExpiredBrowserSessions } from "../../../src/modules/access/sql";
 import { createCredentialVault } from "../../../src/modules/collection/credentials";
 import { startWorker } from "../../../src/modules/collection/worker";
 import { startAiSyncScheduler } from "../../../src/modules/content/ai-scheduler";
@@ -75,6 +75,10 @@ export async function main() {
     });
     const worker = startWorker(workerPool, providers, (error) => app.log.error({ err: error }, "Collection worker failed"));
     const stopAiScheduler = startAiSyncScheduler(workerPool);
+    const sessionCleanup = setInterval(() => {
+      void pruneExpiredBrowserSessions(workerPool).catch(() => app.log.error("Browser session cleanup failed"));
+    }, 60 * 60 * 1000);
+    sessionCleanup.unref();
     let stopping = false;
     const stop = async () => {
       if (stopping) return;
@@ -82,6 +86,7 @@ export async function main() {
       const deadline = setTimeout(() => process.exit(1), 15000);
       deadline.unref();
       stopAiScheduler();
+      clearInterval(sessionCleanup);
       await Promise.all([app.close(), worker.stop()]);
       await Promise.all([pool.end(), workerPool.end()]);
       clearTimeout(deadline);

@@ -1,3 +1,4 @@
+import type { BrowserSessionDto } from "../../../../packages/contracts/src/source-content";
 import {
   type Actor,
   type AnnotationDetail,
@@ -113,6 +114,18 @@ export const apiClient = {
 
   async readyz(): Promise<{ ok: boolean }> {
     return liveFetch('/readyz', { rawBase: true });
+  },
+
+  async getBrowserSessions(): Promise<{ sessions: BrowserSessionDto[] }> {
+    return liveFetch("/auth/sessions");
+  },
+
+  async revokeBrowserSession(id: string): Promise<{ revoked: boolean }> {
+    return liveFetch("/auth/sessions/" + encodeURIComponent(id), { method: "DELETE" });
+  },
+
+  async logoutAll(): Promise<{ loggedOut: boolean }> {
+    return liveFetch("/auth/logout-all", { method: "POST" });
   },
 
   async getSession(): Promise<SessionPayload> {

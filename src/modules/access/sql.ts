@@ -12,6 +12,13 @@ export { hashPassword, verifyPassword } from "./password";
 
 export const tokenHash = (token: string) =>
   createHash("sha256").update(token).digest("hex");
+const browserIdlePolicy = `s.expires_at=s.created_at+interval '7 days' OR
+             s.last_seen_at>NOW()-CASE
+               WHEN u.role<>'viewer' THEN interval '30 minutes'
+               WHEN s.expires_at>s.created_at+interval '1 day' THEN interval '7 days'
+               ELSE interval '2 hours'
+             END`;
+
 export async function findActor(
   pool: Pool,
   token: string,
@@ -24,12 +31,7 @@ export async function findActor(
          FROM app_session s JOIN app_user u ON u.id=s.user_id
          WHERE s.token_hash=$1 AND s.client_kind=$2 AND s.expires_at>NOW()
            AND u.status='active' AND s.credential_version=u.credential_version
-           AND ($2='machine' OR s.expires_at=s.created_at+interval '7 days' OR
-             s.last_seen_at>NOW()-CASE
-               WHEN u.role<>'viewer' THEN interval '30 minutes'
-               WHEN s.expires_at>s.created_at+interval '1 day' THEN interval '7 days'
-               ELSE interval '2 hours'
-             END)
+           AND ($2='machine' OR (${browserIdlePolicy}))
        ), touch AS (
          UPDATE app_session s SET last_seen_at=NOW() FROM valid v
          WHERE s.id=v.id AND $2='browser'
@@ -89,6 +91,7 @@ export async function createLoginSession(
   scopes: readonly string[],
   remember = false,
   rehash?: { previous: string; next: string },
+  requestId?: string,
 ) {
   return transaction(pool, async (client) => {
     const valid = await client.query<{ role: Actor["role"] }>(
@@ -105,6 +108,7 @@ export async function createLoginSession(
     const persistent = remember && valid.rows[0].role === "viewer";
     const days = persistent ? 30 : 1;
     const session = await createSession(client, userId, "browser", scopes, null, days);
+    if (requestId) await recordAuthEvent(client, userId, "auth.login", requestId);
     return { ...session, maxAge: persistent ? days * 86400 : undefined };
   });
 }
@@ -115,9 +119,9 @@ export async function bootstrapOwner(
   email = "owner@localhost",
   strongerPasswords = false,
 ) {
+  if ((await pool.query("SELECT 1 FROM app_user LIMIT 1")).rowCount) return;
   if (password.length < 12 || password.length > 128)
     fail(422, "Bootstrap password must have 12–128 characters");
-  if ((await pool.query("SELECT 1 FROM app_user LIMIT 1")).rowCount) return;
   const hash = await hashPassword(password, strongerPasswords);
   return transaction(pool, async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(728419,2)");
@@ -133,6 +137,61 @@ export async function bootstrapOwner(
     );
   });
 }
+export async function recordAuthEvent(
+  client: PoolClient,
+  userId: string,
+  action: "auth.login" | "auth.invite.accepted",
+  requestId: string,
+) {
+  await client.query(
+    `INSERT INTO app_audit_log(id,actor_user_id,action,resource_type,request_id,completed_at)
+     VALUES($1,$2,$3,'session',$4,NOW())`,
+    [randomUUID(), userId, action, requestId],
+  );
+}
+
+export async function listBrowserSessions(pool: Pool, actor: Actor) {
+  const result = await pool.query<{ id: string; createdAt: Date; lastSeenAt: Date; expiresAt: Date; current: boolean }>(
+    `SELECT s.id,s.created_at AS "createdAt",s.last_seen_at AS "lastSeenAt",s.expires_at AS "expiresAt",s.id=$2 AS current
+     FROM app_session s JOIN app_user u ON u.id=s.user_id
+     WHERE s.user_id=$1 AND s.client_kind='browser' AND s.expires_at>NOW()
+       AND u.status='active' AND s.credential_version=u.credential_version AND (${browserIdlePolicy})
+     ORDER BY current DESC,s.last_seen_at DESC,s.id LIMIT 100`,
+    [actor.userId, actor.sessionId],
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    label: "Browser",
+    current: row.current,
+    createdAt: row.createdAt.toISOString(),
+    lastSeenAt: row.lastSeenAt.toISOString(),
+    expiresAt: row.expiresAt.toISOString(),
+  }));
+}
+
+export async function revokeBrowserSessions(pool: Pool, actor: Actor, requestId: string, sessionId?: string) {
+  return transaction(pool, async (client) => {
+    const result = await client.query(
+      `DELETE FROM app_session WHERE user_id=$1 AND client_kind='browser' AND ($2::uuid IS NULL OR id=$2)`,
+      [actor.userId, sessionId ?? null],
+    );
+    if (result.rowCount) {
+      await client.query(
+        `INSERT INTO app_audit_log(id,actor_user_id,action,resource_type,resource_id,request_id,completed_at)
+         VALUES($1,$2,$3,'session',$4,$5,NOW())`,
+        [randomUUID(), actor.userId, sessionId ? "auth.session.revoked" : "auth.sessions.revoked", sessionId ?? null, requestId],
+      );
+    }
+  });
+}
+
+export async function pruneExpiredBrowserSessions(pool: Pool) {
+  await pool.query(`WITH expired AS (
+    SELECT id FROM app_session WHERE client_kind='browser' AND expires_at<=NOW()
+    ORDER BY expires_at LIMIT 100 FOR UPDATE SKIP LOCKED
+  ) DELETE FROM app_session s USING expired e WHERE s.id=e.id`);
+}
+
 export async function listUsers(pool: Pool) {
   const result = await pool.query<{
     id: string;

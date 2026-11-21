@@ -162,8 +162,9 @@ export async function buildApp(options: {
           ? 503
           : 500);
     if (statusCode === 503) reply.header("Retry-After", 1);
-    const message =
-      statusCode === 500 ? "Internal server error" : failure.message;
+    const message = statusCode === 500 ? "Internal server error"
+      : failure.statusCode !== undefined ? failure.message
+      : statusCode === 409 ? "Resource conflict" : "Temporarily unavailable";
     reply.code(statusCode).send({
       error: {
         code:
@@ -201,7 +202,7 @@ export async function buildApp(options: {
     }
     let token: string | undefined,
       kind: "browser" | "machine" = "browser";
-    if (request.headers.authorization) {
+    if (request.headers.authorization !== undefined) {
       kind = "machine";
       token = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(
         request.headers.authorization,
@@ -223,21 +224,22 @@ export async function buildApp(options: {
     if (!publicRoute && !request.actor) fail(401, "Authentication required");
     const actor = request.actor;
     if (!actor || publicRoute) return;
-    const viewerAllowedPost =
-      method === "POST" &&
-      [
+    const viewerAllowedWrite =
+      (method === "DELETE" && route === "/v1/auth/sessions/:id") ||
+      (method === "POST" && [
+        "/v1/auth/logout-all",
         "/v1/sources/:id/collect",
         "/v1/sources/:id/refresh",
         "/v1/projects/:id/hydrate",
         "/v1/source-jobs/:id/cancel",
         "/v1/source-jobs/:id/retry",
         "/v1/source-jobs/:id/continue",
-      ].includes(route);
+      ].includes(route));
     if (
       actor.role === "viewer" &&
       !["GET", "HEAD"].includes(method) &&
       !route.startsWith("/v1/workspace/") &&
-      !viewerAllowedPost
+      !viewerAllowedWrite
     )
       fail(403, "Administrator access required");
     if (actor.clientKind === "machine") {

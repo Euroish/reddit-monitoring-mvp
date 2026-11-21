@@ -422,7 +422,21 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await page.getByText("保留这条研究判断").waitFor();
 
   // 10. Settings -> Mint R4 ingest + read machine key
+  const secondBrowser = await fetch(`${address}/v1/auth/login`, {
+    method: "POST", headers: { origin, "content-type": "application/json" },
+    body: JSON.stringify({ email: "owner@localhost", password: "fixture-password-123" }),
+  });
+  assert.equal(secondBrowser.status, 200);
+  const otherCookie = secondBrowser.headers.get("set-cookie")!.split(";")[0];
   await page.getByRole("button", { name: "账户与权限" }).click();
+  const browserSessions = page.getByRole("region", { name: "已登录的浏览器" });
+  await browserSessions.getByText("当前浏览器", { exact: true }).waitFor();
+  page.once("dialog", (dialog) => dialog.accept());
+  await browserSessions.locator(".toggle-line").filter({ has: page.getByText("浏览器", { exact: true }) })
+    .getByRole("button", { name: "退出此浏览器" }).click();
+  await browserSessions.getByText("浏览器已退出。").waitFor();
+  const otherSession = await fetch(`${address}/v1/auth/session`, { headers: { cookie: otherCookie } });
+  assert.equal((await otherSession.json()).user, null);
   await page.getByRole("button", { name: "机器 API 密钥" }).click();
   await page.getByPlaceholder("BI Export Sync").fill("R4 验证密钥");
   await page.getByRole("button", { name: /一键预设: R4 归档推流/ }).click();

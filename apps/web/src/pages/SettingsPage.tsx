@@ -28,6 +28,7 @@ import {
   useUpdateUserAccessMutation,
   useUsersQuery,
 } from '../api/hooks';
+import { BrowserSessionsCard } from '../components/BrowserSessionsCard';
 import { SiftlineLogo } from '../components/BrandMark';
 import { useLogo } from '../components/brandContext';
 import { ProviderCredentialsTab } from '../components/ProviderCredentialsTab';
@@ -248,6 +249,7 @@ export function SettingsPage({
                 </button>
               </div>
             </div>
+            <BrowserSessionsCard userId={actor.userId} />
           </div>
 
           <div className="c7">
