@@ -225,15 +225,17 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   assert.equal(new URL(page.url()).searchParams.get("query"), "多语言");
   await page.getByText(storyTitle).first().waitFor();
 
-  // 3. Public Site pages (/product no duplicate nav, /docs real content, /ai transition, 404)
+  // 3. Public Site pages (/product no duplicate nav, /docs real DB docs center, /ai transition, /guide preserved, 404)
   await page.goto(`${origin}/product`);
   const productNav = page.getByLabel("公开导航", { exact: true });
   await productNav.waitFor();
   assert.equal(await page.locator("header").count(), 1, "Expected single PublicSiteShell header on /product");
   await productNav.getByRole("button", { name: "文档" }).click();
-  await page.getByRole("heading", { name: "SIFTLINE 使用与口径文档" }).waitFor();
+  await page.getByText("功能说明").first().waitFor();
   await productNav.getByRole("button", { name: "AI 资讯" }).click();
   await page.getByRole("heading", { name: "AI 资讯即将上线" }).waitFor();
+  await page.goto(`${origin}/guide`);
+  await page.getByText(/SIFTLINE/).first().waitFor();
   await page.goto(`${origin}/non-existent-route-check`);
   await page.getByText(/404/).waitFor();
   await page.getByRole("button", { name: "返回公开首页" }).click();
@@ -445,7 +447,7 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
     { width: 768, height: 1024 },
     { width: 390, height: 844 },
   ];
-  await page.goto(origin);
+  await nav.getByRole("button", { name: "公开首页" }).click();
   await page.getByRole("heading", { name: "SIFTLINE 公开信息首页" }).waitFor();
   for (const viewport of viewports) {
     await page.setViewportSize(viewport);
@@ -459,6 +461,7 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
     });
   }
 
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${origin}/app/feed?language=zh`);
   const storyCard = page.getByRole("article").filter({ hasText: storyTitle });
   await storyCard.getByRole("img", { name: /来源分布.*T1 1.*T1_5 1.*T2 1/ }).waitFor();

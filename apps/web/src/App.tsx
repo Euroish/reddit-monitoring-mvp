@@ -7,15 +7,15 @@ import { type PublicRoute, PublicSiteShell } from './components/PublicSiteShell'
 import { ThemeProvider } from './components/ThemeStudio';
 import { type Lang, LangContext } from './i18n/translations';
 import { AiNewsPage } from './pages/AiNewsPage';
-import { DocsPage } from './pages/DocsPage';
 import { PublicInfoHomePage } from './pages/PublicInfoHomePage';
 import type { WorkbenchRoute } from './pages/WorkbenchShell';
 
+const GuidePage = lazy(() => import('./pages/GuidePage').then((m) => ({ default: m.GuidePage })));
+const DocsPage = lazy(() => import('./pages/DocsPage').then((m) => ({ default: m.DocsPage })));
+const Homepage = lazy(() => import('./pages/Homepage').then((m) => ({ default: m.Homepage })));
 const StoriesPage = lazy(() =>
   import('./pages/StoriesPage').then((m) => ({ default: m.StoriesPage })),
 );
-
-const Homepage = lazy(() => import('./pages/Homepage').then((m) => ({ default: m.Homepage })));
 const WorkbenchShell = lazy(() =>
   import('./pages/WorkbenchShell').then((m) => ({ default: m.WorkbenchShell })),
 );
@@ -35,7 +35,7 @@ const SettingsPage = lazy(() =>
   import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
 );
 
-type AppRoute = PublicRoute | WorkbenchRoute;
+type AppRoute = PublicRoute | '/guide' | WorkbenchRoute;
 
 const PUBLIC_ROUTES: PublicRoute[] = ['/', '/product', '/ai', '/docs'];
 
@@ -78,7 +78,9 @@ function parseLocation(): { pathname: AppRoute; rawPathname: string; search: str
   }
 
   let pathname: AppRoute = '__not_found__';
-  if (PUBLIC_ROUTES.includes(rawPathname as PublicRoute)) {
+  if (rawPathname === '/guide') {
+    pathname = '/guide';
+  } else if (PUBLIC_ROUTES.includes(rawPathname as PublicRoute)) {
     pathname = rawPathname as PublicRoute;
   } else if (WORKBENCH_ROUTES.includes(rawPathname as WorkbenchRoute)) {
     pathname = rawPathname as WorkbenchRoute;
@@ -298,13 +300,6 @@ export function App() {
     );
   }
 
-  const isPublicSiteRoute =
-    loc.pathname === '/' ||
-    loc.pathname === '/product' ||
-    loc.pathname === '/ai' ||
-    loc.pathname === '/docs' ||
-    loc.pathname === '__not_found__';
-
   const authOverlay = authModal.open ? (
     <AuthModal
       initialTab={authModal.tab}
@@ -320,6 +315,33 @@ export function App() {
       }}
     />
   ) : null;
+
+  // Consumer-facing product guide (/guide from PR #11), preserved intact
+  if (loc.pathname === '/guide') {
+    return (
+      <LangContext.Provider value={{ lang, setLang, t }}>
+        <ThemeProvider>
+          <LogoProvider>
+            <Suspense fallback={<PageFallback label={t('Opening the guide…', '正在打开使用手册…')} />}>
+              <GuidePage
+                isAuthenticated={Boolean(actor)}
+                onNavigate={navigate}
+                onOpenAuth={() => openAuth('login', undefined, '/projects')}
+              />
+            </Suspense>
+            {authOverlay}
+          </LogoProvider>
+        </ThemeProvider>
+      </LangContext.Provider>
+    );
+  }
+
+  const isPublicSiteRoute =
+    loc.pathname === '/' ||
+    loc.pathname === '/product' ||
+    loc.pathname === '/ai' ||
+    loc.pathname === '/docs' ||
+    loc.pathname === '__not_found__';
 
   if (isPublicSiteRoute) {
     return (
@@ -358,7 +380,15 @@ export function App() {
               {loc.pathname === '/ai' && <AiNewsPage onNavigate={navigate} />}
 
               {loc.pathname === '/docs' && (
-                <DocsPage onNavigate={navigate} onOpenWorkbench={handleEnterWorkbench} />
+                <Suspense fallback={<PageFallback label={t('Opening the documentation center…', '正在打开文档中心…')} />}>
+                  <DocsPage
+                    embedded
+                    actor={actor}
+                    search={loc.search}
+                    onNavigate={navigate}
+                    onOpenAuth={() => openAuth('login', undefined, '/docs')}
+                  />
+                </Suspense>
               )}
 
               {loc.pathname === '__not_found__' && (

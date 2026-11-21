@@ -10,7 +10,6 @@ export function detectLanguage(title: string | null, text: string | null): strin
 
 export function detectWebChannel(url: URL, board?: string): string {
   if (board === "bilibili-hot-video") return "bilibili";
-  if (board === "zhihu-hot") return "zhihu";
   if (board === "google-trends-us") return "google-trends";
   if (board === "huggingface-papers") return "huggingface";
   if (board === "github-trending") return "github";

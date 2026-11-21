@@ -19,6 +19,7 @@ import {
 } from "../../../src/modules/collection/credentials";
 import { policyRoutes } from "../../../src/modules/collection/policy";
 import { contentRoutes } from "../../../src/modules/content/routes";
+import { docsRoutes } from "../../../src/modules/content/docs";
 import { workspaceRoutes } from "../../../src/modules/workspace/routes";
 import { projectRoutes } from "../../../src/modules/projects/routes";
 import { fail } from "../../../src/storage/db";
@@ -46,6 +47,9 @@ const PUBLIC_READ_ROUTES = new Set([
   "/v1/content/facets",
   "/v1/content/:id",
   "/v1/content/:id/thread",
+  "/v1/docs",
+  "/v1/docs/:slug",
+  "/v1/docs/:slug/file",
 ]);
 export async function buildApp(options: {
   pool: Pool;
@@ -269,6 +273,7 @@ export async function buildApp(options: {
     shutdown.abort();
   });
   await contentRoutes(app, options.pool, shutdown.signal);
+  await docsRoutes(app, options.pool);
   await projectRoutes(app, options.pool, providers);
   await workspaceRoutes(app, options.pool);
   app.get("/v1/openapi.json", async () => app.swagger());

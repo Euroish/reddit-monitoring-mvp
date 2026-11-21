@@ -42,10 +42,13 @@ test("PG16 forward migration failure rolls back DDL/ledger, 050 drops legacy sch
   const tables = (
     await db.pool.query("SELECT tablename FROM pg_tables WHERE schemaname='public'")
   ).rows.map((r) => r.tablename);
-  assert.equal(tables.length, 23);
+  // 053 新增文档中心 doc_page，公网表预算上限仍为 24
+  assert.equal(tables.length, 24);
+  assert.ok(tables.length <= 24, "public table budget is 24");
   assert.ok(tables.includes("source_provider_credential"));
   assert.ok(tables.includes("plan_collection_policy"));
   assert.ok(tables.includes("user_provider_usage"));
+  assert.ok(tables.includes("doc_page"));
   for (const dropped of ["research_export", "research_export_member", "saved_workbench_view", "collection_job", "monitor_target"]) {
     assert.equal(tables.includes(dropped), false, `${dropped} should be dropped`);
   }
