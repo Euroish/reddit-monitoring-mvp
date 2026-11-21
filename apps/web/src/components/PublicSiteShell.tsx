@@ -3,6 +3,7 @@ import { ArrowUpRight, Globe, LogIn, Menu, RefreshCw, User, X } from 'lucide-rea
 import type { Actor } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
 import { SiftlineLogo } from './BrandMark';
+import { EditorialFooter } from './EditorialFooter';
 
 export type PublicRoute = '/' | '/product' | '/ai' | '/docs' | '__not_found__';
 
@@ -192,53 +193,7 @@ export function PublicSiteShell({
 
       <main className="ps-main">{children}</main>
 
-      <footer className="ps-footer">
-        <div className="ps-footer-inner">
-          <div className="ps-footer-brand">
-            <SiftlineLogo size={24} fontSize={18} />
-            <p>
-              {t(
-                'SIFTLINE unifies multi-source editorial stories, transparent stored-sample coverage, and a full signal research workbench.',
-                'SIFTLINE 融合多源实时信息流、透明的已存样本口径（stored_sample）与专业信号监测研究工作台。',
-              )}
-            </p>
-          </div>
-
-          <div className="ps-footer-col">
-            <h4>{t('Public Site', '公开站点')}</h4>
-            <ul>
-              <li><button type="button" onClick={() => go('/')}>{t('Information Home', '公开信息首页')}</button></li>
-              <li><button type="button" onClick={() => go('/product')}>{t('Product Overview', '产品介绍')}</button></li>
-              <li><button type="button" onClick={() => go('/ai')}>{t('AI News (Upcoming)', 'AI 资讯（即将上线）')}</button></li>
-              <li><button type="button" onClick={() => go('/docs')}>{t('Documentation', '公开文档')}</button></li>
-            </ul>
-          </div>
-
-          <div className="ps-footer-col">
-            <h4>{t('Workbench', '专业工作台')}</h4>
-            <ul>
-              <li><button type="button" onClick={() => go('/app/feed')}>{t('Full Stories Feed', '完整信息流 (/app/feed)')}</button></li>
-              <li><button type="button" onClick={() => go('/content')}>{t('Content Explorer', '内容检索与分面')}</button></li>
-              <li><button type="button" onClick={() => onOpenWorkbench('/projects')}>{t('Monitoring Projects', '专题监测总览')}</button></li>
-              <li><button type="button" onClick={() => onOpenWorkbench('/sources')}>{t('Sources & Quotas', '来源与采集管理')}</button></li>
-            </ul>
-          </div>
-
-          <div className="ps-footer-col">
-            <h4>{t('Data Integrity', '数据与口径')}</h4>
-            <ul>
-              <li><button type="button" onClick={() => go('/docs#coverage')}>{t('Coverage: stored_sample', '样本口径：stored_sample')}</button></li>
-              <li><button type="button" onClick={() => go('/docs#tiers')}>{t('Source Tiers (T1 / T1.5 / T2)', '来源分级：T1 / T1.5 / T2')}</button></li>
-              <li><button type="button" onClick={() => setLang(lang === 'en' ? 'zh' : 'en')}>{lang === 'en' ? '切换为简体中文' : 'Switch to English'}</button></li>
-            </ul>
-          </div>
-        </div>
-
-        <div className="ps-footer-bar">
-          <span>© 2026 SIFTLINE · {t('Stored-sample traceable intelligence', '可追溯已存样本情报系统')}</span>
-          <span>coverage: stored_sample</span>
-        </div>
-      </footer>
+      <EditorialFooter onNavigate={go} onOpenWorkbench={onOpenWorkbench} />
     </div>
   );
 }
