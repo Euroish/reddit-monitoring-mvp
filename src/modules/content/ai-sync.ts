@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import {
-  parseArtificialAnalysisPayload,
   parseEpochCsv,
   parseHuggingFacePayload,
   parseLiteLlmPayload,
@@ -9,6 +8,7 @@ import {
   stableHash,
   type NormalizedRegistryItem,
 } from "./ai-registry";
+import { saveArtificialAnalysisSnapshots } from "./ai-scheduler";
 export { validateLlmExtraction } from "./ai-llm";
 
 const AI_SYNC_LOCK_KEY = 9042054;
@@ -382,36 +382,7 @@ export async function syncRegistrySourceByCode(
     }
 
     if (src.kind === "artificial_analysis") {
-      const snapshots = parseArtificialAnalysisPayload(JSON.parse(res.bodyText));
-      const licenseTier = aaPublicAllowed ? "commercial_public" : "free_internal";
-      let saved = 0;
-      if (!options.dryRun) {
-        for (const snap of snapshots) {
-          const snapRes = await pool.query<{ id: string }>(
-            `INSERT INTO ai_benchmark_snapshot (
-               provider_code, category, metric_name, metric_version, metric_direction,
-               unit, attribution_text, attribution_url, license_tier, public_redistribution_allowed
-             ) VALUES ('artificial_analysis',$1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-            [snap.category, snap.metricName, snap.metricVersion, snap.metricDirection, snap.unit, snap.attributionText, snap.attributionUrl, licenseTier, aaPublicAllowed],
-          );
-          for (const e of snap.entries) {
-            await pool.query(
-              `INSERT INTO ai_benchmark_entry (snapshot_id, external_model_id, model_name, vendor_name, score, rank, provider_setting)
-               VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (snapshot_id, external_model_id) DO NOTHING`,
-              [snapRes.rows[0].id, e.externalModelId, e.modelName, e.vendorName, e.score, e.rank, e.providerSetting],
-            );
-          }
-          saved += 1;
-        }
-        await pool.query(
-          `UPDATE ai_registry_source SET last_success_at = NOW(), consecutive_failures = 0, backoff_seconds = 0,
-           circuit_open_until = NULL, last_error = NULL,
-           next_run_at = NOW() + make_interval(secs => sync_interval_seconds), updated_at = NOW() WHERE id = $1`,
-          [src.id],
-        );
-        await pool.query(`UPDATE ai_ops_alert SET resolved_at = NOW() WHERE source_code = $1 AND resolved_at IS NULL`, [sourceCode]);
-      }
-      return { snapshotsSaved: saved, licenseTier, publicRedistributionAllowed: aaPublicAllowed };
+      return saveArtificialAnalysisSnapshots(pool, src.id, sourceCode, res.bodyText, aaPublicAllowed, options.dryRun);
     }
 
     let items: NormalizedRegistryItem[] = [];
