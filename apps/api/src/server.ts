@@ -2,6 +2,7 @@ import { createPool } from "../../../src/storage/db";
 import { bootstrapOwner } from "../../../src/modules/access/sql";
 import { createCredentialVault } from "../../../src/modules/collection/credentials";
 import { startWorker } from "../../../src/modules/collection/worker";
+import { startAiSyncScheduler } from "../../../src/modules/content/ai-sync";
 import { KaixContentConnector } from "../../../src/connectors/reddit/kaix-content.connector";
 import { redCrawler } from "../../../src/connectors/reddit/red-crawler";
 import { createApifyFetch } from "../../../src/connectors/reddit/apify-fetch";
@@ -65,12 +66,14 @@ export async function main() {
       port: Number(process.env.PORT ?? 3000),
     });
     const worker = startWorker(workerPool, providers, (error) => app.log.error({ err: error }, "Collection worker failed"));
+    const stopAiScheduler = startAiSyncScheduler(workerPool);
     let stopping = false;
     const stop = async () => {
       if (stopping) return;
       stopping = true;
       const deadline = setTimeout(() => process.exit(1), 15000);
       deadline.unref();
+      stopAiScheduler();
       await Promise.all([app.close(), worker.stop()]);
       await Promise.all([pool.end(), workerPool.end()]);
       clearTimeout(deadline);
