@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useMemo, useState } from 'react';
 import { ArrowRight, RefreshCw } from 'lucide-react';
 import {
   formatApiError,
@@ -65,11 +65,12 @@ export function PublicInfoHomePage({
     ...(selectedGroup ? { sourceGroup: selectedGroup } : {}),
   });
 
-  useEffect(() => {
-    if (selectedGroup === '' && picksQuery.data?.pages[0]?.items) {
+  const handleSelectGroup = (nextGroup: string) => {
+    if (selectedGroup === '' && nextGroup !== '' && picksQuery.data?.pages[0]?.items) {
       setCachedGlobalLatest(picksQuery.data.pages[0].items);
     }
-  }, [selectedGroup, picksQuery.data]);
+    setSelectedGroup(nextGroup);
+  };
 
   const hotQuery = useStoriesQuery({
     view: 'hot',
@@ -266,7 +267,7 @@ export function PublicInfoHomePage({
           <FeedChannelNav
             selectedGroup={selectedGroup}
             groupCounts={groupCounts}
-            onSelectGroup={setSelectedGroup}
+            onSelectGroup={handleSelectGroup}
           />
 
           {picksQuery.isPending && (
@@ -294,7 +295,7 @@ export function PublicInfoHomePage({
                 )}
               </span>
               {selectedGroup && (
-                <button type="button" className="sh-btn-outline" onClick={() => setSelectedGroup('')}>
+                <button type="button" className="sh-btn-outline" onClick={() => handleSelectGroup('')}>
                   {t('View All Picks', '查看全部精选')}
                 </button>
               )}
