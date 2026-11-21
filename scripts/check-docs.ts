@@ -114,9 +114,6 @@ function checkMigrations(): void {
 for (const file of files) {
   if (/^(?:src\/(?:application|domain|runtime|jobs|workers|storage\/repositories)\/|workers\/)/.test(file)) errors.push(`Retired architecture path: ${file}`);
   if (/^src\/connectors\/(?:reddit\/arctic-shift|x\/twitterapi-io)/.test(file)) errors.push(`Retired online connector: ${file}`);
-  if (/\.(md|mdc|markdown)$/i.test(file) && !DOCUMENTATION_FILES.includes(file)) {
-    errors.push(`Unexpected documentation: ${file}. Update an existing document.`);
-  }
   if (/^(skills|prompts|context|obsidian-reddit专用|awesome-design-md-main)\//.test(file) || file === "00_START_HERE.md" || file === ".codex") {
     errors.push(`Obsolete agent/reference material: ${file}`);
   }
@@ -131,8 +128,10 @@ function checkDocumentationDirectory(directory: string): void {
   if (!existsSync(path.join(root, directory))) return;
   for (const entry of readdirSync(path.join(root, directory), { withFileTypes: true })) {
     const relative = `${directory}/${entry.name}`;
-    if (entry.isDirectory() && DOCUMENTATION_FILES.some(file => file.startsWith(`${relative}/`))) checkDocumentationDirectory(relative);
-    else if (!entry.isFile() || !DOCUMENTATION_FILES.includes(relative)) errors.push(`Unexpected docs entry: ${relative}. Reports belong in output/.`);
+    if (entry.isDirectory()) checkDocumentationDirectory(relative);
+    else if (!entry.isFile() || !/\.(md|mdc|markdown)$/i.test(entry.name)) {
+      errors.push(`Unexpected docs entry: ${relative}. Use regular Markdown files under docs/.`);
+    }
   }
 }
 checkDocumentationDirectory("docs");
@@ -189,5 +188,5 @@ if (errors.length) {
   console.error(errors.join("\n"));
   process.exitCode = 1;
 } else {
-  console.log(`Policy check passed: ${DOCUMENTATION_FILES.length} documents, ${rules.size} unique rules; links, private paths and module boundaries valid.`);
+  console.log(`Policy check passed: ${DOCUMENTATION_FILES.length} release documents, ${rules.size} unique rules; links, private paths and module boundaries valid.`);
 }

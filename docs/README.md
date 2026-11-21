@@ -1,6 +1,6 @@
 # 产品规范、指标口径与文档总览（STD-100）
 
-本文规定产品边界、度量诚实性、建表纪律与全仓 15 份文档索引。规格关键词 `MUST` / `MUST NOT` / `SHOULD` / `MAY` 由 `npm run docs:check` 静态校验，全仓规则 ID 全局唯一。
+本文规定产品边界、度量诚实性、建表纪律与规范与发布文档索引。规格关键词 `MUST` / `MUST NOT` / `SHOULD` / `MAY` 由 `npm run docs:check` 静态校验，全仓规则 ID 全局唯一。
 
 ---
 
@@ -45,14 +45,16 @@
 
 ---
 
-## 3. 全仓 15 份受控文档清单（`DOCUMENTATION_FILES` 100% 对齐）
+## 3. 规范与发布文档索引
+
+以下文档随发布包分发，由 `DOCUMENTATION_FILES` 维护。仓库可新增 Markdown 文档，新增文件默认留在源码仓库。
 
 ### A. 项目入口与合作规范（2 份）
 - [README.md](../README.md)：仓库总入口（`<= 60` 行）、`[LIVE]`/`[V2]` 边界与校验入口
 - [AGENTS.md](../AGENTS.md)：Agent 协作总纲、Post-050 红线与分支融合禁令
 
 ### B. 现行权威规范（8 份 · 与 `prod` 代码同步维护）
-- [docs/README.md](README.md)：产品定位、度量口径、规则表与全仓 15 文档清单
+- [docs/README.md](README.md)：产品定位、度量口径、规则表与规范文档索引
 - [docs/status.md](status.md)：**唯一状态真源**：实码盘点、`semrush` 审计与 V2 Phase A–D 路线
 - [docs/development.md](development.md)：**唯一运维与台账真源**：构建、环境、PG16 运维与 `0.2.0–050+` 记录
 - [docs/architecture.md](architecture.md)：五模块拓扑、`20 -> <= 24` 演进、L1–L3 扩源与 4 GB 安全预算

@@ -41,7 +41,7 @@ npm run docs:check && npm run lint && npm run typecheck && npm run test:unit && 
 - **SQL 迁移（`src/storage/schema/`）**：`001..050` 及已合入 `main` 的迁移严禁改写；**编号先合先占**，后合者同步时顺延重编号；PR 必须声明 `表变更：+N（总计 X/24）`。
 - **共享契约（`packages/contracts/src/*`）**：唯一契约真源，严禁在前端复制平行副本或做破坏式字段重命名；多方共享契约变更先发小 PR 合入 `main`。
 - **入口与前端架构**：`app.ts` / `App.tsx` 保持薄装配；首页 `/` 严禁引入 ECharts（原生 SVG 微图），分析页统一 `React.lazy` 模块化 `echarts/core`；后端守五模块 `<= 450` 行/文件与 `<= 220` 字/代码行。
-- **文档白名单与开工声明**：严禁在 `DOCUMENTATION_FILES`（15 份）外随意新建 `.md`，代码变动同 PR 增量更新对应文档条目。开分支前发 1 行同步：`[feat/xxx] 负责人：@A | 触碰区域：... | 新迁移：无/+N表`；PR 描述附 3 行：**变更摘要 / 影响范围（表、契约、冲突清单）/ 验证结果**。
+- **文档与开工声明**：仓库可新增 Markdown 文档，发布包继续按 `DOCUMENTATION_FILES` 选档。代码变动同 PR 更新对应规范。开分支前发 1 行同步：`[feat/xxx] 负责人：@A | 触碰区域：... | 新迁移：无/+N表`；PR 描述附 3 行：**变更摘要 / 影响范围（表、契约、冲突清单）/ 验证结果**。
 
 ---
 
@@ -51,7 +51,7 @@ npm run docs:check && npm run lint && npm run typecheck && npm run test:unit && 
 
 ```sh
 npm ci --ignore-scripts && npm --prefix apps/web ci --ignore-scripts
-npm run docs:check         # 15 文档清单、48 规则、链接/锚点、5 模块 AST、001..050 迁移不可变与 >=041 前缀唯一校验
+npm run docs:check         # 发布文档、48 规则、链接/锚点、5 模块 AST、001..050 迁移不可变与 >=041 前缀唯一校验
 npm run lint               # docs:check + apps/web ESLint
 npm run typecheck          # API + Web 全局 tsc 校验
 npm run build              # 编译 dist/、apps/web/dist/ 并同步 schema/*.sql 至 dist/
