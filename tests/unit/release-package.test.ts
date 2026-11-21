@@ -31,7 +31,7 @@ test("release packaging allowlist excludes credentials/data and verification det
     ["dist/src/storage/schema/001_fixture.sql", "SELECT 1;"],
     ["apps/web/dist/index.html", "<html lang='en'>synthetic</html>"], ["src/storage/schema/001_fixture.sql", "SELECT 1;"],
     ["package.json", JSON.stringify({ name: "synthetic", version: "0.7.0" })], ["package-lock.json", "{}"],
-    ["docs/research/data-sources.md", "candidate evidence"], ["docs/plans/source-expansion.md", "future design"],
+    ["docs/research/data-sources.md", "candidate evidence"], ["docs/research/product-strategy.md", "product evidence"], ["docs/plans/source-expansion.md", "future design"],
     ["docs/research/source_replacement_and_twitterapi_io_removal_spec.md", "source removal and replacement spec"],
     ["docs/README.md", "product and architecture"], ["docs/architecture.md", "architecture"],
     ["docs/development.md", "development"], ["docs/status.md", "status"],
@@ -43,6 +43,9 @@ test("release packaging allowlist excludes credentials/data and verification det
     ["docs/research/deep-audit-and-architecture-blueprint-20261118.md", "deep audit and architecture blueprint"],
     ["docs/research/product-architecture-conversation-20261118.md", "conversation archive"],
     ["docs/private-notes.md", "unapproved notes"],
+    ["deploy/apify-relay.Dockerfile", "FROM scratch"],
+    ["deploy/apify-relay.compose.yml", "services: {}"],
+    ["deploy/apify-relay.mjs", "export {};"],
     [".env.local", "secret=must-not-package"], ["dist/.env", "secret=must-not-package"],
     ["deploy/env/sources.env.example", "SOURCE_NETWORK_ENABLED=false"], ["deploy/env/private.env", "secret=must-not-package"],
   ]) await writeFile(path.join(root, file), content);
@@ -55,6 +58,9 @@ test("release packaging allowlist excludes credentials/data and verification det
     DOCUMENTATION_FILES.filter(file => file.startsWith("docs/")).sort(),
   );
   assert.ok(!manifest.files.some(file => file.path === "docs/private-notes.md"));
+  assert.deepEqual(manifest.files.filter(file => file.path.startsWith("deploy/apify-relay.")).map(file => file.path), [
+    "deploy/apify-relay.Dockerfile", "deploy/apify-relay.compose.yml", "deploy/apify-relay.mjs",
+  ]);
   assert.ok(!manifest.files.some(file => /^(?:dist\/)?plugins\//.test(file.path)));
   assert.ok(manifest.files.some(file => file.path === "dist/data/ai/history/v1/manifest.json"));
   assert.ok(!manifest.files.some(file => file.path === "data/ai/history/v1/manifest.json"));

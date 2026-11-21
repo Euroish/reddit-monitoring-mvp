@@ -72,6 +72,7 @@ function useAdmin(actor: Actor | null) {
 
 interface Draft {
   id?: string;
+  expectedRevision?: number;
   title: string;
   category: DocCategory;
   summary: string;
@@ -150,7 +151,7 @@ function Editor({
     }
     try {
       const saved = form.id
-        ? await updateMut.mutateAsync({ id: form.id, patch: payload })
+        ? await updateMut.mutateAsync({ id: form.id, patch: { ...payload, expectedRevision: form.expectedRevision } })
         : await createMut.mutateAsync(payload);
       onSaved(saved);
     } catch (err) {
@@ -722,6 +723,7 @@ export function DocsPage({ actor, search, onNavigate, onOpenAuth, embedded = fal
     }
     setDraft({
       id: doc.id,
+      expectedRevision: doc.revision,
       title: doc.title,
       category: doc.category,
       summary: doc.summary,

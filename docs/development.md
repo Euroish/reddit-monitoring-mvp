@@ -1,6 +1,6 @@
 # 开发记录与运维交付手册（STD-100 唯一真源）
 
-> **核对基准**：`2026-11-20` · 团队分支治理、环境构造、Docker 多阶段构建、PG16 运维与历史交付台账唯一真源（禁另起 `handoff.md`）。架构见[主线架构](architecture.md)，现状与规划见[当前状态](status.md)。
+> **核对基准**：`2026-11-21` · 团队分支治理、Docker 构建、PG16 运维、恢复与交付台账。架构见[主线架构](architecture.md)，现状与规划见[当前状态](status.md)。
 
 ---
 
@@ -51,7 +51,7 @@ npm run docs:check && npm run lint && npm run typecheck && npm run test:unit && 
 
 ```sh
 npm ci --ignore-scripts && npm --prefix apps/web ci --ignore-scripts
-npm run docs:check         # 发布文档、48 规则、链接/锚点、5 模块 AST、001..050 迁移不可变与 >=041 前缀唯一校验
+npm run docs:check         # 发布文档、规则和链接、5 模块 AST、主干迁移不可变与迁移编号
 npm run lint               # docs:check + apps/web ESLint
 npm run typecheck          # API + Web 全局 tsc 校验
 npm run build              # 编译 dist/、apps/web/dist/ 并同步 schema/*.sql 至 dist/
@@ -97,10 +97,6 @@ TWITTERAPIS_API_KEY=
 TWITTERAPIS_TIMEOUT_MS=20000
 SCRAPEBADGER_API_KEY=
 SCRAPEBADGER_TIMEOUT_MS=20000
-# [V2 Phase D] 可选 AI 翻译与综述扩展（未配置时 100% 确定性零模型运行）
-AI_BASE_URL=
-AI_API_KEY=
-AI_MODEL=
 ```
 
 - **动态扩源与 OPML 批量导入**：管理员在前端 **`/sources`** 页面或直接调 `POST /v1/sources/import` 批量提交 JSON（1–200 条）或 OPML 2.0 XML（`<=512 KiB`），遇已存在源走 `ON CONFLICT DO NOTHING` 跳过；`FEED_ALLOWED_URLS` 留空时无需重启容器即可生效。
@@ -129,7 +125,11 @@ npm run release:pack
 npm run release:verify -- output/releases/<dir>
 ```
 
-### 生产只读巡检与 30d/90d 安全维护原则
+发布 API 和代理为同一已验证主干版本的一对镜像。核对两个镜像的 `org.opencontainers.image.revision` 与发布提交一致，并记录镜像摘要或本地镜像 ID、数据库最后应用的迁移及部署时间。现场构建时使用同一干净提交，两个 target 均传入 `--label org.opencontainers.image.revision=<完整提交 SHA>`。本地补丁或不同提交配对运行时记录原因和回归范围。
+
+更换镜像前，在隔离恢复库执行迁移、完整 UI/API 冒烟和回滚演练。首次部署 `053` 验证文档读取、草稿授权、附件、任务调度及常用分析路径。生产更新后核对 `/readyz`、Worker 心跳与任务增长，验证匿名与登录态界面实际使用的 API。若应用版本需要回退，先验证旧镜像可与新 schema 共存。恢复生产数据库会影响备份之后的写入，须单独决定。
+
+### 生产只读巡检与数据维护
 
 ```sh
 git -C /root/workspaces/reddit-monitoring-mvp status --short --branch
@@ -162,12 +162,9 @@ WHERE u.day >= (now() AT TIME ZONE 'UTC')::date - 1
 ORDER BY u.day DESC, u.provider;
 ```
 
-- **自动作业清理**：`worker.ts` 每小时自动清理各来源最新 5 条以外且超过 14 天的终结 `source_collection_job`。
-- **30d / 90d 分层维护窗口**：
-  - 永久保留所有 `content` 身份骨架与被 `content_annotation`/活跃 `monitor_project` 引用的条目完整正文；
-  - 30 天超期历史 `content_observation` 按 `(content_id, collection_source_id)` 折叠仅留最新 1 条；
-  - 90 天冷内容清理（因 `search.ts` 使用 `LEFT JOIN` 且 `workspace/sql.ts` 不连搜索表，删投影行不会导致详情/评论树/收藏不可读）：按批清理未收藏/未入项目冷条目的 `public_content_search_document` 行，可选将 `body_text` 截断保留前 500 字摘要并更新 `platform_details = platform_details || '{"textCompleteness":"summary"}'::jsonb`（**禁止写入无效键 `textState`**）。
-
+- **普通作业清理**：每小时保留各源最新 5 条，且只清理超过 14 天的普通终结任务。带 `request_key` 或 `ingest_key` 的回执与未决付费状态继续保留。监测回执增长，任何保留期调整都需要先定义客户端重试和付费对账语义。
+- **样本与观测保留**：前向版本默认保留观测时序和搜索投影。清理前确认受影响的平台、窗口、专题和指标；多个观测点是增长分析的证据。经专项评审的压缩或冷归档要验证可恢复，并同步更新可查询覆盖和时间窗口。清理搜索投影会影响关键词命中；只有能解释覆盖变化才允许收缩该窗口。
+- **运行指标**：分别记录来源覆盖、成功/失败、配额与响应耗时；应用和数据库 CPU/内存、数据库磁盘增长、备份恢复耗时由生产抽样记录。变更窗口保留旧镜像及可验证的备份。
 ---
 
 ## 4. `twitterapi_io` 与 `arctic_shift` 安全退役记录

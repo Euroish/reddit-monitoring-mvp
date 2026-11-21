@@ -166,8 +166,8 @@ const SOLUTIONS_DATA = [
 const STATS_DATA = [
   {
     num: '7',
-    labelEn: 'Live Collector Providers',
-    labelZh: '已注册实时采集渠道',
+    labelEn: 'Integrated collector providers',
+    labelZh: '已集成采集渠道',
     descEn: 'Capability-driven integration across Reddit, X, Bluesky, Hacker News, and allowlisted HTTPS feeds.',
     descZh: '覆盖 Reddit、X、Bluesky、Hacker News 与白名单订阅源，全表单受能力矩阵实时约束。',
   },
@@ -184,13 +184,6 @@ const STATS_DATA = [
     labelZh: '讨论评论树溯源深度上限',
     descEn: 'Trace nested replies back to discussion roots with explicit contextMissing & capped guardrails.',
     descZh: '支持 0~32 层深度的父子评论缩进树，自动识别孤儿节点并标注父链缺失状态。',
-  },
-  {
-    num: '100%',
-    labelEn: 'Stored-Sample Transparency',
-    labelZh: '已存样本口径透明度',
-    descEn: 'Every overview facet preserves unknown-time buckets, uncollected date gaps, and non-exclusive attribution.',
-    descZh: '所有趋势图严格保留发布时间未知分桶、未采集日期留白与非互斥多渠道归因。',
   },
 ];
 
@@ -763,14 +756,14 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench, onGoFe
         <section className="hp-hero">
           <h1>
             {t(
-              'Be found in every community where signals start',
-              '在每一处真实讨论萌芽之地，先行捕捉市场信号',
+              'Research social conversations. Follow stories worth reading.',
+              '研究社媒讨论，跟进值得读的资讯',
             )}
           </h1>
           <p className="hp-hero-sub">
             {t(
-              'The unified intelligence platform to monitor Reddit threads, X chatter, Bluesky feeds, and web discussions — backed by verifiable observation snapshots.',
-              '面向 Reddit 深层讨论树、X 舆论流、Bluesky 与 Web 资讯的统一市场监测工作台，用可验证的多快照观测留痕支撑每一项判断。',
+              'Explore collected posts, replies, and engagement snapshots. Follow first-hand sources and compare reporting on the same event.',
+              '从已采集的帖子、评论和互动观测追溯话题变化，在信息流跟进一手信源和同一事件的多来源报道。',
             )}
           </p>
 
@@ -861,13 +854,13 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench, onGoFe
             <div className="hp-promo-hatch sem-hatch-wisteria" />
             <div className="hp-promo-copy">
               <h2>
-                {t('Capture signals in threads and live feeds.', '捕捉社区讨论树与实时信息流中的高价值信号。')}
+                {t('Social research', '社媒研究分析')}
               </h2>
               <div>
                 <p className="hp-promo-desc">
                   {t(
-                    'Powered by multi-provider pull & push connectors, Siftline folds comment matches to root discussions while keeping every sample auditable.',
-                    '依托多渠道拉取与外部推流管道，Siftline 自动将深层评论上溯折叠至根帖，同时保留每一条观测的来源与时间基准。',
+                    'View topic activity over time and look up posts, comments, and timestamped observations.',
+                    '按专题查看讨论趋势，在内容检索中核对原帖、评论及带时间的指标观测。',
                   )}
                 </p>
                 <button
@@ -961,21 +954,21 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench, onGoFe
           <div className="hp-promo-card hp-promo-card--secondary">
             <div className="hp-promo-hatch sem-hatch-wisteria" />
             <h2 style={{ position: 'relative', zIndex: 2 }}>
-              {t('Ingest & query via Machine API.', '机器密钥直连，推流导入与自动化检索。')}
+              {t('Curated information feed', '高质量信息流')}
             </h2>
             <div style={{ position: 'relative', zIndex: 2 }}>
               <p className="hp-promo-desc">
                 {t(
-                  'Issue source-scoped 43-character Bearer tokens for automated 1 MiB push ingestion, scheduled exports, and live OpenAPI inspection.',
-                  '签发绑定指定来源范围的 43 位一次性 Bearer 密钥，支持 1 MiB 批量推流与自动化研究流水线。',
+                  'Read recent stories and daily digests by topic. Source tiers and related coverage help you see where each story comes from.',
+                  '按频道阅读最新事件、热门与日报，通过来源分级和关联报道了解每条资讯的出处。',
                 )}
               </p>
               <button
                 type="button"
                 className="sr-btn sr-btn--outline"
-                onClick={() => onEnterWorkbench('/settings')}
+                onClick={onGoFeed}
               >
-                {t('Manage API Keys', '管理机器密钥')}
+                {t('Browse the feed', '浏览信息流')}
               </button>
             </div>
           </div>

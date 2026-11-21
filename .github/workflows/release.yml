@@ -28,6 +28,7 @@ jobs:
           context: .
           target: runtime
           push: true
+          labels: org.opencontainers.image.revision=${{ github.sha }}
           tags: ${{ steps.repository.outputs.image }}:${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -36,6 +37,7 @@ jobs:
           context: .
           target: proxy
           push: true
+          labels: org.opencontainers.image.revision=${{ github.sha }}
           tags: ${{ steps.repository.outputs.image }}:${{ github.ref_name }}-proxy
           cache-from: type=gha
           cache-to: type=gha,mode=max,scope=proxy
