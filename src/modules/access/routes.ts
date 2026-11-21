@@ -7,6 +7,8 @@ import {
   strictMerge,
   ActorSchema,
   Login,
+  AccountEmailAddress,
+  AccountInviteSummary,
   BrowserLogin,
   BrowserSession,
   MachineKeyInput,
@@ -30,6 +32,8 @@ import {
 } from "./sql";
 import { dummyPasswordHash, isCurrentPasswordHash, verifyLoginPassword } from "./password";
 import { fail, transaction } from "../../storage/db";
+import type { AccountEmailProvider } from "./email-provider";
+import { hasMfa, startMfaLogin } from "./mfa-sql";
 
 export async function accessRoutes(
   app: FastifyInstance,
@@ -39,6 +43,8 @@ export async function accessRoutes(
     publicRead?: boolean;
     publicRegistration?: boolean;
     strongerPasswords?: boolean;
+    accountEmail?: { provider: AccountEmailProvider; publicRegistration: boolean };
+    mfa?: { key: Buffer; required: boolean };
     limitLogin: (email: string) => number;
   },
 ) {
@@ -52,6 +58,8 @@ export async function accessRoutes(
             user: Type.Union([ActorSchema, Type.Null()]),
             publicRead: Type.Boolean(),
             publicRegistration: Type.Boolean(),
+            turnstileSiteKey: Type.Optional(Type.String()),
+            mfaActive: Type.Optional(Type.Boolean()),
           }),
         },
       },
@@ -59,7 +67,9 @@ export async function accessRoutes(
     async (request) => ({
       user: request.actor,
       publicRead: Boolean(options.publicRead),
-      publicRegistration: Boolean(options.publicRegistration),
+      publicRegistration: options.accountEmail?.publicRegistration ?? Boolean(options.publicRegistration),
+      turnstileSiteKey: options.accountEmail?.provider.siteKey,
+      mfaActive: options.mfa && request.actor ? await hasMfa(pool, request.actor.userId) : undefined,
     }),
   );
   api.post(
@@ -78,7 +88,9 @@ export async function accessRoutes(
       }
       const row = (
         await pool.query(
-          `SELECT u.id,u.status,u.credential_version,p.password_hash FROM app_user u JOIN app_user_password p ON p.user_id=u.id WHERE u.email=$1`,
+          `SELECT u.id,u.status,u.role,u.credential_version,p.password_hash,
+             EXISTS (SELECT 1 FROM app_auth_mfa f WHERE f.user_id=u.id) AS enrolled
+           FROM app_user u JOIN app_user_password p ON p.user_id=u.id WHERE u.email=$1`,
           [email],
         )
       ).rows[0];
@@ -93,6 +105,12 @@ export async function accessRoutes(
         request.log.info({ event: "auth.login.rejected" });
         fail(401, "Invalid email or password");
       }
+      if (row.enrolled) {
+        if (!options.mfa) fail(503, "Authenticator temporarily unavailable");
+        const challenge = await startMfaLogin(pool, row.id, row.credential_version);
+        return reply.code(202).send({ mfaRequired: true, challenge });
+      }
+      if (options.mfa?.required && row.role !== "viewer") fail(403, "Administrator MFA enrollment required");
       const rehash = options.strongerPasswords && !isCurrentPasswordHash(row.password_hash)
         ? { previous: row.password_hash, next: await hashPassword(request.body.password, true) }
         : undefined;
@@ -120,6 +138,7 @@ export async function accessRoutes(
       },
     },
     async (request, reply) => {
+      if (options.accountEmail) fail(403, "Use the email verification registration flow");
       if (request.body.password.length < 12)
         fail(422, "Password must have at least 12 characters");
       const inviteCode = request.body.invite;
@@ -134,7 +153,8 @@ export async function accessRoutes(
         if (inviteCode) {
           const invite = (
             await client.query(
-              "SELECT * FROM app_invite WHERE code_hash=$1 AND status='active' AND used_count<max_uses AND (expires_at IS NULL OR expires_at>NOW()) FOR UPDATE",
+              `SELECT * FROM app_invite WHERE code_hash=$1 AND recipient_email IS NULL AND status='active'
+               AND used_count<max_uses AND (expires_at IS NULL OR expires_at>NOW()) FOR UPDATE`,
               [tokenHash(inviteCode)],
             )
           ).rows[0];
@@ -221,7 +241,7 @@ export async function accessRoutes(
     {
       schema: {
         body: Type.Object(
-          { role: Type.Union([Type.Literal("viewer"), Type.Literal("admin")]) },
+          { role: Type.Union([Type.Literal("viewer"), Type.Literal("admin")]), email: Type.Optional(AccountEmailAddress) },
           { additionalProperties: false },
         ),
       },
@@ -234,14 +254,45 @@ export async function accessRoutes(
         (request.body.role === "admin" && actor.role !== "owner")
       )
         fail(403, "Owner required to invite administrators");
+      const email = request.body.email?.toLowerCase();
+      if (options.accountEmail && !email) fail(422, "Recipient email is required");
+      if (email && !options.accountEmail) fail(403, "Email-bound invitations are disabled");
       const code = randomUUID() + randomUUID();
-      await pool.query(
-        "INSERT INTO app_invite(id,code_hash,status,role_on_accept,max_uses,expires_at) VALUES($1,$2,'active',$3,1,NOW()+interval '7 days')",
-        [randomUUID(), tokenHash(code), request.body.role],
-      );
+      await transaction(pool, async (client) => {
+        await client.query(
+          `INSERT INTO app_invite(id,code_hash,status,role_on_accept,max_uses,expires_at,recipient_email)
+           VALUES($1,$2,'active',$3,1,NOW()+interval '7 days',$4)`,
+          [randomUUID(), tokenHash(code), request.body.role, email ?? null],
+        );
+        await recordAuthEvent(client, actor.userId, "auth.invite.created", request.id);
+      });
       return { code };
     },
   );
+  api.get("/v1/access/invites", {
+    schema: { response: { 200: Type.Object({ invites: Type.Array(AccountInviteSummary) }) } },
+  }, async ({ actor }) => {
+    if (actor!.role === "viewer") fail(403, "Administrator access required");
+    const invites = await pool.query(
+      `SELECT id, role_on_accept AS role, recipient_email IS NOT NULL AS "emailBound", expires_at AS "expiresAt",
+         CASE WHEN status='disabled' THEN 'disabled' WHEN used_count>=max_uses THEN 'used'
+              WHEN expires_at<=NOW() THEN 'expired' ELSE 'active' END AS status
+       FROM app_invite WHERE role_on_accept IN ('viewer','admin') AND ($1 OR role_on_accept='viewer')
+       ORDER BY created_at DESC,id LIMIT 50`, [actor!.role === "owner"],
+    );
+    return { invites: invites.rows };
+  });
+  api.delete("/v1/access/invites/:id", { schema: { params: ParamsId } }, async ({ actor, id, params }) => {
+    if (actor!.role === "viewer") fail(403, "Administrator access required");
+    await transaction(pool, async (client) => {
+      const result = await client.query(
+        `UPDATE app_invite SET status='disabled' WHERE id=$1 AND status='active'
+         AND role_on_accept IN ('viewer','admin') AND ($2 OR role_on_accept='viewer')`, [params.id, actor!.role === "owner"],
+      );
+      if (result.rowCount) await recordAuthEvent(client, actor!.userId, "auth.invite.revoked", id);
+    });
+    return { revoked: true };
+  });
   api.post(
     "/v1/access/keys",
     { schema: { body: MachineKeyInput } },

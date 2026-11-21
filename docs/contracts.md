@@ -56,6 +56,12 @@
 
 ### 安全加固候选分支的认证契约
 
+`GET /v1/access/invites` 列出最多 50 条当前角色负责的邀请状态，响应不含邀请码和收件人邮箱。`DELETE /v1/access/invites/:id` 撤销同一权限范围内的邀请，已发邮件链接在完成注册时重新校验邀请状态。
+
+启用邮件服务后，`POST /v1/auth/email/{register,reset}/{start,finish}` 受理注册和找回，`POST /v1/auth/email/verify/{start,finish}` 用于已有账号验证。开始请求绑定 Turnstile action 与站点域名，找回与注册返回统一受理响应。完成请求的 token 15 分钟内单次使用，注册时才接收新密码。`POST /v1/auth/password/change` 需 Viewer 会话和当前密码，密码修改与找回同时撤销该账户的浏览器会话和机器 Key。绑定邀请仅能由相同邮箱完成，并在建号事务中消费。管理员找回走离线运维恢复。
+
+已登记 MFA 的用户登录返回 HTTP 202 与五分钟预认证挑战。必须经 `POST /v1/auth/mfa/complete` 校验 TOTP 或一次性恢复码才签发浏览器会话。`POST /v1/auth/mfa/step-up` 只接受 TOTP，成功后该浏览器五分钟内可执行管理员写操作。`POST /v1/auth/mfa/recovery-codes` 需要同一浏览器近期 TOTP 验证，一次显示 8 个新恢复码并使旧码失效。预认证挑战和恢复码都不能授予管理员写操作。
+
 浏览器登录和注册使用同源 JSON，请求体上限 8 KiB，`/v1/auth/*` 拒绝 Bearer。退出始终清除浏览器 Cookie，过期会话也可退出。新会话默认最长 24 小时，Viewer 可通过可选布尔值 `remember` 启用最长 30 天的持久 Cookie。Viewer 默认空闲 2 小时，记住登录时空闲 7 天。Owner/Admin 空闲 30 分钟。活跃时间最多每 5 分钟更新一次。已有 7 天浏览器会话遵循原到期时间，机器 Key 沿用原始期限。候选分支新增 `GET /v1/auth/sessions`、`DELETE /v1/auth/sessions/:id` 和 `POST /v1/auth/logout-all`，仅操作当前用户的浏览器会话，列表最多 100 项并且只返回会话 ID、设备通用标签、时间和当前标记。撤销指定会话对他人的 ID 响应相同，退出全部浏览器保留机器 Key。
 
 ### QRY-01–03、SEC-01、OP-01、EXP-01：过滤、讨论树、权限与流式导出

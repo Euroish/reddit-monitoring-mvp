@@ -2,6 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react
 import { AlertCircle, Lock, RefreshCw } from 'lucide-react';
 import { formatApiError, useCapabilitiesQuery, useLogoutMutation, useSessionQuery } from './api/hooks';
 import { AuthModal } from './components/AuthModal';
+import { AccountEmailConfirm } from './components/AccountEmail';
 import { LogoProvider } from './components/BrandMark';
 import { type PublicRoute, PublicSiteShell } from './components/PublicSiteShell';
 import { ThemeProvider } from './components/ThemeStudio';
@@ -166,6 +167,7 @@ export function App() {
   const actor = sessionQuery.data?.user ?? null;
   const publicRead = sessionQuery.data?.publicRead ?? false;
   const publicRegistration = sessionQuery.data?.publicRegistration ?? false;
+  const turnstileSiteKey = sessionQuery.data?.turnstileSiteKey;
   const capabilitiesQuery = useCapabilitiesQuery(Boolean(actor));
 
   const currentFullPath = `${loc.rawPathname}${loc.search ? `?${loc.search}` : ''}`;
@@ -278,6 +280,14 @@ export function App() {
     );
   }
 
+  if (loc.rawPathname === '/account/confirm') {
+    return (
+      <LangContext.Provider value={{ lang, setLang, t }}>
+        <AccountEmailConfirm />
+      </LangContext.Provider>
+    );
+  }
+
   // Private deployment mode (publicRead=false) without an authenticated session
   if (!actor && !publicRead) {
     return (
@@ -287,6 +297,7 @@ export function App() {
             <AuthModal
               inline
               publicRegistration={publicRegistration}
+              turnstileSiteKey={turnstileSiteKey}
               initialQueryContext={pendingQueryContext}
               reason={t(
                 'This deployment requires authentication before reading stories or workspace data.',
@@ -310,6 +321,7 @@ export function App() {
       initialTab={authModal.tab}
       initialQueryContext={pendingQueryContext}
       publicRegistration={publicRegistration}
+      turnstileSiteKey={turnstileSiteKey}
       reason={authModal.reason}
       onClose={() => setAuthModal((s) => ({ ...s, open: false }))}
       onSuccess={() => {

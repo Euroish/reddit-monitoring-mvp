@@ -23,6 +23,7 @@ export async function findActor(
   pool: Pool,
   token: string,
   clientKind: "browser" | "machine",
+  requireMfa = false,
 ): Promise<Actor | null> {
   const row = (
     await pool.query(
@@ -32,6 +33,8 @@ export async function findActor(
          WHERE s.token_hash=$1 AND s.client_kind=$2 AND s.expires_at>NOW()
            AND u.status='active' AND s.credential_version=u.credential_version
            AND ($2='machine' OR (${browserIdlePolicy}))
+           AND ($2='machine' OR s.mfa_verified_at IS NOT NULL OR
+             ((NOT $3::boolean OR u.role='viewer') AND NOT EXISTS (SELECT 1 FROM app_auth_mfa WHERE user_id=u.id)))
        ), touch AS (
          UPDATE app_session s SET last_seen_at=NOW() FROM valid v
          WHERE s.id=v.id AND $2='browser'
@@ -39,7 +42,7 @@ export async function findActor(
            AND s.last_seen_at<=NOW()-interval '5 minutes'
        )
        SELECT * FROM valid`,
-      [tokenHash(token), clientKind],
+      [tokenHash(token), clientKind, requireMfa],
     )
   ).rows[0];
   return row
@@ -95,7 +98,8 @@ export async function createLoginSession(
 ) {
   return transaction(pool, async (client) => {
     const valid = await client.query<{ role: Actor["role"] }>(
-      "SELECT role FROM app_user WHERE id=$1 AND status='active' AND credential_version=$2 FOR UPDATE",
+      `SELECT role FROM app_user WHERE id=$1 AND status='active' AND credential_version=$2
+       AND NOT EXISTS (SELECT 1 FROM app_auth_mfa WHERE user_id=$1) FOR UPDATE`,
       [userId, credentialVersion],
     );
     if (!valid.rowCount) fail(401, "Invalid email or password");
@@ -140,7 +144,9 @@ export async function bootstrapOwner(
 export async function recordAuthEvent(
   client: PoolClient,
   userId: string,
-  action: "auth.login" | "auth.invite.accepted",
+  action: "auth.login" | "auth.invite.accepted" | "auth.invite.created" | "auth.invite.revoked" | "auth.email_registered" |
+    "auth.email_verified" | "auth.password_reset" | "auth.password_changed" | "auth.mfa.login" |
+    "auth.mfa.step_up" | "auth.mfa.recovery_used" | "auth.mfa.recovery_rotated" | "auth.mfa.enrolled" | "auth.mfa.recovered",
   requestId: string,
 ) {
   await client.query(

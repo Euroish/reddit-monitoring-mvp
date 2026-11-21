@@ -1,5 +1,9 @@
 import { createPool } from "../../../src/storage/db";
 import { bootstrapOwner, pruneExpiredBrowserSessions } from "../../../src/modules/access/sql";
+import { accountEmailProvider } from "../../../src/modules/access/email-provider";
+import { pruneAccountEmail } from "../../../src/modules/access/email-sql";
+import { mfaConfig } from "../../../src/modules/access/mfa-crypto";
+import { pruneMfaChallenges } from "../../../src/modules/access/mfa-sql";
 import { createCredentialVault } from "../../../src/modules/collection/credentials";
 import { startWorker } from "../../../src/modules/collection/worker";
 import { startAiSyncScheduler } from "../../../src/modules/content/ai-scheduler";
@@ -22,6 +26,9 @@ export async function main() {
     throw new Error(
       "HTTPS APP_ORIGIN required; local testing needs ALLOW_HTTP_DEV=true",
     );
+  const emailProvider = accountEmailProvider(process.env, origin);
+  const mfa = mfaConfig(process.env);
+  if (mfa && new URL(origin).protocol !== "https:") throw new Error("Administrator MFA requires HTTPS");
   const pool = createPool(undefined, 8);
   const workerPool = createPool(undefined, 4);
   try {
@@ -61,6 +68,7 @@ export async function main() {
       sessionSecret,
       strongerPasswords,
       authThrottleKey,
+      mfa,
       origin,
       secureCookies: !localHttp,
       logger: true,
@@ -68,6 +76,10 @@ export async function main() {
       publicRead: process.env.PUBLIC_READ_ENABLED !== "false",
       publicRegistration: process.env.NODE_ENV !== "production" &&
         process.env.PUBLIC_REGISTRATION_ENABLED === "true",
+      accountEmail: emailProvider ? {
+        provider: emailProvider,
+        publicRegistration: process.env.PUBLIC_REGISTRATION_ENABLED === "true",
+      } : undefined,
     });
     await app.listen({
       host: process.env.HOST ?? "127.0.0.1",
@@ -77,6 +89,8 @@ export async function main() {
     const stopAiScheduler = startAiSyncScheduler(workerPool);
     const sessionCleanup = setInterval(() => {
       void pruneExpiredBrowserSessions(workerPool).catch(() => app.log.error("Browser session cleanup failed"));
+      void pruneAccountEmail(workerPool).catch(() => app.log.error("Account challenge cleanup failed"));
+      void pruneMfaChallenges(workerPool).catch(() => app.log.error("MFA challenge cleanup failed"));
     }, 60 * 60 * 1000);
     sessionCleanup.unref();
     let stopping = false;

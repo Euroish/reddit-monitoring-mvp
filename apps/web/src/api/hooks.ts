@@ -222,7 +222,8 @@ export function useLoginMutation() {
   return useMutation({
     mutationFn: ({ email, password, remember }: { email: string; password: string; remember?: boolean }) =>
       apiClient.login(email, password, remember),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (!('user' in result)) return;
       qc.clear();
       qc.invalidateQueries({ queryKey: ['session'] });
     },

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
   Check,
@@ -25,10 +26,13 @@ import {
   useMachineKeysQuery,
   useRevokeMachineKeyMutation,
   useSourcesQuery,
+  useSessionQuery,
   useUpdateUserAccessMutation,
   useUsersQuery,
 } from '../api/hooks';
 import { BrowserSessionsCard } from '../components/BrowserSessionsCard';
+import { AccountEmailStart, AccountPasswordForm } from '../components/AccountEmail';
+import { MfaSecurityCard } from '../components/AdministratorMfa';
 import { SiftlineLogo } from '../components/BrandMark';
 import { useLogo } from '../components/brandContext';
 import { ProviderCredentialsTab } from '../components/ProviderCredentialsTab';
@@ -69,11 +73,17 @@ export function SettingsPage({
   const createKeyMut = useCreateMachineKeyMutation();
   const revokeKeyMut = useRevokeMachineKeyMutation();
   const logoutMut = useLogoutMutation();
+  const session = useSessionQuery().data;
+  const siteKey = session?.turnstileSiteKey;
+  const invitesQuery = useQuery({
+    queryKey: ['accessInvites', actor.userId], queryFn: apiClient.listInvites, enabled: canManage && tab === 'members',
+  });
 
   const sources = sourcesQuery.data?.sources || [];
   const keys = keysQuery.data?.keys || [];
 
   const [inviteRole, setInviteRole] = useState<'viewer' | 'admin'>('viewer');
+  const [inviteEmail, setInviteEmail] = useState('');
   const [generatedInvite, setGeneratedInvite] = useState<string | null>(null);
   const [inviteErr, setInviteErr] = useState<string | null>(null);
 
@@ -90,8 +100,9 @@ export function SettingsPage({
     setInviteErr(null);
     setGeneratedInvite(null);
     try {
-      const res = await apiClient.createInvite(inviteRole);
+      const res = await apiClient.createInvite(inviteRole, siteKey ? inviteEmail.trim() : undefined);
       setGeneratedInvite(res.code);
+      void invitesQuery.refetch();
     } catch (err) {
       setInviteErr(formatApiError(err));
     }
@@ -250,6 +261,14 @@ export function SettingsPage({
               </div>
             </div>
             <BrowserSessionsCard userId={actor.userId} />
+            {session?.mfaActive && <MfaSecurityCard />}
+            {siteKey && <section className="ds-card" style={{ marginTop: 12 }}>
+              <div className="ds-card-bd">
+                <h2>{t('Verify account email', '验证账户邮箱')}</h2>
+                <AccountEmailStart siteKey={siteKey} purpose="verify" />
+                {actor.role === 'viewer' && <AccountPasswordForm />}
+              </div>
+            </section>}
           </div>
 
           <div className="c7">
@@ -398,10 +417,29 @@ export function SettingsPage({
                         </option>
                       </select>
                     </div>
-                    <button type="button" className="ds-btn" onClick={handleGenerateInvite}>
+                    {siteKey && <label>{t('Recipient email', '受邀邮箱')}
+                      <input className="auth-input" type="email" value={inviteEmail} maxLength={254}
+                        onChange={(event) => setInviteEmail(event.target.value)} />
+                    </label>}
+                    <button type="button" className="ds-btn" disabled={Boolean(siteKey && !inviteEmail.trim())} onClick={handleGenerateInvite}>
                       {t(`Generate ${inviteRole} Invite`, `生成 ${inviteRole} 邀请码`)}
                     </button>
                     {inviteErr && <div className="wb-alert wb-alert--error">{inviteErr}</div>}
+                    {invitesQuery.error && <p role="alert">{formatApiError(invitesQuery.error)}</p>}
+                    {invitesQuery.data?.invites.map((entry) => (
+                      <div className="toggle-line" key={entry.id} style={{ flexWrap: 'wrap', gap: 8 }}>
+                        <span>{entry.role} · {({
+                          active: t('Active', '有效'), disabled: t('Revoked', '已撤销'),
+                          used: t('Used', '已使用'), expired: t('Expired', '已过期'),
+                        })[entry.status]}{entry.expiresAt && ' · ' + new Date(entry.expiresAt).toLocaleDateString(lang)}</span>
+                        {entry.status === 'active' && <button type="button" className="ds-btn ds-btn--ghost" onClick={async () => {
+                          if (!window.confirm(t('Revoke this invitation?', '撤销此邀请码？'))) return;
+                          setInviteErr(null);
+                          try { await apiClient.revokeInvite(entry.id); await invitesQuery.refetch(); }
+                          catch (error) { setInviteErr(formatApiError(error)); }
+                        }}>{t('Revoke', '撤销')}</button>}
+                      </div>
+                    ))}
                     {generatedInvite && (
                       <div className="wb-alert wb-alert--success" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
                         <b>{t('72-char one-time invite token:', '72 位一次性邀请码：')}</b>

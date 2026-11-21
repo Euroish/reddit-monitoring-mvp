@@ -11,6 +11,10 @@ import type { ContentProvider } from "../../../src/connectors/shared/content-pro
 import { findActor } from "../../../src/modules/access/sql";
 import { createLoginThrottle } from "../../../src/modules/access/login-throttle";
 import { accessRoutes } from "../../../src/modules/access/routes";
+import type { AccountEmailProvider } from "../../../src/modules/access/email-provider";
+import { accountPublicPosts, emailRoutes } from "../../../src/modules/access/email-routes";
+import { isPrivilegedWrite, mfaLoginPath, mfaRoutes } from "../../../src/modules/access/mfa-routes";
+import { requireRecentMfa } from "../../../src/modules/access/mfa-sql";
 import { jobRoutes } from "../../../src/modules/collection/jobs";
 import { refreshRoutes } from "../../../src/modules/collection/refresh";
 import { collectionRoutes } from "../../../src/modules/collection/routes";
@@ -77,6 +81,8 @@ export async function buildApp(options: {
   trustedProxyAddress?: string;
   publicRead?: boolean;
   publicRegistration?: boolean;
+  accountEmail?: { provider: AccountEmailProvider; publicRegistration: boolean };
+  mfa?: { key: Buffer; required: boolean };
   strongerPasswords?: boolean;
   authThrottleKey?: string;
 }) {
@@ -179,7 +185,9 @@ export async function buildApp(options: {
   app.addHook("preParsing", async (request) => {
     const route = request.routeOptions.url ?? request.url.split("?")[0],
       method = request.method;
-    const publicRoute =
+    const accountPublicPost = method === "POST" &&
+      ((Boolean(options.accountEmail) && accountPublicPosts.has(route)) || (Boolean(options.mfa) && route === mfaLoginPath));
+    const publicRoute = accountPublicPost ||
       (["GET", "HEAD"].includes(method) &&
         ["/healthz", "/readyz", "/v1/auth/session"].includes(route)) ||
       (method === "POST" &&
@@ -188,7 +196,7 @@ export async function buildApp(options: {
       Boolean(options.publicRead) &&
       ["GET", "HEAD"].includes(method) &&
       PUBLIC_READ_ROUTES.has(route);
-    const credentialSubmission = method === "POST" &&
+    const credentialSubmission = accountPublicPost || method === "POST" &&
       ["/v1/auth/login", "/v1/auth/register"].includes(route);
     if (route.startsWith("/v1/auth/") && request.headers.authorization !== undefined)
       fail(403, "Browser session required");
@@ -218,7 +226,7 @@ export async function buildApp(options: {
       if (signed && timingSafeEqual(Buffer.from(signed[2], "hex"), Buffer.from(sign(signed[1]), "hex")))
         token = signed[1];
     }
-    request.actor = token ? await findActor(options.pool, token, kind) : null;
+    request.actor = token ? await findActor(options.pool, token, kind, options.mfa?.required) : null;
     if (!request.actor && publicReadRoute && !request.headers.authorization)
       request.actor = PUBLIC_GUEST_ACTOR;
     if (!publicRoute && !request.actor) fail(401, "Authentication required");
@@ -228,6 +236,10 @@ export async function buildApp(options: {
       (method === "DELETE" && route === "/v1/auth/sessions/:id") ||
       (method === "POST" && [
         "/v1/auth/logout-all",
+        "/v1/auth/email/verify/start",
+        "/v1/auth/password/change",
+        "/v1/auth/mfa/step-up",
+        "/v1/auth/mfa/recovery-codes",
         "/v1/sources/:id/collect",
         "/v1/sources/:id/refresh",
         "/v1/projects/:id/hydrate",
@@ -242,6 +254,8 @@ export async function buildApp(options: {
       !viewerAllowedWrite
     )
       fail(403, "Administrator access required");
+    if (actor.clientKind === "browser" && actor.role !== "viewer" && isPrivilegedWrite(method, route))
+      await requireRecentMfa(options.pool, actor, Boolean(options.mfa?.required));
     if (actor.clientKind === "machine") {
       const isRead = ["GET", "HEAD"].includes(method);
       const scope =
@@ -295,8 +309,15 @@ export async function buildApp(options: {
     publicRead: Boolean(options.publicRead),
     publicRegistration: Boolean(options.publicRegistration),
     strongerPasswords: options.strongerPasswords,
+    accountEmail: options.accountEmail,
+    mfa: options.mfa,
     limitLogin: createLoginThrottle(options.authThrottleKey ?? options.sessionSecret),
   });
+  if (options.accountEmail) await emailRoutes(app, options.pool, options.accountEmail.provider, {
+    publicRegistration: options.accountEmail.publicRegistration,
+    strongerPasswords: options.strongerPasswords,
+  });
+  if (options.mfa) await mfaRoutes(app, options.pool, options.mfa.key, cookie);
   const vault =
     options.credentialVault ??
     createCredentialVault(options.pool, options.sessionSecret);

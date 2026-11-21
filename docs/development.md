@@ -89,11 +89,17 @@ Compose 在专用内部网络连接 Caddy 和 Fastify。Fastify 通过 `TRUST_PR
 
 ### 公开注册开关
 
-当前生产进程只支持邀请码注册。即使旧环境文件仍设置 `PUBLIC_REGISTRATION_ENABLED=true`，生产也不会启用免邀请注册。非生产环境可以显式设为 `true` 运行现有测试流程。匿名阅读单独由 `PUBLIC_READ_ENABLED` 控制。
+邮件注册与找回默认关闭。设置 `AUTH_EMAIL_ENABLED=true` 前配置 HTTPS `APP_ORIGIN`、Resend 已验证发件域及 `AUTH_EMAIL_FROM`、`RESEND_API_KEY`、`TURNSTILE_SITE_KEY`、`TURNSTILE_SECRET_KEY`。生产只有邮件和人机验证配置生效且 `PUBLIC_REGISTRATION_ENABLED=true` 才允许免邀请注册。Resend 使用一次请求和幂等键，未知结果保留额度，用户可在冷却后重新发起。出站仅允许 Resend 与 Cloudflare 的固定 API，预演需验收域名投递、Turnstile 域名绑定和失败提示。匿名阅读单独由 `PUBLIC_READ_ENABLED` 控制。
+
+### 管理员 MFA 启用与恢复
+
+在受信运维主机使用独立的 `AUTH_MFA_ENCRYPTION_KEY`，格式为 32 字节 base64url。保留安全备份。先为每位 active Owner/Admin 离线登记验证器，再启用 `AUTH_MFA_REQUIRED=true`。从受限环境加载当前数据库连接、随机 20 字节 Base32 种子 `AUTH_MFA_SETUP_SEED` 和当前验证器代码 `AUTH_MFA_SETUP_CODE`，执行 `node dist/src/modules/access/mfa-cli.js --enroll <user-id>`。种子由管理员在受信设备导入标准 SHA-1 / 6 位 / 30 秒验证器，工具输出结果状态。最后一个 Owner 完成双因素登录和恢复演练后再开启强制模式。新邀请的管理员与提权用户同样需离线登记。
+
+登录后可在设置页生成恢复码并安全保存。恢复码只允许登录，敏感写操作仍需 TOTP。验证器遗失时，由受信运维管理员核验账户身份并使用新种子及其当前代码，执行同一命令的 `--recover`。工具原子废弃旧浏览器会话、预认证挑战和恢复码并写入审计，机器 Key 保留单独撤销流程。配置关闭时，已登记账号仍需 MFA；回退需使用支持 MFA 的镜像和原密钥，避免回到会跳过第二因素的旧镜像。
 
 ### 安全开发基线与密码哈希切换
 
-`feat/platform-security-hardening` 开工基于 PR #19 的 `6f53325f6a79577f31a75eba1e7fcf6bbdf55ca7`，其中包含 PR #16 的 `d13d00231a1f3b69372ba66e0ed1d6ee0cc6ca36`。当时主干为 `cd12f63b118e088c340f42572d1d0e671fd80798`，迁移至 053，正式预算 24 表；继承迁移 054–056 增加 19 表，隔离 PG16 合计 43 表。安全切片新增 0 表、0 迁移。两个前序 PR squash 合入后，以此父 SHA 清点自有提交，再在最新 main 上逐个重放并复验迁移、增量 diff 和全链 CI。
+`feat/platform-security-hardening` 开工基于 PR #19 的 `6f53325f6a79577f31a75eba1e7fcf6bbdf55ca7`，其中包含 PR #16 的 `d13d00231a1f3b69372ba66e0ed1d6ee0cc6ca36`。当时主干为 `cd12f63b118e088c340f42572d1d0e671fd80798`，迁移至 053，正式预算 24 表。继承迁移 054–056 增加 19 表，隔离 PG16 合计 43 表。初始 A/B 切片新增 0 表，C/D 的 057–058 新增 3 表，候选合计 46 表。两个前序 PR squash 合入后，以此父 SHA 清点自有提交，再在最新 main 上逐个重放并复验迁移、增量 diff 和全链 CI。
 
 发布时先部署能读取 v1/v2 的版本，`AUTH_SCRYPT_V2_WRITE_ENABLED=false` 保持兼容写。v2 为 scrypt N=32768/r=8/p=3，最多并行两次，超限返回 503；生产容量验证后才开启写入和成功登录的惰性重哈希。启用期间登录对旧、新和不存在的账户均执行两代 KDF，以减小迁移期的邮箱枚举时间差。已写入 v2 后继续使用支持两代且启用均衡校验的构建。只读 v1 的旧镜像不能接管已有 v2 的账户。账户限流为每个规范化邮箱 15 分钟内 10 次，包括失败与成功，4096 个并行账户窗口，写入前校验，进程重启清空。生产可独立配置 `AUTH_THROTTLE_KEY`，兼容回退以 Session key 做用途隔离的 HMAC。
 
