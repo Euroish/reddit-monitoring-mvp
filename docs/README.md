@@ -1,71 +1,81 @@
 # 产品规范、指标口径与文档总览（STD-100）
 
-本文规定产品边界、度量诚实性、建表纪律与规范与发布文档索引。规格关键词 `MUST` / `MUST NOT` / `SHOULD` / `MAY` 由 `npm run docs:check` 静态校验，全仓规则 ID 全局唯一。
+本文拥有产品边界、用户任务、度量口径和验收原则。实现状态由 [status.md](status.md) 记录，生产状态由 [development.md](development.md) 的部署记录及运行库核实。`[LIVE]` 表示 `main` 已有代码与注册入口，`[V2]` 表示待实现规格。代码合入不自动代表生产已部署。
 
----
+## 1. 产品目标与两条核心工作流
 
-## 1. 产品定位：信息流优先 · 选择性可视化 · 内容资产复利
+SIFTLINE 是社媒情报分析与高质量信息分发工作台。社媒研究与信息流共同使用采集、身份去重、观测、检索和权限底座，拥有各自完整的任务入口和验收。公开阅读首页承担信息获取，专题研究承担持续的数据分析。产品能力以用户完成的任务衡量。
 
-系统已从早期单一平台监控看板收敛为运行于 **4 vCPU / 3.8 GiB RAM / 58 GiB 磁盘** 单机上的**多源双语信息流、选择性交互可视化与数据分析个人/Agent 知识工作台**：
-1. **信息流解决高效获取**：`/` 首页直接读取库内已聚簇事件卡与 08:00 日报，同源转发按 `T1 > T1_5 > T2` 折叠选举一手代表报道；
-2. **选择性可视化解决可信研判**：拒绝装饰性评分仪表与跨平台混淆计数；仅提供卡片内嵌权威比例条/48h 火花线及探索/专题页的可点击跨平台脉冲、热度×增速与单源时序观测图；
-3. **内容资产复利解决知识沉淀**：在稳定核心表内叠加阅读状态、持久化事件成员归属与既有 GIN/全文过滤，使抓取内容可持续检索、对比与二次利用。
+| 核心工作流 | 用户要完成的判断 | 主要数据与结果 | 当前 `main` 基线 | `[V2]` 交付目标 |
+| --- | --- | --- | --- | --- |
+| 社媒情报与分析 | 某个产品、品牌或话题在哪些社区被讨论，变化来自哪里，哪些原帖与回复值得跟进 | 已采集帖子、评论、互动观测、专题过滤、时间趋势、平台分布、证据清单 | `/content` 检索与分面、`/projects` 专题和日趋势、评论树 `top/matches/op`、按来源与渠道隔离的指标曲线、收藏批注和导出 | 覆盖质量视图、同窗专题对比、社区与作者研究、可复现报告、变化提醒 |
+| 高质量信息流与分发 | 今天应该读什么，为什么推荐给我，哪些变化需要主动通知 | 已入库文章与事件、来源等级、关联报道、阅读反馈、订阅条件 | `/` 公开精选与 `/app/feed` 的 `latest/hot/digest`、8 频道、微图、原文跳转与阅读抽屉 | 显式兴趣、阅读状态、正负反馈、个性化排序、订阅与可靠投递 |
 
-| 使用场景 | `[LIVE]` 已上线基线 | `[V2]` 演进方向（见 `status.md`） |
-| :--- | :--- | :--- |
-| **1. 首页流与 08:00 日报** | `GET /v1/content/stories`（`latest`/`hot`/`digest`），支持 8 频道/`tier`/`language` 过滤与 Markdown 复制 | Phase A 补 `tierBreakdown`+`sparkline48h` 微图；Phase B 补 `read_before_at` 水位与 `为你` RRF |
-| **2. 分频道与批量信源** | `100` 个活跃源（8 业务 `source_group`），支持动态 HTTPS/`web_list`/`json_list` 预览与 OPML/JSON 导入 | Phase C 扩 `newsnow`/`bluesky`/VIP X 批次/Readability，并通过 `stream_class='live'` 接入 L3 Sidecar |
-| **3. 选择性图表与三视图** | 后端 `GET /v1/content/facets` 与 `/v1/projects/:id/overview` 提供 `GROUPING SETS`；`ThreadTreeView` 待融合 | Phase A 落地 Tier-1 原生 SVG 微图 + Tier-2 懒加载 `echarts/core` 交互图与三视图评论树 |
-| **4. 检索与专题对比** | 三段词 + 中文双字词/短代号（`算力`/`o3`）GIN 检索、信号筛查、专题水合（`kaix`）与 RFC 4180 流式导出 | Phase B 新增基于 GIN 的 `POST /v1/project-comparisons` 与单条评论批注 |
-| **5. 外部探索与按需 AI** | 仅支持静态库内查询与受限 API Key 只读/导出 | Phase D 按需落地 `/v1/discovery/query` 与零 SDK `/v1/content/:id/enrich` |
+社媒分析借鉴 Ahrefs/Semrush 的实体研究、时间比较、过滤下钻和证据导出体验。推荐借鉴 TikTok 的兴趣反馈、候选排序、探索和控制能力，排序目标以研究价值、信源质量与新信息发现为主。产品研究依据及逐步验收见 [产品策略研究](research/product-strategy.md)。
 
----
+### 产品边界
 
-## 2. 规范规则表（`docs:check` 受控 ID）
+- 采集范围包括已配置的社媒、社区、RSS/Atom、网页列表与外部受限推流，渠道支持情况由注册连接器、凭证及运行配置共同决定。来源数量属于带时间戳的运行快照。
+- 分析对象包括专题、品牌、账号、社区、内容和事件。账号及社区的独立实体视图属于 `[V2]`，当前可使用来源和过滤条件进行研究。
+- 内容分析输出必须能回到匹配原文、评论节点、来源和观测时间。情感、痛点分类、主题提取与 AI 摘要需要单独验证和标识。
+- 信息分发包括站内发现、日报与 `[V2]` 用户订阅投递。外部 Sidecar 向系统写入数据的 ingest 与向用户发送消息的 delivery 分别验收。
+- SEO 排名、关键词难度、站点技术审计、购买流量估算与社媒代发属于当前产品边界之外。现有数据也不能推导完整受众画像、全网覆盖或因果营销归因。
+
+### 完成交付的共同条件
+
+每项能力必须声明用户任务、数据来源、可用范围、权限、成本、失败行为和验收样例。分析必须可重放过滤条件并查看原始证据。推荐必须有排序理由和用户反馈控制。推送必须有订阅、去重、投递状态和退订路径。具体优先级与交付顺序由状态文档维护。
+
+## 2. 规范规则表
+
+规格关键词 `MUST` / `MUST NOT` / `SHOULD` / `MAY` 由 `npm run docs:check` 校验，全仓规则 ID 全局唯一。
 
 | ID | 等级 | 产品能力与边界规则 | 验收出口 |
 | --- | --- | --- | --- |
-| PRD-01 | MUST | 三段词（`anyTerms`/`allTerms`/`exclusions`）、中文双字词与短代号 GIN 检索 `MUST` 只读库内已存数据；页面切换或项目保存 `MUST NOT` 在读路径触发收费外网抓取。 | PG16 `EXPLAIN` 与路由测试 |
-| PRD-02 | MUST | 信源 `MUST` 归属 `tier`（`T1`/`T1_5`/`T2`）、`sourceGroup`、`locale` 与 `fetchPolicy`；新来源首次未检查状态限制 8 条采集，且 `[V2]` `MUST` 强制实现超 48 小时旧文按原发布时间归档而不挤占今日精选与日报；`feed`/`newsnow` 支持保存前预览前 20 条与 OPML/JSON 批量导入。 | 预览、导入与防刷屏测试 |
-| PRD-03 | MUST | 多源事件通过规范链接、版本防混淆与 64-bit SimHash 聚簇，代表报道严格按 `T1 > T1_5 > T2`（同级英文优先）选举；48h 热度（24h 半衰期）与 6h 趋势按确定性规则计算，08:00 切换日报；专题钻取支持三视图评论树与有界流式导出。 | 事件聚簇与三视图 E2E |
-| PRD-04 | MUST | `[V2]` 按题动态探索与按簇 AI 双语/三点综述 `MUST` 保持微内核无阻塞解耦：AI 扩展以零 SDK `fetch` 幂等写入 `platform_details.extensions.ai`，受 `source_provider_budget (ai_enrich)` 与非 `read` Key 权限隔离控制；产费与状态变更须经预算与浏览器管理员确认。 | 权限与预算熔断测试 |
+| PRD-01 | MUST | 三段词（`anyTerms`/`allTerms`/`exclusions`）、中文双字词和短代号检索只读库内数据。图表、列表、导出和专题统计必须使用相同权限与过滤口径，读路径禁止触发收费采集。 | 过滤一致性与无收费读路径测试 |
+| PRD-02 | MUST | 来源声明 `tier`、`sourceGroup`、`locale` 与 `fetchPolicy`。订阅前提供预览，支持 OPML/JSON 导入。`[V2]` 新接入旧文按原始发布时间参与归档，信息流新鲜度、样本覆盖和采集成功分别衡量。 | 预览、导入、时间边界与覆盖测试 |
+| PRD-03 | MUST | 社媒分析与信息流均能下钻原始证据。已实现事件聚簇采用规范链接、64-bit SimHash 和版本边界，代表报道按 `T1 > T1_5 > T2` 选举。专题提供时间趋势、平台分布、评论树与有界导出，`[V2]` 增加同窗对比和覆盖解释。 | 事件、专题及证据链 E2E |
+| PRD-04 | MUST | `[V2]` 推荐依次交付兴趣设置、反馈记录、可解释排序和实验评估。订阅推送须提供去重、失败恢复与退订。外部探索和 AI 成本进入现有预算与权限控制，并保留来源、结果版本和失败状态。 | 推荐理由、投递幂等与预算测试 |
 
-| ID | 等级 | 度量诚实性与样本口径规范 | 验收出口 |
+| ID | 等级 | 度量诚实性与样本口径 | 验收出口 |
 | --- | --- | --- | --- |
-| MET-01 | MUST NOT | `MUST NOT` 将库内去重条数冒充全网声量，或将 `newsnow` 排名（`web.rank`）与 HTTP `304` 刷新冒充新增互动/正文；来源停采逾期或接入未满 6 小时 `MUST` 标记 `trend = 'unknown'`。 | 响应结构与文案审计 |
-| MET-02 | MUST | 内容身份 `(source_id, kind, external_id)`、`content_discovery` 与 `content_observation`（按真实 `provider` 隔离）互不混用；48h 同一参与者仅计一次最高贡献；当前 `[LIVE]` 默认流/趋势仅算 `pull`，`[V2]` 引入 `stream_class` 后默认纳入 `live`（含 L3 实时推流）并排除 `archive`/`adhoc`。 | 多源去重与口径测试 |
-| MET-03 | MUST | 三轴时间 `publishedAt`（`created_at_source`）、`sourceObservedAt`、`fetchedAt` 严格分离；未知发布时间保持 `null`，`MUST NOT` 以抓取时间冒充原文时间挤压当日信息流。 | 时间轴边界单测 |
-| MET-04 | MUST | `threadAware = true` 下按可见根帖（`anchor`）去重计 `contentCount` 并另报 `matchedContentCount`；跨平台或跨 `timeBasis` 的原始互动分/赞 `MUST NOT` 直接相加，观测图必须按 `(sourceId, provider, metricKey)` 分线并保留 `null` 断档，跨平台对比仅允许内容量/事件热度，否则返 `422`。 | 对比 422 与图表审计 |
+| MET-01 | MUST NOT | 将库内去重内容量、匹配量或已采集品牌提及占比描述为全网声量、全网份额或真实触达。`newsnow` 排名与 HTTP `304` 不代表新增互动。覆盖未知、停采与新接入必须在趋势解释中可见。 | 响应字段与文案审查 |
+| MET-02 | MUST | 内容身份 `(source_id, kind, external_id)`、发现关系与真实渠道观测分开统计。当前默认故事流按 `pull` 来源查询，专题受 `includePushInTrends` 控制。`[V2]` 实时、归档、临时探索的纳入方式须有显式契约。 | 去重、权限和样本集合测试 |
+| MET-03 | MUST | `publishedAt`、`sourceObservedAt` 和 `fetchedAt` 三轴时间分别保留。未知发布时间保持 `null`，界面标识回退依据。趋势、日报和对比明确区间、时区、粒度、有效覆盖与未知数据。 | 时间边界与空值测试 |
+| MET-04 | MUST | `threadAware=true` 按可见根帖计 `contentCount` 并另报 `matchedContentCount`。跨平台、渠道或 `timeBasis` 的原始互动分开计算，按 `(sourceId, provider, metricKey)` 分线并保留 `null`。`[V2]` 对比先验证分母与覆盖，同源同指标才展示可比增量。 | 聚合、分线与比较拒绝测试 |
 
-| ID | 等级 | 工程精简与验证规范 | 验收出口 |
+| ID | 等级 | 工程精简与验证原则 | 验收出口 |
 | --- | --- | --- | --- |
-| ENG-01 | MUST | 后端严守五模块扁平结构、`commitContentBatch` 唯一入库与进程内 Worker；核心数据库自 Post-050 `20` 张表起严守 **`<= 24` 张表** 上限（优先复用已有字段与 JSONB，不建投机性低收益关联表）；禁止单实现 `*Repository` 与 `InMemory*` 模拟。 | `docs:check` 与迁移审查 |
-| ENG-02 | MUST NOT | `MUST NOT` 压行删换行或引入全量重型前端图表包；前端严守“首页 SVG 微图 0 重包 + 分析页 `React.lazy` 懒加载 `echarts/core`”，源码遵守 `<= 450` 行/文件与 `<= 220` 字/非模板行。 | `docs:check` 与构建检查 |
-| ENG-03 | MUST | 测试锁定纯函数单测 + 隔离 `postgres:16-alpine` HTTP 集成 + 核心浏览器验证；任何外部付费调用处于 `unknown` 状态 `MUST` 立即落库停发并待人工 `acknowledgePotentialCharge` 解封，禁止静默重试。 | CI 门禁与停发测试 |
+| ENG-01 | MUST | 以五模块函数式核心、`commitContentBatch` 唯一采集入库及进程内 Worker 为当前基线。`main` 经 `053` 为 24 张表，当前单机发布预算为 `<=24`，后续切片优先 `+0`。调整预算须先以独立 ADR 审核产品收益、复用、容量和成本、权限、迁移及回滚，禁止仅为界面卡片建表。 | 架构评审与迁移测试 |
+| ENG-02 | MUST NOT | 通过压行、无用途抽象和重复契约隐藏复杂度。后端功能模块保持可独立审阅的职责和现有行长门禁，前端按页面、编辑器和图表职责组织。首页微图使用原生 SVG，分析模块按路由懒加载 `echarts/core`。 | 边界校验、构建与性能证据 |
+| ENG-03 | MUST | 测试覆盖纯逻辑、隔离 PG16 的 API 行为和核心用户任务。付费调用的 `unknown` 状态落库后停止自动重放，恢复需要 `acknowledgePotentialCharge`。上线前核对代码版本、迁移水位、配置及回滚条件。 | CI、生产验收与恢复记录 |
 
----
+## 3. 文档职责与维护
 
-## 3. 规范与发布文档索引
+规范文档按决策职责维护，保留产品、架构、数据、设计、研究、运维和实施记录。代码 PR 同步受影响的事实及验收，历史材料标明时间与只读性质。新增研究文件须由规范入口链接，发布包选档由 `DOCUMENTATION_FILES` 决定。
 
-以下文档随发布包分发，由 `DOCUMENTATION_FILES` 维护。仓库可新增 Markdown 文档，新增文件默认留在源码仓库。
+### 项目入口与协作
 
-### A. 项目入口与合作规范（2 份）
-- [README.md](../README.md)：仓库总入口（`<= 60` 行）、`[LIVE]`/`[V2]` 边界与校验入口
-- [AGENTS.md](../AGENTS.md)：Agent 协作总纲、Post-050 红线与分支融合禁令
+- [README.md](../README.md) 负责仓库总入口及开发启动，保持 `<=60` 行。
+- [AGENTS.md](../AGENTS.md) 负责 Agent 入口、协作和必须遵守的不变量。
 
-### B. 现行权威规范（8 份 · 与 `prod` 代码同步维护）
-- [docs/README.md](README.md)：产品定位、度量口径、规则表与规范文档索引
-- [docs/status.md](status.md)：**唯一状态真源**：实码盘点、`semrush` 审计与 V2 Phase A–D 路线
-- [docs/development.md](development.md)：**唯一运维与台账真源**：构建、环境、PG16 运维与 `0.2.0–050+` 记录
-- [docs/architecture.md](architecture.md)：五模块拓扑、`20 -> <= 24` 演进、L1–L3 扩源与 4 GB 安全预算
-- [docs/contracts.md](contracts.md)：领域语义、`050` 新字段、`[LIVE]` 43 路径/50 操作与 `[V2]` 接口契约
-- [docs/design.md](design.md)：三模态设计、双层图表架构与 `feat/semrush-frontend-rebuild` 融合矩阵
-- [docs/research/data-sources.md](research/data-sources.md)：开源标杆拆解、8 个活跃分组与 L1–L3 扩源分级
-- [docs/plans/source-expansion.md](plans/source-expansion.md)：R1–R3/`050` 完结档案、`051+` 边界与 R4/L3 外部隔离
+### 现行规范与记录
 
-### C. 历史研究与早期审计归档（5 份 · 只读溯源，不作现状依据）
-- [docs/research/architecture_audit_and_rebuild_spec.md](research/architecture_audit_and_rebuild_spec.md)（`main@7045185` 尸检母本）
-- [docs/research/source_replacement_and_twitterapi_io_removal_spec.md](research/source_replacement_and_twitterapi_io_removal_spec.md)（旧双源清理规格）
-- [docs/research/deep-audit-and-architecture-blueprint-20261118.md](research/deep-audit-and-architecture-blueprint-20261118.md)（`prod@7440058` 审计蓝图）
-- [docs/research/product-architecture-conversation-20261118.md](research/product-architecture-conversation-20261118.md)（`2026-11-18` 早期讨论记录）
-- [docs/research/ChatGPT-讲解仓库文档-20261118-1807.md](research/ChatGPT-讲解仓库文档-20261118-1807.md)（外部架构输入归档）
+- [产品规范](README.md) 负责用户任务、边界、指标语义和验收原则。
+- [当前状态](status.md) 负责带代码依据的实现清单、待办与优先级。
+- [开发与运维](development.md) 负责环境、验证、备份、部署及故障台账。
+- [主线架构](architecture.md) 负责模块、数据所有权、资源与演进决策。
+- [数据与 API 契约](contracts.md) 负责对象、过滤、时间、版本、权限及路由。
+- [交互与分析设计](design.md) 负责页面任务、分析下钻、推荐反馈和多端交互。
+- [来源矩阵](research/data-sources.md) 负责来源分类、连接器、质量与覆盖。
+- [产品策略研究](research/product-strategy.md) 负责行业证据、取舍、数据就绪条件与交付验收。
+- [扩源与外挂隔离](plans/source-expansion.md) 负责采集演进、完结记录及外部重型任务边界。
+
+### 历史研究与早期审计
+
+以下文件保留溯源价值，现状以当前规范、主干代码和部署记录核实。
+
+- [早期架构尸检](research/architecture_audit_and_rebuild_spec.md)
+- [旧双源清理规格](research/source_replacement_and_twitterapi_io_removal_spec.md)
+- [2026-11-18 审计蓝图](research/deep-audit-and-architecture-blueprint-20261118.md)
+- [早期产品架构讨论](research/product-architecture-conversation-20261118.md)
+- [外部架构输入归档](research/ChatGPT-讲解仓库文档-20261118-1807.md)

@@ -7,6 +7,7 @@ import { KaixContentConnector } from "../../src/connectors/reddit/kaix-content.c
 import { redCrawler } from "../../src/connectors/reddit/red-crawler";
 import { webSource } from "../../src/connectors/web/sources";
 import { twitterApis } from "../../src/connectors/x/twitterapis";
+import { workOnce } from "../../src/modules/collection/worker";
 import { testDatabase } from "../helpers/database";
 
 const ORIGIN = "http://localhost:3000";
@@ -218,11 +219,54 @@ test("PG16 provider credentials, Apify aggregation, dynamic Free/Pro policies, q
     headers: { cookie: freeCookie, origin: ORIGIN },
     payload: {},
   })).statusCode, 200);
-  assert.equal((await app.inject({
+  const queued = await app.inject({
     method: "POST",
     url: `/v1/sources/${sourceId}/collect`,
     headers: { cookie: freeCookie, origin: ORIGIN, "idempotency-key": "k-free-3" },
     payload: collectBody,
-  })).statusCode, 200);
+  });
+  assert.equal(queued.statusCode, 200, queued.body);
+  await db.pool.query("UPDATE plan_collection_policy SET max_batch_limit=1 WHERE plan_tier='free'");
+  assert.equal(await workOnce(db.pool, [newsnowProvider]), true);
+  const dispatched = await db.pool.query("SELECT status,request_count FROM source_collection_job WHERE id=$1", [queued.json().jobId]);
+  assert.deepEqual(dispatched.rows, [{ status: "cancelled", request_count: 0 }]);
+
+  await db.pool.query(`UPDATE plan_collection_policy SET allowed_providers=ARRAY['kaix'],max_batch_limit=50 WHERE plan_tier='free'`);
+  const mockKaix = new KaixContentConnector({ networkEnabled: true, apiToken: "synthetic-fixture" });
+  const redditApp = await buildApp({
+    pool: db.pool, sessionSecret: SESSION_SECRET, origin: ORIGIN, secureCookies: false, providers: [mockKaix],
+  });
+  t.after(() => redditApp.close());
+  const commentSrc = await redditApp.inject({
+    method: "POST", url: "/v1/sources", headers: { cookie: ownerCookie, origin: ORIGIN },
+    payload: {
+      platform: "reddit", primaryProvider: "kaix", label: "Comment policy fixture", contentKind: "comment",
+      target: { type: "post", postId: "t3_root123" }, deliveryMode: "pull",
+    },
+  });
+  assert.equal(commentSrc.statusCode, 200, commentSrc.body);
+  const denied = await redditApp.inject({
+    method: "POST", url: `/v1/sources/${commentSrc.json().source.id}/collect`,
+    headers: { cookie: freeCookie, origin: ORIGIN, "idempotency-key": "comment-policy" },
+    payload: collectBody,
+  });
+  assert.equal(denied.statusCode, 422, denied.body);
+  assert.match(denied.body, /Comment hydration exceeds/);
+  await db.pool.query("UPDATE plan_collection_policy SET max_comments_per_post=10,daily_resources=32,daily_requests=10 WHERE plan_tier='free'");
+  await db.pool.query("UPDATE app_user SET quota_override=NULL WHERE id=$1", [freeUser.id]);
+  const postCollect = await redditApp.inject({
+    method: "POST", url: `/v1/sources/${commentSrc.json().source.id}/collect`,
+    headers: { cookie: freeCookie, origin: ORIGIN, "idempotency-key": "post-collect-retry" },
+    payload: { ...collectBody, limit: 10, includeComments: true },
+  });
+  assert.equal(postCollect.statusCode, 200, postCollect.body);
+  const retry = await redditApp.inject({
+    method: "POST", url: `/v1/source-jobs/${postCollect.json().jobId}/retry`,
+    headers: { cookie: freeCookie, origin: ORIGIN },
+    payload: {},
+  });
+  assert.equal(retry.statusCode, 200, retry.body);
+  const kaixUsage = await db.pool.query("SELECT resources_reserved FROM user_provider_usage WHERE user_id=$1 AND provider='kaix'", [freeUser.id]);
+  assert.deepEqual(kaixUsage.rows, [{ resources_reserved: 22 }]);
   assert.equal(adminUser.role, "admin");
 });

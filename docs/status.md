@@ -1,57 +1,43 @@
-# 当前状态与下一阶段规划（STD-100 唯一真源）
+# 主干交付状态、生产基线与下一步
 
-> **核对基准**：`main@2026-11-20`（单主干统一收口：开放阅读 + `051`/`052` 凭证与动态配额 + 精简 Siftline 前端）（见[开发台账](development.md#5-全阶段交付与演进台账)） · **运行镜像**：`monitoring-unified:20261120-v3` / `monitoring-unified-web:20261120-v3`（下次发版按 `main` 构建）。
-> 严格分离 **`[LIVE]` 实码真源** 与 **`[V2]` 演进计划**；文中实库行数为生产运行采样快照，持续采集会自然增长。
+本页记录可核验的运行状态和下一步取舍。[产品规范](README.md)定义产品和度量边界，[架构](architecture.md)定义系统所有权与容量，[开发手册](development.md)记录发布与回滚方法。
 
----
+## 0. 当前主干基线与实测资产清单（[LIVE]）
 
-## 0. 当前主干基线与实测资产清单（`[LIVE]`）
+`[LIVE]` 表示在主干有入口及实现。生产上线状态以实际镜像、迁移与验收为准。
 
-| 维度 | 实测基线数据（`2026-11-20` 统一收口） |
-| :--- | :--- |
-| **源码结构** | 后端五模块扁平内核（含 `credentials.ts`、`policy.ts`、`jobs.ts`、`stories.ts`、`docs.ts` 与开放阅读路由）；前端采用双层导航架构：公开站点（`PublicSiteShell`，含 `/` 公开信息首页、`/product` 产品介绍、`/ai` AI 资讯过渡页、`/docs` 产品文档中心，另保留 `/guide` 使用手册）与专业工作台（`WorkbenchShell`，含 `/app/feed` 完整 Stories 三视图、`/content` 匿名/登录内容检索与 `/v1/content/facets` 分面、`/projects`、`/sources`、`/workspace`、`/settings`）；旧 `/?view=...` 自动兼容跳转至 `/app/feed?...`；`/` 首屏零 ECharts 且按路由懒加载工作台模块 |
-| **PG16 数据库** | **38 张公网表**（`001..050` 基线 `20` 表 + `051`/`052` 凭证与配额 + `053` 文档中心 `doc_page` + `054` AI 发布日历与模型情报 14 表；已取消旧 `<= 24` 固定上限，改为按关系模型必要性与索引/写放大评估治理） |
-| **活跃来源分布** | **100 个活跃排期源**（`97` `feed` + `3` `newsnow`，覆盖 8 个 `source_group`），支持开放匿名阅读 `/v1/public/sources` 与防刷屏 7d 分页故事流 |
-| **接口与安全** | `onRequest` 限流早于 `preParsing` 鉴权；`/v1/content/*` 仅 `GET/HEAD` 允许 `read` Key；`machine` Key 禁访 `/v1/access/*`、`/v1/workspace/*`、`/v1/sources/credentials*` 与 `/v1/quotas/*`；`scripts/check-docs.ts` 守卫 `001..050` 迁移不可变与五模块边界 |
+| 功能 | PR #16（对齐主干 `cd12f63`） |
+| --- | --- |
+| 社媒样本与研究 | Reddit、X、Bluesky、Web 的规范化抓取接口、范围受控的外部推流及已存样本查询。专业工作台提供 `/content` 检索与分面、帖子与评论树、观测历史；`/projects` 提供保存的来源与主题范围、时间 × 平台趋势和 Reddit 主题评论补采。机器 Key 权限沿来源范围过滤。平台支持、生产开通和分析覆盖分别验收。 |
+| 资讯与公开站 | `/` 提供频道、精选、48h 热榜与日报预览；`/app/feed` 提供完整排序与过滤；`/product`、`/guide`、`/docs` 可访问；`/ai` 已上线 **AI 发布情报中心**（时间矩阵、模型详情抽屉、评测榜单与官方一手更新流，仅展示有官方证据的发布事件）。 |
+| AI 自动化流水线 | `/admin/queue` 浏览器管理员审核队列；`ai-scheduler` 按源 `next_run_at` 与退避周期调度（`AI_SYNC_ENABLED=true` 开启，默认关闭），支持官方博客/更新日志自动发现（Shadow 模式默认开启）、Artificial Analysis v2 授权隔离与运维告警。 |
+| 凭证与调度 | 持久队列、单机 Worker、付费状态恢复、平台与用户额度、凭证加密和可配置 Apify 中继。 |
+| 数据库 | `001..050` 基线 20 表；`051/052` 凭证与额度 3 表；`053` `doc_page`（主干 24 表）；PR #16 新增 `054`（14 表）与 `055`（3 表）共 **17** 张 `ai_*` 表，实码总计 **41 表**（超出原 24 表预算 `+17`，待合入评审确认预算调整）。 |
 
----
+## 1. 生产只读抽样
 
-## 1. 分支统一收口状态
+采样于 **2026-11-22 01:50（北京时间）**。状态会随部署和采集更新。
 
-| 分支 / 引用 | 状态与特征 | 治理结论 |
-| :--- | :--- | :--- |
-| **`main`** | **全仓唯一常驻主干与发布源** | 完整继承原 `prod@254213b` 历史并融合 `dev/siftline-workbench` 的 `051`/`052` 后端能力与精简前端；后续所有迭代均从 `main` 切短分支经 PR + CI 绿灯合入，见[分支治理准则](development.md#0-团队分支治理与-ai-协作准则)。 |
-| **`archive/dev-siftline-20261120`（Tag）** | 原 `dev/siftline-workbench@d10d631` 只读归档快照 | 仅作历史追溯，原分支与旧 `prod`/`r1-content-batch` 分支均已退役。 |
-| **`archive/frontend-prototype`** | 早期独立原型归档 | 只读历史存档，不再合并。 |
+| 检查 | 结果 |
+| --- | --- |
+| 发布版本 | API `monitoring-unified:3a88ce448029`，代理与静态资源 `monitoring-unified-web:7797cabff3d3`。两镜像来自不同提交，主干的 `053` 与公开站改版尚未部署到这套实例。 |
+| 数据库与进程 | PG16 已应用至 `052`，23 张公共表，约 49 MiB。API、数据库健康，1 个近期活跃 Worker。 |
+| 来源与任务 | 101 个活跃配置，包括 95 个 Feed、4 个热榜排期源、1 个 Kaix 和 1 个外部推流源。24 小时内创建的任务中 845 成功、16 失败。任务成功数记录执行结果，分析页面需要独立展示覆盖。 |
 
----
+同一巡检窗口内，库中有 3,193 篇 Web 文章、10 条 Reddit 主帖、5 条 Reddit 评论及 5 条 X 帖子；Reddit/X/Bluesky 有 20 条带指标的观测，Bluesky 暂无入库。社媒样本不足以支撑对外的跨平台比较。跨平台社媒分析需要先确认目标来源、窗口、缺口、指标与可追溯的样本。来源配置细分见[来源矩阵](research/data-sources.md)。
 
-## 2. 已修复项与当前 V2 开放缺口
+## 2. 后端稳定性与下一次发布
 
-- **已修复项**：`BUG-01..06`（`047..050` + `8e436ac`）及后续代码/文档漂移加固（`check-docs <= 50` 守卫、`app.ts` `/v1/content/*` 方法门控、`search.ts` `LEFT JOIN` 防冷删隐身、`docker-compose.yml` 透传 `WORKER_CONCURRENCY`）。
-- **当前 `[V2]` 开放缺口**：
-  1. 当前生产镜像仍使用上一版工作台；Phase A 的待发布实现见下文；
-  2. `content_annotation` 无阅读水位线，`readStoryWindow` 尚未沉淀跨周事件成员归属，尚无 `stream_class` 使 L3 推流融入首页；
-  3. 仅开通 3/7 个内置 `newsnow` 榜与 0 个 `bluesky` 源，尚未引入 `linkedom`/`Readability` 提取 RSS 原文与外链；
-  4. `/v1/discovery/query` 与 `/v1/content/:id/enrich` 均未实现。
+- 网站文档中心需覆盖管理员编辑的版本冲突、草稿可见性、机器只读权限、附件下载与迁移恢复。文档编辑、发布和删除尚缺集中审计记录。
+- 发布前在隔离 PG16 验证 `052 → 053`，构建同一提交的 API 和代理镜像，核对迁移台账、Worker 心跳、公开与登录态流程。
+- 迁移按前向演进处理。应用版本回退和数据库恢复各有独立验收，恢复边界见[开发手册](development.md#备份隔离恢复与发布校验)。
 
----
+## 3. 两条研发路径（[V2]）
 
-## 3. `[V2]` 纵深路线（Phase A – D，迁移编号从 `055+` 顺延）
+| 顺序 | 社媒研究与分析 | 高质量信息流与分发 | 完成门槛 |
+| --- | --- | --- | --- |
+| 1 · 样本可信 | 挑选一组可持续的 Reddit 主题与社区，用已有专题、分面和评论树核对覆盖、样本偏差、评论深度和缺失指标。 | 完善信源准入、来源多样性和保活诊断，保留最新、热门与日报为可解释的基线。 | 同一窗口从图表回到明细能复算，能区分零命中、范围外、采集缺口。先用现有表和接口。 |
+| 2 · 可重复工作流 | 验证对比与下钻需求，用相同来源、时窗和统计口径比较专题、社区和作者；输出可重跑的导出。 | 用明确的订阅、收藏、隐藏与反馈验证个性化排序，保留非个性化入口；对比去重、多样性、相关性和无结果比例。 | 小样本对照、可解释理由、权限边界、可关闭，且基线与新策略可比较。 |
+| 3 · 按需扩展 | 达到容量门槛后再评估物化、离线归档或覆盖补采。 | 投递经过订阅、静默周期、幂等去重、密度上限和重试预算验收后再上线。 | 有真实需求、负载样本、回退路径和成本边界。当前没有用户级推荐、通知投递和自动探索生产闭环。 |
 
-Phase A 待上线版本已实现故事卡微图与键盘速读、侧栏折叠与命令面板、采集告警与额度计量、内容库与专题的日 × 平台下钻、热度四象限、观测折线及评论三视图。无命中分面仅凭已存样本无法确认采集覆盖，显示斜线；0 仅用于服务端明确返回的零值。生产镜像状态仍以本页基线为准。
-
-| 阶段 | 核心交付切片 | 表数量与关键文件 | 完成验收门禁 |
-| :--- | :--- | :--- | :--- |
-| **Phase A · 前端融合与双层可视化** | 1. 在 `readStoryWindow` 附带 `tierBreakdown` + `sparkline48h`（8×6h 桶），在 `projects/sql.ts` 补齐 `(day, platform)` 分面；<br>2. 落地矿石编辑风、精简 `WorkbenchShell`、`packages/contracts` 驱动 `api/hooks`、`ThreadTreeView` 与 `ObservationChart`；<br>3. `/` 渲染 Tier-1 零依赖 SVG 微图，`/content` 与 `/projects` 通过 `React.lazy` 模块化 `echarts/core` 渲染带斜线未知区的脉冲图与四象限。 | `+0` 表<br>`src/modules/{content/stories,projects/sql}.ts`、`apps/web/src/*` | `/` 首屏 JS 零 ECharts 依赖；`1440`/`768`/`390` 无横向溢出且 `dom_critic >= 88`；三视图与分面联动 E2E 通过。 |
-| **Phase B · 阅读水位线与持久化事件归属** | 1. 顺延 `055+`：扩展 `content_annotation` 增配 `read_at`/`muted`/`tags` 并独立其修改与笔记 `revision` 锁，增加按频道/全局 `read_before_at` 水位线（已读锚定 `storyKey`）；实现 `为你` 可解释 RRF 与超 48h 旧文防刷屏门控；<br>2. 新增 **`story_cluster` + `story_cluster_member`** **仅存成员归属与指纹**（代表选举与 `heat48h(now)` 在读路径按可见范围动态计算，禁存全局指标）；<br>3. 上线复用 GIN 索引的 `POST /v1/project-comparisons`。 | 新建表 `+2`（顺延编号 `055+`）<br>`src/modules/{content,projects,workspace}/*` | 一键已读写操作 `O(1)` 不膨胀，并发改笔记零 `409`；受限 API Key 不越权泄露他源代表；跨日热点查询 `< 10ms`。 |
-| **Phase C · `stream_class` 与 L1–L3 扩源** | 1. 升级 `collection_source` 区分 **`stream_class` (`live \| archive \| adhoc`)**，使 L3 实时 Sidecar 推流进入默认 `/` 与分面趋势，R4 `.zst` 保持 `archive` 隔离；<br>2. 启用其余内置 `newsnow` 榜、`bluesky_appview`、`twitterapis` VIP 批次与可选 `linkedom` + `@mozilla/readability` 正文/外链提取。 | `+0` 表（扩列，顺延 `056+`）<br>`src/connectors/web/*` | `Readability` 单页 `< 15ms`、Node RSS `< 800 MB`；L3 `ingest` 源可在首页与趋势按规则正常呈现。 |
-| **Phase D · 按题探索与可插拔 AI 综述** | 1. 上线 `POST /v1/discovery/query`（4 正交槽 + 垂直公开 API + 三波写入 `adhoc` 源 + 一键转 `pull`）及基于 Readability 外链的未订阅高频域名查询；<br>2. 上线零 SDK `POST /v1/content/:id/enrich`（按簇指纹缓存双语/三点综述于 `platform_details.extensions.ai`，严格限制浏览器管理员或非 `read` 写授权）；<br>3. 可选增加 `alert_rule` / `alert_delivery`。 | 可选新建表 `+0..2`（按需评估索引与写成本）<br>`src/modules/content/ai.ts`、`collection/discovery.ts` | `< 3.5s` 出首批证据；`read` API Key 调 `/enrich` 恒返 `403`；同指纹 AI 零重复调用。 |
-
----
-
-## 4. 发布、部署与数据变更红线
-
-1. 任何代码改动须经隔离 `postgres:16-alpine` 跑通 `docs:check`、`lint`、`typecheck`、`build`、`test:unit`、`test:postgres` 与 `smoke:compiled`；
-2. 结构迁移前必须执行 `pg_dump -Fc` 并验证 `pg_restore --list`；
-3. 重建服务端容器镜像必须传入 **`--target runtime`**（`Dockerfile` 默认末段为 `proxy`）；注意本轮 `app.ts`/`search.ts`/`workspace/sql.ts`/`docker-compose.yml` 加固改动待下次构建重启容器后于线上生效。
+事件持久化、`stream_class`、正文补采、`/v1/discovery/query` 及 `/v1/content/:id/enrich` 仍是可评估方向（下一可用迁移编号为 `056+`）。先验证用户任务，再选成本最低的实现。

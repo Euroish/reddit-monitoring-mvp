@@ -28,6 +28,7 @@ export const DOCUMENTATION_FILES = Object.freeze([
   'docs/status.md',
   'docs/research/product-architecture-conversation-20261118.md',
   'docs/research/data-sources.md',
+  'docs/research/product-strategy.md',
   'docs/research/ChatGPT-讲解仓库文档-20261118-1807.md',
   'docs/research/deep-audit-and-architecture-blueprint-20261118.md',
   'docs/research/architecture_audit_and_rebuild_spec.md',
@@ -47,6 +48,7 @@ const allowed = file => !file.split('/').some(part => part.startsWith('.') || pa
     'package.json', 'package-lock.json', 'README.md', 'AGENTS.md', 'Dockerfile', 'docker-compose.yml', 'deploy/Caddyfile',
     ...DOCUMENTATION_FILES,
     'scripts/database-backup.mjs', 'scripts/database-backup-lib.mjs',
+    'deploy/apify-relay.Dockerfile', 'deploy/apify-relay.compose.yml', 'deploy/apify-relay.mjs',
     'scripts/verify-release.mjs', 'scripts/release-package-lib.mjs',
   ].includes(file));
 

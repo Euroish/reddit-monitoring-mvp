@@ -382,3 +382,15 @@ test("stories support pagination, diversity mixing, 7d latest window, social-tre
   const byTrendsSource = (await app.inject({ url: `/v1/content/stories?view=latest&sourceId=${trendsId}`, headers })).json();
   assert.deepEqual(titlesOf(byTrendsSource), ["Viral celebrity gossip headline"]);
 });
+
+
+test("story ranking rejects an oversized discovery window before grouping", async () => {
+  const actor = { allowedSourceIds: null } as Parameters<typeof readStoryWindow>[1];
+  const db = {
+    query: async (_sql: string, params: unknown[]) => {
+      assert.equal(params.at(-1), 10_001);
+      return { rows: new Array(10_001) };
+    },
+  } as unknown as Parameters<typeof readStoryWindow>[0];
+  await assert.rejects(readStoryWindow(db, actor, { view: "latest" }), { statusCode: 503 });
+});

@@ -14,6 +14,7 @@ import {
   type CredentialProviderName,
   type DocDetail,
   type DocInput,
+  type DocPatch,
   type DocSummary,
   type ExportJsonResult,
   type ListQuery,
@@ -567,7 +568,7 @@ export const apiClient = {
     ).doc;
   },
 
-  async updateDoc(id: string, patch: Partial<DocInput>): Promise<DocDetail> {
+  async updateDoc(id: string, patch: DocPatch): Promise<DocDetail> {
     return (
       await liveFetch<{ doc: DocDetail }>(`/docs/${id}`, {
         method: 'PATCH',

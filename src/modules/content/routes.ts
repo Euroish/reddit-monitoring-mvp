@@ -91,6 +91,16 @@ export async function contentRoutes(
 ) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   const storyWindows = new Map<StoryFeed["view"], { slot: number; result: ReturnType<typeof readStoryWindow> }>();
+  let activeStoryReads = 0;
+  const loadStoryWindow = async (...args: Parameters<typeof readStoryWindow>) => {
+    if (activeStoryReads >= 3) fail(503, "Story ranking is busy; retry shortly");
+    activeStoryReads++;
+    try {
+      return await readStoryWindow(...args);
+    } finally {
+      activeStoryReads--;
+    }
+  };
   api.get("/v1/content", { schema: { querystring: ListQuery, response: ListResponse } },
     (request) => listContent(pool, request.actor!, request.query),
   );
@@ -106,12 +116,12 @@ export async function contentRoutes(
       } = request.query;
       const mix = diverse !== false && !sourceId;
       if (actor.allowedSourceIds !== null || sourceId || platform || date || sourceGroup || tier || language || includeTrends)
-        return selectStoryFeed(await readStoryWindow(pool, actor, request.query), view, limit, offset, mix);
+        return selectStoryFeed(await loadStoryWindow(pool, actor, request.query), view, limit, offset, mix);
       const now = Date.now();
       const slot = Math.floor(now / 30_000);
       let saved = storyWindows.get(view);
       if (saved?.slot !== slot) {
-        const result = readStoryWindow(pool, actor, { view }, now).catch(error => {
+        const result = loadStoryWindow(pool, actor, { view }, now).catch(error => {
           if (storyWindows.get(view)?.result === result) storyWindows.delete(view);
           throw error;
         });

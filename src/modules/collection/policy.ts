@@ -83,6 +83,28 @@ export async function loadEffectivePolicyForUser(
   return resolveEffectivePolicy(policyRow, userRow.quota_override);
 }
 
+export function requestedCommentLimit(
+  provider: string, targetType: string, pageSize: number,
+  request: { includeComments?: boolean; maxCommentsPerPost?: number },
+) {
+  if (targetType === "post") {
+    if (provider === "kaix") return Math.min(pageSize, request.maxCommentsPerPost ?? 50);
+    if (provider === "red_crawler") return pageSize;
+  }
+  return request.includeComments ? request.maxCommentsPerPost ?? 15 : undefined;
+}
+
+export function viewerCollectionDemand(
+  provider: string, targetType: string, limit: number,
+  request: { includeComments?: boolean; maxCommentsPerPost?: number },
+) {
+  const commentLimit = requestedCommentLimit(provider, targetType, limit, request);
+  const resources = provider === "kaix" && commentLimit !== undefined
+    ? (targetType === "post" ? commentLimit + 1 : limit * (commentLimit + 1))
+    : limit;
+  return { provider, limit, resources, includeComments: commentLimit !== undefined, maxCommentsPerPost: commentLimit };
+}
+
 export async function admitViewerCollection(
   client: PoolClient,
   actor: Actor,
@@ -164,7 +186,8 @@ export async function isViewerJobStillAuthorized(db: Pool | PoolClient, job: {
   requested_by_client_kind: string | null;
   provider: string;
   collection_source_id: string;
-}): Promise<boolean> {
+  page_size: number;
+}, commentLimit?: number): Promise<boolean> {
   if (!job.requested_by_user_id || job.requested_by_client_kind !== "browser") return true;
   const user = (
     await db.query<{ role: string; status: string }>(
@@ -177,6 +200,7 @@ export async function isViewerJobStillAuthorized(db: Pool | PoolClient, job: {
   const effective = await loadEffectivePolicyForUser(db, job.requested_by_user_id);
   if (!effective.manualCollectEnabled) return false;
   if (!effective.allowedProviders.includes(job.provider)) return false;
+  if (job.page_size > effective.maxBatchLimit || (commentLimit ?? 0) > effective.maxCommentsPerPost) return false;
   if (effective.allowedSourceIds !== null && !effective.allowedSourceIds.includes(job.collection_source_id)) {
     return false;
   }

@@ -53,8 +53,9 @@
   background: transparent;
   color: var(--ink-2, #2b332a);
   font-size: 14px;
-  font-weight: 560;
-  padding: 8px 15px;
+  font-weight: 550;
+  white-space: nowrap;
+  padding: 8px 14px;
   border-radius: var(--radius-pill, 999px);
   cursor: pointer;
   transition: background-color 150ms ease, color 150ms ease;

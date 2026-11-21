@@ -8,6 +8,7 @@ import { groupStories, type StoryTitle } from "./story-groups";
 
 const hour = 3_600_000;
 const MAX_STORED_STORIES = 600;
+const MAX_STORY_DISCOVERIES = 10_000;
 const tierWeight = { T1: 3, T1_5: 2, T2: 1 };
 type Query = Static<typeof StoryQuery>;
 type Row = {
@@ -164,7 +165,9 @@ export async function readStoryWindow(pool: Pool | PoolClient, actor: Actor, que
     WHERE ${discovery} ${excludeTrends} ${activeOnly} AND COALESCE(c.created_at_source,d.first_fetched_at) >= ${start}
       AND d.first_fetched_at < ${end} AND c.kind<>'comment' AND c.availability NOT IN ('removed','deleted')
       AND COALESCE(NULLIF(btrim(c.title),''),NULLIF(btrim(left(c.body_text,240)),'')) IS NOT NULL ${platform} ${language}
-    ORDER BY event_at,c.id,cs.tier,cs.id`, values);
+    ORDER BY event_at,c.id,cs.tier,cs.id LIMIT $${values.push(MAX_STORY_DISCOVERIES + 1)}`, values);
+  if (rows.length > MAX_STORY_DISCOVERIES)
+    fail(503, "Story window is too large to rank; narrow by source or channel");
 
   const entries = new Map<string, Entry>();
   for (const row of rows) {

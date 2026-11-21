@@ -4,7 +4,7 @@ import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool } from "pg";
 import { JobStatusQuery, ParamsId } from "../../../packages/contracts/src/source-content";
 import { fail, transaction } from "../../storage/db";
-import { admitViewerCollection } from "./policy";
+import { admitViewerCollection, viewerCollectionDemand } from "./policy";
 import { assertSource, audit, lockSource } from "./sql";
 
 const RecentJobsQuery = Type.Object(
@@ -159,25 +159,12 @@ export async function jobRoutes(app: FastifyInstance, pool: Pool) {
             const resume = ["running", "reading"].includes(phase);
             if (!resume && request.actor!.role === "viewer") {
               const pageSize = job.page_size ?? 20;
-              const includeComments = Boolean(job.request_json?.includeComments);
-              const maxCommentsPerPost = Number(
-                job.request_json?.maxCommentsPerPost ?? (includeComments ? 15 : 0),
-              );
-              const isSingleHydrate =
-                job.operation === "hydrate" && !Array.isArray(job.request_json?.externalIds);
-              const resources = isSingleHydrate
-                ? maxCommentsPerPost + 1
-                : job.provider === "kaix" && includeComments
-                  ? pageSize * (maxCommentsPerPost + 1)
-                  : pageSize;
-              await admitViewerCollection(client, request.actor!, {
-                provider: job.provider,
-                sourceId: source.id,
-                limit: pageSize,
-                resources,
-                includeComments,
-                maxCommentsPerPost,
-              });
+              const refresh = Array.isArray(job.request_json?.externalIds);
+              const targetType = job.operation === "hydrate" ? "post" : source.target.type;
+              const demand = refresh
+                ? { provider: job.provider, limit: pageSize, resources: pageSize }
+                : viewerCollectionDemand(job.provider, targetType, pageSize, job.request_json ?? {});
+              await admitViewerCollection(client, request.actor!, { sourceId: source.id, ...demand });
             }
             await client.query(
               `UPDATE source_collection_job SET status='queued',provider_state=$2,provider_run_id=$3,
