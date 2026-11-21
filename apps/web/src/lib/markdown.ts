@@ -27,7 +27,8 @@ function escapeHtml(value: string): string {
 function safeHref(raw: string): string | null {
   const href = raw.trim();
   if (/^(https?:\/\/|mailto:)/i.test(href)) return href;
-  if (/^(\/|#)/.test(href)) return href;
+  // 站内路径与锚点：排除协议相对写法 `//host` 与反斜杠变体 `/\host`（浏览器会归一化成跨站地址）
+  if (/^\/(?![/\\])/.test(href) || href.startsWith('#')) return href;
   return null;
 }
 

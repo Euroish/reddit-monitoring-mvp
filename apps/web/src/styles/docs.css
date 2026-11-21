@@ -618,6 +618,24 @@
   display: block;
 }
 
+/* 操作类错误（置顶/删除失败）：浮在顶部，不挤压正文布局 */
+.dc-error--action {
+  position: fixed;
+  top: 62px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  align-items: center;
+  margin-top: 0;
+  max-width: min(560px, calc(100vw - 32px));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+
+.dc-error--action p {
+  margin: 0;
+  flex: 1;
+}
+
 .dc-error p {
   font-size: 11.5px;
   margin: 3px 0 0;

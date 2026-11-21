@@ -955,4 +955,6 @@ export interface DocInput {
   sortRank?: number;
   status?: DocStatus;
   file?: { name: string; mime: string; dataBase64: string };
+  /** 乐观锁：带上当前 revision，服务端不匹配时返回 409 */
+  expectedRevision?: number;
 }

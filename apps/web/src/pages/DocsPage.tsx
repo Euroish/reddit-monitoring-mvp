@@ -694,6 +694,7 @@ export function DocsPage({ actor, search, onNavigate, onOpenAuth }: DocsPageProp
   const deleteMut = useDeleteDocMutation();
   const [query, setQuery] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const docs = docsQuery.data ?? [];
@@ -735,17 +736,36 @@ export function DocsPage({ actor, search, onNavigate, onOpenAuth }: DocsPageProp
   };
 
   const togglePin = async (doc: DocDetail) => {
-    await updateMut.mutateAsync({ id: doc.id, patch: { pinned: !doc.pinned } });
+    try {
+      setActionError(null);
+      await updateMut.mutateAsync({ id: doc.id, patch: { pinned: !doc.pinned, expectedRevision: doc.revision } });
+    } catch (err) {
+      setActionError(formatApiError(err));
+    }
   };
 
   const remove = async (doc: DocDetail) => {
     if (!window.confirm(`删除「${doc.title}」？此操作不可撤销。`)) return;
-    await deleteMut.mutateAsync(doc.id);
-    open(null);
+    try {
+      setActionError(null);
+      await deleteMut.mutateAsync(doc.id);
+      open(null);
+    } catch (err) {
+      setActionError(formatApiError(err));
+    }
   };
 
   return (
     <div className="dc-root">
+      {actionError && (
+        <div className="dc-error dc-error--action" role="alert">
+          <AlertTriangle size={14} />
+          <p>{actionError}</p>
+          <button type="button" className="dc-icon-btn" onClick={() => setActionError(null)} title="关闭">
+            ×
+          </button>
+        </div>
+      )}
       <header className="dc-top">
         <button type="button" className="dc-brand" onClick={() => onNavigate('/')} aria-label="SIFTLINE">
           <SiftlineLogo size={22} showWordmark={false} />

@@ -49,7 +49,13 @@ const DocPayload = Type.Object(
   { additionalProperties: false },
 );
 
-const DocPatch = Type.Partial(DocPayload, { additionalProperties: false });
+const DocPatch = Type.Object(
+  {
+    ...Type.Partial(DocPayload).properties,
+    expectedRevision: Type.Optional(Type.Integer({ minimum: 1 })),
+  },
+  { additionalProperties: false },
+);
 
 const ParamsSlug = Type.Object(
   { slug: Type.String({ minLength: 1, maxLength: 80 }) },
@@ -122,10 +128,15 @@ function normalizeUrl(value: string | null | undefined) {
 }
 
 function decodeFile(file: { name: string; mime: string; dataBase64: string }) {
+  // 附件只收 PDF：Content-Type 若由客户端决定，配合 inline 响应就是同源存储型 XSS
+  const mime = file.mime.trim().toLowerCase();
+  if (mime !== "application/pdf") fail(400, "Only PDF attachments are supported");
   const buffer = Buffer.from(file.dataBase64.replace(/^data:[^;]+;base64,/, ""), "base64");
   if (!buffer.length) fail(400, "Empty attachment");
   if (buffer.length > MAX_FILE_BYTES) fail(413, "Attachment exceeds the 8 MB limit");
-  return { name: file.name, mime: file.mime, bytes: buffer };
+  if (buffer.subarray(0, 5).toString("latin1") !== "%PDF-")
+    fail(400, "Attachment is not a valid PDF file");
+  return { name: file.name, mime: "application/pdf", bytes: buffer };
 }
 
 export async function listDocPages(pool: Pool, actor: Actor | null) {
@@ -228,6 +239,7 @@ export async function updateDocPage(
     sortRank?: number;
     status?: string;
     file?: { name: string; mime: string; dataBase64: string };
+    expectedRevision?: number;
   },
 ) {
   const current = (await pool.query("SELECT * FROM doc_page WHERE id = $1", [id])).rows[0] as
@@ -243,31 +255,58 @@ export async function updateDocPage(
   if (kind === "link" && !externalUrl) fail(400, "External documents require an https:// link");
   const keepFile = kind === "file" ? (attachment?.bytes ?? current.file_bytes ?? null) : null;
   if (kind === "file" && !keepFile) fail(400, "Attachment required");
+
+  // 只有换了附件或切换了 kind 才重写 BYTEA，避免置顶/改标题时整块 8 MB 往返与 TOAST 写放大
+  const fileTouched = Boolean(attachment) || kind !== current.kind;
+  const values: unknown[] = [
+    id,
+    (patch.title ?? current.title).trim(),
+    patch.category ?? current.category,
+    patch.summary === undefined ? current.summary : patch.summary.trim(),
+    kind,
+    patch.bodyMd === undefined ? current.body_md ?? "" : patch.bodyMd,
+    externalUrl,
+    patch.pinned === undefined ? current.pinned : patch.pinned,
+    patch.sortRank === undefined ? current.sort_rank : patch.sortRank,
+    patch.status === undefined ? current.status : patch.status,
+    actor.userId,
+  ];
+  const sets = [
+    "title=$2",
+    "category=$3",
+    "summary=$4",
+    "kind=$5",
+    "body_md=$6",
+    "external_url=$7",
+    "pinned=$8",
+    "sort_rank=$9",
+    "status=$10",
+    "revision=revision+1",
+    "updated_at=NOW()",
+    "updated_by=$11",
+  ];
+  if (fileTouched) {
+    values.push(kind === "file" ? attachment?.name ?? current.file_name : null);
+    values.push(kind === "file" ? attachment?.mime ?? current.file_mime : null);
+    values.push(keepFile);
+    sets.push(`file_name=$${values.length - 2}`, `file_mime=$${values.length - 1}`, `file_bytes=$${values.length}`);
+  }
+  const where = ["id=$1"];
+  if (patch.expectedRevision !== undefined) {
+    values.push(patch.expectedRevision);
+    where.push(`revision=$${values.length}`);
+  }
   const row = (
     await pool.query(
-      `UPDATE doc_page SET
-         title=$2,category=$3,summary=$4,kind=$5,body_md=$6,external_url=$7,
-         file_name=$8,file_mime=$9,file_bytes=$10,pinned=$11,sort_rank=$12,status=$13,
-         revision=revision+1,updated_at=NOW(),updated_by=$14
-       WHERE id=$1 RETURNING *`,
-      [
-        id,
-        (patch.title ?? current.title).trim(),
-        patch.category ?? current.category,
-        patch.summary === undefined ? current.summary : patch.summary.trim(),
-        kind,
-        patch.bodyMd === undefined ? current.body_md ?? "" : patch.bodyMd,
-        externalUrl,
-        kind === "file" ? attachment?.name ?? current.file_name : null,
-        kind === "file" ? attachment?.mime ?? current.file_mime : null,
-        keepFile,
-        patch.pinned === undefined ? current.pinned : patch.pinned,
-        patch.sortRank === undefined ? current.sort_rank : patch.sortRank,
-        patch.status === undefined ? current.status : patch.status,
-        actor.userId,
-      ],
+      `UPDATE doc_page SET ${sets.join(",")} WHERE ${where.join(" AND ")} RETURNING *`,
+      values,
     )
-  ).rows[0] as DocRow;
+  ).rows[0] as DocRow | undefined;
+  if (!row) {
+    if (patch.expectedRevision !== undefined)
+      fail(409, "Document was modified by someone else; reload and retry");
+    fail(404, "Document not found");
+  }
   return toDetail(row);
 }
 
@@ -307,7 +346,9 @@ export async function docsRoutes(app: FastifyInstance, pool: Pool) {
     async (request, reply) => {
       const file = await getDocAttachment(pool, request.actor, request.params.slug);
       return reply
-        .header("Content-Type", file.mime)
+        .header("Content-Type", "application/pdf")
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Content-Security-Policy", "default-src 'none'; sandbox")
         .header("Content-Length", String(file.bytes.length))
         .header(
           "Content-Disposition",
