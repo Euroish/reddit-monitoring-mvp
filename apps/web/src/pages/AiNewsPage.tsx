@@ -1,90 +1,185 @@
-import { ArrowUpRight, CalendarClock, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Calendar, ShieldCheck, Sparkles } from 'lucide-react';
+import {
+  useAiEventsQuery,
+  useAiUpdatesQuery,
+  useAiVendorsQuery,
+} from '../api/ai-client';
+import { AiEventDrawer } from '../components/ai/AiEventDrawer';
+import { AiOfficialUpdates } from '../components/ai/AiOfficialUpdates';
+import { AiRankingsSection } from '../components/ai/AiRankingsSection';
+import { AiTimelineGrid } from '../components/ai/AiTimelineGrid';
+import { ReaderDrawer } from '../components/stories/ReaderDrawer';
+import {
+  type ReaderPreview,
+  evidenceToReaderPreview,
+} from '../components/stories/readerTypes';
 import type { Actor } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
+import '../styles/ai-center.css';
 
 interface AiNewsPageProps {
   actor?: Actor | null;
   search?: string;
-  onNavigate: (path: string) => void;
+  onNavigate?: (path: string) => void;
   onOpenAuth?: (tab?: 'login' | 'register', reason?: string, pendingTarget?: string) => void;
 }
 
-export function AiNewsPage({ onNavigate }: AiNewsPageProps) {
+function readEventIdFromSearch(search: string): string | null {
+  const sp = new URLSearchParams(search || window.location.search);
+  return sp.get('event');
+}
+
+export function AiNewsPage({ actor = null, search = '', onNavigate, onOpenAuth }: AiNewsPageProps) {
   const { t } = useI18n();
+  const isAdmin = actor?.role === 'owner' || actor?.role === 'admin';
+
+  const [selectedVendor, setSelectedVendor] = useState('');
+  const [selectedEventType, setSelectedEventType] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [updatesVendor, setUpdatesVendor] = useState('');
+  const [activeEventId, setActiveEventId] = useState<string | null>(() => readEventIdFromSearch(search));
+  const [readerPreview, setReaderPreview] = useState<ReaderPreview | null>(null);
+
+  const vendorsQ = useAiVendorsQuery();
+  const eventsQ = useAiEventsQuery({
+    vendor: selectedVendor || undefined,
+    eventType: selectedEventType || undefined,
+    status: selectedStatus || undefined,
+    q: searchQuery.trim() || undefined,
+    limit: 150,
+  });
+  const updatesQ = useAiUpdatesQuery({
+    vendor: updatesVendor || undefined,
+    limit: 12,
+  });
+
+  const openEvent = useCallback((id: string | null) => {
+    setActiveEventId(id);
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set('event', id);
+    else url.searchParams.delete('event');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  useEffect(() => {
+    const onPop = () => setActiveEventId(readEventIdFromSearch(window.location.search));
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  const vendors = vendorsQ.data?.items ?? [];
+  const events = eventsQ.data?.items ?? [];
+  const updates = useMemo(() => updatesQ.data?.items ?? [], [updatesQ.data?.items]);
+
+  const openContentById = useCallback(
+    (contentId: string) => {
+      const matched = updates.find((u) => u.contentId === contentId);
+      setReaderPreview({
+        id: contentId,
+        platform: 'web',
+        title: matched?.title ?? t('Official Update', '官方一手更新'),
+        url: matched?.url ?? null,
+        author: matched?.vendorName ?? matched?.sourceName ?? null,
+        excerpt: matched?.summary ?? null,
+        thumbnail: null,
+        sourceLabel: matched?.sourceName ?? 'AI Official',
+        tier: 'T1',
+        publishedAt: matched?.publishedAt ?? null,
+        discoveredAt: matched?.publishedAt ?? new Date().toISOString(),
+        related: [],
+      });
+    },
+    [updates, t],
+  );
 
   return (
-    <div className="pdoc-wrap">
-      <div className="pih-hero">
-        <span className="pih-eyebrow">
-          <CalendarClock size={12} />
-          {t('Coming Soon', '即将上线')}
-        </span>
-        <h1>{t('AI News & Release Radar — Coming Soon', 'AI 资讯即将上线')}</h1>
-        <p className="pih-hero-sub">
-          {t(
-            'This dedicated section will track verified AI model releases, research announcements, and lab updates from real ingested sources. No placeholder models or unverified dates are displayed ahead of launch.',
-            '本栏目将在下一阶段接入真实入库的 AI 模型发布、研究动态与官方一手公告。上线前不展示任何虚构模型或未核验的发布时间。',
-          )}
-        </p>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 18 }}>
-          <button
-            type="button"
-            className="sr-btn sr-btn--dark sr-btn--sm"
-            onClick={() => onNavigate('/app/feed?sourceGroup=ai-firsthand')}
-          >
-            <Sparkles size={13} />
-            <span>{t('Browse Live AI Firsthand Stories', '先看实时 AI 一手与研发频道')}</span>
-            <ArrowUpRight size={13} />
-          </button>
-          <button
-            type="button"
-            className="sr-btn sr-btn--outline sr-btn--sm"
-            onClick={() => onNavigate('/')}
-          >
-            <span>{t('Back to Public Home', '返回公开信息首页')}</span>
-          </button>
-        </div>
+    <div className="ai-page">
+      <div className="ai-container">
+        <header className="ai-hero">
+          <div>
+            <div className="ai-hero__eyebrow">
+              <Sparkles size={13} />
+              {t('AI Release Intelligence Center', 'AI 发布日历与模型情报中心')}
+            </div>
+            <h1 className="ai-hero__title">
+              {t('Verified AI Model Releases, Changelogs & Benchmarks', '官方可核验 AI 模型发布时间轴与情报中心')}
+            </h1>
+            <p className="ai-hero__sub">
+              {t(
+                'Track official releases across OpenAI, Anthropic, Google DeepMind, DeepSeek, Qwen, Meta, Moonshot, Z.ai, Mistral, and xAI — backed by primary evidence, never rumors.',
+                '追踪 OpenAI、Anthropic、Google DeepMind、DeepSeek、Qwen、Meta、Moonshot、Z.ai、Mistral 与 xAI 的官方发布、规格变动与一手动态——全量附带官方证据链，不虚构任何日期或评分。',
+              )}
+            </p>
+          </div>
+
+          <div className="ai-hero__nav">
+            <a href="#timeline" className="ai-pill-btn" style={{ textDecoration: 'none' }}>
+              <Calendar size={14} /> {t('Timeline', '发布日历')}
+            </a>
+            <a href="#rankings" className="ai-pill-btn" style={{ textDecoration: 'none' }}>
+              {t('Rankings', '能力榜单')}
+            </a>
+            <a href="#official-updates" className="ai-pill-btn" style={{ textDecoration: 'none' }}>
+              {t('Official Updates', '官方动态')}
+            </a>
+            {isAdmin && onNavigate && (
+              <button
+                type="button"
+                className="ai-pill-btn is-active"
+                onClick={() => onNavigate('/admin/queue')}
+              >
+                <ShieldCheck size={14} /> {t('Review Queue', '进入审核队列')}
+              </button>
+            )}
+          </div>
+        </header>
+
+        <AiTimelineGrid
+          vendors={vendors}
+          events={events}
+          loading={vendorsQ.isLoading || eventsQ.isLoading}
+          selectedVendor={selectedVendor}
+          onSelectVendor={setSelectedVendor}
+          selectedEventType={selectedEventType}
+          onSelectEventType={setSelectedEventType}
+          selectedStatus={selectedStatus}
+          onSelectStatus={setSelectedStatus}
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          onSelectEvent={(id) => openEvent(id)}
+        />
+
+        <AiRankingsSection />
+
+        <AiOfficialUpdates
+          vendors={vendors}
+          updates={updates}
+          loading={updatesQ.isLoading}
+          selectedVendor={updatesVendor}
+          onSelectVendor={setUpdatesVendor}
+          onOpenEvent={(id) => openEvent(id)}
+          onOpenContent={openContentById}
+        />
       </div>
 
-      <section className="pih-section">
-        <div className="pih-section-hd">
-          <div>
-            <h2 className="pih-section-title">{t('Planned Layout Scope', '预留板块结构')}</h2>
-            <p className="pih-section-sub">
-              {t('To be populated from real backend feeds in the next milestone', '将在独立任务阶段接入真实后端数据')}
-            </p>
-          </div>
-        </div>
-        <div className="pdoc-grid" style={{ marginTop: 0 }}>
-          <div className="pdoc-card">
-            <h3>{t('Official Lab Releases', '官方实验室发布追踪')}</h3>
-            <p>
-              {t(
-                'Structured timeline of T1 official model & API updates linked back to original announcements.',
-                '汇总 T1 官方博客与一手公告，所有条目严格追溯原文链接与发布时间。',
-              )}
-            </p>
-          </div>
-          <div className="pdoc-card">
-            <h3>{t('Cross-Source Momentum', '跨源讨论热度聚合')}</h3>
-            <p>
-              {t(
-                'Connect official releases with engineering and community discussions across configured sources.',
-                '关联官方发布与开发者社区讨论，按已存样本口径展示真实多源印证。',
-              )}
-            </p>
-          </div>
-          <div className="pdoc-card">
-            <h3>{t('Daily AI Briefing', '每日 AI 重点速览')}</h3>
-            <p>
-              {t(
-                'Integrated with the 08:00 Daily Digest archive for fast daily review.',
-                '与 08:00 日报归档打通，便于按日回顾重要技术进展。',
-              )}
-            </p>
-          </div>
-        </div>
-      </section>
+      <AiEventDrawer
+        eventId={activeEventId}
+        onClose={() => openEvent(null)}
+        onSelectEvent={(id) => openEvent(id)}
+        onOpenContent={openContentById}
+      />
+
+      {readerPreview && (
+        <ReaderDrawer
+          preview={readerPreview}
+          actor={actor}
+          onOpenAuth={(tab, reason) => onOpenAuth?.(tab, reason, '/ai')}
+          onSelectRelated={(ev) => setReaderPreview(evidenceToReaderPreview(ev))}
+          onClose={() => setReaderPreview(null)}
+        />
+      )}
     </div>
   );
 }
