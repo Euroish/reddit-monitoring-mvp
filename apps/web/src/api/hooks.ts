@@ -31,6 +31,14 @@ export function usePublicSourcesQuery(enabled = true) {
   });
 }
 
+export function useStoriesQuery(query: StoryQuery, enabled = true) {
+  return useQuery({
+    queryKey: ['stories', query],
+    queryFn: () => apiClient.getStories(query),
+    enabled,
+  });
+}
+
 export function useInfiniteStoriesQuery(query: Omit<StoryQuery, 'offset'>, enabled = true) {
   return useInfiniteQuery({
     queryKey: ['storiesInfinite', query],

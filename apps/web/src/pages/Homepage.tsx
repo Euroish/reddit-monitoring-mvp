@@ -23,6 +23,7 @@ interface HomepageProps {
   onOpenAuth: (tab?: 'login' | 'register') => void;
   onEnterWorkbench: (targetPath?: string) => void;
   onGoFeed?: () => void;
+  embedded?: boolean;
 }
 
 const PLATFORM_OPTIONS: Array<{ value: '' | Platform; label: string; labelZh: string }> = [
@@ -322,7 +323,7 @@ function MiniCardVisual({ type }: { type: string }) {
   );
 }
 
-export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench, onGoFeed }: HomepageProps) {
+export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench, onGoFeed, embedded = false }: HomepageProps) {
   const { lang, setLang, t } = useI18n();
   const { activeLogo, setSwitcherOpen } = useLogo();
   const { palette, setStudioOpen } = useTheme();
@@ -384,19 +385,21 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench, onGoFe
 
   return (
     <div className="hp-root" onClick={() => scopeOpen && setScopeOpen(false)}>
-      {/* Top Announcement Ribbon */}
-      <div className="hp-promo-strip">
-        <strong>{t('EXPLORE SIFTLINE', '探索 SIFTLINE')}</strong>
-        <span>
-          {t(
-            'The unified social, community & thread-aware market intelligence workbench',
-            '面向社区讨论树、多渠道观测与痛点信号的统一市场情报工作台',
-          )}
-        </span>
-      </div>
+      {!embedded && (
+        <>
+          {/* Top Announcement Ribbon */}
+          <div className="hp-promo-strip">
+            <strong>{t('EXPLORE SIFTLINE', '探索 SIFTLINE')}</strong>
+            <span>
+              {t(
+                'The unified social, community & thread-aware market intelligence workbench',
+                '面向社区讨论树、多渠道观测与痛点信号的统一市场情报工作台',
+              )}
+            </span>
+          </div>
 
-      {/* Sticky Semrush-Style Header */}
-      <header className={`hp-header-wrap ${scrolled ? 'scrolled' : ''} ${openMega ? 'menu-open' : ''}`}>
+          {/* Sticky Semrush-Style Header */}
+          <header className={`hp-header-wrap ${scrolled ? 'scrolled' : ''} ${openMega ? 'menu-open' : ''}`}>
         <div className="hp-header">
           <div className="hp-brand-cluster">
             <button
@@ -747,6 +750,8 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench, onGoFe
           </div>
         )}
       </header>
+        </>
+      )}
 
       {/* Hero Band (Mineral Opal -> Soft Wisteria gradient + Concentric Texture) */}
       <div className="hp-hero-band">
@@ -1307,6 +1312,7 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench, onGoFe
       </section>
 
       {/* Signature Semrush Footer (11-footer) */}
+      {!embedded && (
       <footer className="hp-footer">
         <div className="hp-footer-grid">
           <div className="hp-footer-cta">
@@ -1388,6 +1394,7 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench, onGoFe
           <div className="hp-giant-wordmark">SIFTLINE</div>
         </div>
       </footer>
+      )}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { ApiError } from './contracts/api';
 import './styles/tokens.css';
 import './styles/global.css';
 import './styles/homepage.css';
+import './styles/public-site.css';
 import './styles/auth.css';
 import './styles/workbench.css';
 

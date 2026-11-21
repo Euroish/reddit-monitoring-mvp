@@ -43,6 +43,7 @@ interface DocsPageProps {
   search: string;
   onNavigate: (path: string) => void;
   onOpenAuth: () => void;
+  embedded?: boolean;
 }
 
 const CATEGORY_META: Record<DocCategory, { label: string; icon: typeof Layers; hint: string }> = {
@@ -685,7 +686,7 @@ function DocReader({
 
 /* -------------------------------------------------------------------- page */
 
-export function DocsPage({ actor, search, onNavigate, onOpenAuth }: DocsPageProps) {
+export function DocsPage({ actor, search, onNavigate, onOpenAuth, embedded = false }: DocsPageProps) {
   const canManage = useAdmin(actor);
   const docsQuery = useDocsQuery(true);
   const selected = useMemo(() => new URLSearchParams(search).get('doc'), [search]);
@@ -766,6 +767,7 @@ export function DocsPage({ actor, search, onNavigate, onOpenAuth }: DocsPageProp
           </button>
         </div>
       )}
+      {!embedded && (
       <header className="dc-top">
         <button type="button" className="dc-brand" onClick={() => onNavigate('/')} aria-label="SIFTLINE">
           <SiftlineLogo size={22} showWordmark={false} />
@@ -790,6 +792,7 @@ export function DocsPage({ actor, search, onNavigate, onOpenAuth }: DocsPageProp
           </button>
         </div>
       </header>
+      )}
 
       <div className="dc-layout">
         <DocNav

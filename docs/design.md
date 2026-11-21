@@ -6,11 +6,15 @@
 
 ## 1. `[LIVE]` 现状 vs `[V2]` 三模态界面演进
 
-- **`[LIVE]` 现行统一前端（`apps/web/src`，信息流优先 + Siftline 监测工作台融合形态）**：
-  - **`/`（公开 Stories 信息流）**：`publicRead=true` 时允许匿名直读（`publicRead=false` 时呈现内联登录门控）；提供 `latest`（今日精选）、`hot`（48h 热度）、`digest`（08:00 日报与历史日期切换）、8 频道/等级/语种过滤、`StoryMicrocharts`（零依赖 SVG）、`ReaderDrawer` 与 `j`/`k`/`m` 快捷键，首屏零 ECharts 依赖；
-  - **`/product`（产品介绍页）**：保留 `Homepage.tsx` 与视觉资产，提供直达 `/` 信息流与 `/projects` 工作台入口，已清除虚构排行、客户评价与静态伪指标；
-  - **`/content`（内容检索与分面分析）**：`publicRead=true` 支持匿名检索、详情抽屉与真实 `/v1/content/facets` 按需分面分析（显示实际 UTC 窗口，查询跨度最多 90 天，推流样本按专题趋势设置计入），收藏/批注/保存查询/流式导出严格鉴权门控；
-  - **`/projects`、`/sources`、`/workspace`、`/settings`（登录态工作台）**：保留 `WorkbenchShell`、Theme Studio（17 套皮肤）、30 套品牌 Logo 与 `R4ArchivePanel`，恢复 `/sources` 规范 JSON 文件导入（1 MiB 预检，载入编辑器后手动提交，失败重试复用幂等键）与动态 UTC 采集窗口；`/projects` 保留真实 `DailyTrendChart`、`DistributionCards` 与讨论表并隐藏虚构 `SignalScoreGauge` 与跨平台相加的 `TrendRadarCharts`；`/workspace` 仅展示真实批注/收藏计数；ECharts 保持 `React.lazy` 模块化 `echarts/core` 按需加载。
+- **`[LIVE]` 现行统一前端（`apps/web/src`，公开站点 + 专业工作台双层架构）**：
+  - **公开站点（`PublicSiteShell`：4 个一级导航 `信息 / 产品介绍 / AI 资讯 / 文档`）**：
+    - **`/`（公开信息首页 `PublicInfoHomePage`）**：`publicRead=true` 时匿名直读（`publicRead=false` 时呈现内联登录门控）；提供轻量检索框、8 频道浏览、今日精选、48h 热度、08:00 日报预览、共享 SVG 微图与 `ReaderDrawer`；首屏零 ECharts 且不加载工作台模块；旧 `/?view=...` 自动兼容跳转 `/app/feed?...`；
+    - **`/product`（产品介绍页）**：嵌入 `Homepage.tsx` 主体（由 `PublicSiteShell` 统一导航与页脚，无双重导航），已清除虚构排行、客户评价与静态伪指标；
+    - **`/ai`（AI 资讯过渡页）** 与 **`/docs`（公开产品文档页）**：统一公开站点布局，无虚构数据；
+  - **专业工作台（`WorkbenchShell`，路由级 `React.lazy` 分包）**：
+    - **`/app/feed`（完整 Stories 信息流）**：保留 `latest`/`hot`/`digest` 三视图、历史日报、8 频道/等级/语种过滤、`j`/`k`/`m` 快捷键与 Markdown 复制；
+    - **`/content`（内容检索与分面分析）**：`publicRead=true` 支持匿名检索、详情抽屉与真实 `/v1/content/facets` 按需分面分析（显示实际 UTC 窗口，查询跨度最多 90 天，推流样本按专题趋势设置计入），收藏/批注/保存查询/流式导出严格鉴权门控；
+    - **`/projects`、`/sources`、`/workspace`、`/settings`（登录态工作台）**：保留 `WorkbenchShell`、Theme Studio（17 套皮肤）、30 套品牌 Logo 与 `R4ArchivePanel`，支持 `/sources` 规范 JSON 文件导入（1 MiB 预检）与动态 UTC 采集窗口；`/projects` 保留真实 `DailyTrendChart`、`DistributionCards` 与讨论表并隐藏虚构 `SignalScoreGauge` 与跨平台相加的 `TrendRadarCharts`；`/workspace` 仅展示真实批注/收藏计数；ECharts 保持 `React.lazy` 模块化 `echarts/core` 按需加载。
 - **`[V2 Phase B–D]` 目标演进**：
 
 | 表面模态 | 路由与阶段 | 核心阅读与分析体验 |
@@ -49,7 +53,7 @@
 
 | ID | 等级 | 信息架构、图表联动与多端交互规范 | 验收出口 |
 | --- | --- | --- | --- |
-| UX-01 | MUST NOT | 在界面暴露 `Phase`、`Legacy`、`Repository` 等内部工程代号；`/` 为公开 Stories 信息流主视图，`/product` 保留产品介绍页，`/content` 为公开/登录态内容检索与分面分析，`/projects` 为项目监测总览，`/sources` 为来源/采集/配额运维，`/workspace` 与 `/settings` 为个人研究与账户治理。 | 路由与文案审计 |
+| UX-01 | MUST NOT | 在界面暴露 `Phase`、`Legacy`、`Repository` 等内部工程代号；公开站点承接 `/`（公开信息首页）、`/product`（产品介绍）、`/ai`（AI 资讯）、`/docs`（公开文档），专业工作台承接 `/app/feed`（完整信息流）、`/content`（内容检索与分面）、`/projects`（项目监测）、`/sources`（来源/采集/配额运维）、`/workspace` 与 `/settings`。 | 路由与文案审计 |
 | UX-02 | MUST | 任意视图同屏只突出一个主操作；事件与内容卡展示等级（`T1`/`T1_5`/`T2`）、作者/来源名、发布/入库双时间、体裁/语种、互动或榜单名次及 `[V2]` 内嵌微图；数字启用 `tabular-nums`，正文字宽 `55–70ch`，对比度满足 WCAG AA。 | 卡片元数据与对比度审计 |
 | UX-03 | MUST | `[V2 Phase A]` `/content` 与 `/projects` 经双层可视化引擎渲染服务端 `GROUPING SETS` 分面，无采区间明确画斜线“覆盖未知”，有采无命中显式标 `0`；点击柱体/分面联动过滤下方列表并进出细节保留筛选与滚动条。 | 图表联动与状态 E2E |
 | UX-04 | MUST | `[V2 Phase D]` 按题探索实时展示 4 槽取证波次与 `full`/`summary`/`truncated` 完整度并支持一键转 `pull`；若启用 AI 扩展则提供零跳转 `原文 \| 双语对照 \| AI 综述` 胶囊，关闭时不报错。 | 探索与 AI 降级单测 |
