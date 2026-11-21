@@ -8,8 +8,12 @@ import { ThemeProvider } from './components/ThemeStudio';
 import { type Lang, LangContext } from './i18n/translations';
 import { AiNewsPage } from './pages/AiNewsPage';
 import { DocsPage } from './pages/DocsPage';
-import { StoriesPage } from './pages/StoriesPage';
+import { PublicInfoHomePage } from './pages/PublicInfoHomePage';
 import type { WorkbenchRoute } from './pages/WorkbenchShell';
+
+const StoriesPage = lazy(() =>
+  import('./pages/StoriesPage').then((m) => ({ default: m.StoriesPage })),
+);
 
 const Homepage = lazy(() => import('./pages/Homepage').then((m) => ({ default: m.Homepage })));
 const WorkbenchShell = lazy(() =>
@@ -332,15 +336,11 @@ export function App() {
               switchingAccount={logoutMut.isPending}
             >
               {loc.pathname === '/' && (
-                <div className="pih-wrap">
-                  <StoriesPage
-                    actor={actor}
-                    basePath="/app/feed"
-                    initialSearchString={loc.search}
-                    onNavigate={navigate}
-                    onOpenAuth={(tab, reason) => openAuth(tab, reason, currentFullPath)}
-                  />
-                </div>
+                <PublicInfoHomePage
+                  actor={actor}
+                  onNavigate={navigate}
+                  onOpenAuth={(tab, reason) => openAuth(tab, reason, currentFullPath)}
+                />
               )}
 
               {loc.pathname === '/product' && (
