@@ -59,3 +59,14 @@
 | UX-04 | MUST | `[V2 Phase D]` 按题探索实时展示 4 槽取证波次与 `full`/`summary`/`truncated` 完整度并支持一键转 `pull`；若启用 AI 扩展则提供零跳转 `原文 \| 双语对照 \| AI 综述` 胶囊，关闭时不报错。 | 探索与 AI 降级单测 |
 | UX-05 | MUST | 跨平台比较原始互动返 `422` 时提供一键切换“内容量 / 事件热度”；`[V2 Phase A]` `ThreadTreeView` 支持 `top`\|`matches`\|`op`、32 跳预警、单条评论笔记与显式水合；流式下载必须验真 JSON `complete: true` 尾块。 | 三视图、导出与断流 E2E |
 | UX-06 | MUST | `Sources.tsx` 完整支持目标类型切换、预览前 20 条、OPML/JSON 导入、健康面板、预算编辑与任务恢复；页面须在 `1440×900`、`768×1024`、`390×844` 下保持零横向溢出、键盘可达且 `[V2]` 改造须通过 `dom_critic >= 88`。 | 来源全流与三端门禁 |
+
+---
+
+## 4. `[LIVE]` 公开站点视觉统一与 `/ai` AI 发布情报中心
+
+- **单一公共设计系统（`tokens.css`）**：公开站点 4 个一级页面（`/`、`/product`、`/ai`、`/docs`）统一由 `PublicSiteShell` 承载并共享 `tokens.css` 语义变量（`--header-glass`、`--hero-bg`、`--opal-soft`、`--wisteria`、`--ink`、`--teal`、`--paper`、`--radius-pill`、`--radius-wb-card`），保持 `1280px` 主容器、一致圆角/按钮层级、`focus-visible` 与 `prefers-reduced-motion` 支持，并在 `1440×900`、`768×1024`、`390×844` 三端零横向溢出。
+- **页面级视觉节奏区分**：
+  - `/`（`PublicInfoHomePage`）：编辑精选区、48h 热度排名区（`01..06` + 矿物底色）、8 大频道浏览与 `08:00` 日报主题区各有独立版式，不再复用千篇一律的白卡堆叠。
+  - `/docs`（`DocsPage` embedded 模式）：取消嵌套 `100vh` 滚动条，正文阅读列宽约束于 `<= 780px`，保留 PR #13 数据库文档 CRUD/PDF 附件/编辑能力。
+  - `/ai`（`AiNewsPage` + `components/ai/*`）：亮色公开页框内嵌深墨绿高对比度 **Vendor × Time 发布矩阵**（支持 `week`/`month`/`6m`/`12m`/`year` 缩放、`Today` 基准线、厂商/类型/状态/关键词筛选、悬停预览气泡、点击详情抽屉 + `/ai?event=:id` 可分享链接 + 同模型版本演进链 + 规格/价格原始单位观测 + 官方主证据链）、分指标独立展示的**第三方评测榜单**（未配置 `ARTIFICIAL_ANALYSIS_API_KEY` 时诚实渲染未配置空态，绝不编造分数）以及联动 `ReaderDrawer` 的**官方一手更新流**。
+  - `/admin/queue`（`AiReviewQueuePage`）：仅 `owner`/`admin` 浏览器会话可见，提供候选筛选、批量忽略、乐观锁 `revision` 审核编辑、官方主证据发布门控、已发布事件撤回与注册表源手动同步/试跑。

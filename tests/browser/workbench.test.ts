@@ -233,7 +233,9 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await productNav.getByRole("button", { name: "文档" }).click();
   await page.getByText("功能说明").first().waitFor();
   await productNav.getByRole("button", { name: "AI 资讯" }).click();
-  await page.getByRole("heading", { name: "AI 资讯即将上线" }).waitFor();
+  await page.getByRole("heading", { name: "官方可核验 AI 模型发布时间轴与情报中心" }).waitFor();
+  await page.getByRole("heading", { name: "厂商 × 时间发布矩阵" }).waitFor();
+  await page.getByText("外部授权评测数据源尚未配置").waitFor();
   await page.goto(`${origin}/guide`);
   await page.getByText(/SIFTLINE/).first().waitFor();
   await page.goto(`${origin}/non-existent-route-check`);
@@ -548,5 +550,121 @@ test("browser: private deployment mode (publicRead=false) blocks anonymous acces
   await page.getByRole("button", { name: "登录工作台" }).click();
   await page.getByText("当前为私有部署模式").waitFor({ state: "detached" });
   await page.getByRole("heading", { name: "内容检索" }).waitFor();
+  assert.deepEqual(errors, []);
+});
+
+test("AI Release Intelligence Center (/ai timeline, drawer, /admin/queue) and public visual unification", async (t) => {
+  const db = await testDatabase();
+  t.after(db.close);
+  await bootstrapOwner(db.pool, "fixture-password-123", "owner@localhost");
+
+  // Seed one verified official release event so timeline + drawer + shareable URL are exercised end-to-end
+  const vendorRes = await db.pool.query<{ id: string }>(
+    `SELECT id FROM ai_vendor WHERE slug = 'anthropic' LIMIT 1`,
+  );
+  const vendorId = vendorRes.rows[0].id;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const evRes = await db.pool.query<{ id: string }>(
+    `INSERT INTO ai_release_event (
+       vendor_id, event_type, event_status, publication_status, title,
+       event_date, date_precision, summary_zh, summary_en, source_tier
+     ) VALUES ($1, 'model_release', 'released', 'published', 'Claude 4 Official E2E Release',
+       $2::date, 'day', 'Anthropic 官方正式发布 Claude 4。', 'Anthropic officially released Claude 4.', 'official')
+     RETURNING id`,
+    [vendorId, todayIso],
+  );
+  const seededEventId = evRes.rows[0].id;
+  await db.pool.query(
+    `INSERT INTO ai_event_reference (event_id, title, url, source_kind, is_primary, verified_at)
+     VALUES ($1, 'Introducing Claude 4', 'https://www.anthropic.com/news/claude-4', 'official', TRUE, NOW())`,
+    [seededEventId],
+  );
+
+  const port = await freePort();
+  const origin = `http://127.0.0.1:${port}`;
+  const createApp: typeof buildApp = process.env.TEST_COMPILED === "true"
+    ? require("../../dist/apps/api/src/app.js").buildApp
+    : buildApp;
+  const app = await createApp({
+    pool: db.pool,
+    sessionSecret: "synthetic-secret-".repeat(3),
+    origin,
+    secureCookies: false,
+    publicRead: true,
+    publicRegistration: true,
+    rateLimitMax: 500,
+  });
+  const address = await app.listen({ host: "127.0.0.1", port: 0 });
+  t.after(() => app.close());
+  await launchVite(t, address, port, origin);
+
+  const browser = await chromium.launch({
+    executablePath: resolveChromiumPath(),
+    headless: true,
+    args: ["--no-sandbox"],
+  });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+
+  // 1. /ai timeline renders verified official event, clicking opens drawer with ?event=:id & official link
+  await page.goto(`${origin}/ai`);
+  await page.getByRole("heading", { name: "厂商 × 时间发布矩阵" }).waitFor();
+  await page.getByRole("button", { name: "Claude 4 Official E2E Release" }).first().click();
+  await page.getByRole("dialog").waitFor();
+  assert.ok(page.url().includes(`event=${seededEventId}`), `Expected shareable URL with event=${seededEventId}`);
+  await page.getByText("Introducing Claude 4").waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "detached" });
+
+  // 2. Honest empty state for unconfigured third-party rankings
+  await page.getByText("外部授权评测数据源尚未配置").waitFor();
+
+  // 3. Visual unification: zero horizontal overflow across /, /product, /docs, /ai at 1440, 768, 390
+  const captureAfter = process.env.CAPTURE_VISUAL_AFTER === "1";
+  const viewports = [
+    { name: "1440", width: 1440, height: 900 },
+    { name: "768", width: 768, height: 1024 },
+    { name: "390", width: 390, height: 844 },
+  ];
+  const pagesToCheck = [
+    { slug: "product", path: "/product" },
+    { slug: "home", path: "/" },
+    { slug: "docs", path: "/docs" },
+    { slug: "ai", path: "/ai" },
+  ];
+  if (captureAfter) {
+    const fs = await import("node:fs/promises");
+    await fs.mkdir("output/validation/visual-after", { recursive: true });
+  }
+  for (const vp of viewports) {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    for (const p of pagesToCheck) {
+      await page.goto(`${origin}${p.path}`, { waitUntil: "networkidle" });
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      assert.ok(overflow <= 2, `Horizontal overflow on ${p.path} at ${vp.name}: ${overflow}px`);
+      if (captureAfter) {
+        await page.screenshot({
+          path: `output/validation/visual-after/${p.slug}-${vp.name}.png`,
+          fullPage: false,
+        });
+      }
+    }
+  }
+
+  // 4. Owner login -> /admin/queue renders review queue & published events
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${origin}/admin/queue`);
+  await page.getByRole("button", { name: "立即登录" }).click();
+  await page.getByLabel("工作邮箱").fill("owner@localhost");
+  await page.getByLabel("密码", { exact: true }).fill("fixture-password-123");
+  await page.getByRole("button", { name: "登录工作台" }).click();
+  await page.getByRole("heading", { name: "AI 发布审核与台账队列" }).waitFor();
+  await page.getByRole("button", { name: "已发布事件" }).click();
+  await page.getByText("Claude 4 Official E2E Release").waitFor();
+
   assert.deepEqual(errors, []);
 });

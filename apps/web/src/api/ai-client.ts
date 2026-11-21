@@ -160,8 +160,9 @@ export interface AiRegistrySourceItem {
 }
 
 async function aiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    credentials: 'include',
+  const url = path.startsWith('/api/') ? path : `/api${path}`;
+  const res = await fetch(url, {
+    credentials: 'same-origin',
     headers: {
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
       ...(init?.headers ?? {}),
