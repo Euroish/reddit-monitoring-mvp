@@ -4,6 +4,7 @@ import { createCredentialVault } from "../../../src/modules/collection/credentia
 import { startWorker } from "../../../src/modules/collection/worker";
 import { KaixContentConnector } from "../../../src/connectors/reddit/kaix-content.connector";
 import { redCrawler } from "../../../src/connectors/reddit/red-crawler";
+import { createApifyFetch } from "../../../src/connectors/reddit/apify-fetch";
 import { resolveKaixConfig } from "../../../src/connectors/reddit/kaix.config";
 import { BlueskyAppViewContentConnector } from "../../../src/connectors/bluesky/bluesky-appview-content.connector";
 import { scrapeBadger } from "../../../src/connectors/x/scrapebadger";
@@ -26,16 +27,17 @@ export async function main() {
     const sessionSecret = process.env.SESSION_SECRET ?? "";
     const vault = createCredentialVault(pool, sessionSecret);
     await vault.reload();
+    const apifyFetch = createApifyFetch(process.env);
     const providers = [
       twitterApis(process.env, fetch, () => vault.getSecret("twitterapis")),
       scrapeBadger(process.env, fetch, () => vault.getSecret("scrapebadger")),
       webSource("newsnow"),
       webSource("feed"),
-      redCrawler(process.env, fetch, () => vault.getSecret("red_crawler")),
+      redCrawler(process.env, apifyFetch, () => vault.getSecret("red_crawler")),
       new KaixContentConnector({
         ...resolveKaixConfig(),
         getApiToken: () => vault.getSecret("kaix"),
-      }),
+      }, apifyFetch),
       new BlueskyAppViewContentConnector({
         networkEnabled: process.env.SOURCE_NETWORK_ENABLED === "true",
       }),

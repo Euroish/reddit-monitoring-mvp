@@ -1,0 +1,37 @@
+name: apify-relay
+services:
+  relay:
+    image: ${APIFY_RELAY_IMAGE:-apify-production-relay:local}
+    environment:
+      APIFY_RELAY_BIND: "10.250.249.2"
+      APIFY_RELAY_CLIENT: "10.250.249.3"
+      HTTPS_PROXY: http://10.250.247.2:7890
+    user: "10002:10002"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    dns: [127.0.0.1]
+    pids_limit: 32
+    mem_limit: 96m
+    cpus: 0.5
+    restart: unless-stopped
+    logging:
+      driver: none
+    volumes:
+      - type: bind
+        source: /etc/apify-secure-gateway/credentials
+        target: /run/apify-credentials
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      client:
+        ipv4_address: 10.250.249.2
+      gateway: {}
+networks:
+  client:
+    external: true
+    name: apify-production-client
+  gateway:
+    external: true
+    name: apify-secure-gateway_private

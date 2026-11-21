@@ -106,6 +106,7 @@ AI_MODEL=
 - **动态扩源与 OPML 批量导入**：管理员在前端 **`/sources`** 页面或直接调 `POST /v1/sources/import` 批量提交 JSON（1–200 条）或 OPML 2.0 XML（`<=512 KiB`），遇已存在源走 `ON CONFLICT DO NOTHING` 跳过；`FEED_ALLOWED_URLS` 留空时无需重启容器即可生效。
 - **`WORKER_CONCURRENCY`**：`docker-compose.yml` 透传该环境变量至 `app`（钳制区间 `[1, 12]`，默认 `6` 协程 + `1500ms` 同域冷却）。
 - **外部 API 参数口径**：`TWITTERAPIS_TIMEOUT_MS` / `SCRAPEBADGER_TIMEOUT_MS` 允许 `[100, 120000]ms`（默认 `20000ms`）；`twitterapis` 单页 `<=20`，`scrapebadger` 支持 `POST /v1/sources/:id/refresh` 批量刷推文（`1..20` ID）；`APIFY_API_TOKEN` 由 `kaix` 与 `red_crawler` 共用，`POST /v1/projects/:id/hydrate` 当前仅走 `kaix`（`<=30` 根帖 × `50` 评论）。
+- **可选独立 Apify 网关**：生产配置设置 `APIFY_RELAY_ORIGIN` 指向仅 app 可访问的私有转发容器（[Compose 配置](../deploy/apify-relay.compose.yml)），app 中的 `APIFY_API_TOKEN` 留空。该模式下由转发容器挂载 Token 文件并经独立代理访问 Apify，设置页仅支持验证。轮换时先验证新 Token，再原子替换挂载目录中的文件。部署前验证网关断线时仅 Apify 调用失败，并核对其他采集渠道与生产健康检查。
 - **离线批量采集计划（`collect:batch`）**：`npm run collect:batch -- output/collect-plan.json` 校验并汇总计划后，配 `COLLECT_API_URL`（经 Caddy 时须包含 `/api` 前缀）与限定范围的 `read`/`collect` Machine Key 加 `--apply` 提交（每轮 32 项、遵守 `Retry-After`、断点存 `.progress.json`）。
 
 ---
