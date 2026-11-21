@@ -12,6 +12,9 @@ import {
   type ContentListResponse,
   type ContentThreadResponse,
   type CredentialProviderName,
+  type DocDetail,
+  type DocInput,
+  type DocSummary,
   type ExportJsonResult,
   type ListQuery,
   type MachineKeyDto,
@@ -546,4 +549,38 @@ export const apiClient = {
       body: JSON.stringify(payload),
     });
   },
+
+  async getDocs(): Promise<DocSummary[]> {
+    return (await liveFetch<{ docs: DocSummary[] }>('/docs')).docs;
+  },
+
+  async getDoc(slug: string): Promise<DocDetail> {
+    return (await liveFetch<{ doc: DocDetail }>(`/docs/${encodeURIComponent(slug)}`)).doc;
+  },
+
+  async createDoc(input: DocInput): Promise<DocDetail> {
+    return (
+      await liveFetch<{ doc: DocDetail }>('/docs', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      })
+    ).doc;
+  },
+
+  async updateDoc(id: string, patch: Partial<DocInput>): Promise<DocDetail> {
+    return (
+      await liveFetch<{ doc: DocDetail }>(`/docs/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      })
+    ).doc;
+  },
+
+  async deleteDoc(id: string): Promise<{ deleted: boolean }> {
+    return liveFetch(`/docs/${id}`, { method: 'DELETE' });
+  },
 };
+
+export function docFileUrl(slug: string): string {
+  return `/api/v1/docs/${encodeURIComponent(slug)}/file`;
+}

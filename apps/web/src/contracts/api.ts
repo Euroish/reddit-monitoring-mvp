@@ -915,3 +915,44 @@ export function mergeServerCapabilities(rawList: unknown): SourceCapability[] {
     };
   });
 }
+
+// ---------------------------------------------------------------- product docs
+export type DocCategory = 'feature' | 'terms' | 'notice';
+export type DocKind = 'markdown' | 'link' | 'file';
+export type DocStatus = 'draft' | 'published';
+
+export interface DocSummary {
+  id: string;
+  slug: string;
+  category: DocCategory;
+  title: string;
+  summary: string;
+  kind: DocKind;
+  pinned: boolean;
+  sortRank: number;
+  status: DocStatus;
+  externalUrl: string | null;
+  fileName: string | null;
+  fileSize: number | null;
+  updatedAt: string;
+}
+
+export interface DocDetail extends DocSummary {
+  bodyMd: string;
+  fileMime: string | null;
+  revision: number;
+  createdAt: string;
+}
+
+export interface DocInput {
+  title: string;
+  category: DocCategory;
+  summary?: string;
+  kind: DocKind;
+  bodyMd?: string;
+  externalUrl?: string;
+  pinned?: boolean;
+  sortRank?: number;
+  status?: DocStatus;
+  file?: { name: string; mime: string; dataBase64: string };
+}

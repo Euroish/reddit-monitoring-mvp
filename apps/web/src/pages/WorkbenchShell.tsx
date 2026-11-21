@@ -239,7 +239,7 @@ export function WorkbenchShell({
       { group: t('Feed', '信息流'), label: t('48h Momentum', '48 小时热度'), kbd: 'G T', run: () => navigateAndClose('/?view=hot') },
       { group: t('Feed', '信息流'), label: t('08:00 Daily Digest', '08:00 日报'), kbd: 'G D', run: () => navigateAndClose('/?view=digest') },
       { group: t('Feed', '信息流'), label: t('Product Overview', '产品介绍'), kbd: 'G P', run: () => navigateAndClose('/product') },
-      { group: t('Feed', '信息流'), label: t('Product Guide (How to use)', '产品使用说明'), kbd: 'G ?', run: () => navigateAndClose('/guide') },
+      { group: t('Feed', '信息流'), label: t('Product Docs', '产品文档'), kbd: 'G ?', run: () => navigateAndClose('/docs') },
       { group: t('Navigate', '页面跳转'), label: t('Project Overview', '项目总览'), kbd: 'G O', run: () => navigateAndClose('/projects') },
       { group: t('Navigate', '页面跳转'), label: t('Signal Radar Analytics', '趋势雷达多维图谱'), kbd: 'G R', run: () => navigateAndClose('/projects?section=radar') },
       { group: t('Navigate', '页面跳转'), label: t('Content Explorer', '内容检索与过滤'), kbd: 'G E', run: () => navigateAndClose('/content') },
@@ -901,9 +901,9 @@ export function WorkbenchShell({
                           <span style={{ fontSize: 10, color: 'var(--faint)' }}>{actor.role} · {actor.clientKind}</span>
                         </div>
                       </div>
-                      <button type="button" className="pop-opt" onClick={() => navigateAndClose('/guide')}>
+                      <button type="button" className="pop-opt" onClick={() => navigateAndClose('/docs')}>
                         <BookOpen size={13} />
-                        <span style={{ flex: 1 }}>{t('Product Guide', '产品使用说明')}</span>
+                        <span style={{ flex: 1 }}>{t('Product Docs', '产品文档')}</span>
                         <em className="ni-badge">{t('New', '新增')}</em>
                       </button>
                       <button type="button" className="pop-opt" onClick={() => navigateAndClose('/settings')}>
