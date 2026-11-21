@@ -435,11 +435,13 @@ function ReaderDrawer({
 export function StoriesPage({
   actor,
   initialSearchString = '',
+  basePath = '/app/feed',
   onNavigate,
   onOpenAuth,
 }: {
   actor: Actor | null;
   initialSearchString?: string;
+  basePath?: string;
   onNavigate: (path: string) => void;
   onOpenAuth: (tab?: 'login' | 'register', reason?: string) => void;
 }) {
@@ -522,9 +524,9 @@ export function StoriesPage({
       const next = new URLSearchParams(initialSearchString);
       mutator(next);
       const qs = next.toString();
-      onNavigate(qs ? `/?${qs}` : '/');
+      onNavigate(qs ? `${basePath}?${qs}` : basePath);
     },
-    [initialSearchString, onNavigate],
+    [basePath, initialSearchString, onNavigate],
   );
 
   const setView = (nextView: StoryView, nextDate?: string | null) => {

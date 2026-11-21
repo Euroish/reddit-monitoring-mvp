@@ -52,7 +52,7 @@ import { useTheme } from '../components/themeContext';
 import { type Actor, type CapabilitiesResponse, validateSearchTerm } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
 
-export type WorkbenchRoute = '/' | '/projects' | '/content' | '/sources' | '/workspace' | '/settings';
+export type WorkbenchRoute = '/app/feed' | '/projects' | '/content' | '/sources' | '/workspace' | '/settings';
 
 interface WorkbenchShellProps {
   actor: Actor | null;
@@ -235,10 +235,12 @@ export function WorkbenchShell({
 
   const paletteCommands = useMemo(
     () => [
-      { group: t('Feed', '信息流'), label: t("Today's Stories", '今日精选信息流'), kbd: 'G H', run: () => navigateAndClose('/') },
-      { group: t('Feed', '信息流'), label: t('48h Momentum', '48 小时热度'), kbd: 'G T', run: () => navigateAndClose('/?view=hot') },
-      { group: t('Feed', '信息流'), label: t('08:00 Daily Digest', '08:00 日报'), kbd: 'G D', run: () => navigateAndClose('/?view=digest') },
+      { group: t('Feed', '信息流'), label: t('Public Information Home', '公开信息首页'), kbd: 'G I', run: () => navigateAndClose('/') },
+      { group: t('Feed', '信息流'), label: t("Today's Stories", '完整信息流 · 今日精选'), kbd: 'G H', run: () => navigateAndClose('/app/feed') },
+      { group: t('Feed', '信息流'), label: t('48h Momentum', '48 小时热度'), kbd: 'G T', run: () => navigateAndClose('/app/feed?view=hot') },
+      { group: t('Feed', '信息流'), label: t('08:00 Daily Digest', '08:00 日报'), kbd: 'G D', run: () => navigateAndClose('/app/feed?view=digest') },
       { group: t('Feed', '信息流'), label: t('Product Overview', '产品介绍'), kbd: 'G P', run: () => navigateAndClose('/product') },
+      { group: t('Feed', '信息流'), label: t('Documentation', '公开文档'), kbd: 'G ?', run: () => navigateAndClose('/docs') },
       { group: t('Navigate', '页面跳转'), label: t('Project Overview', '项目总览'), kbd: 'G O', run: () => navigateAndClose('/projects') },
       { group: t('Navigate', '页面跳转'), label: t('Signal Radar Analytics', '趋势雷达多维图谱'), kbd: 'G R', run: () => navigateAndClose('/projects?section=radar') },
       { group: t('Navigate', '页面跳转'), label: t('Content Explorer', '内容检索与过滤'), kbd: 'G E', run: () => navigateAndClose('/content') },
@@ -269,8 +271,8 @@ export function WorkbenchShell({
           type="button"
           className="rail-logo"
           onClick={() => navigateAndClose('/')}
-          data-tip={t("Today's Stories", '今日精选信息流')}
-          aria-label={t("Today's Stories", '今日精选信息流')}
+          data-tip={t('Public Information Home', '返回公开信息首页')}
+          aria-label={t('Public Information Home', '返回公开信息首页')}
         >
           <SiftlineLogo size={24} showWordmark={false} />
         </button>
@@ -278,10 +280,10 @@ export function WorkbenchShell({
         <div className="rail-group">
           <button
             type="button"
-            className={`rail-btn ${route === '/' ? 'is-active' : ''}`}
-            onClick={() => navigateAndClose('/')}
-            data-tip={t('Stories Feed', '精选信息流')}
-            aria-label={t('Stories Feed', '精选信息流')}
+            className={`rail-btn ${route === '/app/feed' ? 'is-active' : ''}`}
+            onClick={() => navigateAndClose('/app/feed')}
+            data-tip={t('Full Stories Feed', '完整信息流')}
+            aria-label={t('Full Stories Feed', '完整信息流')}
           >
             <BookOpen size={18} />
           </button>
@@ -491,27 +493,35 @@ export function WorkbenchShell({
             <p className="nav-label">{t('Feed', '信息流')}</p>
             <button
               type="button"
-              className={`nav-item ${route === '/' && (!currentView || currentView === 'latest') ? 'is-active' : ''}`}
-              onClick={() => navigateAndClose('/')}
+              className={`nav-item ${route === '/app/feed' && (!currentView || currentView === 'latest') ? 'is-active' : ''}`}
+              onClick={() => navigateAndClose('/app/feed')}
             >
               <BookOpen size={14} className="nav-ic" />
               <span>{t("Today's Stories", '今日精选')}</span>
             </button>
             <button
               type="button"
-              className={`nav-item ${route === '/' && currentView === 'hot' ? 'is-active' : ''}`}
-              onClick={() => navigateAndClose('/?view=hot')}
+              className={`nav-item ${route === '/app/feed' && currentView === 'hot' ? 'is-active' : ''}`}
+              onClick={() => navigateAndClose('/app/feed?view=hot')}
             >
               <Flame size={14} className="nav-ic" />
               <span>{t('48h Momentum', '48 小时热度')}</span>
             </button>
             <button
               type="button"
-              className={`nav-item ${route === '/' && currentView === 'digest' ? 'is-active' : ''}`}
-              onClick={() => navigateAndClose('/?view=digest')}
+              className={`nav-item ${route === '/app/feed' && currentView === 'digest' ? 'is-active' : ''}`}
+              onClick={() => navigateAndClose('/app/feed?view=digest')}
             >
               <Calendar size={14} className="nav-ic" />
               <span>{t('08:00 Digest', '08:00 日报')}</span>
+            </button>
+            <button
+              type="button"
+              className="nav-item"
+              onClick={() => navigateAndClose('/')}
+            >
+              <ExternalLink size={14} className="nav-ic" />
+              <span>{t('Public Site', '公开首页')}</span>
             </button>
             <button
               type="button"

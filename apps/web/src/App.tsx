@@ -1,23 +1,42 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Lock, RefreshCw } from 'lucide-react';
-import { formatApiError, useCapabilitiesQuery, useSessionQuery } from './api/hooks';
+import { formatApiError, useCapabilitiesQuery, useLogoutMutation, useSessionQuery } from './api/hooks';
 import { AuthModal } from './components/AuthModal';
 import { LogoProvider } from './components/BrandMark';
+import { type PublicRoute, PublicSiteShell } from './components/PublicSiteShell';
 import { ThemeProvider } from './components/ThemeStudio';
 import { type Lang, LangContext } from './i18n/translations';
-import { ContentExplorerPage } from './pages/ContentExplorerPage';
-import { Homepage } from './pages/Homepage';
-import { ProjectsPage } from './pages/ProjectsPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { SourcesPage } from './pages/SourcesPage';
+import { AiNewsPage } from './pages/AiNewsPage';
+import { DocsPage } from './pages/DocsPage';
 import { StoriesPage } from './pages/StoriesPage';
-import { type WorkbenchRoute, WorkbenchShell } from './pages/WorkbenchShell';
-import { WorkspacePage } from './pages/WorkspacePage';
+import type { WorkbenchRoute } from './pages/WorkbenchShell';
 
-type AppRoute = WorkbenchRoute | '/product' | '__not_found__';
+const Homepage = lazy(() => import('./pages/Homepage').then((m) => ({ default: m.Homepage })));
+const WorkbenchShell = lazy(() =>
+  import('./pages/WorkbenchShell').then((m) => ({ default: m.WorkbenchShell })),
+);
+const ContentExplorerPage = lazy(() =>
+  import('./pages/ContentExplorerPage').then((m) => ({ default: m.ContentExplorerPage })),
+);
+const ProjectsPage = lazy(() =>
+  import('./pages/ProjectsPage').then((m) => ({ default: m.ProjectsPage })),
+);
+const SourcesPage = lazy(() =>
+  import('./pages/SourcesPage').then((m) => ({ default: m.SourcesPage })),
+);
+const WorkspacePage = lazy(() =>
+  import('./pages/WorkspacePage').then((m) => ({ default: m.WorkspacePage })),
+);
+const SettingsPage = lazy(() =>
+  import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
+);
+
+type AppRoute = PublicRoute | WorkbenchRoute;
+
+const PUBLIC_ROUTES: PublicRoute[] = ['/', '/product', '/ai', '/docs'];
 
 const WORKBENCH_ROUTES: WorkbenchRoute[] = [
-  '/',
+  '/app/feed',
   '/projects',
   '/content',
   '/sources',
@@ -32,19 +51,51 @@ const AUTH_REQUIRED_ROUTES: WorkbenchRoute[] = [
   '/settings',
 ];
 
+const LEGACY_FEED_PARAMS = ['view', 'date', 'sourceGroup', 'tier', 'language', 'sourceId'] as const;
+
+function hasLegacyFeedQuery(search: string): boolean {
+  if (!search) return false;
+  const sp = new URLSearchParams(search);
+  return LEGACY_FEED_PARAMS.some((k) => {
+    const val = sp.get(k);
+    return val !== null && val !== '';
+  });
+}
+
 function parseLocation(): { pathname: AppRoute; rawPathname: string; search: string } {
   const rawPathname = window.location.pathname || '/';
+  const search = window.location.search.replace(/^\?/, '');
+
+  // Backward compatibility: /?view=latest|hot|digest or feed filters -> /app/feed?...
+  if (rawPathname === '/' && hasLegacyFeedQuery(search)) {
+    const nextPath = `/app/feed?${search}`;
+    window.history.replaceState(null, '', nextPath);
+    return { pathname: '/app/feed', rawPathname: '/app/feed', search };
+  }
+
   let pathname: AppRoute = '__not_found__';
-  if (rawPathname === '/product') {
-    pathname = '/product';
+  if (PUBLIC_ROUTES.includes(rawPathname as PublicRoute)) {
+    pathname = rawPathname as PublicRoute;
   } else if (WORKBENCH_ROUTES.includes(rawPathname as WorkbenchRoute)) {
     pathname = rawPathname as WorkbenchRoute;
   }
-  return {
-    pathname,
-    rawPathname,
-    search: window.location.search.replace(/^\?/, ''),
-  };
+  return { pathname, rawPathname, search };
+}
+
+function PageFallback({ label }: { label: string }) {
+  return (
+    <div
+      style={{
+        minHeight: '50vh',
+        display: 'grid',
+        placeItems: 'center',
+        color: 'var(--muted)',
+        fontSize: 13,
+      }}
+    >
+      {label}
+    </div>
+  );
 }
 
 export function App() {
@@ -100,6 +151,7 @@ export function App() {
   );
 
   const sessionQuery = useSessionQuery();
+  const logoutMut = useLogoutMutation();
   const actor = sessionQuery.data?.user ?? null;
   const publicRead = sessionQuery.data?.publicRead ?? false;
   const publicRegistration = sessionQuery.data?.publicRegistration ?? false;
@@ -132,6 +184,21 @@ export function App() {
     },
     [actor, navigate, openAuth, t],
   );
+
+  const handleSwitchAccount = useCallback(async () => {
+    try {
+      await logoutMut.mutateAsync();
+    } catch {
+      // Proceed to login modal even if session already expired
+    }
+    setSelectedProjectId('');
+    setContentDetailId(null);
+    openAuth(
+      'login',
+      t('Signed out of previous session. Sign in with another account.', '已退出当前会话，请使用其他账号重新登录。'),
+      currentFullPath,
+    );
+  }, [currentFullPath, logoutMut, openAuth, t]);
 
   if (sessionQuery.isLoading) {
     return (
@@ -200,8 +267,7 @@ export function App() {
     );
   }
 
-  // Private deployment mode (publicRead=false) without an authenticated session:
-  // Prioritize a clear inline login gate on all routes (including / and /content) without leaking data.
+  // Private deployment mode (publicRead=false) without an authenticated session
   if (!actor && !publicRead) {
     return (
       <LangContext.Provider value={{ lang, setLang, t }}>
@@ -228,203 +294,233 @@ export function App() {
     );
   }
 
-  // Marketing / Product intro page on /product
-  if (loc.pathname === '/product') {
+  const isPublicSiteRoute =
+    loc.pathname === '/' ||
+    loc.pathname === '/product' ||
+    loc.pathname === '/ai' ||
+    loc.pathname === '/docs' ||
+    loc.pathname === '__not_found__';
+
+  const authOverlay = authModal.open ? (
+    <AuthModal
+      initialTab={authModal.tab}
+      initialQueryContext={pendingQueryContext}
+      publicRegistration={publicRegistration}
+      reason={authModal.reason}
+      onClose={() => setAuthModal((s) => ({ ...s, open: false }))}
+      onSuccess={() => {
+        const target = authModal.pendingTarget;
+        setAuthModal((s) => ({ ...s, open: false }));
+        void sessionQuery.refetch();
+        if (target && target !== currentFullPath) navigate(target);
+      }}
+    />
+  ) : null;
+
+  if (isPublicSiteRoute) {
     return (
       <LangContext.Provider value={{ lang, setLang, t }}>
         <ThemeProvider>
           <LogoProvider>
-            <Homepage
-              isAuthenticated={Boolean(actor)}
-              onOpenAuth={(tab = 'login') => openAuth(tab, undefined, '/projects')}
-              onEnterWorkbench={handleEnterWorkbench}
-              onGoFeed={() => navigate('/')}
-            />
-            {authModal.open && (
-              <AuthModal
-                initialTab={authModal.tab}
-                initialQueryContext={pendingQueryContext}
-                publicRegistration={publicRegistration}
-                reason={authModal.reason}
-                onClose={() => setAuthModal((s) => ({ ...s, open: false }))}
-                onSuccess={() => {
-                  const target = authModal.pendingTarget || '/projects';
-                  setAuthModal((s) => ({ ...s, open: false }));
-                  navigate(target);
-                }}
-              />
-            )}
+            <PublicSiteShell
+              actor={actor}
+              route={loc.pathname as PublicRoute}
+              onNavigate={navigate}
+              onOpenAuth={openAuth}
+              onSwitchAccount={() => void handleSwitchAccount()}
+              onOpenWorkbench={handleEnterWorkbench}
+              switchingAccount={logoutMut.isPending}
+            >
+              {loc.pathname === '/' && (
+                <div className="pih-wrap">
+                  <StoriesPage
+                    actor={actor}
+                    basePath="/app/feed"
+                    initialSearchString={loc.search}
+                    onNavigate={navigate}
+                    onOpenAuth={(tab, reason) => openAuth(tab, reason, currentFullPath)}
+                  />
+                </div>
+              )}
+
+              {loc.pathname === '/product' && (
+                <Suspense fallback={<PageFallback label={t('Loading product overview...', '正在加载产品介绍…')} />}>
+                  <Homepage
+                    embedded
+                    isAuthenticated={Boolean(actor)}
+                    onOpenAuth={(tab = 'login') => openAuth(tab, undefined, '/projects')}
+                    onEnterWorkbench={handleEnterWorkbench}
+                    onGoFeed={() => navigate('/app/feed')}
+                  />
+                </Suspense>
+              )}
+
+              {loc.pathname === '/ai' && <AiNewsPage onNavigate={navigate} />}
+
+              {loc.pathname === '/docs' && (
+                <DocsPage onNavigate={navigate} onOpenWorkbench={handleEnterWorkbench} />
+              )}
+
+              {loc.pathname === '__not_found__' && (
+                <div className="pdoc-wrap">
+                  <div className="ds-card" style={{ maxWidth: 500, margin: '40px auto', padding: 28, textAlign: 'center' }}>
+                    <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, marginBottom: 8 }}>
+                      404 · {t('Page not found', '未找到对应页面')}
+                    </h1>
+                    <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 18 }}>
+                      {t(
+                        `No route matches "${loc.rawPathname}". Return to the public information home or full feed.`,
+                        `路径 "${loc.rawPathname}" 不存在，可返回公开信息首页或完整信息流。`,
+                      )}
+                    </p>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: 10 }}>
+                      <button type="button" className="ds-btn" onClick={() => navigate('/')}>
+                        {t('Back to Home', '返回公开首页')}
+                      </button>
+                      <button type="button" className="ds-btn ds-btn--ghost" onClick={() => navigate('/app/feed')}>
+                        {t('Full Feed', '完整信息流')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </PublicSiteShell>
+            {authOverlay}
           </LogoProvider>
         </ThemeProvider>
       </LangContext.Provider>
     );
   }
 
-  const shellRoute: WorkbenchRoute = loc.pathname === '__not_found__' ? '/' : loc.pathname;
-  const needsAuthForRoute =
-    loc.pathname !== '__not_found__' && AUTH_REQUIRED_ROUTES.includes(loc.pathname);
+  const workbenchRoute = loc.pathname as WorkbenchRoute;
+  const needsAuthForRoute = AUTH_REQUIRED_ROUTES.includes(workbenchRoute);
 
   return (
     <LangContext.Provider value={{ lang, setLang, t }}>
       <ThemeProvider>
         <LogoProvider>
-          <WorkbenchShell
-            actor={actor}
-            publicRegistration={publicRegistration}
-            capabilities={capabilitiesQuery.data}
-            route={shellRoute}
-            currentSearch={loc.search}
-            selectedProjectId={selectedProjectId}
-            onSelectProjectId={setSelectedProjectId}
-            onNavigate={navigate}
-            onOpenAuth={openAuth}
-          >
-            {loc.pathname === '__not_found__' && (
-              <div className="ds-page">
-                <div className="ds-card" style={{ maxWidth: 480, margin: '48px auto', padding: 28, textAlign: 'center' }}>
-                  <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
-                    {t('Page not found', '未找到对应页面')}
-                  </h2>
-                  <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 16 }}>
-                    {t(
-                      `No route matches "${loc.rawPathname}". Return to the public stories feed or product overview.`,
-                      `路径 "${loc.rawPathname}" 不存在，可返回公开信息流或产品介绍页。`,
-                    )}
-                  </p>
-                  <div style={{ display: 'flex', justifyContent: 'center', gap: 10 }}>
-                    <button type="button" className="ds-btn" onClick={() => navigate('/')}>
-                      {t('Back to Stories', '返回精选信息流')}
-                    </button>
-                    <button type="button" className="ds-btn ds-btn--ghost" onClick={() => navigate('/product')}>
-                      {t('Product Intro', '产品介绍')}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {loc.pathname === '/' && (
-              <StoriesPage
-                actor={actor}
-                initialSearchString={loc.search}
-                onNavigate={navigate}
-                onOpenAuth={(tab, reason) => openAuth(tab, reason)}
-              />
-            )}
-
-            {loc.pathname === '/content' && (
-              <ContentExplorerPage
-                key={loc.search}
-                actor={actor}
-                initialQueryString={loc.search}
-                initialDetailId={contentDetailId}
-                onClearDetailId={() => setContentDetailId(null)}
-                onOpenAuth={(tab, reason) => openAuth(tab, reason)}
-              />
-            )}
-
-            {needsAuthForRoute && !actor && (
-              <div className="ds-page">
-                <div className="ds-card" style={{ maxWidth: 480, margin: '48px auto', padding: 28, textAlign: 'center' }}>
-                  <div
-                    style={{
-                      width: 42,
-                      height: 42,
-                      borderRadius: '50%',
-                      background: 'var(--wb-tint)',
-                      color: 'var(--wb-purple)',
-                      display: 'grid',
-                      placeItems: 'center',
-                      margin: '0 auto 12px',
-                    }}
-                  >
-                    <Lock size={18} />
-                  </div>
-                  <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
-                    {t('Sign in required', '该模块需要登录后访问')}
-                  </h2>
-                  <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 16 }}>
-                    {t(
-                      'Projects, sources, personal workspace, and settings require an authenticated account.',
-                      '专题监测、来源运维、个人工作区与账户设置需要登录会话权限。',
-                    )}
-                  </p>
-                  <div style={{ display: 'flex', justifyContent: 'center', gap: 10 }}>
-                    <button
-                      type="button"
-                      className="ds-btn"
-                      onClick={() =>
-                        openAuth(
-                          'login',
-                          t('Sign in to access this workspace module.', '请登录以访问该工作台模块。'),
-                          currentFullPath,
-                        )
-                      }
-                    >
-                      {t('Sign in', '立即登录')}
-                    </button>
-                    <button type="button" className="ds-btn ds-btn--ghost" onClick={() => navigate('/')}>
-                      {t('Back to Stories', '返回精选信息流')}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {loc.pathname === '/projects' && actor && (
-              <ProjectsPage
-                actor={actor}
-                selectedProjectId={selectedProjectId}
-                onSelectProjectId={setSelectedProjectId}
-                initialSearchString={loc.search}
-                onDrilldown={(projectId, extraQs) => {
-                  const sp = new URLSearchParams(extraQs || '');
-                  if (projectId) sp.set('projectId', projectId);
-                  const suffix = sp.toString() ? `?${sp.toString()}` : '';
-                  navigate(`/content${suffix}`);
-                }}
-                onOpenContentDetail={(cid) => {
-                  setContentDetailId(cid);
-                  navigate('/content');
-                }}
-              />
-            )}
-
-            {loc.pathname === '/sources' && actor && (
-              <SourcesPage actor={actor} initialQueryString={loc.search} />
-            )}
-
-            {loc.pathname === '/workspace' && actor && (
-              <WorkspacePage
-                initialQueryString={loc.search}
-                onRunSavedQuery={(qs) => navigate(`/content${qs ? `?${qs}` : ''}`)}
-                onOpenContentDetail={(cid) => {
-                  setContentDetailId(cid);
-                  navigate('/content');
-                }}
-                onNavigate={navigate}
-              />
-            )}
-
-            {loc.pathname === '/settings' && actor && (
-              <SettingsPage actor={actor} initialQueryString={loc.search} />
-            )}
-          </WorkbenchShell>
-
-          {authModal.open && (
-            <AuthModal
-              initialTab={authModal.tab}
-              initialQueryContext={pendingQueryContext}
+          <Suspense fallback={<PageFallback label={t('Loading workbench...', '正在加载工作台…')} />}>
+            <WorkbenchShell
+              actor={actor}
               publicRegistration={publicRegistration}
-              reason={authModal.reason}
-              onClose={() => setAuthModal((s) => ({ ...s, open: false }))}
-              onSuccess={() => {
-                const target = authModal.pendingTarget;
-                setAuthModal((s) => ({ ...s, open: false }));
-                if (target) navigate(target);
-              }}
-            />
-          )}
+              capabilities={capabilitiesQuery.data}
+              route={workbenchRoute}
+              currentSearch={loc.search}
+              selectedProjectId={selectedProjectId}
+              onSelectProjectId={setSelectedProjectId}
+              onNavigate={navigate}
+              onOpenAuth={openAuth}
+            >
+              {workbenchRoute === '/app/feed' && (
+                <StoriesPage
+                  actor={actor}
+                  basePath="/app/feed"
+                  initialSearchString={loc.search}
+                  onNavigate={navigate}
+                  onOpenAuth={(tab, reason) => openAuth(tab, reason, currentFullPath)}
+                />
+              )}
+
+              {workbenchRoute === '/content' && (
+                <ContentExplorerPage
+                  key={loc.search}
+                  actor={actor}
+                  initialQueryString={loc.search}
+                  initialDetailId={contentDetailId}
+                  onClearDetailId={() => setContentDetailId(null)}
+                  onOpenAuth={(tab, reason) => openAuth(tab, reason, currentFullPath)}
+                />
+              )}
+
+              {needsAuthForRoute && !actor && (
+                <div className="ds-page">
+                  <div className="ds-card" style={{ maxWidth: 480, margin: '48px auto', padding: 28, textAlign: 'center' }}>
+                    <div
+                      style={{
+                        width: 42,
+                        height: 42,
+                        borderRadius: '50%',
+                        background: 'var(--wb-tint)',
+                        color: 'var(--wb-purple)',
+                        display: 'grid',
+                        placeItems: 'center',
+                        margin: '0 auto 12px',
+                      }}
+                    >
+                      <Lock size={18} />
+                    </div>
+                    <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
+                      {t('Sign in required', '该模块需要登录后访问')}
+                    </h2>
+                    <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 16 }}>
+                      {t(
+                        'Projects, sources, personal workspace, and settings require an authenticated account.',
+                        '专题监测、来源运维、个人工作区与账户设置需要登录会话权限。',
+                      )}
+                    </p>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: 10 }}>
+                      <button
+                        type="button"
+                        className="ds-btn"
+                        onClick={() =>
+                          openAuth(
+                            'login',
+                            t('Sign in to access this workspace module.', '请登录以访问该工作台模块。'),
+                            currentFullPath,
+                          )
+                        }
+                      >
+                        {t('Sign in', '立即登录')}
+                      </button>
+                      <button type="button" className="ds-btn ds-btn--ghost" onClick={() => navigate('/')}>
+                        {t('Back to Public Home', '返回公开首页')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {workbenchRoute === '/projects' && actor && (
+                <ProjectsPage
+                  actor={actor}
+                  selectedProjectId={selectedProjectId}
+                  onSelectProjectId={setSelectedProjectId}
+                  initialSearchString={loc.search}
+                  onDrilldown={(projectId, extraQs) => {
+                    const sp = new URLSearchParams(extraQs || '');
+                    if (projectId) sp.set('projectId', projectId);
+                    const suffix = sp.toString() ? `?${sp.toString()}` : '';
+                    navigate(`/content${suffix}`);
+                  }}
+                  onOpenContentDetail={(cid) => {
+                    setContentDetailId(cid);
+                    navigate('/content');
+                  }}
+                />
+              )}
+
+              {workbenchRoute === '/sources' && actor && (
+                <SourcesPage actor={actor} initialQueryString={loc.search} />
+              )}
+
+              {workbenchRoute === '/workspace' && actor && (
+                <WorkspacePage
+                  initialQueryString={loc.search}
+                  onRunSavedQuery={(qs) => navigate(`/content${qs ? `?${qs}` : ''}`)}
+                  onOpenContentDetail={(cid) => {
+                    setContentDetailId(cid);
+                    navigate('/content');
+                  }}
+                  onNavigate={navigate}
+                />
+              )}
+
+              {workbenchRoute === '/settings' && actor && (
+                <SettingsPage actor={actor} initialQueryString={loc.search} />
+              )}
+            </WorkbenchShell>
+          </Suspense>
+          {authOverlay}
         </LogoProvider>
       </ThemeProvider>
     </LangContext.Provider>
