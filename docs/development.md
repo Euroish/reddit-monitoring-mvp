@@ -34,7 +34,7 @@ npm run docs:check && npm run lint && npm run typecheck && npm run test:unit && 
 1. **明确 AI 解冲突底线**：要求 AI *“以 `origin/main` 现有行为、鉴权与测试为不可破坏底线，仅叠加本分支增量，不得为编译通过删改 `origin/main` 新增逻辑或测试”*。
 2. **强制 `diff --stat` 审计**：推送前人工扫一眼 `git diff origin/main --stat`，凡出现无关模块改动或测试大段删减立即拦截重解。
 3. **只认全量 CI 绿灯**：含冲突解决的 PR 须过 `verify.yml` 全链（`gitleaks`、`docs:check`、`lint`、`typecheck`、`test:unit`、`test:postgres`、`build`、`smoke:compiled`、`test:browser`），且统一 **Squash and Merge** 以便一键 `git revert`。
-4. **控制 PR 体积消灭巨型冲突**：单 PR 目标 `<= 500` 行净变动；超 `1,500` 行必须拆为垂直小切片（`迁移/契约 PR → 后端 PR → 前端接入 PR`），未完结入口先用开关隐藏、每日合入 `main`。
+4. **控制 PR 体积消灭巨型冲突**：单 PR 目标 `<= 500` 行净变动；超 `3000` 行必须拆为垂直小切片（`迁移/契约 PR → 后端 PR → 前端接入 PR`），未完结入口先用开关隐藏、每日合入 `main`。
 
 ### 0.3 四大冲突热区与轻量同步约定
 
