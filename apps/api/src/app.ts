@@ -39,6 +39,11 @@ const PUBLIC_GUEST_ACTOR: Actor = {
   scopes: ["read"],
   allowedSourceIds: null,
 };
+const DOC_READ_ROUTES = [
+  "/v1/docs",
+  "/v1/docs/:slug",
+  "/v1/docs/:slug/file",
+];
 const PUBLIC_READ_ROUTES = new Set([
   "/v1/public/sources",
   "/v1/content/stories",
@@ -47,9 +52,7 @@ const PUBLIC_READ_ROUTES = new Set([
   "/v1/content/facets",
   "/v1/content/:id",
   "/v1/content/:id/thread",
-  "/v1/docs",
-  "/v1/docs/:slug",
-  "/v1/docs/:slug/file",
+  ...DOC_READ_ROUTES,
 ]);
 export async function buildApp(options: {
   pool: Pool;
@@ -210,6 +213,7 @@ export async function buildApp(options: {
     )
       fail(403, "Administrator access required");
     if (actor.clientKind === "machine") {
+      const isRead = ["GET", "HEAD"].includes(method);
       const scope =
         route === "/v1/content/export"
           ? "export"
@@ -223,8 +227,8 @@ export async function buildApp(options: {
                   : "collect"
                 : route.endsWith("/unblock")
                   ? "collect"
-                  : route.startsWith("/v1/content")
-                    ? ["GET", "HEAD"].includes(method)
+                  : route.startsWith("/v1/content") || DOC_READ_ROUTES.includes(route)
+                    ? isRead
                       ? "read"
                       : null
                     : route === "/v1/public/sources"

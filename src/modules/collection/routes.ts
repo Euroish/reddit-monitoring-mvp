@@ -27,7 +27,7 @@ import { commitContentBatch, prepareContentBatch } from "../content/sql";
 import { fail, transaction } from "../../storage/db";
 import { sourcePreviewRoute, validateFallback, validateSource } from "./config";
 import { sourceImportRoute } from "./import";
-import { admitViewerCollection } from "./policy";
+import { admitViewerCollection, viewerCollectionDemand } from "./policy";
 import { assertSource, insertSource, listPublicSources, listSources, lockSource, audit } from "./sql";
 
 export async function collectionRoutes(
@@ -393,17 +393,9 @@ export async function collectionRoutes(
           fail(409, "Collection is blocked pending review of an unresolved operation");
         const pageSize =
           providerName === "twitterapis" ? Math.min(request.body.limit, 20) : request.body.limit;
-        const resources =
-          providerName === "kaix" && request.body.includeComments
-            ? pageSize * (maxComments + 1)
-            : pageSize;
         await admitViewerCollection(client, request.actor!, {
-          provider: providerName,
           sourceId: source.id,
-          limit: pageSize,
-          resources,
-          includeComments: request.body.includeComments,
-          maxCommentsPerPost: request.body.maxCommentsPerPost,
+          ...viewerCollectionDemand(providerName, source.target.type, pageSize, request.body),
         });
         const id = randomUUID();
         await client.query(

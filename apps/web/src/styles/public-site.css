@@ -53,6 +53,7 @@
   color: var(--ink-2, #384237);
   font-size: 14px;
   font-weight: 550;
+  white-space: nowrap;
   padding: 8px 14px;
   border-radius: 999px;
   cursor: pointer;

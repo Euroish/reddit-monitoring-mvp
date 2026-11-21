@@ -183,18 +183,19 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   });
   page.on("pageerror", (error) => errors.push(error.message));
 
-  // 1. Public Info Home on / (4-item public nav, zero ECharts, zero workbench chunks, zero 401s, live stories)
+  // 1. Public Info Home on / (public nav, zero ECharts, zero workbench chunks, zero 401s, live stories)
   await page.goto(origin);
   assert.equal(await page.title(), "SIFTLINE · 信号研究");
   const publicNav = page.getByLabel("公开导航", { exact: true });
+  await publicNav.waitFor();
   assert.deepEqual(
     await publicNav.getByRole("button").allInnerTexts(),
-    ["信息", "产品介绍", "AI 资讯", "文档"],
+    ["信息流", "研究分析", "产品介绍", "AI 资讯", "文档"],
   );
   const initialCard = page.getByRole("article").filter({ hasText: storyTitle }).first();
   await initialCard.waitFor();
   assert.ok(
-    scripts.every((url) => !/echarts|EChartCanvas|WorkbenchShell|ProjectsPage|SourcesPage|Homepage/.test(url)),
+    scripts.every((url) => !/echarts|charts-|EChartCanvas|WorkbenchShell|ProjectsPage|SourcesPage|Homepage/.test(url)),
     `Unexpected heavy script on /: ${scripts.join(", ")}`,
   );
   assert.deepEqual(guestUnauthorized, []);
@@ -225,11 +226,18 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   assert.equal(new URL(page.url()).searchParams.get("query"), "多语言");
   await page.getByText(storyTitle).first().waitFor();
 
+  await page.goto(origin);
+  await publicNav.getByRole("button", { name: "研究分析" }).click();
+  await page.waitForURL("**/content");
+  await page.getByText(storyTitle).first().waitFor();
+
   // 3. Public Site pages (/product no duplicate nav, /docs real DB docs center, /ai transition, /guide preserved, 404)
   await page.goto(`${origin}/product`);
   const productNav = page.getByLabel("公开导航", { exact: true });
   await productNav.waitFor();
   assert.equal(await page.locator("header").count(), 1, "Expected single PublicSiteShell header on /product");
+  await page.getByRole("heading", { name: "社媒研究分析", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "高质量信息流", exact: true }).waitFor();
   await productNav.getByRole("button", { name: "文档" }).click();
   await page.getByText("功能说明").first().waitFor();
   await productNav.getByRole("button", { name: "AI 资讯" }).click();
