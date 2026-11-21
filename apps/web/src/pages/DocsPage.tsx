@@ -757,7 +757,7 @@ export function DocsPage({ actor, search, onNavigate, onOpenAuth, embedded = fal
   };
 
   return (
-    <div className="dc-root">
+    <div className={`dc-root ${embedded ? 'dc-root--embedded' : ''}`}>
       {actionError && (
         <div className="dc-error dc-error--action" role="alert">
           <AlertTriangle size={14} />

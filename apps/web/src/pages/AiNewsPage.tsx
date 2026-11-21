@@ -1,8 +1,12 @@
 import { ArrowUpRight, CalendarClock, Sparkles } from 'lucide-react';
+import type { Actor } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
 
 interface AiNewsPageProps {
+  actor?: Actor | null;
+  search?: string;
   onNavigate: (path: string) => void;
+  onOpenAuth?: (tab?: 'login' | 'register', reason?: string, pendingTarget?: string) => void;
 }
 
 export function AiNewsPage({ onNavigate }: AiNewsPageProps) {
