@@ -34,7 +34,7 @@ services:
       DATABASE_URL: postgres://monitoring:${POSTGRES_PASSWORD:?required}@db:5432/monitoring
       SESSION_SECRET: ${SESSION_SECRET:?required}
       APP_ORIGIN: ${APP_ORIGIN:?required}
-      TRUST_PROXY_HOPS: '1'
+      TRUST_PROXY_ADDRESS: ${PROXY_TRANSPORT_IP:-172.30.253.2}
       ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:-owner@localhost}
       ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-}
       SOURCE_NETWORK_ENABLED: ${SOURCE_NETWORK_ENABLED:-false}
@@ -45,13 +45,20 @@ services:
       FEED_ALLOWED_URLS: ${FEED_ALLOWED_URLS:-}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-6}
       PUBLIC_READ_ENABLED: ${PUBLIC_READ_ENABLED:-true}
-      PUBLIC_REGISTRATION_ENABLED: ${PUBLIC_REGISTRATION_ENABLED:-true}
+      AUTH_THROTTLE_KEY: ${AUTH_THROTTLE_KEY:-}
+      AUTH_SCRYPT_V2_WRITE_ENABLED: ${AUTH_SCRYPT_V2_WRITE_ENABLED:-false}
+      PUBLIC_REGISTRATION_ENABLED: ${PUBLIC_REGISTRATION_ENABLED:-false}
       AI_HISTORY_DATASET: ${AI_HISTORY_DATASET:-v1}
       AI_SYNC_ENABLED: ${AI_SYNC_ENABLED:-false}
       AI_SYNC_INTERVAL_SECONDS: ${AI_SYNC_INTERVAL_SECONDS:-7200}
       AI_AUTO_PUBLISH_SHADOW: ${AI_AUTO_PUBLISH_SHADOW:-true}
       ARTIFICIAL_ANALYSIS_API_KEY: ${ARTIFICIAL_ANALYSIS_API_KEY:-}
       ARTIFICIAL_ANALYSIS_PUBLIC_REDISTRIBUTION: ${ARTIFICIAL_ANALYSIS_PUBLIC_REDISTRIBUTION:-false}
+    networks:
+      default: {}
+      proxy_transport:
+        ipv4_address: ${APP_TRANSPORT_IP:-172.30.253.3}
+        aliases: [siftline-api-proxy]
     depends_on:
       db:
         condition: service_healthy
@@ -71,15 +78,27 @@ services:
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:?required}
       TLS_CONFIG: ${TLS_CONFIG:-}
+      API_UPSTREAM: siftline-api-proxy:3000
     ports:
       - '${PROXY_BIND:-127.0.0.1}:${HTTPS_PORT:-443}:443'
     volumes:
       - caddy_data:/data
       - caddy_config:/config
+    networks:
+      edge: {}
+      proxy_transport:
+        ipv4_address: ${PROXY_TRANSPORT_IP:-172.30.253.2}
     depends_on:
       app:
         condition: service_healthy
     restart: unless-stopped
+networks:
+  edge: {}
+  proxy_transport:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${PROXY_TRANSPORT_SUBNET:-172.30.253.0/29}
 volumes:
   database:
   caddy_data:

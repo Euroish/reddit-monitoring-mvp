@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { BlockList, isIP } from "node:net";
 import Fastify from "fastify";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
@@ -8,6 +9,7 @@ import type { Pool } from "pg";
 import type { Actor } from "../../../packages/contracts/src/source-content";
 import type { ContentProvider } from "../../../src/connectors/shared/content-provider.interface";
 import { findActor } from "../../../src/modules/access/sql";
+import { createLoginThrottle } from "../../../src/modules/access/login-throttle";
 import { accessRoutes } from "../../../src/modules/access/routes";
 import { jobRoutes } from "../../../src/modules/collection/jobs";
 import { refreshRoutes } from "../../../src/modules/collection/refresh";
@@ -72,22 +74,36 @@ export async function buildApp(options: {
   credentialVault?: CredentialVault;
   logger?: boolean;
   rateLimitMax?: number;
-  trustProxy?: false | 1;
+  trustedProxyAddress?: string;
   publicRead?: boolean;
   publicRegistration?: boolean;
+  strongerPasswords?: boolean;
+  authThrottleKey?: string;
 }) {
   if (options.sessionSecret.length < 32)
     throw new Error("SESSION_SECRET must have at least 32 characters");
   const origin = new URL(options.origin).origin;
+  const proxyAddress = options.trustedProxyAddress;
+  const proxies = new BlockList();
+  if (proxyAddress) {
+    const family = isIP(proxyAddress);
+    if (!family) throw new Error("TRUST_PROXY_ADDRESS must be a single IP address");
+    proxies.addAddress(proxyAddress, family === 6 ? "ipv6" : "ipv4");
+  }
   const app = Fastify({
     forceCloseConnections: "idle",
     keepAliveTimeout: 5000,
     requestTimeout: 30_000,
     connectionTimeout: 10_000,
     bodyLimit: 16 * 1024 * 1024,
-    trustProxy: options.trustProxy === 1 ? (_address, hop) => hop < 1 : false,
+    trustProxy: proxyAddress
+      ? (address, hop) => hop === 0 && proxies.check(address, isIP(address) === 6 ? "ipv6" : "ipv4")
+      : false,
     logger: options.logger
       ? {
+          serializers: {
+            req: (request) => ({ method: request.method, route: request.routeOptions?.url }),
+          },
           redact: [
             "req.headers.authorization",
             "req.headers.cookie",
@@ -109,8 +125,8 @@ export async function buildApp(options: {
   const providers = options.providers ?? [];
   const sign = (token: string) =>
     createHmac("sha256", options.sessionSecret).update(token).digest("hex");
-  const cookie = (token: string) =>
-    `app_session=${token}.${sign(token)}; HttpOnly; SameSite=Lax; Path=/${options.secureCookies === false ? "" : "; Secure"}`;
+  const cookie = (token: string, maxAge?: number) =>
+    `app_session=${token}.${sign(token)}; HttpOnly; SameSite=Lax; Path=/${options.secureCookies === false ? "" : "; Secure"}${maxAge === undefined ? "" : `; Max-Age=${maxAge}`}`;
   app.decorateRequest("actor", null);
   await app.register(swagger, {
     openapi: {
@@ -124,6 +140,9 @@ export async function buildApp(options: {
   app.addHook("onRoute", (route) => {
     route.schema ??= {};
     route.schema.operationId ??= `${Array.isArray(route.method) ? route.method[0] : route.method}_${route.url.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  });
+  app.addHook("onRequest", async (_request, reply) => {
+    reply.header("Cache-Control", "no-store");
   });
   await app.register(rateLimit, {
     hook: "onRequest",
@@ -142,6 +161,7 @@ export async function buildApp(options: {
         : ["57014", "55P03", "53300", "08006", "57P01"].includes(code ?? "")
           ? 503
           : 500);
+    if (statusCode === 503) reply.header("Retry-After", 1);
     const message =
       statusCode === 500 ? "Internal server error" : failure.message;
     reply.code(statusCode).send({
@@ -162,11 +182,23 @@ export async function buildApp(options: {
       (["GET", "HEAD"].includes(method) &&
         ["/healthz", "/readyz", "/v1/auth/session"].includes(route)) ||
       (method === "POST" &&
-        ["/v1/auth/login", "/v1/auth/register"].includes(route));
+        ["/v1/auth/login", "/v1/auth/register", "/v1/auth/logout"].includes(route));
     const publicReadRoute =
       Boolean(options.publicRead) &&
       ["GET", "HEAD"].includes(method) &&
       PUBLIC_READ_ROUTES.has(route);
+    const credentialSubmission = method === "POST" &&
+      ["/v1/auth/login", "/v1/auth/register"].includes(route);
+    if (route.startsWith("/v1/auth/") && request.headers.authorization !== undefined)
+      fail(403, "Browser session required");
+    if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS" &&
+      request.headers.authorization === undefined && request.headers.origin !== origin)
+      fail(403, "Same-origin request required");
+    if (credentialSubmission) {
+      const contentType = request.headers["content-type"]?.split(";", 1)[0].trim().toLowerCase();
+      if (contentType !== "application/json") fail(415, "Expected application/json");
+      return;
+    }
     let token: string | undefined,
       kind: "browser" | "machine" = "browser";
     if (request.headers.authorization) {
@@ -181,32 +213,19 @@ export async function buildApp(options: {
         .map((part) => part.trim())
         .find((part) => part.startsWith("app_session="))
         ?.slice(12);
-      if (value && value.length < 256) {
-        const [raw, signature] = value.split(".");
-        const expected = sign(raw);
-        if (
-          signature?.length === expected.length &&
-          timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
-        )
-          token = raw;
-      }
+      const signed = value && /^([A-Za-z0-9_-]{43})\.([a-f0-9]{64})$/.exec(value);
+      if (signed && timingSafeEqual(Buffer.from(signed[2], "hex"), Buffer.from(sign(signed[1]), "hex")))
+        token = signed[1];
     }
     request.actor = token ? await findActor(options.pool, token, kind) : null;
     if (!request.actor && publicReadRoute && !request.headers.authorization)
       request.actor = PUBLIC_GUEST_ACTOR;
     if (!publicRoute && !request.actor) fail(401, "Authentication required");
-    if (
-      !["GET", "HEAD", "OPTIONS"].includes(method) &&
-      kind !== "machine" &&
-      request.headers.origin !== origin
-    )
-      fail(403, "Same-origin request required");
     const actor = request.actor;
     if (!actor || publicRoute) return;
     const viewerAllowedPost =
       method === "POST" &&
       [
-        "/v1/auth/logout",
         "/v1/sources/:id/collect",
         "/v1/sources/:id/refresh",
         "/v1/projects/:id/hydrate",
@@ -273,6 +292,8 @@ export async function buildApp(options: {
   await accessRoutes(app, options.pool, cookie, {
     publicRead: Boolean(options.publicRead),
     publicRegistration: Boolean(options.publicRegistration),
+    strongerPasswords: options.strongerPasswords,
+    limitLogin: createLoginThrottle(options.authThrottleKey ?? options.sessionSecret),
   });
   const vault =
     options.credentialVault ??

@@ -7,6 +7,7 @@ import {
   strictMerge,
   ActorSchema,
   Login,
+  BrowserLogin,
   MachineKeyInput,
   PlanTier,
   Scopes,
@@ -15,6 +16,7 @@ import {
 } from "../../../packages/contracts/src/source-content";
 import {
   createSession,
+  createLoginSession,
   findActor,
   hashPassword,
   listAccessAudit,
@@ -23,13 +25,19 @@ import {
   updateUserAccess,
   verifyPassword,
 } from "./sql";
+import { dummyPasswordHash, isCurrentPasswordHash } from "./password";
 import { fail, transaction } from "../../storage/db";
 
 export async function accessRoutes(
   app: FastifyInstance,
   pool: Pool,
-  cookie: (token: string) => string,
-  options: { publicRead?: boolean; publicRegistration?: boolean } = {},
+  cookie: (token: string, maxAge?: number) => string,
+  options: {
+    publicRead?: boolean;
+    publicRegistration?: boolean;
+    strongerPasswords?: boolean;
+    limitLogin: (email: string) => number;
+  },
 ) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   api.get(
@@ -54,41 +62,45 @@ export async function accessRoutes(
   api.post(
     "/v1/auth/login",
     {
+      bodyLimit: 8 * 1024,
       config: { rateLimit: { max: 5, timeWindow: "1 minute" } },
-      schema: { body: Login },
+      schema: { body: BrowserLogin },
     },
     async (request, reply) => {
+      const email = request.body.email.trim().toLowerCase();
+      const retryAfter = options.limitLogin(email);
+      if (retryAfter) {
+        reply.header("Retry-After", retryAfter);
+        fail(429, "Too many login attempts");
+      }
       const row = (
         await pool.query(
-          `SELECT u.id,u.status,p.password_hash FROM app_user u JOIN app_user_password p ON p.user_id=u.id WHERE u.email=$1`,
-          [request.body.email.trim().toLowerCase()],
+          `SELECT u.id,u.status,u.credential_version,p.password_hash FROM app_user u JOIN app_user_password p ON p.user_id=u.id WHERE u.email=$1`,
+          [email],
         )
       ).rows[0];
-      const dummy = `scrypt:${"0".repeat(32)}:${"0".repeat(128)}`;
       if (
         !(await verifyPassword(
           request.body.password,
-          row?.password_hash ?? dummy,
+          row?.password_hash ?? dummyPasswordHash(options.strongerPasswords),
         )) ||
         row?.status !== "active"
       )
         fail(401, "Invalid email or password");
-      const session = await createSession(
-        pool,
-        row.id,
-        "browser",
-        Scopes,
-        null,
-        7,
-      );
-      reply.header("Set-Cookie", cookie(session.token));
+      const rehash = options.strongerPasswords && !isCurrentPasswordHash(row.password_hash)
+        ? { previous: row.password_hash, next: await hashPassword(request.body.password, true) }
+        : undefined;
+      const session = await createLoginSession(pool, row.id, row.credential_version, Scopes, request.body.remember, rehash);
       request.actor = await findActor(pool, session.token, "browser");
+      if (!request.actor) fail(401, "Invalid email or password");
+      reply.header("Set-Cookie", cookie(session.token, session.maxAge));
       return { user: request.actor };
     },
   );
   api.post(
     "/v1/auth/register",
     {
+      bodyLimit: 8 * 1024,
       config: { rateLimit: { max: 10, timeWindow: "15 minutes" } },
       schema: {
         body: strictMerge([
@@ -106,7 +118,7 @@ export async function accessRoutes(
       if (!inviteCode && !options.publicRegistration)
         fail(403, "Invitation required");
       const email = request.body.email.trim().toLowerCase();
-      const password = await hashPassword(request.body.password);
+      const password = await hashPassword(request.body.password, options.strongerPasswords);
       const outcome = await transaction(pool, async (client) => {
         let role: Actor["role"] = "viewer";
         let inviteId: string | null = null;
@@ -143,7 +155,7 @@ export async function accessRoutes(
           );
           return null;
         }
-        const session = await createSession(client, id, "browser", Scopes, null, 7);
+        const session = await createSession(client, id, "browser", Scopes, null, 1);
         const actor: Actor = {
           sessionId: session.id,
           userId: id,
@@ -163,9 +175,9 @@ export async function accessRoutes(
     },
   );
   api.post("/v1/auth/logout", async (request, reply) => {
-    await pool.query("DELETE FROM app_session WHERE id=$1", [
-      request.actor!.sessionId,
-    ]);
+    if (request.actor) {
+      await pool.query("DELETE FROM app_session WHERE id=$1 AND client_kind='browser'", [request.actor.sessionId]);
+    }
     reply.header("Set-Cookie", `${cookie("")}; Max-Age=0`);
     return { loggedOut: true };
   });

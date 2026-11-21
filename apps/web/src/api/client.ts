@@ -119,10 +119,10 @@ export const apiClient = {
     return liveFetch('/auth/session');
   },
 
-  async login(email: string, password: string): Promise<{ user: Actor }> {
+  async login(email: string, password: string, remember?: boolean): Promise<{ user: Actor }> {
     return liveFetch('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, remember }),
     });
   },
 

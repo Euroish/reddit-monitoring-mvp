@@ -574,6 +574,7 @@ export const Login = Type.Object(
   },
   { additionalProperties: false },
 );
+export const BrowserLogin = strictMerge([Login, Type.Object({ remember: Type.Optional(Type.Boolean()) })]);
 export const MachineKeyInput = Type.Object(
   {
     label: Type.String({ minLength: 1, maxLength: 100 }),

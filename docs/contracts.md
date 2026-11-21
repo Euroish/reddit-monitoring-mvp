@@ -54,6 +54,10 @@
 | COL-04 | MUST | `[LIVE]` `POST /v1/projects/:id/hydrate` 每次限 30 根帖 × 50 评论，**当前实现仅支持 `kaix`（`projects/routes.ts:34` 与 `hydrate.ts` 锁定，`red_crawler` 仅用于 `scheduled` 采集备源）**；`[V2 Phase D]` 按题动态探索 `POST /v1/discovery/query` 拆解 4 正交槽分波写入 `stream_class='adhoc'` 系统源，支持一键转 `pull`。 | 批量水合与探索测试 |
 | ING-01 | MUST | `POST /v1/sources/:id/ingest` 为 L3 外部 Sidecar 与 R4 `plugins/zst-archive/` 的唯一推流入口；强校验 `ingest` scope、非空 `allowedSourceIds` 与 `Idempotency-Key`；输入 `ContentItem` 的 `id` 字段可选（服务端确定性生成）；单批限 `1..100` 项且解码体 `<=1 MiB`；首次返回 `201`、重放同载体 `200`、异体 `409`。 | 推流边界与 201/200/409 E2E |
 
+### 安全加固候选分支的认证契约
+
+浏览器登录和注册使用同源 JSON，请求体上限 8 KiB，`/v1/auth/*` 拒绝 Bearer。退出始终清除浏览器 Cookie，过期会话也可退出。新会话默认最长 24 小时，Viewer 可通过可选布尔值 `remember` 启用最长 30 天的持久 Cookie。Viewer 默认空闲 2 小时，记住登录时空闲 7 天。Owner/Admin 空闲 30 分钟。活跃时间最多每 5 分钟更新一次。已有 7 天浏览器会话遵循原到期时间，机器 Key 沿用原始期限。
+
 ### QRY-01–03、SEC-01、OP-01、EXP-01：过滤、讨论树、权限与流式导出
 
 | ID | 等级 | 查询、三视图、开放接口与导出规则 | 验收出口 |

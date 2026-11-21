@@ -78,7 +78,7 @@ export function AuthModal({
   const [confirmPw, setConfirmPw] = useState('');
   const [invite, setInvite] = useState('');
   const [showPw, setShowPw] = useState(false);
-  const [remember, setRemember] = useState(true);
+  const [remember, setRemember] = useState(false);
   const [previewRange, setPreviewRange] = useState<'7' | '30' | '90'>('30');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -112,7 +112,7 @@ export function AuthModal({
       return;
     }
     try {
-      await loginMutation.mutateAsync({ email: cleaned, password });
+      await loginMutation.mutateAsync({ email: cleaned, password, remember });
       onSuccess();
     } catch (err) {
       setError(formatApiError(err));
@@ -439,7 +439,7 @@ export function AuthModal({
                   <div className="auth-row">
                     <label className="auth-check">
                       <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-                      {t('Keep signed in 7 days', '保持登录 7 天')}
+                      {t('Keep me signed in on this device', '在此设备上保持登录')}
                     </label>
                     <button
                       type="button"

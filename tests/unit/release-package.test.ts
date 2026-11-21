@@ -45,6 +45,7 @@ test("release packaging allowlist excludes credentials/data and verification det
     ["docs/private-notes.md", "unapproved notes"],
     ["deploy/apify-relay.Dockerfile", "FROM scratch"],
     ["deploy/apify-relay.compose.yml", "services: {}"],
+    ["deploy/tunnel.compose.yml", "services: {}"],
     ["deploy/apify-relay.mjs", "export {};"],
     [".env.local", "secret=must-not-package"], ["dist/.env", "secret=must-not-package"],
     ["deploy/env/sources.env.example", "SOURCE_NETWORK_ENABLED=false"], ["deploy/env/private.env", "secret=must-not-package"],
@@ -61,6 +62,7 @@ test("release packaging allowlist excludes credentials/data and verification det
   assert.deepEqual(manifest.files.filter(file => file.path.startsWith("deploy/apify-relay.")).map(file => file.path), [
     "deploy/apify-relay.Dockerfile", "deploy/apify-relay.compose.yml", "deploy/apify-relay.mjs",
   ]);
+  assert.ok(manifest.files.some(file => file.path === "deploy/tunnel.compose.yml"));
   assert.ok(!manifest.files.some(file => /^(?:dist\/)?plugins\//.test(file.path)));
   assert.ok(manifest.files.some(file => file.path === "dist/data/ai/history/v1/manifest.json"));
   assert.ok(!manifest.files.some(file => file.path === "data/ai/history/v1/manifest.json"));

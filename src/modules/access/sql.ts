@@ -2,28 +2,16 @@ import {
   createHash,
   randomBytes,
   randomUUID,
-  scrypt,
-  timingSafeEqual,
 } from "node:crypto";
-import { promisify } from "node:util";
 import type { Pool, PoolClient } from "pg";
 import type { Actor } from "../../../packages/contracts/src/source-content";
 import { fail, transaction } from "../../storage/db";
 
-const derive = promisify(scrypt);
+import { hashPassword } from "./password";
+export { hashPassword, verifyPassword } from "./password";
+
 export const tokenHash = (token: string) =>
   createHash("sha256").update(token).digest("hex");
-export async function hashPassword(password: string) {
-  const salt = randomBytes(16),
-    key = (await derive(password, salt, 64)) as Buffer;
-  return `scrypt:${salt.toString("hex")}:${key.toString("hex")}`;
-}
-export async function verifyPassword(password: string, hash: string) {
-  if (!/^scrypt:[a-f0-9]{32}:[a-f0-9]{128}$/.test(hash)) return false;
-  const [, salt, expected] = hash.split(":"),
-    key = (await derive(password, Buffer.from(salt, "hex"), 64)) as Buffer;
-  return timingSafeEqual(key, Buffer.from(expected, "hex"));
-}
 export async function findActor(
   pool: Pool,
   token: string,
@@ -31,10 +19,24 @@ export async function findActor(
 ): Promise<Actor | null> {
   const row = (
     await pool.query(
-      `SELECT s.id,s.client_kind,s.scopes,s.allowed_source_ids,u.id AS user_id,u.email,u.role,u.plan_tier
-       FROM app_session s JOIN app_user u ON u.id=s.user_id
-       WHERE s.token_hash=$1 AND s.client_kind=$2 AND s.expires_at>NOW()
-         AND u.status='active' AND s.credential_version=u.credential_version`,
+      `WITH valid AS MATERIALIZED (
+         SELECT s.id,s.client_kind,s.scopes,s.allowed_source_ids,u.id AS user_id,u.email,u.role,u.plan_tier
+         FROM app_session s JOIN app_user u ON u.id=s.user_id
+         WHERE s.token_hash=$1 AND s.client_kind=$2 AND s.expires_at>NOW()
+           AND u.status='active' AND s.credential_version=u.credential_version
+           AND ($2='machine' OR s.expires_at=s.created_at+interval '7 days' OR
+             s.last_seen_at>NOW()-CASE
+               WHEN u.role<>'viewer' THEN interval '30 minutes'
+               WHEN s.expires_at>s.created_at+interval '1 day' THEN interval '7 days'
+               ELSE interval '2 hours'
+             END)
+       ), touch AS (
+         UPDATE app_session s SET last_seen_at=NOW() FROM valid v
+         WHERE s.id=v.id AND $2='browser'
+           AND s.expires_at<>s.created_at+interval '7 days'
+           AND s.last_seen_at<=NOW()-interval '5 minutes'
+       )
+       SELECT * FROM valid`,
       [tokenHash(token), clientKind],
     )
   ).rows[0];
@@ -80,14 +82,43 @@ export async function createSession(
   if (!row) fail(401, "Account no longer active");
   return { token, id: row.id as string };
 }
+export async function createLoginSession(
+  pool: Pool,
+  userId: string,
+  credentialVersion: number,
+  scopes: readonly string[],
+  remember = false,
+  rehash?: { previous: string; next: string },
+) {
+  return transaction(pool, async (client) => {
+    const valid = await client.query<{ role: Actor["role"] }>(
+      "SELECT role FROM app_user WHERE id=$1 AND status='active' AND credential_version=$2 FOR UPDATE",
+      [userId, credentialVersion],
+    );
+    if (!valid.rowCount) fail(401, "Invalid email or password");
+    if (rehash) {
+      await client.query(
+        "UPDATE app_user_password SET password_hash=$3,updated_at=NOW() WHERE user_id=$1 AND password_hash=$2",
+        [userId, rehash.previous, rehash.next],
+      );
+    }
+    const persistent = remember && valid.rows[0].role === "viewer";
+    const days = persistent ? 30 : 1;
+    const session = await createSession(client, userId, "browser", scopes, null, days);
+    return { ...session, maxAge: persistent ? days * 86400 : undefined };
+  });
+}
+
 export async function bootstrapOwner(
   pool: Pool,
   password: string,
   email = "owner@localhost",
+  strongerPasswords = false,
 ) {
   if (password.length < 12 || password.length > 128)
     fail(422, "Bootstrap password must have 12–128 characters");
-  const hash = await hashPassword(password);
+  if ((await pool.query("SELECT 1 FROM app_user LIMIT 1")).rowCount) return;
+  const hash = await hashPassword(password, strongerPasswords);
   return transaction(pool, async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(728419,2)");
     if ((await client.query("SELECT 1 FROM app_user LIMIT 1")).rowCount) return;

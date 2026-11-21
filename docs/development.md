@@ -69,6 +69,34 @@ docker build --target runtime -t monitoring-unified:<tag> .
 docker build --target proxy   -t monitoring-unified-web:<tag> .
 ```
 
+### API 缓存与边缘响应头
+
+Caddy 在 `/api` 和 `/api/*` 返回 `Cache-Control: no-store`，Fastify 直连 API 也采用同一默认值。该边界涵盖匿名或登录态 AI 数据、管理控制面以及带 Bearer 的请求。Cloudflare 应在这些路径显式绕过缓存，避免缓存携带 Cookie、Authorization 或 Set-Cookie 的 API 流量。HTML 和静态文件当前要求重新验证。
+
+Caddy 拒绝站外 iframe 嵌入，并设置 MIME 检查、Referrer 与浏览器权限策略。预演需验证边缘缓存规则、流式导出与 readiness 的外部访问范围。
+
+### Caddy 与 Fastify 的代理信任
+
+Compose 在专用内部网络连接 Caddy 和 Fastify。Fastify 通过 `TRUST_PROXY_ADDRESS` 仅信任 Caddy 的固定地址和直连一跳。单独启动 Fastify 时该地址默认留空。若原部署使用 `TRUST_PROXY_HOPS=1`，迁移到新版 Compose 时用 `PROXY_TRANSPORT_IP` 和 `PROXY_TRANSPORT_SUBNET` 与 `APP_TRANSPORT_IP` 覆盖冲突网段，保留 Caddy 作为该网段上唯一受信代理。普通入口按实际对端生成 X-Forwarded-For。Tunnel 模式只从固定连接器 IP 读取 CF-Connecting-IP，缺失时回退至连接器 IP。只有 Caddy 和 Tunnel 服务加入边缘网络，其他容器或宿主服务不得共享该网络。
+
+### Cloudflare Tunnel 预演与回退
+
+- 使用支持 `!reset` 的 Compose 2.24.4+ 和支持 token file 的 cloudflared 2025.4.0+。在仓外受保护文件存放 Tunnel token，通过 `CLOUDFLARED_TOKEN_FILE` 指定路径，并验证容器运行用户具备只读访问。使用 `CLOUDFLARED_IMAGE` 传入经过核验的镜像 digest。使用同一 revision 的 API 和 Proxy 镜像。
+- 启动命令为 `docker compose -f docker-compose.yml -f deploy/tunnel.compose.yml up -d --wait`。在 Cloudflare 配置生产 HTTPS 主机名，Tunnel 服务地址为 `http://proxy:8080`，应用 `APP_ORIGIN` 仍是公网 HTTPS origin。连接器到 Caddy 的 HTTP 仅在同机专用边缘网络内传输，需信任 Docker 宿主机。Compose 取消 Caddy 的宿主端口映射，仍通过 App 容器 healthcheck 检查 readiness。公网健康检查使用 `/healthz`。
+- 先核对 WAF/限流套餐和规则限额。先拦截明显异常协议，再对 `POST /api/v1/auth/login`、`POST /api/v1/auth/register` 单独配置频率限制。优先观察误杀、429、503、DB pool、Worker 积压和 Tunnel 断连。整站 JS challenge 会阻断合法机器客户端，应以路径和方法限定挑战。确认未开启替换客户端 IPv6 的 Pseudo IPv4 模式。
+- 核对权威 DNS、现有 TTL、历史 A/AAAA 与 MX、源站地址及 80/443 的云防火墙规则。启用 DNSSEC 时核对注册商 DS 与权威 DNSKEY，对域名账户启用 MFA 与转移锁。发信域的 SPF、DKIM、DMARC 在服务商选定后单独验收。
+- 回退前确认现有 DNS、边缘规则及镜像恢复点。回退到上一版可用 Tunnel 或经 ACL 与 origin mTLS 验收的受控入口。生产 Docker、防火墙、DNS、WAF、TLS 和备份恢复均由授权管理员验收。本地 Caddy 验证覆盖头部与 readiness，真实边缘连接、资源余量和回退还需预演。
+
+### 公开注册开关
+
+当前生产进程只支持邀请码注册。即使旧环境文件仍设置 `PUBLIC_REGISTRATION_ENABLED=true`，生产也不会启用免邀请注册。非生产环境可以显式设为 `true` 运行现有测试流程。匿名阅读单独由 `PUBLIC_READ_ENABLED` 控制。
+
+### 安全开发基线与密码哈希切换
+
+`feat/platform-security-hardening` 开工基于 PR #19 的 `6f53325f6a79577f31a75eba1e7fcf6bbdf55ca7`，其中包含 PR #16 的 `d13d00231a1f3b69372ba66e0ed1d6ee0cc6ca36`。当时主干为 `cd12f63b118e088c340f42572d1d0e671fd80798`，迁移至 053，正式预算 24 表；继承迁移 054–056 增加 19 表，隔离 PG16 合计 43 表。安全切片新增 0 表、0 迁移。两个前序 PR squash 合入后，以此父 SHA 清点自有提交，再在最新 main 上逐个重放并复验迁移、增量 diff 和全链 CI。
+
+发布时先部署能读取 v1/v2 的版本，`AUTH_SCRYPT_V2_WRITE_ENABLED=false` 保持兼容写。v2 为 scrypt N=32768/r=8/p=3，最多并行两次，超限返回 503；生产容量验证后才开启写入和成功登录的惰性重哈希。只读 v1 的旧镜像不能接管已有 v2 的账户。账户限流为每个规范化邮箱 15 分钟内 10 次，包括失败与成功，4096 个并行账户窗口，写入前校验，进程重启清空。生产可独立配置 `AUTH_THROTTLE_KEY`，兼容回退以 Session key 做用途隔离的 HMAC。
+
 ### 本地三服务 Compose 验收
 
 设置 `POSTGRES_PASSWORD`、`SESSION_SECRET`（`>=32` 字符）、`APP_ORIGIN=https://localhost:8443`、`SITE_ADDRESS=https://localhost`、`HTTPS_PORT=8443`、`TLS_CONFIG='tls internal'` 后执行：

@@ -26,6 +26,9 @@ export async function main() {
   const workerPool = createPool(undefined, 4);
   try {
     const sessionSecret = process.env.SESSION_SECRET ?? "";
+    const authThrottleKey = process.env.AUTH_THROTTLE_KEY || undefined;
+    if (authThrottleKey && (authThrottleKey.length < 32 || authThrottleKey === sessionSecret))
+      throw new Error("AUTH_THROTTLE_KEY must be independent and at least 32 characters");
     const vault = createCredentialVault(pool, sessionSecret);
     await vault.reload();
     const apifyFetch = createApifyFetch(process.env);
@@ -43,23 +46,28 @@ export async function main() {
         networkEnabled: process.env.SOURCE_NETWORK_ENABLED === "true",
       }),
     ];
+    const strongerPasswords = process.env.AUTH_SCRYPT_V2_WRITE_ENABLED === "true";
     if (process.env.ADMIN_BOOTSTRAP_PASSWORD)
       await bootstrapOwner(
         pool,
         process.env.ADMIN_BOOTSTRAP_PASSWORD,
         process.env.ADMIN_BOOTSTRAP_EMAIL,
+        strongerPasswords,
       );
     const app = await buildApp({
       pool,
       providers,
       credentialVault: vault,
       sessionSecret,
+      strongerPasswords,
+      authThrottleKey,
       origin,
       secureCookies: !localHttp,
       logger: true,
-      trustProxy: process.env.TRUST_PROXY_HOPS === "1" ? 1 : false,
+      trustedProxyAddress: process.env.TRUST_PROXY_ADDRESS,
       publicRead: process.env.PUBLIC_READ_ENABLED !== "false",
-      publicRegistration: process.env.PUBLIC_REGISTRATION_ENABLED !== "false",
+      publicRegistration: process.env.NODE_ENV !== "production" &&
+        process.env.PUBLIC_REGISTRATION_ENABLED === "true",
     });
     await app.listen({
       host: process.env.HOST ?? "127.0.0.1",

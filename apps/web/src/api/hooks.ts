@@ -198,8 +198,8 @@ export function useMachineKeysQuery(enabled: boolean) {
 export function useLoginMutation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ email, password }: { email: string; password: string }) =>
-      apiClient.login(email, password),
+    mutationFn: ({ email, password, remember }: { email: string; password: string; remember?: boolean }) =>
+      apiClient.login(email, password, remember),
     onSuccess: () => {
       qc.clear();
       qc.invalidateQueries({ queryKey: ['session'] });
