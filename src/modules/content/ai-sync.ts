@@ -87,15 +87,15 @@ async function matchOfficialContentIds(
   const token = displayName.split(/[/:(\s]/).find((t) => t.length >= 3) ?? "";
   if (!token) return [];
   const res = await client.query<{ id: string; title: string | null; url: string | null; published_at: string | null }>(
-    `SELECT DISTINCT c.id, c.title, c.url, c.published_at
+    `SELECT DISTINCT c.id, c.title, COALESCE(c.permalink, c.url) AS url, COALESCE(c.created_at_source, d.first_fetched_at)::text AS published_at
      FROM content c
-     JOIN content_discovery cd ON cd.content_id = c.id
-     JOIN collection_source cs ON cs.id = cd.source_id
+     JOIN content_discovery d ON d.content_id = c.id
+     JOIN collection_source cs ON cs.id = d.collection_source_id
      LEFT JOIN ai_vendor_source avs ON avs.source_id = cs.id
      WHERE (cs.source_group = 'ai-firsthand' OR ($1::uuid IS NOT NULL AND avs.vendor_id = $1::uuid))
-       AND COALESCE(c.published_at, c.first_fetched_at) BETWEEN ($2::timestamptz - INTERVAL '48 hours') AND ($2::timestamptz + INTERVAL '48 hours')
+       AND COALESCE(c.created_at_source, d.first_fetched_at) BETWEEN ($2::timestamptz - INTERVAL '48 hours') AND ($2::timestamptz + INTERVAL '48 hours')
        AND (c.title ILIKE '%' || $3 || '%' OR c.body_text ILIKE '%' || $3 || '%')
-     ORDER BY c.published_at DESC NULLS LAST
+     ORDER BY published_at DESC NULLS LAST
      LIMIT 3`,
     [vendorId, observedAtIso, token.replace(/[%_\\]/g, "\\$&")],
   );

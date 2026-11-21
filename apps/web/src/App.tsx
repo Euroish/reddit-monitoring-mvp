@@ -34,6 +34,9 @@ const WorkspacePage = lazy(() =>
 const SettingsPage = lazy(() =>
   import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
 );
+const AiReviewQueuePage = lazy(() =>
+  import('./pages/AiReviewQueuePage').then((m) => ({ default: m.AiReviewQueuePage })),
+);
 
 type AppRoute = PublicRoute | '/guide' | WorkbenchRoute;
 
@@ -46,6 +49,7 @@ const WORKBENCH_ROUTES: WorkbenchRoute[] = [
   '/sources',
   '/workspace',
   '/settings',
+  '/admin/queue',
 ];
 
 const AUTH_REQUIRED_ROUTES: WorkbenchRoute[] = [
@@ -53,6 +57,7 @@ const AUTH_REQUIRED_ROUTES: WorkbenchRoute[] = [
   '/sources',
   '/workspace',
   '/settings',
+  '/admin/queue',
 ];
 
 const LEGACY_FEED_PARAMS = ['view', 'date', 'sourceGroup', 'tier', 'language', 'sourceId'] as const;
@@ -551,6 +556,10 @@ export function App() {
 
               {workbenchRoute === '/settings' && actor && (
                 <SettingsPage actor={actor} initialQueryString={loc.search} />
+              )}
+
+              {workbenchRoute === '/admin/queue' && actor && (
+                <AiReviewQueuePage actor={actor} onNavigate={navigate} />
               )}
             </WorkbenchShell>
           </Suspense>
