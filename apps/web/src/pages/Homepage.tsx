@@ -859,8 +859,8 @@ export function Homepage({ isAuthenticated, onOpenAuth, onEnterWorkbench, onGoFe
               <div>
                 <p className="hp-promo-desc">
                   {t(
-                    'Compare topic activity over time and trace each result back to posts, comments, and timestamped observations.',
-                    '按专题查看讨论趋势，沿图表和检索结果回到原帖、评论及带时间的指标观测。',
+                    'View topic activity over time and look up posts, comments, and timestamped observations.',
+                    '按专题查看讨论趋势，在内容检索中核对原帖、评论及带时间的指标观测。',
                   )}
                 </p>
                 <button
