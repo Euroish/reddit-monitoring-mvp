@@ -1,0 +1,38 @@
+services:
+  proxy:
+    ports: !reset []
+    networks:
+      edge:
+        ipv4_address: ${TUNNEL_PROXY_IP:-172.30.254.3}
+    environment:
+      SITE_ADDRESS: http://:8080
+      TLS_CONFIG: ""
+      TUNNEL_CONNECTOR_IP: ${TUNNEL_CONNECTOR_IP:-172.30.254.2}
+  tunnel:
+    image: ${CLOUDFLARED_IMAGE:?Set a verified cloudflared image digest}
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN_FILE: /run/secrets/tunnel_token
+    secrets: [tunnel_token]
+    depends_on: [proxy]
+    networks:
+      edge:
+        ipv4_address: ${TUNNEL_CONNECTOR_IP:-172.30.254.2}
+    mem_limit: 128m
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: ${TUNNEL_EDGE_SUBNET:-172.30.254.0/29}
+secrets:
+  tunnel_token:
+    file: ${CLOUDFLARED_TOKEN_FILE:?Set the path of a protected token file}

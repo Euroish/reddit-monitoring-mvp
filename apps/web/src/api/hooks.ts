@@ -186,6 +186,28 @@ export function useAnnotationQuery(contentId: string | null) {
   });
 }
 
+export function useBrowserSessionsQuery(userId: string) {
+  return useQuery({ queryKey: ["browserSessions", userId], queryFn: apiClient.getBrowserSessions });
+}
+
+export function useDeviceSignOutMutation(userId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }: { id?: string; current: boolean }) => {
+      if (id) await apiClient.revokeBrowserSession(id);
+      else await apiClient.logoutAll();
+    },
+    onSuccess: (_result, { current }) => {
+      if (current) {
+        qc.clear();
+        void qc.invalidateQueries({ queryKey: ["session"] });
+      } else {
+        void qc.invalidateQueries({ queryKey: ["browserSessions", userId] });
+      }
+    },
+  });
+}
+
 export function useMachineKeysQuery(enabled: boolean) {
   return useQuery({
     queryKey: ['accessKeys'],
@@ -198,9 +220,10 @@ export function useMachineKeysQuery(enabled: boolean) {
 export function useLoginMutation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ email, password }: { email: string; password: string }) =>
-      apiClient.login(email, password),
-    onSuccess: () => {
+    mutationFn: ({ email, password, remember }: { email: string; password: string; remember?: boolean }) =>
+      apiClient.login(email, password, remember),
+    onSuccess: (result) => {
+      if (!('user' in result)) return;
       qc.clear();
       qc.invalidateQueries({ queryKey: ['session'] });
     },

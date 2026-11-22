@@ -22,6 +22,8 @@
 
 ### 已有实现与待补体验
 
+安全候选分支在设置页显示浏览器会话、邮箱验证、Viewer 修改密码和已登记管理员的二次认证。登录弹窗按服务端能力开启邮件注册、找回和 MFA。邮件链接跳转至独立确认页，读取后移除 URL 片段，用户确认才消费挑战。
+
 | 能力 | `main` 已实现 | `[V2]` 待交付 |
 | --- | --- | --- |
 | 图表 | `StoryMicrocharts` 原生 SVG；`DailyTrendChart`、`DistributionCards`、`ObservationChart` 按需使用模块化 ECharts | 图表筛选联动、并排对比、覆盖条、分享与回放 |

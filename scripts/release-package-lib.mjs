@@ -49,7 +49,7 @@ const allowed = file => !file.split('/').some(part => part.startsWith('.') || pa
     'package.json', 'package-lock.json', 'README.md', 'AGENTS.md', 'Dockerfile', 'docker-compose.yml', 'deploy/Caddyfile',
     ...DOCUMENTATION_FILES,
     'scripts/database-backup.mjs', 'scripts/database-backup-lib.mjs',
-    'deploy/apify-relay.Dockerfile', 'deploy/apify-relay.compose.yml', 'deploy/apify-relay.mjs',
+    'deploy/tunnel.compose.yml', 'deploy/apify-relay.Dockerfile', 'deploy/apify-relay.compose.yml', 'deploy/apify-relay.mjs',
     'scripts/verify-release.mjs', 'scripts/release-package-lib.mjs',
   ].includes(file));
 

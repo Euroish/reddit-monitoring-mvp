@@ -86,6 +86,12 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 
 ---
 
+### 账户挑战与管理员 MFA（安全候选分支）
+
+迁移 `057` 新增 Access 的 `app_auth_challenge`（+1 表），保存邮箱挑战摘要、用途、到期时间、消费时间与账号凭证版本或邀请码绑定。验证成功前没有账号和会话。邀请消费、账号激活和密码写入在同一短事务完成。
+
+迁移 `058` 新增 `app_auth_mfa` 与 `app_auth_mfa_login`（+2 表），分别存独立密钥加密的 TOTP、恢复码摘要与短期预认证挑战。MFA 校验按账号行序列化，已用 TOTP 时间步和恢复码不可再用。挑战表按时间和归属建索引，邮件额度为全站 100 次/滚动 24 小时、每邮箱 3 次/24 小时且相邻至少 2 分钟，清理每批上限 500。MFA 只在管理员登录、验证码校验或显式轮换时写入。基线为 #19 的 43 表，候选总计 46 表，新增 3 表已按任务授权。正式主干 AI 表预算由前序合入评审收敛。
+
 ## 4. 扩源、调度与单机安全基线
 
 - **L1（主线零费直采）**：`feed`（动态放行公网 HTTPS，支持 OPML 批量导入与 `web_list`/`json_list`）+ `newsnow`（6 个内置 `webBoards` 可扩充 IT之家/少数派等 MIT getter，UTC 1h 桶）+ `bluesky_appview`；`[V2]` Phase C 按需补 `linkedom` + `@mozilla/readability` 提取摘要类 RSS 全文与出站链接。
@@ -100,6 +106,10 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 | SAFE-03 | MUST | 全部 Web 请求经 `src/connectors/web/http.ts`：拒绝非 HTTPS、带凭证/端口/裸 IP URL；DNS `resolve4`/`resolve6` 纳入 `[3000, 15000]ms` 总超时并要求 **`addresses.every(isPublicIp)`**；手动跟跳最多 3 跳且逐跳重验 DNS 与 Socket `lookup` 绑定；传输与解压上限 `2 MiB`。 | SSRF 与重定向单测 |
 
 ---
+
+### AI 安全加固候选
+
+注册表和归档回填借用同一套 HTTPS 公网 DNS 校验和固定连接地址。注册表重定向限于同源，归档重定向限于已批准的厂商域名。注册表和归档响应含解压分别限制为 16 MiB 和 2 MiB。可选 LLM 对管理员配置的 HTTPS 服务发起单次请求，禁止重定向，每进程至多 2 路。访问供应商前在 PostgreSQL 原子占用 UTC 日预算，同一内容的未知结果继续占用预算且不会自动重放。依赖实际父分支的自动同步、影子发布和历史导入开关保留原值。
 
 ## 5. 单机容量与 CI 门禁基线
 

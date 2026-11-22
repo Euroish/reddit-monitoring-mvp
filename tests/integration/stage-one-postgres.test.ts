@@ -128,7 +128,7 @@ test("single trusted proxy hop isolates client rate limits and ignores spoofed l
   const db = await testDatabase();
   t.after(db.close);
   const app = await buildApp({ pool: db.pool, origin, sessionSecret: "stage-fixture-secret".repeat(3),
-    secureCookies: false, trustProxy: 1, rateLimitMax: 2 });
+    secureCookies: false, trustedProxyAddress: "172.20.0.2", rateLimitMax: 2 });
   t.after(() => app.close());
   const call = (forwarded: string) => app.inject({ url: "/v1/auth/session", remoteAddress: "172.20.0.2",
     headers: { "x-forwarded-for": forwarded } });

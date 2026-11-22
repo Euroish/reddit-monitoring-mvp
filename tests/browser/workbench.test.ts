@@ -8,7 +8,8 @@ import path from "node:path";
 import test from "node:test";
 import { chromium } from "playwright";
 import { buildApp } from "../../apps/api/src/app";
-import { bootstrapOwner } from "../../src/modules/access/sql";
+import { bootstrapOwner, tokenHash } from "../../src/modules/access/sql";
+import { provisionMfa } from "../../src/modules/access/mfa-sql";
 import { commitContentBatch, prepareContentBatch } from "../../src/modules/content/sql";
 import { transaction } from "../../src/storage/db";
 import { batchItem } from "../helpers/content-batch-fixtures";
@@ -422,7 +423,21 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await page.getByText("保留这条研究判断").waitFor();
 
   // 10. Settings -> Mint R4 ingest + read machine key
+  const secondBrowser = await fetch(`${address}/v1/auth/login`, {
+    method: "POST", headers: { origin, "content-type": "application/json" },
+    body: JSON.stringify({ email: "owner@localhost", password: "fixture-password-123" }),
+  });
+  assert.equal(secondBrowser.status, 200);
+  const otherCookie = secondBrowser.headers.get("set-cookie")!.split(";")[0];
   await page.getByRole("button", { name: "账户与权限" }).click();
+  const browserSessions = page.getByRole("region", { name: "已登录的浏览器" });
+  await browserSessions.getByText("当前浏览器", { exact: true }).waitFor();
+  page.once("dialog", (dialog) => dialog.accept());
+  await browserSessions.locator(".toggle-line").filter({ has: page.getByText("浏览器", { exact: true }) })
+    .getByRole("button", { name: "退出此浏览器" }).click();
+  await browserSessions.getByText("浏览器已退出。").waitFor();
+  const otherSession = await fetch(`${address}/v1/auth/session`, { headers: { cookie: otherCookie } });
+  assert.equal((await otherSession.json()).user, null);
   await page.getByRole("button", { name: "机器 API 密钥" }).click();
   await page.getByPlaceholder("BI Export Sync").fill("R4 验证密钥");
   await page.getByRole("button", { name: /一键预设: R4 归档推流/ }).click();
@@ -560,6 +575,65 @@ test("browser: private deployment mode (publicRead=false) blocks anonymous acces
   await page.getByText("当前为私有部署模式").waitFor({ state: "detached" });
   await page.getByRole("heading", { name: "内容检索" }).waitFor();
   assert.deepEqual(errors, []);
+});
+
+test("browser: email confirmation consumes the fragment only on submit and administrator login requires its second factor", async (t) => {
+  const db = await testDatabase();
+  t.after(db.close);
+  const password = "fixture-browser-account-password";
+  await bootstrapOwner(db.pool, password, "owner@example.test");
+  const key = Buffer.alloc(32, 17);
+  const userId = (await db.pool.query("SELECT id FROM app_user WHERE email='owner@example.test'")).rows[0].id;
+  await provisionMfa(db.pool, userId, Buffer.alloc(20, 7), key, 0, false);
+  const recoveryCode = "0123456789abcdef01234567";
+  await db.pool.query("UPDATE app_auth_mfa SET recovery_hashes=$1 WHERE user_id=$2", [[tokenHash(recoveryCode)], userId]);
+  const port = await freePort();
+  const origin = `http://127.0.0.1:${port}`;
+  const createApp: typeof buildApp = process.env.TEST_COMPILED === "true"
+    ? require("../../dist/apps/api/src/app.js").buildApp
+    : buildApp;
+  let linkToken = "";
+  const app = await createApp({
+    pool: db.pool, origin, secureCookies: false, publicRead: false,
+    sessionSecret: "browser-account-security-fixture-secret", mfa: { key, required: true },
+    accountEmail: { publicRegistration: true, provider: {
+      siteKey: "fixture",
+      verify: async (proof, action) => proof === "fixture-" + action,
+      send: async (_email, _purpose, token) => { linkToken = token; return true; },
+    } },
+  });
+  const address = await app.listen({ host: "127.0.0.1", port: 0 });
+  t.after(() => app.close());
+  await launchVite(t, address, port, origin);
+  const browser = await chromium.launch({ executablePath: resolveChromiumPath(), headless: true, args: ["--no-sandbox"] });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit", (route) =>
+    route.fulfill({ contentType: "application/javascript", body:
+      "window.turnstile = { render: (_, o) => { o.callback('fixture-' + o.action); return 'widget'; }, remove: () => {} };",
+    }));
+  await page.goto(origin);
+  await page.getByRole("button", { name: "注册账号", exact: true }).click();
+  await page.getByLabel("邮箱地址", { exact: true }).fill("browser-viewer@example.test");
+  await page.getByRole("button", { name: "发送邮件链接" }).click();
+  await page.getByText("如果符合条件，你将收到邮件。", { exact: false }).waitFor();
+  assert.match(linkToken, /^[A-Za-z0-9_-]{43}$/);
+  await page.goto(`${origin}/account/confirm#purpose=register&token=${linkToken}`);
+  await page.getByRole("heading", { name: "确认账户请求" }).waitFor();
+  assert.equal(new URL(page.url()).hash, "");
+  assert.equal((await db.pool.query("SELECT 1 FROM app_user WHERE email='browser-viewer@example.test'")).rowCount, 0);
+  await page.getByLabel(/新密码/).fill(password);
+  await page.getByRole("button", { name: "确认", exact: true }).click();
+  await page.getByText("操作已完成，现在可以登录。", { exact: true }).waitFor();
+  await page.getByRole("link", { name: "返回 SIFTLINE" }).click();
+  await page.getByLabel("工作邮箱").fill("owner@example.test");
+  await page.getByLabel("密码", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "登录工作台" }).click();
+  await page.getByLabel("验证器代码或恢复码").fill(recoveryCode);
+  assert.equal((await page.context().cookies()).some((item) => item.name === "app_session"), false);
+  await page.getByRole("button", { name: "验证并登录" }).click();
+  await page.getByLabel("验证器代码或恢复码").waitFor({ state: "detached" });
+  assert.ok((await page.context().cookies()).some((item) => item.name === "app_session"));
 });
 
 test("AI Release Intelligence Center (/ai timeline, drawer, /admin/queue) and public visual unification", async (t) => {

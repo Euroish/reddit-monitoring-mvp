@@ -42,8 +42,11 @@ test("PG16 forward migration failure rolls back DDL/ledger, 050 drops legacy sch
   const tables = (
     await db.pool.query("SELECT tablename FROM pg_tables WHERE schemaname='public'")
   ).rows.map((r) => r.tablename);
-  // 053 文档中心 doc_page，054 AI 情报 14 表，055 AI 自动化与运维 3 表，056 历史导入与回填 2 表（总计 43 张业务表）
-  assert.equal(tables.length, 43);
+  // 057 adds one account challenge table and 058 adds two MFA tables to the 43-table AI parent.
+  assert.equal(tables.length, 46);
+  assert.ok(tables.includes("app_auth_challenge"));
+  assert.ok(tables.includes("app_auth_mfa"));
+  assert.ok(tables.includes("app_auth_mfa_login"));
   assert.ok(tables.includes("source_provider_credential"));
   assert.ok(tables.includes("plan_collection_policy"));
   assert.ok(tables.includes("user_provider_usage"));

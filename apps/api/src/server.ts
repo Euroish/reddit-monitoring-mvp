@@ -1,5 +1,9 @@
 import { createPool } from "../../../src/storage/db";
-import { bootstrapOwner } from "../../../src/modules/access/sql";
+import { bootstrapOwner, pruneExpiredBrowserSessions } from "../../../src/modules/access/sql";
+import { accountEmailProvider } from "../../../src/modules/access/email-provider";
+import { pruneAccountEmail } from "../../../src/modules/access/email-sql";
+import { mfaConfig } from "../../../src/modules/access/mfa-crypto";
+import { pruneMfaChallenges } from "../../../src/modules/access/mfa-sql";
 import { createCredentialVault } from "../../../src/modules/collection/credentials";
 import { startWorker } from "../../../src/modules/collection/worker";
 import { startAiSyncScheduler } from "../../../src/modules/content/ai-scheduler";
@@ -22,10 +26,16 @@ export async function main() {
     throw new Error(
       "HTTPS APP_ORIGIN required; local testing needs ALLOW_HTTP_DEV=true",
     );
+  const emailProvider = accountEmailProvider(process.env, origin);
+  const mfa = mfaConfig(process.env);
+  if (mfa && new URL(origin).protocol !== "https:") throw new Error("Administrator MFA requires HTTPS");
   const pool = createPool(undefined, 8);
   const workerPool = createPool(undefined, 4);
   try {
     const sessionSecret = process.env.SESSION_SECRET ?? "";
+    const authThrottleKey = process.env.AUTH_THROTTLE_KEY || undefined;
+    if (authThrottleKey && (authThrottleKey.length < 32 || authThrottleKey === sessionSecret))
+      throw new Error("AUTH_THROTTLE_KEY must be independent and at least 32 characters");
     const vault = createCredentialVault(pool, sessionSecret);
     await vault.reload();
     const apifyFetch = createApifyFetch(process.env);
@@ -43,23 +53,33 @@ export async function main() {
         networkEnabled: process.env.SOURCE_NETWORK_ENABLED === "true",
       }),
     ];
+    const strongerPasswords = process.env.AUTH_SCRYPT_V2_WRITE_ENABLED === "true";
     if (process.env.ADMIN_BOOTSTRAP_PASSWORD)
       await bootstrapOwner(
         pool,
         process.env.ADMIN_BOOTSTRAP_PASSWORD,
         process.env.ADMIN_BOOTSTRAP_EMAIL,
+        strongerPasswords,
       );
     const app = await buildApp({
       pool,
       providers,
       credentialVault: vault,
       sessionSecret,
+      strongerPasswords,
+      authThrottleKey,
+      mfa,
       origin,
       secureCookies: !localHttp,
       logger: true,
-      trustProxy: process.env.TRUST_PROXY_HOPS === "1" ? 1 : false,
+      trustedProxyAddress: process.env.TRUST_PROXY_ADDRESS,
       publicRead: process.env.PUBLIC_READ_ENABLED !== "false",
-      publicRegistration: process.env.PUBLIC_REGISTRATION_ENABLED !== "false",
+      publicRegistration: process.env.NODE_ENV !== "production" &&
+        process.env.PUBLIC_REGISTRATION_ENABLED === "true",
+      accountEmail: emailProvider ? {
+        provider: emailProvider,
+        publicRegistration: process.env.PUBLIC_REGISTRATION_ENABLED === "true",
+      } : undefined,
     });
     await app.listen({
       host: process.env.HOST ?? "127.0.0.1",
@@ -67,6 +87,12 @@ export async function main() {
     });
     const worker = startWorker(workerPool, providers, (error) => app.log.error({ err: error }, "Collection worker failed"));
     const stopAiScheduler = startAiSyncScheduler(workerPool);
+    const sessionCleanup = setInterval(() => {
+      void pruneExpiredBrowserSessions(workerPool).catch(() => app.log.error("Browser session cleanup failed"));
+      void pruneAccountEmail(workerPool).catch(() => app.log.error("Account challenge cleanup failed"));
+      void pruneMfaChallenges(workerPool).catch(() => app.log.error("MFA challenge cleanup failed"));
+    }, 60 * 60 * 1000);
+    sessionCleanup.unref();
     let stopping = false;
     const stop = async () => {
       if (stopping) return;
@@ -74,6 +100,7 @@ export async function main() {
       const deadline = setTimeout(() => process.exit(1), 15000);
       deadline.unref();
       stopAiScheduler();
+      clearInterval(sessionCleanup);
       await Promise.all([app.close(), worker.stop()]);
       await Promise.all([pool.end(), workerPool.end()]);
       clearTimeout(deadline);

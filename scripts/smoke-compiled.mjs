@@ -15,9 +15,11 @@ await once(socket, 'listening');
 const port = socket.address().port;
 await new Promise(resolve => socket.close(resolve));
 const origin = `http://127.0.0.1:${port}`;
+const publicOrigin = 'https://compiled-fixture.example.test';
 const server = spawn(process.execPath, ['dist/apps/api/src/server.js'], {
-  env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', APP_ORIGIN: origin,
-    NODE_ENV: 'test', ALLOW_HTTP_DEV: 'true', SOURCE_NETWORK_ENABLED: 'false',
+  env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', APP_ORIGIN: publicOrigin,
+    NODE_ENV: 'production', SOURCE_NETWORK_ENABLED: 'false',
+    PUBLIC_REGISTRATION_ENABLED: 'true',
     SESSION_SECRET: 'compiled-smoke-fixture-secret'.repeat(2),
     ADMIN_BOOTSTRAP_EMAIL: 'compiled@example.test', ADMIN_BOOTSTRAP_PASSWORD: 'compiled-fixture-password' },
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -35,7 +37,10 @@ try {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   assert.ok(ready, logs);
-  const response = await fetch(`${origin}/v1/auth/login`, { method: 'POST', headers: { origin, 'content-type': 'application/json' },
+  const session = await fetch(`${origin}/v1/auth/session`);
+  assert.equal(session.headers.get('cache-control'), 'no-store');
+  assert.equal((await session.json()).publicRegistration, false);
+  const response = await fetch(`${origin}/v1/auth/login`, { method: 'POST', headers: { origin: publicOrigin, 'content-type': 'application/json' },
     body: JSON.stringify({ email: 'compiled@example.test', password: 'compiled-fixture-password' }) });
   assert.equal(response.status, 200, await response.clone().text());
   const cookie = response.headers.get('set-cookie').split(';')[0];

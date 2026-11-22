@@ -20,11 +20,14 @@ import { useLogo } from './brandContext';
 import { useTheme } from './themeContext';
 import { EChartBox } from './charts/EChartBox';
 import { useChartColors } from './charts/chartUtils';
+import { AccountEmailStart } from './AccountEmail';
+import { MfaLoginForm } from './AdministratorMfa';
 
 interface AuthModalProps {
   initialTab?: 'login' | 'register';
   initialQueryContext?: string;
   publicRegistration?: boolean;
+  turnstileSiteKey?: string;
   reason?: string;
   inline?: boolean;
   onClose?: () => void;
@@ -62,6 +65,7 @@ export function AuthModal({
   initialTab = 'login',
   initialQueryContext,
   publicRegistration = false,
+  turnstileSiteKey,
   reason,
   inline = false,
   onClose,
@@ -78,10 +82,12 @@ export function AuthModal({
   const [confirmPw, setConfirmPw] = useState('');
   const [invite, setInvite] = useState('');
   const [showPw, setShowPw] = useState(false);
-  const [remember, setRemember] = useState(true);
+  const [remember, setRemember] = useState(false);
   const [previewRange, setPreviewRange] = useState<'7' | '30' | '90'>('30');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [recover, setRecover] = useState(false);
+  const [mfaChallenge, setMfaChallenge] = useState('');
 
   const loginMutation = useLoginMutation();
   const registerMutation = useRegisterMutation();
@@ -112,7 +118,12 @@ export function AuthModal({
       return;
     }
     try {
-      await loginMutation.mutateAsync({ email: cleaned, password });
+      const result = await loginMutation.mutateAsync({ email: cleaned, password, remember });
+      if ('mfaRequired' in result) {
+        setPassword('');
+        setMfaChallenge(result.challenge);
+        return;
+      }
       onSuccess();
     } catch (err) {
       setError(formatApiError(err));
@@ -279,6 +290,8 @@ export function AuthModal({
               className="switch-link"
               onClick={() => {
                 setTab(tab === 'login' ? 'register' : 'login');
+                setRecover(false);
+                setMfaChallenge('');
                 setError(null);
                 setNotice(null);
               }}
@@ -340,7 +353,16 @@ export function AuthModal({
               </div>
             )}
 
-              <form className="auth-form" onSubmit={tab === 'login' ? handleLogin : handleRegister} noValidate>
+              {mfaChallenge ? <MfaLoginForm challenge={mfaChallenge} onSuccess={onSuccess} onCancel={() => setMfaChallenge('')} />
+                : turnstileSiteKey && (tab === 'register' || recover) ? (
+                <>
+                  <AccountEmailStart key={tab} siteKey={turnstileSiteKey} purpose={tab === 'register' ? 'register' : 'reset'}
+                    requireInvite={!publicRegistration} />
+                  {recover && <button type="button" className="auth-link" onClick={() => setRecover(false)}>
+                    {t('Back to sign in', '返回登录')}
+                  </button>}
+                </>
+              ) : <form className="auth-form" onSubmit={tab === 'login' ? handleLogin : handleRegister} noValidate>
                 {error && (
                   <div className="auth-alert">
                     <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />
@@ -439,12 +461,15 @@ export function AuthModal({
                   <div className="auth-row">
                     <label className="auth-check">
                       <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-                      {t('Keep signed in 7 days', '保持登录 7 天')}
+                      {t('Keep me signed in on this device', '在此设备上保持登录')}
                     </label>
                     <button
                       type="button"
                       className="auth-link"
-                      onClick={() => setNotice(t('Please contact your workspace owner to issue a fresh invite token.', '请联系工作区 Owner 重置密码或重新分发邀请码。'))}
+                      onClick={() => {
+                        if (turnstileSiteKey) setRecover(true);
+                        else setNotice(t('Contact your workspace owner for account recovery.', '请联系工作区 Owner 恢复账户。'));
+                      }}
                     >
                       {t('Forgot password?', '忘记密码？')}
                     </button>
@@ -467,7 +492,7 @@ export function AuthModal({
                   </span>
                   <ArrowRight size={15} />
                 </button>
-              </form>
+              </form>}
 
               {tab === 'login' && (
                 <>
