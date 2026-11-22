@@ -124,7 +124,6 @@ export function SourcesPage({
     setIncludeComments(false);
     setRefreshIdsRaw('');
     setIngestDraft(undefined);
-    setCollectWindow(1);
   }
 
   function selectSource(id: string, launch = false) {

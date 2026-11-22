@@ -15,6 +15,15 @@ const hostCooldownMs = 1500;
 const cleanupIntervalMs = 3600_000;
 const jobLeaseSeconds = 180; // Allow the supported 120s provider timeout plus local work.
 
+function formatCollectionError(error: unknown): string {
+  if (!(error instanceof Error)) return "Collection failed";
+  const cause = (error as { cause?: unknown }).cause;
+  const code = cause && typeof cause === "object" && "code" in cause && typeof (cause as { code?: unknown }).code === "string"
+    ? (cause as { code: string }).code : null;
+  return code && /^[A-Z0-9_]{2,40}$/.test(code) && !error.message.includes(code)
+    ? `${error.message} (${code})` : error.message;
+}
+
 export async function workOnce(
   pool: Pool, providers: ContentProvider[], signal?: AbortSignal, hostCooldown?: Map<string, number>,
 ) {
@@ -356,7 +365,7 @@ export async function workOnce(
       }
       const unknown = phase === "unknown" ||
         (provider?.capability.automaticRequestReplay === false && phase === "starting" && !uncharged);
-      const errorMessage = error instanceof Error ? error.message : "Collection failed";
+      const errorMessage = formatCollectionError(error);
       await client.query(
         `UPDATE source_collection_job SET status='failed',error=$3,provider_state=provider_state||$4::jsonb,
           finished_at=NOW(),lease_token=NULL,lease_until=NULL,request_duration_ms=request_duration_ms+$5
