@@ -1,0 +1,1155 @@
+[
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-anthropic-claude-fable-5.2",
+    "url": "https://www.anthropic.com/news",
+    "vendorSlug": "anthropic",
+    "kind": "official",
+    "title": "Introducing Claude Fable 5.2",
+    "articlePublishedOn": "2026-11-09",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-anthropic-claude-haiku-4.5",
+    "url": "https://www.anthropic.com/news/introducing-claude-haiku-4-5",
+    "vendorSlug": "anthropic",
+    "kind": "official",
+    "title": "Introducing Claude Haiku 4.5",
+    "articlePublishedOn": "2025-10-15",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-anthropic-claude-haiku-5.5",
+    "url": "https://www.anthropic.com/news",
+    "vendorSlug": "anthropic",
+    "kind": "official",
+    "title": "Introducing Claude Haiku 5.5",
+    "articlePublishedOn": "2026-10-07",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-anthropic-claude-opus-4",
+    "url": "https://www.anthropic.com/news/introducing-claude-4",
+    "vendorSlug": "anthropic",
+    "kind": "official",
+    "title": "Introducing Claude 4 (Claude Opus 4)",
+    "articlePublishedOn": "2025-05-22",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-anthropic-claude-opus-4.5",
+    "url": "https://www.anthropic.com/news/introducing-claude-opus-4-5",
+    "vendorSlug": "anthropic",
+    "kind": "official",
+    "title": "Introducing Claude Opus 4.5",
+    "articlePublishedOn": "2025-11-24",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-anthropic-claude-opus-4.6",
+    "url": "https://www.anthropic.com/news/claude-opus-4-6",
+    "vendorSlug": "anthropic",
+    "kind": "official",
+    "title": "Claude Opus 4.6",
+    "articlePublishedOn": "2026-02-05",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-anthropic-claude-opus-4.7",
+    "url": "https://www.anthropic.com/news/introducing-claude-opus-4-7",
+    "vendorSlug": "anthropic",
+    "kind": "official",
+    "title": "Introducing Claude Opus 4.7",
+    "articlePublishedOn": "2026-04-16",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-anthropic-claude-opus-5.5",
+    "url": "https://www.anthropic.com/news",
+    "vendorSlug": "anthropic",
+    "kind": "official",
+    "title": "Introducing Claude Opus 5.5",
+    "articlePublishedOn": "2026-09-22",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-anthropic-claude-sonnet-4",
+    "url": "https://www.anthropic.com/news/introducing-claude-4",
+    "vendorSlug": "anthropic",
+    "kind": "official",
+    "title": "Introducing Claude 4 (Claude Sonnet 4)",
+    "articlePublishedOn": "2025-05-22",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-anthropic-claude-sonnet-4.5",
+    "url": "https://www.anthropic.com/news/introducing-claude-sonnet-4-5",
+    "vendorSlug": "anthropic",
+    "kind": "official",
+    "title": "Introducing Claude Sonnet 4.5",
+    "articlePublishedOn": "2025-09-29",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-anthropic-claude-sonnet-4.6",
+    "url": "https://www.anthropic.com/news/introducing-claude-sonnet-4-6",
+    "vendorSlug": "anthropic",
+    "kind": "official",
+    "title": "Introducing Claude Sonnet 4.6",
+    "articlePublishedOn": "2026-02-17",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-anthropic-claude-sonnet-5.5",
+    "url": "https://www.anthropic.com/news",
+    "vendorSlug": "anthropic",
+    "kind": "official",
+    "title": "Introducing Claude Sonnet 5.5",
+    "articlePublishedOn": "2026-09-28",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-deepseek-deepseek-r1-0528",
+    "url": "https://api-docs.deepseek.com/news/news250528/",
+    "vendorSlug": "deepseek",
+    "kind": "changelog",
+    "title": "DeepSeek-R1-0528 Release",
+    "articlePublishedOn": "2025-05-28",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-deepseek-deepseek-v3.1",
+    "url": "https://api-docs.deepseek.com/news/news250821/",
+    "vendorSlug": "deepseek",
+    "kind": "changelog",
+    "title": "DeepSeek-V3.1 Release",
+    "articlePublishedOn": "2025-08-21",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-deepseek-deepseek-v3.1-terminus",
+    "url": "https://api-docs.deepseek.com/news/news250922/",
+    "vendorSlug": "deepseek",
+    "kind": "changelog",
+    "title": "DeepSeek-V3.1-Terminus",
+    "articlePublishedOn": "2025-09-22",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-deepseek-deepseek-v3.2",
+    "url": "https://api-docs.deepseek.com/news/news251201/",
+    "vendorSlug": "deepseek",
+    "kind": "changelog",
+    "title": "DeepSeek-V3.2 Release",
+    "articlePublishedOn": "2025-12-01",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-deepseek-deepseek-v3.2-exp",
+    "url": "https://api-docs.deepseek.com/news/news250929/",
+    "vendorSlug": "deepseek",
+    "kind": "changelog",
+    "title": "Introducing DeepSeek-V3.2-Exp",
+    "articlePublishedOn": "2025-09-29",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-deepseek-deepseek-v4-flash-vision-exp",
+    "url": "https://api-docs.deepseek.com/news/news260821/",
+    "vendorSlug": "deepseek",
+    "kind": "changelog",
+    "title": "DeepSeek-V4-Flash-Vision-Exp Release: Multimodal API Now Live",
+    "articlePublishedOn": "2026-08-21",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-deepseek-deepseek-v4-preview",
+    "url": "https://api-docs.deepseek.com/news/news260424/",
+    "vendorSlug": "deepseek",
+    "kind": "changelog",
+    "title": "DeepSeek V4 Preview Release",
+    "articlePublishedOn": "2026-04-24",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-deepseek-deepseek-v4-pro",
+    "url": "https://api-docs.deepseek.com/news/news260813/",
+    "vendorSlug": "deepseek",
+    "kind": "changelog",
+    "title": "DeepSeek-V4-Pro GA Release",
+    "articlePublishedOn": "2026-08-13",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-deepseek-deepseek-v4.1-flash",
+    "url": "https://api-docs.deepseek.com/news/news260910/",
+    "vendorSlug": "deepseek",
+    "kind": "changelog",
+    "title": "DeepSeek-V4.1-Flash: Smarter, Faster, More Efficient",
+    "articlePublishedOn": "2026-09-10",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-deepseek-deepseek-v4.1-flash-1017",
+    "url": "https://api-docs.deepseek.com/news/news261017/",
+    "vendorSlug": "deepseek",
+    "kind": "changelog",
+    "title": "DeepSeek-V4.1-Flash-1017: Wish-Driven Programming Made Real",
+    "articlePublishedOn": "2026-10-17",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-google-gemini-2.5-flash-lite",
+    "url": "https://blog.google/technology/developers/gemini-2-5-family-expansion/",
+    "vendorSlug": "google",
+    "kind": "official",
+    "title": "Gemini 2.5 family GA and Flash-Lite preview",
+    "articlePublishedOn": "2025-06-17",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-google-gemini-2.5-pro",
+    "url": "https://blog.google/technology/ai/gemini-2-5-updates-io/",
+    "vendorSlug": "google",
+    "kind": "official",
+    "title": "Gemini 2.5: Our most intelligent models are getting even better",
+    "articlePublishedOn": "2025-05-20",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-google-gemini-3-dev",
+    "url": "https://blog.google/technology/developers/gemini-3-for-developers/",
+    "vendorSlug": "google",
+    "kind": "official",
+    "title": "Gemini 3 for developers: New reasoning, agentic capabilities",
+    "articlePublishedOn": "2025-11-18",
+    "evidenceFor": [
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-google-gemini-3-flash",
+    "url": "https://blog.google/technology/ai/gemini-3-flash/",
+    "vendorSlug": "google",
+    "kind": "official",
+    "title": "Gemini 3 Flash: frontier intelligence built for speed",
+    "articlePublishedOn": "2025-12-17",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-google-gemini-3-pro",
+    "url": "https://blog.google/technology/ai/introducing-gemini-3/",
+    "vendorSlug": "google",
+    "kind": "official",
+    "title": "Introducing Gemini 3",
+    "articlePublishedOn": "2025-11-18",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-google-gemini-3.5-flash",
+    "url": "https://blog.google/technology/ai/gemini-3-5/",
+    "vendorSlug": "google",
+    "kind": "official",
+    "title": "Gemini 3.5: frontier intelligence with action",
+    "articlePublishedOn": "2026-05-19",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-google-gemini-3.6-flash",
+    "url": "https://blog.google/technology/developers/gemini-3-6-flash-3-5-flash-lite-cyber/",
+    "vendorSlug": "google",
+    "kind": "official",
+    "title": "Introducing Gemini 3.6 Flash, 3.5 Flash-Lite, and 3.5 Flash Cyber",
+    "articlePublishedOn": "2026-07-21",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-google-gemini-3.8-flash-tts",
+    "url": "https://blog.google/technology/ai/gemini-3-8-tts/",
+    "vendorSlug": "google",
+    "kind": "official",
+    "title": "Gemini 3.8 text-to-speech says hello",
+    "articlePublishedOn": "2026-09-23",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-google-gemini-3.8-live",
+    "url": "https://blog.google/products/gemini/gemini-3-8-live/",
+    "vendorSlug": "google",
+    "kind": "official",
+    "title": "Introducing Gemini 3.8 Live and 3.8 Live Extended Thinking",
+    "articlePublishedOn": "2026-09-15",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-google-gemini-4-argon",
+    "url": "https://blog.google/technology/ai/",
+    "vendorSlug": "google",
+    "kind": "official",
+    "title": "Gemini 4 Argon general availability",
+    "articlePublishedOn": "2026-10-13",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-google-gemini-4-carbon",
+    "url": "https://blog.google/technology/ai/",
+    "vendorSlug": "google",
+    "kind": "official",
+    "title": "Gemini 4 Carbon broad release",
+    "articlePublishedOn": "2026-11-10",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-google-gemini-4-hydrogen",
+    "url": "https://blog.google/technology/ai/",
+    "vendorSlug": "google",
+    "kind": "official",
+    "title": "Gemini 4 Hydrogen release",
+    "articlePublishedOn": "2026-11-12",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-google-gemini-4-neon",
+    "url": "https://blog.google/technology/ai/",
+    "vendorSlug": "google",
+    "kind": "official",
+    "title": "Gemini 4 Neon release",
+    "articlePublishedOn": "2026-11-18",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-google-translategemma",
+    "url": "https://blog.google/technology/developers/translategemma/",
+    "vendorSlug": "google",
+    "kind": "official",
+    "title": "TranslateGemma: A new suite of open translation models",
+    "articlePublishedOn": "2026-01-15",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-meta-llama-4-maverick",
+    "url": "https://ai.meta.com/blog/llama-4-multimodal-intelligence/",
+    "vendorSlug": "meta",
+    "kind": "official",
+    "title": "The Llama 4 herd: Natively multimodal AI",
+    "articlePublishedOn": "2025-04-05",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-meta-llama-4-scout",
+    "url": "https://ai.meta.com/blog/llama-4-multimodal-intelligence/",
+    "vendorSlug": "meta",
+    "kind": "official",
+    "title": "The Llama 4 herd: Natively multimodal AI",
+    "articlePublishedOn": "2025-04-05",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-mistral-devstral-2",
+    "url": "https://mistral.ai/news/devstral-2-vibe-cli/",
+    "vendorSlug": "mistral",
+    "kind": "official",
+    "title": "Introducing Devstral 2 and Mistral Vibe CLI",
+    "articlePublishedOn": "2025-12-09",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-mistral-magistral",
+    "url": "https://mistral.ai/news/magistral/",
+    "vendorSlug": "mistral",
+    "kind": "official",
+    "title": "Magistral: Mistral's first reasoning model",
+    "articlePublishedOn": "2025-06-10",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-mistral-mistral-large-4",
+    "url": "https://mistral.ai/news",
+    "vendorSlug": "mistral",
+    "kind": "official",
+    "title": "Mistral Large 4 Open Weights Release",
+    "articlePublishedOn": "2026-10-29",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-mistral-mistral-medium-3",
+    "url": "https://mistral.ai/news/mistral-medium-3/",
+    "vendorSlug": "mistral",
+    "kind": "official",
+    "title": "Mistral Medium 3",
+    "articlePublishedOn": "2025-05-07",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-mistral-mistral-small-4",
+    "url": "https://mistral.ai/news/mistral-small-4/",
+    "vendorSlug": "mistral",
+    "kind": "official",
+    "title": "Mistral Small 4",
+    "articlePublishedOn": "2026-03-16",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-mistral-voxtral-transcribe-2",
+    "url": "https://mistral.ai/news/voxtral-transcribe-2/",
+    "vendorSlug": "mistral",
+    "kind": "official",
+    "title": "Voxtral Transcribe 2 & Realtime",
+    "articlePublishedOn": "2026-02-04",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-moonshot-kimi-k2",
+    "url": "https://moonshotai.github.io/Kimi-K2/",
+    "vendorSlug": "moonshot",
+    "kind": "official",
+    "title": "Kimi K2: Open Agentic Intelligence",
+    "articlePublishedOn": "2025-07-11",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-moonshot-kimi-k2-thinking",
+    "url": "https://platform.moonshot.ai",
+    "vendorSlug": "moonshot",
+    "kind": "official",
+    "title": "Kimi K2 Thinking on Moonshot Open Platform",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-moonshot-kimi-k2.5",
+    "url": "https://www.kimi.com/blog",
+    "vendorSlug": "moonshot",
+    "kind": "official",
+    "title": "Kimi K2.5: Native Multimodal & Agent Swarm",
+    "articlePublishedOn": "2026-01-27",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-moonshot-kimi-k2.6",
+    "url": "https://platform.moonshot.ai",
+    "vendorSlug": "moonshot",
+    "kind": "official",
+    "title": "Kimi K2.6 Release",
+    "articlePublishedOn": "2026-04-20",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-moonshot-kimi-k2.7-code",
+    "url": "https://platform.moonshot.ai",
+    "vendorSlug": "moonshot",
+    "kind": "official",
+    "title": "Kimi K2.7 Code Release",
+    "articlePublishedOn": "2026-06-12",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-moonshot-kimi-k3",
+    "url": "https://www.kimi.com/blog",
+    "vendorSlug": "moonshot",
+    "kind": "official",
+    "title": "Kimi K3 Release",
+    "articlePublishedOn": "2026-07-16",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-moonshot-kimi-k3.1-pro",
+    "url": "https://platform.moonshot.ai",
+    "vendorSlug": "moonshot",
+    "kind": "official",
+    "title": "Kimi K3.1 Pro Release",
+    "articlePublishedOn": "2026-10-23",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-openai-gpt-5",
+    "url": "https://openai.com/index/introducing-gpt-5/",
+    "vendorSlug": "openai",
+    "kind": "official",
+    "title": "Introducing GPT-5",
+    "articlePublishedOn": "2025-08-07",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-openai-gpt-5.1",
+    "url": "https://openai.com/index/gpt-5-1-a-smarter-more-conversational-chatgpt/",
+    "vendorSlug": "openai",
+    "kind": "official",
+    "title": "GPT-5.1: A smarter, more conversational ChatGPT",
+    "articlePublishedOn": "2025-11-12",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-openai-gpt-5.1-api",
+    "url": "https://openai.com/index/introducing-gpt-5-1-for-developers/",
+    "vendorSlug": "openai",
+    "kind": "official",
+    "title": "Introducing GPT-5.1 for developers",
+    "articlePublishedOn": "2025-11-13",
+    "evidenceFor": [
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-openai-gpt-5.2",
+    "url": "https://openai.com/index/introducing-gpt-5-2/",
+    "vendorSlug": "openai",
+    "kind": "official",
+    "title": "Introducing GPT-5.2",
+    "articlePublishedOn": "2025-12-11",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-openai-gpt-5.3-codex",
+    "url": "https://openai.com/index/introducing-gpt-5-3-codex/",
+    "vendorSlug": "openai",
+    "kind": "official",
+    "title": "Introducing GPT-5.3-Codex",
+    "articlePublishedOn": "2026-02-05",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-openai-gpt-5.3-instant",
+    "url": "https://openai.com/index/gpt-5-3-instant-smoother-more-useful-everyday-conversations/",
+    "vendorSlug": "openai",
+    "kind": "official",
+    "title": "GPT-5.3 Instant: Smoother, more useful everyday conversations",
+    "articlePublishedOn": "2026-03-03",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-openai-gpt-5.4",
+    "url": "https://openai.com/index/introducing-gpt-5-4/",
+    "vendorSlug": "openai",
+    "kind": "official",
+    "title": "Introducing GPT-5.4",
+    "articlePublishedOn": "2026-03-05",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-openai-gpt-5.5",
+    "url": "https://openai.com/index/introducing-gpt-5-5/",
+    "vendorSlug": "openai",
+    "kind": "official",
+    "title": "Introducing GPT-5.5",
+    "articlePublishedOn": "2026-04-23",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-openai-gpt-5.6-sol",
+    "url": "https://openai.com/index/gpt-5-6-frontier-intelligence-that-scales-with-your-ambition/",
+    "vendorSlug": "openai",
+    "kind": "official",
+    "title": "GPT-5.6: Frontier intelligence that scales with your ambition",
+    "articlePublishedOn": "2026-07-09",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-openai-gpt-6-astra",
+    "url": "https://openai.com/index/",
+    "vendorSlug": "openai",
+    "kind": "official",
+    "title": "OpenAI GPT-6 Astra public release",
+    "articlePublishedOn": "2026-09-04",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-openai-gpt-6-sol",
+    "url": "https://openai.com/index/",
+    "vendorSlug": "openai",
+    "kind": "official",
+    "title": "OpenAI GPT-6 Sol release",
+    "articlePublishedOn": "2026-09-22",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-openai-gpt-6.1-sol",
+    "url": "https://openai.com/index/",
+    "vendorSlug": "openai",
+    "kind": "official",
+    "title": "OpenAI GPT-6.1 Sol DevDay release",
+    "articlePublishedOn": "2026-09-29",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-openai-gpt-6.2-astra",
+    "url": "https://openai.com/index/",
+    "vendorSlug": "openai",
+    "kind": "official",
+    "title": "OpenAI GPT-6.2 Astra release",
+    "articlePublishedOn": "2026-11-17",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-openai-gpt-6.2-sol",
+    "url": "https://openai.com/index/",
+    "vendorSlug": "openai",
+    "kind": "official",
+    "title": "OpenAI GPT-6.2 Sol release",
+    "articlePublishedOn": "2026-11-17",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-openai-o3-pro",
+    "url": "https://openai.com/index/o3-pro/",
+    "vendorSlug": "openai",
+    "kind": "official",
+    "title": "OpenAI o3-pro available in ChatGPT and API",
+    "articlePublishedOn": "2025-06-10",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-qwen-qwen3-coder",
+    "url": "https://qwen.ai/blog/qwen3-coder/",
+    "vendorSlug": "qwen",
+    "kind": "official",
+    "title": "Qwen3-Coder: Agentic Coding in the World",
+    "articlePublishedOn": "2025-07-22",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-qwen-qwen3-coder-next",
+    "url": "https://qwen.ai/blog/",
+    "vendorSlug": "qwen",
+    "kind": "official",
+    "title": "Qwen3-Coder-Next: Pushing Small Hybrid Models on Agentic Coding",
+    "articlePublishedOn": "2026-02-02",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-qwen-qwen3-max",
+    "url": "https://qwen.ai/blog/qwen3-max/",
+    "vendorSlug": "qwen",
+    "kind": "official",
+    "title": "Qwen3-Max",
+    "articlePublishedOn": "2025-09-23",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-qwen-qwen3-max-thinking",
+    "url": "https://qwen.ai/blog/",
+    "vendorSlug": "qwen",
+    "kind": "official",
+    "title": "Pushing Qwen3-Max-Thinking Beyond its Limits",
+    "articlePublishedOn": "2026-01-25",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-qwen-qwen3.5",
+    "url": "https://qwen.ai/blog/qwen3.5/",
+    "vendorSlug": "qwen",
+    "kind": "official",
+    "title": "Qwen3.5: Towards Native Multimodal Agents",
+    "articlePublishedOn": "2026-02-15",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-qwen-qwen3.6-27b",
+    "url": "https://qwen.ai/blog/qwen3.6-27b/",
+    "vendorSlug": "qwen",
+    "kind": "official",
+    "title": "Qwen3.6-27B: Flagship-Level Coding in a 27B Dense Model",
+    "articlePublishedOn": "2026-04-21",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-qwen-qwen3.6-35b-a3b",
+    "url": "https://qwen.ai/blog/qwen3.6-35b-a3b/",
+    "vendorSlug": "qwen",
+    "kind": "official",
+    "title": "Qwen3.6-35B-A3B: Agentic Coding Power, Now Open to All",
+    "articlePublishedOn": "2026-04-14",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-qwen-qwen3.6-plus",
+    "url": "https://qwen.ai/blog/qwen3.6-plus/",
+    "vendorSlug": "qwen",
+    "kind": "official",
+    "title": "Qwen3.6-Plus: Towards Real World Agents",
+    "articlePublishedOn": "2026-04-01",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-qwen-qwen4-max",
+    "url": "https://qwen.ai/blog/",
+    "vendorSlug": "qwen",
+    "kind": "official",
+    "title": "Introducing Qwen4-Max",
+    "articlePublishedOn": "2026-11-16",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-xai-grok-4",
+    "url": "https://x.ai/news/grok-4",
+    "vendorSlug": "xai",
+    "kind": "official",
+    "title": "Grok 4",
+    "articlePublishedOn": "2025-07-09",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-xai-grok-4.1",
+    "url": "https://x.ai/news/grok-4-1",
+    "vendorSlug": "xai",
+    "kind": "official",
+    "title": "Grok 4.1",
+    "articlePublishedOn": "2025-11-17",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-xai-grok-4.5",
+    "url": "https://x.ai/news/grok-4-5",
+    "vendorSlug": "xai",
+    "kind": "official",
+    "title": "Grok 4.5",
+    "articlePublishedOn": "2026-07-16",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-xai-grok-4.6",
+    "url": "https://x.ai/news/grok-4-6",
+    "vendorSlug": "xai",
+    "kind": "official",
+    "title": "Grok 4.6",
+    "articlePublishedOn": "2026-08-12",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-xai-grok-4.7",
+    "url": "https://x.ai/news",
+    "vendorSlug": "xai",
+    "kind": "official",
+    "title": "Grok 4.7",
+    "articlePublishedOn": "2026-09-21",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-xai-grok-build-0.1",
+    "url": "https://x.ai/news",
+    "vendorSlug": "xai",
+    "kind": "official",
+    "title": "Grok Build 0.1 Public Beta",
+    "articlePublishedOn": "2026-05-29",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-xai-grok-voice-3.0",
+    "url": "https://x.ai/news",
+    "vendorSlug": "xai",
+    "kind": "official",
+    "title": "Grok Voice 3.0",
+    "articlePublishedOn": "2026-10-14",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-zai-glm-4.5",
+    "url": "https://z.ai/blog",
+    "vendorSlug": "zai",
+    "kind": "official",
+    "title": "GLM-4.5: Reasoning, Coding, and Agentic Abilities",
+    "articlePublishedOn": "2025-07-28",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-zai-glm-4.6",
+    "url": "https://z.ai/blog",
+    "vendorSlug": "zai",
+    "kind": "official",
+    "title": "GLM-4.6: Advanced Agentic, Reasoning and Coding Capabilities",
+    "articlePublishedOn": "2025-09-30",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-zai-glm-4.7",
+    "url": "https://z.ai/blog",
+    "vendorSlug": "zai",
+    "kind": "official",
+    "title": "GLM-4.7: Advancing the Coding Capability",
+    "articlePublishedOn": "2025-12-22",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-zai-glm-5",
+    "url": "https://z.ai/blog",
+    "vendorSlug": "zai",
+    "kind": "official",
+    "title": "GLM-5: From Vibe Coding to Agentic Engineering",
+    "articlePublishedOn": "2026-02-12",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-zai-glm-5.1",
+    "url": "https://z.ai/blog",
+    "vendorSlug": "zai",
+    "kind": "official",
+    "title": "GLM-5.1: Towards Long-Horizon Tasks",
+    "articlePublishedOn": "2026-04-07",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-zai-glm-5.2",
+    "url": "https://z.ai/blog",
+    "vendorSlug": "zai",
+    "kind": "official",
+    "title": "GLM-5.2: Built for Long-Horizon Tasks",
+    "articlePublishedOn": "2026-06-16",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  },
+  {
+    "verifiedAt": "2026-11-22T01:30:00Z",
+    "referenceId": "ref-zai-glm-5.3",
+    "url": "https://z.ai/blog",
+    "vendorSlug": "zai",
+    "kind": "official",
+    "title": "GLM-5.3 & GLM-5.3-Flash Release",
+    "evidenceFor": [
+      "model",
+      "release"
+    ]
+  }
+]

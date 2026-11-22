@@ -20,6 +20,7 @@ import {
 import { policyRoutes } from "../../../src/modules/collection/policy";
 import { contentRoutes } from "../../../src/modules/content/routes";
 import { docsRoutes } from "../../../src/modules/content/docs";
+import { aiRoutes } from "../../../src/modules/content/ai-routes";
 import { workspaceRoutes } from "../../../src/modules/workspace/routes";
 import { projectRoutes } from "../../../src/modules/projects/routes";
 import { fail } from "../../../src/storage/db";
@@ -53,6 +54,14 @@ const PUBLIC_READ_ROUTES = new Set([
   "/v1/content/:id",
   "/v1/content/:id/thread",
   ...DOC_READ_ROUTES,
+  "/v1/ai/vendors",
+  "/v1/ai/models",
+  "/v1/ai/models/:id",
+  "/v1/ai/events",
+  "/v1/ai/events/:id",
+  "/v1/ai/updates",
+  "/v1/ai/rankings",
+  "/v1/ai/rankings/:id",
 ]);
 export async function buildApp(options: {
   pool: Pool;
@@ -246,6 +255,7 @@ export async function buildApp(options: {
                         : null;
       if (
         route.startsWith("/v1/access/") ||
+        route.startsWith("/v1/admin/") ||
         route.startsWith("/v1/workspace/") ||
         route.startsWith("/v1/sources/credentials") ||
         route.startsWith("/v1/quotas") ||
@@ -278,6 +288,7 @@ export async function buildApp(options: {
   });
   await contentRoutes(app, options.pool, shutdown.signal);
   await docsRoutes(app, options.pool);
+  await aiRoutes(app, options.pool);
   await projectRoutes(app, options.pool, providers);
   await workspaceRoutes(app, options.pool);
   app.get("/v1/openapi.json", async () => app.swagger());

@@ -52,7 +52,7 @@ import { useTheme } from '../components/themeContext';
 import { type Actor, type CapabilitiesResponse, validateSearchTerm } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
 
-export type WorkbenchRoute = '/app/feed' | '/projects' | '/content' | '/sources' | '/workspace' | '/settings';
+export type WorkbenchRoute = '/app/feed' | '/projects' | '/content' | '/sources' | '/workspace' | '/settings' | '/admin/queue';
 
 interface WorkbenchShellProps {
   actor: Actor | null;
@@ -248,13 +248,16 @@ export function WorkbenchShell({
       { group: t('Navigate', '页面跳转'), label: t('Sources & Collection Jobs', '来源与采集任务'), kbd: 'G S', run: () => navigateAndClose('/sources') },
       { group: t('Navigate', '页面跳转'), label: t('Saved Queries & Annotations', '个人工作区'), kbd: 'G W', run: () => navigateAndClose('/workspace') },
       { group: t('Navigate', '页面跳转'), label: t('Account, Invites & Keys', '账户与机器密钥'), kbd: 'G A', run: () => navigateAndClose('/settings') },
+      ...(canWrite
+        ? [{ group: t('Navigate', '页面跳转'), label: t('AI Release Review Queue', 'AI 发布审核队列'), kbd: 'G Q', run: () => navigateAndClose('/admin/queue') }]
+        : []),
       { group: t('Actions', '快捷操作'), label: t('Filter Pain Signals Only', '一键筛选痛点讨论'), kbd: '⚡', run: () => navigateAndClose('/content?signal=pain') },
       { group: t('Actions', '快捷操作'), label: t('Open Color Skin Studio (17 Presets)', '切换界面皮肤色调 (17 套预设)'), kbd: '🎨', run: () => setStudioOpen(true) },
       { group: t('Actions', '快捷操作'), label: t('Switch Brand Logo Mark (30 Concepts)', '切换品牌标志图标 (30 选 1)'), kbd: '✦', run: () => setSwitcherOpen(true) },
       { group: t('Actions', '快捷操作'), label: t('Switch Language (EN / 中文)', '切换界面语言 (EN / 中文)'), kbd: '🌐', run: () => setLang(lang === 'en' ? 'zh' : 'en') },
       { group: t('Actions', '快捷操作'), label: t('Keyboard Shortcuts', '查看键盘快捷键'), kbd: '?', run: () => setShortcutsOpen(true) },
     ],
-    [lang, t, navigateAndClose, setLang, setStudioOpen, setSwitcherOpen],
+    [canWrite, lang, t, navigateAndClose, setLang, setStudioOpen, setSwitcherOpen],
   );
 
   const filteredCommands = paletteCommands.filter(
@@ -324,6 +327,17 @@ export function WorkbenchShell({
           >
             <Bookmark size={18} />
           </button>
+          {canWrite && (
+            <button
+              type="button"
+              className={`rail-btn ${route === '/admin/queue' ? 'is-active' : ''}`}
+              onClick={() => navigateAndClose('/admin/queue')}
+              data-tip={t('AI Review Queue', 'AI 发布审核队列')}
+              aria-label={t('AI Review Queue', 'AI 发布审核队列')}
+            >
+              <Sparkles size={18} />
+            </button>
+          )}
         </div>
 
         <div className="rail-sep" />
