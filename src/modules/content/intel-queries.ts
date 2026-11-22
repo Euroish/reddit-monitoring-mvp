@@ -110,6 +110,7 @@ export async function queryScopedBucketStats(
   db: Pool | PoolClient,
   input: {
     sourceIds?: readonly string[];
+    allowedSourceIds?: readonly string[] | null;
     from: Date;
     to: Date;
     bucketSize: "6h" | "1d";
@@ -118,7 +119,7 @@ export async function queryScopedBucketStats(
     subredditFilter?: string;
   },
 ): Promise<RawBucketStats[]> {
-  if (!input.sourceIds?.length) return [];
+  if (input.sourceIds && !input.sourceIds.length) return [];
   const stepExpr = input.bucketSize === "6h"
     ? "date_trunc('day', ts) + floor(extract(hour from ts)::int / 6) * interval '6 hours'"
     : "date_trunc('day', ts)";
@@ -164,7 +165,8 @@ export async function queryScopedBucketStats(
        JOIN source s ON s.id = c.source_id
        JOIN content_discovery d ON d.content_id = c.id
        LEFT JOIN content_author_profile ap ON ap.platform_id = c.source_id AND ap.author_handle = c.author_handle
-       WHERE d.collection_source_id = ANY($1::uuid[])
+       WHERE ($1::uuid[] IS NULL OR d.collection_source_id = ANY($1))
+         AND ($7::uuid[] IS NULL OR d.collection_source_id = ANY($7))
          AND c.availability = 'available'
          AND COALESCE(c.created_at_source, c.first_seen_at) >= $2
          AND COALESCE(c.created_at_source, c.first_seen_at) < $3
@@ -232,6 +234,7 @@ export async function queryScopedBucketStats(
       kwPattern,
       input.authorFilter?.toLowerCase() ?? null,
       input.subredditFilter?.toLowerCase() ?? null,
+      input.allowedSourceIds ?? null,
     ],
   );
 
