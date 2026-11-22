@@ -6,39 +6,35 @@
 
 ## 0. 团队分支治理与 AI 协作准则
 
-本仓面向 2–3 人 + AI 高频并行开发，采用 **单主干（Trunk-Based）+ 短任务分支 + 不可变发布 Tag**，不设常驻 `develop` / `prod` 双主干，直接匹配 `.github/workflows/verify.yml`（四层路径分流门禁 + 单一必过 `CI Gate`）、`.github/workflows/security-scheduled.yml`（周级安全与镜像巡检）与 `.github/workflows/release.yml`（`v*` Tag 镜像构建）。
+本仓面向 2–3 人 + AI 高频并行开发，采用 **单主干（Trunk-Based）+ 短任务分支 + 不可变发布 Tag**，不设常驻 `develop` / `prod` 双主干，直接匹配 `.github/workflows/verify.yml`（按变更面选测试，统一由 `CI Gate` 收敛）、`.github/workflows/security-scheduled.yml`（周级安全与镜像巡检）与 `.github/workflows/release.yml`（`v*` Tag 镜像构建）。
 
 ### 0.1 分支与发布角色
 
 | 引用 | 职责与权限 | 生命周期 |
 | :--- | :--- | :--- |
-| **`main`** | **全仓唯一集成与发布主干**。通过 GitHub Rulesets 锁定 `CI Gate` 必过、禁直接 `push` / `force-push`，仅允许 `Squash and Merge`。 | 永久 |
+| **`main`** | **全仓唯一集成与发布主干**。通过 GitHub 分支保护要求 `CI Gate`、一名独立评审人批准、讨论已解决。仅允许 `Squash and Merge`。 | 永久 |
 | **`feat/<模块>-<短名>`** | 新功能分支（如 `feat/access-quotas`、`feat/web-reader`），永远从最新 `origin/main` 切出。 | `<= 3` 天，合后即删 |
 | **`fix/<短名>`** | 缺陷修复或线上紧急热修，从 `origin/main` 切出。 | `<= 1` 天，合后即删 |
 | **`vX.Y.Z`（Tag）** | 正式发版与回滚锚点（触发 `release.yml` 完整验真后构建 `runtime`/`proxy` 镜像）；预演使用 `vX.Y.Z-rc.1`，不另建长期分支。 | 永久不可变 |
 
-### 0.2 合并秩序与 AI 解冲突四条护栏
+### 0.2 独立 PR 的开工、评审与合入
 
-原则：**先过审先合入，后合者自行同步最新 `main` 解冲突并自证无回归**。
+从最新 `origin/main` 开分支，每个独立 PR 直接指向 `main`。满足评审和 `CI Gate` 即可合入，可使用 GitHub Auto-merge。GitHub 分支保护采用 loose required checks，同事的无关 PR 合入后可继续使用已有验证。需要前置 PR 的改动在描述中写明依赖，依赖合入后重新确认差异和测试。
 
 ```sh
-# 1. 开工前基于最新 main 切短分支
-git fetch origin && git checkout -b feat/<module>-<topic> origin/main
-# 2. 合入前若 main 已推进，同步最新 main（严禁跨分支拷贝文件覆盖提交，防止切断共同祖先链）
-git fetch origin && git merge origin/main   # 个人短分支可用 git rebase origin/main
-# 3. 冲突解决后必须核对变更边界再推送
-git diff origin/main --stat
-npm run lint && npm run typecheck && npm run check:openapi && npm run test:unit && npm run build && npm run check:web-bundle
+git fetch origin && git switch -c feat/<module>-<topic> origin/main
+git diff --stat origin/main...HEAD
 ```
 
-1. **明确 AI 解冲突底线**：要求 AI *“以 `origin/main` 现有行为、鉴权与测试为不可破坏底线，仅叠加本分支增量，不得为编译通过删改 `origin/main` 新增逻辑或测试”*。
-2. **强制 `diff --stat` 审计**：推送前人工扫一眼 `git diff origin/main --stat`，凡出现无关模块改动或测试大段删减立即拦截重解。
-3. **只认 `CI Gate` 绿灯**：PR 按变更域自动分流执行（`policy-and-secrets`、`api-quality`、`web-quality`、`sql-lint`、`ci-lint`、`pg-integration`、高风险路由/契约/鉴权或 `run-e2e` 标签触发 `browser-e2e`、`docker-dryrun`），统一汇聚至唯一 Required Check **`CI Gate`**；合入 `main` 与 `v*` 发版自动跑全量验收。统一 **Squash and Merge** 以便一键 `git revert`。
-4. **控制 PR 体积消灭巨型冲突**：单 PR 目标 `<= 500` 行净变动；超 `4,000` 行必须拆为垂直小切片（`迁移/契约 PR → 后端 PR → 前端接入 PR`），未完结入口先用开关隐藏、每日合入 `main`。
+- 遇到实际冲突，或 `main` 已改动同一迁移、契约、鉴权策略或关键写入口时，先同步 `origin/main`，确认合并结果后再跑相关检查。共享分支用 merge，个人短分支可 rebase。解冲突后核对 `git diff origin/main --stat` 和具体冲突文件，保留主干已有行为及测试证据。
+- 未就绪的改动用 Draft。评审时检查失败路径、权限、数据兼容、测试是否覆盖改动行为，并要求说明新增的跨模块依赖或抽象。质量问题用 Request changes 退回该 PR。作者修改代码后重新评审。
+- 将鉴权、迁移、共享契约、依赖和门禁交给对应 `CODEOWNERS` 评审。每类受保护路径配置两名维护者，其中一位独立批准即可。
+- 以可独立验证和回滚的业务行为切片。超过 4,000 行的改动按现有约定拆分，依赖只有在确有兼容性或顺序要求时才声明。未就绪入口可先通过现有功能开关隐藏。
+- `main` 检查失败时先核查合入组合，尽快修复或回滚，恢复绿灯后发布。当前仓库由个人账号持有，GitHub 原生 Merge Queue 适用于组织仓库，团队规模增长并迁移到组织后再按实际排队耗时评估。
 
 ### 0.3 四大冲突热区与轻量同步约定
 
-- **SQL 迁移（`src/storage/schema/`）**：`001..058` 及已合入 `main` 的迁移严禁改写；**编号先合先占**，后合者同步时顺延重编号；不设僵化表数上限，新迁移由 `Squawk` 锁安全审计、PG16 回滚测试与 `.github/CODEOWNERS` 联合把关。
+- **SQL 迁移（`src/storage/schema/`）**：已合入 `main` 的迁移严禁改写。两个迁移 PR 使用同一编号时，先合入者占用编号，另一个 PR 同步后顺延。迁移评审检查锁与旧版本兼容性，由 Squawk、PG16 回滚用例与代码所有者联合把关。
 - **共享契约（`packages/contracts/src/*`）**：唯一契约真源，严禁在前端复制平行副本或做破坏式字段重命名；由 `npm run check:openapi` 与 `CODEOWNERS` 共同守护。
 - **入口与前端架构**：`app.ts` / `App.tsx` 保持薄装配；首页 `/` 严禁静态引入 ECharts（由 `npm run check:web-bundle` 自动拦截），分析页统一 `React.lazy` 模块化 `echarts/core`；后端允许按业务域新增模块与子目录，由 `eslint.config.mjs`、`.dependency-cruiser.cjs` 与路由/表归属检查强制守住异步安全与依赖方向边界。
 - **文档与开工声明**：仓库可新增 Markdown 文档，发布包继续按 `DOCUMENTATION_FILES` 选档。代码变动同 PR 更新对应规范。开分支前发 1 行同步：`[feat/xxx] 负责人：@A | 触碰区域：... | 新迁移：无/+N表`；PR 描述附 3 行：**变更摘要 / 影响范围（表、契约、冲突清单）/ 验证结果**。
@@ -47,12 +43,33 @@ npm run lint && npm run typecheck && npm run check:openapi && npm run test:unit 
 
 ## 1. 构建、测试与 Compose 多阶段验收
 
+### 1.1 CI 范围与后端测试职责
+
+| 变更或事件 | 执行范围 |
+| :--- | :--- |
+| 文档 PR 或文档合入 | 文档、仓库策略、密钥扫描；PR 附变更范围摘要 |
+| 普通后端 PR | ESLint、依赖及表写入边界、类型、OpenAPI、单测、真实 PG16 集成、编译运行时冒烟 |
+| 前端或高风险入口 PR | 前端改动也验证前后端依赖边界。用编译产物跑 Chromium 业务旅程。适用于前端、API 装配、访问控制、主要用户模块和共享契约，其他 PR 可加 `run-e2e` |
+| 新 SQL 或部署配置 | 新 SQL 运行 Squawk；Docker / Compose 文件变更运行 Compose 解析和两种镜像构建。工作流变更运行 actionlint |
+| 运行时变更合入 `main` | 验证合入后的 API、Web、PG16、编译冒烟和 Chromium，用于发现独立改动组合后的问题 |
+| 手动全量或 `v*` Tag | 完整运行时检查与发布包验真。手动运行也检查 Docker，Tag 必须指向 `main` 上的提交，检查通过后构建并发布两种镜像。周级工作流检查完整历史密钥、依赖审计和 Docker |
+
+路径规则见 [CI 分流脚本](../scripts/ci-scope.mjs)。未知路径走共享代码验证；每次执行只编译一次所需的 API 和 Web。GitHub Actions 的 `CI Gate` 要求所有选中的作业成功。
+
+- 纯业务规则放单测。路由注册、鉴权及请求响应边界优先用 Fastify `inject()`。SQL、事务、并发、幂等和数据所有权用隔离 PG16。Chromium 用于真实浏览器的登录入口、页面交互和可用性。删除重叠用例前，确认字段、权限或失败路径仍有相同强度的断言。
+- 依赖方向、循环依赖和越界写入由 `lint:arch` 拦截。后端复杂度大于 25 的新违规计入 ESLint 错误，既有违规记录在 `eslint-suppressions.json`。简化函数后执行 `npx eslint . --prune-suppressions`，随改动收缩基线。基线扩张和接口新增都要写明原因由维护者评审。先在同一模块解决业务规则，共享操作走既有公开接口。
+- 实际发现不稳定测试时，先用失败断言定位缺失的时序或隔离条件，修复后保留原有断言。评估 CI 用量时按 docs、API、含浏览器的 PR 分别比较总作业时间、`CI Gate` 耗时和失败后重跑次数。
+
+实践参考见 [Fastify 路由测试](https://fastify.dev/docs/latest/Guides/Testing/)、[Google 代码审查标准](https://google.github.io/eng-practices/review/reviewer/standard.html)、[Kubernetes Prow Tide 的就绪判定](https://github.com/kubernetes-sigs/prow/blob/main/site/content/en/docs/components/core/tide/config.md)及 [GitHub 分支保护](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)。
+
+### 1.2 本地构建与验证
+
 开发与构建要求 **Node 24+** 与 **PostgreSQL 16**（`test:postgres` 需独立回环库 `TEST_SOURCE_DATABASE_URL`）。开发入口 `npm run app:api`，发布入口 `node dist/apps/api/src/server.js`，迁移入口 `node dist/src/storage/schema/run-migrations.js`（长超时 `600s`、按 SHA-256 严格核对已应用 SQL）。
 
 ```sh
 npm ci --ignore-scripts && npm --prefix apps/web ci --ignore-scripts
 npm run lint:policy        # 发布文档、Markdown 断链/锚点、退役路径、私密文件与主干迁移不可变校验
-npm run lint:api           # 后端 TypeScript ESLint v8（异步安全、禁 *Repository/InMemory*/ORM、复杂度软告警）
+npm run lint:api           # 后端 TypeScript ESLint（异步安全、禁 *Repository/InMemory*/ORM、复杂度门禁）
 npm run lint:arch          # dependency-cruiser 模块依赖边界、零循环依赖与前后端隔离校验
 npm run lint:web           # apps/web ESLint
 npm run lint               # 串联 lint:policy + lint:api + lint:arch + lint:web

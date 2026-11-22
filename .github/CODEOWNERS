@@ -1,17 +1,24 @@
-# High-risk security, schema, contract, and governance surfaces require owner review.
-/src/storage/schema/ @Euroish
-/src/modules/access/ @Euroish
-/apps/api/src/route-policy.ts @Euroish
-/packages/contracts/ @Euroish
-/docs/invariants.md @Euroish
-/.github/workflows/ @Euroish
-/.github/CODEOWNERS @Euroish
-/Dockerfile @Euroish
-/docker-compose.yml @Euroish
-/.dependency-cruiser.cjs @Euroish
-/eslint.config.mjs @Euroish
-/scripts/check-docs.ts @Euroish
-/scripts/check-openapi.ts @Euroish
-/scripts/check-table-ownership.ts @Euroish
-/scripts/check-governance-diff.mjs @Euroish
-/scripts/check-web-bundle.mjs @Euroish
+# Either maintainer can review these paths. Authors need the other maintainer.
+/src/storage/schema/ @Euroish @HikariVerse
+/src/modules/access/ @Euroish @HikariVerse
+/apps/api/src/app.ts @Euroish @HikariVerse
+/apps/api/src/route-policy.ts @Euroish @HikariVerse
+/packages/contracts/ @Euroish @HikariVerse
+/docs/invariants.md @Euroish @HikariVerse
+/.github/workflows/ @Euroish @HikariVerse
+/.github/CODEOWNERS @Euroish @HikariVerse
+/Dockerfile @Euroish @HikariVerse
+/.dockerignore @Euroish @HikariVerse
+/docker-compose.yml @Euroish @HikariVerse
+/deploy/ @Euroish @HikariVerse
+/package.json @Euroish @HikariVerse
+/package-lock.json @Euroish @HikariVerse
+/apps/web/package.json @Euroish @HikariVerse
+/apps/web/package-lock.json @Euroish @HikariVerse
+/.dependency-cruiser.cjs @Euroish @HikariVerse
+/eslint.config.mjs @Euroish @HikariVerse
+/eslint-suppressions.json @Euroish @HikariVerse
+/scripts/check-*.mjs @Euroish @HikariVerse
+/scripts/check-*.ts @Euroish @HikariVerse
+/scripts/ci-scope*.mjs @Euroish @HikariVerse
+/scripts/verify-container-build.sh @Euroish @HikariVerse

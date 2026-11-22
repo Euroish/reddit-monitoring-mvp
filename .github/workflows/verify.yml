@@ -2,6 +2,7 @@ name: Core verification
 
 on:
   pull_request:
+    branches: [main]
     types: [opened, synchronize, reopened, labeled, unlabeled]
   merge_group:
   push:
@@ -17,224 +18,69 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  changes:
-    name: Detect changed scopes
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      full: ${{ steps.scope.outputs.full }}
-      api: ${{ steps.scope.outputs.api }}
-      web: ${{ steps.scope.outputs.web }}
-      schema: ${{ steps.scope.outputs.schema }}
-      docker: ${{ steps.scope.outputs.docker }}
-      ci: ${{ steps.scope.outputs.ci }}
-      run_e2e: ${{ steps.scope.outputs.run_e2e }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        if: github.event_name == 'pull_request'
-      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
-        id: filter
-        if: github.event_name == 'pull_request'
-        with:
-          filters: |
-            api:
-              - 'src/**'
-              - 'apps/api/**'
-              - 'packages/contracts/**'
-              - 'data/**'
-              - 'scripts/**'
-              - 'tests/**'
-              - 'tsconfig*.json'
-              - 'package.json'
-              - 'package-lock.json'
-              - 'eslint.config.mjs'
-              - '.dependency-cruiser.cjs'
-            web:
-              - 'apps/web/**'
-              - 'packages/contracts/**'
-              - 'scripts/check-web-bundle.mjs'
-            web_core:
-              - 'apps/web/src/App.tsx'
-              - 'apps/web/src/main.tsx'
-              - 'apps/web/src/api/**'
-              - 'apps/web/src/components/AuthModal.tsx'
-              - 'apps/web/src/components/AccountEmail.tsx'
-              - 'apps/web/src/components/AdministratorMfa.tsx'
-              - 'apps/web/src/components/EditorialFooter.tsx'
-              - 'apps/web/src/components/PublicSiteShell.tsx'
-              - 'apps/web/src/components/public-home/**'
-              - 'apps/web/src/components/ai/**'
-              - 'apps/web/src/pages/**'
-              - 'apps/web/vite.config.ts'
-              - 'packages/contracts/**'
-              - 'src/modules/access/**'
-              - 'apps/api/src/app.ts'
-              - 'apps/api/src/route-policy.ts'
-            schema:
-              - 'src/storage/schema/**'
-            docker:
-              - 'Dockerfile'
-              - 'docker-compose.yml'
-              - 'deploy/**'
-            ci:
-              - '.github/workflows/**'
-      - id: scope
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-            {
-              echo "full=true"
-              echo "api=true"
-              echo "web=true"
-              echo "schema=false"
-              echo "docker=false"
-              echo "ci=false"
-              echo "run_e2e=true"
-            } >> "$GITHUB_OUTPUT"
-          else
-            run_e2e=false
-            if [[ "${{ steps.filter.outputs.web_core }}" == "true" || "${{ contains(github.event.pull_request.labels.*.name, 'run-e2e') }}" == "true" ]]; then
-              run_e2e=true
-            fi
-            {
-              echo "full=false"
-              echo "api=${{ steps.filter.outputs.api }}"
-              echo "web=${{ steps.filter.outputs.web }}"
-              echo "schema=${{ steps.filter.outputs.schema }}"
-              echo "docker=${{ steps.filter.outputs.docker }}"
-              echo "ci=${{ steps.filter.outputs.ci }}"
-              echo "run_e2e=${run_e2e}"
-            } >> "$GITHUB_OUTPUT"
-          fi
-
-  policy-and-secrets:
-    name: Policy, docs links & secret scan
-    needs: changes
+  policy:
+    name: Change scope, repository policy & secret scan
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    env:
-      MIGRATION_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - name: Gitleaks secret scan
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" == "pull_request" && -n "${{ github.event.pull_request.base.sha }}" ]]; then
-            docker run --rm \
-              -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
-              -v "$PWD:/repo:ro" \
-              zricethezav/gitleaks:v8.28.0 git /repo --redact \
-              --log-opts="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
-          else
-            docker run --rm \
-              -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
-              -v "$PWD:/repo:ro" \
-              zricethezav/gitleaks:v8.28.0 git /repo --redact --log-opts="-n 5"
-          fi
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: package-lock.json
-      - run: npm ci --ignore-scripts
+      - id: scope
+        run: node scripts/ci-scope.mjs
+      - name: Verify CI scope rules
+        if: fromJSON(steps.scope.outputs.scope).workflow
+        run: node --test scripts/ci-scope.test.mjs
+      - name: Gitleaks secret scan
+        env:
+          BASE: ${{ steps.scope.outputs.base }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ -n "$BASE" ]]; then
+            range="$BASE..${PR_HEAD:-HEAD}"
+          else
+            range="-n 5"
+          fi
+          docker run --rm \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
+            -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.28.0 git /repo --redact --log-opts="$range"
+      - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run lint:policy
-      - name: PR governance & blast-radius guard
+        env:
+          MIGRATION_BASE_SHA: ${{ steps.scope.outputs.base }}
+      - name: PR governance and blast-radius audit
         if: github.event_name == 'pull_request'
         run: node scripts/check-governance-diff.mjs
-
-  api-quality:
-    name: API lint, boundaries, types & unit tests
-    needs: changes
-    if: needs.changes.outputs.full == 'true' || needs.changes.outputs.api == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    env:
-      SOURCE_NETWORK_ENABLED: 'false'
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - run: npm ci --ignore-scripts
-      - run: npm run lint:api
-      - run: npm run lint:arch
-      - run: npx tsc --noEmit
-      - run: npm run check:openapi
-      - run: npm run test:unit
-      - run: npm run build:api
-
-  web-quality:
-    name: Web lint, types, build & bundle boundary
-    needs: changes
-    if: needs.changes.outputs.full == 'true' || needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            apps/web/package-lock.json
-      - run: npm ci --ignore-scripts
-      - run: npm --prefix apps/web ci --ignore-scripts
-      - run: npm run lint:web
-      - run: npm --prefix apps/web run typecheck
-      - run: npm run build:web
-      - run: npm run check:web-bundle
-
-  sql-lint:
-    name: Postgres migration safety (Squawk)
-    needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.schema == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          fetch-depth: 0
-      - name: Audit newly added SQL migrations with Squawk
-        shell: bash
+        env:
+          MIGRATION_BASE_SHA: ${{ steps.scope.outputs.base }}
+      - name: Postgres migration safety (Squawk)
+        if: steps.scope.outputs.base != ''
+        env:
+          BASE: ${{ steps.scope.outputs.base }}
         run: |
-          BASE="${{ github.event.pull_request.base.sha }}"
-          mapfile -t NEW_SQL < <(git diff --diff-filter=A --name-only "$BASE" HEAD -- 'src/storage/schema/*.sql')
-          if [[ "${#NEW_SQL[@]}" -eq 0 ]]; then
-            echo "No newly added SQL migration files to audit."
-            exit 0
+          git diff --diff-filter=A --name-only --no-renames -z "$BASE" HEAD -- 'src/storage/schema/*.sql' > "$RUNNER_TEMP/new-migrations"
+          mapfile -d '' -t migrations < "$RUNNER_TEMP/new-migrations"
+          if (( ${#migrations[@]} )); then
+            docker run --rm -v "$PWD:/repo:ro" -w /repo ghcr.io/sbdchd/squawk:2.9.0 "${migrations[@]}"
           fi
-          echo "### Postgres Migration Audit (Squawk)" >> "$GITHUB_STEP_SUMMARY"
-          for file in "${NEW_SQL[@]}"; do
-            echo "- \`$file\`" >> "$GITHUB_STEP_SUMMARY"
-          done
-          docker run --rm -v "$PWD:/repo:ro" -w /repo ghcr.io/sbdchd/squawk:2.9.0 "${NEW_SQL[@]}"
 
-  ci-lint:
-    name: GitHub Actions workflow lint
-    needs: changes
-    if: needs.changes.outputs.ci == 'true'
+  project:
+    name: API, Web & runtime verification
+    needs: policy
+    if: fromJSON(needs.policy.outputs.scope).project
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: docker://rhysd/actionlint:1.7.12
-        with:
-          args: -color
-
-  pg-integration:
-    name: PG16 integration & compiled smoke
-    needs: changes
-    if: needs.changes.outputs.full == 'true' || needs.changes.outputs.api == 'true' || needs.changes.outputs.schema == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 15
     services:
       postgres:
-        image: postgres:16-alpine
+        image: ${{ (fromJSON(needs.policy.outputs.scope).postgres || fromJSON(needs.policy.outputs.scope).browser) && 'postgres:16-alpine' || '' }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: ci_fixture_only
@@ -250,44 +96,11 @@ jobs:
       SOURCE_NETWORK_ENABLED: 'false'
       TEST_SOURCE_DATABASE_URL: postgresql://postgres:ci_fixture_only@127.0.0.1:5432/source_validation_ci
       DATABASE_URL: postgresql://postgres:ci_fixture_only@127.0.0.1:5432/source_validation_ci
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - run: npm ci --ignore-scripts
-      - run: npm run test:postgres
-      - run: npm run build:api
-      - run: npm run smoke:compiled
-
-  browser-e2e:
-    name: Compiled browser E2E & release pack
-    needs: changes
-    if: needs.changes.outputs.run_e2e == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: ci_fixture_only
-          POSTGRES_DB: source_validation_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d source_validation_ci"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      SOURCE_NETWORK_ENABLED: 'false'
-      TEST_SOURCE_DATABASE_URL: postgresql://postgres:ci_fixture_only@127.0.0.1:5432/source_validation_ci
       TEST_COMPILED: 'true'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
@@ -295,98 +108,115 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             apps/web/package-lock.json
-      - run: npm ci --ignore-scripts
-      - run: npm --prefix apps/web ci --ignore-scripts
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Dependency and SQL ownership boundaries
+        if: fromJSON(needs.policy.outputs.scope).api || fromJSON(needs.policy.outputs.scope).web
+        run: npm run lint:arch
+      - name: API lint, types, contracts and unit tests
+        if: fromJSON(needs.policy.outputs.scope).api
+        run: |
+          npm run lint:api
+          npx tsc --noEmit
+          npm run check:openapi
+          npm run test:unit
+      - run: npm --prefix apps/web ci --ignore-scripts --no-audit --no-fund
+        if: fromJSON(needs.policy.outputs.scope).web || fromJSON(needs.policy.outputs.scope).browser
+      - run: npm run lint:web
+        if: fromJSON(needs.policy.outputs.scope).web
+      - name: Typecheck and build Web, then verify the bundle boundary
+        if: fromJSON(needs.policy.outputs.scope).web || fromJSON(needs.policy.outputs.scope).browser
+        run: |
+          npm run build:web
+          npm run check:web-bundle
+      - run: npm run build:api
+        if: fromJSON(needs.policy.outputs.scope).postgres || fromJSON(needs.policy.outputs.scope).browser
+      - name: PostgreSQL integration and compiled startup
+        if: fromJSON(needs.policy.outputs.scope).postgres
+        run: |
+          npm run test:postgres
+          npm run smoke:compiled
       - name: Resolve Playwright version
         id: pw
+        if: fromJSON(needs.policy.outputs.scope).browser
         run: echo "version=$(node -p "require('./node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright Chromium
         id: pw-cache
+        if: fromJSON(needs.policy.outputs.scope).browser
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
       - name: Install Chromium (cache miss)
-        if: steps.pw-cache.outputs.cache-hit != 'true'
+        if: fromJSON(needs.policy.outputs.scope).browser && steps.pw-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
       - name: Install Chromium system libs (cache hit)
-        if: steps.pw-cache.outputs.cache-hit == 'true'
+        if: fromJSON(needs.policy.outputs.scope).browser && steps.pw-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
-      - run: npm run build
-      - run: npm run test:browser
+      - name: Browser journeys against compiled runtime
+        if: fromJSON(needs.policy.outputs.scope).browser
+        run: npm run test:browser
       - name: Verify immutable release package
-        if: needs.changes.outputs.full == 'true'
+        if: fromJSON(needs.policy.outputs.scope).pack
         run: node scripts/package-release.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
+        if: '!cancelled() && fromJSON(needs.policy.outputs.scope).browser'
         with:
           name: core-browser-evidence
           if-no-files-found: ignore
           path: output/validation/kernel/
 
-  docker-dryrun:
-    name: Docker runtime/proxy dry-run & lightweight check
-    needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.docker == 'true'
+  workflow:
+    name: GitHub Actions workflow lint
+    needs: policy
+    if: fromJSON(needs.policy.outputs.scope).workflow
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color
+
+  docker:
+    name: Docker runtime and proxy validation
+    needs: policy
+    if: fromJSON(needs.policy.outputs.scope).docker
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Build runtime and proxy stages
-        run: |
-          docker build --target runtime -t monitoring-ci:runtime .
-          docker build --target proxy -t monitoring-ci:proxy .
-      - name: Verify runtime image stays lightweight (no python/chromium/duckdb)
-        run: |
-          docker run --rm --entrypoint sh monitoring-ci:runtime -c '
-            for bin in python python3 chromium chromium-browser google-chrome duckdb; do
-              if command -v "$bin" >/dev/null 2>&1; then
-                echo "Forbidden heavy binary found in runtime image: $bin"
-                exit 1
-              fi
-            done
-            test -f dist/apps/api/src/server.js
-            test -f dist/src/storage/schema/run-migrations.js
-          '
+        with:
+          persist-credentials: false
+      - run: bash scripts/verify-container-build.sh
 
   ci-gate:
     name: CI Gate
-    needs:
-      - changes
-      - policy-and-secrets
-      - api-quality
-      - web-quality
-      - sql-lint
-      - ci-lint
-      - pg-integration
-      - browser-e2e
-      - docker-dryrun
+    needs: [policy, project, workflow, docker]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Evaluate required verification gate
-        shell: bash
+      - name: Require success for every selected job
         env:
           RESULTS: ${{ toJSON(needs) }}
+          SCOPE: ${{ needs.policy.outputs.scope }}
         run: |
-          node - <<'EOF'
-          const fs = require("node:fs");
+          node --input-type=module <<'EOF_NODE'
+          import { appendFileSync } from "node:fs";
           const needs = JSON.parse(process.env.RESULTS);
-          const rows = ["### Core Verification Gate", "", "| Job | Result |", "| :--- | :--- |"];
-          const failed = [];
-          for (const [name, info] of Object.entries(needs)) {
-            rows.push(`| \`${name}\` | \`${info.result}\` |`);
-            if (info.result !== "success" && info.result !== "skipped") {
-              failed.push(`${name}=${info.result}`);
+          const scope = JSON.parse(process.env.SCOPE || "{}");
+          const summary = ["| Job | Expected | Actual |", "| --- | --- | --- |"];
+          let failed = false;
+          for (const [job, { result }] of Object.entries(needs)) {
+            const expected = job === "policy" || scope[job] === true ? "success" : "skipped";
+            summary.push(`| ${job} | ${expected} | ${result} |`);
+            if (result !== expected || (job !== "policy" && typeof scope[job] !== "boolean")) {
+              console.error(`Unexpected verification result for ${job}: expected ${expected}, got ${result}`);
+              failed = true;
             }
           }
-          if (process.env.GITHUB_STEP_SUMMARY) {
-            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, rows.join("\n") + "\n");
-          }
-          if (failed.length) {
-            console.error(`CI Gate blocked by: ${failed.join(", ")}`);
-            process.exit(1);
-          }
-          console.log("CI Gate passed: all relevant checks succeeded.");
-          EOF
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary.join("\n") + "\n");
+          if (failed) process.exitCode = 1;
+          EOF_NODE

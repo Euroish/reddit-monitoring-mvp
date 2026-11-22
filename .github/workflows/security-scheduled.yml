@@ -29,17 +29,11 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            apps/web/package-lock.json
-      - run: npm ci --ignore-scripts
-      - run: npm --prefix apps/web ci --ignore-scripts
       - name: Audit root production dependencies (high+)
         shell: bash
         run: |
           set +e
-          npm audit --omit=dev --audit-level=high 2>&1 | tee root-audit.log
+          npm audit --package-lock-only --omit=dev --audit-level=high 2>&1 | tee root-audit.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ] && grep -qE "EAI_AGAIN|ETIMEDOUT|ECONNRESET|ECONNREFUSED|50[0-9]" root-audit.log; then
             echo "::warning::npm audit registry unreachable; skipping transient error."
@@ -50,7 +44,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          npm --prefix apps/web audit --omit=dev --audit-level=high 2>&1 | tee web-audit.log
+          npm --prefix apps/web audit --package-lock-only --omit=dev --audit-level=high 2>&1 | tee web-audit.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ] && grep -qE "EAI_AGAIN|ETIMEDOUT|ECONNRESET|ECONNREFUSED|50[0-9]" web-audit.log; then
             echo "::warning::npm web audit registry unreachable; skipping transient error."
@@ -64,14 +58,4 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: |
-          docker build --target runtime -t monitoring-audit:runtime .
-          docker build --target proxy -t monitoring-audit:proxy .
-          docker run --rm --entrypoint sh monitoring-audit:runtime -c '
-            for bin in python python3 chromium chromium-browser google-chrome duckdb; do
-              if command -v "$bin" >/dev/null 2>&1; then
-                echo "Forbidden heavy binary found in runtime image: $bin"
-                exit 1
-              fi
-            done
-          '
+      - run: bash scripts/verify-container-build.sh

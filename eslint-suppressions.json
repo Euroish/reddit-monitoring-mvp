@@ -1,0 +1,107 @@
+{
+  "apps/api/src/app.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "apps/api/src/route-policy.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/connectors/bluesky/bluesky-appview-content.connector.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/connectors/reddit/kaix-content.connector.ts": {
+    "complexity": {
+      "count": 3
+    }
+  },
+  "src/connectors/reddit/red-crawler.ts": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/connectors/web/sources.ts": {
+    "complexity": {
+      "count": 3
+    }
+  },
+  "src/modules/ai/ai-discovery.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/modules/ai/ai-history-cli.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/modules/ai/ai-history-import.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/modules/ai/ai-history-schema.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/modules/ai/ai-llm.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/modules/ai/ai-registry.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/modules/ai/ai-sync.ts": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/modules/collection/routes.ts": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/modules/collection/worker.ts": {
+    "complexity": {
+      "count": 3
+    }
+  },
+  "src/modules/content/batch.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/modules/content/docs.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/modules/content/facets.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/modules/content/search.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/modules/content/sql.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/modules/content/story-groups.ts": {
+    "complexity": {
+      "count": 1
+    }
+  }
+}

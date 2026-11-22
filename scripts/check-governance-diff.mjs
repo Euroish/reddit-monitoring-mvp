@@ -15,6 +15,8 @@ const GOVERNANCE_PATTERNS = [
   /^\.github\/workflows\//,
   /^\.github\/CODEOWNERS$/,
   /^eslint\.config\.mjs$/,
+  /^eslint-suppressions\.json$/,
+  /^scripts\/(?:ci-scope(?:\.test)?\.mjs|verify-container-build\.sh)$/,
   /^\.dependency-cruiser\.cjs$/,
   /^scripts\/check-[^/]+\.(ts|mjs)$/,
 ];
