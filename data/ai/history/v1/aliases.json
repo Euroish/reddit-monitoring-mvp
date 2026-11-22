@@ -1,0 +1,1280 @@
+[
+  {
+    "canonicalModelKey": "anthropic:claude-fable-5.2",
+    "sourceNamespace": "official",
+    "alias": "claude-fable-5-2",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-fable-5.2"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-haiku-4.5",
+    "sourceNamespace": "official",
+    "alias": "claude-haiku-4-5-20251001",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-haiku-4.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-haiku-5.5",
+    "sourceNamespace": "official",
+    "alias": "claude-haiku-5-5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-haiku-5.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-opus-4",
+    "sourceNamespace": "official",
+    "alias": "claude-opus-4-20250514",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-opus-4"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-opus-4.5",
+    "sourceNamespace": "official",
+    "alias": "claude-opus-4-5-20251101",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-opus-4.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-opus-4.6",
+    "sourceNamespace": "official",
+    "alias": "claude-opus-4-6",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-opus-4.6"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-opus-4.7",
+    "sourceNamespace": "official",
+    "alias": "claude-opus-4-7",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-opus-4.7"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-opus-5.5",
+    "sourceNamespace": "official",
+    "alias": "claude-opus-5-5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-opus-5.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-sonnet-4",
+    "sourceNamespace": "official",
+    "alias": "claude-sonnet-4-20250514",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-sonnet-4"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-sonnet-4.5",
+    "sourceNamespace": "official",
+    "alias": "claude-sonnet-4-5-20250929",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-sonnet-4.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-sonnet-4.6",
+    "sourceNamespace": "official",
+    "alias": "claude-sonnet-4-6",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-sonnet-4.6"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-sonnet-5.5",
+    "sourceNamespace": "official",
+    "alias": "claude-sonnet-5-5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-sonnet-5.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "deepseek:deepseek-v3.1",
+    "sourceNamespace": "official",
+    "alias": "deepseek-chat",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-deepseek-deepseek-v3.1"
+    ]
+  },
+  {
+    "canonicalModelKey": "deepseek:deepseek-r1-0528",
+    "sourceNamespace": "official",
+    "alias": "deepseek-reasoner",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-deepseek-deepseek-r1-0528"
+    ]
+  },
+  {
+    "canonicalModelKey": "deepseek:deepseek-v4-flash-vision-exp",
+    "sourceNamespace": "official",
+    "alias": "deepseek-v4-flash-vision-exp",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-deepseek-deepseek-v4-flash-vision-exp"
+    ]
+  },
+  {
+    "canonicalModelKey": "deepseek:deepseek-v4-pro",
+    "sourceNamespace": "official",
+    "alias": "deepseek-v4-pro",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-deepseek-deepseek-v4-pro"
+    ]
+  },
+  {
+    "canonicalModelKey": "deepseek:deepseek-v4.1-flash",
+    "sourceNamespace": "official",
+    "alias": "deepseek-v4.1-flash",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-deepseek-deepseek-v4.1-flash"
+    ]
+  },
+  {
+    "canonicalModelKey": "deepseek:deepseek-v4.1-flash-1017",
+    "sourceNamespace": "official",
+    "alias": "deepseek-v4.1-flash-1017",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-deepseek-deepseek-v4.1-flash-1017"
+    ]
+  },
+  {
+    "canonicalModelKey": "mistral:devstral-2",
+    "sourceNamespace": "official",
+    "alias": "devstral-2512",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-mistral-devstral-2"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-2.5-flash-lite",
+    "sourceNamespace": "official",
+    "alias": "gemini-2.5-flash-lite",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-2.5-flash-lite"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-2.5-pro",
+    "sourceNamespace": "official",
+    "alias": "gemini-2.5-pro",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-2.5-pro"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-3-flash",
+    "sourceNamespace": "official",
+    "alias": "gemini-3-flash",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-3-flash"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-3-pro",
+    "sourceNamespace": "official",
+    "alias": "gemini-3-pro",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-3-pro"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-3.5-flash",
+    "sourceNamespace": "official",
+    "alias": "gemini-3.5-flash",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-3.5-flash"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-3.6-flash",
+    "sourceNamespace": "official",
+    "alias": "gemini-3.6-flash",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-3.6-flash"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-3.8-flash-tts",
+    "sourceNamespace": "official",
+    "alias": "gemini-3.8-flash-tts",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-3.8-flash-tts"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-3.8-live",
+    "sourceNamespace": "official",
+    "alias": "gemini-3.8-live",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-3.8-live"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-4-argon",
+    "sourceNamespace": "official",
+    "alias": "gemini-4-argon",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-4-argon"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-4-carbon",
+    "sourceNamespace": "official",
+    "alias": "gemini-4-carbon",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-4-carbon"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-4-hydrogen",
+    "sourceNamespace": "official",
+    "alias": "gemini-4-hydrogen",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-4-hydrogen"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-4-neon",
+    "sourceNamespace": "official",
+    "alias": "gemini-4-neon",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-4-neon"
+    ]
+  },
+  {
+    "canonicalModelKey": "zai:glm-4.5",
+    "sourceNamespace": "official",
+    "alias": "glm-4.5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-zai-glm-4.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "zai:glm-4.6",
+    "sourceNamespace": "official",
+    "alias": "glm-4.6",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-zai-glm-4.6"
+    ]
+  },
+  {
+    "canonicalModelKey": "zai:glm-4.7",
+    "sourceNamespace": "official",
+    "alias": "glm-4.7",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-zai-glm-4.7"
+    ]
+  },
+  {
+    "canonicalModelKey": "zai:glm-5",
+    "sourceNamespace": "official",
+    "alias": "glm-5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-zai-glm-5"
+    ]
+  },
+  {
+    "canonicalModelKey": "zai:glm-5.1",
+    "sourceNamespace": "official",
+    "alias": "glm-5.1",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-zai-glm-5.1"
+    ]
+  },
+  {
+    "canonicalModelKey": "zai:glm-5.2",
+    "sourceNamespace": "official",
+    "alias": "glm-5.2",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-zai-glm-5.2"
+    ]
+  },
+  {
+    "canonicalModelKey": "zai:glm-5.3",
+    "sourceNamespace": "official",
+    "alias": "glm-5.3",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-zai-glm-5.3"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-5",
+    "sourceNamespace": "official",
+    "alias": "gpt-5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-5"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-5.1",
+    "sourceNamespace": "official",
+    "alias": "gpt-5.1",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-5.1"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-5.2",
+    "sourceNamespace": "official",
+    "alias": "gpt-5.2",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-5.2"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-5.3-instant",
+    "sourceNamespace": "official",
+    "alias": "gpt-5.3-chat-latest",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-5.3-instant"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-5.3-codex",
+    "sourceNamespace": "official",
+    "alias": "gpt-5.3-codex",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-5.3-codex"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-5.4",
+    "sourceNamespace": "official",
+    "alias": "gpt-5.4",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-5.4"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-5.5",
+    "sourceNamespace": "official",
+    "alias": "gpt-5.5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-5.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-5.6-sol",
+    "sourceNamespace": "official",
+    "alias": "gpt-5.6-sol",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-5.6-sol"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-6-astra",
+    "sourceNamespace": "official",
+    "alias": "gpt-6-astra",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-6-astra"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-6-sol",
+    "sourceNamespace": "official",
+    "alias": "gpt-6-sol",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-6-sol"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-6.1-sol",
+    "sourceNamespace": "official",
+    "alias": "gpt-6.1-sol",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-6.1-sol"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-6.2-astra",
+    "sourceNamespace": "official",
+    "alias": "gpt-6.2-astra",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-6.2-astra"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-6.2-sol",
+    "sourceNamespace": "official",
+    "alias": "gpt-6.2-sol",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-6.2-sol"
+    ]
+  },
+  {
+    "canonicalModelKey": "xai:grok-4",
+    "sourceNamespace": "official",
+    "alias": "grok-4",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-xai-grok-4"
+    ]
+  },
+  {
+    "canonicalModelKey": "xai:grok-4.1",
+    "sourceNamespace": "official",
+    "alias": "grok-4.1",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-xai-grok-4.1"
+    ]
+  },
+  {
+    "canonicalModelKey": "xai:grok-4.5",
+    "sourceNamespace": "official",
+    "alias": "grok-4.5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-xai-grok-4.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "xai:grok-4.6",
+    "sourceNamespace": "official",
+    "alias": "grok-4.6",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-xai-grok-4.6"
+    ]
+  },
+  {
+    "canonicalModelKey": "xai:grok-4.7",
+    "sourceNamespace": "official",
+    "alias": "grok-4.7",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-xai-grok-4.7"
+    ]
+  },
+  {
+    "canonicalModelKey": "xai:grok-build-0.1",
+    "sourceNamespace": "official",
+    "alias": "grok-build-0.1",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-xai-grok-build-0.1"
+    ]
+  },
+  {
+    "canonicalModelKey": "xai:grok-voice-3.0",
+    "sourceNamespace": "official",
+    "alias": "grok-voice-3.0",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-xai-grok-voice-3.0"
+    ]
+  },
+  {
+    "canonicalModelKey": "moonshot:kimi-k2",
+    "sourceNamespace": "official",
+    "alias": "kimi-k2",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-moonshot-kimi-k2"
+    ]
+  },
+  {
+    "canonicalModelKey": "moonshot:kimi-k2-thinking",
+    "sourceNamespace": "official",
+    "alias": "kimi-k2-thinking",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-moonshot-kimi-k2-thinking"
+    ]
+  },
+  {
+    "canonicalModelKey": "moonshot:kimi-k2.5",
+    "sourceNamespace": "official",
+    "alias": "kimi-k2.5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-moonshot-kimi-k2.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "moonshot:kimi-k2.6",
+    "sourceNamespace": "official",
+    "alias": "kimi-k2.6",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-moonshot-kimi-k2.6"
+    ]
+  },
+  {
+    "canonicalModelKey": "moonshot:kimi-k2.7-code",
+    "sourceNamespace": "official",
+    "alias": "kimi-k2.7-code",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-moonshot-kimi-k2.7-code"
+    ]
+  },
+  {
+    "canonicalModelKey": "moonshot:kimi-k3",
+    "sourceNamespace": "official",
+    "alias": "kimi-k3",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-moonshot-kimi-k3"
+    ]
+  },
+  {
+    "canonicalModelKey": "moonshot:kimi-k3.1-pro",
+    "sourceNamespace": "official",
+    "alias": "kimi-k3.1-pro",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-moonshot-kimi-k3.1-pro"
+    ]
+  },
+  {
+    "canonicalModelKey": "mistral:magistral",
+    "sourceNamespace": "official",
+    "alias": "magistral-medium-2506",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-mistral-magistral"
+    ]
+  },
+  {
+    "canonicalModelKey": "mistral:mistral-large-4",
+    "sourceNamespace": "official",
+    "alias": "mistral-large-4-0",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-mistral-mistral-large-4"
+    ]
+  },
+  {
+    "canonicalModelKey": "mistral:mistral-medium-3",
+    "sourceNamespace": "official",
+    "alias": "mistral-medium-2505",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-mistral-mistral-medium-3"
+    ]
+  },
+  {
+    "canonicalModelKey": "mistral:mistral-small-4",
+    "sourceNamespace": "official",
+    "alias": "mistral-small-2603",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-mistral-mistral-small-4"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:o3-pro",
+    "sourceNamespace": "official",
+    "alias": "o3-pro",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-o3-pro"
+    ]
+  },
+  {
+    "canonicalModelKey": "qwen:qwen3-max",
+    "sourceNamespace": "official",
+    "alias": "qwen3-max",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-qwen-qwen3-max"
+    ]
+  },
+  {
+    "canonicalModelKey": "qwen:qwen3-max-thinking",
+    "sourceNamespace": "official",
+    "alias": "qwen3-max-thinking",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-qwen-qwen3-max-thinking"
+    ]
+  },
+  {
+    "canonicalModelKey": "qwen:qwen3.6-plus",
+    "sourceNamespace": "official",
+    "alias": "qwen3.6-plus",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-qwen-qwen3.6-plus"
+    ]
+  },
+  {
+    "canonicalModelKey": "qwen:qwen4-max",
+    "sourceNamespace": "official",
+    "alias": "qwen4-max",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-qwen-qwen4-max"
+    ]
+  },
+  {
+    "canonicalModelKey": "mistral:voxtral-transcribe-2",
+    "sourceNamespace": "official",
+    "alias": "voxtral-transcribe-2",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-mistral-voxtral-transcribe-2"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-fable-5.2",
+    "sourceNamespace": "openrouter",
+    "alias": "anthropic/claude-fable-5.2",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-fable-5.2"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-haiku-4.5",
+    "sourceNamespace": "openrouter",
+    "alias": "anthropic/claude-haiku-4.5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-haiku-4.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-haiku-5.5",
+    "sourceNamespace": "openrouter",
+    "alias": "anthropic/claude-haiku-5.5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-haiku-5.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-opus-4.5",
+    "sourceNamespace": "openrouter",
+    "alias": "anthropic/claude-opus-4.5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-opus-4.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-opus-4.6",
+    "sourceNamespace": "openrouter",
+    "alias": "anthropic/claude-opus-4.6",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-opus-4.6"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-opus-4.7",
+    "sourceNamespace": "openrouter",
+    "alias": "anthropic/claude-opus-4.7",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-opus-4.7"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-opus-5.5",
+    "sourceNamespace": "openrouter",
+    "alias": "anthropic/claude-opus-5.5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-opus-5.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-sonnet-4.5",
+    "sourceNamespace": "openrouter",
+    "alias": "anthropic/claude-sonnet-4.5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-sonnet-4.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-sonnet-4.6",
+    "sourceNamespace": "openrouter",
+    "alias": "anthropic/claude-sonnet-4.6",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-sonnet-4.6"
+    ]
+  },
+  {
+    "canonicalModelKey": "anthropic:claude-sonnet-5.5",
+    "sourceNamespace": "openrouter",
+    "alias": "anthropic/claude-sonnet-5.5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-anthropic-claude-sonnet-5.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "deepseek:deepseek-v3.1",
+    "sourceNamespace": "openrouter",
+    "alias": "deepseek/deepseek-chat-v3.1",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-deepseek-deepseek-v3.1"
+    ]
+  },
+  {
+    "canonicalModelKey": "deepseek:deepseek-r1-0528",
+    "sourceNamespace": "openrouter",
+    "alias": "deepseek/deepseek-r1-0528",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-deepseek-deepseek-r1-0528"
+    ]
+  },
+  {
+    "canonicalModelKey": "deepseek:deepseek-v3.1-terminus",
+    "sourceNamespace": "openrouter",
+    "alias": "deepseek/deepseek-v3.1-terminus",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-deepseek-deepseek-v3.1-terminus"
+    ]
+  },
+  {
+    "canonicalModelKey": "deepseek:deepseek-v3.2",
+    "sourceNamespace": "openrouter",
+    "alias": "deepseek/deepseek-v3.2",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-deepseek-deepseek-v3.2"
+    ]
+  },
+  {
+    "canonicalModelKey": "deepseek:deepseek-v3.2-exp",
+    "sourceNamespace": "openrouter",
+    "alias": "deepseek/deepseek-v3.2-exp",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-deepseek-deepseek-v3.2-exp"
+    ]
+  },
+  {
+    "canonicalModelKey": "deepseek:deepseek-v4-flash-vision-exp",
+    "sourceNamespace": "openrouter",
+    "alias": "deepseek/deepseek-v4-flash-vision-exp",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-deepseek-deepseek-v4-flash-vision-exp"
+    ]
+  },
+  {
+    "canonicalModelKey": "deepseek:deepseek-v4-pro",
+    "sourceNamespace": "openrouter",
+    "alias": "deepseek/deepseek-v4-pro",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-deepseek-deepseek-v4-pro"
+    ]
+  },
+  {
+    "canonicalModelKey": "deepseek:deepseek-v4.1-flash",
+    "sourceNamespace": "openrouter",
+    "alias": "deepseek/deepseek-v4.1-flash",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-deepseek-deepseek-v4.1-flash"
+    ]
+  },
+  {
+    "canonicalModelKey": "deepseek:deepseek-v4.1-flash-1017",
+    "sourceNamespace": "openrouter",
+    "alias": "deepseek/deepseek-v4.1-flash-1017",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-deepseek-deepseek-v4.1-flash-1017"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-2.5-flash-lite",
+    "sourceNamespace": "openrouter",
+    "alias": "google/gemini-2.5-flash-lite",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-2.5-flash-lite"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-2.5-pro",
+    "sourceNamespace": "openrouter",
+    "alias": "google/gemini-2.5-pro",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-2.5-pro"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-3-flash",
+    "sourceNamespace": "openrouter",
+    "alias": "google/gemini-3-flash-preview",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-3-flash"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-3.5-flash",
+    "sourceNamespace": "openrouter",
+    "alias": "google/gemini-3.5-flash",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-3.5-flash"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-3.6-flash",
+    "sourceNamespace": "openrouter",
+    "alias": "google/gemini-3.6-flash",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-3.6-flash"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-4-argon",
+    "sourceNamespace": "openrouter",
+    "alias": "google/gemini-4-argon",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-4-argon"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-4-carbon",
+    "sourceNamespace": "openrouter",
+    "alias": "google/gemini-4-carbon",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-4-carbon"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-4-hydrogen",
+    "sourceNamespace": "openrouter",
+    "alias": "google/gemini-4-hydrogen",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-4-hydrogen"
+    ]
+  },
+  {
+    "canonicalModelKey": "google:gemini-4-neon",
+    "sourceNamespace": "openrouter",
+    "alias": "google/gemini-4-neon",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-google-gemini-4-neon"
+    ]
+  },
+  {
+    "canonicalModelKey": "meta:llama-4-maverick",
+    "sourceNamespace": "openrouter",
+    "alias": "meta-llama/llama-4-maverick",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-meta-llama-4-maverick"
+    ]
+  },
+  {
+    "canonicalModelKey": "meta:llama-4-scout",
+    "sourceNamespace": "openrouter",
+    "alias": "meta-llama/llama-4-scout",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-meta-llama-4-scout"
+    ]
+  },
+  {
+    "canonicalModelKey": "mistral:devstral-2",
+    "sourceNamespace": "openrouter",
+    "alias": "mistralai/devstral-2512",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-mistral-devstral-2"
+    ]
+  },
+  {
+    "canonicalModelKey": "mistral:mistral-large-4",
+    "sourceNamespace": "openrouter",
+    "alias": "mistralai/mistral-large-4-0",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-mistral-mistral-large-4"
+    ]
+  },
+  {
+    "canonicalModelKey": "mistral:mistral-medium-3",
+    "sourceNamespace": "openrouter",
+    "alias": "mistralai/mistral-medium-3",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-mistral-mistral-medium-3"
+    ]
+  },
+  {
+    "canonicalModelKey": "mistral:mistral-small-4",
+    "sourceNamespace": "openrouter",
+    "alias": "mistralai/mistral-small-2603",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-mistral-mistral-small-4"
+    ]
+  },
+  {
+    "canonicalModelKey": "moonshot:kimi-k2",
+    "sourceNamespace": "openrouter",
+    "alias": "moonshotai/kimi-k2",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-moonshot-kimi-k2"
+    ]
+  },
+  {
+    "canonicalModelKey": "moonshot:kimi-k2-thinking",
+    "sourceNamespace": "openrouter",
+    "alias": "moonshotai/kimi-k2-thinking",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-moonshot-kimi-k2-thinking"
+    ]
+  },
+  {
+    "canonicalModelKey": "moonshot:kimi-k2.5",
+    "sourceNamespace": "openrouter",
+    "alias": "moonshotai/kimi-k2.5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-moonshot-kimi-k2.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "moonshot:kimi-k2.6",
+    "sourceNamespace": "openrouter",
+    "alias": "moonshotai/kimi-k2.6",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-moonshot-kimi-k2.6"
+    ]
+  },
+  {
+    "canonicalModelKey": "moonshot:kimi-k2.7-code",
+    "sourceNamespace": "openrouter",
+    "alias": "moonshotai/kimi-k2.7-code",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-moonshot-kimi-k2.7-code"
+    ]
+  },
+  {
+    "canonicalModelKey": "moonshot:kimi-k3",
+    "sourceNamespace": "openrouter",
+    "alias": "moonshotai/kimi-k3",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-moonshot-kimi-k3"
+    ]
+  },
+  {
+    "canonicalModelKey": "moonshot:kimi-k3.1-pro",
+    "sourceNamespace": "openrouter",
+    "alias": "moonshotai/kimi-k3.1-pro",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-moonshot-kimi-k3.1-pro"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-5",
+    "sourceNamespace": "openrouter",
+    "alias": "openai/gpt-5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-5"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-5.1",
+    "sourceNamespace": "openrouter",
+    "alias": "openai/gpt-5.1",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-5.1"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-5.2",
+    "sourceNamespace": "openrouter",
+    "alias": "openai/gpt-5.2",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-5.2"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-5.3-codex",
+    "sourceNamespace": "openrouter",
+    "alias": "openai/gpt-5.3-codex",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-5.3-codex"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-5.4",
+    "sourceNamespace": "openrouter",
+    "alias": "openai/gpt-5.4",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-5.4"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-5.5",
+    "sourceNamespace": "openrouter",
+    "alias": "openai/gpt-5.5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-5.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-5.6-sol",
+    "sourceNamespace": "openrouter",
+    "alias": "openai/gpt-5.6-sol",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-5.6-sol"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-6-astra",
+    "sourceNamespace": "openrouter",
+    "alias": "openai/gpt-6-astra",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-6-astra"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-6-sol",
+    "sourceNamespace": "openrouter",
+    "alias": "openai/gpt-6-sol",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-6-sol"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-6.1-sol",
+    "sourceNamespace": "openrouter",
+    "alias": "openai/gpt-6.1-sol",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-6.1-sol"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-6.2-astra",
+    "sourceNamespace": "openrouter",
+    "alias": "openai/gpt-6.2-astra",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-6.2-astra"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:gpt-6.2-sol",
+    "sourceNamespace": "openrouter",
+    "alias": "openai/gpt-6.2-sol",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-gpt-6.2-sol"
+    ]
+  },
+  {
+    "canonicalModelKey": "openai:o3-pro",
+    "sourceNamespace": "openrouter",
+    "alias": "openai/o3-pro",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-openai-o3-pro"
+    ]
+  },
+  {
+    "canonicalModelKey": "qwen:qwen3-coder",
+    "sourceNamespace": "openrouter",
+    "alias": "qwen/qwen3-coder",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-qwen-qwen3-coder"
+    ]
+  },
+  {
+    "canonicalModelKey": "qwen:qwen3.6-plus",
+    "sourceNamespace": "openrouter",
+    "alias": "qwen/qwen3.6-plus",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-qwen-qwen3.6-plus"
+    ]
+  },
+  {
+    "canonicalModelKey": "qwen:qwen4-max",
+    "sourceNamespace": "openrouter",
+    "alias": "qwen/qwen4-max",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-qwen-qwen4-max"
+    ]
+  },
+  {
+    "canonicalModelKey": "xai:grok-4.5",
+    "sourceNamespace": "openrouter",
+    "alias": "x-ai/grok-4.5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-xai-grok-4.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "xai:grok-4.6",
+    "sourceNamespace": "openrouter",
+    "alias": "x-ai/grok-4.6",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-xai-grok-4.6"
+    ]
+  },
+  {
+    "canonicalModelKey": "xai:grok-4.7",
+    "sourceNamespace": "openrouter",
+    "alias": "x-ai/grok-4.7",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-xai-grok-4.7"
+    ]
+  },
+  {
+    "canonicalModelKey": "zai:glm-4.5",
+    "sourceNamespace": "openrouter",
+    "alias": "z-ai/glm-4.5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-zai-glm-4.5"
+    ]
+  },
+  {
+    "canonicalModelKey": "zai:glm-4.6",
+    "sourceNamespace": "openrouter",
+    "alias": "z-ai/glm-4.6",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-zai-glm-4.6"
+    ]
+  },
+  {
+    "canonicalModelKey": "zai:glm-4.7",
+    "sourceNamespace": "openrouter",
+    "alias": "z-ai/glm-4.7",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-zai-glm-4.7"
+    ]
+  },
+  {
+    "canonicalModelKey": "zai:glm-5",
+    "sourceNamespace": "openrouter",
+    "alias": "z-ai/glm-5",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-zai-glm-5"
+    ]
+  },
+  {
+    "canonicalModelKey": "zai:glm-5.1",
+    "sourceNamespace": "openrouter",
+    "alias": "z-ai/glm-5.1",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-zai-glm-5.1"
+    ]
+  },
+  {
+    "canonicalModelKey": "zai:glm-5.2",
+    "sourceNamespace": "openrouter",
+    "alias": "z-ai/glm-5.2",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-zai-glm-5.2"
+    ]
+  },
+  {
+    "canonicalModelKey": "zai:glm-5.3",
+    "sourceNamespace": "openrouter",
+    "alias": "z-ai/glm-5.3",
+    "reviewStatus": "verified",
+    "evidenceReferenceIds": [
+      "ref-zai-glm-5.3"
+    ]
+  }
+]
