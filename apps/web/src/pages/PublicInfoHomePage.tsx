@@ -1,52 +1,44 @@
-import React, { useMemo, useState } from 'react';
-import {
-  ArrowRight,
-  ArrowUpRight,
-  Bookmark,
-  BookOpen,
-  Calendar,
-  Flame,
-  RefreshCw,
-  Search,
-  Sparkles,
-} from 'lucide-react';
+import { type FormEvent, useMemo, useState } from 'react';
+import { ArrowRight, RefreshCw } from 'lucide-react';
 import {
   formatApiError,
   useAnnotationsListQuery,
+  useInfiniteStoriesQuery,
   usePublicSourcesQuery,
   useSaveAnnotationMutation,
   useStoriesQuery,
 } from '../api/hooks';
+import { AiReleasePreview } from '../components/public-home/AiReleasePreview';
+import { DailyBriefPreview } from '../components/public-home/DailyBriefPreview';
+import { EditorialStoryCard } from '../components/public-home/EditorialStoryCard';
+import { EditorialStoryRow } from '../components/public-home/EditorialStoryRow';
+import { FeaturedSignal } from '../components/public-home/FeaturedSignal';
+import { FeedChannelNav } from '../components/public-home/FeedChannelNav';
+import { FeedContinuation } from '../components/public-home/FeedContinuation';
+import { HomeIntro } from '../components/public-home/HomeIntro';
+import { SignalHeatPanel } from '../components/public-home/SignalHeatPanel';
 import { ReaderDrawer } from '../components/stories/ReaderDrawer';
 import {
   type ReaderPreview,
   evidenceToReaderPreview,
   storyToReaderPreview,
 } from '../components/stories/readerTypes';
-import { StoryMicrocharts } from '../components/stories/StoryMicrocharts';
 import { type Actor, type Platform, type StoryItem, validateSearchTerm } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
 import {
-  SOURCE_GROUPS,
-  type SourceGroupKey,
-  TIER_SHORT,
-  decodeHtmlEntities,
-  formatExactTime,
-  formatRelativeTime,
-  safeHttpUrl,
-} from '../lib/sourceLabels';
+  HOME_FEED_PAGE_SIZE,
+  HOME_HOT_DISPLAY_LIMIT,
+  buildHomeFeedSections,
+  selectHomeFeaturedStory,
+} from '../lib/homeFeedPresentation';
+import { SOURCE_GROUPS, type SourceGroupKey } from '../lib/sourceLabels';
+import '../styles/signal-home.css';
 
 interface PublicInfoHomePageProps {
   actor: Actor | null;
   onNavigate: (path: string) => void;
   onOpenAuth: (tab?: 'login' | 'register', reason?: string) => void;
 }
-
-const BADGE_LABELS = {
-  surge: { zh: '飙升', en: 'Surge' },
-  rising: { zh: '升温', en: 'Rising' },
-  new: { zh: '新上榜', en: 'New' },
-} as const;
 
 export function PublicInfoHomePage({
   actor,
@@ -60,20 +52,31 @@ export function PublicInfoHomePage({
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [reader, setReader] = useState<ReaderPreview | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [cachedGlobalLatest, setCachedGlobalLatest] = useState<StoryItem[]>([]);
 
   const publicSourcesQuery = usePublicSourcesQuery(true);
   const groupCounts = publicSourcesQuery.data?.groupCounts ?? {};
+  const activeSourceCount = publicSourcesQuery.data ? publicSourcesQuery.data.sources.length : null;
 
-  // Small-limit queries sharing React Query cache with real /v1/content/stories
-  const latestQuery = useStoriesQuery({
+  // Single continuous paginated stream for Today's Picks + More Picks
+  const picksQuery = useInfiniteStoriesQuery({
     view: 'latest',
-    limit: 8,
+    limit: HOME_FEED_PAGE_SIZE,
     ...(selectedGroup ? { sourceGroup: selectedGroup } : {}),
   });
+
+  const handleSelectGroup = (nextGroup: string) => {
+    if (selectedGroup === '' && nextGroup !== '' && picksQuery.data?.pages[0]?.items) {
+      setCachedGlobalLatest(picksQuery.data.pages[0].items);
+    }
+    setSelectedGroup(nextGroup);
+  };
+
   const hotQuery = useStoriesQuery({
     view: 'hot',
-    limit: 6,
+    limit: HOME_HOT_DISPLAY_LIMIT + 1,
   });
+
   const digestQuery = useStoriesQuery({
     view: 'digest',
     limit: 5,
@@ -86,7 +89,7 @@ export function PublicInfoHomePage({
   );
   const { mutateAsync: saveBookmark, isPending: savingBookmark } = useSaveAnnotationMutation();
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
+  const handleSearchSubmit = (e: FormEvent) => {
     e.preventDefault();
     setSearchError(null);
     const trimmed = searchTerm.trim();
@@ -117,365 +120,309 @@ export function PublicInfoHomePage({
     }
   };
 
-  const latestItems = latestQuery.data?.items ?? [];
-  const hotItems = hotQuery.data?.items ?? [];
-  const digestItems = digestQuery.data?.items ?? [];
+  const openStoryReader = (story: StoryItem) => {
+    setReader(storyToReaderPreview(story));
+  };
+
+  const hotItems = useMemo(() => hotQuery.data?.items ?? [], [hotQuery.data?.items]);
+  const globalLatestItems = useMemo(
+    () =>
+      selectedGroup === ''
+        ? picksQuery.data?.pages[0]?.items ?? cachedGlobalLatest
+        : cachedGlobalLatest,
+    [selectedGroup, picksQuery.data?.pages, cachedGlobalLatest],
+  );
+
+  const featuredSelection = useMemo(
+    () => selectHomeFeaturedStory(globalLatestItems, hotItems),
+    [globalLatestItems, hotItems],
+  );
+
+  const feedSections = useMemo(
+    () =>
+      buildHomeFeedSections({
+        pages: picksQuery.data?.pages ?? [],
+        featured: featuredSelection?.story ?? null,
+        hotItems,
+        selectedGroup,
+      }),
+    [picksQuery.data?.pages, featuredSelection?.story, hotItems, selectedGroup],
+  );
+
   const activeGroupLabel = selectedGroup
     ? SOURCE_GROUPS[selectedGroup as SourceGroupKey]?.[lang] ?? selectedGroup
     : null;
 
-  const renderStoryRow = (story: StoryItem) => {
-    const rep = story.representative;
-    const title = decodeHtmlEntities(rep.title || '无标题内容');
-    const excerpt = decodeHtmlEntities(story.excerpt);
-    const href = safeHttpUrl(rep.url);
-    const isSaved = savedIds.has(rep.id);
-    const ts = rep.publishedAt ?? rep.discoveredAt;
+  const featuredLoading =
+    hotQuery.isPending && picksQuery.isPending && cachedGlobalLatest.length === 0;
+  const featuredError =
+    !featuredSelection && hotQuery.isError && picksQuery.isError
+      ? formatApiError(picksQuery.error)
+      : null;
 
-    return (
-      <article key={story.storyKey} className="story-card" style={{ marginBottom: 0 }}>
-        <div className="story-meta">
-          <span className={`story-tier-pill tier-${rep.tier.toLowerCase()}`}>{TIER_SHORT[rep.tier]}</span>
-          <span className="story-source">{rep.sourceLabel}</span>
-          <time dateTime={ts} title={formatExactTime(ts)}>{formatRelativeTime(ts)}</time>
-          {story.sourceCount >= 2 && (
-            <span className="tag tag--line" style={{ height: 19, fontSize: 10 }}>
-              {story.sourceCount} {t('sources', '源印证')}
-            </span>
-          )}
-          {story.badges.map((badge) => (
-            <span key={badge} className={`story-badge badge-${badge}`}>
-              {BADGE_LABELS[badge][lang]}
-            </span>
-          ))}
-        </div>
-
-        <h3 className="story-title" style={{ marginTop: 6 }}>
-          <button
-            type="button"
-            className="story-title-btn"
-            onClick={() => setReader(storyToReaderPreview(story))}
-          >
-            {title}
-          </button>
-        </h3>
-
-        {excerpt && <p className="story-excerpt">{excerpt}</p>}
-
-        <div className="story-foot" style={{ marginTop: 8 }}>
-          <StoryMicrocharts story={story} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
-            {href && (
-              <a
-                href={href}
-                target="_blank"
-                rel="noreferrer"
-                className="ds-btn ds-btn--ghost"
-                style={{ height: 26, fontSize: 11, padding: '0 8px' }}
-              >
-                <span>{t('Original', '原文')}</span>
-                <ArrowUpRight size={12} />
-              </a>
-            )}
-            <button
-              type="button"
-              className="ds-btn ds-btn--ghost"
-              style={{ height: 26, fontSize: 11, padding: '0 8px' }}
-              disabled={savingBookmark}
-              onClick={() => void handleBookmark(rep.id)}
-            >
-              <Bookmark size={12} fill={isSaved ? 'currentColor' : 'none'} />
-              <span>{isSaved ? t('Saved', '已收藏') : t('Save', '收藏')}</span>
-            </button>
-          </div>
-        </div>
-      </article>
-    );
-  };
+  const leadGridModifier =
+    feedSections.leadCards.length === 1
+      ? 'sh-lead-grid--1'
+      : feedSections.leadCards.length === 2
+        ? 'sh-lead-grid--2'
+        : '';
 
   return (
-    <div className="pih-wrap">
-      {/* Compact Information Discovery Hero */}
-      <section className="pih-hero">
-        <div className="pih-hero-top">
-          <div>
-            <span className="pih-eyebrow">
-              <Sparkles size={12} />
-              {t('Live Multi-Source Feed · stored_sample', '多源实时信息流 · 已存样本口径')}
-            </span>
-            <h1>{t('SIFTLINE Public Signal Feed', 'SIFTLINE 公开信息首页')}</h1>
-            <p className="pih-hero-sub">
-              {t(
-                'Scan cross-source deduplicated stories, 48h momentum, and the 08:00 digest immediately—or jump into the full research workbench.',
-                '直读跨来源多源印证的今日精选、48 小时热度与 08:00 日报；需要深度筛选、批注与专题监测时一键进入专业工作台。',
-              )}
-            </p>
-          </div>
+    <div className="sh-page">
+      <HomeIntro
+        searchTerm={searchTerm}
+        searchPlatform={searchPlatform}
+        searchError={searchError}
+        activeSourceCount={activeSourceCount}
+        onSearchTermChange={(v) => {
+          setSearchTerm(v);
+          setSearchError(null);
+        }}
+        onSearchPlatformChange={setSearchPlatform}
+        onSearchSubmit={handleSearchSubmit}
+        onNavigate={onNavigate}
+      />
 
-          <button
-            type="button"
-            className="ds-btn ds-btn--ghost"
-            onClick={() => onNavigate('/app/feed')}
-          >
-            <BookOpen size={14} />
-            <span>{t('Open Full Feed (/app/feed)', '进入完整信息流')}</span>
-            <ArrowRight size={13} />
-          </button>
-        </div>
-
-        <form className="pih-search-row" onSubmit={handleSearchSubmit}>
-          <div className="pih-search-box">
-            <Search size={16} color="#6c786a" />
-            <input
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setSearchError(null);
-              }}
-              placeholder={t('Search stored stories & discussions (e.g. OpenAI, Kubernetes, pricing)...', '检索已入库报道与社区讨论（例如：多语言、OpenAI、定价）…')}
-              aria-label={t('Search public content', '检索公开内容')}
-            />
-          </div>
-          <select
-            className="pih-platform-select"
-            aria-label={t('Filter by platform', '按平台筛选')}
-            value={searchPlatform}
-            onChange={(e) => setSearchPlatform(e.target.value as '' | Platform)}
-          >
-            <option value="">{t('All Platforms', '全部平台')}</option>
-            <option value="web">Web / RSS / HN</option>
-            <option value="reddit">Reddit</option>
-            <option value="x">X</option>
-            <option value="bluesky">Bluesky</option>
-          </select>
-          <button type="submit" className="sr-btn sr-btn--dark" style={{ height: 44, padding: '0 18px' }}>
-            {t('Search', '立即检索')}
-          </button>
-        </form>
-
-        {searchError && (
-          <div role="alert" className="wb-alert wb-alert--error" style={{ marginBottom: 12 }}>
-            {searchError}
+      <div className="sh-container">
+        {notice && (
+          <div className="sh-notice" role="status">
+            <span>{notice}</span>
+            <button
+              type="button"
+              className="sh-inline-link"
+              onClick={() => setNotice(null)}
+            >
+              {t('Dismiss', '关闭')}
+            </button>
           </div>
         )}
 
-        {/* 8 Source Group Channels */}
-        <div className="pih-quick-channels" role="group" aria-label={t('Browse by channel', '按频道浏览')}>
-          <button
-            type="button"
-            className={`pih-chip ${selectedGroup === '' ? 'is-active' : ''}`}
-            onClick={() => setSelectedGroup('')}
-          >
-            <span>{t('All Channels', '全部频道')}</span>
-          </button>
-          {(Object.keys(SOURCE_GROUPS) as SourceGroupKey[]).map((key) => (
-            <button
-              key={key}
-              type="button"
-              className={`pih-chip ${selectedGroup === key ? 'is-active' : ''}`}
-              onClick={() => setSelectedGroup(selectedGroup === key ? '' : key)}
-            >
-              <span>{SOURCE_GROUPS[key][lang]}</span>
-              {typeof groupCounts[key] === 'number' && (
-                <span className="pih-chip-count">{groupCounts[key]}</span>
+        {/* 1. Focus Band: Featured Signal + 48h Momentum */}
+        <section className="sh-band" aria-labelledby="sh-focus-heading">
+          <div className="sh-section-bar">
+            <div className="sh-section-heading-group">
+              <h2 id="sh-focus-heading" className="sh-section-heading">
+                {t('Focus Signals', '焦点信号')}
+              </h2>
+              <p className="sh-section-sub">
+                {t('Key changes & 48h momentum from stored sources', '值得关注的关键变化与 48 小时热度')}
+              </p>
+            </div>
+          </div>
+
+          <div className="sh-focus-grid">
+            <FeaturedSignal
+              selection={featuredSelection}
+              loading={featuredLoading}
+              error={featuredError}
+              isSaved={featuredSelection ? savedIds.has(featuredSelection.story.representative.id) : false}
+              savingBookmark={savingBookmark}
+              onOpenReader={openStoryReader}
+              onBookmark={(id) => void handleBookmark(id)}
+              onRetry={() => {
+                void hotQuery.refetch();
+                void picksQuery.refetch();
+              }}
+            />
+
+            <SignalHeatPanel
+              items={hotItems}
+              loading={hotQuery.isPending}
+              error={hotQuery.isError ? formatApiError(hotQuery.error) : null}
+              onOpenReader={openStoryReader}
+              onNavigate={onNavigate}
+              onRetry={() => void hotQuery.refetch()}
+            />
+          </div>
+        </section>
+
+        {/* 2. Today's Picks (Upper Segment of Continuous Feed) */}
+        <section className="sh-band" aria-labelledby="sh-picks-heading">
+          <div className="sh-section-bar">
+            <div className="sh-section-heading-group">
+              <h2 id="sh-picks-heading" className="sh-section-heading">
+                {activeGroupLabel ?? t("Today's Picks", '今日精选')}
+              </h2>
+              <p className="sh-section-sub">
+                {t(
+                  'Automatically deduplicated from trusted sources · Recent 7-day window',
+                  '来自可信信源的近期自动去重精选 · 最近 7 天样本窗口',
+                )}
+              </p>
+            </div>
+
+            <div className="sh-section-actions">
+              <button
+                type="button"
+                className="sh-btn-outline"
+                onClick={() => void picksQuery.refetch()}
+                disabled={picksQuery.isFetching}
+              >
+                <RefreshCw size={13} className={picksQuery.isFetching ? 'sh-spin' : ''} aria-hidden="true" />
+                <span>{t('Refresh', '刷新')}</span>
+              </button>
+            </div>
+          </div>
+
+          <FeedChannelNav
+            selectedGroup={selectedGroup}
+            groupCounts={groupCounts}
+            onSelectGroup={handleSelectGroup}
+          />
+
+          {picksQuery.isPending && (
+            <div className="sh-feed-empty" aria-busy="true">
+              {t('Loading recent stories...', '正在加载今日精选…')}
+            </div>
+          )}
+
+          {picksQuery.isError && feedSections.allVisible.length === 0 && (
+            <div className="sh-feed-empty" role="alert">
+              <span>{formatApiError(picksQuery.error)}</span>
+              <button type="button" className="sh-btn-outline" onClick={() => void picksQuery.refetch()}>
+                <RefreshCw size={13} aria-hidden="true" />
+                <span>{t('Retry', '重新加载')}</span>
+              </button>
+            </div>
+          )}
+
+          {!picksQuery.isPending && !picksQuery.isError && feedSections.allVisible.length === 0 && (
+            <div className="sh-feed-empty">
+              <span>
+                {t(
+                  'No stories matched this channel in the current 7-day stored sample window.',
+                  '当前 7 天已存样本窗口内该频道暂无匹配报道。',
+                )}
+              </span>
+              {selectedGroup && (
+                <button type="button" className="sh-btn-outline" onClick={() => handleSelectGroup('')}>
+                  {t('View All Picks', '查看全部精选')}
+                </button>
               )}
-            </button>
-          ))}
-        </div>
-      </section>
+            </div>
+          )}
 
-      {notice && (
-        <div className="wb-alert wb-alert--info" style={{ marginBottom: 16 }}>
-          {notice}
-        </div>
-      )}
+          {feedSections.leadCards.length > 0 && (
+            <div className={`sh-lead-grid ${leadGridModifier}`}>
+              {feedSections.leadCards.map((story, idx) => (
+                <EditorialStoryCard
+                  key={story.storyKey}
+                  story={story}
+                  variantIndex={idx}
+                  isSaved={savedIds.has(story.representative.id)}
+                  savingBookmark={savingBookmark}
+                  onOpenReader={openStoryReader}
+                  onBookmark={(id) => void handleBookmark(id)}
+                />
+              ))}
+            </div>
+          )}
 
-      {/* Main 2-column content grid */}
-      <div className="pih-grid">
-        {/* Left Column: Today's Highlights / Selected Channel */}
-        <div>
-          <section className="pih-section" aria-labelledby="pih-latest-heading">
-            <div className="pih-section-hd">
-              <div>
-                <h2 id="pih-latest-heading" className="pih-section-title">
-                  <BookOpen size={16} color="var(--wb-teal, #1f7471)" />
-                  <span>{activeGroupLabel ? activeGroupLabel : t("Today's Highlights", '今日精选')}</span>
+          {feedSections.upperRows.length > 0 && (
+            <div className="sh-row-list">
+              {feedSections.upperRows.map((story) => (
+                <EditorialStoryRow
+                  key={story.storyKey}
+                  story={story}
+                  isSaved={savedIds.has(story.representative.id)}
+                  savingBookmark={savingBookmark}
+                  onOpenReader={openStoryReader}
+                  onBookmark={(id) => void handleBookmark(id)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* 3. Mid-Page Feature Band (Inserted ONCE) */}
+        <div className="sh-feature-band">
+          <AiReleasePreview
+            apiEnabled={false}
+            onNavigate={onNavigate}
+          />
+
+          <DailyBriefPreview
+            feed={digestQuery.data}
+            loading={digestQuery.isPending}
+            error={digestQuery.isError ? formatApiError(digestQuery.error) : null}
+            onOpenReader={openStoryReader}
+            onNavigate={onNavigate}
+            onRetry={() => void digestQuery.refetch()}
+          />
+        </div>
+
+        {/* 4. More Picks (Continuation of Same Paginated Feed) */}
+        {(feedSections.lowerRows.length > 0 || feedSections.hasMore) && (
+          <section className="sh-band" aria-labelledby="sh-more-heading">
+            <div className="sh-section-bar">
+              <div className="sh-section-heading-group">
+                <h2 id="sh-more-heading" className="sh-section-heading">
+                  {t('More Picks', '更多精选')}
                 </h2>
-                <p className="pih-section-sub">
+                <p className="sh-section-sub">
                   {t(
-                    'Deduplicated real stories ranked by recency and T1 > T1.5 > T2 authority · coverage: stored_sample',
-                    '跨源去重、按 T1 > T1.5 > T2 选举一手代表 · 已存样本口径 (stored_sample)',
+                    'Continuing the same deduplicated stream across stored sources',
+                    '延续同一精选流的更多近期报道与行业观察',
                   )}
                 </p>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <button
-                  type="button"
-                  className="pih-link-btn"
-                  onClick={() => void latestQuery.refetch()}
-                  title={t('Refresh', '刷新')}
-                >
-                  <RefreshCw size={12} />
-                </button>
-                <button
-                  type="button"
-                  className="pih-link-btn"
-                  onClick={() =>
-                    onNavigate(selectedGroup ? `/app/feed?sourceGroup=${encodeURIComponent(selectedGroup)}` : '/app/feed')
-                  }
-                >
-                  <span>{t('View all', '查看全部')}</span>
-                  <ArrowRight size={13} />
-                </button>
-              </div>
-            </div>
-
-            {latestQuery.isPending && (
-              <div className="pih-empty">{t('Loading latest stories...', '正在加载今日精选…')}</div>
-            )}
-            {latestQuery.isError && (
-              <div className="wb-alert wb-alert--error">{formatApiError(latestQuery.error)}</div>
-            )}
-            {!latestQuery.isPending && !latestQuery.isError && latestItems.length === 0 && (
-              <div className="pih-empty">
-                {t('No stories matched this channel in the current stored window.', '当前已存样本窗口内该频道暂无报道。')}
-              </div>
-            )}
-            {latestItems.length > 0 && (
-              <div style={{ display: 'grid', gap: 12 }}>
-                {latestItems.map(renderStoryRow)}
-              </div>
-            )}
-          </section>
-        </div>
-
-        {/* Right Column: 48h Momentum (Distinct Ranked Panel) + 08:00 Digest Zone */}
-        <div>
-          <section className="pih-section pih-section--momentum" aria-labelledby="pih-hot-heading">
-            <div className="pih-section-hd">
-              <div>
-                <h2 id="pih-hot-heading" className="pih-section-title">
-                  <Flame size={16} color="#c2592c" />
-                  <span>{t('48h Momentum', '48 小时热度')}</span>
-                </h2>
-                <p className="pih-section-sub">
-                  {t('Multi-source coverage density & recency decay', '48 小时多源报道密度与衰减排序')}
-                </p>
-              </div>
               <button
                 type="button"
-                className="pih-link-btn"
-                onClick={() => onNavigate('/app/feed?view=hot')}
+                className="sh-inline-link"
+                onClick={() =>
+                  onNavigate(
+                    selectedGroup
+                      ? `/app/feed?sourceGroup=${encodeURIComponent(selectedGroup)}`
+                      : '/app/feed',
+                  )
+                }
               >
-                <span>{t('View all', '查看全部')}</span>
-                <ArrowRight size={13} />
+                <span>{t('Full Feed', '浏览完整信息流')}</span>
+                <ArrowRight size={13} aria-hidden="true" />
               </button>
             </div>
 
-            {hotQuery.isPending && (
-              <div className="pih-empty">{t('Loading 48h momentum...', '正在加载 48 小时热度…')}</div>
-            )}
-            {hotQuery.isError && (
-              <div className="wb-alert wb-alert--error">{formatApiError(hotQuery.error)}</div>
-            )}
-            {!hotQuery.isPending && !hotQuery.isError && hotItems.length === 0 && (
-              <div className="pih-empty">{t('No 48h momentum stories yet.', '近 48 小时暂无热度事件。')}</div>
-            )}
-            {hotItems.length > 0 && (
-              <div className="pih-compact-list">
-                {hotItems.map((story, idx) => {
-                  const rep = story.representative;
-                  const title = decodeHtmlEntities(rep.title);
-                  return (
-                    <div key={story.storyKey} className="pih-compact-item pih-rank-row">
-                      <span className="pih-rank-num">{String(idx + 1).padStart(2, '0')}</span>
-                      <div>
-                        <button
-                          type="button"
-                          className="pih-compact-title"
-                          onClick={() => setReader(storyToReaderPreview(story))}
-                        >
-                          {title}
-                        </button>
-                        <div className="pih-compact-meta">
-                          <span className={`story-tier-pill tier-${rep.tier.toLowerCase()}`}>{TIER_SHORT[rep.tier]}</span>
-                          <span>{rep.sourceLabel}</span>
-                          <span>·</span>
-                          <span className="tabular-nums">
-                            {t('Heat', '热度')} {story.heat48h.toFixed(1)}
-                          </span>
-                          {story.sourceCount >= 2 && (
-                            <span>· {story.sourceCount} {t('sources', '源')}</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+            {feedSections.lowerRows.length > 0 && (
+              <div className="sh-row-list">
+                {feedSections.lowerRows.map((story) => (
+                  <EditorialStoryRow
+                    key={story.storyKey}
+                    story={story}
+                    isSaved={savedIds.has(story.representative.id)}
+                    savingBookmark={savingBookmark}
+                    onOpenReader={openStoryReader}
+                    onBookmark={(id) => void handleBookmark(id)}
+                  />
+                ))}
               </div>
             )}
-          </section>
 
-          <section className="pih-section pih-section--digest" aria-labelledby="pih-digest-heading">
-            <div className="pih-section-hd">
-              <div>
-                <h2 id="pih-digest-heading" className="pih-section-title">
-                  <Calendar size={16} color="var(--wb-purple, #6850a8)" />
-                  <span>{t('08:00 Daily Digest', '08:00 日报精选')}</span>
-                </h2>
-                <p className="pih-section-sub">
-                  {t('Latest morning briefing preview', '最新一期 08:00 日报摘要')}
-                </p>
-              </div>
-              <button
-                type="button"
-                className="pih-link-btn"
-                onClick={() => onNavigate('/app/feed?view=digest')}
-              >
-                <span>{t('Full & Archive', '完整与历史日报')}</span>
-                <ArrowRight size={13} />
-              </button>
-            </div>
-
-            {digestQuery.isPending && (
-              <div className="pih-empty">{t('Loading digest preview...', '正在加载 08:00 日报…')}</div>
-            )}
-            {digestQuery.isError && (
-              <div className="wb-alert wb-alert--error">{formatApiError(digestQuery.error)}</div>
-            )}
-            {!digestQuery.isPending && !digestQuery.isError && digestItems.length === 0 && (
-              <div className="pih-empty">
-                {t('No stories in the latest 08:00 digest window yet.', '当前 08:00 日报窗口内暂无入库条目。')}
-              </div>
-            )}
-            {digestItems.length > 0 && (
-              <div className="pih-compact-list">
-                {digestItems.map((story) => {
-                  const rep = story.representative;
-                  const title = decodeHtmlEntities(rep.title);
-                  const ts = rep.publishedAt ?? rep.discoveredAt;
-                  return (
-                    <div key={story.storyKey} className="pih-compact-item">
-                      <button
-                        type="button"
-                        className="pih-compact-title"
-                        onClick={() => setReader(storyToReaderPreview(story))}
-                      >
-                        {title}
-                      </button>
-                      <div className="pih-compact-meta">
-                        <span className={`story-tier-pill tier-${rep.tier.toLowerCase()}`}>{TIER_SHORT[rep.tier]}</span>
-                        <span>{rep.sourceLabel}</span>
-                        <span>·</span>
-                        <time title={formatExactTime(ts)}>{formatRelativeTime(ts)}</time>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <FeedContinuation
+              hasMore={feedSections.hasMore}
+              isFetchingNextPage={picksQuery.isFetchingNextPage}
+              fetchNextError={
+                picksQuery.isFetchNextPageError ? formatApiError(picksQuery.error) : null
+              }
+              visibleCount={feedSections.allVisible.length}
+              selectedGroup={selectedGroup}
+              onLoadMore={() => void picksQuery.fetchNextPage()}
+              onNavigate={onNavigate}
+            />
           </section>
-        </div>
+        )}
+
+        {/* End state when all items fit in upper section and no further pages exist */}
+        {feedSections.lowerRows.length === 0 && !feedSections.hasMore && feedSections.allVisible.length > 0 && (
+          <FeedContinuation
+            hasMore={false}
+            isFetchingNextPage={false}
+            fetchNextError={null}
+            visibleCount={feedSections.allVisible.length}
+            selectedGroup={selectedGroup}
+            onLoadMore={() => void picksQuery.fetchNextPage()}
+            onNavigate={onNavigate}
+          />
+        )}
       </div>
 
       {reader && (
