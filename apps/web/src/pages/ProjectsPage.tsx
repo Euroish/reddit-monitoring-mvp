@@ -25,11 +25,13 @@ import {
 } from 'lucide-react';
 import {
   formatApiError,
+  useCapabilitiesQuery,
   useContentListQuery,
   useCreateProjectMutation,
   useDeleteProjectMutation,
   useProjectOverviewQuery,
   useProjectsQuery,
+  useQuotasSummaryQuery,
   useSourcesQuery,
   useUpdateProjectMutation,
 } from '../api/hooks';
@@ -37,6 +39,14 @@ import { KpiSparkChart } from '../components/charts/KpiSparkChart';
 import { DailyTrendChart } from '../components/charts/DailyTrendChart';
 import { DistributionCards } from '../components/charts/DistributionCharts';
 import { useChartColors } from '../components/charts/chartUtils';
+import { CrossPlatformAnalyticsPanel } from '../components/CrossPlatformAnalyticsPanel';
+import {
+  ProjectBatchesView,
+  ProjectCollectView,
+  ProjectJobsView,
+  ProjectListView,
+} from '../components/ProjectWorkspaceViews';
+import { isResearchSource } from '../lib/collectionLimits';
 import {
   type Actor,
   ApiError,
@@ -56,6 +66,7 @@ interface ProjectsPageProps {
   selectedProjectId: string;
   onSelectProjectId: (id: string) => void;
   initialSearchString?: string;
+  onNavigate?: (path: string) => void;
   onDrilldown: (projectId: string, extraQs?: string) => void;
   onOpenContentDetail: (contentId: string) => void;
 }
@@ -68,25 +79,53 @@ export function ProjectsPage({
   selectedProjectId,
   onSelectProjectId,
   initialSearchString = '',
+  onNavigate,
   onDrilldown,
   onOpenContentDetail,
 }: ProjectsPageProps) {
   const { t } = useI18n();
   const colors = useChartColors();
-  const canWrite = actor.role === 'owner' || actor.role === 'admin';
+  const isAdmin = actor.role === 'owner' || actor.role === 'admin';
+  const canCreateProject = actor.clientKind === 'browser';
 
   const projectsQuery = useProjectsQuery(true);
   const sourcesQuery = useSourcesQuery(true);
+  const capabilitiesQuery = useCapabilitiesQuery(true);
+  const quotasSummaryQuery = useQuotasSummaryQuery(true);
   const projects = useMemo(() => projectsQuery.data?.projects ?? [], [projectsQuery.data?.projects]);
   const sources = useMemo(() => sourcesQuery.data?.sources ?? [], [sourcesQuery.data?.sources]);
+  const researchSources = useMemo(() => sources.filter(isResearchSource), [sources]);
+
+  const searchParams = new URLSearchParams(initialSearchString);
+  const urlProjectId = searchParams.get('projectId') || '';
+  const urlView = searchParams.get('view') || '';
+  const activeSection = searchParams.get('section') || '';
+  const openNewFromUrl = searchParams.get('new') === '1';
+  const requestedSourceId = searchParams.get('sourceId');
+  const requestedSource = researchSources.find(source => source.id === requestedSourceId);
 
   useEffect(() => {
-    if (projects.length > 0 && !projects.some((p) => p.id === selectedProjectId)) {
+    if (urlProjectId && projects.some((p) => p.id === urlProjectId) && urlProjectId !== selectedProjectId) {
+      onSelectProjectId(urlProjectId);
+    } else if (projects.length > 0 && !projects.some((p) => p.id === selectedProjectId)) {
       onSelectProjectId(projects[0].id);
     }
-  }, [projects, selectedProjectId, onSelectProjectId]);
+  }, [projects, selectedProjectId, urlProjectId, onSelectProjectId]);
 
-  const selectedProject = projects.find((p) => p.id === selectedProjectId) || projects[0];
+  const selectedProject = projects.find((p) => p.id === (urlProjectId || selectedProjectId)) || projects[0];
+  const canWrite = Boolean(selectedProject?.can_edit ?? isAdmin);
+  const activeView: 'list' | 'collect' | 'jobs' | 'batches' | 'overview' =
+    urlView === 'list' || urlView === 'collect' || urlView === 'jobs' || urlView === 'batches' || urlView === 'overview'
+      ? urlView
+      : selectedProject && selectedProject.dataset_mode === 'batch' && (selectedProject.enabled_batch_count ?? 0) === 0
+        ? 'collect'
+        : 'overview';
+  const go = useCallback(
+    (path: string) => {
+      if (onNavigate) onNavigate(path);
+    },
+    [onNavigate],
+  );
   const overviewQuery = useProjectOverviewQuery(selectedProject?.id, selectedProject?.revision);
   const overview = overviewQuery.data;
 
@@ -111,15 +150,10 @@ export function ProjectsPage({
   const [shareCopied, setShareCopied] = useState(false);
   const [pageBanner, setPageBanner] = useState<string | null>(null);
 
-  // Scroll to section when navigating from left sidebar (?section=radar|platform|attribution)
-  const searchParams = new URLSearchParams(initialSearchString);
-  const activeSection = searchParams.get('section') || '';
-  const openNewFromUrl = searchParams.get('new') === '1';
-  const requestedSourceId = searchParams.get('sourceId');
-  const requestedSource = sources.find(source => source.id === requestedSourceId);
-
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [formName, setFormName] = useState('');
+  const [formDescription, setFormDescription] = useState('');
+  const [formDatasetMode, setFormDatasetMode] = useState<'batch' | 'source_filter'>('batch');
   const [formSourceIds, setFormSourceIds] = useState<string[]>([]);
   const [formAnyTerms, setFormAnyTerms] = useState('');
   const [formAllTerms, setFormAllTerms] = useState('');
@@ -141,7 +175,9 @@ export function ProjectsPage({
   const openCreate = useCallback((presetSource?: typeof requestedSource) => {
     setModalMode('create');
     setFormName('');
-    setFormSourceIds(presetSource ? [presetSource.id] : sources.slice(0, 2).map((s) => s.id));
+    setFormDescription('');
+    setFormDatasetMode(presetSource ? 'source_filter' : 'batch');
+    setFormSourceIds(presetSource ? [presetSource.id] : []);
     setFormAnyTerms('');
     setFormAllTerms('');
     setFormExclusions('');
@@ -154,7 +190,7 @@ export function ProjectsPage({
     setFormRevision(1);
     setFormError(null);
     setConflict409(false);
-  }, [sources]);
+  }, []);
 
   useEffect(() => {
     if (!activeSection) return;
@@ -171,18 +207,18 @@ export function ProjectsPage({
 
   const didHandleUrlNew = useRef(false);
   useEffect(() => {
-    if (openNewFromUrl && canWrite && sources.length > 0 && !didHandleUrlNew.current) {
+    if (openNewFromUrl && canCreateProject && !didHandleUrlNew.current) {
       const timer = setTimeout(() => {
         didHandleUrlNew.current = true;
         if (requestedSourceId && !requestedSource) {
-          setPageBanner(t('The selected source is unavailable. Choose a source for the monitoring project.', '所选来源当前不可用，请为监测项目选择其他来源。'));
+          setPageBanner(t('The selected source is unavailable or belongs to Information Feed (excluded from Research Projects).', '所选来源当前不可用，或属于资讯信息流来源（不纳入研究项目）。'));
         }
         openCreate(requestedSource);
       }, 0);
       return () => clearTimeout(timer);
     }
     return undefined;
-  }, [openNewFromUrl, canWrite, sources.length, openCreate, requestedSource, requestedSourceId, t]);
+  }, [openNewFromUrl, canCreateProject, openCreate, requestedSource, requestedSourceId, t]);
 
   useEffect(() => {
     if (!openFilterPop) return;
@@ -198,6 +234,8 @@ export function ProjectsPage({
   const openEdit = (p: Project) => {
     setModalMode('edit');
     setFormName(p.name);
+    setFormDescription(p.description ?? '');
+    setFormDatasetMode(p.dataset_mode ?? 'source_filter');
     setFormSourceIds([...p.source_ids]);
     setFormAnyTerms((p.filter.anyTerms || []).join(', '));
     setFormAllTerms((p.filter.allTerms || []).join(', '));
@@ -228,8 +266,8 @@ export function ProjectsPage({
       setFormError(t('Project name must be 1..100 characters.', '项目名称须为 1..100 个字符。'));
       return;
     }
-    if (formSourceIds.length < 1) {
-      setFormError(t('Select at least 1 bound source (minItems: 1).', '至少须绑定 1 个采集来源。'));
+    if (formDatasetMode === 'source_filter' && formSourceIds.length < 1) {
+      setFormError(t('Select at least 1 research source for source-filter mode.', '按来源筛选模式至少须绑定 1 个研究来源。'));
       return;
     }
 
@@ -251,7 +289,9 @@ export function ProjectsPage({
 
     const payload: ProjectInput = {
       name: formName.trim(),
-      sourceIds: formSourceIds,
+      description: formDescription.trim() || null,
+      datasetMode: formDatasetMode,
+      sourceIds: formDatasetMode === 'batch' ? [] : formSourceIds,
       filter,
       threadAware: formThreadAware,
       includePushInTrends: formIncludePush,
@@ -262,6 +302,7 @@ export function ProjectsPage({
         const created = await createMut.mutateAsync(payload);
         onSelectProjectId(created.id);
         setModalMode(null);
+        go(`/projects?view=${created.dataset_mode === 'batch' ? 'collect' : 'overview'}&projectId=${encodeURIComponent(created.id)}`);
       } else if (modalMode === 'edit' && selectedProject) {
         await updateMut.mutateAsync({
           id: selectedProject.id,
@@ -481,21 +522,21 @@ export function ProjectsPage({
               </button>
             </>
           )}
-          {canWrite && (
+          {canCreateProject && (
             <button type="button" className="ds-btn" onClick={() => openCreate()}>
               <Plus size={14} />
-              <span>{t('New Monitor', '新建监测')}</span>
+              <span>{t('New Research Project', '新建研究项目')}</span>
             </button>
           )}
         </div>
       </div>
 
-      {!canWrite && (
+      {selectedProject && !canWrite && (
         <div className="wb-alert wb-alert--info" style={{ marginBottom: 14 }}>
           <span>
             {t(
-              'Viewer role active: project creation/edits are locked; analytics drilldown and personal workspace stay writable.',
-              '当前为 viewer 只读权限：项目增改删已锁定，但可正常钻取分析、导出并在个人工作区写查询与批注。',
+              'Shared project (read-only): you can analyze, drill down, export, and save notes. Create your own private project to collect or manage custom batches.',
+              '当前为共享只读项目：可正常分析、钻取、导出并写个人批注；如需自定义采集与批次管理，请点击右上角新建私有研究项目。',
             )}
           </span>
         </div>
@@ -503,8 +544,47 @@ export function ProjectsPage({
 
       {pageBanner && <div className="wb-alert wb-alert--error" style={{ marginBottom: 14 }}>{pageBanner}</div>}
 
-      {/* DeepSeek Filter Bar */}
-      <div className="filterbar" data-ov-pop>
+      {activeView === 'list' ? (
+        <ProjectListView
+          projects={projects}
+          activeProjectId={selectedProject?.id}
+          maxProjects={quotasSummaryQuery.data?.effectivePolicy.maxProjects}
+          isViewer={!isAdmin}
+          onSelect={(p) => {
+            onSelectProjectId(p.id);
+            const nextView = p.dataset_mode === 'batch' && (p.enabled_batch_count ?? 0) === 0 ? 'collect' : 'overview';
+            go(`/projects?view=${nextView}&projectId=${encodeURIComponent(p.id)}`);
+          }}
+          onCreate={() => openCreate()}
+        />
+      ) : activeView === 'collect' && selectedProject ? (
+        <ProjectCollectView
+          actor={actor}
+          project={selectedProject}
+          sources={sources}
+          capabilities={capabilitiesQuery.data?.providers ?? []}
+          onNavigate={go}
+        />
+      ) : activeView === 'jobs' && selectedProject ? (
+        <ProjectJobsView project={selectedProject} onNavigate={go} />
+      ) : activeView === 'batches' && selectedProject ? (
+        <ProjectBatchesView project={selectedProject} allProjects={projects} onNavigate={go} />
+      ) : (
+        <>
+          {selectedProject && (
+            <div style={{ marginBottom: 16 }}>
+              <CrossPlatformAnalyticsPanel
+                project={selectedProject}
+                items={rawItems}
+                providers={overview?.providers ?? []}
+                onDrilldown={onDrilldown}
+                onOpenContentDetail={onOpenContentDetail}
+              />
+            </div>
+          )}
+
+          {/* Legacy Overview Details & Evidence */}
+          <div className="filterbar" data-ov-pop>
         <div className="seg ink">
           {([7, 30, 90] as const).map((r) => (
             <button
@@ -1079,6 +1159,8 @@ export function ProjectsPage({
           '口径说明（§4）：本页趋势基于 stored_sample 口径；day=null 的发布时间未知内容（如部分推流导入或孤儿评论）不计入 UTC 日时间轴；thread_aware=true 模式下各日去重锚点数不可直接相加作为期间去重总和。',
         )}
       </p>
+        </>
+      )}
 
       {/* Tutorial Modal */}
       {tutorialOpen && (
@@ -1171,9 +1253,29 @@ export function ProjectsPage({
               </div>
 
               <div className="wb-field">
-                <label>{t('Bound Sources (min 1)', '绑定监测来源（至少 1 个）')}</label>
+                <label htmlFor="monitoring-project-desc">{t('Research Topic / Notes (optional)', '研究主题与说明（可选）')}</label>
+                <input id="monitoring-project-desc" className="wb-input" value={formDescription} onChange={(e) => setFormDescription(e.target.value)} maxLength={500} placeholder={t('e.g. Track developer feedback on AI coding tools', '例如：追踪开发者对 AI 编程工具的真实反馈')} />
+              </div>
+
+              {modalMode === 'create' && isAdmin && (
+                <div className="wb-field">
+                  <label>{t('Project Dataset Mode', '项目数据模式')}</label>
+                  <div className="seg">
+                    <button type="button" className={formDatasetMode === 'batch' ? 'on' : ''} onClick={() => setFormDatasetMode('batch')}>
+                      {t('Empty Batch Project (0 initial samples)', '空白批次项目（初始 0 样本，推荐）')}
+                    </button>
+                    <button type="button" className={formDatasetMode === 'source_filter' ? 'on' : ''} onClick={() => setFormDatasetMode('source_filter')}>
+                      {t('Shared Live Source View', '共享自动采集视图')}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {formDatasetMode === 'source_filter' && (
+              <div className="wb-field">
+                <label>{t('Bound Research Sources (min 1 · Information Feed sources excluded)', '绑定研究来源（至少 1 个 · 资讯信息流源已隔离）')}</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 6, maxHeight: 130, overflowY: 'auto', padding: 8, border: '1px solid var(--line)', borderRadius: 6 }}>
-                  {sources.map((s) => {
+                  {researchSources.map((s) => {
                     const checked = formSourceIds.includes(s.id);
                     return (
                       <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, cursor: 'pointer' }}>
@@ -1184,12 +1286,18 @@ export function ProjectsPage({
                             setFormSourceIds((prev) => (checked ? prev.filter((id) => id !== s.id) : [...prev, s.id]))
                           }
                         />
-                        <span>{s.label} ({s.deliveryMode})</span>
+                        <span>[{s.platform.toUpperCase()}] {s.label} ({s.deliveryMode})</span>
                       </label>
                     );
                   })}
+                  {researchSources.length === 0 && (
+                    <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                      {t('No research sources configured yet.', '暂无已配置的社媒/归档研究源。')}
+                    </span>
+                  )}
                 </div>
               </div>
+              )}
 
               <div className="wb-grid-2">
                 <div className="wb-field">

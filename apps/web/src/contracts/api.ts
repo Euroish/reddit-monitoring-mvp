@@ -220,6 +220,8 @@ export interface PlanPolicyDto {
   dailyResources: number | null;
   maxBatchLimit: number;
   maxCommentsPerPost: number;
+  maxProjects?: number;
+  exportEnabled?: boolean;
   updatedAt: string;
   revision: number;
 }
@@ -233,6 +235,8 @@ export interface EffectivePolicyDto {
   dailyResources: number | null;
   maxBatchLimit: number;
   maxCommentsPerPost: number;
+  maxProjects?: number;
+  exportEnabled?: boolean;
   hasOverride: boolean;
 }
 
@@ -304,7 +308,38 @@ export interface RecentJobDto {
   finishedAt: string | null;
   requestedByUserId: string | null;
   requestedByClientKind: ClientKind | null;
+  batchId?: string | null;
+  projectId?: string | null;
   requesterEmail: string | null;
+}
+
+export interface CollectionBatchDto {
+  id: string;
+  jobId: string | null;
+  sourceId: string;
+  sourceLabel: string;
+  platform: Platform;
+  provider: ProviderName;
+  deliveryMode: DeliveryMode;
+  label: string;
+  itemCount: number;
+  createdAt: string;
+  createdByUserId: string | null;
+}
+
+export interface ProjectBatchDto {
+  batchId: string;
+  jobId: string | null;
+  sourceId: string;
+  sourceLabel: string;
+  platform: Platform;
+  provider: ProviderName;
+  deliveryMode: DeliveryMode;
+  label: string;
+  itemCount: number;
+  status: 'enabled' | 'disabled' | 'removed';
+  addedAt: string;
+  createdAt: string;
 }
 
 export interface UserAccountDto {
@@ -367,12 +402,18 @@ export interface ListQuery extends ContentFilter {
 export interface Project {
   id: string;
   name: string;
+  description?: string | null;
+  dataset_mode?: 'source_filter' | 'batch';
   filter: ContentFilter;
   revision: number;
   thread_aware: boolean;
   include_push_in_trends: boolean;
   source_ids: string[];
   owner_user_id?: string | null;
+  can_edit?: boolean;
+  is_shared?: boolean;
+  enabled_batch_count?: number;
+  total_batch_count?: number;
   hydration?: Record<string, unknown>;
   created_at?: string;
   updated_at?: string;
@@ -380,8 +421,10 @@ export interface Project {
 
 export interface ProjectInput {
   name: string;
-  sourceIds: string[];
-  filter: ContentFilter;
+  description?: string | null;
+  datasetMode?: 'source_filter' | 'batch';
+  sourceIds?: string[];
+  filter?: ContentFilter;
   threadAware?: boolean;
   includePushInTrends?: boolean;
 }

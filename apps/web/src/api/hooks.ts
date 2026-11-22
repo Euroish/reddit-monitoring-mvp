@@ -360,6 +360,7 @@ export function useCollectSourceMutation() {
         includeComments?: boolean;
         useFallback?: boolean;
         maxCommentsPerPost?: number;
+        projectId?: string;
       };
       idempotencyKey: string;
     }) => apiClient.collectSource(args.sourceId, args.payload, args.idempotencyKey),
@@ -578,12 +579,65 @@ export function useRevokeProviderCredentialMutation() {
   });
 }
 
-export function useRecentJobsQuery(params: { status?: string; sourceId?: string; limit?: number; offset?: number } = {}, enabled = true) {
+export function useRecentJobsQuery(params: { status?: string; sourceId?: string; projectId?: string; limit?: number; offset?: number } = {}, enabled = true) {
   return useQuery({
     queryKey: ['recentJobs', params],
     queryFn: () => apiClient.getRecentJobs(params),
     enabled,
     refetchInterval: query => query.state.data?.jobs.some(job => ['queued', 'running', 'retrying'].includes(job.status)) ? 3500 : false,
+  });
+}
+
+export function useBatchesQuery(params: { sourceId?: string; jobId?: string; limit?: number } = {}, enabled = true) {
+  return useQuery({
+    queryKey: ['batches', params],
+    queryFn: () => apiClient.getBatches(params),
+    enabled,
+  });
+}
+
+export function useProjectBatchesQuery(projectId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['projectBatches', projectId],
+    queryFn: () => apiClient.getProjectBatches(projectId!),
+    enabled: Boolean(projectId) && enabled,
+  });
+}
+
+export function useAttachProjectBatchMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, batchId }: { projectId: string; batchId: string }) =>
+      apiClient.attachProjectBatch(projectId, batchId),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['projectBatches', vars.projectId] });
+      qc.invalidateQueries({ queryKey: ['projects'] });
+      qc.invalidateQueries({ queryKey: ['overview'] });
+      qc.invalidateQueries({ queryKey: ['content'] });
+      qc.invalidateQueries({ queryKey: ['contentFacets'] });
+    },
+  });
+}
+
+export function useUpdateProjectBatchStatusMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      batchId,
+      status,
+    }: {
+      projectId: string;
+      batchId: string;
+      status: 'enabled' | 'disabled' | 'removed';
+    }) => apiClient.updateProjectBatchStatus(projectId, batchId, status),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['projectBatches', vars.projectId] });
+      qc.invalidateQueries({ queryKey: ['projects'] });
+      qc.invalidateQueries({ queryKey: ['overview'] });
+      qc.invalidateQueries({ queryKey: ['content'] });
+      qc.invalidateQueries({ queryKey: ['contentFacets'] });
+    },
   });
 }
 

@@ -43,6 +43,8 @@ export function QuotasManagementView({
   const [pDailyReq, setPDailyReq] = useState<string>('0');
   const [pDailyRes, setPDailyRes] = useState<string>('0');
   const [pMaxBatch, setPMaxBatch] = useState<number>(20);
+  const [pMaxProjects, setPMaxProjects] = useState<number>(3);
+  const [pExportEnabled, setPExportEnabled] = useState<boolean>(true);
   const [pErr, setPErr] = useState<string | null>(null);
 
   const [editUser, setEditUser] = useState<{ id: string; email: string } | null>(null);
@@ -66,6 +68,8 @@ export function QuotasManagementView({
     setPDailyReq(p.dailyRequests === null ? '' : String(p.dailyRequests));
     setPDailyRes(p.dailyResources === null ? '' : String(p.dailyResources));
     setPMaxBatch(p.maxBatchLimit);
+    setPMaxProjects(p.maxProjects ?? 3);
+    setPExportEnabled(p.exportEnabled ?? true);
     setPErr(null);
   };
 
@@ -83,6 +87,8 @@ export function QuotasManagementView({
           dailyResources: pDailyRes.trim() === '' ? null : Number(pDailyRes),
           maxBatchLimit: pMaxBatch,
           maxCommentsPerPost: pMaxComments,
+          maxProjects: pMaxProjects,
+          exportEnabled: pExportEnabled,
           revision: editingPlan.revision,
         },
       });
@@ -269,7 +275,14 @@ export function QuotasManagementView({
                 <label className="wb-field">{t('Max comments per post', '每帖评论上限')}
                   <input className="wb-input" type="number" min={0} max={50} value={pMaxComments} onChange={event => setPMaxComments(Number(event.target.value))} />
                 </label>
+                <label className="wb-field">{t('Max private projects', '私有项目数量上限')}
+                  <input className="wb-input" type="number" min={0} max={500} value={pMaxProjects} onChange={event => setPMaxProjects(Number(event.target.value))} />
+                </label>
               </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                <input type="checkbox" checked={pExportEnabled} onChange={(e) => setPExportEnabled(e.target.checked)} />
+                <span>{t('Allow CSV/JSON data export (reserved policy toggle)', '允许 CSV / JSON 数据导出（权益预留开关）')}</span>
+              </label>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button type="submit" className="ds-btn" disabled={updatePlanMut.isPending || !providers.length}>
                   <Check size={12} /> {t('Save Plan Policy', '保存套餐策略')}

@@ -537,6 +537,7 @@ export function App() {
                   selectedProjectId={selectedProjectId}
                   onSelectProjectId={setSelectedProjectId}
                   initialSearchString={loc.search}
+                  onNavigate={navigate}
                   onDrilldown={(projectId, extraQs) => {
                     const sp = new URLSearchParams(extraQs || '');
                     if (projectId) sp.set('projectId', projectId);

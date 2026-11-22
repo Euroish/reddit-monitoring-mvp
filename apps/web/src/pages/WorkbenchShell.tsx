@@ -18,11 +18,9 @@ import {
   HelpCircle,
   Key,
   Layers,
-  Link2,
   LogIn,
   LogOut,
   Menu,
-  MessageSquare,
   MoreHorizontal,
   Palette,
   PanelLeftClose,
@@ -33,7 +31,6 @@ import {
   Settings,
   Sliders,
   Sparkles,
-  TrendingUp,
   User,
   X,
 } from 'lucide-react';
@@ -92,13 +89,11 @@ export function WorkbenchShell({
   const budgetsQuery = useBudgetsQuery(canWrite);
   const quotasSummaryQuery = useQuotasSummaryQuery(isAuthed);
 
-  const projects = projectsQuery.data?.projects || [];
+  const projects = useMemo(() => projectsQuery.data?.projects ?? [], [projectsQuery.data?.projects]);
   const sources = useMemo(() => sourcesQuery.data?.sources ?? [], [sourcesQuery.data?.sources]);
   const savedQueries = queriesQuery.data?.queries || [];
   const annotations = annotationsQuery.data?.annotations || [];
   const budgets = useMemo(() => budgetsQuery.data?.budgets ?? [], [budgetsQuery.data?.budgets]);
-
-  const activeProject = projects.find((p) => p.id === selectedProjectId) || projects[0];
 
   const [collapsed, setCollapsed] = useState(false);
   const [mobileSideOpen, setMobileSideOpen] = useState(false);
@@ -122,9 +117,23 @@ export function WorkbenchShell({
   const unreadNotifs = alertsDismissed ? 0 : blockedSources.length + zeroQuotaProviders.length;
 
   const searchParams = new URLSearchParams(currentSearch);
-  const currentSection = searchParams.get('section') || '';
   const currentTab = searchParams.get('tab') || '';
   const currentView = searchParams.get('view') || '';
+  const currentDomainParam = searchParams.get('domain') || '';
+  const urlProjectId = searchParams.get('projectId') || '';
+
+  const resolvedProject = projects.find((p) => p.id === (urlProjectId || selectedProjectId)) || projects[0];
+  const myProjects = useMemo(() => projects.filter((p) => !p.is_shared), [projects]);
+  const sharedProjects = useMemo(() => projects.filter((p) => p.is_shared), [projects]);
+
+  const activeDomain: 'feed' | 'research' | 'ops' =
+    route === '/app/feed'
+      ? 'feed'
+      : canWrite && (route === '/sources' || route === '/admin/queue')
+        ? 'ops'
+        : 'research';
+  const pidQs = resolvedProject ? `&projectId=${encodeURIComponent(resolvedProject.id)}` : '';
+  const pidQueryOnly = resolvedProject ? `?projectId=${encodeURIComponent(resolvedProject.id)}` : '';
 
   const shellRef = useRef<HTMLDivElement>(null);
 
@@ -285,49 +294,36 @@ export function WorkbenchShell({
         <div className="rail-group">
           <button
             type="button"
-            className={`rail-btn ${route === '/app/feed' ? 'is-active' : ''}`}
+            className={`rail-btn ${activeDomain === 'feed' ? 'is-active' : ''}`}
             onClick={() => navigateAndClose('/app/feed')}
-            data-tip={t('Full Stories Feed', '完整信息流')}
-            aria-label={t('Full Stories Feed', '完整信息流')}
+            data-tip={t('Information Feed', '资讯信息流')}
+            aria-label={t('Information Feed', '资讯信息流')}
+            aria-current={activeDomain === 'feed' ? 'page' : undefined}
           >
             <BookOpen size={18} />
           </button>
           <button
             type="button"
-            className={`rail-btn ${route === '/projects' ? 'is-active' : ''}`}
-            onClick={() => navigateAndClose('/projects')}
-            data-tip={t('Monitoring Overview', '监测总览')}
-            aria-label={t('Monitoring Overview', '监测总览')}
+            className={`rail-btn ${activeDomain === 'research' && route !== '/settings' ? 'is-active' : ''}`}
+            onClick={() => navigateAndClose(resolvedProject ? `/projects?projectId=${encodeURIComponent(resolvedProject.id)}` : '/projects')}
+            data-tip={t('Research Workspace', '研究工作区')}
+            aria-label={t('Research Workspace', '研究工作区')}
+            aria-current={activeDomain === 'research' && route !== '/settings' ? 'page' : undefined}
           >
-            <Grid size={18} />
+            <FolderKanban size={18} />
           </button>
-          <button
-            type="button"
-            className={`rail-btn ${route === '/content' ? 'is-active' : ''}`}
-            onClick={() => navigateAndClose('/content')}
-            data-tip={t('Content Explorer', '内容检索')}
-            aria-label={t('Content Explorer', '内容检索')}
-          >
-            <Layers size={18} />
-          </button>
-          <button
-            type="button"
-            className={`rail-btn ${(route === '/sources' || route === '/admin/queue') ? 'is-active' : ''}`}
-            onClick={() => navigateAndClose('/sources')}
-            data-tip={t('Sources & Quotas', '来源与采集')}
-            aria-label={t('Sources & Quotas', '来源与采集')}
-          >
-            <Database size={18} />
-          </button>
-          <button
-            type="button"
-            className={`rail-btn ${route === '/workspace' ? 'is-active' : ''}`}
-            onClick={() => navigateAndClose('/workspace')}
-            data-tip={t('Personal Workspace', '个人工作区')}
-            aria-label={t('Personal Workspace', '个人工作区')}
-          >
-            <Bookmark size={18} />
-          </button>
+          {canWrite && (
+            <button
+              type="button"
+              className={`rail-btn ${activeDomain === 'ops' ? 'is-active' : ''}`}
+              onClick={() => navigateAndClose('/sources?tab=sources&domain=research')}
+              data-tip={t('Operations & Admin', '运维管理')}
+              aria-label={t('Operations & Admin', '运维管理')}
+              aria-current={activeDomain === 'ops' ? 'page' : undefined}
+            >
+              <Database size={18} />
+            </button>
+          )}
         </div>
 
         <div className="rail-sep" />
@@ -336,19 +332,18 @@ export function WorkbenchShell({
           <button
             type="button"
             className="rail-btn"
-            onClick={() => navigateAndClose('/projects?section=radar')}
-            data-tip={t('Signal Radar Lab', '趋势雷达图谱')}
-            aria-label={t('Signal Radar Lab', '趋势雷达图谱')}
+            onClick={() => navigateAndClose('/ai')}
+            data-tip={t('AI Release Intelligence', 'AI 发布情报')}
+            aria-label={t('AI Release Intelligence', 'AI 发布情报')}
           >
-            <TrendingUp size={18} />
-            <i className="lock-dot" style={{ background: 'var(--wb-teal)' }} />
+            <Sparkles size={18} />
           </button>
           <button
             type="button"
             className={`rail-btn ${route === '/settings' ? 'is-active' : ''}`}
             onClick={() => navigateAndClose('/settings')}
-            data-tip={t('Account & Keys', '账户与权限')}
-            aria-label={t('Account & Keys', '账户与权限')}
+            data-tip={t('Account & Settings', '账户与设置')}
+            aria-label={t('Account & Settings', '账户与设置')}
           >
             <Settings size={18} />
           </button>
@@ -396,8 +391,8 @@ export function WorkbenchShell({
 
       {/* ================= 2. Collapsible Context Sidebar ================= */}
       <aside className="side">
-        {/* Project Switcher (Authenticated) or Public Brand Header (Guest) */}
-        {actor ? (
+        {/* Domain Context Header: Project Switcher ONLY in Research Domain */}
+        {activeDomain === 'research' && actor ? (
           <div className="proj-switch-wrap" data-pop-root>
             <button
               type="button"
@@ -405,48 +400,113 @@ export function WorkbenchShell({
               onClick={() => setOpenPop(openPop === 'proj' ? null : 'proj')}
               aria-expanded={openPop === 'proj'}
             >
-              <span className="ps-avatar">{projInitials(activeProject?.name)}</span>
+              <span className="ps-avatar">{projInitials(resolvedProject?.name)}</span>
               <span className="ps-txt">
-                <b>{activeProject?.name || t('Select Project', '选择监测项目')}</b>
+                <b>{resolvedProject?.name || t('Select Research Project', '选择研究项目')}</b>
                 <small>
-                  {activeProject
-                    ? `${activeProject.source_ids.length} ${t('sources', '个来源')} · rev ${activeProject.revision}`
-                    : t('Team Workspace', '团队空间')}
+                  {resolvedProject
+                    ? resolvedProject.dataset_mode === 'batch'
+                      ? (resolvedProject.enabled_batch_count ?? 0) > 0
+                        ? `${resolvedProject.enabled_batch_count} ${t('active batches', '个已启用批次')}`
+                        : t('Pending data ingestion', '待接入研究数据')
+                      : `${resolvedProject.source_ids.length} ${t('sources', '个绑定来源')}`
+                    : t('Create or select a project', '新建或选择一个项目')}
                 </small>
               </span>
               <ChevronDown size={14} color="var(--faint)" />
             </button>
 
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 12px 0', fontSize: 11 }}>
+              <button
+                type="button"
+                className="collection-text-button"
+                onClick={() => navigateAndClose('/projects?view=list')}
+              >
+                {t('All projects', '全部项目')} ({projects.length})
+              </button>
+              <button
+                type="button"
+                className="collection-text-button"
+                onClick={() => navigateAndClose('/projects?new=1')}
+              >
+                + {t('New project', '新建项目')}
+              </button>
+            </div>
+
             {openPop === 'proj' && (
-              <div className="ds-pop" style={{ top: '100%', left: 12, width: 292 }}>
+              <div className="ds-pop" style={{ top: '100%', left: 12, width: 300 }}>
                 <div className="pop-hd">
-                  <span>{t('Switch Project', '切换监测项目')}</span>
+                  <span>{t('Switch Research Project', '切换研究项目')}</span>
                   <span>{projects.length}</span>
                 </div>
-                <div style={{ display: 'grid', gap: 2, maxHeight: 240, overflowY: 'auto' }}>
-                  {projects.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      className={`pop-opt ${p.id === activeProject?.id ? 'on' : ''}`}
-                      onClick={() => {
-                        onSelectProjectId(p.id);
-                        setOpenPop(null);
-                        if (route !== '/projects') onNavigate('/projects');
-                      }}
-                    >
-                      <span className="ps-avatar" style={{ width: 24, height: 24, fontSize: 9.5 }}>
-                        {projInitials(p.name)}
-                      </span>
-                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <b style={{ display: 'block', fontSize: 11.5 }}>{p.name}</b>
-                        <small style={{ color: 'var(--faint)', fontSize: 10 }}>
-                          {p.source_ids.length} {t('sources', '个来源')} · rev {p.revision}
-                        </small>
-                      </span>
-                      {p.id === activeProject?.id && <Check size={13} color="var(--wb-purple)" />}
-                    </button>
-                  ))}
+                <div style={{ display: 'grid', gap: 4, maxHeight: 280, overflowY: 'auto' }}>
+                  {myProjects.length > 0 && (
+                    <>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--faint)', padding: '4px 6px 2px' }}>
+                        {t('My Projects', '我的项目')}
+                      </div>
+                      {myProjects.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          className={`pop-opt ${p.id === resolvedProject?.id ? 'on' : ''}`}
+                          onClick={() => {
+                            onSelectProjectId(p.id);
+                            setOpenPop(null);
+                            const nextView = route === '/projects' && ['collect', 'jobs', 'batches', 'overview'].includes(currentView)
+                              ? `&view=${currentView}`
+                              : '';
+                            if (route === '/content') onNavigate(`/content?projectId=${encodeURIComponent(p.id)}`);
+                            else onNavigate(`/projects?projectId=${encodeURIComponent(p.id)}${nextView}`);
+                          }}
+                        >
+                          <span className="ps-avatar" style={{ width: 24, height: 24, fontSize: 9.5 }}>
+                            {projInitials(p.name)}
+                          </span>
+                          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <b style={{ display: 'block', fontSize: 11.5 }}>{p.name}</b>
+                            <small style={{ color: 'var(--faint)', fontSize: 10 }}>
+                              {p.description || (p.dataset_mode === 'batch' ? `${p.enabled_batch_count ?? 0} ${t('batches', '批次')}` : `${p.source_ids.length} ${t('sources', '来源')}`)}
+                            </small>
+                          </span>
+                          {p.id === resolvedProject?.id && <Check size={13} color="var(--wb-purple)" />}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {sharedProjects.length > 0 && (
+                    <>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--faint)', padding: '6px 6px 2px' }}>
+                        {t('Shared Projects', '共享项目')}
+                      </div>
+                      {sharedProjects.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          className={`pop-opt ${p.id === resolvedProject?.id ? 'on' : ''}`}
+                          onClick={() => {
+                            onSelectProjectId(p.id);
+                            setOpenPop(null);
+                            if (route === '/content') onNavigate(`/content?projectId=${encodeURIComponent(p.id)}`);
+                            else onNavigate(`/projects?projectId=${encodeURIComponent(p.id)}`);
+                          }}
+                        >
+                          <span className="ps-avatar" style={{ width: 24, height: 24, fontSize: 9.5 }}>
+                            {projInitials(p.name)}
+                          </span>
+                          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <b style={{ display: 'block', fontSize: 11.5 }}>
+                              {p.name} {!p.can_edit && <span style={{ fontSize: 9.5, fontWeight: 500, color: 'var(--faint)' }}>[{t('Read-only', '只读')}]</span>}
+                            </b>
+                            <small style={{ color: 'var(--faint)', fontSize: 10 }}>
+                              {p.description || (p.dataset_mode === 'batch' ? `${p.enabled_batch_count ?? 0} ${t('batches', '批次')}` : `${p.source_ids.length} ${t('sources', '来源')}`)}
+                            </small>
+                          </span>
+                          {p.id === resolvedProject?.id && <Check size={13} color="var(--wb-purple)" />}
+                        </button>
+                      ))}
+                    </>
+                  )}
                 </div>
                 <div style={{ borderTop: '1px solid var(--line)', marginTop: 6, paddingTop: 6 }}>
                   <button
@@ -455,7 +515,7 @@ export function WorkbenchShell({
                     onClick={() => navigateAndClose('/projects?new=1')}
                   >
                     <Plus size={13} />
-                    <span>{t('Create Monitoring Project', '新建监测项目')}</span>
+                    <span>{t('Create Research Project', '新建研究项目')}</span>
                   </button>
                 </div>
               </div>
@@ -463,17 +523,21 @@ export function WorkbenchShell({
           </div>
         ) : (
           <div className="proj-switch-wrap">
-            <button
-              type="button"
-              className="proj-switch"
-              onClick={() => navigateAndClose('/')}
-            >
-              <span className="ps-avatar">SL</span>
+            <div className="proj-switch" style={{ cursor: 'default' }}>
+              <span className="ps-avatar">{activeDomain === 'ops' ? 'OP' : 'SL'}</span>
               <span className="ps-txt">
-                <b>SIFTLINE</b>
-                <small>{t('Public Signal Reader', '公开信息流阅读器')}</small>
+                <b>
+                  {activeDomain === 'ops'
+                    ? t('Operations Admin', '全局运维管理')
+                    : t('Information Feed', '资讯信息流')}
+                </b>
+                <small>
+                  {activeDomain === 'ops'
+                    ? t('Cross-project sources & quotas', '跨项目来源、调度与配额')
+                    : t('Curated news & AI releases', '独立阅读域 · 无项目上下文')}
+                </small>
               </span>
-            </button>
+            </div>
           </div>
         )}
 
@@ -492,168 +556,213 @@ export function WorkbenchShell({
           <span className="kbd">K</span>
         </button>
 
-        {/* Grouped Navigation */}
+        {/* Domain-Scoped Secondary Navigation */}
         <nav className="side-nav" aria-label={t('Primary navigation', '工作台导航')}>
-          <div className="nav-group">
-            <p className="nav-label">{t('Feed', '信息流')}</p>
-            <button
-              type="button"
-              className={`nav-item ${route === '/app/feed' && (!currentView || currentView === 'latest') ? 'is-active' : ''}`}
-              onClick={() => navigateAndClose('/app/feed')}
-            >
-              <BookOpen size={14} className="nav-ic" />
-              <span>{t("Today's Stories", '今日精选')}</span>
-            </button>
-            <button
-              type="button"
-              className={`nav-item ${route === '/app/feed' && currentView === 'hot' ? 'is-active' : ''}`}
-              onClick={() => navigateAndClose('/app/feed?view=hot')}
-            >
-              <Flame size={14} className="nav-ic" />
-              <span>{t('48h Momentum', '48 小时热度')}</span>
-            </button>
-            <button
-              type="button"
-              className={`nav-item ${route === '/app/feed' && currentView === 'digest' ? 'is-active' : ''}`}
-              onClick={() => navigateAndClose('/app/feed?view=digest')}
-            >
-              <Calendar size={14} className="nav-ic" />
-              <span>{t('08:00 Digest', '08:00 日报')}</span>
-            </button>
-            <button
-              type="button"
-              className="nav-item"
-              onClick={() => navigateAndClose('/')}
-            >
-              <ExternalLink size={14} className="nav-ic" />
-              <span>{t('Public Site', '公开首页')}</span>
-            </button>
-            <button
-              type="button"
-              className="nav-item"
-              onClick={() => navigateAndClose('/product')}
-            >
-              <ExternalLink size={14} className="nav-ic" />
-              <span>{t('Product Intro', '产品介绍')}</span>
-            </button>
-          </div>
-
-          <div className="nav-group">
-            <p className="nav-label">{t('Monitoring', '监测')}</p>
-            <button
-              type="button"
-              className={`nav-item ${route === '/projects' && !currentSection ? 'is-active' : ''}`}
-              onClick={() => navigateAndClose('/projects')}
-            >
-              <Grid size={14} className="nav-ic" />
-              <span>{t('Project Overview', '项目总览')}</span>
-            </button>
-            <button
-              type="button"
-              className={`nav-item ${route === '/projects' && currentSection === 'radar' ? 'is-active' : ''}`}
-              onClick={() => navigateAndClose('/projects?section=radar')}
-            >
-              <TrendingUp size={14} className="nav-ic" />
-              <span>{t('Trend Radar', '趋势雷达')}</span>
-              <em className="ni-badge">{t('New', '新')}</em>
-            </button>
-            <button
-              type="button"
-              className={`nav-item ${route === '/projects' && currentSection === 'platform' ? 'is-active' : ''}`}
-              onClick={() => navigateAndClose('/projects?section=platform')}
-            >
-              <Layers size={14} className="nav-ic" />
-              <span>{t('Platform Share', '平台构成')}</span>
-            </button>
-            <button
-              type="button"
-              className={`nav-item ${route === '/projects' && currentSection === 'attribution' ? 'is-active' : ''}`}
-              onClick={() => navigateAndClose('/projects?section=attribution')}
-            >
-              <Link2 size={14} className="nav-ic" />
-              <span>{t('Attribution', '渠道归因')}</span>
-            </button>
-          </div>
-
-          <div className="nav-group">
-            <p className="nav-label">{t('Research', '研究')}</p>
-            <button
-              type="button"
-              className={`nav-item ${route === '/content' && currentView !== 'threads' ? 'is-active' : ''}`}
-              onClick={() => navigateAndClose('/content')}
-            >
-              <Search size={14} className="nav-ic" />
-              <span>{t('Content Explorer', '内容检索')}</span>
-            </button>
-            <button
-              type="button"
-              className={`nav-item ${route === '/content' && currentView === 'threads' ? 'is-active' : ''}`}
-              onClick={() => navigateAndClose('/content?view=threads')}
-            >
-              <MessageSquare size={14} className="nav-ic" />
-              <span>{t('Thread Tree', '讨论树')}</span>
-            </button>
-            <button
-              type="button"
-              className={`nav-item ${route === '/workspace' && currentTab === 'annotations' ? 'is-active' : ''}`}
-              onClick={() => navigateAndClose('/workspace?tab=annotations')}
-            >
-              <Heart size={14} className="nav-ic" />
-              <span>{t('Annotations', '批注与收藏')}</span>
-              <em className="ni-count">{annotations.length}</em>
-            </button>
-            <button
-              type="button"
-              className={`nav-item ${route === '/workspace' && currentTab !== 'annotations' ? 'is-active' : ''}`}
-              onClick={() => navigateAndClose('/workspace?tab=queries')}
-            >
-              <Bookmark size={14} className="nav-ic" />
-              <span>{t('Saved Queries', '保存的查询')}</span>
-              <em className="ni-count">{savedQueries.length}</em>
-            </button>
-          </div>
-
-          <div className="nav-group">
-            <p className="nav-label">{t('Collection Ops', '数据接入')}</p>
-            <button
-              type="button"
-              className={`nav-item ${route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' ? 'is-active' : ''}`}
-              aria-current={route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' ? 'page' : undefined}
-              onClick={() => navigateAndClose('/sources?tab=sources')}
-            >
-              <Database size={14} className="nav-ic" />
-              <span>{t('Sources List', '来源列表')}</span>
-              <em className="ni-count">{sources.length}</em>
-            </button>
-            <button
-              type="button"
-              className={`nav-item ${route === '/sources' && currentTab === 'jobs' ? 'is-active' : ''}`}
-              aria-current={route === '/sources' && currentTab === 'jobs' ? 'page' : undefined}
-              onClick={() => navigateAndClose('/sources?tab=jobs')}
-            >
-              <RefreshCw size={14} className="nav-ic" />
-              <span>{t('Collection Jobs', '采集任务')}</span>
-              <i className="ni-pulse" />
-            </button>
-            <button
-              type="button"
-              className={`nav-item ${route === '/sources' && currentTab === 'budgets' ? 'is-active' : ''}`}
-              aria-current={route === '/sources' && currentTab === 'budgets' ? 'page' : undefined}
-              onClick={() => navigateAndClose('/sources?tab=budgets')}
-            >
-              <Sliders size={14} className="nav-ic" />
-              <span>{t('Channel Quotas', '渠道配额')}</span>
-            </button>
-            {canWrite && (
-              <button type="button"
-                className={'nav-item ' + (route === '/admin/queue' ? 'is-active' : '')}
-                aria-current={route === '/admin/queue' ? 'page' : undefined}
-                onClick={() => navigateAndClose('/admin/queue')}>
-                <Sparkles size={14} className="nav-ic" />
-                <span>{t('AI Release Review', 'AI 发布审核队列')}</span>
+          {activeDomain === 'feed' && (
+            <div className="nav-group">
+              <p className="nav-label">{t('Information Feed', '资讯阅读')}</p>
+              <button
+                type="button"
+                className={`nav-item ${route === '/app/feed' && (!currentView || currentView === 'latest') ? 'is-active' : ''}`}
+                aria-current={route === '/app/feed' && (!currentView || currentView === 'latest') ? 'page' : undefined}
+                onClick={() => navigateAndClose('/app/feed')}
+              >
+                <BookOpen size={14} className="nav-ic" />
+                <span>{t("Today's Stories", '今日精选')}</span>
               </button>
-            )}
-          </div>
+              <button
+                type="button"
+                className={`nav-item ${route === '/app/feed' && currentView === 'hot' ? 'is-active' : ''}`}
+                aria-current={route === '/app/feed' && currentView === 'hot' ? 'page' : undefined}
+                onClick={() => navigateAndClose('/app/feed?view=hot')}
+              >
+                <Flame size={14} className="nav-ic" />
+                <span>{t('48h Momentum', '48 小时热榜')}</span>
+              </button>
+              <button
+                type="button"
+                className={`nav-item ${route === '/app/feed' && currentView === 'digest' ? 'is-active' : ''}`}
+                aria-current={route === '/app/feed' && currentView === 'digest' ? 'page' : undefined}
+                onClick={() => navigateAndClose('/app/feed?view=digest')}
+              >
+                <Calendar size={14} className="nav-ic" />
+                <span>{t('08:00 Digest', '08:00 日报')}</span>
+              </button>
+              <button
+                type="button"
+                className="nav-item"
+                onClick={() => navigateAndClose('/ai')}
+              >
+                <Sparkles size={14} className="nav-ic" />
+                <span>{t('AI Releases', 'AI 情报')}</span>
+              </button>
+              <button
+                type="button"
+                className="nav-item"
+                onClick={() => navigateAndClose('/')}
+              >
+                <ExternalLink size={14} className="nav-ic" />
+                <span>{t('Public Site', '公开首页')}</span>
+              </button>
+              <button
+                type="button"
+                className="nav-item"
+                onClick={() => navigateAndClose('/product')}
+              >
+                <ExternalLink size={14} className="nav-ic" />
+                <span>{t('Product Intro', '产品介绍')}</span>
+              </button>
+            </div>
+          )}
+
+          {activeDomain === 'research' && (
+            <>
+              <div className="nav-group">
+                <p className="nav-label">{t('Data Collection', '数据采集')}</p>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/projects' && currentView === 'collect' ? 'is-active' : ''}`}
+                  aria-current={route === '/projects' && currentView === 'collect' ? 'page' : undefined}
+                  onClick={() => navigateAndClose(`/projects?view=collect${pidQs}`)}
+                >
+                  <Database size={14} className="nav-ic" />
+                  <span>{t('Data Ingestion', '数据接入')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/projects' && currentView === 'jobs' ? 'is-active' : ''}`}
+                  aria-current={route === '/projects' && currentView === 'jobs' ? 'page' : undefined}
+                  onClick={() => navigateAndClose(`/projects?view=jobs${pidQs}`)}
+                >
+                  <RefreshCw size={14} className="nav-ic" />
+                  <span>{t('Collection Jobs', '采集任务')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/projects' && currentView === 'batches' ? 'is-active' : ''}`}
+                  aria-current={route === '/projects' && currentView === 'batches' ? 'page' : undefined}
+                  onClick={() => navigateAndClose(`/projects?view=batches${pidQs}`)}
+                >
+                  <Layers size={14} className="nav-ic" />
+                  <span>{t('Data Batches', '数据批次')}</span>
+                  {resolvedProject && (
+                    <em className="ni-count">{resolvedProject.enabled_batch_count ?? 0}</em>
+                  )}
+                </button>
+              </div>
+
+              <div className="nav-group">
+                <p className="nav-label">{t('Research & Analysis', '研究分析')}</p>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/projects' && (!currentView || currentView === 'overview') ? 'is-active' : ''}`}
+                  aria-current={route === '/projects' && (!currentView || currentView === 'overview') ? 'page' : undefined}
+                  onClick={() => navigateAndClose(`/projects?view=overview${pidQs}`)}
+                >
+                  <Grid size={14} className="nav-ic" />
+                  <span>{t('Project Overview', '项目总览')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/content' ? 'is-active' : ''}`}
+                  aria-current={route === '/content' ? 'page' : undefined}
+                  onClick={() => navigateAndClose(`/content${pidQueryOnly}`)}
+                >
+                  <Search size={14} className="nav-ic" />
+                  <span>{t('Content Explorer', '内容研究')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/workspace' && currentTab === 'annotations' ? 'is-active' : ''}`}
+                  aria-current={route === '/workspace' && currentTab === 'annotations' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/workspace?tab=annotations')}
+                >
+                  <Heart size={14} className="nav-ic" />
+                  <span>{t('Annotations', '批注与收藏')}</span>
+                  <em className="ni-count">{annotations.length}</em>
+                </button>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/workspace' && currentTab !== 'annotations' ? 'is-active' : ''}`}
+                  aria-current={route === '/workspace' && currentTab !== 'annotations' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/workspace?tab=queries')}
+                >
+                  <Bookmark size={14} className="nav-ic" />
+                  <span>{t('Saved Queries', '保存的查询')}</span>
+                  <em className="ni-count">{savedQueries.length}</em>
+                </button>
+              </div>
+            </>
+          )}
+
+          {activeDomain === 'ops' && canWrite && (
+            <>
+              <div className="nav-group">
+                <p className="nav-label">{t('Sources & Auto-Schedule', '来源与自动调度')}</p>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentDomainParam !== 'feed' ? 'is-active' : ''}`}
+                  aria-current={route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentDomainParam !== 'feed' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/sources?tab=sources&domain=research')}
+                >
+                  <Database size={14} className="nav-ic" />
+                  <span>{t('Research Sources', '研究采集源')}</span>
+                  <em className="ni-count">{sources.filter((s) => s.platform !== 'web').length}</em>
+                </button>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentDomainParam === 'feed' ? 'is-active' : ''}`}
+                  aria-current={route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentDomainParam === 'feed' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/sources?tab=sources&domain=feed')}
+                >
+                  <Globe size={14} className="nav-ic" />
+                  <span>{t('Feed Sources', '资讯信息流源')}</span>
+                  <em className="ni-count">{sources.filter((s) => s.platform === 'web').length}</em>
+                </button>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/sources' && currentTab === 'jobs' ? 'is-active' : ''}`}
+                  aria-current={route === '/sources' && currentTab === 'jobs' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/sources?tab=jobs')}
+                >
+                  <RefreshCw size={14} className="nav-ic" />
+                  <span>{t('Global Collection Jobs', '全站采集任务')}</span>
+                  <i className="ni-pulse" />
+                </button>
+              </div>
+
+              <div className="nav-group">
+                <p className="nav-label">{t('Channels & Governance', '渠道与策略治理')}</p>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/sources' && currentTab === 'budgets' ? 'is-active' : ''}`}
+                  aria-current={route === '/sources' && currentTab === 'budgets' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/sources?tab=budgets')}
+                >
+                  <Sliders size={14} className="nav-ic" />
+                  <span>{t('Quotas & Plan Policies', '渠道配额与套餐策略')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/admin/queue' ? 'is-active' : ''}`}
+                  aria-current={route === '/admin/queue' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/admin/queue')}
+                >
+                  <Sparkles size={14} className="nav-ic" />
+                  <span>{t('AI Release Review', 'AI 发布审核队列')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/settings' ? 'is-active' : ''}`}
+                  aria-current={route === '/settings' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/settings?tab=keys')}
+                >
+                  <Key size={14} className="nav-ic" />
+                  <span>{t('Members & Machine Keys', '成员与 Machine Key')}</span>
+                </button>
+              </div>
+            </>
+          )}
         </nav>
 
         {/* Bottom Usage Card & User Account */}

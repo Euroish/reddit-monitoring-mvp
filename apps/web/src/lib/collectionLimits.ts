@@ -6,6 +6,10 @@ export function isRedditArchiveSource(source: CollectionSource) {
     source.primaryProvider === 'external_ingest' && source.tags.includes(REDDIT_ARCHIVE_SOURCE_TAG);
 }
 
+export function isResearchSource(source: CollectionSource) {
+  return source.platform !== 'web';
+}
+
 export function collectionLimits(
   source: CollectionSource | undefined,
   capability: SourceCapability | undefined,

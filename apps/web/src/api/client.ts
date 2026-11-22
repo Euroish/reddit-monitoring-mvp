@@ -360,6 +360,7 @@ export const apiClient = {
       includeComments?: boolean;
       useFallback?: boolean;
       maxCommentsPerPost?: number;
+      projectId?: string;
     },
     idempotencyKey: string,
   ): Promise<{ jobId: string }> {
@@ -564,11 +565,48 @@ export const apiClient = {
   async getRecentJobs(params: {
     status?: string;
     sourceId?: string;
+    projectId?: string;
     limit?: number;
     offset?: number;
   } = {}): Promise<{ jobs: RecentJobDto[]; scope: 'all' | 'personal' }> {
     const qs = buildQueryParams(params as Record<string, unknown>);
     return liveFetch(`/source-jobs/recent${qs}`);
+  },
+
+  async getBatches(params: {
+    sourceId?: string;
+    jobId?: string;
+    limit?: number;
+  } = {}): Promise<{ batches: import('../contracts/api').CollectionBatchDto[] }> {
+    const qs = buildQueryParams(params as Record<string, unknown>);
+    return liveFetch(`/batches${qs}`);
+  },
+
+  async getProjectBatches(
+    projectId: string,
+  ): Promise<{ batches: import('../contracts/api').ProjectBatchDto[] }> {
+    return liveFetch(`/projects/${projectId}/batches`);
+  },
+
+  async attachProjectBatch(
+    projectId: string,
+    batchId: string,
+  ): Promise<{ attached: boolean; batch: import('../contracts/api').ProjectBatchDto | null }> {
+    return liveFetch(`/projects/${projectId}/batches`, {
+      method: 'POST',
+      body: JSON.stringify({ batchId }),
+    });
+  },
+
+  async updateProjectBatchStatus(
+    projectId: string,
+    batchId: string,
+    status: 'enabled' | 'disabled' | 'removed',
+  ): Promise<{ updated: boolean; batchId: string; status: 'enabled' | 'disabled' | 'removed' }> {
+    return liveFetch(`/projects/${projectId}/batches/${batchId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
   },
 
   async getQuotasSummary(): Promise<QuotasSummaryResponse> {

@@ -99,9 +99,15 @@ export function SourcesPage({
   const [launchSourceId, setLaunchSourceId] = useState<string>();
   const operationForm = useRef<HTMLFormElement>(null);
   const routeSourceId = sp.get('sourceId');
+  const routeDomain = sp.get('domain');
+  const domainFilter: 'all' | 'research' | 'feed' =
+    routeDomain === 'research' || routeDomain === 'feed' ? routeDomain : 'all';
   const filterCapability = capabilities.find(capability => capability.provider === providerFilter);
   const channelIds = [...new Set([...capabilities.map(capability => capability.provider), 'external_ingest', ...sources.map(source => source.primaryProvider)])];
-  const visibleSources = sources.filter(source => (stateFilter === 'all' || source.state === stateFilter) &&
+  const domainSources = sources.filter(source =>
+    domainFilter === 'all' ? true : domainFilter === 'feed' ? source.platform === 'web' : source.platform !== 'web',
+  );
+  const visibleSources = domainSources.filter(source => (stateFilter === 'all' || source.state === stateFilter) &&
     (!groupFilter || source.sourceGroup === groupFilter) && (!providerFilter || source.primaryProvider === providerFilter || source.fallbackProvider === providerFilter) &&
     (!sourceSearch.trim() || `${source.label} ${formatSourceTarget(source.target)}`.toLocaleLowerCase().includes(sourceSearch.trim().toLocaleLowerCase())));
   const selectedSource = visibleSources.find(source => source.id === routeSourceId) ?? visibleSources[0];
@@ -603,7 +609,42 @@ export function SourcesPage({
                   <div className="ds-card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <dl className="collection-source-facts">
                       <div><dt>{t('Group and tier', '分类与等级')}</dt><dd>{selectedSource.sourceGroup ?? '—'} · {selectedSource.tier}{selectedSource.locale ? ' · ' + selectedSource.locale : ''}</dd></div>
-                      <div><dt>{t('Schedule', '调度')}</dt><dd>{selectedSource.deliveryMode === 'push' ? t('External push', '外部推流') : selectedSource.schedule?.enabled ? t('Enabled', '已启用') : t('Disabled', '已停用')}</dd></div>
+                      <div>
+                        <dt>{t('Schedule', '自动爬取调度')}</dt>
+                        <dd style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          <span>{selectedSource.deliveryMode === 'push' ? t('External push', '外部推流') : selectedSource.schedule?.enabled ? t('Enabled', '已启用') : t('Disabled', '已停用')}</span>
+                          {canWrite && selectedSource.deliveryMode === 'pull' && (
+                            <button
+                              type="button"
+                              className="ds-btn ds-btn--ghost"
+                              style={{ height: 22, fontSize: 10.5, padding: '0 8px' }}
+                              disabled={updateSourceMut.isPending}
+                              onClick={async () => {
+                                setOpsMsg(null);
+                                try {
+                                  const nextEnabled = !selectedSource.schedule?.enabled;
+                                  await updateSourceMut.mutateAsync({
+                                    id: selectedSource.id,
+                                    input: {
+                                      schedule: { ...selectedSource.schedule, enabled: nextEnabled },
+                                      revision: selectedSource.revision,
+                                    },
+                                  });
+                                  setOpsMsg({
+                                    text: nextEnabled
+                                      ? t('Automatic scheduling enabled.', '已开启后台自动爬取调度。')
+                                      : t('Automatic scheduling paused.', '已暂停后台自动爬取调度。'),
+                                  });
+                                } catch (err) {
+                                  setOpsMsg({ text: formatApiError(err), isError: true });
+                                }
+                              }}
+                            >
+                              {selectedSource.schedule?.enabled ? t('Pause auto', '暂停自动爬取') : t('Enable auto', '开启自动爬取')}
+                            </button>
+                          )}
+                        </dd>
+                      </div>
                       <div><dt>{t('Next run (UTC)', '下次计划（UTC）')}</dt><dd>{selectedSource.nextDueAt?.slice(0, 16).replace('T', ' ') ?? '—'}</dd></div>
                       <div><dt>{t('Last checked (UTC)', '最近检查（UTC）')}</dt><dd>{selectedSource.lastCheckedAt?.slice(0, 16).replace('T', ' ') ?? '—'}</dd></div>
                       <div><dt>{t('Last success (UTC)', '最近成功（UTC）')}</dt><dd>{selectedSource.lastSuccessAt?.slice(0, 16).replace('T', ' ') ?? '—'}</dd></div>
