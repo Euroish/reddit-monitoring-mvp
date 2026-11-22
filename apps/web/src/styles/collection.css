@@ -84,6 +84,11 @@
   margin: 0 18px 12px;
 }
 
+.collection-readiness {
+  display: grid;
+  gap: 6px;
+}
+
 .collection-empty,
 .collection-panel-note {
   margin: 0;

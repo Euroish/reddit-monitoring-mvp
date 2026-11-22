@@ -115,6 +115,8 @@ export function ProjectsPage({
   const searchParams = new URLSearchParams(initialSearchString);
   const activeSection = searchParams.get('section') || '';
   const openNewFromUrl = searchParams.get('new') === '1';
+  const requestedSourceId = searchParams.get('sourceId');
+  const requestedSource = sources.find(source => source.id === requestedSourceId);
 
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [formName, setFormName] = useState('');
@@ -136,10 +138,10 @@ export function ProjectsPage({
   const updateMut = useUpdateProjectMutation();
   const deleteMut = useDeleteProjectMutation();
 
-  const openCreate = useCallback(() => {
+  const openCreate = useCallback((presetSource?: typeof requestedSource) => {
     setModalMode('create');
     setFormName('');
-    setFormSourceIds(sources.slice(0, 2).map((s) => s.id));
+    setFormSourceIds(presetSource ? [presetSource.id] : sources.slice(0, 2).map((s) => s.id));
     setFormAnyTerms('');
     setFormAllTerms('');
     setFormExclusions('');
@@ -148,7 +150,7 @@ export function ProjectsPage({
     setFormPlatform('');
     setFormKind('');
     setFormThreadAware(true);
-    setFormIncludePush(false);
+    setFormIncludePush(presetSource?.deliveryMode === 'push');
     setFormRevision(1);
     setFormError(null);
     setConflict409(false);
@@ -170,12 +172,17 @@ export function ProjectsPage({
   const didHandleUrlNew = useRef(false);
   useEffect(() => {
     if (openNewFromUrl && canWrite && sources.length > 0 && !didHandleUrlNew.current) {
-      didHandleUrlNew.current = true;
-      const timer = setTimeout(() => openCreate(), 0);
+      const timer = setTimeout(() => {
+        didHandleUrlNew.current = true;
+        if (requestedSourceId && !requestedSource) {
+          setPageBanner(t('The selected source is unavailable. Choose a source for the monitoring project.', '所选来源当前不可用，请为监测项目选择其他来源。'));
+        }
+        openCreate(requestedSource);
+      }, 0);
       return () => clearTimeout(timer);
     }
     return undefined;
-  }, [openNewFromUrl, canWrite, sources.length, openCreate]);
+  }, [openNewFromUrl, canWrite, sources.length, openCreate, requestedSource, requestedSourceId, t]);
 
   useEffect(() => {
     if (!openFilterPop) return;
@@ -475,7 +482,7 @@ export function ProjectsPage({
             </>
           )}
           {canWrite && (
-            <button type="button" className="ds-btn" onClick={openCreate}>
+            <button type="button" className="ds-btn" onClick={() => openCreate()}>
               <Plus size={14} />
               <span>{t('New Monitor', '新建监测')}</span>
             </button>
@@ -676,7 +683,7 @@ export function ProjectsPage({
             )}
           </p>
           {canWrite && (
-            <button type="button" className="ds-btn" onClick={openCreate}>
+            <button type="button" className="ds-btn" onClick={() => openCreate()}>
               <Plus size={14} />
               <span>{t('Create First Project', '创建首个监测项目')}</span>
             </button>
@@ -1116,9 +1123,9 @@ export function ProjectsPage({
       {/* Create / Edit Project Modal (Real API + 409 Conflict Guard) */}
       {modalMode && (
         <div className="sr-modal-backdrop" onClick={() => setModalMode(null)}>
-          <div className="sr-modal" style={{ width: 'min(640px, 100%)', padding: '22px 26px' }} onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-labelledby="project-editor-heading" className="sr-modal" style={{ width: 'min(640px, 100%)', padding: '22px 26px' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 650 }}>
+              <h3 id="project-editor-heading" style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 650 }}>
                 {modalMode === 'create' ? t('Create Monitoring Project', '新建监测项目') : t('Edit Project', '编辑监测项目')}
               </h3>
               <button type="button" className="sr-btn sr-btn--subtle sr-btn--xs" onClick={() => setModalMode(null)}>
@@ -1159,8 +1166,8 @@ export function ProjectsPage({
 
             <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div className="wb-field">
-                <label>{t('Project Name (1..100 chars)', '项目名称（1..100 字符）')}</label>
-                <input className="wb-input" value={formName} onChange={(e) => setFormName(e.target.value)} maxLength={100} required />
+                <label htmlFor="monitoring-project-name">{t('Project Name (1..100 chars)', '项目名称（1..100 字符）')}</label>
+                <input id="monitoring-project-name" className="wb-input" value={formName} onChange={(e) => setFormName(e.target.value)} maxLength={100} required />
               </div>
 
               <div className="wb-field">

@@ -1,4 +1,5 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { providerResourceReservation, viewerCollectionDemand } from '../../../../packages/contracts/src/collection-budget';
 import '../styles/collection.css';
 import {
@@ -20,6 +21,7 @@ import {
   useIngestSourceMutation,
   useJobActionMutation,
   useJobDetailQuery,
+  useProviderCredentialsQuery,
   useQuotasSummaryQuery,
   useRefreshSourceMutation,
   useSourceJobsQuery,
@@ -57,6 +59,7 @@ export function SourcesPage({
   onNavigate: (path: string) => void;
 }) {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const canWrite = actor.clientKind === 'browser' && actor.role !== 'viewer';
 
   const sp = new URLSearchParams(initialQueryString);
@@ -71,6 +74,8 @@ export function SourcesPage({
   const budgets = budgetsQuery.data?.budgets || [];
 
   const tab = urlTab === 'budgets' || urlTab === 'jobs' ? urlTab : 'sources';
+  const credentialsQuery = useProviderCredentialsQuery(canWrite && tab === 'sources');
+  const networkOff = credentialsQuery.data?.networkEnabled === false;
   const pageTitle = tab === 'jobs' ? t('Collection jobs', '采集任务') : tab === 'budgets'
     ? (canWrite ? t('Channel quotas', '渠道配额') : t('My collection quota', '我的采集配额'))
     : t('Sources', '来源列表');
@@ -78,6 +83,7 @@ export function SourcesPage({
     : tab === 'budgets' ? t('Review request and resource limits, usage and collection permissions.', '分别查看请求与资源额度、用量及采集权限。')
     : t('Choose a source to check its health, collect content or review recent jobs.', '选择一个来源，检查运行状态、提交采集或查看历史任务。');
   const [channelsOpen, setChannelsOpen] = useState(false);
+  const credentialsButton = useRef<HTMLButtonElement>(null);
 
   const [stateFilter, setStateFilter] = useState<'all' | 'active' | 'paused' | 'archived'>('all');
   const [groupFilter, setGroupFilter] = useState('');
@@ -122,8 +128,6 @@ export function SourcesPage({
       (quotasSummaryQuery.data?.providerAvailability?.some(item => item.provider === provider && item.budgetEnabled === false) ?? false);
   }
   const budgetDisabled = providerBudgetDisabled(selectedSourceCap?.provider);
-  const canDispatch = selectedSource?.state === 'active' && !selectedSource.automaticCollectionBlocked &&
-    !budgetDisabled && maxAllowedLimit > 0;
 
   function setCollectWindow(days: number) {
     const end = Date.now();
@@ -140,6 +144,11 @@ export function SourcesPage({
       }),
       personal: viewerCollectionDemand(selectedSourceCap.provider, selectedSource.target.type, collectLimit, collectOptions).resources,
     } : null;
+  const selectedBudget = budgets.find(budget => budget.provider === selectedSourceCap?.provider);
+  const resourceCap = selectedBudget ? Math.min(selectedBudget.daily_resources, selectedBudget.monthly_resources) : undefined;
+  const exceedsBudget = !budgetDisabled && collectionQuote !== null && resourceCap !== undefined && collectionQuote.system > resourceCap;
+  const canDispatch = selectedSource?.state === 'active' && !selectedSource.automaticCollectionBlocked &&
+    !networkOff && !budgetDisabled && !exceedsBudget && maxAllowedLimit > 0;
 
   const handleCollect = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -177,6 +186,9 @@ export function SourcesPage({
       });
       collectIdemRef.current = { sig: '', key: generateUuidV4() };
       setOpsMsg({ text: t(`Dispatched collect job ${res.jobId}`, `已入队采集任务 ${res.jobId}`), jobId: res.jobId });
+      setJobActionError('');
+      setAckJobCharge(false);
+      setInspectJobId(res.jobId);
     } catch (err) {
       setOpsMsg({ text: formatApiError(err), isError: true });
     }
@@ -287,6 +299,14 @@ export function SourcesPage({
   const [jobActionError, setJobActionError] = useState('');
   const [jobNotice, setJobNotice] = useState('');
   const jobDetailQuery = useJobDetailQuery(inspectJobId);
+  const inspectedJob = jobDetailQuery.data?.job;
+  const completedSourceId = inspectedJob?.status === 'succeeded' || inspectedJob?.status === 'completed' ? inspectedJob.source_id : null;
+  useEffect(() => {
+    if (!completedSourceId) return;
+    for (const queryKey of [['sources'], ['jobs', completedSourceId], ['recentJobs'], ['budgets'], ['quotasSummary'], ['content'], ['overview'], ['contentFacets']]) {
+      void queryClient.invalidateQueries({ queryKey });
+    }
+  }, [queryClient, completedSourceId, inspectedJob?.id]);
   const [ackJobCharge, setAckJobCharge] = useState(false);
 
   const [editBudget, setEditBudget] = useState<ProviderBudget | null>(null);
@@ -349,13 +369,21 @@ export function SourcesPage({
                     <span>{t('Channel Onboarding & Vendor Credentials', '渠道接入与第三方服务商凭证')}</span>
                   </div>
                   <div className="ds-card-sub">
-                    {t('Unified Apify (kaix + red_crawler), TwitterAPIs & ScrapeBadger keys · encrypted at rest', '按服务商聚合 Apify (kaix + red_crawler)、TwitterAPIs 与 ScrapeBadger 密钥，静态加密热生效')}
+                    {t('Save a provider key, enable its budget, then create a pull source and run collection.', '保存服务商密钥、启用相应渠道的预算，再创建拉取来源并提交采集。NewsNow、Feed 和 Bluesky 无需密钥。')}
                   </div>
                 </div>
-                <button type="button" className="ds-btn ds-btn--ghost" style={{ height: 28, fontSize: 11.5 }} onClick={() => setChannelsOpen((v) => !v)}>
-                  {channelsOpen ? t('Collapse', '收起') : t('Manage Credentials', '管理服务商密钥')}
-                </button>
+                <div className="collection-toolbar">
+                  {channelsOpen && <button type="button" className="ds-btn ds-btn--ghost" onClick={() => onNavigate('/sources?tab=budgets')}>
+                    {t('Configure provider budgets', '配置渠道预算')}
+                  </button>}
+                  <button ref={credentialsButton} type="button" className="ds-btn ds-btn--ghost" aria-expanded={channelsOpen} onClick={() => setChannelsOpen((v) => !v)}>
+                    {channelsOpen ? t('Collapse', '收起') : t('Manage Credentials', '管理服务商密钥')}
+                  </button>
+                </div>
               </div>
+              {networkOff && <div role="status" className="wb-alert wb-alert--warn collection-panel-notice">
+                {t('Server collection networking is off. Set SOURCE_NETWORK_ENABLED=true in the deployment environment and recreate the app container to enable pull collection.', '服务端采集联网已关闭。在部署环境设置 SOURCE_NETWORK_ENABLED=true 并重建应用容器后，才能拉取。')}
+              </div>}
               {channelsOpen && (
                 <div className="ds-card-bd">
                   <div className="source-health">
@@ -509,6 +537,7 @@ export function SourcesPage({
                     <div className="collection-source-links">
                       <a href={'/content?sourceId=' + selectedSource.id}>{t('Stored content', '查看已入库内容')}</a>
                       <button type="button" className="collection-text-button" onClick={() => onNavigate('/sources?tab=jobs&sourceId=' + selectedSource.id)}>{t('All jobs for this source', '查看此来源的任务')}</button>
+                      {canWrite && <a href={'/projects?new=1&sourceId=' + selectedSource.id}>{t('Create a monitoring project', '新建此来源的监测项目')}</a>}
                     </div>
                     <p className="collection-hint">
                       {selectedSource.tags.length > 0 && <>{t('Tags', '标签')} · {selectedSource.tags.join(', ')} · </>}
@@ -562,15 +591,26 @@ export function SourcesPage({
                       <form onSubmit={handleCollect} className="collection-form collection-operation">
                         <div>
                           <h3><Play size={15} />{t('Run manual collection', '手动采集')}</h3>
-                          <p className="collection-hint">{t('Choose a UTC time window and an item limit. The job enters the queue after submission.', '选择 UTC 时间范围和条数上限。提交后任务进入队列。')}</p>
+                          <p className="collection-hint">{t('Choose a UTC time window and an item limit. After submitting, follow the job through to storage and open the stored content from its details.', '选择 UTC 时间范围和条数上限。提交后可在任务详情跟踪入库，并打开已入库内容。')}</p>
+                          {selectedSourceCap?.provider === 'newsnow' && <small>{t('NewsNow reads the current board snapshot.', 'NewsNow 获取当前榜单快照。')}</small>}
                         </div>
-                        {!canDispatch && <p className="wb-alert wb-alert--warn">
-                          {selectedSource.state !== 'active' ? t('Activate this source before submitting.', '请先启用来源。')
-                            : selectedSource.automaticCollectionBlocked ? t('Resolve the blocked provider request above.', '请先处理上方的未决请求。')
-                            : !selectedSourceCap?.enabled ? t('Check service networking and credentials for this provider.', '渠道未就绪，请检查服务联网和凭证。')
-                            : budgetDisabled ? t('Enable the provider budget and set positive caps.', '渠道预算已停用或上限为零，请检查渠道配额。')
-                            : maxAllowedLimit === 0 ? t('Check the source target, account policy and remaining quota.', '请检查目标类型、账号策略和剩余额度。') : null}
-                        </p>}
+                        {!canDispatch && <div className="wb-alert wb-alert--warn collection-readiness">
+                          {selectedSource.state !== 'active' && <span>{t('Activate this source before submitting.', '请先启用来源。')}</span>}
+                          {selectedSource.automaticCollectionBlocked && <span>{t('Resolve the blocked provider request above.', '请先处理上方的未决请求。')}</span>}
+                          {(networkOff || !selectedSourceCap?.enabled) && <span>{networkOff
+                            ? t('Pull collection is blocked by the server networking setting above.', '采集联网已关闭，请按上方说明启用。')
+                            : t('This provider is unavailable. Check its credential or select a ready fallback.', '当前渠道未就绪，请检查密钥或选择可用的备援渠道。')}</span>}
+                          {budgetDisabled && <span>{t('Enable this provider budget and set all four request and resource caps above zero.', '请启用当前渠道预算，并将日/月请求和资源四项上限都设为大于 0。')}</span>}
+                          {exceedsBudget && <span>{t(`This run reserves ${collectionQuote.system} units, above the daily or monthly cap of ${resourceCap}. Reduce the item limit or raise the resource cap.`, `本次执行需预留 ${collectionQuote.system} 单位，超出日或月资源上限 ${resourceCap}。请减少采集条数或提高资源上限。`)}</span>}
+                          {selectedSourceCap?.enabled && maxAllowedLimit === 0 && <span>{t('Check the source target, account policy and remaining quota.', '请核对来源目标、账号采集权限和剩余额度。')}</span>}
+                          <div className="collection-toolbar">
+                            {canWrite && !networkOff && !selectedSourceCap?.enabled && <button type="button" className="ds-btn ds-btn--ghost" onClick={() => {
+                              setChannelsOpen(true);
+                              credentialsButton.current?.focus();
+                            }}>{t('Open provider credentials', '检查服务商密钥')}</button>}
+                            {canWrite && selectedBudget && (budgetDisabled || exceedsBudget) && <button type="button" className="ds-btn ds-btn--ghost" onClick={() => setEditBudget(selectedBudget)}>{t('Edit this provider budget', '调整此渠道预算')}</button>}
+                          </div>
+                        </div>}
                         <div className="collection-toolbar">
                           <button className="ds-btn ds-btn--ghost" type="button" onClick={() => setCollectWindow(1)}>{t('Last 24 hours', '最近 24 小时')}</button>
                           <button className="ds-btn ds-btn--ghost" type="button" onClick={() => setCollectWindow(7)}>{t('Last 7 days', '最近 7 天')}</button>
@@ -767,9 +807,9 @@ export function SourcesPage({
           <button className="ds-btn ds-btn--ghost" type="button" onClick={() => setInspectJobId(null)}>{t('Close', '关闭')}</button>
         </div> : (
         <div className="sr-modal-backdrop" onClick={() => setInspectJobId(null)}>
-          <div className="sr-modal collection-dialog" style={{ width: 'min(560px, 100%)', padding: '22px 26px' }} onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-labelledby="collection-job-title" className="sr-modal collection-dialog" style={{ width: 'min(560px, 100%)', padding: '22px 26px' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 650 }}>
+              <h3 id="collection-job-title" style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 650 }}>
                 {t('Job details', '任务详情')} · {jobDetailQuery.data.job.id.slice(0, 8)}
               </h3>
               <button type="button" className="sr-btn sr-btn--subtle sr-btn--xs" aria-label={t('Close job details', '关闭任务详情')} onClick={() => setInspectJobId(null)}>
@@ -780,6 +820,9 @@ export function SourcesPage({
               const job = jobDetailQuery.data!.job;
               const risky = job.provider_state.phase === 'starting' || job.provider_state.phase === 'unknown';
               const source = sources.find(item => item.id === job.source_id);
+              const waiting = job.status === 'queued' || job.status === 'retrying';
+              const waitingForBudget = waiting && job.error === 'Waiting for provider budget';
+              const finished = job.status === 'succeeded' || job.status === 'completed';
               const actionLabels = { cancel: t('Cancel job', '取消任务'), retry: t('Retry job', '重试任务'), continue: t('Resume provider run', '续跑渠道任务') };
               return (
                 <div className="collection-form">
@@ -791,9 +834,15 @@ export function SourcesPage({
                   <code>{job.id}</code>
                   <span>{t('Processed / inserted / updated', '处理 / 新增 / 更新')} · {job.records_processed} / {job.records_inserted ?? '—'} / {job.records_updated ?? '—'}</span>
                   {job.provider_state.runId && <span>Provider run · {job.provider_state.runId}</span>}
-                  {job.error && <div role="alert" className="wb-alert wb-alert--error">{job.error}</div>}
+                  {waiting && <p role="status" className="collection-hint">{waitingForBudget
+                    ? t('Waiting for the channel budget or minimum execution interval.', '等待渠道预算或最短执行间隔。')
+                    : t('Waiting for the collection worker.', '等待采集 Worker 执行。')} {job.next_run_at && Number.isFinite(Date.parse(job.next_run_at)) &&
+                    <time dateTime={job.next_run_at}>{t('Earliest attempt (UTC)', '最早尝试时间（UTC）')} · {job.next_run_at.slice(0, 19).replace('T', ' ')}</time>}</p>}
+                  {job.error && !waitingForBudget && <div role="alert" className="wb-alert wb-alert--error">{job.error}</div>}
                   {jobActionError && <div role="alert" className="wb-alert wb-alert--error">{jobActionError}</div>}
                   {job.source_id && <a href={'/content?sourceId=' + job.source_id}>{t('View stored content for this source', '查询该来源的已入库内容')}</a>}
+                  {finished && job.source_id && canWrite && <a href={'/projects?new=1&sourceId=' + job.source_id}>{t('Monitor this source', '将此来源纳入监测')}</a>}
+                  {finished && job.records_processed === 0 && <p className="collection-hint">{t('This run returned no items. Check the target and time window before submitting again.', '此次执行未返回内容。再次提交前请核对来源目标和时间范围。')}</p>}
                   {job.result_summary?.creditsUsed !== undefined &&
                     <span>{t('Credits reported by the provider', '渠道报告的积分用量')} · {job.result_summary.creditsUsed}</span>}
                   {job.result_summary?.warning && <div className="wb-alert wb-alert--warn">{job.result_summary.warning}</div>}

@@ -261,11 +261,11 @@ export function useCreateProjectMutation() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: ProjectInput) => apiClient.createProject(input),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['projects'] });
-      qc.invalidateQueries({ queryKey: ['overview'] });
-      qc.invalidateQueries({ queryKey: ['content'] });
-    },
+    onSuccess: () => Promise.all([
+      qc.invalidateQueries({ queryKey: ['projects'] }),
+      qc.invalidateQueries({ queryKey: ['overview'] }),
+      qc.invalidateQueries({ queryKey: ['content'] }),
+    ]),
   });
 }
 
@@ -462,6 +462,7 @@ export function useUpdateBudgetMutation() {
       qc.invalidateQueries({ queryKey: ['budgets'] });
       qc.invalidateQueries({ queryKey: ['sources'] });
       qc.invalidateQueries({ queryKey: ['capabilities'] });
+      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
     },
   });
 }
@@ -558,6 +559,7 @@ export function useSaveProviderCredentialMutation() {
       qc.invalidateQueries({ queryKey: ['providerCredentials'] });
       qc.invalidateQueries({ queryKey: ['capabilities'] });
       qc.invalidateQueries({ queryKey: ['sources'] });
+      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
     },
   });
 }
@@ -571,6 +573,7 @@ export function useRevokeProviderCredentialMutation() {
       qc.invalidateQueries({ queryKey: ['providerCredentials'] });
       qc.invalidateQueries({ queryKey: ['capabilities'] });
       qc.invalidateQueries({ queryKey: ['sources'] });
+      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
     },
   });
 }

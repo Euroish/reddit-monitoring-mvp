@@ -12,6 +12,7 @@ import { BlueskyAppViewContentConnector } from "../../src/connectors/bluesky/blu
 import { webSource } from "../../src/connectors/web/sources";
 import { KaixContentConnector } from "../../src/connectors/reddit/kaix-content.connector";
 import { twitterApis } from "../../src/connectors/x/twitterapis";
+import { createCredentialVault } from "../../src/modules/collection/credentials";
 import { scheduleDueSourcesOnce } from "../../src/modules/collection/schedule";
 import { workOnce } from "../../src/modules/collection/worker";
 import { bootstrapOwner, tokenHash } from "../../src/modules/access/sql";
@@ -161,11 +162,23 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
       '</title><link>https://openai.com/index/workbench-fixture</link><description>Official model release evidence for the workbench test.</description></item></channel></rss>',
   }));
   const kaix = new KaixContentConnector({ networkEnabled: true, apiToken: "browser-fixture" });
-  const x = twitterApis({ SOURCE_NETWORK_ENABLED: "true", TWITTERAPIS_API_KEY: "browser-fixture" });
+  const sessionSecret = "synthetic-secret-".repeat(3);
+  const sourceEnv = { SOURCE_NETWORK_ENABLED: "true" };
+  const fixtureKey = "browser-twitterapis-fixture";
+  const tweetText = "Post stored from a TwitterAPIs workbench submission";
+  const vault = createCredentialVault(db.pool, sessionSecret, sourceEnv);
+  await vault.reload();
+  const x = twitterApis(sourceEnv, async (input, init) => {
+    assert.equal(new Headers(init?.headers).get("Authorization"), `Bearer ${fixtureKey}`);
+    assert.equal(new URL(String(input)).pathname, "/twitter/tweet/advanced_search");
+    return Response.json({ tweets: [{ id: "1234567890", created_at: fetchedAt, text: tweetText, author: { username: "example" } }] });
+  }, () => vault.getSecret("twitterapis"));
+  await db.pool.query("UPDATE source_provider_budget SET enabled=false WHERE provider='twitterapis'");
   const app = await createApp({
     pool: db.pool,
     providers: [feed, webSource("newsnow", { SOURCE_NETWORK_ENABLED: "true" }), kaix, x, new BlueskyAppViewContentConnector({ networkEnabled: false })],
-    sessionSecret: "synthetic-secret-".repeat(3),
+    sessionSecret,
+    credentialVault: vault,
     origin,
     secureCookies: false,
     publicRead: true,
@@ -186,7 +199,8 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
     args: ["--no-sandbox"],
   });
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, timezoneId: "Asia/Shanghai" });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, timezoneId: "Asia/Shanghai" });
+  const page = await context.newPage();
   const errors: string[] = [];
   const scripts: string[] = [];
   const guestUnauthorized: string[] = [];
@@ -430,6 +444,11 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await modal.getByText(/配置已校验/).waitFor();
   await modal.getByRole("button", { name: "创建来源" }).click();
   await page.getByText(/目标 · community = localllama/i).waitFor();
+  await page.getByRole("button", { name: "管理服务商密钥" }).click();
+  const twitterKey = page.getByRole("region", { name: "TwitterAPIs" });
+  await twitterKey.getByLabel("设置 / 轮换密钥（只写）").fill(fixtureKey);
+  await twitterKey.getByRole("button", { name: "保存密钥" }).click();
+  await twitterKey.getByText(/密钥已保存/).waitFor();
   await page.getByRole("button", { name: "新建来源" }).click();
   await modal.getByLabel("平台", { exact: true }).selectOption("x");
   await modal.getByLabel("来源名称").fill("X UI fixture");
@@ -439,6 +458,53 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   assert.equal(await page.getByLabel("采集上限").getAttribute("max"), "20");
   assert.equal(await page.getByLabel("同时采集评论").count(), 0);
   await page.getByText(/首次渠道执行 · 1 次请求 \/ 20 单位预留资源/).waitFor();
+  const submitCollection = page.getByRole("button", { name: "提交采集任务" });
+  assert.equal(await submitCollection.isDisabled(), true);
+  await page.getByRole("button", { name: "调整此渠道预算" }).click();
+  const xBudget = page.getByRole("dialog", { name: /调整渠道预算 · twitterapis/ });
+  await xBudget.getByLabel("启用渠道预算").check();
+  await xBudget.getByLabel("日请求上限（次）").fill("2");
+  await xBudget.getByLabel("月请求上限（次）").fill("5");
+  await xBudget.getByLabel("日资源上限（单位）").fill("19");
+  await xBudget.getByLabel("月资源上限（单位）").fill("100");
+  await xBudget.getByRole("button", { name: "更新配额" }).click();
+  await page.getByText(/本次执行需预留 20 单位/).waitFor();
+  assert.equal(await submitCollection.isDisabled(), true);
+  await page.getByRole("button", { name: "调整此渠道预算" }).click();
+  await xBudget.getByLabel("日资源上限（单位）").fill("40");
+  await xBudget.getByRole("button", { name: "更新配额" }).click();
+  await submitCollection.click();
+  const queued = page.getByRole("dialog", { name: /任务详情/ });
+  await queued.getByText("等待采集 Worker 执行。").waitFor();
+  assert.equal(await workOnce(db.pool, [x]), true);
+  await queued.getByText("处理 / 新增 / 更新 · 1 / 1 / 0").waitFor();
+  const storageLink = await queued.getByRole("link", { name: "查询该来源的已入库内容" }).getAttribute("href");
+  const monitoringLink = await queued.getByRole("link", { name: "将此来源纳入监测" }).getAttribute("href");
+  assert.ok(storageLink && monitoringLink);
+  const followup = await context.newPage();
+  await followup.goto(origin + storageLink);
+  const search = followup.getByPlaceholder(/输入检索词后回车/);
+  await search.fill("TwitterAPIs workbench submission");
+  await search.press("Enter");
+  await followup.getByText(tweetText, { exact: true }).first().waitFor();
+  await followup.goto(origin + monitoringLink);
+  const projectModal = followup.getByRole("dialog", { name: "新建监测项目" });
+  await projectModal.waitFor();
+  assert.deepEqual(await projectModal.locator('input[type="checkbox"]:checked').filter({ visible: true }).evaluateAll(inputs => inputs
+    .filter(input => input.closest("label")?.textContent?.includes("(pull)"))
+    .map(input => input.closest("label")!.textContent!.trim())), ["X UI fixture (pull)"]);
+  await projectModal.getByLabel(/项目名称/).fill("采集到分析验收");
+  const overviewResponse = followup.waitForResponse(res => /\/v1\/projects\/[^/]+\/overview$/.test(res.url()) && res.ok());
+  await projectModal.getByRole("button", { name: "创建项目" }).click();
+  await followup.getByRole("heading", { name: "采集到分析验收" }).waitFor();
+  const projectOverview = await (await overviewResponse).json();
+  assert.equal(projectOverview.contentCount, 1);
+  assert.ok(projectOverview.facets.some((facet: { platform?: string }) => facet.platform === "x"));
+  await followup.getByRole("button", { name: "全部检索", exact: true }).click();
+  assert.equal(new URL(followup.url()).searchParams.get("projectId"), projectOverview.project.id);
+  await followup.getByText(tweetText, { exact: true }).first().waitFor();
+  await followup.close();
+  await queued.getByRole("button", { name: "关闭任务详情" }).click();
 
   await page.getByRole("button", { name: "新建来源" }).click();
   await modal.getByLabel("接入方式").selectOption("push");
