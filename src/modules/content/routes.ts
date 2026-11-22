@@ -20,7 +20,7 @@ import { contentFacets } from "./facets";
 import { readStoryWindow, selectStoryFeed } from "./stories";
 import { readThread } from "./thread";
 export { csvCell } from "./export";
-import { projectSources } from "../projects/sql";
+import { projectSources } from "../projects/index";
 import { fail } from "../../storage/db";
 
 const ListResponse = {

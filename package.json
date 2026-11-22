@@ -15,7 +15,7 @@
     "lint": "npm run lint:policy && npm run lint:api && npm run lint:arch && npm run lint:web",
     "lint:policy": "tsx scripts/check-docs.ts",
     "lint:api": "eslint .",
-    "lint:arch": "depcruise src apps/api/src apps/web/src packages/contracts/src --config .dependency-cruiser.cjs",
+    "lint:arch": "depcruise src apps/api/src apps/web/src packages/contracts/src --config .dependency-cruiser.cjs && tsx scripts/check-table-ownership.ts",
     "lint:web": "npm --prefix apps/web run lint",
     "docs:check": "tsx scripts/check-docs.ts",
     "check:openapi": "tsx scripts/check-openapi.ts",

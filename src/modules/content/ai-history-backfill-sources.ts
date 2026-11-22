@@ -6,7 +6,33 @@ import { transaction } from "../../storage/db";
 import { normalizeVendorSlug } from "./ai-event-identity";
 import { isSuspectedEpochPaddingDate } from "./ai-history-schema";
 import { isOfficialVendorUrl, parseEpochCsv } from "./ai-registry";
-import type { BackfillOptions, BackfillResult } from "./ai-history-backfill";
+
+export interface BackfillOptions {
+  sourceCode: "content_history" | "official_archive" | "epoch_csv";
+  vendorSlug?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  batchSize?: number;
+  maxItems?: number;
+  dryRun?: boolean;
+  resume?: boolean;
+  autoPublish?: boolean;
+  csvPath?: string;
+  archiveUrls?: Array<{ vendorSlug: string; url: string }>;
+  fetcher?: (url: string, headers: Record<string, string>) => Promise<{ status: number; bodyText?: string }>;
+}
+
+export interface BackfillResult {
+  runId: string;
+  sourceCode: string;
+  status: "succeeded" | "paused" | "failed";
+  scanned: number;
+  published: number;
+  candidatesCreated: number;
+  skipped: number;
+  conflicts: number;
+  cursor: Record<string, unknown>;
+}
 
 type ProcessArticleFn = (
   client: PoolClient,

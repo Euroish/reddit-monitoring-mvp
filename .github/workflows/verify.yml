@@ -41,6 +41,7 @@ jobs:
               - 'src/**'
               - 'apps/api/**'
               - 'packages/contracts/**'
+              - 'data/**'
               - 'scripts/**'
               - 'tests/**'
               - 'tsconfig*.json'
@@ -57,12 +58,18 @@ jobs:
               - 'apps/web/src/main.tsx'
               - 'apps/web/src/api/**'
               - 'apps/web/src/components/AuthModal.tsx'
+              - 'apps/web/src/components/AccountEmail.tsx'
+              - 'apps/web/src/components/AdministratorMfa.tsx'
+              - 'apps/web/src/components/EditorialFooter.tsx'
               - 'apps/web/src/components/PublicSiteShell.tsx'
+              - 'apps/web/src/components/public-home/**'
+              - 'apps/web/src/components/ai/**'
               - 'apps/web/src/pages/**'
               - 'apps/web/vite.config.ts'
               - 'packages/contracts/**'
               - 'src/modules/access/**'
               - 'apps/api/src/app.ts'
+              - 'apps/api/src/route-policy.ts'
             schema:
               - 'src/storage/schema/**'
             docker:
@@ -133,6 +140,9 @@ jobs:
           cache-dependency-path: package-lock.json
       - run: npm ci --ignore-scripts
       - run: npm run lint:policy
+      - name: PR governance & blast-radius guard
+        if: github.event_name == 'pull_request'
+        run: node scripts/check-governance-diff.mjs
 
   api-quality:
     name: API lint, boundaries, types & unit tests

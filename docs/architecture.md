@@ -58,7 +58,7 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 
 | ID | 等级 | 模块边界与不可变迁移规则 | 验收出口 |
 | --- | --- | --- | --- |
-| MOD-01 | MUST | 模块间 `MUST NOT` 越权写他方独占表或跨模块导入 `routes.ts`/`access`/`workspace`；`src/connectors/`、`src/shared/` `MUST NOT` 直接导入 `pg` 连接；主干已合入的迁移不可改写、移动或删除；新迁移由 `Squawk` 审计锁表/索引安全并经 `CODEOWNERS` 审查。 | `lint:policy`、`lint:arch`、`Squawk` 与 PG 迁移验证 |
+| MOD-01 | MUST | 模块间跨模块引用只允许经目标模块公开 `index.ts` 门面，禁止深挖内部文件或越权写他方独占表（`scripts/check-table-ownership.ts`），禁跨模块导入 `routes.ts`/`access`/`workspace`；`src/connectors/`、`src/shared/` `MUST NOT` 直接导入 `pg` 连接；主干已合入的迁移不可改写、移动或删除；新迁移由 `Squawk` 审计锁表/索引安全并经 `CODEOWNERS` 审查（核心约束汇总见[核心不变量台账](invariants.md)）。 | `lint:policy`、`lint:arch`、`Squawk` 与 PG 迁移验证 |
 
 ---
 
@@ -76,7 +76,7 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 
 ### 3.2 研发容量边界与增量设计
 
-当前主干迁移到 `053` 共 **24 张表**，**不再设置僵化的表数上限**。新增表须遵循三项工程纪律：① 确认独立数据所有权与生命周期（避免向 JSONB 塞异构结构，也避免无谓拆表）；② 新增 SQL 通过 `Squawk` 锁安全检查、PG16 回滚验收与 `.github/CODEOWNERS` 审查；③ 评估单机 4 GB / 60 GB 下的索引体积、写入放大与清理策略。
+当前主干迁移到 `058` 共 **46 张表**（不再设置僵化的表数上限）。新增表须遵循三项工程纪律：① 确认独立数据所有权与生命周期（单表唯一写归属由 `scripts/check-table-ownership.ts` 自动守门，避免向 JSONB 塞异构结构，也避免无谓拆表）；② 新增 SQL 通过 `Squawk` 锁安全检查、PG16 回滚验收与 `.github/CODEOWNERS` 审查；③ 评估单机 4 GB / 60 GB 下的索引体积、写入放大与清理策略。
 
 | 方向 | 实施边界 | 引入额外结构的依据 |
 | --- | --- | --- |

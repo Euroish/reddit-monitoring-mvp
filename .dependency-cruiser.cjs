@@ -51,6 +51,16 @@ module.exports = {
       },
     },
     {
+      name: "modules-public-api-only",
+      severity: "error",
+      comment: "Cross-module imports must go through the target module's public index.ts facade, never internal sql/batch/helper files.",
+      from: { path: "^src/modules/([^/]+)/" },
+      to: {
+        path: "^src/modules/([^/]+)/.+$",
+        pathNot: ["^src/modules/$1/", "^src/modules/[^/]+/index\\.ts$"],
+      },
+    },
+    {
       name: "modules-no-cross-access-or-workspace",
       severity: "error",
       comment: "Auth (access) and personal workspace stay isolated; pass Actor via Fastify request instead of cross-importing internals.",

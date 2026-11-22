@@ -2,7 +2,7 @@ import type { Static } from "@sinclair/typebox";
 import type { Pool, PoolClient } from "pg";
 import type { Actor, ContentFacets, ContentFacetsQuery } from "../../../packages/contracts/src/source-content";
 import { fail } from "../../storage/db";
-import { projectSources } from "../projects/sql";
+import { projectSources } from "../projects/index";
 import { compileContentFilter, matchingNodes } from "./search";
 
 type Facets = Static<typeof ContentFacets>;

@@ -4,7 +4,7 @@ import type {
   Actor,
   Filter,
 } from "../../../packages/contracts/src/source-content";
-import { compileContentFilter } from "../content/search";
+import { compileContentFilter } from "../content/index";
 import { fail } from "../../storage/db";
 
 export async function listSavedQueries(pool: Pool, actor: Actor) {

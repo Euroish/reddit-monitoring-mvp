@@ -3,8 +3,8 @@ import type { Static } from "@sinclair/typebox";
 import type { Pool } from "pg";
 import type { Actor, Hydrate } from "../../../packages/contracts/src/source-content";
 import { fail, transaction } from "../../storage/db";
-import { compileContentFilter, matchedAnchors } from "../content/search";
-import { projectSources } from "../projects/sql";
+import { compileContentFilter, matchedAnchors } from "../content/index";
+import { projectSources } from "../projects/index";
 import { admitViewerCollection } from "./policy";
 
 export async function enqueueHydration(pool: Pool, actor: Actor, projectId: string, key: string, input: Static<typeof Hydrate>) {

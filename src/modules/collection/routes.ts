@@ -22,8 +22,7 @@ import {
   Source,
 } from "../../../packages/contracts/src/source-content";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
-import { canonical } from "../content/batch";
-import { commitContentBatch, prepareContentBatch } from "../content/sql";
+import { canonical, commitContentBatch, prepareContentBatch } from "../content/index";
 import { fail, transaction } from "../../storage/db";
 import { sourcePreviewRoute, validateFallback, validateSource } from "./config";
 import { sourceImportRoute } from "./import";

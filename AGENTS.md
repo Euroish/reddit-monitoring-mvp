@@ -13,6 +13,7 @@
 | :--- | :--- |
 | [产品边界与口径](docs/README.md) | 社媒情报分析与高质量信息分发、共同度量及规范索引 |
 | [主线架构](docs/architecture.md) | 模块边界、数据演进与迁移安全、L1–L3 扩源、SSRF/鉴权安全与 4 GB 预算 |
+| [核心不变量台账](docs/invariants.md) | `INV-001`..`INV-010` 系统不可破坏约束与自动化验证映射 |
 | [数据与 API 契约](docs/contracts.md) | Domain 对象、版本/幂等、`[LIVE]` 已注册路径/操作 vs `[V2]` 规划接口规范 |
 | [前端与融合规范](docs/design.md) | 公开站与研究工作台、分析下钻、推荐交互和图表边界 |
 | [来源矩阵](docs/research/data-sources.md) | 来源准入、采样快照与 L1–L3 扩源策略 |

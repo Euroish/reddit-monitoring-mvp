@@ -12,9 +12,10 @@ import { findActor } from "../../../src/modules/access/sql";
 import { createLoginThrottle } from "../../../src/modules/access/login-throttle";
 import { accessRoutes } from "../../../src/modules/access/routes";
 import type { AccountEmailProvider } from "../../../src/modules/access/email-provider";
-import { accountPublicPosts, emailRoutes } from "../../../src/modules/access/email-routes";
-import { isPrivilegedWrite, mfaLoginPath, mfaRoutes } from "../../../src/modules/access/mfa-routes";
+import { emailRoutes } from "../../../src/modules/access/email-routes";
+import { mfaRoutes } from "../../../src/modules/access/mfa-routes";
 import { requireRecentMfa } from "../../../src/modules/access/mfa-sql";
+import { resolveRoutePolicy } from "./route-policy";
 import { jobRoutes } from "../../../src/modules/collection/jobs";
 import { refreshRoutes } from "../../../src/modules/collection/refresh";
 import { collectionRoutes } from "../../../src/modules/collection/routes";
@@ -46,29 +47,6 @@ const PUBLIC_GUEST_ACTOR: Actor = {
   scopes: ["read"],
   allowedSourceIds: null,
 };
-const DOC_READ_ROUTES = [
-  "/v1/docs",
-  "/v1/docs/:slug",
-  "/v1/docs/:slug/file",
-];
-const PUBLIC_READ_ROUTES = new Set([
-  "/v1/public/sources",
-  "/v1/content/stories",
-  "/v1/content",
-  "/v1/content/feed",
-  "/v1/content/facets",
-  "/v1/content/:id",
-  "/v1/content/:id/thread",
-  ...DOC_READ_ROUTES,
-  "/v1/ai/vendors",
-  "/v1/ai/models",
-  "/v1/ai/models/:id",
-  "/v1/ai/events",
-  "/v1/ai/events/:id",
-  "/v1/ai/updates",
-  "/v1/ai/rankings",
-  "/v1/ai/rankings/:id",
-]);
 export async function buildApp(options: {
   pool: Pool;
   sessionSecret: string;
@@ -183,38 +161,29 @@ export async function buildApp(options: {
     });
   });
   app.addHook("preParsing", async (request) => {
-    const route = request.routeOptions.url ?? request.url.split("?")[0],
-      method = request.method;
-    const accountPublicPost = method === "POST" &&
-      ((Boolean(options.accountEmail) && accountPublicPosts.has(route)) || (Boolean(options.mfa) && route === mfaLoginPath));
-    const publicRoute = accountPublicPost ||
-      (["GET", "HEAD"].includes(method) &&
-        ["/healthz", "/readyz", "/v1/auth/session"].includes(route)) ||
-      (method === "POST" &&
-        ["/v1/auth/login", "/v1/auth/register", "/v1/auth/logout"].includes(route));
-    const publicReadRoute =
-      Boolean(options.publicRead) &&
-      ["GET", "HEAD"].includes(method) &&
-      PUBLIC_READ_ROUTES.has(route);
-    const credentialSubmission = accountPublicPost || method === "POST" &&
-      ["/v1/auth/login", "/v1/auth/register"].includes(route);
-    if (route.startsWith("/v1/auth/") && request.headers.authorization !== undefined)
+    const route = request.routeOptions.url ?? request.url.split("?")[0];
+    const method = request.method;
+    const policy = resolveRoutePolicy(method, route, {
+      publicRead: Boolean(options.publicRead),
+      accountEmailEnabled: Boolean(options.accountEmail),
+      mfaEnabled: Boolean(options.mfa),
+      declarative: request.routeOptions.config?.auth,
+    });
+    if (policy.browserOnlyAuthRoute && request.headers.authorization !== undefined)
       fail(403, "Browser session required");
     if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS" &&
       request.headers.authorization === undefined && request.headers.origin !== origin)
       fail(403, "Same-origin request required");
-    if (credentialSubmission) {
+    if (policy.credentialSubmission) {
       const contentType = request.headers["content-type"]?.split(";", 1)[0].trim().toLowerCase();
       if (contentType !== "application/json") fail(415, "Expected application/json");
       return;
     }
-    let token: string | undefined,
-      kind: "browser" | "machine" = "browser";
+    let token: string | undefined;
+    let kind: "browser" | "machine" = "browser";
     if (request.headers.authorization !== undefined) {
       kind = "machine";
-      token = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(
-        request.headers.authorization,
-      )?.[1];
+      token = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(request.headers.authorization)?.[1];
       if (!token) fail(401, "Invalid bearer token");
     } else {
       const value = request.headers.cookie
@@ -227,76 +196,17 @@ export async function buildApp(options: {
         token = signed[1];
     }
     request.actor = token ? await findActor(options.pool, token, kind, options.mfa?.required) : null;
-    if (!request.actor && publicReadRoute && !request.headers.authorization)
+    if (!request.actor && policy.publicReadRoute && !request.headers.authorization)
       request.actor = PUBLIC_GUEST_ACTOR;
-    if (!publicRoute && !request.actor) fail(401, "Authentication required");
+    if (!policy.publicRoute && !request.actor) fail(401, "Authentication required");
     const actor = request.actor;
-    if (!actor || publicRoute) return;
-    const viewerAllowedWrite =
-      (method === "DELETE" && route === "/v1/auth/sessions/:id") ||
-      (method === "POST" && [
-        "/v1/auth/logout-all",
-        "/v1/auth/email/verify/start",
-        "/v1/auth/password/change",
-        "/v1/auth/mfa/step-up",
-        "/v1/auth/mfa/recovery-codes",
-        "/v1/sources/:id/collect",
-        "/v1/sources/:id/refresh",
-        "/v1/projects/:id/hydrate",
-        "/v1/source-jobs/:id/cancel",
-        "/v1/source-jobs/:id/retry",
-        "/v1/source-jobs/:id/continue",
-      ].includes(route));
-    if (
-      actor.role === "viewer" &&
-      !["GET", "HEAD"].includes(method) &&
-      !route.startsWith("/v1/workspace/") &&
-      !viewerAllowedWrite
-    )
+    if (!actor || policy.publicRoute) return;
+    if (actor.role === "viewer" && !policy.viewerAllowed)
       fail(403, "Administrator access required");
-    if (actor.clientKind === "browser" && actor.role !== "viewer" && isPrivilegedWrite(method, route))
+    if (actor.clientKind === "browser" && actor.role !== "viewer" && policy.requiresRecentMfa)
       await requireRecentMfa(options.pool, actor, Boolean(options.mfa?.required));
     if (actor.clientKind === "machine") {
-      const isRead = ["GET", "HEAD"].includes(method);
-      const scope =
-        route === "/v1/content/export"
-          ? "export"
-          : route.endsWith("/ingest")
-            ? "ingest"
-            : (route.endsWith("/collect") || route.endsWith("/hydrate") || route === "/v1/sources/:id/refresh")
-              ? "collect"
-              : route.startsWith("/v1/source-jobs")
-                ? ["GET", "HEAD"].includes(method)
-                  ? "read"
-                  : "collect"
-                : route.endsWith("/unblock")
-                  ? "collect"
-                  : route.startsWith("/v1/content") || DOC_READ_ROUTES.includes(route)
-                    ? isRead
-                      ? "read"
-                      : null
-                    : route === "/v1/public/sources"
-                      ? ["GET", "HEAD"].includes(method)
-                        ? "read"
-                        : null
-                      : route.startsWith("/v1/sources")
-                      ? ["GET", "HEAD"].includes(method)
-                        ? "read"
-                        : "sources:write"
-                      : route.startsWith("/v1/projects")
-                        ? ["GET", "HEAD"].includes(method)
-                          ? "read"
-                          : "projects:write"
-                        : null;
-      if (
-        route.startsWith("/v1/access/") ||
-        route.startsWith("/v1/admin/") ||
-        route.startsWith("/v1/workspace/") ||
-        route.startsWith("/v1/sources/credentials") ||
-        route.startsWith("/v1/quotas") ||
-        (!scope && !["/v1/capabilities", "/v1/openapi.json"].includes(route)) ||
-        (scope && !actor.scopes.includes(scope))
-      )
+      if (!policy.machineAllowed || (policy.machineScope && !actor.scopes.includes(policy.machineScope)))
         fail(403, "API key scope does not permit this operation");
     }
   });

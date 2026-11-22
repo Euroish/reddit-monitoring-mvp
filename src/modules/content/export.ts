@@ -10,7 +10,7 @@ import {
 } from "../../../packages/contracts/src/source-content";
 import { compileContentFilter, contentSelect, filterSignature, matchedAnchors } from "./search";
 import { contentFromRow } from "./sql";
-import { projectSources } from "../projects/sql";
+import { projectSources } from "../projects/index";
 import { fail } from "../../storage/db";
 
 export function csvCell(value: unknown) {
