@@ -75,25 +75,29 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-            echo "full=true" >> "$GITHUB_OUTPUT"
-            echo "api=true" >> "$GITHUB_OUTPUT"
-            echo "web=true" >> "$GITHUB_OUTPUT"
-            echo "schema=false" >> "$GITHUB_OUTPUT"
-            echo "docker=false" >> "$GITHUB_OUTPUT"
-            echo "ci=false" >> "$GITHUB_OUTPUT"
-            echo "run_e2e=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "full=true"
+              echo "api=true"
+              echo "web=true"
+              echo "schema=false"
+              echo "docker=false"
+              echo "ci=false"
+              echo "run_e2e=true"
+            } >> "$GITHUB_OUTPUT"
           else
-            echo "full=false" >> "$GITHUB_OUTPUT"
-            echo "api=${{ steps.filter.outputs.api }}" >> "$GITHUB_OUTPUT"
-            echo "web=${{ steps.filter.outputs.web }}" >> "$GITHUB_OUTPUT"
-            echo "schema=${{ steps.filter.outputs.schema }}" >> "$GITHUB_OUTPUT"
-            echo "docker=${{ steps.filter.outputs.docker }}" >> "$GITHUB_OUTPUT"
-            echo "ci=${{ steps.filter.outputs.ci }}" >> "$GITHUB_OUTPUT"
+            run_e2e=false
             if [[ "${{ steps.filter.outputs.web_core }}" == "true" || "${{ contains(github.event.pull_request.labels.*.name, 'run-e2e') }}" == "true" ]]; then
-              echo "run_e2e=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "run_e2e=false" >> "$GITHUB_OUTPUT"
+              run_e2e=true
             fi
+            {
+              echo "full=false"
+              echo "api=${{ steps.filter.outputs.api }}"
+              echo "web=${{ steps.filter.outputs.web }}"
+              echo "schema=${{ steps.filter.outputs.schema }}"
+              echo "docker=${{ steps.filter.outputs.docker }}"
+              echo "ci=${{ steps.filter.outputs.ci }}"
+              echo "run_e2e=${run_e2e}"
+            } >> "$GITHUB_OUTPUT"
           fi
 
   policy-and-secrets:
@@ -165,7 +169,10 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: apps/web/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            apps/web/package-lock.json
+      - run: npm ci --ignore-scripts
       - run: npm --prefix apps/web ci --ignore-scripts
       - run: npm run lint:web
       - run: npm --prefix apps/web run typecheck
