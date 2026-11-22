@@ -24,11 +24,11 @@ const SHARED_WRITE_ALLOWLIST: Record<string, { allowedModules: string[]; reason:
 const EXPLICIT_OWNERS: Array<{ match: RegExp; owner: string }> = [
   { match: /^app_(?:user|user_password|session|invite|auth_.+)$/, owner: "access" },
   {
-    match: /^(?:collection_source|source_.+|plan_collection_policy|user_provider_usage)$/,
+    match: /^(?:collection_source|collection_batch(?:_item)?|source_.+|plan_collection_policy|user_provider_usage)$/,
     owner: "collection",
   },
   { match: /^(?:content_saved_query|content_annotation)$/, owner: "workspace" },
-  { match: /^monitor_project(?:_source)?$/, owner: "projects" },
+  { match: /^monitor_project(?:_source|_batch)?$/, owner: "projects" },
   { match: /^(?:content_discovery|content_observation|public_content_search_document|doc_page)$/, owner: "content" },
   { match: /^ai_.+$/, owner: "ai" },
 ];

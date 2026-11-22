@@ -11,6 +11,7 @@ const RecentJobsQuery = Type.Object(
   {
     status: Type.Optional(Type.String({ maxLength: 32 })),
     sourceId: Type.Optional(Type.String({ format: "uuid" })),
+    projectId: Type.Optional(Type.String({ format: "uuid" })),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
     offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 10000 })),
   },
@@ -34,15 +35,21 @@ export async function jobRoutes(app: FastifyInstance, pool: Pool) {
          j.created_at AS "createdAt", j.finished_at AS "finishedAt",
          j.requested_by_user_id AS "requestedByUserId",
          j.requested_by_client_kind AS "requestedByClientKind",
+         cb.id AS "batchId",
+         j.request_json->>'projectId' AS "projectId",
          CASE WHEN $4 THEN u.email ELSE NULL END AS "requesterEmail"
        FROM source_collection_job j
        JOIN collection_source cs ON cs.id = j.collection_source_id
        JOIN source p ON p.id = cs.platform_id
+       LEFT JOIN collection_batch cb ON cb.job_id = j.id
        LEFT JOIN app_user u ON u.id = j.requested_by_user_id
        WHERE ($1::uuid[] IS NULL OR j.collection_source_id = ANY($1::uuid[]))
          AND ($2::text IS NULL OR j.status = $2)
          AND ($3::uuid IS NULL OR j.collection_source_id = $3)
          AND ($4 OR (j.requested_by_user_id = $5 AND j.requested_by_client_kind = 'browser'))
+         AND ($8::uuid IS NULL OR j.request_json->>'projectId' = $8::text OR EXISTS (
+           SELECT 1 FROM monitor_project_batch mpb WHERE mpb.batch_id = cb.id AND mpb.project_id = $8 AND mpb.status <> 'removed'
+         ))
        ORDER BY j.created_at DESC, j.id DESC
        LIMIT $6 OFFSET $7`,
       [
@@ -53,6 +60,7 @@ export async function jobRoutes(app: FastifyInstance, pool: Pool) {
         actor.userId,
         limit,
         offset,
+        request.query.projectId ?? null,
       ],
     );
     return { jobs: rows, scope: isAdmin ? "all" : "personal" };

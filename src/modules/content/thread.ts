@@ -10,7 +10,8 @@ export async function readThread(
   filter: Filter, view: "top" | "matches" | "op",
 ) {
   const project = projectId ? await projectSources(pool, actor, projectId) : undefined;
-  const compiled = compileContentFilter(actor, filter, project?.source_ids, project?.filter);
+  const batchProjectId = project?.dataset_mode === "batch" ? project.id : undefined;
+  const compiled = compileContentFilter(actor, filter, batchProjectId ? undefined : project?.source_ids, project?.filter, false, batchProjectId);
   compiled.values.push(id);
   const idParam = `$${compiled.values.length}::uuid`;
   const match = compiled;

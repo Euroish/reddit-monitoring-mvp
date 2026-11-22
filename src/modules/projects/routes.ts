@@ -3,9 +3,17 @@ import { Type } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import {
-  Hydrate, IdempotencyHeaders, ParamsId, ProjectInput, strictMerge,
+  Hydrate,
+  Id,
+  IdempotencyHeaders,
+  ParamsId,
+  ProjectBatchAttachInput,
+  ProjectBatchStatusInput,
+  ProjectInput,
+  strictMerge,
 } from "../../../packages/contracts/src/source-content";
 import { deleteProject, listProjects, projectOverview, projectSources, writeProject } from "./sql";
+import { attachBatchToProject, listProjectBatches, updateProjectBatchStatus } from "./batches";
 
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { enqueueHydration } from "../collection/index";
@@ -37,5 +45,24 @@ export async function projectRoutes(app: FastifyInstance, pool: Pool, providers:
   });
   api.get("/v1/projects/:id/overview", { schema: { params: ParamsId } }, (request) =>
     projectOverview(pool, request.actor!, request.params.id),
+  );
+  api.get("/v1/projects/:id/batches", { schema: { params: ParamsId } }, async (request) => ({
+    batches: await listProjectBatches(pool, request.actor!, request.params.id),
+  }));
+  api.post(
+    "/v1/projects/:id/batches",
+    { schema: { params: ParamsId, body: ProjectBatchAttachInput } },
+    (request) => attachBatchToProject(pool, request.actor!, request.params.id, request.body.batchId),
+  );
+  api.patch(
+    "/v1/projects/:id/batches/:batchId",
+    {
+      schema: {
+        params: Type.Object({ id: Id, batchId: Id }),
+        body: ProjectBatchStatusInput,
+      },
+    },
+    (request) =>
+      updateProjectBatchStatus(pool, request.actor!, request.params.id, request.params.batchId, request.body.status),
   );
 }

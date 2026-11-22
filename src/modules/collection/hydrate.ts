@@ -23,7 +23,8 @@ export async function enqueueHydration(pool: Pool, actor: Actor, projectId: stri
       if (existing[0].payload_hash !== hash) fail(409, "Idempotency key already used with different posts");
       return { jobIds: existing.map((job) => job.id) };
     }
-    const compiled = compileContentFilter(actor, {}, project.source_ids, project.filter);
+    const batchProjectId = project.dataset_mode === "batch" ? project.id : undefined;
+    const compiled = compileContentFilter(actor, {}, batchProjectId ? undefined : project.source_ids, project.filter, false, batchProjectId);
     const match = matchedAnchors(compiled, true);
     compiled.values.push(ids, project.source_ids);
     const roots = (await client.query(`

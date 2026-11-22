@@ -9,6 +9,7 @@ import { fail, transaction } from "../../storage/db";
 import { lockSource, sourceFromRow } from "./sql";
 import { isViewerJobStillAuthorized, recordUserExecutedRequest, requestedCommentLimit } from "./policy";
 import { scheduleDueSourcesOnce } from "./schedule";
+import { recordCommittedBatch, type BatchCommittedHook } from "./batches";
 
 const workerActor = { allowedSourceIds: null } as Actor;
 const hostCooldownMs = 1500;
@@ -25,7 +26,11 @@ function formatCollectionError(error: unknown): string {
 }
 
 export async function workOnce(
-  pool: Pool, providers: ContentProvider[], signal?: AbortSignal, hostCooldown?: Map<string, number>,
+  pool: Pool,
+  providers: ContentProvider[],
+  signal?: AbortSignal,
+  hostCooldown?: Map<string, number>,
+  onBatchCommitted?: BatchCommittedHook,
 ) {
   if (signal?.aborted) return false;
   const nowMs = Date.now();
@@ -257,6 +262,21 @@ export async function workOnce(
         batch,
         new Date().toISOString(),
       );
+      const committed = await recordCommittedBatch(client, {
+        jobId: job.id,
+        sourceId: source.id,
+        sourceLabel: source.label,
+        userId: job.requested_by_user_id ?? null,
+        contentIds: counts.contentIds,
+      });
+      const targetProjectId = typeof job.request_json?.projectId === "string" ? job.request_json.projectId : null;
+      if (targetProjectId && onBatchCommitted) {
+        await onBatchCommitted(client, {
+          batchId: committed.batchId,
+          projectId: targetProjectId,
+          userId: job.requested_by_user_id ?? null,
+        });
+      }
       const scheduled = job.purpose === "scheduled";
       const nextPage = scheduled && finishingSource.state === "active" && finishingSource.schedule.enabled &&
         job.provider !== "feed" && page.nextCheckpoint !== null && job.pages_committed + 1 < job.max_pages;
@@ -399,7 +419,12 @@ export async function workOnce(
   return true;
 }
 
-export function startWorker(pool: Pool, providers: ContentProvider[], onError?: (error: unknown) => void) {
+export function startWorker(
+  pool: Pool,
+  providers: ContentProvider[],
+  onError?: (error: unknown) => void,
+  onBatchCommitted?: BatchCommittedHook,
+) {
   const controller = new AbortController();
   const startedAt = new Date();
   const hostCooldown = new Map<string, number>();
@@ -442,7 +467,7 @@ export function startWorker(pool: Pool, providers: ContentProvider[], onError?: 
         scanAt = Date.now() + 5000;
         await scheduleDueSourcesOnce(pool, providers).catch((error) => onError?.(error));
       }
-      const worked = await workOnce(pool, providers, controller.signal, hostCooldown).catch((error) => {
+      const worked = await workOnce(pool, providers, controller.signal, hostCooldown, onBatchCommitted).catch((error) => {
         onError?.(error);
         return false;
       });

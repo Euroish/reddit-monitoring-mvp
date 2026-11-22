@@ -40,6 +40,7 @@ export function compileContentFilter(
   projectSourceIds?: readonly string[],
   projectFilter: Filter = {},
   pullOnly = false,
+  batchProjectId?: string,
 ) {
   const values: unknown[] = [];
   const bind = (value: unknown) => {
@@ -51,7 +52,7 @@ export function compileContentFilter(
     discovery.push(
       `d.collection_source_id=ANY(${bind(actor.allowedSourceIds)}::uuid[])`,
     );
-  if (projectSourceIds)
+  if (projectSourceIds && !batchProjectId)
     discovery.push(
       `d.collection_source_id=ANY(${bind(projectSourceIds)}::uuid[])`,
     );
@@ -68,6 +69,11 @@ export function compileContentFilter(
   const where = [
     `EXISTS(SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id WHERE ${discovery.join(" AND ")})`,
   ];
+  if (batchProjectId) {
+    where.push(
+      `EXISTS(SELECT 1 FROM monitor_project_batch mpb JOIN collection_batch_item cbi ON cbi.batch_id=mpb.batch_id WHERE mpb.project_id=${bind(batchProjectId)}::uuid AND mpb.status='enabled' AND cbi.content_id=c.id)`,
+    );
+  }
   let needsSearchDocument = false;
   for (const filter of [projectFilter, requestFilter]) {
     if (filter.platform) where.push(`p.code=${bind(filter.platform)}`);

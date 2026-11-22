@@ -4,3 +4,4 @@
  * (enforced by `.dependency-cruiser.cjs` `modules-public-api-only`).
  */
 export { projectSources } from "./sql";
+export { attachBatchToProjectInTx } from "./batches";

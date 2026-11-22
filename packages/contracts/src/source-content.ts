@@ -509,6 +509,8 @@ export const PlanPolicyInput = Type.Object(
     ]),
     maxBatchLimit: Type.Integer({ minimum: 1, maximum: 2000 }),
     maxCommentsPerPost: Type.Integer({ minimum: 0, maximum: 50 }),
+    maxProjects: Type.Optional(Type.Integer({ minimum: 0, maximum: 500 })),
+    exportEnabled: Type.Optional(Type.Boolean()),
     revision: Type.Integer({ minimum: 1 }),
   },
   { additionalProperties: false },
@@ -660,6 +662,7 @@ export const Collect = Type.Object(
     maxCommentsPerPost: Type.Optional(
       Type.Integer({ minimum: 1, maximum: 50 }),
     ),
+    projectId: Type.Optional(Id),
   },
   { additionalProperties: false },
 );
@@ -670,11 +673,30 @@ export const Hydrate = Type.Object({
   contentIds: Type.Array(Id, { minItems: 1, maxItems: 30, uniqueItems: true }),
   maxCommentsPerPost: Type.Integer({ minimum: 1, maximum: 50 }),
 }, { additionalProperties: false });
+export const ProjectDatasetMode = Type.Union([
+  Type.Literal("source_filter"),
+  Type.Literal("batch"),
+]);
+export const ProjectBatchStatus = Type.Union([
+  Type.Literal("enabled"),
+  Type.Literal("disabled"),
+  Type.Literal("removed"),
+]);
+export const ProjectBatchAttachInput = Type.Object(
+  { batchId: Id },
+  { additionalProperties: false },
+);
+export const ProjectBatchStatusInput = Type.Object(
+  { status: ProjectBatchStatus },
+  { additionalProperties: false },
+);
 export const ProjectInput = Type.Object(
   {
     name: Type.String({ minLength: 1, maxLength: 100 }),
-    sourceIds: Type.Array(Id, { minItems: 1, maxItems: 100 }),
-    filter: ContentFilter,
+    description: Type.Optional(Type.Union([Type.String({ maxLength: 500 }), Type.Null()])),
+    datasetMode: Type.Optional(ProjectDatasetMode),
+    sourceIds: Type.Optional(Type.Array(Id, { minItems: 0, maxItems: 100 })),
+    filter: Type.Optional(ContentFilter),
     threadAware: Type.Optional(Type.Boolean()),
     includePushInTrends: Type.Optional(Type.Boolean()),
   },

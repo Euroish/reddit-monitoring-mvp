@@ -91,7 +91,8 @@ export async function exportRoutes(
           "SET LOCAL idle_in_transaction_session_timeout='35s'",
         );
         const project = projectId ? await projectSources(client, request.actor!, projectId) : undefined;
-        const compiled = compileContentFilter(request.actor!, filter, project?.source_ids, project?.filter);
+        const batchProjectId = project?.dataset_mode === "batch" ? project.id : undefined;
+        const compiled = compileContentFilter(request.actor!, filter, batchProjectId ? undefined : project?.source_ids, project?.filter, false, batchProjectId);
         const match = matchedAnchors(compiled, filter.threadAware ?? project?.thread_aware ?? false);
         signature = filterSignature(request.actor!, filter, project && { id: project.id, revision: project.revision });
         compiled.values.push(maxRows + 1);

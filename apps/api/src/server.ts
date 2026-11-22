@@ -6,6 +6,7 @@ import { mfaConfig } from "../../../src/modules/access/mfa-crypto";
 import { pruneMfaChallenges } from "../../../src/modules/access/mfa-sql";
 import { createCredentialVault } from "../../../src/modules/collection/credentials";
 import { startWorker } from "../../../src/modules/collection/worker";
+import { attachBatchToProjectInTx } from "../../../src/modules/projects/index";
 import { startAiSyncScheduler } from "../../../src/modules/ai/index";
 import { KaixContentConnector } from "../../../src/connectors/reddit/kaix-content.connector";
 import { redCrawler } from "../../../src/connectors/reddit/red-crawler";
@@ -85,7 +86,12 @@ export async function main() {
       host: process.env.HOST ?? "127.0.0.1",
       port: Number(process.env.PORT ?? 3000),
     });
-    const worker = startWorker(workerPool, providers, (error) => app.log.error({ err: error }, "Collection worker failed"));
+    const worker = startWorker(
+      workerPool,
+      providers,
+      (error) => app.log.error({ err: error }, "Collection worker failed"),
+      attachBatchToProjectInTx,
+    );
     const stopAiScheduler = startAiSyncScheduler(workerPool);
     const sessionCleanup = setInterval(() => {
       void pruneExpiredBrowserSessions(workerPool).catch(() => app.log.error("Browser session cleanup failed"));

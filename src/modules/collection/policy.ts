@@ -31,6 +31,8 @@ export interface EffectivePolicy {
   dailyResources: number | null;
   maxBatchLimit: number;
   maxCommentsPerPost: number;
+  maxProjects: number;
+  exportEnabled: boolean;
   hasOverride: boolean;
 }
 
@@ -43,6 +45,8 @@ interface PolicyRow {
   daily_resources: number | null;
   max_batch_limit: number;
   max_comments_per_post: number;
+  max_projects: number;
+  export_enabled: boolean;
   updated_at: string;
   revision: number;
 }
@@ -59,6 +63,8 @@ export function resolveEffectivePolicy(policy: PolicyRow, override: QuotaOverrid
     dailyResources: o.dailyResources !== undefined ? o.dailyResources : policy.daily_resources,
     maxBatchLimit: typeof o.maxBatchLimit === "number" ? o.maxBatchLimit : policy.max_batch_limit,
     maxCommentsPerPost: policy.max_comments_per_post,
+    maxProjects: policy.max_projects ?? 3,
+    exportEnabled: policy.export_enabled ?? true,
     hasOverride: Boolean(override && Object.keys(override).length > 0),
   };
 }
@@ -277,6 +283,8 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
         dailyResources: p.daily_resources,
         maxBatchLimit: p.max_batch_limit,
         maxCommentsPerPost: p.max_comments_per_post,
+        maxProjects: p.max_projects ?? 3,
+        exportEnabled: p.export_enabled ?? true,
         updatedAt: p.updated_at,
         revision: p.revision,
       })),
@@ -313,8 +321,10 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
           `UPDATE plan_collection_policy
            SET manual_collect_enabled=$2, allowed_providers=$3, allowed_source_ids=$4,
                daily_requests=$5, daily_resources=$6, max_batch_limit=$7,
-               max_comments_per_post=$8, updated_by=$9, updated_at=NOW(), revision=revision+1
-           WHERE plan_tier=$1 AND revision=$10
+               max_comments_per_post=$8, max_projects=COALESCE($9, max_projects),
+               export_enabled=COALESCE($10, export_enabled),
+               updated_by=$11, updated_at=NOW(), revision=revision+1
+           WHERE plan_tier=$1 AND revision=$12
            RETURNING *`,
           [
             request.params.tier,
@@ -325,6 +335,8 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
             request.body.dailyResources,
             request.body.maxBatchLimit,
             request.body.maxCommentsPerPost,
+            request.body.maxProjects ?? null,
+            request.body.exportEnabled ?? null,
             actor.userId,
             request.body.revision,
           ],
@@ -357,6 +369,8 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
             dailyResources: updated.daily_resources,
             maxBatchLimit: updated.max_batch_limit,
             maxCommentsPerPost: updated.max_comments_per_post,
+            maxProjects: updated.max_projects ?? 3,
+            exportEnabled: updated.export_enabled ?? true,
             updatedAt: updated.updated_at,
             revision: updated.revision,
           },

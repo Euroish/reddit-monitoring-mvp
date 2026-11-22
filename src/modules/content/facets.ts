@@ -22,8 +22,9 @@ export async function contentFacets(pool: Pool | PoolClient, actor: Actor, query
     fail(422, "Content facets require a positive time range of at most 90 days");
 
   const project = projectId ? await projectSources(pool, actor, projectId) : undefined;
-  const pullOnly = !filter.deliveryMode && !project?.include_push_in_trends;
-  const compiled = compileContentFilter(actor, filter, project?.source_ids, project?.filter, pullOnly);
+  const batchProjectId = project?.dataset_mode === "batch" ? project.id : undefined;
+  const pullOnly = batchProjectId ? false : !filter.deliveryMode && !project?.include_push_in_trends;
+  const compiled = compileContentFilter(actor, filter, batchProjectId ? undefined : project?.source_ids, project?.filter, pullOnly, batchProjectId);
   const threadAware = filter.threadAware ?? project?.thread_aware ?? false;
   const interval = compiled.values.push(bucket === "day" ? "1 day" : "6 hours");
   const { rows } = await pool.query<FacetRow>(`

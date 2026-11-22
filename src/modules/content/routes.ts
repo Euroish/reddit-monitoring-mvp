@@ -37,7 +37,8 @@ async function listContent(pool: Pool, actor: Actor, query: Static<typeof ListQu
   const { limit = 50, cursor, projectId: queryProjectId, ...filter } = query;
   const projectId = pathProjectId ?? queryProjectId;
   const project = projectId ? await projectSources(pool, actor, projectId) : undefined;
-  const compiled = compileContentFilter(actor, filter, project?.source_ids, project?.filter, feed);
+  const batchProjectId = project?.dataset_mode === "batch" ? project.id : undefined;
+  const compiled = compileContentFilter(actor, filter, batchProjectId ? undefined : project?.source_ids, project?.filter, feed, batchProjectId);
   const match = matchedAnchors(compiled, filter.threadAware ?? project?.thread_aware ?? false);
   const signature = filterSignature(actor, filter, project && { id: project.id, revision: project.revision }) + (feed ? ":feed" : "");
   let seek = feed ? " AND c.created_at_source IS NOT NULL" : "";

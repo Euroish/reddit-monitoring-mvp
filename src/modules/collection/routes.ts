@@ -22,6 +22,7 @@ import { sourcePreviewRoute, validateFallback, validateSource } from "./config";
 import { sourceImportRoute } from "./import";
 import { admitViewerCollection, viewerCollectionDemand } from "./policy";
 import { assertSource, insertSource, listPublicSources, listSources, lockSource, audit } from "./sql";
+import { batchRoutes, recordCommittedBatch } from "./batches";
 
 export async function collectionRoutes(
   app: FastifyInstance,
@@ -31,6 +32,7 @@ export async function collectionRoutes(
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   sourcePreviewRoute(app, providers);
   await sourceImportRoute(app, pool, providers);
+  await batchRoutes(app, pool);
   api.get(
     "/v1/public/sources",
     { schema: { response: { 200: PublicSourceDirectory } } },
@@ -291,10 +293,19 @@ export async function collectionRoutes(
           batch,
           new Date().toISOString(),
         );
+        const committed = await recordCommittedBatch(client, {
+          jobId,
+          sourceId: source.id,
+          sourceLabel: source.label,
+          userId: request.actor!.userId ?? null,
+          contentIds: counts.contentIds,
+        });
         reply.code(201);
         const result = {
           jobId,
-          ...counts,
+          batchId: committed.batchId,
+          added: counts.added,
+          updated: counts.updated,
           accepted: request.body.items.length,
         };
         await client.query(
