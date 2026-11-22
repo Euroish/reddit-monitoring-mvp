@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | PLAN-01 | MUST | 结构演进或清理 `MUST NOT` 破坏已有账户凭据、已入库观测或个人资产；已删 27 张历史表与旧 `research_export*` 冻结表永不恢复。 | 备份验证与回归测试 |
 | PLAN-02 | MUST | 主线运行时锁定单一轻量化 `Fastify 5 + TypeBox + PG16 + React` 内核，严禁引入 Python、DuckDB、`.zst` 解压器或常驻无头浏览器；所有 R4 归档与 L3 高反爬采集器 `MUST` 外置运行且仅通过鉴权 `POST /v1/sources/:id/ingest` 推流。 | 依赖树与发布包测试 |
-| PLAN-03 | MUST | 主干已合入的迁移不可修改、移动或删除，按 Expand-Migrate-Contract 追加入库。当前主干 24 张表，用满本阶段容量预算；优先复用现有结构，新增表须先按架构约定审查。 | `docs:check` 与 PG 迁移校验 |
+| PLAN-03 | MUST | 主干已合入的迁移不可修改、移动或删除，按 Expand-Migrate-Contract 追加入库。新增表须按[主线架构](../architecture.md#32-研发容量边界与增量设计)评估数据所有权、生命周期与单机容量。 | `docs:check`、`Squawk`、PG16 迁移验证与 `CODEOWNERS` |
 
 ---
 
