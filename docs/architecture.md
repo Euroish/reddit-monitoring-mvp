@@ -48,9 +48,10 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 | 模块路径 | 入口 | 独家表所有权与核心职责 |
 | :--- | :--- | :--- |
 | **`apps/api/src/`** | HTTP 与进程入口 | `app.ts`（`requestTimeout: 30_000`、`connectionTimeout: 10_000`、`onRequest` 全局限流 120/min、`preParsing` Default-Deny 鉴权、Swagger `/v1/openapi.json`、`/v1/capabilities`）、`server.ts`（`apiPool: 8` + `workerPool: 4` + 7 Providers + `AI_SYNC_ENABLED` 调度器）。 |
-| **`src/modules/access/`** | `routes`、`sql` | `app_user`、`app_user_password`、`app_invite`、`app_audit_log`、`app_session`（浏览器 Cookie + 43 字符一次性 SHA-256 `machine` API Key）。 |
-| **`src/modules/collection/`** | 源配置、调度、任务、配额、凭证 | `source`、`collection_source`、`source_collection_job`、`source_provider_budget`、`source_provider_usage`、`source_worker_heartbeat`、`source_provider_credential`、`plan_collection_policy`、`user_provider_usage`；含预览、OPML/JSON 导入、到期扫描与 6 协程 Worker。 |
-| **`src/modules/content/`** | 批量写入、检索、资讯、文档、AI 情报 | `content`、`content_discovery`、`content_observation`、`public_content_search_document`、`doc_page` 以及 `054..056` 新增的 19 张 `ai_*` 表（全库共 `43` 张表）；唯一写入口 `commitContentBatch`、唯一过滤 `compileContentFilter`、48h 事件聚簇、分面、闭包树、流式导出、文档中心（`markdown`/外链/PDF 单附件）、AI 发布日历/注册表双轨 Diff/自动发现流水线（`AI_SYNC_ENABLED` 按源周期调度，默认关闭）与离线历史 Seed 导入/分页 Backfill。 |
+| **`src/modules/access/`** | `routes`、`email-routes`、`mfa-routes`、`sql` | `app_user`、`app_user_password`、`app_invite`、`app_audit_log`、`app_session`、`app_auth_challenge`、`app_auth_mfa`、`app_auth_mfa_login`（浏览器 Cookie、邮件验证/找回、管理员 MFA 与 43 字符一次性 SHA-256 `machine` API Key）。 |
+| **`src/modules/ai/`** | `index`、`ai-routes`、`ai-scheduler`、`ai-history-cli` | `054..056` 新增的 19 张 `ai_*` 表；AI 发布日历、注册表双轨 Diff、官方自动发现流水线（`AI_SYNC_ENABLED` 按源周期调度，默认关闭）与离线历史 Seed 导入/分页 Backfill。 |
+| **`src/modules/collection/`** | `index`、源配置、调度、任务、配额、凭证 | `source`、`collection_source`、`source_collection_job`、`source_provider_budget`、`source_provider_usage`、`source_worker_heartbeat`、`source_provider_credential`、`plan_collection_policy`、`user_provider_usage`；含预览、OPML/JSON 导入、到期扫描与 6 协程 Worker。 |
+| **`src/modules/content/`** | `index`、批量写入、检索、资讯、文档 | `content`、`content_discovery`、`content_observation`、`public_content_search_document`、`doc_page`；唯一写入口 `commitContentBatch`、唯一过滤 `compileContentFilter`、48h 事件聚簇、分面、闭包树、流式导出与文档中心（`markdown`/外链/PDF 单附件）。 |
 | **`src/modules/projects/`** | `routes`、`sql` | `monitor_project`、`monitor_project_source`；项目三段词 `GROUPING SETS` 概览与显式 `kaix` 水合。 |
 | **`src/modules/workspace/`** | `routes`、`sql` | `content_saved_query`、`content_annotation`（仅限浏览器会话隔离读写）。 |
 | **`src/connectors/`** | 一等 Provider 边界 | `web/{http,sources}`、`reddit/{kaix,red-crawler,kaix.config}`、`x/{twitterapis,scrapebadger}`、`bluesky/bluesky-appview-content.connector`、`shared/content-provider.interface`（**零 `pg` 依赖**）。 |
@@ -86,11 +87,11 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 
 ---
 
-### 账户挑战与管理员 MFA（安全候选分支）
+### 账户挑战与管理员 MFA（`057..058`）
 
 迁移 `057` 新增 Access 的 `app_auth_challenge`（+1 表），保存邮箱挑战摘要、用途、到期时间、消费时间与账号凭证版本或邀请码绑定。验证成功前没有账号和会话。邀请消费、账号激活和密码写入在同一短事务完成。
 
-迁移 `058` 新增 `app_auth_mfa` 与 `app_auth_mfa_login`（+2 表），分别存独立密钥加密的 TOTP、恢复码摘要与短期预认证挑战。MFA 校验按账号行序列化，已用 TOTP 时间步和恢复码不可再用。挑战表按时间和归属建索引，邮件额度为全站 100 次/滚动 24 小时、每邮箱 3 次/24 小时且相邻至少 2 分钟，清理每批上限 500。MFA 只在管理员登录、验证码校验或显式轮换时写入。基线为 #19 的 43 表，候选总计 46 表，新增 3 表已按任务授权。正式主干 AI 表预算由前序合入评审收敛。
+迁移 `058` 新增 `app_auth_mfa` 与 `app_auth_mfa_login`（+2 表），分别存独立密钥加密的 TOTP、恢复码摘要与短期预认证挑战。MFA 校验按账号行序列化，已用 TOTP 时间步和恢复码不可再用。挑战表按时间和归属建索引，邮件额度为全站 100 次/滚动 24 小时、每邮箱 3 次/24 小时且相邻至少 2 分钟，清理每批上限 500。MFA 只在管理员登录、验证码校验或显式轮换时写入。当前 `main` 迁移至 `058` 合计 **46 表**，后续 `059+` 由迁移不可变校验、`Squawk` 与 `CODEOWNERS` 联合把关。
 
 ## 4. 扩源、调度与单机安全基线
 

@@ -30,7 +30,7 @@ const EXPLICIT_OWNERS: Array<{ match: RegExp; owner: string }> = [
   { match: /^(?:content_saved_query|content_annotation)$/, owner: "workspace" },
   { match: /^monitor_project(?:_source)?$/, owner: "projects" },
   { match: /^(?:content_discovery|content_observation|public_content_search_document|doc_page)$/, owner: "content" },
-  { match: /^ai_.+$/, owner: "content|ai" },
+  { match: /^ai_.+$/, owner: "ai" },
 ];
 
 const SQL_WRITE_REGEX = /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+([a-z][a-z0-9_]+)\b/gi;

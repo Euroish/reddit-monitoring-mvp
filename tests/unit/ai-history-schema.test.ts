@@ -11,11 +11,11 @@ import {
   canonicalModelKey,
   normalizeOfficialModelName,
   normalizeVendorSlug,
-} from "../../src/modules/content/ai-event-identity";
+} from "../../src/modules/ai/ai-event-identity";
 import {
   isSuspectedEpochPaddingDate,
   validateHistoryDatasetDir,
-} from "../../src/modules/content/ai-history-schema";
+} from "../../src/modules/ai/ai-history-schema";
 
 test("ai-event-identity normalizes vendor slugs, model names, URLs, and produces shared dedupe_key", () => {
   assert.equal(normalizeVendorSlug("google-deepmind"), "google");

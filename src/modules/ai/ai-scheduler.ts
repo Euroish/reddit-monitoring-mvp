@@ -64,8 +64,9 @@ export function startAiSyncScheduler(pool: Pool): () => void {
     running = true;
     try {
       await runDueAiSyncSources(pool);
-    } catch {
-      // Errors are recorded per-source in ai_registry_source and ai_ops_alert
+    } catch (error) {
+      // Per-source failures are recorded in ai_registry_source and ai_ops_alert; log unexpected tick-level faults.
+      console.warn("[ai-scheduler] tick failed:", error instanceof Error ? error.message : String(error));
     } finally {
       running = false;
     }

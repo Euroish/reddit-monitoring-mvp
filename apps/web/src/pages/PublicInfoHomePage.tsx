@@ -8,6 +8,7 @@ import {
   useSaveAnnotationMutation,
   useStoriesQuery,
 } from '../api/hooks';
+import { useAiEventsQuery } from '../api/ai-client';
 import { AiReleasePreview } from '../components/public-home/AiReleasePreview';
 import { DailyBriefPreview } from '../components/public-home/DailyBriefPreview';
 import { EditorialStoryCard } from '../components/public-home/EditorialStoryCard';
@@ -81,6 +82,8 @@ export function PublicInfoHomePage({
     view: 'digest',
     limit: 5,
   });
+
+  const aiEventsQuery = useAiEventsQuery({ limit: 4 }, true);
 
   const annotations = useAnnotationsListQuery(Boolean(actor)).data?.annotations;
   const savedIds = useMemo(
@@ -337,7 +340,10 @@ export function PublicInfoHomePage({
         {/* 3. Mid-Page Feature Band (Inserted ONCE) */}
         <div className="sh-feature-band">
           <AiReleasePreview
-            apiEnabled={false}
+            apiEnabled={true}
+            events={aiEventsQuery.data?.items ?? []}
+            loading={aiEventsQuery.isPending}
+            error={aiEventsQuery.isError ? formatApiError(aiEventsQuery.error) : null}
             onNavigate={onNavigate}
           />
 

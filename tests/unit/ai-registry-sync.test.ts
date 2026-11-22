@@ -8,9 +8,9 @@ import {
   parseHuggingFacePayload,
   parseLiteLlmPayload,
   parseOpenRouterPayload,
-} from "../../src/modules/content/ai-registry.js";
-import { classifyOfficialAnnouncement } from "../../src/modules/content/ai-discovery.js";
-import { validateLlmExtraction } from "../../src/modules/content/ai-sync.js";
+} from "../../src/modules/ai/ai-registry.js";
+import { classifyOfficialAnnouncement } from "../../src/modules/ai/ai-discovery.js";
+import { validateLlmExtraction } from "../../src/modules/ai/ai-sync.js";
 
 test("parseOpenRouterPayload extracts vendor hint, context and raw pricing with unit", () => {
   const payload = {

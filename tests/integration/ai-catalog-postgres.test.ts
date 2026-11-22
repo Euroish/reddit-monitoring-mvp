@@ -3,11 +3,11 @@ import test from "node:test";
 import { testDatabase } from "../helpers/database";
 import { buildApp } from "../../apps/api/src/app";
 import { bootstrapOwner } from "../../src/modules/access/sql";
-import { parseLiteLlmPayload, parseOpenRouterPayload } from "../../src/modules/content/ai-registry";
-import { applyRegistryItems, syncRegistrySourceByCode } from "../../src/modules/content/ai-sync";
-import { archiveLowValueCandidates, rollbackAiEvent, runOfficialEventDiscovery } from "../../src/modules/content/ai-discovery";
-import { runDueAiSyncSources } from "../../src/modules/content/ai-scheduler";
-import { extractWithOptionalLlm } from "../../src/modules/content/ai-llm";
+import { parseLiteLlmPayload, parseOpenRouterPayload } from "../../src/modules/ai/ai-registry";
+import { applyRegistryItems, syncRegistrySourceByCode } from "../../src/modules/ai/ai-sync";
+import { archiveLowValueCandidates, rollbackAiEvent, runOfficialEventDiscovery } from "../../src/modules/ai/ai-discovery";
+import { runDueAiSyncSources } from "../../src/modules/ai/ai-scheduler";
+import { extractWithOptionalLlm } from "../../src/modules/ai/ai-llm";
 
 const dbUrl = process.env.TEST_SOURCE_DATABASE_URL;
 const ORIGIN = "https://monitor.example.test";
