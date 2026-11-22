@@ -79,10 +79,15 @@ export function R4ArchivePanel({ sourceId, active }: R4ArchivePanelProps) {
     }
 
     if (shellKind === 'powershell') {
-      return ['$env:PYTHONPATH = "plugins/zst-archive"', args.join(' ')].join('\n');
+      const lines = ['$env:PYTHONPATH = "plugins/zst-archive"'];
+      if (action === 'push' && !dryRun) lines.push('$env:ARCHIVE_INGEST_TOKEN = "<paste-scoped-ingest-machine-key>"');
+      lines.push(args.join(' '));
+      return lines.join('\n');
     }
 
-    const prefix = 'PYTHONPATH=plugins/zst-archive ';
+    const prefix = action === 'push' && !dryRun
+      ? 'ARCHIVE_INGEST_TOKEN="<paste-scoped-ingest-machine-key>" PYTHONPATH=plugins/zst-archive '
+      : 'PYTHONPATH=plugins/zst-archive ';
     return `${prefix}${args.join(' ')}`;
   }, [
     action,

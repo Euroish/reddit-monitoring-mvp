@@ -46,22 +46,25 @@ function availableFallback(
 }
 
 export function SourceEditor({
-  capabilities, source, preferredChannel, onClose, onSaved,
+  capabilities, source, preferredChannel, preferredPreset, onClose, onSaved,
 }: {
   capabilities: SourceCapability[];
   source?: CollectionSource;
   preferredChannel?: SourceCapability;
+  preferredPreset?: 'push' | 'reddit_archive';
   onClose: () => void;
   onSaved: (id: string) => void;
 }) {
   const { t } = useI18n();
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { dialog.current?.showModal(); }, []);
-  const [platform, setPlatform] = useState<SourceInput['platform']>(source?.platform ?? preferredChannel?.platform ?? 'web');
-  const [mode, setMode] = useState<SourceInput['deliveryMode']>(source?.deliveryMode ?? 'pull');
+  const [platform, setPlatform] = useState<SourceInput['platform']>(
+    source?.platform ?? (preferredPreset === 'reddit_archive' ? 'reddit' : preferredChannel?.platform ?? 'web'),
+  );
+  const [mode, setMode] = useState<SourceInput['deliveryMode']>(source?.deliveryMode ?? (preferredPreset ? 'push' : 'pull'));
   const [provider, setProvider] = useState<string>(preferredChannel?.provider ?? '');
-  const [targetType, setTargetType] = useState<SourceTarget['type']>('feed');
-  const [kind, setKind] = useState<SourceInput['contentKind']>('article');
+  const [targetType, setTargetType] = useState<SourceTarget['type']>(preferredPreset ? 'search' : 'feed');
+  const [kind, setKind] = useState<SourceInput['contentKind']>(preferredPreset === 'reddit_archive' ? 'post' : 'article');
   const [targetValue, setTargetValue] = useState('');
   const [listFormat, setListFormat] = useState<'' | 'web_list' | 'json_list'>('');
   const [error, setError] = useState('');
@@ -254,7 +257,7 @@ export function SourceEditor({
           <label className="wb-field">{t('Tags (comma or space separated)', '标签（逗号或空格分隔）')}
             <input name="tags" className="wb-input" defaultValue={source?.tags.filter(tag => !archivedReddit || tag !== REDDIT_ARCHIVE_SOURCE_TAG).join(', ')} />
           </label>
-          {archivedReddit && <label><input name="redditArchive" type="checkbox" defaultChecked={source?.tags.includes(REDDIT_ARCHIVE_SOURCE_TAG)} /> {t('Reddit offline archive (R4)', 'Reddit 离线归档（R4）')}</label>}
+          {archivedReddit && <label><input name="redditArchive" type="checkbox" defaultChecked={Boolean(source?.tags.includes(REDDIT_ARCHIVE_SOURCE_TAG) || preferredPreset === 'reddit_archive')} /> {t('Reddit offline archive (R4)', 'Reddit 离线归档（R4）')}</label>}
           {mode === 'pull' && (
             <>
               {(fallback || source?.fallbackProvider) && (

@@ -95,11 +95,12 @@ export function SourcesPage({
   const [providerFilter, setProviderFilter] = useState('');
   const [sourceSearch, setSourceSearch] = useState('');
   const [createChannel, setCreateChannel] = useState<string>();
+  const [createPreset, setCreatePreset] = useState<'push' | 'reddit_archive'>();
   const [launchSourceId, setLaunchSourceId] = useState<string>();
   const operationForm = useRef<HTMLFormElement>(null);
   const routeSourceId = sp.get('sourceId');
   const filterCapability = capabilities.find(capability => capability.provider === providerFilter);
-  const channelIds = [...new Set([...capabilities.map(capability => capability.provider), ...sources.map(source => source.primaryProvider)])];
+  const channelIds = [...new Set([...capabilities.map(capability => capability.provider), 'external_ingest', ...sources.map(source => source.primaryProvider)])];
   const visibleSources = sources.filter(source => (stateFilter === 'all' || source.state === stateFilter) &&
     (!groupFilter || source.sourceGroup === groupFilter) && (!providerFilter || source.primaryProvider === providerFilter || source.fallbackProvider === providerFilter) &&
     (!sourceSearch.trim() || `${source.label} ${formatSourceTarget(source.target)}`.toLocaleLowerCase().includes(sourceSearch.trim().toLocaleLowerCase())));
@@ -479,6 +480,7 @@ export function SourcesPage({
                   {filterCapability && <div className="collection-toolbar">
                     <span className="collection-status">{filterCapability.enabled ? t('Channel ready', '渠道就绪') : t('Channel unavailable', '渠道未就绪')}</span>
                     {canWrite && filterCapability.enabled && <button type="button" className="ds-btn ds-btn--ghost" onClick={() => {
+                      setCreatePreset(undefined);
                       setCreateChannel(filterCapability.provider);
                       setSourceEditor('create');
                     }}>{t('Add a source for this channel', '新建此渠道来源')}</button>}
@@ -486,6 +488,19 @@ export function SourcesPage({
                       setChannelsOpen(true);
                       credentialsButton.current?.focus();
                     }}>{t('Check channel settings', '检查渠道设置')}</button>}
+                  </div>}
+                  {!filterCapability && providerFilter === 'external_ingest' && <div className="collection-toolbar">
+                    <span className="collection-status collection-status--ok">{t('Push / R4 archive ready', '推流与离线归档就绪')}</span>
+                    {canWrite && <button type="button" className="ds-btn ds-btn--ghost" onClick={() => {
+                      setCreateChannel(undefined);
+                      setCreatePreset('reddit_archive');
+                      setSourceEditor('create');
+                    }}>{t('Add R4 offline archive source', '新建 R4 离线归档源')}</button>}
+                    {canWrite && <button type="button" className="ds-btn ds-btn--ghost" onClick={() => {
+                      setCreateChannel(undefined);
+                      setCreatePreset('push');
+                      setSourceEditor('create');
+                    }}>{t('Add push source', '新建普通推流源')}</button>}
                   </div>}
                   <label className="wb-field">{t('Find a source', '查找来源')}
                     <input type="search" className="wb-input" value={sourceSearch} onChange={event => { setSourceSearch(event.target.value); resetSourceDraft(); }} placeholder={t('Name or target', '来源名称或采集目标')} />
@@ -603,6 +618,7 @@ export function SourcesPage({
                       <a href={'/content?sourceId=' + selectedSource.id}>{t('Stored content', '查看已入库内容')}</a>
                       <button type="button" className="collection-text-button" onClick={() => onNavigate('/sources?tab=jobs&sourceId=' + selectedSource.id)}>{t('All jobs for this source', '查看此来源的任务')}</button>
                       {canWrite && <a href={'/projects?new=1&sourceId=' + selectedSource.id}>{t('Create a monitoring project', '新建此来源的监测项目')}</a>}
+                      {canWrite && isRedditArchiveSource(selectedSource) && <a href="#r4-archive-console">{t('Open R4 archive console', '跳转 R4 离线归档控制台')}</a>}
                     </div>
                     <p className="collection-hint">
                       {selectedSource.tags.length > 0 && <>{t('Tags', '标签')} · {selectedSource.tags.join(', ')} · </>}
@@ -833,7 +849,7 @@ export function SourcesPage({
           </div>
         </div>
         {canWrite && selectedSource && isRedditArchiveSource(selectedSource) && (
-          <div className="ds-card collection-panel">
+          <div id="r4-archive-console" className="ds-card collection-panel">
             <div className="ds-card-hd collection-panel-header">
               <div>
                 <div className="ds-card-title">{t('Admin-Only Offline Archive Plugin (R4)', '管理员专用离线归档外挂工具 (R4)')}</div>
@@ -852,14 +868,16 @@ export function SourcesPage({
       {sourceEditor && canWrite && (sourceEditor === 'create' || selectedSource) && (
         <SourceEditor
           preferredChannel={sourceEditor === 'create' ? capabilities.find(capability => capability.provider === createChannel) : undefined}
+          preferredPreset={sourceEditor === 'create' ? createPreset : undefined}
           capabilities={capabilities}
           source={sourceEditor === 'edit' ? selectedSource : undefined}
-          onClose={() => { setCreateChannel(undefined); setSourceEditor(null); }}
+          onClose={() => { setCreateChannel(undefined); setCreatePreset(undefined); setSourceEditor(null); }}
           onSaved={id => {
             onNavigate('/sources?sourceId=' + id);
             setSourceSearch('');
-            if (!createChannel) setProviderFilter('');
+            if (!createChannel && !createPreset) setProviderFilter('');
             setCreateChannel(undefined);
+            setCreatePreset(undefined);
             setStateFilter('all');
             setGroupFilter('');
             setOpsMsg({ text: t('Source saved.', '来源已保存。') });
