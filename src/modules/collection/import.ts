@@ -8,9 +8,10 @@ import {
   SourceImportInput,
   SourceInput,
   type SourceTarget,
-} from "../../../packages/contracts/src/source-content";
+} from "../../../packages/contracts/src/collection";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
-import { fail, transaction } from "../../storage/db";
+import { fail } from "../../shared/errors";
+import { transaction } from "../../storage/db";
 import { validateSource } from "./config";
 import { audit } from "./sql";
 
@@ -74,7 +75,7 @@ export async function sourceImportRoute(
     "/v1/sources/import",
     {
       schema: { body: SourceImportInput },
-      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" }, auth: { access: "admin", machineScope: "sources:write" } },
     },
     async (request) => {
       if (request.actor!.clientKind !== "browser" || request.actor!.role === "viewer")

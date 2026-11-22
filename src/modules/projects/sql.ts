@@ -1,9 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type { Static } from "@sinclair/typebox";
-import type { Actor, Filter, ProjectInput } from "../../../packages/contracts/src/source-content";
-import { transaction, fail } from "../../storage/db";
-import { compileContentFilter, matchingNodes } from "../content/index";
+import type { Actor } from "../../../packages/contracts/src/access";
+import type { Filter } from "../../../packages/contracts/src/content";
+import type { ProjectInput } from "../../../packages/contracts/src/projects";
+import { fail } from "../../shared/errors";
+import { transaction } from "../../storage/db";
+import { allSourcesExist } from "../collection/index";
+import { compileContentFilter, summarizeScopedContent } from "../content/index";
 
 type ProjectWrite = Static<typeof ProjectInput>;
 export interface Project {
@@ -38,6 +42,7 @@ export async function writeProject(pool: Pool, actor: Actor, input: ProjectWrite
     fail(404, "Source not found");
   compileContentFilter(actor, input.filter);
   return transaction(pool, async (client) => {
+    if (!(await allSourcesExist(client, sources))) fail(404, "Source not found");
     const id = update?.id ?? randomUUID();
     const fields = [id, input.name, input.filter, input.threadAware, input.includePushInTrends];
     if (update) {
@@ -74,46 +79,6 @@ export async function deleteProject(pool: Pool, actor: Actor, id: string, revisi
 
 export async function projectOverview(pool: Pool, actor: Actor, id: string) {
   const project = await projectSources(pool, actor, id);
-  const compiled = compileContentFilter(actor, {}, project.source_ids, project.filter, !project.include_push_in_trends);
-  const anchorCount = project.thread_aware ? "COUNT(DISTINCT c.anchor_id)" : "COUNT(*)";
-  const [row] = (await pool.query<{
-    facets: {
-      day_group: number; platform_group: number; kind_group: number;
-      day: string | null; platform: string | null; kind: string | null;
-      count: number; matchedContentCount: number;
-    }[];
-    dayPlatformFacets: { day: string; platform: string; count: number; matchedContentCount: number }[];
-    providers: string[];
-  }>(`
-    WITH matched AS (${matchingNodes(compiled, project.thread_aware)}), facets AS (
-      SELECT GROUPING(date_trunc('day',c.created_at_source,'UTC')) AS day_group,
-        GROUPING(c.platform) AS platform_group,GROUPING(c.kind) AS kind_group,
-        date_trunc('day',c.created_at_source,'UTC') AS day,c.platform,c.kind,
-        ${anchorCount} AS count,COUNT(*) AS "matchedContentCount"
-      FROM matched c
-      GROUP BY GROUPING SETS ((),(date_trunc('day',c.created_at_source,'UTC')),(c.platform),(c.kind),
-        (date_trunc('day',c.created_at_source,'UTC'),c.platform))
-    )
-    SELECT (SELECT jsonb_agg(facets ORDER BY day_group DESC,day,platform,kind)
-        FROM facets WHERE day_group=1 OR platform_group=1) AS facets,
-      (SELECT COALESCE(jsonb_agg(jsonb_build_object(
-        'day',day,'platform',platform,'count',count,'matchedContentCount',"matchedContentCount"
-      ) ORDER BY day,platform),'[]'::jsonb)
-        FROM facets WHERE day_group=0 AND platform_group=0 AND day IS NOT NULL) AS "dayPlatformFacets",
-      ARRAY(SELECT DISTINCT o.provider FROM matched c JOIN content_observation o ON o.content_id=c.id
-        WHERE EXISTS (SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id
-          WHERE ${compiled.discovery} AND d.collection_source_id=o.collection_source_id)
-        ORDER BY o.provider) AS providers`, compiled.values)).rows;
-  const totals = row.facets[0];
-  return {
-    project,
-    contentCount: totals.count,
-    matchedContentCount: totals.matchedContentCount,
-    facets: row.facets,
-    dayPlatformFacets: row.dayPlatformFacets,
-    providers: row.providers,
-    resolvedFilter: project.filter,
-    coverage: "stored_sample",
-    threadAware: project.thread_aware,
-  };
+  const summary = await summarizeScopedContent(pool, actor, project);
+  return { project, ...summary };
 }

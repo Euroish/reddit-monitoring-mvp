@@ -1,5 +1,5 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { DateTime, Id, NullableText } from "./source-content";
+import { DateTime, Id, NullableText } from "./common";
 
 export const DocCategory = Type.Union([
   Type.Literal("feature"), Type.Literal("terms"), Type.Literal("notice"),

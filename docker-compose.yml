@@ -9,6 +9,26 @@ services:
     mem_limit: 1350m
     logging: *log-policy
     image: postgres:16-alpine
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - autovacuum_naptime=20s
+      - -c
+      - autovacuum_vacuum_scale_factor=0.05
+      - -c
+      - autovacuum_analyze_scale_factor=0.02
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - jit=off
     environment:
       POSTGRES_DB: monitoring
       POSTGRES_USER: monitoring

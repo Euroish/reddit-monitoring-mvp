@@ -2,8 +2,12 @@ import { Type } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool } from "pg";
-import { JobStatusQuery, ParamsId } from "../../../packages/contracts/src/source-content";
-import { fail, transaction } from "../../storage/db";
+import { ParamsId } from "../../../packages/contracts/src/common";
+import { JobStatusQuery } from "../../../packages/contracts/src/collection";
+import { notifyChannel } from "../../platform/pg-notify";
+import { fail } from "../../shared/errors";
+import { transaction } from "../../storage/db";
+import { getUserEmailsByIds } from "../access/index";
 import { admitViewerCollection, viewerCollectionDemand } from "./policy";
 import { assertSource, audit, lockSource } from "./sql";
 
@@ -19,7 +23,7 @@ const RecentJobsQuery = Type.Object(
 
 export async function jobRoutes(app: FastifyInstance, pool: Pool) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
-  api.get("/v1/source-jobs/recent", { schema: { querystring: RecentJobsQuery } }, async (request) => {
+  api.get("/v1/source-jobs/recent", { config: { auth: { access: "authenticated", machineScope: "read" } }, schema: { querystring: RecentJobsQuery } }, async (request) => {
     const actor = request.actor!;
     const limit = request.query.limit ?? 30;
     const offset = request.query.offset ?? 0;
@@ -33,12 +37,10 @@ export async function jobRoutes(app: FastifyInstance, pool: Pool) {
          j.request_duration_ms AS "requestDurationMs", j.error,
          j.created_at AS "createdAt", j.finished_at AS "finishedAt",
          j.requested_by_user_id AS "requestedByUserId",
-         j.requested_by_client_kind AS "requestedByClientKind",
-         CASE WHEN $4 THEN u.email ELSE NULL END AS "requesterEmail"
+         j.requested_by_client_kind AS "requestedByClientKind"
        FROM source_collection_job j
        JOIN collection_source cs ON cs.id = j.collection_source_id
        JOIN source p ON p.id = cs.platform_id
-       LEFT JOIN app_user u ON u.id = j.requested_by_user_id
        WHERE ($1::uuid[] IS NULL OR j.collection_source_id = ANY($1::uuid[]))
          AND ($2::text IS NULL OR j.status = $2)
          AND ($3::uuid IS NULL OR j.collection_source_id = $3)
@@ -55,9 +57,19 @@ export async function jobRoutes(app: FastifyInstance, pool: Pool) {
         offset,
       ],
     );
-    return { jobs: rows, scope: isAdmin ? "all" : "personal" };
+    const emails = isAdmin
+      ? await getUserEmailsByIds(
+          pool,
+          rows.map((r) => r.requestedByUserId).filter((v): v is string => Boolean(v)),
+        )
+      : new Map<string, string>();
+    const jobs = rows.map((r) => ({
+      ...r,
+      requesterEmail: isAdmin && r.requestedByUserId ? (emails.get(r.requestedByUserId) ?? null) : null,
+    }));
+    return { jobs, scope: isAdmin ? "all" : "personal" };
   });
-  api.get("/v1/source-jobs", { schema: { querystring: JobStatusQuery } }, async (request) => {
+  api.get("/v1/source-jobs", { config: { auth: { access: "authenticated", machineScope: "read" } }, schema: { querystring: JobStatusQuery } }, async (request) => {
     const isViewer = request.actor!.role === "viewer";
     const { rows } = await pool.query(
       `SELECT id,status,provider,provider_state->>'phase' AS phase,error,next_run_at,
@@ -72,7 +84,7 @@ export async function jobRoutes(app: FastifyInstance, pool: Pool) {
   });
   api.get(
     "/v1/source-jobs/:id",
-    { schema: { params: ParamsId } },
+    { config: { auth: { access: "authenticated", machineScope: "read" } }, schema: { params: ParamsId } },
     async (request) => {
       const job = (
         await pool.query("SELECT * FROM source_collection_job WHERE id=$1", [
@@ -94,6 +106,7 @@ export async function jobRoutes(app: FastifyInstance, pool: Pool) {
     api.post(
       `/v1/source-jobs/:id/${action}`,
       {
+        config: { auth: { access: "viewer_write", machineScope: "collect" } },
         schema: {
           params: ParamsId,
           body: Type.Object(
@@ -104,8 +117,8 @@ export async function jobRoutes(app: FastifyInstance, pool: Pool) {
           ),
         },
       },
-      async (request) =>
-        transaction(pool, async (client) => {
+      async (request) => {
+        const res = await transaction(pool, async (client) => {
           const found = (
             await client.query(
               "SELECT collection_source_id FROM source_collection_job WHERE id=$1",
@@ -183,12 +196,16 @@ export async function jobRoutes(app: FastifyInstance, pool: Pool) {
           }
           await audit(client, request.actor!, `collection.${action}`, job.id);
           return { jobId: job.id };
-        }),
+        });
+        if (action !== "cancel") await notifyChannel(pool, "collection_jobs_ready");
+        return res;
+      },
     );
   }
   api.post(
     "/v1/sources/:id/unblock",
     {
+      config: { auth: { access: "admin", machineScope: "collect" } },
       schema: {
         params: ParamsId,
         body: Type.Object(

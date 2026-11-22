@@ -1,7 +1,7 @@
 import { Type, type Static } from "@sinclair/typebox";
 import {
   DateTime, Id, Platform, SourceGroupPattern, SourceLocalePattern, SourceTier,
-} from "./source-content";
+} from "./common";
 
 const View = Type.Union([Type.Literal("latest"), Type.Literal("hot"), Type.Literal("digest")]);
 export const MAX_STORY_LIMIT = 100;

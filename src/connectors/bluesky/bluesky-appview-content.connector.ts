@@ -1,12 +1,9 @@
 import { createHash } from "node:crypto";
 import type {
-  ContentMedia,
-  ContentReference,
-  JsonValue,
-  PublicContentKind,
-  SourceCapability,
-  SourceTarget,
-} from "../../../packages/contracts/src/source-content";
+  ContentMedia } from "../../../packages/contracts/src/source-content";
+import { ContentReference } from "../../../packages/contracts/src/content";
+import { JsonValue, PublicContentKind } from "../../../packages/contracts/src/common";
+import { SourceCapability, SourceTarget } from "../../../packages/contracts/src/collection";
 import { stableUuidFromString } from "../../shared/ids/stable-id";
 import {
   ContentProviderError,

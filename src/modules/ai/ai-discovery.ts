@@ -1,5 +1,7 @@
 import type { Pool } from "pg";
-import { fail, transaction } from "../../storage/db";
+import { fail } from "../../shared/errors";
+import { transaction } from "../../storage/db";
+import { listAiFirsthandArticles, type AiFirsthandArticleRow } from "../content/index";
 import {
   buildModelSlug,
   canonicalEventKey,
@@ -86,259 +88,230 @@ export function classifyOfficialAnnouncement(title: string, bodyText: string | n
   return null;
 }
 
+interface VendorRow {
+  id: string;
+  slug: string;
+  name: string;
+  official_domains: string[];
+  auto_publish_enabled: boolean;
+}
+
+async function classifyArticleCandidate(pool: Pool, vendor: VendorRow, row: AiFirsthandArticleRow, url: string) {
+  let classified = classifyOfficialAnnouncement(row.title, row.bodyText);
+  const officialDate = row.publishedAt ? row.publishedAt.slice(0, 10) : null;
+  if (!classified) {
+    const llm = await extractWithOptionalLlm(pool, {
+      referenceId: row.contentId,
+      vendorName: vendor.name,
+      title: row.title,
+      bodyText: row.bodyText ?? "",
+      publishedDate: officialDate,
+      url,
+    });
+    if ((llm.status === "ok" || llm.status === "cached") && !llm.data.insufficient_evidence && llm.data.official_model_name) {
+      const mappedType =
+        llm.data.event_type === "unknown" || llm.data.event_type === "other" ? "model_update" : llm.data.event_type;
+      classified = {
+        eventType: mappedType,
+        eventStatus: "released",
+        modelName: llm.data.official_model_name,
+        confidence: 0.88,
+        ruleName: "llm_verified_official_v1",
+      };
+    }
+  }
+  return { classified, officialDate };
+}
+
+async function queueDiscoveryCandidate(
+  pool: Pool,
+  vendor: VendorRow,
+  row: AiFirsthandArticleRow,
+  classified: ClassifiedAnnouncement,
+  eventKey: string,
+  url: string,
+  officialDate: string | null,
+) {
+  const candRes = await pool.query<{ id: string }>(
+    `INSERT INTO ai_event_candidate (
+       dedupe_key, candidate_type, status, priority, vendor_id, content_id,
+       title, suggested_event_type, suggested_date, date_precision, draft_payload, evidence_payload
+     ) VALUES ($1, 'official_document', 'needs_info', 70, $2, $3, $4, $5, NULL, 'unknown', $6::jsonb, $7::jsonb)
+     ON CONFLICT (dedupe_key) DO UPDATE SET last_seen_at = NOW(), updated_at = NOW()
+     RETURNING id`,
+    [
+      eventKey, vendor.id, row.contentId, row.title.slice(0, 240), classified.eventType,
+      JSON.stringify({ officialUrl: url, modelName: classified.modelName, ruleName: classified.ruleName }),
+      JSON.stringify([{ contentId: row.contentId, url, title: row.title }]),
+    ],
+  );
+  await pool.query(
+    `INSERT INTO ai_auto_publish_audit (mode, vendor_id, candidate_id, content_id, confidence, rule_name, reason, evidence_snapshot)
+     VALUES ('shadow_reject', $1, $2, $3, $4, $5, $6, $7::jsonb)`,
+    [
+      vendor.id, candRes.rows[0].id, row.contentId, classified.confidence, classified.ruleName,
+      !officialDate ? "Missing explicit official publication date" : "Confidence below auto-publish threshold",
+      JSON.stringify({ url, title: row.title }),
+    ],
+  );
+}
+
+async function linkExistingReleaseIfMatched(
+  pool: Pool,
+  vendor: VendorRow,
+  row: AiFirsthandArticleRow,
+  classified: ClassifiedAnnouncement,
+  eventKey: string,
+  officialDate: string,
+  canonicalUrl: string,
+) {
+  return transaction(pool, async (client) => {
+    const modelSlug = buildModelSlug(vendor.slug, classified.modelName!);
+    const modelRow = await client.query<{ id: string }>("SELECT id FROM ai_model WHERE slug = $1 LIMIT 1", [modelSlug]);
+    const found = await matchExistingRelease(client, {
+      dedupeKey: eventKey, vendorId: vendor.id, modelId: modelRow.rows[0]?.id ?? null,
+      eventType: classified.eventType, eventDate: officialDate, referenceUrls: [canonicalUrl],
+    });
+    if (!found) return false;
+    const existingRefs = await client.query<{ url: string }>("SELECT url FROM ai_event_reference WHERE event_id = $1", [found.id]);
+    if (canonicalUrl && !existingRefs.rows.some((r) => canonicalizeSourceUrl(r.url) === canonicalUrl)) {
+      await client.query(
+        `INSERT INTO ai_event_reference (event_id, content_id, title, url, source_kind, is_primary, verified_at)
+         VALUES ($1, $2, $3, $4, 'official', FALSE, NOW())`,
+        [found.id, row.contentId, row.title.slice(0, 240), canonicalUrl],
+      );
+    }
+    return true;
+  });
+}
+
+async function evaluateDiscoveryArticle(
+  pool: Pool,
+  vendors: VendorRow[],
+  vendorBySourceId: Map<string, string>,
+  shadowMode: boolean,
+  row: AiFirsthandArticleRow,
+): Promise<"skipped" | "queued" | "published" | "shadow" | "noop"> {
+  const url = (row.url ?? "").trim();
+  const mappedVendorId = vendorBySourceId.get(row.collectionSourceId);
+  const vendor =
+    (mappedVendorId ? vendors.find((v) => v.id === mappedVendorId) : undefined) ??
+    vendors.find((v) => url && isOfficialVendorUrl(url, v.official_domains));
+  if (!vendor || !url || !isOfficialVendorUrl(url, vendor.official_domains)) return "skipped";
+
+  const { classified, officialDate } = await classifyArticleCandidate(pool, vendor, row, url);
+  if (!classified) return "noop";
+
+  const eventKey = canonicalEventKey({
+    vendorSlug: vendor.slug,
+    eventType: classified.eventType,
+    modelNameOrTitle: classified.modelName ?? row.title,
+    date: officialDate,
+  });
+  if (!officialDate || !/^\d{4}-\d{2}-\d{2}$/.test(officialDate) || classified.confidence < 0.85 || !classified.modelName) {
+    await queueDiscoveryCandidate(pool, vendor, row, classified, eventKey, url, officialDate);
+    return "queued";
+  }
+  const canonicalUrl = canonicalizeSourceUrl(url);
+  if (await linkExistingReleaseIfMatched(pool, vendor, row, classified, eventKey, officialDate, canonicalUrl)) {
+    return "noop";
+  }
+  if (!shadowMode && vendor.auto_publish_enabled) {
+    let published = false;
+    await transaction(pool, async (client) => {
+      const modelSlug = buildModelSlug(vendor.slug, classified.modelName!);
+      const modelRes = await client.query<{ id: string }>(
+        `INSERT INTO ai_model (vendor_id, slug, official_name, lifecycle_state)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (slug) DO UPDATE SET updated_at = NOW()
+         RETURNING id`,
+        [vendor.id, modelSlug, classified.modelName!, classified.eventStatus === "deprecated" ? "deprecated" : "active"],
+      );
+      const evRes = await client.query<{ id: string }>(
+        `INSERT INTO ai_release_event (
+           vendor_id, model_id, event_type, event_status, publication_status,
+           title, event_date, date_precision, official_announced_on,
+           summary_en, source_tier, dedupe_key
+         ) VALUES ($1,$2,$3,$4,'published',$5,$6::date,'day',$6::date,$7,'official',$8)
+         ON CONFLICT (dedupe_key) DO NOTHING
+         RETURNING id`,
+        [
+          vendor.id, modelRes.rows[0].id, classified.eventType, classified.eventStatus,
+          row.title.slice(0, 240), officialDate, row.bodyText ? row.bodyText.slice(0, 320) : null, eventKey,
+        ],
+      );
+      if (evRes.rows[0]) {
+        await client.query(
+          `INSERT INTO ai_event_reference (event_id, content_id, title, url, source_kind, is_primary, verified_at)
+           VALUES ($1, $2, $3, $4, 'official', TRUE, NOW())`,
+          [evRes.rows[0].id, row.contentId, row.title.slice(0, 240), url],
+        );
+        await client.query(
+          `INSERT INTO ai_auto_publish_audit (mode, vendor_id, event_id, content_id, confidence, rule_name, reason, evidence_snapshot)
+           VALUES ('auto_publish', $1, $2, $3, $4, $5, 'Verified official domain + explicit date + model identity', $6::jsonb)`,
+          [vendor.id, evRes.rows[0].id, row.contentId, classified.confidence, classified.ruleName, JSON.stringify({ url, officialDate, modelName: classified.modelName })],
+        );
+        published = true;
+      }
+    });
+    return published ? "published" : "noop";
+  }
+  const candRes = await pool.query<{ id: string }>(
+    `INSERT INTO ai_event_candidate (
+       dedupe_key, candidate_type, status, priority, vendor_id, content_id,
+       title, suggested_event_type, suggested_date, date_precision, draft_payload, evidence_payload
+     ) VALUES ($1, 'release_event', 'pending', 85, $2, $3, $4, $5, $6::date, 'day', $7::jsonb, $8::jsonb)
+     ON CONFLICT (dedupe_key) DO UPDATE SET last_seen_at = NOW(), updated_at = NOW()
+     RETURNING id`,
+    [
+      eventKey, vendor.id, row.contentId, row.title.slice(0, 240), classified.eventType, officialDate,
+      JSON.stringify({ officialUrl: url, modelName: classified.modelName, ruleName: classified.ruleName, shadowPassed: true }),
+      JSON.stringify([{ contentId: row.contentId, url, title: row.title }]),
+    ],
+  );
+  await pool.query(
+    `INSERT INTO ai_auto_publish_audit (mode, vendor_id, candidate_id, content_id, confidence, rule_name, reason, evidence_snapshot)
+     VALUES ('shadow_pass', $1, $2, $3, $4, $5, $6, $7::jsonb)`,
+    [
+      vendor.id, candRes.rows[0].id, row.contentId, classified.confidence, classified.ruleName,
+      shadowMode ? "Global shadow mode active" : `Vendor ${vendor.slug} auto_publish_enabled=false`,
+      JSON.stringify({ url, officialDate, modelName: classified.modelName }),
+    ],
+  );
+  return "shadow";
+}
+
 export async function runOfficialEventDiscovery(
   pool: Pool,
-  options: {
-    lookbackHours?: number;
-    shadowMode?: boolean;
-    limit?: number;
-  } = {},
-): Promise<{
-  scanned: number;
-  autoPublished: number;
-  shadowPassed: number;
-  candidatesQueued: number;
-  skippedNonOfficial: number;
-}> {
-  const lookbackHours = Math.max(1, Math.min(24 * 365, options.lookbackHours ?? 168));
-  const shadowMode = options.shadowMode ?? process.env.AI_AUTO_PUBLISH_SHADOW === "true";
+  options: { shadowMode?: boolean; lookbackHours?: number; limit?: number } = {},
+) {
+  const shadowMode = options.shadowMode ?? (process.env.AI_AUTO_PUBLISH_SHADOW === "true");
+  const lookbackHours = Math.min(24 * 365, Math.max(1, options.lookbackHours ?? 72));
   const limit = Math.min(200, Math.max(1, options.limit ?? 80));
 
-  const vendorsRes = await pool.query<{
-    id: string;
-    slug: string;
-    name: string;
-    official_domains: string[];
-    auto_publish_enabled: boolean;
-  }>(`SELECT id, slug, name, official_domains, auto_publish_enabled FROM ai_vendor`);
-  const vendors = vendorsRes.rows;
-
-  const articlesRes = await pool.query<{
-    contentId: string;
-    title: string;
-    bodyText: string | null;
-    url: string | null;
-    publishedAt: string | null;
-    mappedVendorId: string | null;
-  }>(
-    `SELECT DISTINCT ON (c.id)
-            c.id AS "contentId", c.title, c.body_text AS "bodyText",
-            COALESCE(c.permalink, c.url) AS url,
-            c.created_at_source::text AS "publishedAt",
-            avs.vendor_id AS "mappedVendorId"
-     FROM content c
-     JOIN content_discovery d ON d.content_id = c.id
-     JOIN collection_source cs ON cs.id = d.collection_source_id
-     LEFT JOIN ai_vendor_source avs ON avs.source_id = cs.id
-     WHERE (cs.source_group = 'ai-firsthand' OR avs.vendor_id IS NOT NULL)
-       AND c.title IS NOT NULL
-       AND COALESCE(c.created_at_source, d.first_fetched_at) >= NOW() - make_interval(hours => $1)
-     ORDER BY c.id, COALESCE(c.created_at_source, d.first_fetched_at) DESC
-     LIMIT $2`,
-    [lookbackHours, limit],
-  );
+  const [vendorsRes, vendorSourcesRes] = await Promise.all([
+    pool.query<VendorRow>("SELECT id, slug, name, official_domains, auto_publish_enabled FROM ai_vendor"),
+    pool.query<{ source_id: string; vendor_id: string }>("SELECT source_id, vendor_id FROM ai_vendor_source"),
+  ]);
+  const vendorBySourceId = new Map(vendorSourcesRes.rows.map((r) => [r.source_id, r.vendor_id]));
+  const articles = await listAiFirsthandArticles(pool, {
+    sourceIds: [...vendorBySourceId.keys()],
+    sinceHours: lookbackHours,
+    limit,
+  });
 
   let autoPublished = 0;
   let shadowPassed = 0;
   let candidatesQueued = 0;
   let skippedNonOfficial = 0;
-
-  for (const row of articlesRes.rows) {
-    const url = (row.url ?? "").trim();
-    const vendor =
-      (row.mappedVendorId ? vendors.find((v) => v.id === row.mappedVendorId) : undefined) ??
-      vendors.find((v) => url && isOfficialVendorUrl(url, v.official_domains));
-
-    if (!vendor || !url || !isOfficialVendorUrl(url, vendor.official_domains)) {
-      skippedNonOfficial += 1;
-      continue;
-    }
-
-    let classified = classifyOfficialAnnouncement(row.title, row.bodyText);
-    const officialDate = row.publishedAt ? row.publishedAt.slice(0, 10) : null;
-
-    // Optional low-cost LLM refinement if configured and deterministic match didn't catch it
-    if (!classified) {
-      const llm = await extractWithOptionalLlm(pool, {
-        referenceId: row.contentId,
-        vendorName: vendor.name,
-        title: row.title,
-        bodyText: row.bodyText ?? "",
-        publishedDate: officialDate,
-        url,
-      });
-      if ((llm.status === "ok" || llm.status === "cached") && !llm.data.insufficient_evidence && llm.data.official_model_name) {
-        const mappedType =
-          llm.data.event_type === "unknown" || llm.data.event_type === "other" ? "model_update" : llm.data.event_type;
-        classified = {
-          eventType: mappedType,
-          eventStatus: "released",
-          modelName: llm.data.official_model_name,
-          confidence: 0.88,
-          ruleName: "llm_verified_official_v1",
-        };
-      }
-    }
-    if (!classified) continue;
-
-    const eventKey = canonicalEventKey({
-      vendorSlug: vendor.slug,
-      eventType: classified.eventType,
-      modelNameOrTitle: classified.modelName ?? row.title,
-      date: officialDate,
-    });
-
-    // Tier 3: missing explicit official publication date -> NEVER fabricate today!
-    if (!officialDate || !/^\d{4}-\d{2}-\d{2}$/.test(officialDate) || classified.confidence < 0.85 || !classified.modelName) {
-      const candRes = await pool.query<{ id: string }>(
-        `INSERT INTO ai_event_candidate (
-           dedupe_key, candidate_type, status, priority, vendor_id, content_id,
-           title, suggested_event_type, suggested_date, date_precision, draft_payload, evidence_payload
-         ) VALUES ($1, 'official_document', 'needs_info', 70, $2, $3, $4, $5, NULL, 'unknown', $6::jsonb, $7::jsonb)
-         ON CONFLICT (dedupe_key) DO UPDATE SET last_seen_at = NOW(), updated_at = NOW()
-         RETURNING id`,
-        [
-          eventKey,
-          vendor.id,
-          row.contentId,
-          row.title.slice(0, 240),
-          classified.eventType,
-          JSON.stringify({ officialUrl: url, modelName: classified.modelName, ruleName: classified.ruleName }),
-          JSON.stringify([{ contentId: row.contentId, url, title: row.title }]),
-        ],
-      );
-      await pool.query(
-        `INSERT INTO ai_auto_publish_audit (mode, vendor_id, candidate_id, content_id, confidence, rule_name, reason, evidence_snapshot)
-         VALUES ('shadow_reject', $1, $2, $3, $4, $5, $6, $7::jsonb)`,
-        [
-          vendor.id,
-          candRes.rows[0].id,
-          row.contentId,
-          classified.confidence,
-          classified.ruleName,
-          !officialDate ? "Missing explicit official publication date" : "Confidence below auto-publish threshold",
-          JSON.stringify({ url, title: row.title }),
-        ],
-      );
-      candidatesQueued += 1;
-      continue;
-    }
-
-    // Check if already published/unpublished with same dedupe_key or canonical URL + vendor + type + date
-    const canonicalUrl = canonicalizeSourceUrl(url);
-    const matchedExisting = await transaction(pool, async (client) => {
-      const modelSlug = buildModelSlug(vendor.slug, classified!.modelName!);
-      const modelRow = await client.query<{ id: string }>(
-        `SELECT id FROM ai_model WHERE slug = $1 LIMIT 1`,
-        [modelSlug],
-      );
-      const found = await matchExistingRelease(client, {
-        dedupeKey: eventKey,
-        vendorId: vendor.id,
-        modelId: modelRow.rows[0]?.id ?? null,
-        eventType: classified!.eventType,
-        eventDate: officialDate,
-        referenceUrls: [canonicalUrl],
-      });
-      if (!found) return false;
-      const existingRefs = await client.query<{ url: string }>(
-        `SELECT url FROM ai_event_reference WHERE event_id = $1`,
-        [found.id],
-      );
-      const hasUrl = existingRefs.rows.some((r) => canonicalizeSourceUrl(r.url) === canonicalUrl);
-      if (!hasUrl && canonicalUrl) {
-        await client.query(
-          `INSERT INTO ai_event_reference (event_id, content_id, title, url, source_kind, is_primary, verified_at)
-           VALUES ($1, $2, $3, $4, 'official', FALSE, NOW())`,
-          [found.id, row.contentId, row.title.slice(0, 240), canonicalUrl],
-        );
-      }
-      return true;
-    });
-    if (matchedExisting) continue;
-
-    // Tier 1: High-confidence official event -> Auto-publish if vendor enabled & not shadow mode
-    if (!shadowMode && vendor.auto_publish_enabled) {
-      await transaction(pool, async (client) => {
-        const modelSlug = buildModelSlug(vendor.slug, classified!.modelName!);
-        const modelRes = await client.query<{ id: string }>(
-          `INSERT INTO ai_model (vendor_id, slug, official_name, lifecycle_state)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (slug) DO UPDATE SET updated_at = NOW()
-           RETURNING id`,
-          [vendor.id, modelSlug, classified!.modelName!, classified!.eventStatus === "deprecated" ? "deprecated" : "active"],
-        );
-        const evRes = await client.query<{ id: string }>(
-          `INSERT INTO ai_release_event (
-             vendor_id, model_id, event_type, event_status, publication_status,
-             title, event_date, date_precision, official_announced_on,
-             summary_en, source_tier, dedupe_key
-           ) VALUES ($1,$2,$3,$4,'published',$5,$6::date,'day',$6::date,$7,'official',$8)
-           ON CONFLICT (dedupe_key) DO NOTHING
-           RETURNING id`,
-          [
-            vendor.id,
-            modelRes.rows[0].id,
-            classified!.eventType,
-            classified!.eventStatus,
-            row.title.slice(0, 240),
-            officialDate,
-            row.bodyText ? row.bodyText.slice(0, 320) : null,
-            eventKey,
-          ],
-        );
-        if (evRes.rows[0]) {
-          await client.query(
-            `INSERT INTO ai_event_reference (event_id, content_id, title, url, source_kind, is_primary, verified_at)
-             VALUES ($1, $2, $3, $4, 'official', TRUE, NOW())`,
-            [evRes.rows[0].id, row.contentId, row.title.slice(0, 240), url],
-          );
-          await client.query(
-            `INSERT INTO ai_auto_publish_audit (mode, vendor_id, event_id, content_id, confidence, rule_name, reason, evidence_snapshot)
-             VALUES ('auto_publish', $1, $2, $3, $4, $5, 'Verified official domain + explicit date + model identity', $6::jsonb)`,
-            [vendor.id, evRes.rows[0].id, row.contentId, classified!.confidence, classified!.ruleName, JSON.stringify({ url, officialDate, modelName: classified!.modelName })],
-          );
-          autoPublished += 1;
-        }
-      });
-    } else {
-      // Shadow pass: evaluate accuracy without exposing publicly yet
-      const candRes = await pool.query<{ id: string }>(
-        `INSERT INTO ai_event_candidate (
-           dedupe_key, candidate_type, status, priority, vendor_id, content_id,
-           title, suggested_event_type, suggested_date, date_precision, draft_payload, evidence_payload
-         ) VALUES ($1, 'release_event', 'pending', 85, $2, $3, $4, $5, $6::date, 'day', $7::jsonb, $8::jsonb)
-         ON CONFLICT (dedupe_key) DO UPDATE SET last_seen_at = NOW(), updated_at = NOW()
-         RETURNING id`,
-        [
-          eventKey,
-          vendor.id,
-          row.contentId,
-          row.title.slice(0, 240),
-          classified.eventType,
-          officialDate,
-          JSON.stringify({ officialUrl: url, modelName: classified.modelName, ruleName: classified.ruleName, shadowPassed: true }),
-          JSON.stringify([{ contentId: row.contentId, url, title: row.title }]),
-        ],
-      );
-      await pool.query(
-        `INSERT INTO ai_auto_publish_audit (mode, vendor_id, candidate_id, content_id, confidence, rule_name, reason, evidence_snapshot)
-         VALUES ('shadow_pass', $1, $2, $3, $4, $5, $6, $7::jsonb)`,
-        [
-          vendor.id,
-          candRes.rows[0].id,
-          row.contentId,
-          classified.confidence,
-          classified.ruleName,
-          shadowMode ? "Global shadow mode active" : `Vendor ${vendor.slug} auto_publish_enabled=false`,
-          JSON.stringify({ url, officialDate, modelName: classified.modelName }),
-        ],
-      );
-      shadowPassed += 1;
-    }
+  for (const row of articles) {
+    const outcome = await evaluateDiscoveryArticle(pool, vendorsRes.rows, vendorBySourceId, shadowMode, row);
+    if (outcome === "published") autoPublished += 1;
+    else if (outcome === "shadow") shadowPassed += 1;
+    else if (outcome === "queued") candidatesQueued += 1;
+    else if (outcome === "skipped") skippedNonOfficial += 1;
   }
-
-  return { scanned: articlesRes.rows.length, autoPublished, shadowPassed, candidatesQueued, skippedNonOfficial };
+  return { scanned: articles.length, autoPublished, shadowPassed, candidatesQueued, skippedNonOfficial };
 }
 
 export async function archiveLowValueCandidates(pool: Pool, olderThanHours = 24): Promise<{ archived: number }> {
@@ -355,11 +328,12 @@ export async function archiveLowValueCandidates(pool: Pool, olderThanHours = 24)
      RETURNING id, vendor_id`,
     [olderThanHours],
   );
-  for (const row of res.rows) {
+  if (res.rows.length > 0) {
     await pool.query(
       `INSERT INTO ai_auto_publish_audit (mode, vendor_id, candidate_id, rule_name, reason)
-       VALUES ('low_value_archived', $1, $2, 'queue_hygiene_v1', 'Archived uncorroborated registry micro-change')`,
-      [row.vendor_id, row.id],
+       SELECT 'low_value_archived', v_id, c_id, 'queue_hygiene_v1', 'Archived uncorroborated registry micro-change'
+       FROM UNNEST($1::uuid[], $2::uuid[]) AS u(v_id, c_id)`,
+      [res.rows.map((r) => r.vendor_id), res.rows.map((r) => r.id)],
     );
   }
   return { archived: res.rowCount ?? 0 };

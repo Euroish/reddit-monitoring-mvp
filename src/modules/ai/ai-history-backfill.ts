@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import { transaction } from "../../storage/db";
+import { listAiFirsthandArticles } from "../content/index";
 import { classifyOfficialAnnouncement } from "./ai-discovery";
 import {
   buildModelSlug,
@@ -198,6 +199,9 @@ async function runContentHistoryBackfill(pool: Pool, opts: BackfillOptions, runI
   const vendorsRes = await pool.query<{ id: string; slug: string; official_domains: string[]; auto_publish_enabled: boolean }>(
     `SELECT id, slug, official_domains, auto_publish_enabled FROM ai_vendor`,
   );
+  const vendorSourceRows = (await pool.query<{ source_id: string; vendor_id: string }>("SELECT source_id, vendor_id FROM ai_vendor_source")).rows;
+  const vendorBySourceId = new Map(vendorSourceRows.map((r) => [r.source_id, r.vendor_id]));
+  const vendorSourceIds = [...vendorBySourceId.keys()];
   const vendors = vendorsRes.rows;
   let lastTs = typeof initialCursor.lastTs === "string" ? initialCursor.lastTs : "1970-01-01T00:00:00.000Z";
   let lastId = typeof initialCursor.lastId === "string" ? initialCursor.lastId : "00000000-0000-0000-0000-000000000000";
@@ -205,35 +209,22 @@ async function runContentHistoryBackfill(pool: Pool, opts: BackfillOptions, runI
   const counts = { scanned: 0, published: 0, candidatesCreated: 0, skipped: 0, conflicts: 0 };
   while (counts.scanned < maxItems) {
     const take = Math.min(batchSize, maxItems - counts.scanned);
-    const batch = await pool.query<{
-      contentId: string;
-      title: string;
-      bodyText: string | null;
-      url: string | null;
-      publishedAt: string | null;
-      sortTs: string;
-      mappedVendorId: string | null;
-    }>(
-      `SELECT DISTINCT ON (sort_ts, c.id)
-              c.id AS "contentId", c.title, c.body_text AS "bodyText",
-              COALESCE(c.permalink, c.url) AS url,
-              c.created_at_source::text AS "publishedAt",
-              COALESCE(c.created_at_source, d.first_fetched_at)::text AS sort_ts,
-              avs.vendor_id AS "mappedVendorId"
-       FROM content c
-       JOIN content_discovery d ON d.content_id = c.id
-       JOIN collection_source cs ON cs.id = d.collection_source_id
-       LEFT JOIN ai_vendor_source avs ON avs.source_id = cs.id
-       WHERE (cs.source_group = 'ai-firsthand' OR avs.vendor_id IS NOT NULL)
-         AND c.title IS NOT NULL
-         AND ($1::date IS NULL OR COALESCE(c.created_at_source, d.first_fetched_at)::date >= $1::date)
-         AND ($2::date IS NULL OR COALESCE(c.created_at_source, d.first_fetched_at)::date <= $2::date)
-         AND (COALESCE(c.created_at_source, d.first_fetched_at), c.id) > ($3::timestamptz, $4::uuid)
-       ORDER BY sort_ts ASC, c.id ASC
-       LIMIT $5`,
-      [opts.dateFrom ?? null, opts.dateTo ?? null, lastTs, lastId, take],
-    );
-    if (batch.rows.length === 0) break;
+    const batchRows = await listAiFirsthandArticles(pool, {
+      sourceIds: vendorSourceIds,
+      dateFrom: opts.dateFrom ?? null,
+      dateTo: opts.dateTo ?? null,
+      cursorSortTs: lastTs,
+      cursorId: lastId,
+      order: "asc",
+      limit: take,
+    });
+    if (batchRows.length === 0) break;
+    const batch = {
+      rows: batchRows.map((r) => ({
+        ...r,
+        mappedVendorId: vendorBySourceId.get(r.collectionSourceId) ?? null,
+      })),
+    };
 
     if (!opts.dryRun) {
       await transaction(pool, async (client) => {

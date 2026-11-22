@@ -1,4 +1,4 @@
-import { fail } from "../../storage/db";
+import { fail } from "../../shared/errors";
 
 export type AccountEmailPurpose = "register" | "verify" | "reset";
 

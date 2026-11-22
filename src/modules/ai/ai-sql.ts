@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
-import { fail } from "../../storage/db";
+import { fail } from "../../shared/errors";
+import { listAiOfficialFeedUpdates } from "../content/index";
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -284,38 +285,46 @@ export async function listAiOfficialUpdates(
   pool: Pool,
   query: { vendor?: string; limit?: number; offset?: number },
 ) {
-  const params: unknown[] = [];
-  const where: string[] = [`(cs.source_group = 'ai-firsthand' OR avs.vendor_id IS NOT NULL)`];
-  if (query.vendor) {
-    params.push(query.vendor);
-    where.push(`v.slug = $${params.length}`);
-  }
   const limit = Math.min(60, Math.max(1, query.limit ?? 24));
   const offset = Math.max(0, query.offset ?? 0);
-
-  const res = await pool.query(
-    `SELECT DISTINCT ON (c.id)
-            c.id AS "contentId", c.title, COALESCE(c.permalink, c.url) AS url, c.body_text AS "bodyText",
-            COALESCE(c.created_at_source, d.first_fetched_at) AS "publishedAt", cs.label AS "sourceName",
-            cs.source_group AS "sourceGroup", cs.tier AS "sourceTier",
-            v.slug AS "vendorSlug", v.name AS "vendorName",
-            (SELECT json_agg(json_build_object('id', e.id, 'title', e.title, 'eventDate', e.event_date::text))
-             FROM ai_event_reference r
-             JOIN ai_release_event e ON e.id = r.event_id AND e.publication_status = 'published'
-             WHERE r.content_id = c.id) AS "linkedEvents"
-     FROM content c
-     JOIN content_discovery d ON d.content_id = c.id
-     JOIN collection_source cs ON cs.id = d.collection_source_id
-     LEFT JOIN ai_vendor_source avs ON avs.source_id = cs.id
-     LEFT JOIN ai_vendor v ON v.id = avs.vendor_id
-     WHERE ${where.join(" AND ")} AND c.title IS NOT NULL
-     ORDER BY c.id, COALESCE(c.created_at_source, d.first_fetched_at) DESC NULLS LAST`,
-    params,
-  );
-  return res.rows
-    .sort((a, b) => String(b.publishedAt ?? "").localeCompare(String(a.publishedAt ?? "")))
-    .slice(offset, offset + limit)
-    .map((r) => ({
+  const vendorSources = (
+    await pool.query<{ source_id: string; slug: string; name: string }>(
+      `SELECT avs.source_id, v.slug, v.name
+       FROM ai_vendor_source avs
+       JOIN ai_vendor v ON v.id = avs.vendor_id
+       WHERE ($1::text IS NULL OR v.slug = $1)`,
+      [query.vendor ?? null],
+    )
+  ).rows;
+  const vendorBySource = new Map(vendorSources.map((r) => [r.source_id, { slug: r.slug, name: r.name }]));
+  const rows = await listAiOfficialFeedUpdates(pool, {
+    sourceIds: [...vendorBySource.keys()],
+    restrictToSourceIds: Boolean(query.vendor),
+    limit,
+    offset,
+  });
+  const contentIds = rows.map((r) => r.contentId);
+  const refs = contentIds.length
+    ? (
+        await pool.query<{ content_id: string; id: string; title: string; eventDate: string | null }>(
+          `SELECT r.content_id, e.id, e.title, e.event_date::text AS "eventDate"
+           FROM ai_event_reference r
+           JOIN ai_release_event e ON e.id = r.event_id AND e.publication_status = 'published'
+           WHERE r.content_id = ANY($1::uuid[])`,
+          [contentIds],
+        )
+      ).rows
+    : [];
+  const linkedByContent = new Map<string, Array<{ id: string; title: string; eventDate: string | null }>>();
+  for (const ref of refs) {
+    const list = linkedByContent.get(ref.content_id) ?? [];
+    list.push({ id: ref.id, title: ref.title, eventDate: ref.eventDate });
+    linkedByContent.set(ref.content_id, list);
+  }
+  return rows.map((r) => {
+    const vendor = vendorBySource.get(r.collectionSourceId);
+    const vendorSlug = vendor?.slug ?? null;
+    return {
       contentId: r.contentId,
       title: r.title,
       url: r.url,
@@ -323,11 +332,12 @@ export async function listAiOfficialUpdates(
       publishedAt: r.publishedAt,
       sourceName: r.sourceName,
       sourceTier: r.sourceTier,
-      vendorSlug: r.vendorSlug,
-      vendorName: r.vendorName,
-      vendorColor: r.vendorSlug ? (VENDOR_COLORS[r.vendorSlug] ?? "#009f81") : "#009f81",
-      linkedEvents: r.linkedEvents ?? [],
-    }));
+      vendorSlug,
+      vendorName: vendor?.name ?? null,
+      vendorColor: vendorSlug ? (VENDOR_COLORS[vendorSlug] ?? "#009f81") : "#009f81",
+      linkedEvents: linkedByContent.get(r.contentId) ?? [],
+    };
+  });
 }
 
 export async function listAiRankings(pool: Pool, category?: string, includeInternal = false) {

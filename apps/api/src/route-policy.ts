@@ -1,35 +1,7 @@
-import { accountPublicPosts } from "../../../src/modules/access/email-routes";
-import { isPrivilegedWrite, mfaLoginPath } from "../../../src/modules/access/mfa-routes";
-import type { Scopes } from "../../../packages/contracts/src/source-content";
+import { accountPublicPosts, isPrivilegedWrite, mfaLoginPath } from "../../../src/modules/access/index";
+import type { DeclarativeRouteAuth, RouteAccessLevel, Scope } from "../../../src/platform/route-auth";
 
-export type Scope = (typeof Scopes)[number];
-
-export type RouteAccessLevel =
-  | "public"
-  | "public_read"
-  | "authenticated"
-  | "viewer_write"
-  | "admin"
-  | "admin_mfa";
-
-export interface DeclarativeRouteAuth {
-  /** Minimum access class required for this route. */
-  access: RouteAccessLevel;
-  /** Optional machine API key scope; omit or set null to deny machine keys. */
-  machineScope?: Scope | null;
-  /** Allow machine keys without a specific scope (only for discovery endpoints like /v1/capabilities). */
-  machineOpen?: boolean;
-  /** Requires application/json credential payload validation before DB lookup. */
-  credentialSubmission?: boolean;
-  /** Disallow Bearer authorization headers (browser-session-only auth endpoints). */
-  browserOnly?: boolean;
-}
-
-declare module "fastify" {
-  interface FastifyContextConfig {
-    auth?: DeclarativeRouteAuth;
-  }
-}
+export type { DeclarativeRouteAuth, RouteAccessLevel, Scope };
 
 export const DOC_READ_ROUTES = [
   "/v1/docs",
@@ -117,7 +89,7 @@ function resolveDeclarativePolicy(
 ): ResolvedRoutePolicy {
   const publicRoute = decl.access === "public";
   const publicReadRoute = publicRead && isRead && decl.access === "public_read";
-  const viewerAllowed = isRead || (decl.access !== "admin" && decl.access !== "admin_mfa");
+  const viewerAllowed = decl.access !== "admin" && decl.access !== "admin_mfa";
   const machineBlocked = Boolean(decl.browserOnly) || isMachineBlockedPrefix(route);
   const machineScope = machineBlocked ? null : (decl.machineScope ?? null);
   return {
@@ -147,33 +119,23 @@ function classifySummary(
   return isRead ? "authenticated" : "viewer_write";
 }
 
-export function resolveRoutePolicy(
-  method: string,
-  route: string,
-  options: {
-    publicRead?: boolean;
-    accountEmailEnabled?: boolean;
-    mfaEnabled?: boolean;
-    declarative?: DeclarativeRouteAuth;
-  } = {},
-): ResolvedRoutePolicy {
-  const upper = method.toUpperCase();
-  const isRead = upper === "GET" || upper === "HEAD";
-  if (options.declarative) {
-    return resolveDeclarativePolicy(isRead, route, Boolean(options.publicRead), options.declarative);
-  }
+function isLegacyPublicRoute(upper: string, isRead: boolean, route: string, accountPublicPost: boolean) {
+  if (accountPublicPost) return true;
+  if (isRead && (route === "/healthz" || route === "/readyz" || route === "/v1/auth/session")) return true;
+  return upper === "POST" && (route === "/v1/auth/login" || route === "/v1/auth/register" || route === "/v1/auth/logout");
+}
 
+function resolveLegacyPolicy(
+  upper: string,
+  isRead: boolean,
+  route: string,
+  options: { publicRead?: boolean; accountEmailEnabled?: boolean; mfaEnabled?: boolean },
+): ResolvedRoutePolicy {
   const accountPublicPost =
     upper === "POST" &&
     ((Boolean(options.accountEmailEnabled) && accountPublicPosts.has(route)) ||
       (Boolean(options.mfaEnabled) && route === mfaLoginPath));
-
-  const publicRoute =
-    accountPublicPost ||
-    (isRead && (route === "/healthz" || route === "/readyz" || route === "/v1/auth/session")) ||
-    (upper === "POST" &&
-      (route === "/v1/auth/login" || route === "/v1/auth/register" || route === "/v1/auth/logout"));
-
+  const publicRoute = isLegacyPublicRoute(upper, isRead, route, accountPublicPost);
   const publicReadRoute = Boolean(options.publicRead) && isRead && PUBLIC_READ_ROUTES.has(route);
   const credentialSubmission =
     accountPublicPost || (upper === "POST" && (route === "/v1/auth/login" || route === "/v1/auth/register"));
@@ -197,4 +159,22 @@ export function resolveRoutePolicy(
     machineScope,
     summaryClass: classifySummary(publicRoute, isRead, route, requiresRecentMfa, viewerAllowed),
   };
+}
+
+export function resolveRoutePolicy(
+  method: string,
+  route: string,
+  options: {
+    publicRead?: boolean;
+    accountEmailEnabled?: boolean;
+    mfaEnabled?: boolean;
+    declarative?: DeclarativeRouteAuth;
+  } = {},
+): ResolvedRoutePolicy {
+  const upper = method.toUpperCase();
+  const isRead = upper === "GET" || upper === "HEAD";
+  if (options.declarative) {
+    return resolveDeclarativePolicy(isRead, route, Boolean(options.publicRead), options.declarative);
+  }
+  return resolveLegacyPolicy(upper, isRead, route, options);
 }

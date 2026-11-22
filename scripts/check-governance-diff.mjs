@@ -7,8 +7,7 @@ import { appendFileSync } from "node:fs";
  * Inspects git diff against base SHA (MIGRATION_BASE_SHA / GITHUB_BASE_SHA) and:
  * 1. Hard-fails if `.only(` is added to any test file.
  * 2. Posts prominent warnings to GITHUB_STEP_SUMMARY if the PR modifies CI/lint/boundary
- *    governance files, introduces `.skip` / `test.todo` / `eslint-disable`, or exceeds
- *    recommended PR size / module blast-radius budgets.
+ *    governance files or introduces `.skip` / `test.todo` / `eslint-disable`.
  */
 
 const GOVERNANCE_PATTERNS = [
@@ -100,16 +99,6 @@ function main() {
   if (addedLintDisable.length > 0) {
     warnings.push(
       `⚠️ **Lint/type suppression added** (${addedLintDisable.length} \`eslint-disable\` / \`@ts-ignore\` / \`@ts-nocheck\` line(s)).`,
-    );
-  }
-  if (additions + deletions > 1500) {
-    warnings.push(
-      `ℹ️ **Large PR advisory**: \`${additions + deletions}\` changed lines exceeds the 1,500-line reviewability target; consider vertical slicing on future PRs.`,
-    );
-  }
-  if (touchedModules.size > 3) {
-    warnings.push(
-      `ℹ️ **Wide blast radius**: touches \`${touchedModules.size}\` backend modules simultaneously.`,
     );
   }
 

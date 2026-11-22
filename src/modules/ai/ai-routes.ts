@@ -9,8 +9,8 @@ import {
   AiPublishCandidateBody,
   AiUpdatesQuery,
 } from "../../../packages/contracts/src/ai-catalog";
-import { ParamsId, type Actor } from "../../../packages/contracts/src/source-content";
-import { fail } from "../../storage/db";
+import { ParamsId } from "../../../packages/contracts/src/common";
+import { fail } from "../../shared/errors";
 import {
   getAiEventDetail,
   getAiModelDetail,
@@ -35,12 +35,6 @@ import {
 } from "./ai-discovery";
 import { syncRegistrySourceByCode } from "./ai-sync";
 
-function requireAiAdmin(actor: Actor | null): Actor {
-  if (!actor) fail(401, "Authentication required");
-  if (actor.clientKind !== "browser") fail(403, "Browser administrator session required");
-  if (actor.role !== "owner" && actor.role !== "admin") fail(403, "Administrator access required");
-  return actor;
-}
 
 const ParamsModelRef = Type.Object({ id: Type.String({ minLength: 1, maxLength: 160 }) }, { additionalProperties: false });
 const ParamsSourceCode = Type.Object({ code: Type.String({ minLength: 1, maxLength: 64 }) }, { additionalProperties: false });
@@ -122,35 +116,35 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
   const typed = app.withTypeProvider<TypeBoxTypeProvider>();
 
   // ── 8 explicit public read routes ──────────────────────────────────────────
-  typed.get("/v1/ai/vendors", async () => {
+  typed.get("/v1/ai/vendors", { config: { auth: { access: "public_read" } } }, async () => {
     const items = await listAiVendors(pool);
     return { items };
   });
 
-  typed.get("/v1/ai/models", { schema: { querystring: AiModelsQuery } }, async (req) => {
+  typed.get("/v1/ai/models", { config: { auth: { access: "public_read" } }, schema: { querystring: AiModelsQuery } }, async (req) => {
     const items = await listAiModels(pool, req.query);
     return { items };
   });
 
-  typed.get("/v1/ai/models/:id", { schema: { params: ParamsModelRef } }, async (req) => {
+  typed.get("/v1/ai/models/:id", { config: { auth: { access: "public_read" } }, schema: { params: ParamsModelRef } }, async (req) => {
     return getAiModelDetail(pool, req.params.id);
   });
 
-  typed.get("/v1/ai/events", { schema: { querystring: AiEventsQuery } }, async (req) => {
+  typed.get("/v1/ai/events", { config: { auth: { access: "public_read" } }, schema: { querystring: AiEventsQuery } }, async (req) => {
     const items = await listAiEvents(pool, req.query);
     return { items };
   });
 
-  typed.get("/v1/ai/events/:id", { schema: { params: ParamsId } }, async (req) => {
+  typed.get("/v1/ai/events/:id", { config: { auth: { access: "public_read" } }, schema: { params: ParamsId } }, async (req) => {
     return getAiEventDetail(pool, req.params.id);
   });
 
-  typed.get("/v1/ai/updates", { schema: { querystring: AiUpdatesQuery } }, async (req) => {
+  typed.get("/v1/ai/updates", { config: { auth: { access: "public_read" } }, schema: { querystring: AiUpdatesQuery } }, async (req) => {
     const items = await listAiOfficialUpdates(pool, req.query);
     return { items };
   });
 
-  typed.get("/v1/ai/rankings", { schema: { querystring: RankingsQuery } }, async (req) => {
+  typed.get("/v1/ai/rankings", { config: { auth: { access: "public_read" } }, schema: { querystring: RankingsQuery } }, async (req) => {
     const items = await listAiRankings(pool, req.query.category, false);
     const internalCnt = Number(
       (await pool.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM ai_benchmark_snapshot WHERE public_redistribution_allowed = FALSE`)).rows[0]?.count ?? "0",
@@ -164,40 +158,30 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
     };
   });
 
-  typed.get("/v1/ai/rankings/:id", { schema: { params: ParamsId } }, async (req) => {
+  typed.get("/v1/ai/rankings/:id", { config: { auth: { access: "public_read" } }, schema: { params: ParamsId } }, async (req) => {
     return getAiRankingDetail(pool, req.params.id, false);
   });
 
   // ── Admin-only AI review queue & catalog management ────────────────────────
-  typed.get("/v1/admin/ai/queue", { schema: { querystring: QueueQuery } }, async (req) => {
-    requireAiAdmin(req.actor);
+  typed.get("/v1/admin/ai/queue", { config: { auth: { access: "admin" } }, schema: { querystring: QueueQuery } }, async (req) => {
     const items = await listAiQueue(pool, req.query);
     return { items };
   });
 
-  typed.patch(
-    "/v1/admin/ai/candidates/:id",
-    { schema: { params: ParamsId, body: AiCandidatePatchBody } },
+  typed.patch("/v1/admin/ai/candidates/:id", {config: { auth: { access: "admin_mfa" } }, schema: { params: ParamsId, body: AiCandidatePatchBody } },
     async (req) => {
-      requireAiAdmin(req.actor);
       return patchAiCandidate(pool, req.params.id, req.body);
     },
   );
 
-  typed.post(
-    "/v1/admin/ai/candidates/:id/publish",
-    { schema: { params: ParamsId, body: AiPublishCandidateBody } },
+  typed.post("/v1/admin/ai/candidates/:id/publish", {config: { auth: { access: "admin_mfa" } }, schema: { params: ParamsId, body: AiPublishCandidateBody } },
     async (req) => {
-      const actor = requireAiAdmin(req.actor);
-      return publishAiCandidate(pool, req.params.id, actor.userId, req.body);
+      return publishAiCandidate(pool, req.params.id, req.actor!.userId, req.body);
     },
   );
 
-  typed.post(
-    "/v1/admin/ai/candidates/:id/reject",
-    { schema: { params: ParamsId, body: RejectBody } },
+  typed.post("/v1/admin/ai/candidates/:id/reject", {config: { auth: { access: "admin_mfa" } }, schema: { params: ParamsId, body: RejectBody } },
     async (req) => {
-      requireAiAdmin(req.actor);
       return patchAiCandidate(pool, req.params.id, {
         expectedRevision: req.body.expectedRevision,
         status: req.body.status ?? "rejected",
@@ -206,37 +190,28 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
     },
   );
 
-  typed.post(
-    "/v1/admin/ai/candidates/bulk-dismiss",
-    { schema: { body: BulkDismissBody } },
+  typed.post("/v1/admin/ai/candidates/bulk-dismiss", {config: { auth: { access: "admin_mfa" } }, schema: { body: BulkDismissBody } },
     async (req) => {
-      const actor = requireAiAdmin(req.actor);
       const res = await pool.query(
         `UPDATE ai_event_candidate
          SET status = 'deferred', reviewer_note = COALESCE($2, reviewer_note),
              reviewed_by = $3, reviewed_at = NOW(), revision = revision + 1, updated_at = NOW()
          WHERE id = ANY($1::uuid[]) AND status IN ('pending', 'needs_info')
          RETURNING id`,
-        [req.body.ids, req.body.reviewerNote ?? null, actor.userId],
+        [req.body.ids, req.body.reviewerNote ?? null, req.actor!.userId],
       );
       return { dismissed: res.rowCount ?? 0 };
     },
   );
 
-  typed.post(
-    "/v1/admin/ai/events/:id/unpublish",
-    { schema: { params: ParamsId, body: UnpublishBody } },
+  typed.post("/v1/admin/ai/events/:id/unpublish", {config: { auth: { access: "admin_mfa" } }, schema: { params: ParamsId, body: UnpublishBody } },
     async (req) => {
-      requireAiAdmin(req.actor);
       return unpublishAiEvent(pool, req.params.id);
     },
   );
 
-  typed.patch(
-    "/v1/admin/ai/events/:id",
-    { schema: { params: ParamsId, body: EventPatchBody } },
+  typed.patch("/v1/admin/ai/events/:id", {config: { auth: { access: "admin_mfa" } }, schema: { params: ParamsId, body: EventPatchBody } },
     async (req) => {
-      requireAiAdmin(req.actor);
       const b = req.body;
       const res = await pool.query(
         `UPDATE ai_release_event
@@ -264,8 +239,7 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
     },
   );
 
-  typed.post("/v1/admin/ai/models", { schema: { body: CreateModelBody } }, async (req) => {
-    requireAiAdmin(req.actor);
+  typed.post("/v1/admin/ai/models", {config: { auth: { access: "admin_mfa" } }, schema: { body: CreateModelBody } }, async (req) => {
     const b = req.body;
     const res = await pool.query(
       `INSERT INTO ai_model (
@@ -288,8 +262,7 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
     return res.rows[0];
   });
 
-  typed.post("/v1/admin/ai/aliases", { schema: { body: CreateAliasBody } }, async (req) => {
-    requireAiAdmin(req.actor);
+  typed.post("/v1/admin/ai/aliases", {config: { auth: { access: "admin_mfa" } }, schema: { body: CreateAliasBody } }, async (req) => {
     const res = await pool.query(
       `INSERT INTO ai_model_alias (model_id, source_namespace, alias, review_status)
        VALUES ($1,$2,$3,'verified')
@@ -300,8 +273,7 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
     return res.rows[0];
   });
 
-  typed.get("/v1/admin/ai/sources", async (req) => {
-    requireAiAdmin(req.actor);
+  typed.get("/v1/admin/ai/sources", { config: { auth: { access: "admin" } } }, async () => {
     const res = await pool.query(
       `SELECT id, code, kind, endpoint_url AS "endpointUrl", enabled,
               sync_interval_seconds AS "cadenceSeconds", last_success_at AS "lastSuccessAt",
@@ -312,11 +284,8 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
     return { items: res.rows };
   });
 
-  typed.post(
-    "/v1/admin/ai/sources/:code/sync",
-    { schema: { params: ParamsSourceCode, body: SyncBody } },
+  typed.post("/v1/admin/ai/sources/:code/sync", {config: { auth: { access: "admin_mfa" } }, schema: { params: ParamsSourceCode, body: SyncBody } },
     async (req) => {
-      requireAiAdmin(req.actor);
       return syncRegistrySourceByCode(pool, req.params.code, {
         dryRun: req.body?.dryRun,
         triggerKind: "manual",
@@ -324,8 +293,7 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
     },
   );
 
-  typed.get("/v1/admin/ai/sync-runs", async (req) => {
-    requireAiAdmin(req.actor);
+  typed.get("/v1/admin/ai/sync-runs", { config: { auth: { access: "admin" } } }, async () => {
     const res = await pool.query(
       `SELECT r.id, r.source_code AS "sourceCode", r.trigger_kind AS "triggerKind", r.status,
               r.fetched_count AS "itemsSeen", r.changed_count AS "itemsChanged",
@@ -338,15 +306,13 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
   });
 
   // ── Automation ops: summary, audit, rollback, internal rankings, vendor rollout ──
-  typed.get("/v1/admin/ai/ops/summary", async (req) => {
-    requireAiAdmin(req.actor);
+  typed.get("/v1/admin/ai/ops/summary", { config: { auth: { access: "admin" } } }, async (req) => {
     const q = req.query as { days?: string };
     const days = q?.days ? Number(q.days) || 7 : 7;
     return getAiOpsSummary(pool, days);
   });
 
-  typed.get("/v1/admin/ai/ops/audit", async (req) => {
-    requireAiAdmin(req.actor);
+  typed.get("/v1/admin/ai/ops/audit", { config: { auth: { access: "admin" } } }, async () => {
     const res = await pool.query(
       `SELECT a.id, a.mode, a.vendor_id AS "vendorId", v.name AS "vendorName",
               a.event_id AS "eventId", a.candidate_id AS "candidateId",
@@ -359,17 +325,13 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
     return { items: res.rows };
   });
 
-  typed.get("/v1/admin/ai/rankings", { schema: { querystring: RankingsQuery } }, async (req) => {
-    requireAiAdmin(req.actor);
+  typed.get("/v1/admin/ai/rankings", { config: { auth: { access: "admin" } }, schema: { querystring: RankingsQuery } }, async (req) => {
     const items = await listAiRankings(pool, req.query.category, true);
     return { items };
   });
 
-  typed.post(
-    "/v1/admin/ai/events/:id/rollback",
-    { schema: { params: ParamsId, body: UnpublishBody } },
+  typed.post("/v1/admin/ai/events/:id/rollback", {config: { auth: { access: "admin_mfa" } }, schema: { params: ParamsId, body: UnpublishBody } },
     async (req) => {
-      requireAiAdmin(req.actor);
       return rollbackAiEvent(pool, req.params.id, req.body?.reason?.trim() || "Manual admin rollback", "manual_rollback");
     },
   );
@@ -377,7 +339,7 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
   typed.post(
     "/v1/admin/ai/discovery/run",
     {
-      schema: {
+      config: { auth: { access: "admin_mfa" } }, schema: {
         body: Type.Object({
           shadowMode: Type.Optional(Type.Boolean()),
           lookbackHours: Type.Optional(Type.Integer({ minimum: 1, maximum: 8760 })),
@@ -386,7 +348,6 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
       },
     },
     async (req) => {
-      requireAiAdmin(req.actor);
       const discovery = await runOfficialEventDiscovery(pool, {
         shadowMode: req.body?.shadowMode,
         lookbackHours: req.body?.lookbackHours,
@@ -399,13 +360,12 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
   typed.patch(
     "/v1/admin/ai/vendors/:id/autopublish",
     {
-      schema: {
+      config: { auth: { access: "admin_mfa" } }, schema: {
         params: ParamsId,
         body: Type.Object({ enabled: Type.Boolean() }, { additionalProperties: false }),
       },
     },
     async (req) => {
-      requireAiAdmin(req.actor);
       const res = await pool.query(
         `UPDATE ai_vendor SET auto_publish_enabled = $2, updated_at = NOW()
          WHERE id = $1::uuid RETURNING id, slug, name, auto_publish_enabled AS "autoPublishEnabled"`,
@@ -416,8 +376,7 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
     },
   );
 
-  typed.post("/v1/admin/ai/alerts/:id/resolve", { schema: { params: ParamsId } }, async (req) => {
-    requireAiAdmin(req.actor);
+  typed.post("/v1/admin/ai/alerts/:id/resolve", {config: { auth: { access: "admin_mfa" } }, schema: { params: ParamsId } }, async (req) => {
     const res = await pool.query(
       `UPDATE ai_ops_alert SET resolved_at = NOW() WHERE id = $1::uuid RETURNING id, resolved_at AS "resolvedAt"`,
       [req.params.id],
@@ -426,8 +385,7 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
     return res.rows[0];
   });
 
-  typed.get("/v1/admin/ai/history/status", async (req) => {
-    requireAiAdmin(req.actor);
+  typed.get("/v1/admin/ai/history/status", { config: { auth: { access: "admin" } } }, async () => {
     const [imports, backfills] = await Promise.all([
       pool.query(`SELECT id, dataset_version AS "datasetVersion", dataset_sha256 AS "datasetSha256", trigger_kind AS "triggerKind", status, inserted_models AS "insertedModels", inserted_events AS "insertedEvents", matched_events AS "matchedEvents", skipped_events AS "skippedEvents", conflicts, started_at AS "startedAt", finished_at AS "finishedAt" FROM ai_history_import_run ORDER BY started_at DESC LIMIT 10`),
       pool.query(`SELECT id, source_code AS "sourceCode", vendor_slug AS "vendorSlug", status, scanned_count AS "scannedCount", published_count AS "publishedCount", candidates_count AS "candidatesCount", skipped_count AS "skippedCount", error_message AS "errorMessage", started_at AS "startedAt", finished_at AS "finishedAt" FROM ai_history_backfill_run ORDER BY started_at DESC LIMIT 10`),

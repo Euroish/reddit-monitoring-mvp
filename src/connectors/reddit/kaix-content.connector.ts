@@ -1,10 +1,8 @@
 import { createHash } from "node:crypto";
 import type {
-  ContentReference,
-  PublicContentKind,
-  SourceCapability,
-  SourceTarget,
-} from "../../../packages/contracts/src/source-content";
+  ContentReference } from "../../../packages/contracts/src/source-content";
+import { PublicContentKind } from "../../../packages/contracts/src/common";
+import { SourceCapability, SourceTarget } from "../../../packages/contracts/src/collection";
 import { stableUuidFromString } from "../../shared/ids/stable-id";
 import type { KaixConfig } from "./kaix.config";
 import {

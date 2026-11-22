@@ -4,14 +4,11 @@ import QueryStream from "pg-query-stream";
 import type { Pool, PoolClient } from "pg";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
-import {
-  ResearchFilter,
-  strictMerge,
-} from "../../../packages/contracts/src/source-content";
-import { compileContentFilter, contentSelect, filterSignature, matchedAnchors } from "./search";
+import { strictMerge } from "../../../packages/contracts/src/common";
+import { ResearchFilter } from "../../../packages/contracts/src/content";
+import { compileContentFilter, contentSelect, filterSignature, matchedAnchors, type ContentScopeResolver } from "./search";
 import { contentFromRow } from "./sql";
-import { projectSources } from "../projects/index";
-import { fail } from "../../storage/db";
+import { fail } from "../../shared/errors";
 
 export function csvCell(value: unknown) {
   let text = value === null || value === undefined ? "" : String(value);
@@ -23,6 +20,7 @@ export async function exportRoutes(
   app: FastifyInstance,
   pool: Pool,
   shutdown: AbortSignal,
+  resolveProjectScope?: ContentScopeResolver,
 ) {
   // One admission slot is shared by every user of this application process.
   let exporting = false;
@@ -30,6 +28,7 @@ export async function exportRoutes(
   api.get(
     "/v1/content/export",
     {
+      config: { auth: { access: "authenticated", machineScope: "export" } },
       schema: {
         querystring: strictMerge([
           ResearchFilter,
@@ -90,14 +89,16 @@ export async function exportRoutes(
         await client.query(
           "SET LOCAL idle_in_transaction_session_timeout='35s'",
         );
-        const project = projectId ? await projectSources(client, request.actor!, projectId) : undefined;
+        const project = projectId
+          ? await (resolveProjectScope ?? (() => fail(500, "Project scope resolver is unavailable")))(client, request.actor!, projectId)
+          : undefined;
         const compiled = compileContentFilter(request.actor!, filter, project?.source_ids, project?.filter);
         const match = matchedAnchors(compiled, filter.threadAware ?? project?.thread_aware ?? false);
         signature = filterSignature(request.actor!, filter, project && { id: project.id, revision: project.revision });
         compiled.values.push(maxRows + 1);
         stream = client.query(
           new QueryStream(
-            `${match.cte} ${contentSelect(match.columns ? compiled.visible : compiled.discovery, match.columns)} ${match.joins} WHERE ${match.where}
+            `${match.cte} ${contentSelect(match.columns ? compiled.visible : compiled.discovery, match.columns, compiled.needsSearchDocument)} ${match.joins} WHERE ${match.where}
           ORDER BY c.created_at_source DESC NULLS LAST,c.id DESC LIMIT $${compiled.values.length}`,
             compiled.values,
             { batchSize: 100 },

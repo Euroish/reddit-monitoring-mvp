@@ -3,8 +3,8 @@ import { Type } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool } from "pg";
+import { ParamsId, strictMerge } from "../../../packages/contracts/src/common";
 import {
-  strictMerge,
   ActorSchema,
   Login,
   AccountEmailAddress,
@@ -14,9 +14,8 @@ import {
   MachineKeyInput,
   PlanTier,
   Scopes,
-  ParamsId,
   type Actor,
-} from "../../../packages/contracts/src/source-content";
+} from "../../../packages/contracts/src/access";
 import {
   createSession,
   createLoginSession,
@@ -31,7 +30,8 @@ import {
   updateUserAccess,
 } from "./sql";
 import { dummyPasswordHash, isCurrentPasswordHash, verifyLoginPassword } from "./password";
-import { fail, transaction } from "../../storage/db";
+import { fail } from "../../shared/errors";
+import { transaction } from "../../storage/db";
 import type { AccountEmailProvider } from "./email-provider";
 import { hasMfa, startMfaLogin } from "./mfa-sql";
 
@@ -46,12 +46,14 @@ export async function accessRoutes(
     accountEmail?: { provider: AccountEmailProvider; publicRegistration: boolean };
     mfa?: { key: Buffer; required: boolean };
     limitLogin: (email: string) => number;
+    validateSourceIds: (pool: Pool, ids: string[]) => Promise<boolean>;
   },
 ) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   api.get(
     "/v1/auth/session",
     {
+      config: { auth: { access: "public", browserOnly: true } },
       schema: {
         response: {
           200: Type.Object({
@@ -76,7 +78,7 @@ export async function accessRoutes(
     "/v1/auth/login",
     {
       bodyLimit: 8 * 1024,
-      config: { rateLimit: { max: 5, timeWindow: "1 minute" } },
+      config: { rateLimit: { max: 5, timeWindow: "1 minute" }, auth: { access: "public", browserOnly: true, credentialSubmission: true } },
       schema: { body: BrowserLogin },
     },
     async (request, reply) => {
@@ -127,7 +129,7 @@ export async function accessRoutes(
     "/v1/auth/register",
     {
       bodyLimit: 8 * 1024,
-      config: { rateLimit: { max: 10, timeWindow: "15 minutes" } },
+      config: { rateLimit: { max: 10, timeWindow: "15 minutes" }, auth: { access: "public", browserOnly: true, credentialSubmission: true } },
       schema: {
         body: strictMerge([
           Login,
@@ -204,27 +206,28 @@ export async function accessRoutes(
       return { registered: true, user: outcome.actor };
     },
   );
-  api.post("/v1/auth/logout", { bodyLimit: 8192 }, async (request, reply) => {
+  api.post("/v1/auth/logout", { bodyLimit: 8192, config: { auth: { access: "public", browserOnly: true } } }, async (request, reply) => {
     const actor = request.actor;
     if (actor) await revokeBrowserSessions(pool, actor, request.id, actor.sessionId);
     reply.header("Set-Cookie", cookie("", 0));
     return { loggedOut: true };
   });
   api.get("/v1/auth/sessions", {
+    config: { auth: { access: "authenticated", browserOnly: true } },
     schema: { response: { 200: Type.Object({ sessions: Type.Array(BrowserSession) }) } },
   }, async (request) => ({ sessions: await listBrowserSessions(pool, request.actor!) }));
-  api.delete("/v1/auth/sessions/:id", { schema: { params: ParamsId } }, async (request, reply) => {
+  api.delete("/v1/auth/sessions/:id", { config: { auth: { access: "viewer_write", browserOnly: true } }, schema: { params: ParamsId } }, async (request, reply) => {
     const actor = request.actor!;
     await revokeBrowserSessions(pool, actor, request.id, request.params.id);
     if (actor.sessionId === request.params.id) reply.header("Set-Cookie", cookie("", 0));
     return { revoked: true };
   });
-  api.post("/v1/auth/logout-all", { bodyLimit: 8192 }, async (request, reply) => {
+  api.post("/v1/auth/logout-all", { bodyLimit: 8192, config: { auth: { access: "viewer_write", browserOnly: true } } }, async (request, reply) => {
     await revokeBrowserSessions(pool, request.actor!, request.id);
     reply.header("Set-Cookie", cookie("", 0));
     return { loggedOut: true };
   });
-  api.get("/v1/access/keys", async (request) => {
+  api.get("/v1/access/keys", { config: { auth: { access: "authenticated" } } }, async (request) => {
     if (request.actor!.clientKind !== "browser")
       fail(403, "Browser session required");
     return {
@@ -239,6 +242,7 @@ export async function accessRoutes(
   api.post(
     "/v1/access/invites",
     {
+      config: { auth: { access: "admin_mfa" } },
       schema: {
         body: Type.Object(
           { role: Type.Union([Type.Literal("viewer"), Type.Literal("admin")]), email: Type.Optional(AccountEmailAddress) },
@@ -270,6 +274,7 @@ export async function accessRoutes(
     },
   );
   api.get("/v1/access/invites", {
+    config: { auth: { access: "admin" } },
     schema: { response: { 200: Type.Object({ invites: Type.Array(AccountInviteSummary) }) } },
   }, async ({ actor }) => {
     if (actor!.role === "viewer") fail(403, "Administrator access required");
@@ -282,7 +287,7 @@ export async function accessRoutes(
     );
     return { invites: invites.rows };
   });
-  api.delete("/v1/access/invites/:id", { schema: { params: ParamsId } }, async ({ actor, id, params }) => {
+  api.delete("/v1/access/invites/:id", { config: { auth: { access: "admin_mfa" } }, schema: { params: ParamsId } }, async ({ actor, id, params }) => {
     if (actor!.role === "viewer") fail(403, "Administrator access required");
     await transaction(pool, async (client) => {
       const result = await client.query(
@@ -295,20 +300,14 @@ export async function accessRoutes(
   });
   api.post(
     "/v1/access/keys",
-    { schema: { body: MachineKeyInput } },
+    { config: { auth: { access: "admin_mfa" } }, schema: { body: MachineKeyInput } },
     async (request) => {
       const actor = request.actor!;
       if (actor.clientKind !== "browser" || actor.role === "viewer")
         fail(403, "Administrator browser session required");
       const { allowedSourceIds, scopes, expiresInDays, label } = request.body;
       if (scopes.includes("ingest") && !allowedSourceIds.length) fail(422, "Ingest keys require allowed sources");
-      const count = (
-        await pool.query(
-          "SELECT COUNT(*) FROM collection_source WHERE id=ANY($1::uuid[])",
-          [allowedSourceIds],
-        )
-      ).rows[0].count;
-      if (Number(count) !== new Set(allowedSourceIds).size)
+      if (!(await options.validateSourceIds(pool, allowedSourceIds)))
         fail(422, "Unknown allowed source");
       return createSession(
         pool,
@@ -323,7 +322,7 @@ export async function accessRoutes(
   );
   api.delete(
     "/v1/access/keys/:id",
-    { schema: { params: ParamsId } },
+    { config: { auth: { access: "admin_mfa" } }, schema: { params: ParamsId } },
     async (request) => {
       if (request.actor!.clientKind !== "browser")
         fail(403, "Browser session required");
@@ -334,7 +333,7 @@ export async function accessRoutes(
       return { revoked: true };
     },
   );
-  api.get("/v1/access/users", async (request) => {
+  api.get("/v1/access/users", { config: { auth: { access: "admin" } } }, async (request) => {
     const actor = request.actor!;
     if (actor.clientKind !== "browser" || actor.role === "viewer")
       fail(403, "Administrator browser session required");
@@ -343,6 +342,7 @@ export async function accessRoutes(
   api.patch(
     "/v1/access/users/:id",
     {
+      config: { auth: { access: "admin_mfa" } },
       schema: {
         params: ParamsId,
         body: Type.Object(
@@ -362,7 +362,7 @@ export async function accessRoutes(
       return { user: await updateUserAccess(pool, actor, request.params.id, request.body) };
     },
   );
-  api.get("/v1/access/audit", async (request) => {
+  api.get("/v1/access/audit", { config: { auth: { access: "admin" } } }, async (request) => {
     const actor = request.actor!;
     if (actor.clientKind !== "browser" || actor.role === "viewer")
       fail(403, "Administrator browser session required");

@@ -4,8 +4,9 @@ import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 import {
   AccountEmailFinish, AccountEmailStart, AccountPasswordChange, AccountToken,
-} from "../../../packages/contracts/src/source-content";
-import { fail, transaction } from "../../storage/db";
+} from "../../../packages/contracts/src/access";
+import { fail } from "../../shared/errors";
+import { transaction } from "../../storage/db";
 import type { AccountEmailProvider, AccountEmailPurpose } from "./email-provider";
 import { finishAccountEmail, replaceAccountPassword, reserveAccountEmail } from "./email-sql";
 import { hashPassword, verifyLoginPassword } from "./password";
@@ -16,10 +17,9 @@ export const accountPublicPosts = new Set([
   "/v1/auth/email/reset/start", "/v1/auth/email/reset/finish", "/v1/auth/email/verify/finish",
 ]);
 
-const challengeRate = {
-  bodyLimit: 8192,
-  config: { rateLimit: { max: 8, timeWindow: "15 minutes" } },
-};
+const rate = { rateLimit: { max: 8, timeWindow: "15 minutes" } };
+const publicAuth = { auth: { access: "public" as const, browserOnly: true, credentialSubmission: true } };
+const viewerWriteAuth = { auth: { access: "viewer_write" as const, browserOnly: true } };
 
 export async function emailRoutes(
   app: FastifyInstance, pool: Pool, provider: AccountEmailProvider,
@@ -42,30 +42,32 @@ export async function emailRoutes(
   }
 
   for (const purpose of ["register", "reset"] as const) {
-    api.post(`/v1/auth/email/${purpose}/start`, { ...challengeRate, schema: { body: AccountEmailStart } }, async ({ body }) => {
+    api.post(`/v1/auth/email/${purpose}/start`, { bodyLimit: 8192, config: { ...rate, ...publicAuth }, schema: { body: AccountEmailStart } }, async ({ body }) => {
       if (!await provider.verify(body.proof, purpose)) fail(422, "Verification did not pass");
       return send(purpose, body.email.toLowerCase(), { inviteCode: purpose === "register" ? body.invite : undefined });
     });
-    api.post(`/v1/auth/email/${purpose}/finish`, { ...challengeRate, schema: { body: AccountEmailFinish } }, async ({ body, id }) => {
+    api.post(`/v1/auth/email/${purpose}/finish`, { bodyLimit: 8192, config: { ...rate, ...publicAuth }, schema: { body: AccountEmailFinish } }, async ({ body, id }) => {
       await finishAccountEmail(pool, purpose, body.token, id, { ...options, password: body.password });
       return { completed: true };
     });
   }
   api.post("/v1/auth/email/verify/start", {
-    ...challengeRate,
+    bodyLimit: 8192,
+    config: { ...rate, ...viewerWriteAuth },
     schema: { body: Type.Object({ proof: AccountEmailStart.properties.proof }, { additionalProperties: false }) },
   }, async ({ actor, body }) => {
     if (!await provider.verify(body.proof, "verify")) fail(422, "Verification did not pass");
     return send("verify", actor!.email, { userId: actor!.userId });
   });
   api.post("/v1/auth/email/verify/finish", {
-    ...challengeRate,
+    bodyLimit: 8192,
+    config: { ...rate, ...publicAuth },
     schema: { body: Type.Object({ token: AccountToken }, { additionalProperties: false }) },
   }, async ({ body, id }) => {
     await finishAccountEmail(pool, "verify", body.token, id);
     return { completed: true };
   });
-  api.post("/v1/auth/password/change", { ...challengeRate, schema: { body: AccountPasswordChange } }, async ({ actor, body, id }) => {
+  api.post("/v1/auth/password/change", { bodyLimit: 8192, config: { ...rate, ...viewerWriteAuth }, schema: { body: AccountPasswordChange } }, async ({ actor, body, id }) => {
     if (actor!.role !== "viewer") fail(403, "Privileged accounts require the administrator recovery process");
     checkNewPassword(body.password, actor!.email);
     const user = (await pool.query<{ credential_version: number; password_hash: string }>(

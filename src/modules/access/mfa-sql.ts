@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import { Scopes, type Actor } from "../../../packages/contracts/src/source-content";
-import { fail, transaction } from "../../storage/db";
+import { Scopes, type Actor } from "../../../packages/contracts/src/access";
+import { fail } from "../../shared/errors";
+import { transaction } from "../../storage/db";
 import { openTotpSeed, sealTotpSeed, totpStep } from "./mfa-crypto";
 import { createSession, recordAuthEvent, tokenHash } from "./sql";
 
