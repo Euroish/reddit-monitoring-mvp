@@ -64,14 +64,4 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: |
-          docker build --target runtime -t monitoring-audit:runtime .
-          docker build --target proxy -t monitoring-audit:proxy .
-          docker run --rm --entrypoint sh monitoring-audit:runtime -c '
-            for bin in python python3 chromium chromium-browser google-chrome duckdb; do
-              if command -v "$bin" >/dev/null 2>&1; then
-                echo "Forbidden heavy binary found in runtime image: $bin"
-                exit 1
-              fi
-            done
-          '
+      - run: bash scripts/verify-container-build.sh

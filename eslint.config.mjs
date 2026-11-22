@@ -116,9 +116,9 @@ export default tseslint.config(
         },
       ],
 
-      // Soft maintainability advisories (visible in lint output, non-blocking)
+      // New high-complexity findings block CI; existing findings are tracked in eslint-suppressions.json.
       "@typescript-eslint/no-explicit-any": "warn",
-      complexity: ["warn", { max: 25 }],
+      complexity: ["error", { max: 25 }],
       "max-lines": ["warn", { max: 650, skipBlankLines: true, skipComments: true }],
     },
   },

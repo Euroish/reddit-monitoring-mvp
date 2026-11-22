@@ -1,22 +1,16 @@
-## 1. 变更摘要与影响域
-- **变更目标**：
-- **触碰模块 / 目录**：（例：`src/modules/ai/`、`apps/web/src/pages/`、`src/storage/schema/059_*.sql`）
-- **新增/修改数据库表或迁移**：无 / `059_...`（说明锁表风险与索引影响）
+## 目标与范围
 
-## 2. 业务不变量核对（参考 `docs/invariants.md`）
-- [ ] **鉴权与对象隔离（INV-001）**：新路由已明确访问级别，未向匿名/Viewer/Machine Key 意外放权
-- [ ] **模块边界与表归属（INV-007 / INV-008）**：跨模块仅通过 `index.ts` 导入；未直接写入别家模块拥有的表
-- [ ] **并发 / 幂等 / 迁移安全（INV-002..005）**：未改写已合入迁移；付费/配额/写入链路保持幂等
-- [ ] **反漂移底线**：未为通过 CI 删除或跳过（`.skip`）既有测试，未擅自放宽 ESLint / dependency-cruiser / CI 门禁
+- 用户或系统行为的变化
+- 影响的模块、契约、表和已有数据
+- 依赖的 PR（独立 PR 填「无」，从 `main` 开分支）
 
-## 3. 实跑验证证据
-- [ ] `npm run lint`（`lint:policy` + `lint:api` + `lint:arch` + `lint:web`）
-- [ ] `npm run typecheck`
-- [ ] `npm run check:openapi`
-- [ ] `npm run test:unit`
-- [ ] `npm run build && npm run check:web-bundle`
-- [ ] `npm run test:postgres` / `npm run test:browser`（如涉及 DB / 核心 UI）
+## 验证
 
-## 4. 未验证项与回滚风险
-- **未覆盖场景 / 已知限制**：
-- **线上回滚说明**：
+- 写出本地实跑的命令和结果。CI 的自动验证范围见 `CI Gate`。
+- 修复缺陷时，写出重现方式和验证该缺陷的测试。
+- 涉及迁移、权限、并发、外部付费调用时，说明失败路径、兼容性及回滚方式。
+
+## 审查
+
+- 新增跨模块依赖、抽象、测试替身或 lint 豁免时，说明它解决的具体问题。
+- 如果移除或替换了测试，指出承接关键行为的测试。
