@@ -13,7 +13,7 @@ import {
   updateAnnotation,
 } from "./sql";
 import { fail } from "../../storage/db";
-import { compileContentFilter } from "../content/search";
+import { compileContentFilter } from "../content/index";
 
 export async function workspaceRoutes(app: FastifyInstance, pool: Pool) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();

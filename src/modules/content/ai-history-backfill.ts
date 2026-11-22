@@ -11,35 +11,12 @@ import {
 import {
   runEpochCsvBackfill,
   runOfficialArchiveBackfill,
+  type BackfillOptions,
+  type BackfillResult,
 } from "./ai-history-backfill-sources";
 import { isOfficialVendorUrl } from "./ai-registry";
 
-export interface BackfillOptions {
-  sourceCode: "content_history" | "official_archive" | "epoch_csv";
-  vendorSlug?: string;
-  dateFrom?: string;
-  dateTo?: string;
-  batchSize?: number;
-  maxItems?: number;
-  dryRun?: boolean;
-  resume?: boolean;
-  autoPublish?: boolean;
-  csvPath?: string;
-  archiveUrls?: Array<{ vendorSlug: string; url: string }>;
-  fetcher?: (url: string, headers: Record<string, string>) => Promise<{ status: number; bodyText?: string }>;
-}
-
-export interface BackfillResult {
-  runId: string;
-  sourceCode: string;
-  status: "succeeded" | "paused" | "failed";
-  scanned: number;
-  published: number;
-  candidatesCreated: number;
-  skipped: number;
-  conflicts: number;
-  cursor: Record<string, unknown>;
-}
+export type { BackfillOptions, BackfillResult };
 
 async function createOrResumeRun(
   pool: Pool,

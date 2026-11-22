@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import type { Actor, Filter } from "../../../packages/contracts/src/source-content";
-import { projectSources } from "../projects/sql";
+import { projectSources } from "../projects/index";
 import { fail } from "../../storage/db";
 import { compileContentFilter, contentSelect } from "./search";
 import { contentFromRow } from "./sql";

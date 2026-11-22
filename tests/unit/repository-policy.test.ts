@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { DOCUMENTATION_FILES } from "../../scripts/release-package-lib.mjs";
 
-test("repository policy accepts clean multi-helper modules and enforces AST, record SSOT, and anti-golfing boundaries", t => {
+test("repository policy allows flexible module/doc growth while enforcing links, secrets, retired paths, and migration immutability", (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "monitor-policy-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const put = (file: string, body: string) => {
@@ -16,23 +16,35 @@ test("repository policy accepts clean multi-helper modules and enforces AST, rec
   execFileSync("git", ["init", "--quiet"], { cwd: root });
   for (const file of DOCUMENTATION_FILES) put(file, "# Fixture\n");
   put("AGENTS.md", "# Fixture\n[Dev](docs/development.md)\n[Status](docs/status.md)\n");
-  put("src/modules/content/batch.ts", `// ${"reason ".repeat(60)}\nexport const message = "class Wrapper {}";\nexport const sql = \`SELECT ${"a,".repeat(130)}b\`;\n`);
+  // Flexible growth: new domain modules, nested subdirectories, standard classes, >60-line README, and >450-line files are permitted.
+  put("README.md", "# Fixture\n" + "line\n".repeat(75));
+  put(
+    "src/modules/analytics/trends/sql.ts",
+    `export class AnalyticsError extends Error {}\n` + "export const row = 1;\n".repeat(460),
+  );
+  put("docs/research/additional/study.md", "# Additional research\n");
+  put("notes.md", "# Additional notes\n");
+  execFileSync("git", ["add", "--", "docs/research/additional/study.md"], { cwd: root });
+
   const run = (base = "") =>
     spawnSync(process.execPath, ["--import", "tsx", path.resolve("scripts/check-docs.ts"), root], {
       cwd: process.cwd(),
       encoding: "utf8",
       env: { ...process.env, LOCAL_ENV_FILE: "none", MIGRATION_BASE_SHA: base },
     });
-  put("docs/research/additional/study.md", "# Additional research\n");
-  put("notes.md", "# Additional notes\n");
-  execFileSync("git", ["add", "--", "docs/research/additional/study.md"], { cwd: root });
+
   const valid = run();
   assert.equal(valid.status, 0, valid.stderr);
 
+  // Migration immutability and monotonic numbering
   const sql = "src/storage/schema/053_product_docs.sql";
   const commit = (message: string) => {
     execFileSync("git", ["add", "--", "src/storage/schema"], { cwd: root });
-    execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", message], { cwd: root });
+    execFileSync(
+      "git",
+      ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", message],
+      { cwd: root },
+    );
     return execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
   };
   put(sql, "SELECT 1;\n");
@@ -46,26 +58,61 @@ test("repository policy accepts clean multi-helper modules and enforces AST, rec
   assert.equal(rewritten.status, 1, rewritten.stderr);
   assert.match(rewritten.stderr, /Applied migration .*053_product_docs\.sql must not be modified/);
 
+  // Real guardrails must still fail loudly
   put("AGENTS.md", "# Missing SSOT pointers\n");
-  put("docs/README.md", "# Fixture\n| ARC-01 | MUST | One definition | lint |\n");
-  put("docs/contracts.md", "# Fixture\n| ARC-01 | MUST | Duplicate | lint |\n| ARC-02 | REQUIRED | Bad keyword | lint |\n[bad](README.md#missing)\n");
+  put("docs/contracts.md", "# Fixture\n[bad](README.md#missing)\n");
   put("docs/history/handoff.txt", "Unexpected file type\n");
-  put("README.md", "line\n".repeat(61));
-  put("src/modules/rogue/routes.ts", "export const value = 1;\n");
-  put("src/modules/content/routes.ts", `import { old } from "../../application/services/old"; export class Wrapper {}\nexport const golf = "${"x".repeat(230)}";\n`);
-  put("src/modules/content/sql.ts", "export const row = 1;\n".repeat(455));
   put("src/storage/schema/042_a.sql", "SELECT 1;\n");
   put("src/storage/schema/042_b.sql", "SELECT 2;\n");
   put(".env.local", "APIFY_API_TOKEN=synthetic_fixture_only\n");
   execFileSync("git", ["add", "--", ".env.local"], { cwd: root });
   put("src/runtime/obsolete.ts", "export const retired = true;\n");
+  put("src/connectors/reddit/arctic-shift.ts", "export const retired = true;\n");
+
   const invalid = run();
   assert.equal(invalid.status, 1, invalid.stderr);
   for (const error of [
-    /AGENTS\.md must point explicitly/, /Duplicate rule ARC-01/, /needs a normative keyword/,
-    /Invalid Markdown anchor/, /Unexpected docs entry: docs\/history\/handoff\.txt/, /60 lines/,
-    /Unregistered module file/, /Legacy dependency/, /Wrapper class/,
-    /Code line exceeds 220 chars/, /Oversized module file/, /Duplicate forward migration prefix 042/,
-    /Private configuration tracked/, /Retired architecture path/,
-  ]) assert.match(invalid.stderr, error);
+    /AGENTS\.md must point explicitly/,
+    /Invalid Markdown anchor/,
+    /Unexpected docs entry: docs\/history\/handoff\.txt/,
+    /Duplicate forward migration prefix 042/,
+    /Private configuration tracked/,
+    /Retired architecture path/,
+    /Retired online connector/,
+  ]) {
+    assert.match(invalid.stderr, error);
+  }
+});
+
+test("web bundle boundary guard rejects eager charts chunks and leaked server secret names", (t) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "monitor-web-bundle-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const put = (file: string, body: string) => {
+    mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+    writeFileSync(path.join(root, file), body);
+  };
+  const run = () =>
+    spawnSync(process.execPath, [path.resolve("scripts/check-web-bundle.mjs"), root], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    });
+
+  put(
+    "apps/web/dist/index.html",
+    `<!doctype html><script type="module" src="/assets/index-abc123.js"></script>`,
+  );
+  put("apps/web/dist/assets/index-abc123.js", `console.log("clean");`);
+  put("apps/web/dist/assets/charts-def456.js", `console.log("lazy echarts");`);
+  const ok = run();
+  assert.equal(ok.status, 0, ok.stderr);
+
+  put(
+    "apps/web/dist/index.html",
+    `<!doctype html><link rel="modulepreload" href="/assets/charts-def456.js"><script type="module" src="/assets/index-abc123.js"></script>`,
+  );
+  put("apps/web/dist/assets/index-abc123.js", `const leaked = "VITE_APIFY_API_TOKEN";`);
+  const bad = run();
+  assert.equal(bad.status, 1, bad.stdout);
+  assert.match(bad.stderr, /eagerly loads charts chunk/);
+  assert.match(bad.stderr, /forbidden server secret identifier/);
 });

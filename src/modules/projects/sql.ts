@@ -3,7 +3,7 @@ import type { Pool, PoolClient } from "pg";
 import type { Static } from "@sinclair/typebox";
 import type { Actor, Filter, ProjectInput } from "../../../packages/contracts/src/source-content";
 import { transaction, fail } from "../../storage/db";
-import { compileContentFilter, matchingNodes } from "../content/search";
+import { compileContentFilter, matchingNodes } from "../content/index";
 
 type ProjectWrite = Static<typeof ProjectInput>;
 export interface Project {

@@ -54,7 +54,10 @@ test("browser: editorial footer routes, responsive layout, language and workbenc
   const root = path.resolve("apps/web");
   const webRequire = createRequire(path.join(root, "package.json"));
   const viteEntry = pathToFileURL(webRequire.resolve("vite")).href;
-  const vite = await import(viteEntry) as typeof import("../../apps/web/node_modules/vite/dist/node/index.js");
+  const vite = (await import(viteEntry)) as {
+    preview(config: Record<string, unknown>): Promise<{ close(): Promise<void> }>;
+    createServer(config: Record<string, unknown>): Promise<{ listen(): Promise<{ close(): Promise<void> }> }>;
+  };
   const options = {
     host,
     port,
@@ -63,7 +66,7 @@ test("browser: editorial footer routes, responsive layout, language and workbenc
   };
   const server = compiled
     ? await vite.preview({ root, preview: options })
-    : await vite.createServer({ root, server: options }).then((server) => server.listen());
+    : await vite.createServer({ root, server: options }).then((devServer) => devServer.listen());
   t.after(() => server.close());
 
   const browser = await chromium.launch({

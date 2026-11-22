@@ -8,7 +8,7 @@ import {
 import { deleteProject, listProjects, projectOverview, projectSources, writeProject } from "./sql";
 
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
-import { enqueueHydration } from "../collection/hydrate";
+import { enqueueHydration } from "../collection/index";
 import { fail } from "../../storage/db";
 
 const Revision = Type.Object({ revision: Type.Integer({ minimum: 1 }) }, { additionalProperties: false });

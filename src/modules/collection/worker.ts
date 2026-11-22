@@ -3,7 +3,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { Pool } from "pg";
 import { ContentProviderError, type CollectedPage, type ContentProvider } from "../../connectors/shared/content-provider.interface";
 import type { JsonValue, Actor } from "../../../packages/contracts/src/source-content";
-import { commitContentBatch, prepareContentBatch } from "../content/sql";
+import { commitContentBatch, prepareContentBatch } from "../content/index";
 import { fail, transaction } from "../../storage/db";
 import { lockSource, sourceFromRow } from "./sql";
 import { isViewerJobStillAuthorized, recordUserExecutedRequest, requestedCommentLimit } from "./policy";
