@@ -46,19 +46,20 @@ function availableFallback(
 }
 
 export function SourceEditor({
-  capabilities, source, onClose, onSaved,
+  capabilities, source, preferredChannel, onClose, onSaved,
 }: {
   capabilities: SourceCapability[];
   source?: CollectionSource;
+  preferredChannel?: SourceCapability;
   onClose: () => void;
   onSaved: (id: string) => void;
 }) {
   const { t } = useI18n();
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { dialog.current?.showModal(); }, []);
-  const [platform, setPlatform] = useState<SourceInput['platform']>(source?.platform ?? 'web');
+  const [platform, setPlatform] = useState<SourceInput['platform']>(source?.platform ?? preferredChannel?.platform ?? 'web');
   const [mode, setMode] = useState<SourceInput['deliveryMode']>(source?.deliveryMode ?? 'pull');
-  const [provider, setProvider] = useState('');
+  const [provider, setProvider] = useState<string>(preferredChannel?.provider ?? '');
   const [targetType, setTargetType] = useState<SourceTarget['type']>('feed');
   const [kind, setKind] = useState<SourceInput['contentKind']>('article');
   const [targetValue, setTargetValue] = useState('');
@@ -192,7 +193,7 @@ export function SourceEditor({
               </div>
               {mode === 'pull' && (
                 <label className="wb-field">{t('Primary provider', '主渠道')}
-                  <select className="wb-select" value={cap?.provider ?? ''} onChange={event => { setProvider(event.target.value); setTargetValue(''); }}>
+                  <select className="wb-select" aria-label={t('Primary provider', '主渠道')} value={cap?.provider ?? ''} onChange={event => { setProvider(event.target.value); setTargetValue(''); }}>
                     {!cap && <option value="">{t('No ready provider', '当前无就绪渠道')}</option>}
                     {providers.map(item => <option value={item.provider} key={item.provider} disabled={!item.enabled}>{item.provider}{item.enabled ? '' : ' · ' + t('not ready', '未就绪')}</option>)}
                   </select>
@@ -201,7 +202,7 @@ export function SourceEditor({
               {mode === 'pull' && !cap && <p className="muted">{t('Check service networking and provider credentials in Channels.', '请在渠道设置中检查服务联网与凭证。')}</p>}
               <div className="wb-grid-2">
                 <label className="wb-field">{t('Target type', '目标类型')}
-                  <select className="wb-select" value={target ?? ''} onChange={event => { setTargetType(event.target.value as typeof targetType); setTargetValue(''); }}>
+                  <select className="wb-select" aria-label={t('Target type', '目标类型')} value={target ?? ''} onChange={event => { setTargetType(event.target.value as typeof targetType); setTargetValue(''); }}>
                     {targets.map(value => <option key={value} value={value}>{t(targetLabels[value][0], targetLabels[value][1])}</option>)}
                   </select>
                 </label>

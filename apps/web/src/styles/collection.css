@@ -272,8 +272,23 @@
   background: var(--white);
   color: var(--ink);
   text-align: left;
+}
+
+.collection-source-select {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
   cursor: pointer;
 }
+
+.collection-source-select small { overflow-wrap: anywhere; }
+.collection-source-launch { justify-self: start; }
+.collection-operation:focus { outline: 2px solid var(--wb-teal); outline-offset: 5px; }
 
 .collection-source-row.is-selected {
   border-color: var(--wb-teal);
