@@ -42,12 +42,36 @@ test("PG16 forward migration failure rolls back DDL/ledger, 050 drops legacy sch
   const tables = (
     await db.pool.query("SELECT tablename FROM pg_tables WHERE schemaname='public'")
   ).rows.map((r) => r.tablename);
-  // Verify core post-050..053 tables exist and retired legacy tables never return.
+  // Verify core post-050..058 tables exist and retired legacy tables never return.
   // Table count is intentionally uncapped; schema safety is enforced via immutable migrations + Squawk + CODEOWNERS.
+  assert.ok(tables.includes("app_auth_challenge"));
+  assert.ok(tables.includes("app_auth_mfa"));
+  assert.ok(tables.includes("app_auth_mfa_login"));
   assert.ok(tables.includes("source_provider_credential"));
   assert.ok(tables.includes("plan_collection_policy"));
   assert.ok(tables.includes("user_provider_usage"));
   assert.ok(tables.includes("doc_page"));
+  for (const aiTable of [
+    "ai_vendor",
+    "ai_vendor_source",
+    "ai_model",
+    "ai_model_alias",
+    "ai_registry_source",
+    "ai_registry_listing",
+    "ai_registry_change",
+    "ai_model_spec_observation",
+    "ai_event_candidate",
+    "ai_release_event",
+    "ai_event_reference",
+    "ai_sync_run",
+    "ai_benchmark_snapshot",
+    "ai_benchmark_entry",
+    "ai_llm_extraction_cache",
+    "ai_auto_publish_audit",
+    "ai_ops_alert",
+  ]) {
+    assert.ok(tables.includes(aiTable), `${aiTable} should exist after 054/055`);
+  }
   for (const dropped of ["research_export", "research_export_member", "saved_workbench_view", "collection_job", "monitor_target"]) {
     assert.equal(tables.includes(dropped), false, `${dropped} should be dropped`);
   }

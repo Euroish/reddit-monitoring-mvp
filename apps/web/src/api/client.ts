@@ -1,3 +1,4 @@
+import type { AccountInviteDto, BrowserSessionDto } from "../../../../packages/contracts/src/source-content";
 import {
   type Actor,
   type AnnotationDetail,
@@ -115,15 +116,55 @@ export const apiClient = {
     return liveFetch('/readyz', { rawBase: true });
   },
 
+  async getBrowserSessions(): Promise<{ sessions: BrowserSessionDto[] }> {
+    return liveFetch("/auth/sessions");
+  },
+
+  async revokeBrowserSession(id: string): Promise<{ revoked: boolean }> {
+    return liveFetch("/auth/sessions/" + encodeURIComponent(id), { method: "DELETE" });
+  },
+
+  async logoutAll(): Promise<{ loggedOut: boolean }> {
+    return liveFetch("/auth/logout-all", { method: "POST" });
+  },
+
   async getSession(): Promise<SessionPayload> {
     return liveFetch('/auth/session');
   },
 
-  async login(email: string, password: string): Promise<{ user: Actor }> {
+  startAccountEmail(purpose: 'register' | 'verify' | 'reset', email: string, proof: string, invite?: string) {
+    const body = purpose === 'verify' ? { proof } : { email, proof, invite };
+    return liveFetch<{ accepted: boolean }>('/auth/email/' + purpose + '/start', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  finishAccountEmail(purpose: 'register' | 'verify' | 'reset', token: string, password: string) {
+    const body = purpose === 'verify' ? { token } : { token, password };
+    return liveFetch<{ completed: boolean }>('/auth/email/' + purpose + '/finish', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  changeAccountPassword(currentPassword: string, password: string) {
+    return liveFetch<{ completed: boolean }>('/auth/password/change', {
+      method: 'POST', body: JSON.stringify({ currentPassword, password }),
+    });
+  },
+
+  async login(email: string, password: string, remember?: boolean): Promise<{ user: Actor } | { mfaRequired: true; challenge: string }> {
     return liveFetch('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, remember }),
     });
+  },
+
+  completeMfa(challenge: string, code: string) {
+    return liveFetch<{ user: Actor }>('/auth/mfa/complete', { method: 'POST', body: JSON.stringify({ challenge, code }) });
+  },
+
+  stepUpMfa(code: string) {
+    return liveFetch<{ verified: boolean }>('/auth/mfa/step-up', { method: 'POST', body: JSON.stringify({ code }) });
+  },
+
+  rotateRecoveryCodes() {
+    return liveFetch<{ codes: string[] }>('/auth/mfa/recovery-codes', { method: 'POST' });
   },
 
   async register(
@@ -442,11 +483,19 @@ export const apiClient = {
     });
   },
 
-  async createInvite(role: 'viewer' | 'admin'): Promise<{ code: string }> {
+  async createInvite(role: 'viewer' | 'admin', email?: string): Promise<{ code: string }> {
     return liveFetch('/access/invites', {
       method: 'POST',
-      body: JSON.stringify({ role }),
+      body: JSON.stringify({ role, email }),
     });
+  },
+
+  listInvites() {
+    return liveFetch<{ invites: AccountInviteDto[] }>('/access/invites');
+  },
+
+  revokeInvite(id: string) {
+    return liveFetch<{ revoked: boolean }>('/access/invites/' + encodeURIComponent(id), { method: 'DELETE' });
   },
 
   async getMachineKeys(): Promise<{ keys: MachineKeyDto[] }> {

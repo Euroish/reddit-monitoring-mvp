@@ -24,9 +24,9 @@
 
 - **真实性红线**：`MUST NOT` 将 `[V2]` 规划项（如 `linkedom`/`Readability`、`story_cluster`、`stream_class`、`/discovery/query`、`/content/:id/enrich`）或未启用渠道写成 `[LIVE]`；用户指令高于规划。
 - **单主干与反漂移红线**：仓库唯一常驻主干为 **`main`**（不设常驻 `develop`/`prod`）；所有改动须从最新 `origin/main` 切短分支（`feat/*` `<= 3` 天、`fix/*` `<= 1` 天），合前以 `git merge/rebase origin/main` 同步（严禁跨分支拷贝覆盖文件），AI 解冲突后必须核对 `git diff origin/main --stat` 且 `CI Gate` 绿灯后 `Squash and Merge`；发版打 `vX.Y.Z` 不可变 Tag。
-- **迁移安全纪律（不设僵化表数上限）**：主干已合入迁移不可改写、移动或删除；新迁移顺延编号，由 `docs:check`、`Squawk`（防锁表/并发索引隐患）、PG16 事务回滚测试与 `.github/CODEOWNERS` 联合把关；`050` 退役旧表不可复活。
+- **迁移安全纪律（不设僵化表数上限）**：主干已合入迁移（`001..058`）不可改写、移动或删除；新迁移顺延编号，由 `docs:check`、`Squawk`（防锁表/并发索引隐患）、PG16 事务回滚测试与 `.github/CODEOWNERS` 联合把关；`050` 退役旧表不可复活。
 - **主线与外挂隔离**：主线只运行轻量 `Fastify 5 + TypeBox + PG16 + React`（零 Python/DuckDB/Chromium/ORM/Redis）；R4 `plugins/zst-archive/` 与 L3 重型/强反爬采集器 `MUST` 外置运行，只持带明确 `allowedSourceIds` 与 `ingest` scope 的 Machine Key 调用 `POST /v1/sources/:id/ingest`。
-- **模块化边界与代码质量纪律**：允许按独立业务域新增 `src/modules/<domain>/` 与子目录（不设僵化模块数或 450 行硬上限），但 `MUST` 通过 `eslint`（异步安全 `no-floating-promises` / 禁 `*Repository` 与 `InMemory*`）与 `dependency-cruiser`（零循环依赖、禁跨模块引 `routes.ts`、禁越界耦合 `access`/`workspace`、禁前端引后端 `src/`）；全库唯一内容写入口为 `commitContentBatch`；`/v1/content/*` 仅 `GET/HEAD` 映射 `read` scope；付费渠道 `unknown` 永不自动重放；禁输出密钥、禁无授权 `git push --force`。
+- **模块化边界与代码质量纪律**：允许按独立业务域新增 `src/modules/<domain>/` 与子目录（不设僵化模块数或 450 行硬上限），但 `MUST` 通过 `eslint`（异步安全 `no-floating-promises` / 禁 `*Repository` 与 `InMemory*`）、`dependency-cruiser`（零循环依赖、禁跨模块引 `routes.ts`、禁越界耦合 `access`/`workspace`、禁跨模块深挖内部文件、禁前端引后端 `src/`）与路由鉴权/表写归属契约校验；全库唯一内容写入口为 `commitContentBatch`；`/v1/content/*` 仅 `GET/HEAD` 映射 `read` scope；付费渠道 `unknown` 永不自动重放；禁输出密钥、禁无授权 `git push --force`。
 4.开发代码提交pr原则
   全面低复杂度，最大程度利用代码效率和性能
   尽可能轻量/模块化/长期迭代

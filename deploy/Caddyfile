@@ -1,19 +1,51 @@
+{
+  servers {
+    trusted_proxies static {$TUNNEL_CONNECTOR_IP:192.0.2.255}
+    trusted_proxies_strict
+    client_ip_headers CF-Connecting-IP
+  }
+}
+
 {$SITE_ADDRESS} {
   {$TLS_CONFIG}
   encode zstd gzip
+  header {
+    X-Content-Type-Options nosniff
+    Referrer-Policy strict-origin-when-cross-origin
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Content-Security-Policy "frame-ancestors 'none'"
+  }
+  handle /api {
+    header Cache-Control no-store
+    respond 404
+  }
+  @tunnelReadiness {
+    remote_ip {$TUNNEL_CONNECTOR_IP:192.0.2.255}
+    path /readyz /api/readyz
+  }
+  handle @tunnelReadiness {
+    header Cache-Control no-store
+    respond 404
+  }
   handle_path /api/* {
-    reverse_proxy app:3000 {
+    header >Cache-Control no-store
+    reverse_proxy {$API_UPSTREAM:app:3000} {
+      header_up X-Forwarded-For {client_ip}
+      header_up -CF-Connecting-IP
+      header_up -Forwarded
       flush_interval -1
     }
   }
   handle /healthz {
-    reverse_proxy app:3000
+    reverse_proxy {$API_UPSTREAM:app:3000}
   }
   handle /readyz {
-    reverse_proxy app:3000
+    header Cache-Control no-store
+    reverse_proxy {$API_UPSTREAM:app:3000}
   }
   handle {
     root * /srv
+    header Cache-Control no-cache
     try_files {path} /index.html
     file_server
   }

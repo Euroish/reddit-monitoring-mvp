@@ -413,6 +413,8 @@ export interface SessionPayload {
   user: Actor | null;
   publicRead?: boolean;
   publicRegistration?: boolean;
+  turnstileSiteKey?: string;
+  mfaActive?: boolean;
 }
 
 export interface ProjectOverviewResponse {

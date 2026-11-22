@@ -7,6 +7,10 @@ import {
   strictMerge,
   ActorSchema,
   Login,
+  AccountEmailAddress,
+  AccountInviteSummary,
+  BrowserLogin,
+  BrowserSession,
   MachineKeyInput,
   PlanTier,
   Scopes,
@@ -15,21 +19,34 @@ import {
 } from "../../../packages/contracts/src/source-content";
 import {
   createSession,
+  createLoginSession,
   findActor,
   hashPassword,
   listAccessAudit,
+  listBrowserSessions,
+  revokeBrowserSessions,
+  recordAuthEvent,
   listUsers,
   tokenHash,
   updateUserAccess,
-  verifyPassword,
 } from "./sql";
+import { dummyPasswordHash, isCurrentPasswordHash, verifyLoginPassword } from "./password";
 import { fail, transaction } from "../../storage/db";
+import type { AccountEmailProvider } from "./email-provider";
+import { hasMfa, startMfaLogin } from "./mfa-sql";
 
 export async function accessRoutes(
   app: FastifyInstance,
   pool: Pool,
-  cookie: (token: string) => string,
-  options: { publicRead?: boolean; publicRegistration?: boolean } = {},
+  cookie: (token: string, maxAge?: number) => string,
+  options: {
+    publicRead?: boolean;
+    publicRegistration?: boolean;
+    strongerPasswords?: boolean;
+    accountEmail?: { provider: AccountEmailProvider; publicRegistration: boolean };
+    mfa?: { key: Buffer; required: boolean };
+    limitLogin: (email: string) => number;
+  },
 ) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   api.get(
@@ -41,6 +58,8 @@ export async function accessRoutes(
             user: Type.Union([ActorSchema, Type.Null()]),
             publicRead: Type.Boolean(),
             publicRegistration: Type.Boolean(),
+            turnstileSiteKey: Type.Optional(Type.String()),
+            mfaActive: Type.Optional(Type.Boolean()),
           }),
         },
       },
@@ -48,47 +67,66 @@ export async function accessRoutes(
     async (request) => ({
       user: request.actor,
       publicRead: Boolean(options.publicRead),
-      publicRegistration: Boolean(options.publicRegistration),
+      publicRegistration: options.accountEmail?.publicRegistration ?? Boolean(options.publicRegistration),
+      turnstileSiteKey: options.accountEmail?.provider.siteKey,
+      mfaActive: options.mfa && request.actor ? await hasMfa(pool, request.actor.userId) : undefined,
     }),
   );
   api.post(
     "/v1/auth/login",
     {
+      bodyLimit: 8 * 1024,
       config: { rateLimit: { max: 5, timeWindow: "1 minute" } },
-      schema: { body: Login },
+      schema: { body: BrowserLogin },
     },
     async (request, reply) => {
+      const email = request.body.email.trim().toLowerCase();
+      const retryAfter = options.limitLogin(email);
+      if (retryAfter) {
+        reply.header("Retry-After", retryAfter);
+        fail(429, "Too many login attempts");
+      }
       const row = (
         await pool.query(
-          `SELECT u.id,u.status,p.password_hash FROM app_user u JOIN app_user_password p ON p.user_id=u.id WHERE u.email=$1`,
-          [request.body.email.trim().toLowerCase()],
+          `SELECT u.id,u.status,u.role,u.credential_version,p.password_hash,
+             EXISTS (SELECT 1 FROM app_auth_mfa f WHERE f.user_id=u.id) AS enrolled
+           FROM app_user u JOIN app_user_password p ON p.user_id=u.id WHERE u.email=$1`,
+          [email],
         )
       ).rows[0];
-      const dummy = `scrypt:${"0".repeat(32)}:${"0".repeat(128)}`;
       if (
-        !(await verifyPassword(
+        !(await verifyLoginPassword(
           request.body.password,
-          row?.password_hash ?? dummy,
+          row?.password_hash ?? dummyPasswordHash(),
+          Boolean(options.strongerPasswords),
         )) ||
         row?.status !== "active"
-      )
+      ) {
+        request.log.info({ event: "auth.login.rejected" });
         fail(401, "Invalid email or password");
-      const session = await createSession(
-        pool,
-        row.id,
-        "browser",
-        Scopes,
-        null,
-        7,
+      }
+      if (row.enrolled) {
+        if (!options.mfa) fail(503, "Authenticator temporarily unavailable");
+        const challenge = await startMfaLogin(pool, row.id, row.credential_version);
+        return reply.code(202).send({ mfaRequired: true, challenge });
+      }
+      if (options.mfa?.required && row.role !== "viewer") fail(403, "Administrator MFA enrollment required");
+      const rehash = options.strongerPasswords && !isCurrentPasswordHash(row.password_hash)
+        ? { previous: row.password_hash, next: await hashPassword(request.body.password, true) }
+        : undefined;
+      const session = await createLoginSession(
+        pool, row.id, row.credential_version, Scopes, request.body.remember, rehash, request.id,
       );
-      reply.header("Set-Cookie", cookie(session.token));
       request.actor = await findActor(pool, session.token, "browser");
+      if (!request.actor) fail(401, "Invalid email or password");
+      reply.header("Set-Cookie", cookie(session.token, session.maxAge));
       return { user: request.actor };
     },
   );
   api.post(
     "/v1/auth/register",
     {
+      bodyLimit: 8 * 1024,
       config: { rateLimit: { max: 10, timeWindow: "15 minutes" } },
       schema: {
         body: strictMerge([
@@ -100,20 +138,23 @@ export async function accessRoutes(
       },
     },
     async (request, reply) => {
+      if (options.accountEmail) fail(403, "Use the email verification registration flow");
       if (request.body.password.length < 12)
         fail(422, "Password must have at least 12 characters");
       const inviteCode = request.body.invite;
       if (!inviteCode && !options.publicRegistration)
         fail(403, "Invitation required");
       const email = request.body.email.trim().toLowerCase();
-      const password = await hashPassword(request.body.password);
+      if (!/^[^\s@]+@[^\s@]+$/.test(email)) fail(422, "Invalid email address");
+      const password = await hashPassword(request.body.password, options.strongerPasswords);
       const outcome = await transaction(pool, async (client) => {
         let role: Actor["role"] = "viewer";
         let inviteId: string | null = null;
         if (inviteCode) {
           const invite = (
             await client.query(
-              "SELECT * FROM app_invite WHERE code_hash=$1 AND status='active' AND used_count<max_uses AND (expires_at IS NULL OR expires_at>NOW()) FOR UPDATE",
+              `SELECT * FROM app_invite WHERE code_hash=$1 AND recipient_email IS NULL AND status='active'
+               AND used_count<max_uses AND (expires_at IS NULL OR expires_at>NOW()) FOR UPDATE`,
               [tokenHash(inviteCode)],
             )
           ).rows[0];
@@ -141,9 +182,10 @@ export async function accessRoutes(
             "UPDATE app_invite SET used_count=used_count+1 WHERE id=$1",
             [inviteId],
           );
+          await recordAuthEvent(client, id, "auth.invite.accepted", request.id);
           return null;
         }
-        const session = await createSession(client, id, "browser", Scopes, null, 7);
+        const session = await createSession(client, id, "browser", Scopes, null, 1);
         const actor: Actor = {
           sessionId: session.id,
           userId: id,
@@ -162,11 +204,24 @@ export async function accessRoutes(
       return { registered: true, user: outcome.actor };
     },
   );
-  api.post("/v1/auth/logout", async (request, reply) => {
-    await pool.query("DELETE FROM app_session WHERE id=$1", [
-      request.actor!.sessionId,
-    ]);
-    reply.header("Set-Cookie", `${cookie("")}; Max-Age=0`);
+  api.post("/v1/auth/logout", { bodyLimit: 8192 }, async (request, reply) => {
+    const actor = request.actor;
+    if (actor) await revokeBrowserSessions(pool, actor, request.id, actor.sessionId);
+    reply.header("Set-Cookie", cookie("", 0));
+    return { loggedOut: true };
+  });
+  api.get("/v1/auth/sessions", {
+    schema: { response: { 200: Type.Object({ sessions: Type.Array(BrowserSession) }) } },
+  }, async (request) => ({ sessions: await listBrowserSessions(pool, request.actor!) }));
+  api.delete("/v1/auth/sessions/:id", { schema: { params: ParamsId } }, async (request, reply) => {
+    const actor = request.actor!;
+    await revokeBrowserSessions(pool, actor, request.id, request.params.id);
+    if (actor.sessionId === request.params.id) reply.header("Set-Cookie", cookie("", 0));
+    return { revoked: true };
+  });
+  api.post("/v1/auth/logout-all", { bodyLimit: 8192 }, async (request, reply) => {
+    await revokeBrowserSessions(pool, request.actor!, request.id);
+    reply.header("Set-Cookie", cookie("", 0));
     return { loggedOut: true };
   });
   api.get("/v1/access/keys", async (request) => {
@@ -186,7 +241,7 @@ export async function accessRoutes(
     {
       schema: {
         body: Type.Object(
-          { role: Type.Union([Type.Literal("viewer"), Type.Literal("admin")]) },
+          { role: Type.Union([Type.Literal("viewer"), Type.Literal("admin")]), email: Type.Optional(AccountEmailAddress) },
           { additionalProperties: false },
         ),
       },
@@ -199,14 +254,45 @@ export async function accessRoutes(
         (request.body.role === "admin" && actor.role !== "owner")
       )
         fail(403, "Owner required to invite administrators");
+      const email = request.body.email?.toLowerCase();
+      if (options.accountEmail && !email) fail(422, "Recipient email is required");
+      if (email && !options.accountEmail) fail(403, "Email-bound invitations are disabled");
       const code = randomUUID() + randomUUID();
-      await pool.query(
-        "INSERT INTO app_invite(id,code_hash,status,role_on_accept,max_uses,expires_at) VALUES($1,$2,'active',$3,1,NOW()+interval '7 days')",
-        [randomUUID(), tokenHash(code), request.body.role],
-      );
+      await transaction(pool, async (client) => {
+        await client.query(
+          `INSERT INTO app_invite(id,code_hash,status,role_on_accept,max_uses,expires_at,recipient_email)
+           VALUES($1,$2,'active',$3,1,NOW()+interval '7 days',$4)`,
+          [randomUUID(), tokenHash(code), request.body.role, email ?? null],
+        );
+        await recordAuthEvent(client, actor.userId, "auth.invite.created", request.id);
+      });
       return { code };
     },
   );
+  api.get("/v1/access/invites", {
+    schema: { response: { 200: Type.Object({ invites: Type.Array(AccountInviteSummary) }) } },
+  }, async ({ actor }) => {
+    if (actor!.role === "viewer") fail(403, "Administrator access required");
+    const invites = await pool.query(
+      `SELECT id, role_on_accept AS role, recipient_email IS NOT NULL AS "emailBound", expires_at AS "expiresAt",
+         CASE WHEN status='disabled' THEN 'disabled' WHEN used_count>=max_uses THEN 'used'
+              WHEN expires_at<=NOW() THEN 'expired' ELSE 'active' END AS status
+       FROM app_invite WHERE role_on_accept IN ('viewer','admin') AND ($1 OR role_on_accept='viewer')
+       ORDER BY created_at DESC,id LIMIT 50`, [actor!.role === "owner"],
+    );
+    return { invites: invites.rows };
+  });
+  api.delete("/v1/access/invites/:id", { schema: { params: ParamsId } }, async ({ actor, id, params }) => {
+    if (actor!.role === "viewer") fail(403, "Administrator access required");
+    await transaction(pool, async (client) => {
+      const result = await client.query(
+        `UPDATE app_invite SET status='disabled' WHERE id=$1 AND status='active'
+         AND role_on_accept IN ('viewer','admin') AND ($2 OR role_on_accept='viewer')`, [params.id, actor!.role === "owner"],
+      );
+      if (result.rowCount) await recordAuthEvent(client, actor!.userId, "auth.invite.revoked", id);
+    });
+    return { revoked: true };
+  });
   api.post(
     "/v1/access/keys",
     { schema: { body: MachineKeyInput } },

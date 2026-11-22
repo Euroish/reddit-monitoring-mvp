@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { BlockList, isIP } from "node:net";
 import Fastify from "fastify";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
@@ -8,7 +9,12 @@ import type { Pool } from "pg";
 import type { Actor } from "../../../packages/contracts/src/source-content";
 import type { ContentProvider } from "../../../src/connectors/shared/content-provider.interface";
 import { findActor } from "../../../src/modules/access/sql";
+import { createLoginThrottle } from "../../../src/modules/access/login-throttle";
 import { accessRoutes } from "../../../src/modules/access/routes";
+import type { AccountEmailProvider } from "../../../src/modules/access/email-provider";
+import { accountPublicPosts, emailRoutes } from "../../../src/modules/access/email-routes";
+import { isPrivilegedWrite, mfaLoginPath, mfaRoutes } from "../../../src/modules/access/mfa-routes";
+import { requireRecentMfa } from "../../../src/modules/access/mfa-sql";
 import { jobRoutes } from "../../../src/modules/collection/jobs";
 import { refreshRoutes } from "../../../src/modules/collection/refresh";
 import { collectionRoutes } from "../../../src/modules/collection/routes";
@@ -20,6 +26,7 @@ import {
 import { policyRoutes } from "../../../src/modules/collection/policy";
 import { contentRoutes } from "../../../src/modules/content/routes";
 import { docsRoutes } from "../../../src/modules/content/docs";
+import { aiRoutes } from "../../../src/modules/content/ai-routes";
 import { workspaceRoutes } from "../../../src/modules/workspace/routes";
 import { projectRoutes } from "../../../src/modules/projects/routes";
 import { fail } from "../../../src/storage/db";
@@ -53,6 +60,14 @@ const PUBLIC_READ_ROUTES = new Set([
   "/v1/content/:id",
   "/v1/content/:id/thread",
   ...DOC_READ_ROUTES,
+  "/v1/ai/vendors",
+  "/v1/ai/models",
+  "/v1/ai/models/:id",
+  "/v1/ai/events",
+  "/v1/ai/events/:id",
+  "/v1/ai/updates",
+  "/v1/ai/rankings",
+  "/v1/ai/rankings/:id",
 ]);
 export async function buildApp(options: {
   pool: Pool;
@@ -63,22 +78,38 @@ export async function buildApp(options: {
   credentialVault?: CredentialVault;
   logger?: boolean;
   rateLimitMax?: number;
-  trustProxy?: false | 1;
+  trustedProxyAddress?: string;
   publicRead?: boolean;
   publicRegistration?: boolean;
+  accountEmail?: { provider: AccountEmailProvider; publicRegistration: boolean };
+  mfa?: { key: Buffer; required: boolean };
+  strongerPasswords?: boolean;
+  authThrottleKey?: string;
 }) {
   if (options.sessionSecret.length < 32)
     throw new Error("SESSION_SECRET must have at least 32 characters");
   const origin = new URL(options.origin).origin;
+  const proxyAddress = options.trustedProxyAddress;
+  const proxies = new BlockList();
+  if (proxyAddress) {
+    const family = isIP(proxyAddress);
+    if (!family) throw new Error("TRUST_PROXY_ADDRESS must be a single IP address");
+    proxies.addAddress(proxyAddress, family === 6 ? "ipv6" : "ipv4");
+  }
   const app = Fastify({
     forceCloseConnections: "idle",
     keepAliveTimeout: 5000,
     requestTimeout: 30_000,
     connectionTimeout: 10_000,
     bodyLimit: 16 * 1024 * 1024,
-    trustProxy: options.trustProxy === 1 ? (_address, hop) => hop < 1 : false,
+    trustProxy: proxyAddress
+      ? (address, hop) => hop === 0 && proxies.check(address, isIP(address) === 6 ? "ipv6" : "ipv4")
+      : false,
     logger: options.logger
       ? {
+          serializers: {
+            req: (request) => ({ method: request.method, route: request.routeOptions?.url }),
+          },
           redact: [
             "req.headers.authorization",
             "req.headers.cookie",
@@ -100,8 +131,8 @@ export async function buildApp(options: {
   const providers = options.providers ?? [];
   const sign = (token: string) =>
     createHmac("sha256", options.sessionSecret).update(token).digest("hex");
-  const cookie = (token: string) =>
-    `app_session=${token}.${sign(token)}; HttpOnly; SameSite=Lax; Path=/${options.secureCookies === false ? "" : "; Secure"}`;
+  const cookie = (token: string, maxAge?: number) =>
+    `app_session=${token}.${sign(token)}; HttpOnly; SameSite=Lax; Path=/${options.secureCookies === false ? "" : "; Secure"}${maxAge === undefined ? "" : `; Max-Age=${maxAge}`}`;
   app.decorateRequest("actor", null);
   await app.register(swagger, {
     openapi: {
@@ -115,6 +146,9 @@ export async function buildApp(options: {
   app.addHook("onRoute", (route) => {
     route.schema ??= {};
     route.schema.operationId ??= `${Array.isArray(route.method) ? route.method[0] : route.method}_${route.url.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  });
+  app.addHook("onRequest", async (_request, reply) => {
+    reply.header("Cache-Control", "no-store");
   });
   await app.register(rateLimit, {
     hook: "onRequest",
@@ -133,8 +167,10 @@ export async function buildApp(options: {
         : ["57014", "55P03", "53300", "08006", "57P01"].includes(code ?? "")
           ? 503
           : 500);
-    const message =
-      statusCode === 500 ? "Internal server error" : failure.message;
+    if (statusCode === 503) reply.header("Retry-After", 1);
+    const message = statusCode === 500 ? "Internal server error"
+      : failure.statusCode !== undefined ? failure.message
+      : statusCode === 409 ? "Resource conflict" : "Temporarily unavailable";
     reply.code(statusCode).send({
       error: {
         code:
@@ -149,18 +185,32 @@ export async function buildApp(options: {
   app.addHook("preParsing", async (request) => {
     const route = request.routeOptions.url ?? request.url.split("?")[0],
       method = request.method;
-    const publicRoute =
+    const accountPublicPost = method === "POST" &&
+      ((Boolean(options.accountEmail) && accountPublicPosts.has(route)) || (Boolean(options.mfa) && route === mfaLoginPath));
+    const publicRoute = accountPublicPost ||
       (["GET", "HEAD"].includes(method) &&
         ["/healthz", "/readyz", "/v1/auth/session"].includes(route)) ||
       (method === "POST" &&
-        ["/v1/auth/login", "/v1/auth/register"].includes(route));
+        ["/v1/auth/login", "/v1/auth/register", "/v1/auth/logout"].includes(route));
     const publicReadRoute =
       Boolean(options.publicRead) &&
       ["GET", "HEAD"].includes(method) &&
       PUBLIC_READ_ROUTES.has(route);
+    const credentialSubmission = accountPublicPost || method === "POST" &&
+      ["/v1/auth/login", "/v1/auth/register"].includes(route);
+    if (route.startsWith("/v1/auth/") && request.headers.authorization !== undefined)
+      fail(403, "Browser session required");
+    if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS" &&
+      request.headers.authorization === undefined && request.headers.origin !== origin)
+      fail(403, "Same-origin request required");
+    if (credentialSubmission) {
+      const contentType = request.headers["content-type"]?.split(";", 1)[0].trim().toLowerCase();
+      if (contentType !== "application/json") fail(415, "Expected application/json");
+      return;
+    }
     let token: string | undefined,
       kind: "browser" | "machine" = "browser";
-    if (request.headers.authorization) {
+    if (request.headers.authorization !== undefined) {
       kind = "machine";
       token = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(
         request.headers.authorization,
@@ -172,46 +222,40 @@ export async function buildApp(options: {
         .map((part) => part.trim())
         .find((part) => part.startsWith("app_session="))
         ?.slice(12);
-      if (value && value.length < 256) {
-        const [raw, signature] = value.split(".");
-        const expected = sign(raw);
-        if (
-          signature?.length === expected.length &&
-          timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
-        )
-          token = raw;
-      }
+      const signed = value && /^([A-Za-z0-9_-]{43})\.([a-f0-9]{64})$/.exec(value);
+      if (signed && timingSafeEqual(Buffer.from(signed[2], "hex"), Buffer.from(sign(signed[1]), "hex")))
+        token = signed[1];
     }
-    request.actor = token ? await findActor(options.pool, token, kind) : null;
+    request.actor = token ? await findActor(options.pool, token, kind, options.mfa?.required) : null;
     if (!request.actor && publicReadRoute && !request.headers.authorization)
       request.actor = PUBLIC_GUEST_ACTOR;
     if (!publicRoute && !request.actor) fail(401, "Authentication required");
-    if (
-      !["GET", "HEAD", "OPTIONS"].includes(method) &&
-      kind !== "machine" &&
-      request.headers.origin !== origin
-    )
-      fail(403, "Same-origin request required");
     const actor = request.actor;
     if (!actor || publicRoute) return;
-    const viewerAllowedPost =
-      method === "POST" &&
-      [
-        "/v1/auth/logout",
+    const viewerAllowedWrite =
+      (method === "DELETE" && route === "/v1/auth/sessions/:id") ||
+      (method === "POST" && [
+        "/v1/auth/logout-all",
+        "/v1/auth/email/verify/start",
+        "/v1/auth/password/change",
+        "/v1/auth/mfa/step-up",
+        "/v1/auth/mfa/recovery-codes",
         "/v1/sources/:id/collect",
         "/v1/sources/:id/refresh",
         "/v1/projects/:id/hydrate",
         "/v1/source-jobs/:id/cancel",
         "/v1/source-jobs/:id/retry",
         "/v1/source-jobs/:id/continue",
-      ].includes(route);
+      ].includes(route));
     if (
       actor.role === "viewer" &&
       !["GET", "HEAD"].includes(method) &&
       !route.startsWith("/v1/workspace/") &&
-      !viewerAllowedPost
+      !viewerAllowedWrite
     )
       fail(403, "Administrator access required");
+    if (actor.clientKind === "browser" && actor.role !== "viewer" && isPrivilegedWrite(method, route))
+      await requireRecentMfa(options.pool, actor, Boolean(options.mfa?.required));
     if (actor.clientKind === "machine") {
       const isRead = ["GET", "HEAD"].includes(method);
       const scope =
@@ -246,6 +290,7 @@ export async function buildApp(options: {
                         : null;
       if (
         route.startsWith("/v1/access/") ||
+        route.startsWith("/v1/admin/") ||
         route.startsWith("/v1/workspace/") ||
         route.startsWith("/v1/sources/credentials") ||
         route.startsWith("/v1/quotas") ||
@@ -263,7 +308,16 @@ export async function buildApp(options: {
   await accessRoutes(app, options.pool, cookie, {
     publicRead: Boolean(options.publicRead),
     publicRegistration: Boolean(options.publicRegistration),
+    strongerPasswords: options.strongerPasswords,
+    accountEmail: options.accountEmail,
+    mfa: options.mfa,
+    limitLogin: createLoginThrottle(options.authThrottleKey ?? options.sessionSecret),
   });
+  if (options.accountEmail) await emailRoutes(app, options.pool, options.accountEmail.provider, {
+    publicRegistration: options.accountEmail.publicRegistration,
+    strongerPasswords: options.strongerPasswords,
+  });
+  if (options.mfa) await mfaRoutes(app, options.pool, options.mfa.key, cookie);
   const vault =
     options.credentialVault ??
     createCredentialVault(options.pool, options.sessionSecret);
@@ -278,6 +332,7 @@ export async function buildApp(options: {
   });
   await contentRoutes(app, options.pool, shutdown.signal);
   await docsRoutes(app, options.pool);
+  await aiRoutes(app, options.pool);
   await projectRoutes(app, options.pool, providers);
   await workspaceRoutes(app, options.pool);
   app.get("/v1/openapi.json", async () => app.swagger());

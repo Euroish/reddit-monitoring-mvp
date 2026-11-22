@@ -68,6 +68,7 @@ export async function read(
   parent?: AbortSignal,
   headers?: Record<string, string>,
   timeoutMs = 10000,
+  policy: { maxBytes?: number; allowRedirect?: (url: URL) => boolean } = {},
 ) {
   const clamped = Math.min(15000, Math.max(3000, Number.isFinite(timeoutMs) ? timeoutMs : 10000));
   const timer = AbortSignal.timeout(clamped);
@@ -86,10 +87,11 @@ export async function read(
       if (!addresses.every(isPublicIp)) {
         throw new ContentProviderError("Web source address is not public", false);
       }
-      const response = await requestPage(url, addresses[0], signal, headers);
+      const response = await requestPage(url, addresses[0], signal, headers, policy.maxBytes ?? maxResponseBytes);
       if (!response.location) return { ...response, url: url.href };
       const next = httpsUrl(response.location, url.href);
-      if (!next || hop === 3) throw new ContentProviderError("Invalid web source redirect", false);
+      if (!next || hop === 3 || policy.allowRedirect?.(next) === false)
+        throw new ContentProviderError("Invalid web source redirect", false);
       if (next.origin !== url.origin) headers = undefined;
       url = next;
     }
@@ -102,7 +104,7 @@ export async function read(
   }
 }
 
-function requestPage(url: URL, ip: string, signal: AbortSignal, headers?: Record<string, string>) {
+function requestPage(url: URL, ip: string, signal: AbortSignal, headers: Record<string, string> | undefined, maxBytes: number) {
   const family = isIP(ip);
   return new Promise<{ body: string; status: number; etag?: string; modified?: string; location?: string }>(
     (resolve, reject) => {
@@ -137,12 +139,12 @@ function requestPage(url: URL, ip: string, signal: AbortSignal, headers?: Record
           let bytes = 0;
           for await (const chunk of response) {
             bytes += chunk.length;
-            if (bytes > maxResponseBytes) throw new ContentProviderError("Web source response exceeds 2 MiB", false);
+            if (bytes > maxBytes) throw new ContentProviderError("Web source response exceeds its size limit", false);
             chunks.push(chunk);
           }
           const body = Buffer.concat(chunks, bytes);
           const decoded = status === 200 && response.headers["content-encoding"] === "gzip"
-            ? await decodeGzip(body, { maxOutputLength: maxResponseBytes }).catch(() => {
+            ? await decodeGzip(body, { maxOutputLength: maxBytes }).catch(() => {
               throw new ContentProviderError("Invalid or oversized gzip response", false);
             })
             : body;

@@ -38,9 +38,9 @@ npm run lint && npm run typecheck && npm run check:openapi && npm run test:unit 
 
 ### 0.3 四大冲突热区与轻量同步约定
 
-- **SQL 迁移（`src/storage/schema/`）**：`001..050` 及已合入 `main` 的迁移严禁改写；**编号先合先占**，后合者同步时顺延重编号；不设僵化表数上限，新迁移由 `Squawk` 锁安全审计、PG16 回滚测试与 `.github/CODEOWNERS` 联合把关。
+- **SQL 迁移（`src/storage/schema/`）**：`001..058` 及已合入 `main` 的迁移严禁改写；**编号先合先占**，后合者同步时顺延重编号；不设僵化表数上限，新迁移由 `Squawk` 锁安全审计、PG16 回滚测试与 `.github/CODEOWNERS` 联合把关。
 - **共享契约（`packages/contracts/src/*`）**：唯一契约真源，严禁在前端复制平行副本或做破坏式字段重命名；由 `npm run check:openapi` 与 `CODEOWNERS` 共同守护。
-- **入口与前端架构**：`app.ts` / `App.tsx` 保持薄装配；首页 `/` 严禁静态引入 ECharts（由 `npm run check:web-bundle` 自动拦截），分析页统一 `React.lazy` 模块化 `echarts/core`；后端允许按业务域新增模块与子目录，由 `eslint.config.mjs` 与 `.dependency-cruiser.cjs` 强制守住异步安全与依赖方向边界。
+- **入口与前端架构**：`app.ts` / `App.tsx` 保持薄装配；首页 `/` 严禁静态引入 ECharts（由 `npm run check:web-bundle` 自动拦截），分析页统一 `React.lazy` 模块化 `echarts/core`；后端允许按业务域新增模块与子目录，由 `eslint.config.mjs`、`.dependency-cruiser.cjs` 与路由/表归属检查强制守住异步安全与依赖方向边界。
 - **文档与开工声明**：仓库可新增 Markdown 文档，发布包继续按 `DOCUMENTATION_FILES` 选档。代码变动同 PR 更新对应规范。开分支前发 1 行同步：`[feat/xxx] 负责人：@A | 触碰区域：... | 新迁移：无/+N表`；PR 描述附 3 行：**变更摘要 / 影响范围（表、契约、冲突清单）/ 验证结果**。
 
 ---
@@ -73,6 +73,46 @@ npm run smoke:compiled     # 编译态迁移、readiness、登录与 SIGTERM 冒
 docker build --target runtime -t monitoring-unified:<tag> .
 docker build --target proxy   -t monitoring-unified-web:<tag> .
 ```
+
+### API 缓存与边缘响应头
+
+Caddy 在 `/api` 和 `/api/*` 返回 `Cache-Control: no-store`，Fastify 直连 API 也采用同一默认值。该边界涵盖匿名或登录态 AI 数据、管理控制面以及带 Bearer 的请求。Cloudflare 应在这些路径显式绕过缓存，避免缓存携带 Cookie、Authorization 或 Set-Cookie 的 API 流量。HTML 和静态文件当前要求重新验证。
+
+Caddy 拒绝站外 iframe 嵌入，并设置 MIME 检查、Referrer 与浏览器权限策略。预演需验证边缘缓存规则、流式导出与 readiness 的外部访问范围。
+
+### Caddy 与 Fastify 的代理信任
+
+Compose 在专用内部网络连接 Caddy 和 Fastify。Fastify 通过 `TRUST_PROXY_ADDRESS` 仅信任 Caddy 的固定地址和直连一跳。单独启动 Fastify 时该地址默认留空。若原部署使用 `TRUST_PROXY_HOPS=1`，迁移到新版 Compose 时用 `PROXY_TRANSPORT_IP` 和 `PROXY_TRANSPORT_SUBNET` 与 `APP_TRANSPORT_IP` 覆盖冲突网段，保留 Caddy 作为该网段上唯一受信代理。普通入口按实际对端生成 X-Forwarded-For。Tunnel 模式只从固定连接器 IP 读取 CF-Connecting-IP，缺失时回退至连接器 IP。只有 Caddy 和 Tunnel 服务加入边缘网络，其他容器或宿主服务不得共享该网络。
+
+### Cloudflare Tunnel 预演与回退
+
+- 使用支持 `!reset` 的 Compose 2.24.4+ 和支持 token file 的 cloudflared 2025.4.0+。在仓外受保护文件存放 Tunnel token，通过 `CLOUDFLARED_TOKEN_FILE` 指定路径，并验证容器运行用户具备只读访问。使用 `CLOUDFLARED_IMAGE` 传入经过核验的镜像 digest。使用同一 revision 的 API 和 Proxy 镜像。
+- 启动命令为 `docker compose -f docker-compose.yml -f deploy/tunnel.compose.yml up -d --wait`。在 Cloudflare 配置生产 HTTPS 主机名，Tunnel 服务地址为 `http://proxy:8080`，应用 `APP_ORIGIN` 仍是公网 HTTPS origin。连接器到 Caddy 的 HTTP 仅在同机专用边缘网络内传输，需信任 Docker 宿主机。Compose 取消 Caddy 的宿主端口映射，仍通过 App 容器 healthcheck 检查 readiness。公网健康检查使用 `/healthz`。
+- 先核对 WAF/限流套餐和规则限额。先拦截明显异常协议，再对 `POST /api/v1/auth/login`、`POST /api/v1/auth/register` 单独配置频率限制。优先观察误杀、429、503、DB pool、Worker 积压和 Tunnel 断连。整站 JS challenge 会阻断合法机器客户端，应以路径和方法限定挑战。确认未开启替换客户端 IPv6 的 Pseudo IPv4 模式。
+- 核对权威 DNS、现有 TTL、历史 A/AAAA 与 MX、源站地址及 80/443 的云防火墙规则。启用 DNSSEC 时核对注册商 DS 与权威 DNSKEY，对域名账户启用 MFA 与转移锁。发信域的 SPF、DKIM、DMARC 在服务商选定后单独验收。
+- 回退前确认现有 DNS、边缘规则及镜像恢复点。回退到上一版可用 Tunnel 或经 ACL 与 origin mTLS 验收的受控入口。生产 Docker、防火墙、DNS、WAF、TLS 和备份恢复均由授权管理员验收。本地 Caddy 验证覆盖头部与 readiness，真实边缘连接、资源余量和回退还需预演。
+
+### 公开注册开关
+
+邮件注册与找回默认关闭。设置 `AUTH_EMAIL_ENABLED=true` 前配置 HTTPS `APP_ORIGIN`、Resend 已验证发件域及 `AUTH_EMAIL_FROM`、`RESEND_API_KEY`、`TURNSTILE_SITE_KEY`、`TURNSTILE_SECRET_KEY`。生产只有邮件和人机验证配置生效且 `PUBLIC_REGISTRATION_ENABLED=true` 才允许免邀请注册。Resend 使用一次请求和幂等键，未知结果保留额度，用户可在冷却后重新发起。出站仅允许 Resend 与 Cloudflare 的固定 API，预演需验收域名投递、Turnstile 域名绑定和失败提示。匿名阅读单独由 `PUBLIC_READ_ENABLED` 控制。
+
+### 管理员 MFA 启用与恢复
+
+在受信运维主机使用独立的 `AUTH_MFA_ENCRYPTION_KEY`，格式为 32 字节 base64url。保留安全备份。先为每位 active Owner/Admin 离线登记验证器，再启用 `AUTH_MFA_REQUIRED=true`。从受限环境加载当前数据库连接、随机 20 字节 Base32 种子 `AUTH_MFA_SETUP_SEED` 和当前验证器代码 `AUTH_MFA_SETUP_CODE`，执行 `node dist/src/modules/access/mfa-cli.js --enroll <user-id>`。种子由管理员在受信设备导入标准 SHA-1 / 6 位 / 30 秒验证器，工具输出结果状态。最后一个 Owner 完成双因素登录和恢复演练后再开启强制模式。新邀请的管理员与提权用户同样需离线登记。
+
+登录后可在设置页生成恢复码并安全保存。恢复码只允许登录，敏感写操作仍需 TOTP。验证器遗失时，由受信运维管理员核验账户身份并使用新种子及其当前代码，执行同一命令的 `--recover`。工具原子废弃旧浏览器会话、预认证挑战和恢复码并写入审计，机器 Key 保留单独撤销流程。配置关闭时，已登记账号仍需 MFA；回退需使用支持 MFA 的镜像和原密钥，避免回到会跳过第二因素的旧镜像。
+
+### 安全开发基线与密码哈希切换
+
+`feat/platform-security-hardening` 开工基于 PR #19 的 `6f53325f6a79577f31a75eba1e7fcf6bbdf55ca7`，其中包含 PR #16 的 `d13d00231a1f3b69372ba66e0ed1d6ee0cc6ca36`。当时主干为 `cd12f63b118e088c340f42572d1d0e671fd80798`，迁移至 053，正式预算 24 表。继承迁移 054–056 增加 19 表，隔离 PG16 合计 43 表。初始 A/B 切片新增 0 表，C/D 的 057–058 新增 3 表，候选合计 46 表。两个前序 PR squash 合入后，以此父 SHA 清点自有提交，再在最新 main 上逐个重放并复验迁移、增量 diff 和全链 CI。
+
+发布时先部署能读取 v1/v2 的版本，`AUTH_SCRYPT_V2_WRITE_ENABLED=false` 保持兼容写。v2 为 scrypt N=32768/r=8/p=3，最多并行两次，超限返回 503；生产容量验证后才开启写入和成功登录的惰性重哈希。启用期间登录对旧、新和不存在的账户均执行两代 KDF，以减小迁移期的邮箱枚举时间差。已写入 v2 后继续使用支持两代且启用均衡校验的构建。只读 v1 的旧镜像不能接管已有 v2 的账户。账户限流为每个规范化邮箱 15 分钟内 10 次，包括失败与成功，4096 个并行账户窗口，写入前校验，进程重启清空。生产可独立配置 `AUTH_THROTTLE_KEY`，兼容回退以 Session key 做用途隔离的 HMAC。
+
+本机 Node 24.14.0、i5-13500H（16 逻辑核）、63.7 GiB RAM，使用合成密码分别串行测 20 次直接 KDF 校验。v1 的 p50/p95 为 24.6/27.0 ms，v2 为 135.4/139.2 ms。各测试的双路并发进程 RSS 峰值约为 97.3/129.3 MiB。该数据只覆盖 KDF。生产 4 GB 宿主机上仍需联测登录 p95、429/503、数据库等待、Worker 心跳和回填推进。
+
+### 服务商凭证主密钥轮换
+
+运维演练先备份并验证恢复，暂停使用旧密钥的应用和 Worker。经授权，在隔离的运维进程内从仓外受限文件载入当前 `DATABASE_URL`、`SESSION_SECRET` 和已有的 `CREDENTIALS_MASTER_KEY`，以及独立的 `NEXT_CREDENTIALS_MASTER_KEY`。先执行 `node dist/src/modules/collection/credential-rotation.js --check`，再执行同一命令的 `--apply`。工具只输出验证行数，批量重加密在一个短事务内完成，解密或写入失败会整体回滚。成功后把新值设为运行环境的 `CREDENTIALS_MASTER_KEY`，再启动应用验证凭证状态。用相同方法从新密钥反向轮换可回退；镜像和密钥必须配套。独立 relay 的仓外密钥另由原流程管理。轮换服务商凭证后可独立轮换 Cookie 签名，旧浏览器需重新登录，机器 Key 的哈希无需随之更改。
 
 ### 本地三服务 Compose 验收
 
@@ -199,6 +239,7 @@ ORDER BY u.day DESC, u.provider;
 | **`8e436ac` (`050` / `20261119-v2`)** | 执行 `050` 删 27 张历史零行表（47→20）及冗余列；启用 `source_group`/`tags`/`locale`/`fetch_policy`/`health`、1,500 字索引上限、`FEED_ALLOWED_URLS` 动态 HTTPS、`6` 并发+`1.5s` 冷却、`newsnow` 1h 桶、`preParsing` 限流与 `POST /v1/sources/import`。 | 备份 `/opt/reddit-monitoring-backups/pre-050-20261119T135511Z/`（332 TOC 验证）；`typecheck`、`lint`、`build`、`test:unit` (20/20)、`test:postgres` (24/24) 全通；`/readyz` 200 |
 | **`f4ef2a8` + STD-100 加固** | 升级 `check-docs <= 50` 迁移守卫、`app.ts` `/v1/content/*` 方法级鉴权、`search.ts` `LEFT JOIN` 防冷删隐身、`docker-compose.yml` 透传 `WORKER_CONCURRENCY`；全套 15 文档收敛为 STD-100 精确规格与 V2 Phase A–D 蓝图并同步至 `origin/prod`。 | `docs:check`、`lint`、`typecheck`、`build`、`test:unit`、隔离 PG16 `test:postgres` 与 `smoke:compiled` 全通过 |
 
+- **`2026-11-22` AI 可信历史冷启动与回填 (`056`)**：新增 `056_ai_history_bootstrap_and_backfill.sql`（`ai_history_import_run`、`ai_history_backfill_run`，总表 `43`）、版本化历史基线 `data/ai/history/v1/`（10 厂商、87 模型、142 别名、90 条官方核验事件、89 条一手引用）、共享去重身份 `ai-event-identity.ts`、离线幂等导入与断点分页回填 CLI（`ai:history:validate|plan|apply|backfill`），并打通 `build-api.mjs`、`release-package-lib.mjs` 与 `Dockerfile`/`docker-compose.yml` 容器首启离线冷启动链路。
 - **`2026-11-21` 采集源退役**。移除知乎热榜内置采集器和 V2EX 技术节点线上 RSS 配置。备份后清理两个源及其独有的 419 条资讯（知乎 228 条、V2EX 191 条）、搜索索引条目和采集记录。数据库表数维持 23。
 - **`2026-11-20` 开放式编辑部重构与源治理（`20261120-v3`）**：开放匿名只读白名单（`/v1/public/sources` 与内容只读接口）及 `PUBLIC_REGISTRATION_ENABLED` 免邀请码 `viewer` 注册；`/v1/content/stories` 升级为 7 天 `latest` 窗 + `offset/nextOffset/totalCount` 分页 + 单源防刷屏混排 + 默认隔离 `social-trends`；修复 `google-trends-us` 优先取 `<ht:news_item_url>` 主链与真实标题并新增 `excludeTitlePatterns` 与 4h 退避上限；重做编辑部纸面 UI、左侧 8 频道导航、右侧阅读抽屉与登录注册弹窗；完成 `pg_dump` 物理备份后归档 7 个重度营销/灌水源、升级 V2EX 技术节点并补入 8 个高信噪一手源。
 - **`2026-11-20` 单主干 `main` 统一融合与冗余裁剪**：将 `prod@254213b` 完整历史无强推合入 `main`，融合 `dev/siftline-workbench`（归档于 `archive/dev-siftline-20261120`）的加密凭证库（`051`）、Free/Pro 动态配额与 RBAC（`052`，总表 `23/24`）及裁剪后的 Siftline 前端（去除静态营销页、1.7 MB 无用图、多主题工坊、R4 离线面板与违背 `MET-04` 的虚假图表，改用 `React.lazy` 模块化 `echarts/core` 并补齐开放阅读 `StoriesPage` 与 `/v1/public/sources` 适配）；同步修复 `worker.ts` 连接池潜在死锁、`policy.ts` 跨渠道配额竞态、`credentials.ts` 探测异常与 `jobs.ts` 重试配额计算，退役 `prod` 与 `dev/siftline-workbench` 分支并落地团队单主干协作准则。

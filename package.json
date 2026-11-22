@@ -30,7 +30,11 @@
     "assets:export": "tsx scripts/export-legacy-assets.ts",
     "release:pack": "npm run build && node scripts/package-release.mjs",
     "release:verify": "node scripts/verify-release.mjs",
-    "smoke:compiled": "node scripts/smoke-compiled.mjs"
+    "smoke:compiled": "node scripts/smoke-compiled.mjs",
+    "ai:history:validate": "tsx src/modules/content/ai-history-cli.ts validate --dataset v1",
+    "ai:history:plan": "tsx src/modules/content/ai-history-cli.ts plan --dataset v1",
+    "ai:history:apply": "tsx src/modules/content/ai-history-cli.ts apply --dataset v1",
+    "ai:history:backfill": "tsx src/modules/content/ai-history-cli.ts backfill"
   },
   "dependencies": {
     "@fastify/rate-limit": "^11.2.2",
