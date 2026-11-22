@@ -1100,6 +1100,8 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .sh-feature-card--ai {
@@ -1177,6 +1179,8 @@
   border-radius: 14px;
   padding: 16px 18px;
   flex: 1;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .sh-ai-pending {
@@ -1212,6 +1216,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
 }
 
 .sh-ai-event-item {
@@ -1219,6 +1224,8 @@
   align-items: center;
   gap: 10px;
   font-size: 13px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .sh-ai-vendor-pill {
@@ -1471,10 +1478,10 @@
 /* ---------- Responsive: Tablet & Mobile ---------- */
 @media (max-width: 1060px) {
   .sh-focus-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .sh-feature-band {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
