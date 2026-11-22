@@ -8,12 +8,6 @@ import path from "node:path";
 import test from "node:test";
 import { chromium } from "playwright";
 import { buildApp } from "../../apps/api/src/app";
-import { BlueskyAppViewContentConnector } from "../../src/connectors/bluesky/bluesky-appview-content.connector";
-import { webSource } from "../../src/connectors/web/sources";
-import { KaixContentConnector } from "../../src/connectors/reddit/kaix-content.connector";
-import { twitterApis } from "../../src/connectors/x/twitterapis";
-import { scheduleDueSourcesOnce } from "../../src/modules/collection/schedule";
-import { workOnce } from "../../src/modules/collection/worker";
 import { bootstrapOwner, tokenHash } from "../../src/modules/access/sql";
 import { provisionMfa } from "../../src/modules/access/mfa-sql";
 import { commitContentBatch, prepareContentBatch } from "../../src/modules/content/sql";
@@ -153,18 +147,8 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   const createApp: typeof buildApp = process.env.TEST_COMPILED === "true"
     ? require("../../dist/apps/api/src/app.js").buildApp
     : buildApp;
-  const articleTitle = "Introducing GPT-5.99: Workbench fixture";
-  const feedUrl = "https://openai.com/news/workbench-fixture.xml";
-  const feed = webSource("feed", { SOURCE_NETWORK_ENABLED: "true" }, async () => ({
-    status: 200,
-    body: '<rss version="2.0"><channel><title>Workbench fixture</title><item><title>' + articleTitle +
-      '</title><link>https://openai.com/index/workbench-fixture</link><description>Official model release evidence for the workbench test.</description></item></channel></rss>',
-  }));
-  const kaix = new KaixContentConnector({ networkEnabled: true, apiToken: "browser-fixture" });
-  const x = twitterApis({ SOURCE_NETWORK_ENABLED: "true", TWITTERAPIS_API_KEY: "browser-fixture" });
   const app = await createApp({
     pool: db.pool,
-    providers: [feed, webSource("newsnow", { SOURCE_NETWORK_ENABLED: "true" }), kaix, x, new BlueskyAppViewContentConnector({ networkEnabled: false })],
     sessionSecret: "synthetic-secret-".repeat(3),
     origin,
     secureCookies: false,
@@ -186,7 +170,7 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
     args: ["--no-sandbox"],
   });
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, timezoneId: "Asia/Shanghai" });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors: string[] = [];
   const scripts: string[] = [];
   const guestUnauthorized: string[] = [];
@@ -316,152 +300,16 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await page.getByRole("button", { name: "打开工作台" }).click();
   await nav.getByRole("button", { name: /来源列表/ }).click();
   await page.getByRole("button", { name: "新建来源" }).click();
-  const modal = page.getByRole("dialog", { name: "新建采集来源" });
-  await modal.getByLabel("来源名称").fill("官方测试 Feed");
-  await modal.getByLabel("公开 HTTPS 地址", { exact: true }).fill(feedUrl);
-  await modal.getByLabel("来源分类").fill("ai-firsthand");
-  await modal.getByLabel("来源等级").selectOption("T1");
-  await modal.getByLabel("语言区域（如 zh-CN）").fill("en-US");
-  await modal.getByLabel("启用自动调度").check();
-  await modal.getByRole("button", { name: "预览来源" }).click();
-  await modal.getByText(articleTitle).waitFor();
+  const modal = page.locator(".sr-modal");
+  await modal.locator("select").first().selectOption("push");
+  await modal.locator("input[maxlength='100']").fill("内部研究样本");
+  await modal.locator("input[placeholder='SaaS']").fill("人工智能工具");
   await modal.getByRole("button", { name: "创建来源" }).click();
-  await modal.waitFor({ state: "hidden" });
-  const createdFeedResponse = await page.request.get(origin + "/api/v1/sources?sourceGroup=ai-firsthand");
-  const createdFeed = createdFeedResponse.ok() && (await createdFeedResponse.json()).sources.find((row: { label: string }) => row.label === "官方测试 Feed");
-  assert.ok(createdFeed);
-  assert.equal(createdFeed.schedule.enabled, true);
-  assert.ok(createdFeed.nextDueAt);
-  await page.goto(origin + "/sources?sourceId=" + createdFeed.id);
-  await page.getByText(/ai-firsthand · T1 · en-US/).waitFor();
-  await page.getByRole("button", { name: "编辑来源" }).click();
-  const edit = page.getByRole("dialog", { name: "编辑来源" });
-  assert.equal(await edit.getByLabel("来源分类").inputValue(), "ai-firsthand");
-  assert.equal(await edit.getByLabel("启用自动调度").isChecked(), true);
-  await edit.getByLabel("标签（逗号或空格分隔）").fill("vendor-official");
-  await edit.getByRole("button", { name: "保存来源" }).click();
-  await page.getByText(/标签 · vendor-official/).waitFor();
-
-  const quotasNav = nav.getByRole("button", { name: "渠道配额", exact: true });
-  const sourceNav = nav.getByRole("button", { name: /来源列表/ });
-  const jobsNav = nav.getByRole("button", { name: "采集任务", exact: true });
-  await quotasNav.click();
-  await page.getByRole("heading", { name: "渠道配额", exact: true }).waitFor();
-  assert.equal(await quotasNav.getAttribute("aria-current"), "page");
-  await page.getByRole("columnheader", { name: "日请求（次）" }).waitFor();
-  await page.getByRole("columnheader", { name: "月资源（单位）" }).waitFor();
-  assert.equal(await page.locator(".collection-page").getByRole("button", { name: "采集任务", exact: true }).count(), 0);
-  await page.getByRole("row").filter({ has: page.getByRole("rowheader", { name: "feed", exact: true }) })
-    .getByRole("button", { name: "调整配额" }).click();
-  const budget = page.locator(".sr-modal");
-  await budget.getByLabel("启用渠道预算").check();
-  await budget.getByLabel("日请求上限（次）", { exact: true }).fill("25");
-  await budget.getByRole("button", { name: "更新配额" }).click();
-  await budget.waitFor({ state: "hidden" });
-  await sourceNav.click();
-  await page.getByRole("heading", { name: "来源列表", exact: true }).waitFor();
-  await scheduleDueSourcesOnce(db.pool, [feed]);
-  assert.equal(await workOnce(db.pool, [feed]), true);
-  await page.goto(origin + "/sources?sourceId=" + createdFeed.id);
-  await page.locator(".collection-source-facts > div").filter({ hasText: "最近抓取 / 入库" }).getByText("1 / 1", { exact: true }).waitFor();
-  const stored = await page.request.get(origin + "/api/v1/content?sourceId=" + createdFeed.id);
-  assert.ok((await stored.json()).items.some((item: { title: string }) => item.title === articleTitle));
-
-  await page.getByRole("button", { name: "查看此来源的任务" }).click();
-  await page.getByRole("heading", { name: "采集任务", exact: true }).waitFor();
-  assert.equal(await jobsNav.getAttribute("aria-current"), "page");
-  assert.equal(await page.getByLabel("按来源筛选").inputValue(), createdFeed.id);
-  await page.getByRole("columnheader", { name: "渠道请求" }).waitFor();
-  await page.getByText("定时采集", { exact: true }).waitFor();
-  await page.setViewportSize({ width: 390, height: 844 });
-  assert.ok(await page.locator(".collection-table-scroll").evaluate(region => region.scrollWidth > region.clientWidth));
-  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goBack();
-  assert.equal(await sourceNav.getAttribute("aria-current"), "page");
-  await nav.getByRole("button", { name: "AI 发布审核队列", exact: true }).click();
-  assert.equal(await nav.getByRole("button", { name: "AI 发布审核队列", exact: true }).getAttribute("aria-current"), "page");
-  assert.equal(await page.locator(".rail").getByRole("button", { name: "AI 发布审核队列" }).count(), 0);
-  await page.getByRole("button", { name: "官方来源与注册表" }).click();
-  await page.getByLabel("Web 来源", { exact: true }).selectOption(createdFeed.id);
-  await page.getByLabel("厂商", { exact: true }).selectOption({ label: "OpenAI" });
-  await page.getByRole("button", { name: "保存厂商关联" }).click();
-  await page.getByText("厂商关联已保存。").waitFor();
-  await page.getByText(/官方测试 Feed · OpenAI · blog/).waitFor();
-  await page.getByRole("button", { name: "打开官方发现与自动化" }).click();
-  await page.getByRole("button", { name: "执行影子评估" }).click();
-  await page.getByText(/进入审核 · 1/).waitFor();
-  await page.getByRole("button", { name: "异常审核队列" }).click();
-  await page.getByLabel("按状态筛选").selectOption("needs_info");
-  await page.getByText(articleTitle, { exact: true }).click();
-  await page.getByLabel(/官方日期/).fill(new Date().toISOString().slice(0, 10));
-  await page.getByRole("button", { name: "保存草稿" }).click();
-  await page.getByText("候选草稿已保存。").waitFor();
-  await page.getByRole("button", { name: "发布到 /ai" }).click();
-  await page.getByText(/已发布事件 [0-9a-f-]+/).waitFor();
-  const events = await page.request.get(origin + "/api/v1/ai/events");
-  assert.ok((await events.json()).items.some((item: { title: string }) => item.title === articleTitle));
-
-  await page.goto(origin + "/sources");
-  await page.getByRole("button", { name: "批量导入来源" }).click();
-  const sourceImport = page.getByRole("dialog", { name: "批量导入来源" });
-  await sourceImport.getByLabel("OPML Feed 列表").fill('<opml><body><outline text="Workbench">' +
-    '<outline text="Duplicate" xmlUrl="' + feedUrl + '"/>' +
-    '<outline text="Imported" xmlUrl="https://example.test/atom"/>' +
-    '<outline text="Invalid" xmlUrl="http://127.0.0.1/feed"/></outline></body></opml>');
-  await sourceImport.getByRole("button", { name: "导入来源" }).click();
-  await sourceImport.getByText(/已创建 1 · 重复跳过 1 · 错误 1/).waitFor();
-  await sourceImport.getByRole("button", { name: "关闭" }).click();
-  await page.getByRole("button", { name: "新建来源" }).click();
-  await modal.getByLabel("平台", { exact: true }).selectOption("bluesky");
-  assert.equal(await modal.getByRole("button", { name: "创建来源" }).isDisabled(), true);
-  await modal.getByText("请在渠道设置中检查服务联网与凭证。").waitFor();
-  await modal.getByLabel("平台", { exact: true }).selectOption("web");
-  await modal.getByLabel("主渠道").selectOption("newsnow");
-  await modal.getByLabel("NewsNow 榜单").selectOption("github-trending");
-  await modal.getByLabel("来源名称").fill("GitHub Trending UI fixture");
-  await modal.getByRole("button", { name: "创建来源" }).click();
-  await page.getByText(/目标 · search = github-trending/).waitFor();
-  await page.getByRole("button", { name: "新建来源" }).click();
-  await modal.getByLabel("平台", { exact: true }).selectOption("reddit");
-  await modal.getByLabel("来源名称").fill("Reddit UI fixture");
-  await modal.getByLabel("Reddit 版块", { exact: true }).fill("LocalLLaMA");
-  await modal.getByRole("button", { name: "预览来源" }).click();
-  await modal.getByText(/配置已校验/).waitFor();
-  await modal.getByRole("button", { name: "创建来源" }).click();
-  await page.getByText(/目标 · community = localllama/i).waitFor();
-  await page.getByRole("button", { name: "新建来源" }).click();
-  await modal.getByLabel("平台", { exact: true }).selectOption("x");
-  await modal.getByLabel("来源名称").fill("X UI fixture");
-  await modal.getByLabel("账号名称", { exact: true }).fill("example");
-  await modal.getByRole("button", { name: "创建来源" }).click();
-  await page.getByText(/目标 · account = example/i).waitFor();
-  assert.equal(await page.getByLabel("采集上限").getAttribute("max"), "20");
-  assert.equal(await page.getByLabel("同时采集评论").count(), 0);
-  await page.getByText(/首次渠道执行 · 1 次请求 \/ 20 单位预留资源/).waitFor();
-
-  await page.getByRole("button", { name: "新建来源" }).click();
-  await modal.getByLabel("接入方式").selectOption("push");
-  await modal.getByLabel("平台", { exact: true }).selectOption("reddit");
-  await modal.getByLabel("来源名称").fill("内部研究样本");
-  await modal.getByLabel("搜索词", { exact: true }).fill("人工智能工具");
-  await modal.getByRole("button", { name: "创建来源" }).click();
-  await page.getByText(/目标 · search = 人工智能工具/).waitFor();
-  assert.equal(await page.getByText(/R4 离线归档检索与推流控制台/).count(), 0);
-  await page.getByRole("button", { name: "编辑来源" }).click();
-  await edit.getByLabel("Reddit 离线归档（R4）").check();
-  await edit.getByRole("button", { name: "保存来源" }).click();
-  await page.getByText(/R4 离线归档检索与推流控制台/).waitFor();
-  await page.getByRole("button", { name: "自定义月份", exact: true }).click();
-  await page.getByLabel(/自定义月份列表/).fill("2026-08");
-  await page.getByLabel(/起始发布时间 UTC/).fill("2026-08-31T23:30");
-  await page.getByLabel(/截止发布时间 UTC/).fill("2026-09-01T01:30");
-  await page.locator("pre").filter({ hasText: "--from '2026-08-31T23:30:00.000Z'" }).waitFor();
-  await page.getByRole("group", { name: "来源状态" }).getByRole("button", { name: "暂停", exact: true }).click();
-  await page.getByText("请启用当前来源后再推流。").waitFor();
-  assert.equal(await page.getByRole("button", { name: "提交推流批次" }).isDisabled(), true);
-  await page.getByRole("group", { name: "来源状态" }).getByRole("button", { name: "启用", exact: true }).click();
-  await page.getByText(/来源状态已切换为 active/).waitFor();
+  await page.getByText("target: search = 人工智能工具").waitFor();
+  await page.getByText(/同一离线归档（push）来源可统一接收多月归档数据/).waitFor();
+  await page.getByRole("button", { name: "2026-08", exact: true }).click();
+  await page.locator("pre").filter({ hasText: "--months '2026-08'" }).waitFor();
+  await page.getByRole("button", { name: "全部可用月份", exact: true }).click();
 
   const sourceResponse = await page.request.get(`${origin}/api/v1/sources`);
   const allSources = (await sourceResponse.json()).sources as Array<{ id: string; label: string }>;
@@ -486,10 +334,7 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   });
   await page.locator("textarea.wb-textarea").fill(JSON.stringify({ items: [item, comment] }));
   await page.getByRole("button", { name: "提交推流批次" }).click();
-  await page.getByText(/推流成功：接收 2 条（新增 2，更新 0）/).waitFor();
-  await page.getByRole("button", { name: "任务详情", exact: true }).click();
-  await page.getByText("处理 / 新增 / 更新 · 2 / 2 / 0").waitFor();
-  await page.locator(".sr-modal").getByRole("button").first().click();
+  await page.getByText("推流成功：接收 2 条（新增 2，更新 0）").waitFor();
 
   // 7b. File import prepares the editor. Retrying a lost response reuses the same ingest job.
   const fileInput = page.getByLabel("导入规范 JSON 文件");
@@ -577,7 +422,7 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await nav.getByRole("button", { name: /批注与收藏/ }).click();
   await page.getByText("保留这条研究判断").waitFor();
 
-  // 10. Settings -> Mint a source-scoped R4 ingest key
+  // 10. Settings -> Mint R4 ingest + read machine key
   const secondBrowser = await fetch(`${address}/v1/auth/login`, {
     method: "POST", headers: { origin, "content-type": "application/json" },
     body: JSON.stringify({ email: "owner@localhost", password: "fixture-password-123" }),
@@ -593,21 +438,16 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await browserSessions.getByText("浏览器已退出。").waitFor();
   const otherSession = await fetch(`${address}/v1/auth/session`, { headers: { cookie: otherCookie } });
   assert.equal((await otherSession.json()).user, null);
-  await page.goto(origin + "/settings?tab=keys&archiveSource=" + sourceId);
-  await page.getByRole("button", { name: "应用归档来源预设" }).click();
-  assert.equal(await page.getByRole("checkbox", { name: "内部研究样本" }).isChecked(), true);
+  await page.getByRole("button", { name: "机器 API 密钥" }).click();
+  await page.getByPlaceholder("BI Export Sync").fill("R4 验证密钥");
+  await page.getByRole("button", { name: /一键预设: R4 归档推流/ }).click();
+  await page.getByRole("checkbox", { name: "内部研究样本" }).check();
   await page.getByRole("button", { name: "生成机器密钥" }).click();
   const key = await page.locator(".wb-alert--warn code").innerText();
-  const machineHeaders = { authorization: "Bearer " + key };
-  const readRes = await fetch(address + "/v1/content?sourceId=" + sourceId, { headers: machineHeaders });
-  assert.equal(readRes.status, 403);
-  const machineIngest = (id: string) => fetch(address + "/v1/sources/" + id + "/ingest", {
-    method: "POST",
-    headers: { ...machineHeaders, "content-type": "application/json", "idempotency-key": "r4-fixture-receipt" },
-    body: JSON.stringify({ items: [item] }),
+  const readRes = await fetch(`${address}/v1/content?sourceId=${sourceId}`, {
+    headers: { authorization: `Bearer ${key}` },
   });
-  assert.equal((await machineIngest(sourceId)).status, 201);
-  assert.equal((await machineIngest(createdFeed.id)).status, 404);
+  assert.equal(readRes.status, 200);
 
   // 11. Projects -> Push exclusion & includePushInTrends toggle
   await nav.getByRole("button", { name: "项目总览" }).click();
@@ -679,7 +519,7 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await switchDialog.waitFor({ state: "detached" });
   await page.getByRole("button", { name: "登录", exact: true }).waitFor();
 
-  assert.deepEqual(serverErrors, ["API key scope does not permit this operation", "Source not found"]);
+  assert.deepEqual(serverErrors, []);
   assert.deepEqual(errors, []);
 });
 

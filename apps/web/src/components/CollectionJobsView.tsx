@@ -1,129 +1,207 @@
 import { useState } from 'react';
-import { History, RefreshCw } from 'lucide-react';
-import { formatApiError, useRecentJobsQuery } from '../api/hooks';
+import { AlertTriangle, RefreshCw, RotateCcw, StopCircle } from 'lucide-react';
+import { formatApiError, useJobActionMutation, useQuotasSummaryQuery, useRecentJobsQuery } from '../api/hooks';
 import type { Actor, CollectionSource, RecentJobDto } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
 
-const statuses = {
-  queued: ['Queued', '排队中'],
-  running: ['Running', '执行中'],
-  retrying: ['Retrying', '等待重试'],
-  succeeded: ['Succeeded', '已完成'],
-  completed: ['Completed', '已完成'],
-  failed: ['Failed', '失败'],
-  cancelled: ['Cancelled', '已取消'],
-} as const;
-
-const phases = {
-  idle: ['Waiting', '等待执行'],
-  starting: ['Starting', '启动渠道'],
-  running: ['Running upstream', '上游执行'],
-  reading: ['Reading results', '读取结果'],
-  unknown: ['Outcome unknown', '结果待确认'],
-  done: ['Finished', '阶段完成'],
-  failed: ['Stage failed', '阶段失败'],
-} as const;
-
-function collectionJobStatus(status: RecentJobDto['status']): readonly [string, string] {
-  return statuses[status] ?? [status, status];
+function formatDurationMs(job: RecentJobDto): string {
+  if (job.requestDurationMs > 0) return `${Math.round(job.requestDurationMs)} ms`;
+  if (job.finishedAt && job.createdAt) {
+    const ms = Date.parse(job.finishedAt) - Date.parse(job.createdAt);
+    if (Number.isFinite(ms) && ms >= 0) return `${(ms / 1000).toFixed(1)} s`;
+  }
+  return '—';
 }
 
-export function CollectionJobsView({ actor, sources, initialSourceId, onInspect, onOpenSource }: {
+export function CollectionJobsView({
+  actor,
+  sources,
+}: {
   actor: Actor;
   sources: CollectionSource[];
-  initialSourceId: string;
-  onInspect: (id: string) => void;
-  onOpenSource: (id: string) => void;
 }) {
-  const { lang, t } = useI18n();
-  const isAdmin = actor.clientKind === 'browser' && actor.role !== 'viewer';
-  const [status, setStatus] = useState('');
-  const [sourceId, setSourceId] = useState(initialSourceId);
-  const jobsQuery = useRecentJobsQuery({ status: status || undefined, sourceId: sourceId || undefined, limit: 50 });
-  const jobs = jobsQuery.data?.jobs ?? [];
-  const number = new Intl.NumberFormat(lang === 'zh' ? 'zh-CN' : 'en');
-  const utc = new Intl.DateTimeFormat(lang === 'zh' ? 'zh-CN' : 'en-GB', {
-    timeZone: 'UTC', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  const { t } = useI18n();
+  const isAdmin = actor.role === 'owner' || actor.role === 'admin';
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [sourceFilter, setSourceFilter] = useState<string>('');
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const [ackJob, setAckJob] = useState<RecentJobDto | null>(null);
+
+  const jobsQuery = useRecentJobsQuery({
+    ...(statusFilter ? { status: statusFilter } : {}),
+    ...(sourceFilter ? { sourceId: sourceFilter } : {}),
+    limit: 50,
   });
+  const quotasQuery = useQuotasSummaryQuery(!isAdmin);
+  const jobActionMut = useJobActionMutation();
 
-  function requester(job: RecentJobDto) {
-    if (!isAdmin) return t('You', '本人');
-    if (job.requestedByClientKind === 'machine') return [t('Machine key', '机器密钥'), job.requesterEmail].filter(Boolean).join(' · ');
-    if (job.requestedByClientKind === 'browser') return job.requesterEmail ?? t('Browser session', '浏览器会话');
-    return job.purpose === 'scheduled' ? t('Scheduler', '系统调度') : t('Requester unavailable', '未记录发起者');
-  }
+  const jobs = jobsQuery.data?.jobs || [];
+  const canViewerCollect = quotasQuery.data?.effectivePolicy.manualCollectEnabled ?? false;
 
-  function kind(job: RecentJobDto) {
-    switch (job.purpose) {
-      case 'scheduled': return t('Scheduled run', '定时采集');
-      case 'ingest': return t('Push ingest', '推流导入');
-      case 'refresh': return t('Refresh posts', '刷新帖子');
-      case 'hydrate': return t('Fetch comments', '补采评论');
-      default: return t('Manual run', '手动采集');
+  const runAction = async (job: RecentJobDto, action: 'cancel' | 'retry' | 'continue', ack = false) => {
+    setActionErr(null);
+    if (action !== 'cancel' && (job.phase === 'starting' || job.phase === 'unknown') && !ack) {
+      setAckJob(job);
+      return;
     }
-  }
+    try {
+      await jobActionMut.mutateAsync({ jobId: job.id, sourceId: job.sourceId, action, acknowledgePotentialCharge: ack || undefined });
+      setAckJob(null);
+      await jobsQuery.refetch();
+    } catch (err) {
+      setActionErr(formatApiError(err));
+    }
+  };
 
   return (
-    <section className="ds-card collection-panel" aria-labelledby="collection-jobs-title">
-      <header className="ds-card-hd collection-panel-header">
-        <div>
-          <h2 className="ds-card-title" id="collection-jobs-title"><History size={16} />{isAdmin ? t('Recent runs', '近期任务') : t('My recent runs', '我的近期任务')}</h2>
-          <p className="ds-card-sub">{t('Latest 50 matching jobs. Timestamps use UTC.', '最多展示最近 50 条匹配任务，时间为 UTC。')}</p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {!isAdmin && (
+        <div className="wb-alert wb-alert--info">
+          <span>
+            {canViewerCollect
+              ? t(
+                  'Showing only manual collection jobs initiated by your account. System scheduled jobs and other users’ tasks are hidden.',
+                  '仅展示您本人发起的手动采集任务；系统自动排期与其他用户的任务不会显示在此处。',
+                )
+              : t(
+                  'Manual collection is currently disabled for your plan tier. Below are any historical jobs initiated by your account.',
+                  '当前账户套餐未开放手动采集权限；下方仅展示您本人历史发起的任务记录。',
+                )}
+          </span>
         </div>
-        <div className="collection-toolbar">
-          <select className="wb-select" aria-label={t('Filter by job status', '按任务状态筛选')} value={status} onChange={e => setStatus(e.target.value)}>
-            <option value="">{t('All statuses', '全部状态')}</option>
-            {Object.entries(statuses).filter(([value]) => value !== 'completed').map(([value, label]) => <option key={value} value={value}>{t(label[0], label[1])}</option>)}
-          </select>
-          <select className="wb-select" aria-label={t('Filter by source', '按来源筛选')} value={sourceId} onChange={e => setSourceId(e.target.value)}>
-            <option value="">{t('All sources', '全部来源')}</option>
-            {sources.map(source => <option key={source.id} value={source.id}>{source.label}</option>)}
-          </select>
-          <button type="button" className="ds-btn ds-btn--ghost" disabled={jobsQuery.isFetching} onClick={() => { void jobsQuery.refetch(); }}>
-            <RefreshCw size={14} />{t('Refresh', '刷新')}
-          </button>
+      )}
+
+      {actionErr && <div className="wb-alert wb-alert--error">{actionErr}</div>}
+
+      {ackJob && (
+        <div className="wb-alert wb-alert--error" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <AlertTriangle size={14} />
+            {t(
+              `Job ${ackJob.id.slice(0, 8)} is in unresolved phase (${ackJob.phase}). Retrying may incur a duplicate provider charge.`,
+              `任务 ${ackJob.id.slice(0, 8)} 处于未决阶段 (${ackJob.phase})，重试可能产生重复付费请求。`,
+            )}
+          </span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button type="button" className="ds-btn ds-btn--danger" style={{ height: 26, fontSize: 11 }} onClick={() => runAction(ackJob, 'retry', true)}>
+              {t('Confirm Retry', '确认重试')}
+            </button>
+            <button type="button" className="ds-btn ds-btn--ghost" style={{ height: 26, fontSize: 11 }} onClick={() => setAckJob(null)}>
+              {t('Cancel', '取消')}
+            </button>
+          </div>
         </div>
-      </header>
-      {jobsQuery.error && <p className="wb-alert wb-alert--error collection-panel-notice" role="alert">{formatApiError(jobsQuery.error)}</p>}
-      {jobs.length > 0 ? (
-        <div className="collection-table-scroll" role="region" aria-label={t('Collection jobs table', '采集任务表')} tabIndex={0}>
-          <table className="collection-table collection-jobs-table">
-            <thead><tr>
-              <th scope="col">{t('Source / channel', '来源与渠道')}</th>
-              <th scope="col">{t('Trigger', '触发方式')}</th>
-              <th scope="col">{t('Status / stage', '状态与阶段')}</th>
-              <th scope="col">{t('Storage result', '处理与入库')}</th>
-              <th scope="col">{t('Provider requests', '渠道请求')}</th>
-              <th scope="col">{t('Created (UTC)', '创建时间（UTC）')}</th>
-              <th scope="col">{t('Action', '操作')}</th>
-            </tr></thead>
-            <tbody>{jobs.map(job => (
-              <tr key={job.id}>
-                <td>
-                  <button type="button" className="collection-text-button" onClick={() => onOpenSource(job.sourceId)}>{job.sourceLabel}</button>
-                  <small>{job.provider} · <code title={job.id}>{job.id.slice(0, 8)}</code></small>
-                </td>
-                <td><span>{kind(job)}</span><small>{requester(job)}</small></td>
-                <td>
-                  <span className={'collection-status ' + (job.status === 'failed' ? 'collection-status--error' : ['completed', 'succeeded'].includes(job.status) ? 'collection-status--ok' : '')}>
-                    {t(...collectionJobStatus(job.status))}
-                  </span>
-                  {job.phase && phases[job.phase] && <small>{t(phases[job.phase][0], phases[job.phase][1])}</small>}
-                  {job.error && <small className="collection-job-error">{job.error}</small>}
-                </td>
-                <td><strong>{number.format(job.recordsProcessed)}</strong> {t('processed', '已处理')}
-                  <small>{t('New', '新增')} {number.format(job.recordsInserted)} · {t('Updated', '更新')} {number.format(job.recordsUpdated)}</small>
-                </td>
-                <td>{number.format(job.requestCount)} {t('requests', '次')}
-                  {job.requestDurationMs > 0 && <small>{number.format(job.requestDurationMs)} ms</small>}
-                </td>
-                <td><time dateTime={job.createdAt} title={job.createdAt}>{utc.format(new Date(job.createdAt))}</time></td>
-                <td><button type="button" className="ds-btn ds-btn--ghost" onClick={() => onInspect(job.id)}>{t('Details', '详情')}</button></td>
+      )}
+
+      <div className="ds-card">
+        <div className="ds-card-hd" style={{ flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <div className="ds-card-title">
+              {isAdmin ? t('Global Collection Job Queue & History', '全局采集任务队列与执行流水') : t('My Collection Jobs', '我的采集任务记录')}
+            </div>
+            <div className="ds-card-sub">
+              {t(
+                'Real server-side execution stages, record counts & errors (no fabricated progress percentages)',
+                '真实后端任务阶段、入库条数与错误详情（无虚构完成百分比）',
+              )}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <select className="wb-select" style={{ height: 30, fontSize: 11.5 }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="">{t('All statuses', '全部状态')}</option>
+              {['queued', 'running', 'retrying', 'succeeded', 'failed', 'cancelled'].map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+            <select className="wb-select" style={{ height: 30, fontSize: 11.5, maxWidth: 180 }} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
+              <option value="">{t('All sources', '全部来源')}</option>
+              {sources.map((s) => (
+                <option key={s.id} value={s.id}>{s.label}</option>
+              ))}
+            </select>
+            <button type="button" className="ds-btn ds-btn--ghost" style={{ height: 30 }} onClick={() => jobsQuery.refetch()}>
+              <RefreshCw size={12} /> {t('Refresh', '刷新')}
+            </button>
+          </div>
+        </div>
+
+        <div className="ds-card-bd" style={{ padding: 0, overflowX: 'auto' }}>
+          <table className="ds-table">
+            <thead>
+              <tr>
+                <th>{t('Source / Provider', '来源 / 渠道')}</th>
+                <th>{t('Type / Requester', '类型 / 发起者')}</th>
+                <th>{t('Status / Phase', '状态 / 阶段')}</th>
+                <th>{t('Processed (Ins / Upd)', '处理数 (新增 / 更新)')}</th>
+                <th>{t('Timing', '耗时 / 创建时间')}</th>
+                <th>{t('Error', '错误信息')}</th>
+                <th className="num">{t('Actions', '操作')}</th>
               </tr>
-            ))}</tbody>
+            </thead>
+            <tbody>
+              {jobs.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--faint)' }}>
+                    {jobsQuery.isLoading ? t('Loading jobs...', '加载任务中...') : t('No matching collection jobs.', '暂无匹配的采集任务记录。')}
+                  </td>
+                </tr>
+              ) : (
+                jobs.map((j) => (
+                  <tr key={j.id}>
+                    <td>
+                      <div style={{ fontWeight: 600, fontSize: 12 }}>{j.sourceLabel}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--faint)', fontFamily: 'var(--font-mono)' }}>
+                        {j.platform} · {j.provider} · {j.id.slice(0, 8)}
+                      </div>
+                    </td>
+                    <td>
+                      <span className="tag tag--line" style={{ fontSize: 10 }}>{j.purpose}/{j.operation}</span>
+                      <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2 }}>
+                        {isAdmin ? (j.requesterEmail ?? t('system scheduler', '系统自动排期')) : t('you', '本人')}
+                      </div>
+                    </td>
+                    <td>
+                      <span className={`tag ${j.status === 'succeeded' ? 'tag--mint' : j.status === 'failed' ? 'tag--danger' : 'tag--lilac'}`}>
+                        {j.status}
+                      </span>
+                      <div style={{ fontSize: 10.5, color: 'var(--faint)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                        phase: {j.phase ?? 'idle'} · reqs: {j.requestCount}
+                      </div>
+                    </td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>
+                      <b>{j.recordsProcessed}</b>
+                      <span style={{ color: 'var(--faint)', marginLeft: 4 }}>
+                        (+{j.recordsInserted} / ~{j.recordsUpdated})
+                      </span>
+                    </td>
+                    <td style={{ fontSize: 11, color: 'var(--muted)' }}>
+                      <div>{formatDurationMs(j)}</div>
+                      <div style={{ fontSize: 10, color: 'var(--faint)' }}>{j.createdAt.slice(0, 19).replace('T', ' ')}</div>
+                    </td>
+                    <td style={{ maxWidth: 220, fontSize: 11, color: j.error ? '#b91c1c' : 'var(--faint)' }}>
+                      {j.error ?? '—'}
+                    </td>
+                    <td className="num">
+                      <div style={{ display: 'inline-flex', gap: 4 }}>
+                        {['queued', 'running', 'retrying'].includes(j.status) && (
+                          <button type="button" className="ds-btn ds-btn--danger" style={{ height: 24, padding: '0 8px', fontSize: 10.5 }} onClick={() => runAction(j, 'cancel')}>
+                            <StopCircle size={11} /> {t('Cancel', '取消')}
+                          </button>
+                        )}
+                        {['failed', 'cancelled'].includes(j.status) && (
+                          <button type="button" className="ds-btn ds-btn--ghost" style={{ height: 24, padding: '0 8px', fontSize: 10.5 }} onClick={() => runAction(j, 'retry')}>
+                            <RotateCcw size={11} /> {t('Retry', '重试')}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
           </table>
         </div>
-      ) : !jobsQuery.error && <p className="collection-empty" role="status">{jobsQuery.isPending ? t('Loading jobs…', '正在加载任务…') : t('No jobs match the filters.', '没有符合筛选条件的任务。')}</p>}
-    </section>
+      </div>
+    </div>
   );
 }

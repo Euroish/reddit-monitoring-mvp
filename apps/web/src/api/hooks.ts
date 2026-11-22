@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ApiError,
+  type CollectionSource,
   type ContentFacetsQuery,
   type CredentialProviderName,
   type DocInput,
@@ -10,8 +11,6 @@ import {
   type ProjectInput,
   type PullProviderName,
   type SourceInput,
-  type SourcePatch,
-  type SourceImport,
   type StoryQuery,
 } from '../contracts/api';
 import { apiClient } from './client';
@@ -138,7 +137,7 @@ export function useSourceJobsQuery(sourceId: string | null) {
     enabled: Boolean(sourceId),
     refetchInterval: (q) => {
       const list = q.state.data?.jobs || [];
-      return list.some((j) => j.status === 'queued' || j.status === 'running' || j.status === 'retrying') ? 3500 : false;
+      return list.some((j) => j.status === 'queued' || j.status === 'running') ? 3500 : false;
     },
   });
 }
@@ -150,7 +149,7 @@ export function useBatchJobsQuery(jobIds: string[]) {
     enabled: jobIds.length > 0,
     refetchInterval: (q) => {
       const list = q.state.data?.jobs || [];
-      return list.some((j) => j.status === 'queued' || j.status === 'running' || j.status === 'retrying') ? 3000 : false;
+      return list.some((j) => j.status === 'queued' || j.status === 'running') ? 3000 : false;
     },
   });
 }
@@ -160,7 +159,6 @@ export function useJobDetailQuery(jobId: string | null) {
     queryKey: ['jobDetail', jobId],
     queryFn: () => apiClient.getJobDetail(jobId!),
     enabled: Boolean(jobId),
-    refetchInterval: query => ['queued', 'running', 'retrying'].includes(query.state.data?.job.status ?? '') ? 3500 : false,
   });
 }
 
@@ -307,14 +305,6 @@ export function useCreateSourceMutation() {
   });
 }
 
-export function useImportSourcesMutation() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: SourceImport) => apiClient.importSources(input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sources'] }),
-  });
-}
-
 export function useUpdateSourceMutation() {
   const qc = useQueryClient();
   return useMutation({
@@ -323,7 +313,7 @@ export function useUpdateSourceMutation() {
       input,
     }: {
       id: string;
-      input: SourcePatch;
+      input: { fallbackProvider?: 'scrapebadger' | 'red_crawler' | null; state?: CollectionSource['state']; revision: number };
     }) => apiClient.updateSource(id, input),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['sources'] });
@@ -365,8 +355,6 @@ export function useCollectSourceMutation() {
     }) => apiClient.collectSource(args.sourceId, args.payload, args.idempotencyKey),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['jobs', vars.sourceId] });
-      qc.invalidateQueries({ queryKey: ['recentJobs'] });
-      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
       qc.invalidateQueries({ queryKey: ['budgets'] });
     },
   });
@@ -379,8 +367,6 @@ export function useRefreshSourceMutation() {
       apiClient.refreshSource(args.sourceId, { contentIds: args.contentIds }, args.idempotencyKey),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['jobs', vars.sourceId] });
-      qc.invalidateQueries({ queryKey: ['recentJobs'] });
-      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
       qc.invalidateQueries({ queryKey: ['budgets'] });
       qc.invalidateQueries({ queryKey: ['content'] });
     },
@@ -394,8 +380,6 @@ export function useIngestSourceMutation() {
       apiClient.ingestSource(args.sourceId, args.rawJson, args.idempotencyKey),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['jobs', vars.sourceId] });
-      qc.invalidateQueries({ queryKey: ['recentJobs'] });
-      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
       qc.invalidateQueries({ queryKey: ['content'] });
       qc.invalidateQueries({ queryKey: ['overview'] });
     },
@@ -434,8 +418,6 @@ export function useJobActionMutation() {
     }) => apiClient.jobAction(args.jobId, args.action, args.acknowledgePotentialCharge),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['jobs', vars.sourceId] });
-      qc.invalidateQueries({ queryKey: ['recentJobs'] });
-      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
       qc.invalidateQueries({ queryKey: ['jobDetail', vars.jobId] });
       qc.invalidateQueries({ queryKey: ['sources'] });
       qc.invalidateQueries({ queryKey: ['budgets'] });
@@ -580,7 +562,6 @@ export function useRecentJobsQuery(params: { status?: string; sourceId?: string;
     queryKey: ['recentJobs', params],
     queryFn: () => apiClient.getRecentJobs(params),
     enabled,
-    refetchInterval: query => query.state.data?.jobs.some(job => ['queued', 'running', 'retrying'].includes(job.status)) ? 3500 : false,
   });
 }
 

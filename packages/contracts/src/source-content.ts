@@ -322,9 +322,6 @@ export const SourceImportInput = Type.Union([
     }, { additionalProperties: false })),
   }, { additionalProperties: false }),
 ]);
-const SourcePatch = Type.Partial(Type.Pick(SourceInput, [
-  "label", "sourceGroup", "tags", "locale", "fetchPolicy", "schedule", "tier", "ownerEntityId",
-]));
 export const SourceListQuery = Type.Object({
   sourceGroup: Type.Optional(Type.String({ pattern: SourceGroupPattern })),
   tier: Type.Optional(SourceTier),
@@ -390,15 +387,6 @@ export const Source = strictMerge([
     coverage: Type.Union([Type.Literal("unknown"), Type.Literal("partial")]),
   }),
 ]);
-export const SourceUpdate = strictMerge([
-  SourcePatch,
-  Type.Object({
-    fallbackProvider: Type.Optional(Type.Union([FallbackProvider, Type.Null()])),
-    state: Type.Optional(Source.properties.state),
-    revision: Type.Integer({ minimum: 1 }),
-  }),
-]);
-export const REDDIT_ARCHIVE_SOURCE_TAG = "reddit-archive";
 export const ContentFilter = Type.Object(
   {
     sourceId: Type.Optional(Id),
@@ -690,10 +678,6 @@ export type PlatformDetails = Static<typeof Details>;
 export type ContentObservation = Static<typeof Observation>;
 export type PublicContent = Static<typeof Content>;
 export type CollectionSource = Static<typeof Source>;
-export type CollectionSourceInput = Static<typeof SourceInput>;
-export type CollectionSourceUpdate = Static<typeof SourceUpdate>;
-export type CollectionSourcePreview = Static<typeof SourcePreview>;
-export type CollectionSourceImport = Static<typeof SourceImportInput>;
 export type Filter = Static<typeof ContentFilter>;
 export type Actor = Static<typeof ActorSchema>;
 export interface MetricDefinition {
