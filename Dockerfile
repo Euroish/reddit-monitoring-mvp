@@ -14,7 +14,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --from=build --chown=node:node /app/dist ./dist
 USER node
-CMD ["sh", "-c", "node dist/src/storage/schema/run-migrations.js && node dist/src/modules/content/ai-history-cli.js apply --dataset ${AI_HISTORY_DATASET:-v1} --trigger startup && exec node dist/apps/api/src/server.js"]
+CMD ["sh", "-c", "node dist/src/storage/schema/run-migrations.js && node dist/src/modules/ai/ai-history-cli.js apply --dataset ${AI_HISTORY_DATASET:-v1} --trigger startup && exec node dist/apps/api/src/server.js"]
 
 FROM caddy:2-alpine AS proxy
 COPY --from=build /app/apps/web/dist /srv

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractWithOptionalLlm } from "../../src/modules/content/ai-llm";
+import { extractWithOptionalLlm } from "../../src/modules/ai/ai-llm";
 import { testDatabase } from "../helpers/database";
 
 test("PG16 reserves each paid extraction before fetch and retains unknown outcomes across retries", async (t) => {

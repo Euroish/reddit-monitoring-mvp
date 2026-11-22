@@ -6,7 +6,7 @@ import { mfaConfig } from "../../../src/modules/access/mfa-crypto";
 import { pruneMfaChallenges } from "../../../src/modules/access/mfa-sql";
 import { createCredentialVault } from "../../../src/modules/collection/credentials";
 import { startWorker } from "../../../src/modules/collection/worker";
-import { startAiSyncScheduler } from "../../../src/modules/content/ai-scheduler";
+import { startAiSyncScheduler } from "../../../src/modules/ai/index";
 import { KaixContentConnector } from "../../../src/connectors/reddit/kaix-content.connector";
 import { redCrawler } from "../../../src/connectors/reddit/red-crawler";
 import { createApifyFetch } from "../../../src/connectors/reddit/apify-fetch";

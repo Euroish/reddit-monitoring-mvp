@@ -10,7 +10,7 @@ test("release packaging allowlist excludes credentials/data and verification det
   const root = await mkdtemp(path.join(os.tmpdir(), "release-fixture-"));
   t.after(async () => rm(root, { recursive: true, force: true }));
   for (const folder of [
-    "dist/apps/api/src", "dist/src/storage/schema", "dist/src/modules/content", "dist/data/ai/history/v1", "data/ai/history/v1",
+    "dist/apps/api/src", "dist/src/storage/schema", "dist/src/modules/ai", "dist/data/ai/history/v1", "data/ai/history/v1",
     "dist/workers", "dist/plugins/zst-archive", "plugins/zst-archive",
     "apps/web/dist", "src/storage/schema", "deploy/env", "docs/research", "docs/plans",
   ]) await mkdir(path.join(root, folder), { recursive: true });
@@ -23,7 +23,7 @@ test("release packaging allowlist excludes credentials/data and verification det
   for (const [file, content] of [
     ["dist/apps/api/src/server.js", "console.log('synthetic-api');"], ["dist/workers/source-content-worker.js", "console.log('synthetic-worker');"],
     ["dist/src/storage/schema/run-migrations.js", "console.log('synthetic-migration');"],
-    ["dist/src/modules/content/ai-history-cli.js", "console.log('synthetic-history-cli');"],
+    ["dist/src/modules/ai/ai-history-cli.js", "console.log('synthetic-history-cli');"],
     ["dist/data/ai/history/v1/manifest.json", sampleHistoryManifest],
     ["dist/data/ai/history/v1/releases.json", sampleHistoryBody],
     ["data/ai/history/v1/manifest.json", sampleHistoryManifest],

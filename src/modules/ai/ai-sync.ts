@@ -33,11 +33,22 @@ export async function saveArtificialAnalysisSnapshots(
          ) VALUES ('artificial_analysis',$1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
         [snap.category, snap.metricName, snap.metricVersion, snap.metricDirection, snap.unit, snap.attributionText, snap.attributionUrl, licenseTier, aaPublicAllowed],
       );
-      for (const e of snap.entries) {
+      if (snap.entries.length > 0) {
         await pool.query(
           `INSERT INTO ai_benchmark_entry (snapshot_id, external_model_id, model_name, vendor_name, score, rank, provider_setting)
-           VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (snapshot_id, external_model_id) DO NOTHING`,
-          [snapRes.rows[0].id, e.externalModelId, e.modelName, e.vendorName, e.score, e.rank, e.providerSetting],
+           SELECT $1, external_model_id, model_name, vendor_name, score, rank, provider_setting
+           FROM UNNEST($2::text[], $3::text[], $4::text[], $5::double precision[], $6::int[], $7::text[])
+             AS t(external_model_id, model_name, vendor_name, score, rank, provider_setting)
+           ON CONFLICT (snapshot_id, external_model_id) DO NOTHING`,
+          [
+            snapRes.rows[0].id,
+            snap.entries.map((e) => e.externalModelId),
+            snap.entries.map((e) => e.modelName),
+            snap.entries.map((e) => e.vendorName ?? null),
+            snap.entries.map((e) => e.score),
+            snap.entries.map((e) => e.rank ?? null),
+            snap.entries.map((e) => e.providerSetting ?? null),
+          ],
         );
       }
       saved += 1;

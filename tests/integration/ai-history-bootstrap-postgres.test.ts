@@ -5,16 +5,16 @@ import path from "node:path";
 import test from "node:test";
 import { buildApp } from "../../apps/api/src/app";
 import { bootstrapOwner } from "../../src/modules/access/sql";
-import { runOfficialEventDiscovery } from "../../src/modules/content/ai-discovery";
-import { canonicalEventKey } from "../../src/modules/content/ai-event-identity";
-import { runHistoryBackfill } from "../../src/modules/content/ai-history-backfill";
+import { runOfficialEventDiscovery } from "../../src/modules/ai/ai-discovery";
+import { canonicalEventKey } from "../../src/modules/ai/ai-event-identity";
+import { runHistoryBackfill } from "../../src/modules/ai/ai-history-backfill";
 import {
   applyHistoryImport,
   planHistoryImport,
   resolveHistoryDatasetDir,
-} from "../../src/modules/content/ai-history-import";
-import { parseOpenRouterPayload } from "../../src/modules/content/ai-registry";
-import { applyRegistryItems } from "../../src/modules/content/ai-sync";
+} from "../../src/modules/ai/ai-history-import";
+import { parseOpenRouterPayload } from "../../src/modules/ai/ai-registry";
+import { applyRegistryItems } from "../../src/modules/ai/ai-sync";
 import { testDatabase } from "../helpers/database";
 
 const dbUrl = process.env.TEST_SOURCE_DATABASE_URL;

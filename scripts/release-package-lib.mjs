@@ -61,7 +61,7 @@ export async function packRelease({ root = process.cwd(), destination }) {
   let parent = path.dirname(destination); while (!fs.existsSync(parent)) parent = path.dirname(parent);
   const actualParent = fs.realpathSync(parent), actualRoot = fs.realpathSync(root);
   if (actualParent !== actualRoot && actualParent !== path.join(actualRoot, 'output') && !actualParent.startsWith(path.join(actualRoot, 'output') + path.sep)) throw new Error('Release output symlink escape refused');
-  const required = ['dist/apps/api/src/server.js', 'dist/src/storage/schema/run-migrations.js', 'dist/src/modules/content/ai-history-cli.js', 'dist/data/ai/history/v1/manifest.json', 'apps/web/dist/index.html', 'package.json', 'package-lock.json'];
+  const required = ['dist/apps/api/src/server.js', 'dist/src/storage/schema/run-migrations.js', 'dist/src/modules/ai/ai-history-cli.js', 'dist/data/ai/history/v1/manifest.json', 'apps/web/dist/index.html', 'package.json', 'package-lock.json'];
   for (const file of required) await fsp.access(path.join(root, file)).catch(() => { throw new Error(`Missing release input ${file}; run build and compiled smoke first`); });
   const historyManifest = JSON.parse(await fsp.readFile(path.join(root, 'dist/data/ai/history/v1/manifest.json'), 'utf8'));
   for (const entry of historyManifest.files ?? []) {
