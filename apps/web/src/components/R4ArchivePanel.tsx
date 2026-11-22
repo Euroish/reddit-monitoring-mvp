@@ -115,14 +115,14 @@ export function R4ArchivePanel({ sourceId, active }: R4ArchivePanelProps) {
   };
 
   return (
-    <div style={{ background: '#f7f8f3', border: '1px solid var(--line)', borderRadius: 8, padding: 13, display: 'flex', flexDirection: 'column', gap: 11 }}>
+    <div className="collection-form">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>
             <Database size={14} color="var(--wb-purple)" />
             <span>{t('R4 Offline Archive Collection Console (open-corpus-v1)', 'R4 离线归档检索与推流控制台 (open-corpus-v1)')}</span>
           </div>
-          <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0', lineHeight: 1.55 }}>
+          <p className="collection-hint">
             {t(
               'Install the external Python/DuckDB plugin on the archive host and run inspect to check local packages. The workbench cannot detect that installation or its available months. For live push, set ARCHIVE_INGEST_TOKEN on that host using a Machine Key with ingest scope restricted to this source.',
               '请在归档主机安装独立的 Python/DuckDB 插件，并运行 inspect 检查本地归档包。工作台无法检测插件安装或可用月份。正式推流前，请在归档主机设置 ARCHIVE_INGEST_TOKEN，使用仅允许当前来源且具备 ingest scope 的 Machine Key。',
@@ -159,10 +159,10 @@ export function R4ArchivePanel({ sourceId, active }: R4ArchivePanelProps) {
 
       <div className="wb-grid-2">
         <div className="wb-field">
-          <label>{t('Archive Root (--archive-root)', '离线归档根目录 (--archive-root)')}</label>
+          <label htmlFor="archive-root">{t('Archive Root (--archive-root)', '离线归档根目录 (--archive-root)')}</label>
           <input
             className="wb-input"
-            value={archiveRoot}
+            id="archive-root" value={archiveRoot}
             onChange={(e) => setArchiveRoot(e.target.value)}
             placeholder="./open-packages"
           />
@@ -201,19 +201,19 @@ export function R4ArchivePanel({ sourceId, active }: R4ArchivePanelProps) {
         <>
           <div className="wb-grid-2">
             <div className="wb-field">
-              <label>{t('Boolean Query (--query)', '布尔检索词 (--query)')}</label>
+              <label htmlFor="archive-query">{t('Boolean Query (--query)', '布尔检索词 (--query)')}</label>
               <input
                 className="wb-input"
-                value={queryText}
+                id="archive-query" value={queryText}
                 onChange={(e) => setQueryText(e.target.value)}
                 placeholder='chatgpt OR "coding agent"'
               />
             </div>
             <div className="wb-field">
-              <label>{t('Subreddits (--subreddits, optional)', '限定版块 (--subreddits，留空查全站)')}</label>
+              <label htmlFor="archive-subreddits">{t('Subreddits (--subreddits, optional)', '限定版块 (--subreddits，留空查全站)')}</label>
               <input
                 className="wb-input"
-                value={subredditsText}
+                id="archive-subreddits" value={subredditsText}
                 onChange={(e) => setSubredditsText(e.target.value)}
                 placeholder="localllama,chatgpt"
               />
@@ -233,24 +233,24 @@ export function R4ArchivePanel({ sourceId, active }: R4ArchivePanelProps) {
 
           <div className="wb-grid-2">
             <div className="wb-field">
-              <label>{t('Max Matched Posts (--limit)', '主帖上限 (--limit)')}</label>
+              <label htmlFor="archive-limit">{t('Max Matched Posts (--limit)', '主帖上限 (--limit)')}</label>
               <input
                 type="number"
                 className="wb-input"
                 min={1}
                 max={2000}
-                value={limit}
+                id="archive-limit" value={limit}
                 onChange={(e) => setLimit(Math.max(1, Number(e.target.value) || 1))}
               />
             </div>
             <div className="wb-field">
-              <label>{t('Comments / Post (--max-comments-per-post)', '每帖携带精选评论 (--max-comments-per-post)')}</label>
+              <label htmlFor="archive-comments">{t('Comments / Post (--max-comments-per-post)', '每帖携带精选评论 (--max-comments-per-post)')}</label>
               <input
                 type="number"
                 className="wb-input"
                 min={0}
                 max={50}
-                value={maxComments}
+                id="archive-comments" value={maxComments}
                 onChange={(e) => setMaxComments(Math.max(0, Number(e.target.value) || 0))}
               />
             </div>
@@ -261,8 +261,8 @@ export function R4ArchivePanel({ sourceId, active }: R4ArchivePanelProps) {
       {action === 'push' && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', justifyContent: 'space-between' }}>
           <div className="wb-field" style={{ flex: '1 1 220px', marginBottom: 0 }}>
-            <label>{t('API Base URL (--api-url)', '后端入库地址 (--api-url)')}</label>
-            <input className="wb-input" value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} />
+            <label htmlFor="archive-api">{t('API Base URL (--api-url)', '后端入库地址 (--api-url)')}</label>
+            <input className="wb-input" id="archive-api" value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} />
           </div>
           <div style={{ display: 'flex', gap: 14, alignItems: 'center', fontSize: 11.5, paddingTop: 14 }}>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
@@ -301,7 +301,7 @@ export function R4ArchivePanel({ sourceId, active }: R4ArchivePanelProps) {
         {invalidWindow && <p role="alert">{t('Enter a valid UTC window with start before end.', '请输入开始早于结束的有效 UTC 时间范围。')}</p>}
         {invalidMonths && <p role="alert">{t('Enter valid months in YYYY-MM format.', '请输入有效的 YYYY-MM 月份。')}</p>}
         {copyError && <p role="status">{t('Clipboard unavailable. Select and copy the command below.', '剪贴板不可用，请选中下方命令并手动复制。')}</p>}
-        {!commandBlocked && <pre style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 10.5, lineHeight: 1.55, background: '#fff', border: '1px solid var(--line)', borderRadius: 6, padding: 10, overflowX: 'auto' }}>
+        {!commandBlocked && <pre className="collection-code">
           {commandText}
         </pre>}
       </div>

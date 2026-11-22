@@ -54,10 +54,11 @@ export function SourceImportDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <dialog ref={dialog} className="sr-modal source-editor" aria-labelledby="source-import-title"
+    <dialog ref={dialog} className="sr-modal source-editor collection-dialog" aria-labelledby="source-import-title"
       onCancel={event => { event.preventDefault(); if (!mutation.isPending) onClose(); }}>
       <h3 id="source-import-title">{t('Import sources', '批量导入来源')}</h3>
-      <form onSubmit={submit}>
+      <p className="collection-hint">{t('Use OPML for subscriptions or JSON for complete source configurations. The result lists duplicates and failed entries.', '订阅列表选 OPML，完整来源配置选 JSON。导入结果会列出跳过的重复数和失败条目。')}</p>
+      <form onSubmit={submit} className="collection-form">
         <fieldset className="source-editor-fields" disabled={mutation.isPending}>
           <label className="wb-field">{t('Format', '格式')}
             <select className="wb-select" value={format} onChange={event => { setFormat(event.target.value as typeof format); mutation.reset(); }}>

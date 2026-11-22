@@ -83,27 +83,7 @@ export async function loadEffectivePolicyForUser(
   return resolveEffectivePolicy(policyRow, userRow.quota_override);
 }
 
-export function requestedCommentLimit(
-  provider: string, targetType: string, pageSize: number,
-  request: { includeComments?: boolean; maxCommentsPerPost?: number },
-) {
-  if (targetType === "post") {
-    if (provider === "kaix") return Math.min(pageSize, request.maxCommentsPerPost ?? 50);
-    if (provider === "red_crawler") return pageSize;
-  }
-  return request.includeComments ? request.maxCommentsPerPost ?? 15 : undefined;
-}
-
-export function viewerCollectionDemand(
-  provider: string, targetType: string, limit: number,
-  request: { includeComments?: boolean; maxCommentsPerPost?: number },
-) {
-  const commentLimit = requestedCommentLimit(provider, targetType, limit, request);
-  const resources = provider === "kaix" && commentLimit !== undefined
-    ? (targetType === "post" ? commentLimit + 1 : limit * (commentLimit + 1))
-    : limit;
-  return { provider, limit, resources, includeComments: commentLimit !== undefined, maxCommentsPerPost: commentLimit };
-}
+export { requestedCommentLimit, viewerCollectionDemand } from "../../../packages/contracts/src/collection-budget";
 
 export async function admitViewerCollection(
   client: PoolClient,

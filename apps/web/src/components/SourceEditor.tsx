@@ -12,10 +12,20 @@ const platforms: SourceInput['platform'][] = ['web', 'reddit', 'x', 'bluesky'];
 const pushTargets: SourceTarget['type'][] = ['search', 'community', 'account', 'post', 'feed'];
 const pushKinds: SourceInput['contentKind'][] = ['post', 'comment', 'article', 'image', 'video'];
 const targetFields = { search: 'query', community: 'community', account: 'account', post: 'postId', feed: 'url' } as const;
+const targetLabels = {
+  search: ['Search terms', '搜索词'], community: ['Subreddit', 'Reddit 版块'],
+  account: ['Account handle', '账号名称'], post: ['Post ID', '帖子 ID'], feed: ['Public HTTPS URL', '公开 HTTPS 地址'],
+} as const;
+const targetExamples = { search: 'e.g. local models', community: 'LocalLLaMA', account: 'example', post: 'abc123', feed: 'https://example.com/feed.xml' };
 const listFields = ['items', 'link', 'title', 'summary', 'publishedAt', 'author'] as const;
 const scheduleFields = [
-  ['cadenceSeconds', 120, 43200], ['intervalSeconds', 60, 86400], ['overlapSeconds', 0, 3600],
-  ['initialLookbackHours', 1, 48], ['maxCatchupHours', 1, 48], ['pageSize', 1, 100], ['maxPages', 1, 5],
+  ['intervalSeconds', 60, 86400, 'Interval (seconds)', '执行间隔（秒）'],
+  ['cadenceSeconds', 120, 43200, 'Legacy interval (seconds)', '旧版调度间隔（秒）'],
+  ['overlapSeconds', 0, 3600, 'Overlap (seconds)', '补采重叠（秒）'],
+  ['initialLookbackHours', 1, 48, 'First lookback (hours)', '首次回溯（小时）'],
+  ['maxCatchupHours', 1, 48, 'Catch-up limit (hours)', '最长补采窗口（小时）'],
+  ['pageSize', 1, 100, 'Items per page', '每页条数'],
+  ['maxPages', 1, 5, 'Pages per run', '每次最多页数'],
 ] as const;
 
 function readText(fields: FormData, name: string) {
@@ -143,30 +153,33 @@ export function SourceEditor({
   }
 
   return (
-    <dialog ref={dialog} className="sr-modal source-editor" aria-labelledby="source-editor-title"
+    <dialog ref={dialog} className="sr-modal source-editor collection-dialog" aria-labelledby="source-editor-title"
       onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
       <header className="source-editor-header">
         <h3 id="source-editor-title">{source ? t('Edit source', '编辑来源') : t('Create Collection Source', '新建采集来源')}</h3>
         <button type="button" className="sr-btn sr-btn--subtle" aria-label={t('Close', '关闭')} onClick={onClose} disabled={busy}><X size={16} /></button>
       </header>
-      <form onSubmit={submit} onChange={() => { if (preview.data) preview.reset(); }}>
+      <p className="collection-hint">{source
+        ? t('Update classification, schedule or fetch settings for this source.', '可修改分类、调度和抓取设置。')
+        : t('Choose how content arrives, then provide a target and name. Preview to check the configuration before saving.', '先选择接入方式，再填写目标和名称。保存前可用预览检查配置。')}</p>
+      <form className="collection-form" onSubmit={submit} onChange={() => { if (preview.data) preview.reset(); }}>
         <fieldset className="source-editor-fields" disabled={busy}>
           {!source && (
             <>
               <div className="wb-grid-2">
-                <label className="wb-field">deliveryMode
-                  <select className="wb-select" aria-label="deliveryMode" value={mode} onChange={event => {
+                <label className="wb-field">{t('Collection mode', '接入方式')}
+                  <select className="wb-select" aria-label={t('Collection mode', '接入方式')} value={mode} onChange={event => {
                     const next = event.target.value as typeof mode;
                     setMode(next);
                     setTargetType(next === 'push' ? 'search' : 'feed');
                     setKind(platform === 'web' ? 'article' : 'post');
                     setTargetValue('');
                   }}>
-                    <option value="pull">pull</option><option value="push">push (external_ingest)</option>
+                    <option value="pull">{t('Pull via provider', '通过渠道主动采集')}</option><option value="push">{t('Push via API or JSON', '通过 API 或 JSON 推流')}</option>
                   </select>
                 </label>
-                <label className="wb-field">platform
-                  <select className="wb-select" aria-label="platform" value={platform} onChange={event => {
+                <label className="wb-field">{t('Platform', '平台')}
+                  <select className="wb-select" aria-label={t('Platform', '平台')} value={platform} onChange={event => {
                     const next = event.target.value as typeof platform;
                     setPlatform(next);
                     setKind(next === 'web' ? 'article' : 'post');
@@ -178,7 +191,7 @@ export function SourceEditor({
                 </label>
               </div>
               {mode === 'pull' && (
-                <label className="wb-field">primaryProvider
+                <label className="wb-field">{t('Primary provider', '主渠道')}
                   <select className="wb-select" value={cap?.provider ?? ''} onChange={event => { setProvider(event.target.value); setTargetValue(''); }}>
                     {!cap && <option value="">{t('No ready provider', '当前无就绪渠道')}</option>}
                     {providers.map(item => <option value={item.provider} key={item.provider} disabled={!item.enabled}>{item.provider}{item.enabled ? '' : ' · ' + t('not ready', '未就绪')}</option>)}
@@ -187,26 +200,26 @@ export function SourceEditor({
               )}
               {mode === 'pull' && !cap && <p className="muted">{t('Check service networking and provider credentials in Channels.', '请在渠道设置中检查服务联网与凭证。')}</p>}
               <div className="wb-grid-2">
-                <label className="wb-field">target.type
+                <label className="wb-field">{t('Target type', '目标类型')}
                   <select className="wb-select" value={target ?? ''} onChange={event => { setTargetType(event.target.value as typeof targetType); setTargetValue(''); }}>
-                    {targets.map(value => <option key={value}>{value}</option>)}
+                    {targets.map(value => <option key={value} value={value}>{t(targetLabels[value][0], targetLabels[value][1])}</option>)}
                   </select>
                 </label>
-                <label className="wb-field">contentKind
+                <label className="wb-field">{t('Content type', '内容类型')}
                   <select className="wb-select" value={contentKind ?? ''} onChange={event => setKind(event.target.value as typeof kind)}>
                     {kinds.map(value => <option key={value}>{value}</option>)}
                   </select>
                 </label>
               </div>
               {target && (
-                <label className="wb-field">{providerName === 'newsnow' ? t('NewsNow board', 'NewsNow 榜单') : targetFields[target]}
+                <label className="wb-field">{providerName === 'newsnow' ? t('NewsNow board', 'NewsNow 榜单') : t(targetLabels[target][0], targetLabels[target][1])}
                   {providerName === 'newsnow' ? (
                     <select className="wb-select" name="target" required>
                       {Object.entries(webBoards).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                     </select>
                   ) : <input className="wb-input" name="target" required type={target === 'feed' ? 'url' : 'text'}
                     maxLength={{ search: 512, community: 100, account: 253, post: 100, feed: 2000 }[target]}
-                    value={targetValue} onChange={event => setTargetValue(event.target.value)} />}
+                    placeholder={targetExamples[target]} value={targetValue} onChange={event => setTargetValue(event.target.value)} />}
                 </label>
               )}
               {mode === 'pull' && target && cap?.keywordSearch === 'global' && cap.provider === 'kaix' && !['feed', 'search'].includes(target) && (
@@ -216,11 +229,14 @@ export function SourceEditor({
                 <>
                   <label className="wb-field">{t('Feed format', 'Feed 解析格式')}
                     <select className="wb-select" value={listFormat} onChange={event => setListFormat(event.target.value as typeof listFormat)}>
-                      <option value="">RSS / Atom / HTML {t('discovery', '发现')}</option><option>web_list</option><option>json_list</option>
+                      <option value="">RSS / Atom / HTML {t('discovery', '发现')}</option><option value="web_list">{t('HTML list (CSS selectors)', 'HTML 列表（CSS 选择器）')}</option><option value="json_list">{t('JSON list (dot paths)', 'JSON 列表（点路径）')}</option>
                     </select>
                   </label>
+                  {listFormat && <p className="collection-hint">{listFormat === 'web_list'
+                    ? t('Enter the CSS selector for each list item and the relative selectors for link and title.', '填写列表项的 CSS 选择器，再填相对于列表项的链接和标题选择器。')
+                    : t('Enter the array path and the link and title paths within each item. Use $ for a root array.', '填写数组路径及每条记录内的链接和标题路径。根节点是数组时填写 $。')}</p>}
                   {listFormat && <div className="wb-grid-2">{listFields.map((name, index) => (
-                    <label className="wb-field" key={name}>{name}<input className="wb-input" name={name} maxLength={160} required={index < 3} /></label>
+                    <label className="wb-field" key={name}>{name}<input className="wb-input" name={name} placeholder={listFormat === 'web_list' ? ['article', 'a', 'h2', 'p', 'time', '.author'][index] : ['items', 'url', 'title', 'summary', 'publishedAt', 'author'][index]} maxLength={160} required={index < 3} /></label>
                   ))}</div>}
                 </>
               )}
@@ -241,7 +257,7 @@ export function SourceEditor({
           {mode === 'pull' && (
             <>
               {(fallback || source?.fallbackProvider) && (
-                <label className="wb-field" key={providerName}>fallbackProvider
+                <label className="wb-field" key={providerName}>{t('Fallback provider', '备援渠道')}
                   <select name="fallback" className="wb-select" defaultValue={source?.fallbackProvider ?? ''}>
                     <option value="">{t('None', '无')}</option>
                     {source?.fallbackProvider && source.fallbackProvider !== fallback && <option value={source.fallbackProvider}>{source.fallbackProvider} · {t('not ready', '未就绪')}</option>}
@@ -253,18 +269,20 @@ export function SourceEditor({
               {capabilities.some(item => item.provider === providerName && item.automaticRequestReplay === false) &&
                 <p className="muted">{t('Automatic runs may use paid provider resources within the configured system budget.', '自动调度可能在系统渠道预算内使用付费资源。')}</p>}
               <label><input name="scheduled" type="checkbox" defaultChecked={source?.schedule?.enabled ?? false} /> {t('Enable automatic scheduling', '启用自动调度')}</label>
-              <details open={source?.schedule?.enabled || undefined}>
+              <details className="collection-disclosure">
                 <summary>{t('Schedule settings (blank uses server defaults)', '调度参数（留空使用服务端默认值）')}</summary>
-                <div className="wb-grid-2">{scheduleFields.map(([name, min, max]) => (
-                  <label className="wb-field" key={name}>{name}<input name={name} className="wb-input" type="number" min={min} max={max} defaultValue={source?.schedule?.[name]} /></label>
+                <p className="collection-hint">{t('The default interval is 3,600 seconds. An explicit interval takes precedence over the legacy value.', '默认每 3,600 秒执行一次。填写执行间隔后，优先于旧版调度间隔。')}</p>
+                <div className="wb-grid-2">{scheduleFields.filter(([name]) => name !== 'cadenceSeconds' || source?.schedule?.cadenceSeconds !== undefined).map(([name, min, max, en, zh]) => (
+                  <label className="wb-field" key={name}>{t(en, zh)}<input name={name} className="wb-input" type="number" min={min} max={max} defaultValue={source?.schedule?.[name]} /></label>
                 ))}</div>
               </details>
               {(providerName === 'feed' || providerName === 'newsnow') && (
-                <details>
+                <details className="collection-disclosure">
                   <summary>{t('Fetch policy', '抓取策略')}</summary>
+                  <p className="collection-hint">{t('These settings apply to individual provider fetches. Leave numeric fields blank to use server defaults.', '这些参数作用于单次渠道抓取。数字留空采用服务端默认值。')}</p>
                   <div className="wb-grid-2">
-                    <label className="wb-field">maxItems<input name="maxItems" className="wb-input" type="number" min={1} max={100} defaultValue={source?.fetchPolicy.maxItems} /></label>
-                    <label className="wb-field">timeoutMs<input name="timeoutMs" className="wb-input" type="number" min={3000} max={15000} defaultValue={source?.fetchPolicy.timeoutMs} /></label>
+                    <label className="wb-field">{t('Maximum items per fetch', '单次抓取最多条数')}<input name="maxItems" className="wb-input" type="number" min={1} max={100} defaultValue={source?.fetchPolicy.maxItems} /></label>
+                    <label className="wb-field">{t('Fetch timeout (ms)', '抓取超时（毫秒）')}<input name="timeoutMs" className="wb-input" type="number" min={3000} max={15000} defaultValue={source?.fetchPolicy.timeoutMs} /></label>
                   </div>
                   <label><input name="stripTracking" type="checkbox" defaultChecked={source?.fetchPolicy.stripTrackingParams !== false} /> {t('Strip tracking parameters', '移除跟踪参数')}</label>
                   <label className="wb-field">{t('Title exclusions (one per line)', '排除标题（每行一条）')}<textarea name="excludeTitles" className="wb-input" defaultValue={source?.fetchPolicy.excludeTitlePatterns?.join('\n')} /></label>
@@ -274,7 +292,7 @@ export function SourceEditor({
           )}
         </fieldset>
         {error && <div role="alert" className="wb-alert wb-alert--error">{error}</div>}
-        {preview.data && <section className="wb-alert" role="status">
+        {preview.data && <section className="wb-alert wb-alert--info collection-form" role="status">
           <p>{preview.data.mode === 'fetched' ? t('Fetched preview', '已试抓预览') : t('Configuration validated', '配置已校验')} · {preview.data.providerEnabled ? t('provider ready', '渠道就绪') : t('provider unavailable', '渠道未就绪')} · {formatSourceTarget(preview.data.target)}</p>
           {preview.data.items.length > 0 && <ul>{preview.data.items.map((item, index) => <li key={index}>{item.title ?? item.url ?? '—'}</li>)}</ul>}
           {preview.data.feeds.length > 0 && <ul>{preview.data.feeds.map(url => <li key={url}><button className="ds-btn ds-btn--ghost" type="button" onClick={() => { setTargetValue(url); preview.reset(); }}>{url}</button></li>)}</ul>}

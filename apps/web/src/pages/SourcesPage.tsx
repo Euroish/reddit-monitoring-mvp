@@ -1,4 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
+import { providerResourceReservation, viewerCollectionDemand } from '../../../../packages/contracts/src/collection-budget';
+import '../styles/collection.css';
 import {
   AlertTriangle,
   Database,
@@ -7,7 +9,6 @@ import {
   RefreshCw,
   Shield,
   ShieldAlert,
-  Sliders,
   Unlock,
   Upload,
   X,
@@ -24,9 +25,9 @@ import {
   useSourceJobsQuery,
   useSourcesQuery,
   useUnblockSourceMutation,
-  useUpdateBudgetMutation,
   useUpdateSourceMutation,
 } from '../api/hooks';
+import { ProviderBudgetEditor } from '../components/ProviderBudgetEditor';
 import { CollectionJobsView } from '../components/CollectionJobsView';
 import { ProviderCredentialsTab } from '../components/ProviderCredentialsTab';
 import { QuotasManagementView } from '../components/QuotasManagementView';
@@ -49,9 +50,11 @@ import { toSafeUtcIso } from '../lib/sourceLabels';
 export function SourcesPage({
   actor,
   initialQueryString = '',
+  onNavigate,
 }: {
   actor: Actor;
   initialQueryString?: string;
+  onNavigate: (path: string) => void;
 }) {
   const { t } = useI18n();
   const canWrite = actor.clientKind === 'browser' && actor.role !== 'viewer';
@@ -67,20 +70,24 @@ export function SourcesPage({
   const capabilities = sourcesQuery.isError ? [] : sourcesQuery.data?.capabilities ?? [];
   const budgets = budgetsQuery.data?.budgets || [];
 
-  type SourcesTab = 'sources' | 'jobs' | 'budgets';
-  const defaultTab: SourcesTab = urlTab === 'budgets' ? 'budgets' : urlTab === 'jobs' ? 'jobs' : 'sources';
-  const [tabState, setTabState] = useState<{ key: string; val: SourcesTab } | null>(null);
-  const tab = tabState?.key === `${urlTab}:${canWrite}` ? tabState.val : defaultTab;
-  const setTab = (val: SourcesTab) => setTabState({ key: `${urlTab}:${canWrite}`, val });
+  const tab = urlTab === 'budgets' || urlTab === 'jobs' ? urlTab : 'sources';
+  const pageTitle = tab === 'jobs' ? t('Collection jobs', '采集任务') : tab === 'budgets'
+    ? (canWrite ? t('Channel quotas', '渠道配额') : t('My collection quota', '我的采集配额'))
+    : t('Sources', '来源列表');
+  const pageDescription = tab === 'jobs' ? t('Track collection requests, storage results and failures.', '查看采集状态、入库结果和失败原因。')
+    : tab === 'budgets' ? t('Review request and resource limits, usage and collection permissions.', '分别查看请求与资源额度、用量及采集权限。')
+    : t('Choose a source to check its health, collect content or review recent jobs.', '选择一个来源，检查运行状态、提交采集或查看历史任务。');
   const [channelsOpen, setChannelsOpen] = useState(false);
 
   const [stateFilter, setStateFilter] = useState<'all' | 'active' | 'paused' | 'archived'>('all');
   const [groupFilter, setGroupFilter] = useState('');
-  const [selectedSourceId, setSelectedSourceId] = useState(() => sp.get('sourceId') ?? '');
+  const routeSourceId = sp.get('sourceId');
+  const [selection, setSelection] = useState<{ routeSourceId: string | null; id: string }>();
+  const selectedSourceId = selection && selection.routeSourceId === routeSourceId ? selection.id : routeSourceId;
   const visibleSources = sources.filter(source => (stateFilter === 'all' || source.state === stateFilter) &&
     (!groupFilter || source.sourceGroup === groupFilter));
   const selectedSource = visibleSources.find(source => source.id === selectedSourceId) ?? visibleSources[0];
-  const jobsQuery = useSourceJobsQuery(selectedSource?.id ?? null);
+  const jobsQuery = useSourceJobsQuery(tab === 'sources' ? selectedSource?.id ?? null : null);
   const [sourceEditor, setSourceEditor] = useState<'create' | 'edit' | null>(() => openNewFromUrl && canWrite ? 'create' : null);
   const [importOpen, setImportOpen] = useState(false);
 
@@ -90,9 +97,9 @@ export function SourcesPage({
   const [ackUnblockCharge, setAckUnblockCharge] = useState(false);
   const [opsMsg, setOpsMsg] = useState<{ text: string; isError?: boolean; jobId?: string } | null>(null);
 
-  // Pull Collect (default last 7 days to now in UTC)
+  // Default to the last 24 hours in UTC.
   const [collectFrom, setCollectFrom] = useState(() =>
-    new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 16),
+    new Date(Date.now() - 86_400_000).toISOString().slice(0, 16),
   );
   const [collectTo, setCollectTo] = useState(() => new Date().toISOString().slice(0, 16));
   const [draftLimit, setDraftLimit] = useState<number | null>(null);
@@ -118,6 +125,22 @@ export function SourcesPage({
   const canDispatch = selectedSource?.state === 'active' && !selectedSource.automaticCollectionBlocked &&
     !budgetDisabled && maxAllowedLimit > 0;
 
+  function setCollectWindow(days: number) {
+    const end = Date.now();
+    setCollectFrom(new Date(end - days * 86_400_000).toISOString().slice(0, 16));
+    setCollectTo(new Date(end).toISOString().slice(0, 16));
+  }
+
+  const collectOptions = { includeComments: limits.comments !== undefined, maxCommentsPerPost: limits.comments };
+  const collectionQuote = selectedSourceCap && selectedSource && collectLimit > 0 && collectLimit <= maxAllowedLimit
+    ? {
+      system: providerResourceReservation({
+        ...collectOptions, provider: selectedSourceCap.provider, targetType: selectedSource.target.type,
+        pageSize: collectLimit, requestResourceUpperBound: selectedSourceCap.requestResourceUpperBound,
+      }),
+      personal: viewerCollectionDemand(selectedSourceCap.provider, selectedSource.target.type, collectLimit, collectOptions).resources,
+    } : null;
+
   const handleCollect = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSource || !canDispatch) return;
@@ -140,9 +163,8 @@ export function SourcesPage({
       from: fromIso,
       to: toIso,
       limit: collectLimit,
-      includeComments: limits.comments !== undefined,
+      ...collectOptions,
       useFallback: fallbackSelected,
-      ...(limits.comments !== undefined ? { maxCommentsPerPost: limits.comments } : {}),
     };
 
     const sig = JSON.stringify({ sourceId: selectedSource.id, payload });
@@ -263,91 +285,35 @@ export function SourcesPage({
   const jobActionMut = useJobActionMutation();
   const [inspectJobId, setInspectJobId] = useState<string | null>(() => sp.get('jobId'));
   const [jobActionError, setJobActionError] = useState('');
+  const [jobNotice, setJobNotice] = useState('');
   const jobDetailQuery = useJobDetailQuery(inspectJobId);
   const [ackJobCharge, setAckJobCharge] = useState(false);
 
   const [editBudget, setEditBudget] = useState<ProviderBudget | null>(null);
-  const [bEnabled, setBEnabled] = useState(true);
-  const [bDailyReq, setBDailyReq] = useState(100);
-  const [bMonthlyReq, setBMonthlyReq] = useState(3000);
-  const [bDailyRes, setBDailyRes] = useState(5000);
-  const [bMonthlyRes, setBMonthlyRes] = useState(120000);
-  const [bInterval, setBInterval] = useState(2000);
-  const [bRev, setBRev] = useState(1);
-  const [bErr, setBErr] = useState<string | null>(null);
-  const updateBudgetMut = useUpdateBudgetMutation();
-
-  const openBudgetModal = (b: ProviderBudget) => {
-    setEditBudget(b);
-    setBEnabled(b.enabled);
-    setBDailyReq(b.daily_requests);
-    setBMonthlyReq(b.monthly_requests);
-    setBDailyRes(b.daily_resources);
-    setBMonthlyRes(b.monthly_resources);
-    setBInterval(b.minimum_interval_ms);
-    setBRev(b.revision);
-    setBErr(null);
-  };
-
-  const handleSaveBudget = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editBudget) return;
-    setBErr(null);
-    try {
-      await updateBudgetMut.mutateAsync({
-        provider: editBudget.provider,
-        payload: {
-          enabled: bEnabled,
-          dailyRequests: bDailyReq,
-          monthlyRequests: bMonthlyReq,
-          dailyResources: bDailyRes,
-          monthlyResources: bMonthlyRes,
-          minimumIntervalMs: bInterval,
-          revision: bRev,
-        },
-      });
-      setEditBudget(null);
-    } catch (err) {
-      setBErr(formatApiError(err));
-    }
-  };
-
   const blockedCount = sources.filter((s) => s.automaticCollectionBlocked).length;
 
   return (
-    <div className="ds-page">
+    <div className="ds-page collection-page">
       <div className="crumb">
         <span>{t('Workbench', '工作台')}</span>
         <span>/</span>
         <span>{t('Collection Ops', '数据接入')}</span>
         <span>/</span>
-        <b>{t('Sources, Jobs & Quotas', '来源与采集')}</b>
+        <b>{pageTitle}</b>
       </div>
 
       <div className="page-head">
         <div>
           <div className="page-title-row">
-            <h1 className="page-title">{t('Sources, Jobs & Provider Quotas', '来源与采集调度')}</h1>
-            <span className="state-chip">
-              <i className="dot" />
-              {sources.length} {t('sources', '个来源')}
-            </span>
+            <h1 className="page-title">{pageTitle}</h1>
+            {tab === 'sources' && <span className="state-chip">{sources.length} {t('sources', '个来源')}</span>}
           </div>
-          <p className="page-desc">
-            {t(
-              'Capability-constrained source setup, idempotent job dispatch, phase=unknown block protection, and conservative dual-quota governance.',
-              '受 capabilities 能力矩阵严格约束的建源、幂等拉取 / 批量刷新 / 1 MiB 推流导入与渠道日/月预算护栏。',
-            )}
-          </p>
+          <p className="page-desc">{pageDescription}</p>
         </div>
 
         <div className="page-actions">
-          {canWrite && (
+          {canWrite && tab === 'sources' && (
             <>
-              <button type="button" className="ds-btn ds-btn--ghost" onClick={() => setTab('budgets')}>
-                <Sliders size={13} />
-                <span>{t('Quota Governance', '配额治理')}</span>
-              </button>
               <button type="button" className="ds-btn" onClick={() => setSourceEditor('create')}>
                 <Plus size={14} />
                 <span>{t('Add Source', '新建来源')}</span>
@@ -355,55 +321,28 @@ export function SourcesPage({
               <button type="button" className="ds-btn ds-btn--ghost" onClick={() => setImportOpen(true)}>
                 <Upload size={13} /> {t('Import sources', '批量导入来源')}
               </button>
-              <a className="ds-btn ds-btn--ghost" href="/admin/queue">{t('AI operations', 'AI 情报运维')}</a>
             </>
           )}
         </div>
       </div>
 
-      {/* DeepSeek Guardrail Filter Strip */}
-      <div className="filterbar">
-        <button type="button" className="fb-item accent" onClick={() => canWrite && setTab('budgets')}>
-          <Shield size={12} />
-          <span>{t('Guardrails Active:', '采集护栏已开启')}</span>
-          <b>{t('Daily / Monthly Dual Caps', '日 / 月双额度')}</b>
-        </button>
-        {blockedCount > 0 && (
-          <span className="fb-item" style={{ borderColor: '#f0d0c5', background: '#fdf0ec', color: '#8f3f2a' }}>
-            <AlertTriangle size={12} />
-            <b>{blockedCount} {t('blocked source', '个来源触发防重封锁')}</b>
-          </span>
-        )}
-        <span className="fb-spacer" />
-        <span className="fb-note">
-          <i className="dot" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--wb-teal)', display: 'inline-block' }} />
-          {t('Quotas reset 00:00 UTC', '配额按 UTC 日零点重置')}
-        </span>
-      </div>
-
-      <div style={{ borderBottom: '1px solid var(--line)', marginBottom: 16 }}>
-        <div className="tabs">
-          <button type="button" aria-selected={tab === 'sources'} onClick={() => setTab('sources')}>
-            {t('Sources Center', '来源中心')} ({sources.length})
-          </button>
-          <button type="button" aria-selected={tab === 'jobs'} onClick={() => setTab('jobs')}>
-            {t('Collection Jobs', '采集任务')}
-          </button>
-          <button type="button" aria-selected={tab === 'budgets'} onClick={() => setTab('budgets')}>
-            {canWrite ? t('Channel Quotas & Policies', '渠道配额与策略') : t('My Quotas', '我的配额')}
-          </button>
+      {tab === 'sources' && blockedCount > 0 && (
+        <div className="wb-alert wb-alert--warn" role="status">
+          <AlertTriangle size={16} /> {blockedCount} {t('sources paused by unresolved provider requests.', '个来源因渠道请求未决而被阻断。')}
         </div>
-      </div>
+      )}
 
+      {tab === 'jobs' && jobNotice && <p className="wb-alert wb-alert--success" role="status">{jobNotice}</p>}
       {tab === 'jobs' ? (
-        <CollectionJobsView actor={actor} sources={sources} onInspect={id => { setJobActionError(''); setAckJobCharge(false); setInspectJobId(id); }} />
+        <CollectionJobsView key={routeSourceId ?? ''} actor={actor} sources={sources} initialSourceId={routeSourceId ?? ''}
+          onOpenSource={id => onNavigate('/sources?sourceId=' + id)} onInspect={id => { setJobActionError(''); setAckJobCharge(false); setInspectJobId(id); }} />
       ) : tab === 'budgets' ? (
-        <QuotasManagementView actor={actor} budgets={budgets} budgetError={budgetsQuery.error} providers={capabilities} sources={sources} onEditBudget={openBudgetModal} />
+        <QuotasManagementView actor={actor} budgets={budgets} budgetError={budgetsQuery.error} budgetsPending={budgetsQuery.isPending} providers={capabilities} sources={sources} onEditBudget={setEditBudget} />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="collection-stack">
           {canWrite && (
-            <div className="ds-card">
-              <div className="ds-card-hd">
+            <div className="ds-card collection-panel">
+              <div className="ds-card-hd collection-panel-header">
                 <div>
                   <div className="ds-card-title">
                     <Shield size={14} color="var(--wb-teal)" />
@@ -435,21 +374,21 @@ export function SourcesPage({
               )}
             </div>
           )}
-          <div className="ds-grid">
+          <div className="ds-grid collection-source-grid">
           {/* Left Source List (c5) */}
           <div className="c5">
-            <div className="ds-card">
-              <div className="ds-card-hd">
+            <div className="ds-card collection-panel">
+              <div className="ds-card-hd collection-panel-header">
                 <div>
                   <div className="ds-card-title">
                     <Database size={14} color="var(--wb-purple)" />
                     <span>{t('Configured Sources', '来源列表')}</span>
                   </div>
-                  <div className="ds-card-sub">{t('Pull & Push channels · optimistic lock revision', '状态、主备渠道与推流区分')}</div>
+                  <div className="ds-card-sub">{t('Filter sources by status or group.', '按状态或分类筛选来源。')}</div>
                 </div>
-                <div className="seg">
+                <div className="seg collection-segment">
                   {(['all', 'active', 'paused', 'archived'] as const).map((st) => (
-                    <button key={st} type="button" className={stateFilter === st ? 'on' : ''} onClick={() => setStateFilter(st)}>
+                    <button key={st} type="button" className={stateFilter === st ? 'on' : ''} aria-pressed={stateFilter === st} onClick={() => setStateFilter(st)}>
                       {st === 'all' ? t('All', '全部') : st === 'active' ? t('Active', '运行中') : st === 'paused' ? t('Paused', '暂停') : t('Archived', '归档')}
                     </button>
                   ))}
@@ -474,7 +413,7 @@ export function SourcesPage({
                         key={s.id}
                         type="button"
                         onClick={() => {
-                          setSelectedSourceId(s.id);
+                          setSelection({ routeSourceId, id: s.id });
                           setOpsMsg(null);
                           setAckUnblockCharge(false);
                           setDraftLimit(null);
@@ -483,21 +422,12 @@ export function SourcesPage({
                           setRefreshIdsRaw('');
                           setIngestDraft(undefined);
                         }}
-                        style={{
-                          textAlign: 'left',
-                          padding: 11,
-                          borderRadius: 6,
-                          border: `1px solid ${active ? 'var(--wb-purple)' : 'var(--line)'}`,
-                          background: active ? 'var(--wb-tint, #f7f4fe)' : '#ffffff',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: 6,
-                        }}
+                        className={'collection-source-row' + (active ? ' is-selected' : '')}
+                        aria-pressed={active}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                          <b style={{ fontSize: 12.5, color: 'var(--ink)' }}>{s.label}</b>
-                          <span className={`chip-state ${s.state}`}>{s.state}</span>
+                          <b>{s.label}</b>
+                          <span className={'collection-status ' + (s.state === 'active' ? 'collection-status--ok' : '')}>{s.state === 'active' ? t('Active', '运行中') : s.state === 'paused' ? t('Paused', '暂停') : t('Archived', '已归档')}</span>
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                           <span className="tag" style={{ height: 19, fontSize: 9.5 }}>{s.platform}</span>
@@ -522,17 +452,19 @@ export function SourcesPage({
           <div className="c7 stack-gap">
             {selectedSource && (
               <>
-                <div className="ds-card">
-                  <div className="ds-card-hd">
+                <div className="ds-card collection-panel">
+                  <div className="ds-card-hd collection-panel-header">
                     <div>
                       <div className="ds-card-title">{selectedSource.label}</div>
                       <div className="ds-card-sub">
-                        target: <code>{selectedSource.target.type}</code> = <code>{formatSourceTarget(selectedSource.target) || 'default'}</code> · rev {selectedSource.revision}
+                        <span>{t('Target', '目标')} · </span><code>{selectedSource.target.type}</code> = <code>{formatSourceTarget(selectedSource.target) || '—'}</code>
+                        {' · '}{t('Revision', '版本')} {selectedSource.revision}
                       </div>
                     </div>
                     {canWrite && (
-                      <div className="seg">
-                        <button type="button" onClick={() => setSourceEditor('edit')}>{t('Edit source', '编辑来源')}</button>
+                      <div className="collection-toolbar">
+                        <button className="ds-btn ds-btn--ghost" type="button" onClick={() => setSourceEditor('edit')}>{t('Edit source', '编辑来源')}</button>
+                        <div className="seg collection-segment" role="group" aria-label={t('Source status', '来源状态')}>
                         {(['active', 'paused', 'archived'] as const).map((st) => (
                           <button
                             key={st}
@@ -552,29 +484,36 @@ export function SourcesPage({
                               }
                             }}
                           >
-                            {st}
+                            {st === 'active' ? t('Activate', '启用') : st === 'paused' ? t('Pause', '暂停') : t('Archive', '归档')}
                           </button>
                         ))}
+                        </div>
                       </div>
                     )}
                   </div>
 
                   <div className="ds-card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div className="source-health">
-                      <span>{t('Classification', '分类')} · {selectedSource.sourceGroup ?? '—'} · {selectedSource.tier}{selectedSource.locale ? ' · ' + selectedSource.locale : ''}</span>
-                      <span>{t('Schedule', '调度')} · {selectedSource.deliveryMode === 'push' ? t('External', '外部推流') : selectedSource.schedule?.enabled ? t('Enabled', '已启用') : t('Disabled', '已停用')}</span>
-                      {selectedSource.target.type === 'feed' && selectedSource.target.list &&
-                        <details><summary>{t('List mapping', '列表解析映射')}</summary>
-                          {Object.entries(selectedSource.target.list).map(([name, value]) => <div key={name}>{name} · <code>{value}</code></div>)}
-                        </details>}
-                      {selectedSource.tags.length > 0 && <span>{t('Tags', '标签')} · {selectedSource.tags.join(', ')}</span>}
-                      <span>{t('Next due (UTC)', '下次到期（UTC）')} · {selectedSource.nextDueAt ?? '—'}</span>
-                      <span>{t('Last checked (UTC)', '最近检查（UTC）')} · {selectedSource.lastCheckedAt ?? '—'}</span>
-                      <span>{t('Last success (UTC)', '最近成功（UTC）')} · {selectedSource.lastSuccessAt ?? '—'}</span>
-                      <span>{t('Health', '健康状态')} · {selectedSource.health.lastStatus ?? '—'} · {t('Consecutive failures', '连续失败')} {selectedSource.health.consecutiveFailures ?? '—'}</span>
-                      <span>{t('Fetched / inserted', '最近抓取 / 入库')} · {selectedSource.health.lastFetchedCount ?? '—'} / {selectedSource.health.lastInsertedCount ?? '—'}</span>
-                      <a href={'/content?sourceId=' + selectedSource.id}>{t('View stored content for this source', '查询该来源的已入库内容')}</a>
+                    <dl className="collection-source-facts">
+                      <div><dt>{t('Group and tier', '分类与等级')}</dt><dd>{selectedSource.sourceGroup ?? '—'} · {selectedSource.tier}{selectedSource.locale ? ' · ' + selectedSource.locale : ''}</dd></div>
+                      <div><dt>{t('Schedule', '调度')}</dt><dd>{selectedSource.deliveryMode === 'push' ? t('External push', '外部推流') : selectedSource.schedule?.enabled ? t('Enabled', '已启用') : t('Disabled', '已停用')}</dd></div>
+                      <div><dt>{t('Next run (UTC)', '下次计划（UTC）')}</dt><dd>{selectedSource.nextDueAt?.slice(0, 16).replace('T', ' ') ?? '—'}</dd></div>
+                      <div><dt>{t('Last checked (UTC)', '最近检查（UTC）')}</dt><dd>{selectedSource.lastCheckedAt?.slice(0, 16).replace('T', ' ') ?? '—'}</dd></div>
+                      <div><dt>{t('Last success (UTC)', '最近成功（UTC）')}</dt><dd>{selectedSource.lastSuccessAt?.slice(0, 16).replace('T', ' ') ?? '—'}</dd></div>
+                      <div><dt>{t('Fetched / inserted', '最近抓取 / 入库')}</dt><dd>{selectedSource.health.lastFetchedCount ?? '—'} / {selectedSource.health.lastInsertedCount ?? '—'}</dd></div>
+                    </dl>
+                    {selectedSource.target.type === 'feed' && selectedSource.target.list && (
+                      <details className="collection-disclosure"><summary>{t('List parsing fields', '列表解析字段')}</summary>
+                        {Object.entries(selectedSource.target.list).map(([name, value]) => <div key={name}>{name} · <code>{value}</code></div>)}
+                      </details>
+                    )}
+                    <div className="collection-source-links">
+                      <a href={'/content?sourceId=' + selectedSource.id}>{t('Stored content', '查看已入库内容')}</a>
+                      <button type="button" className="collection-text-button" onClick={() => onNavigate('/sources?tab=jobs&sourceId=' + selectedSource.id)}>{t('All jobs for this source', '查看此来源的任务')}</button>
                     </div>
+                    <p className="collection-hint">
+                      {selectedSource.tags.length > 0 && <>{t('Tags', '标签')} · {selectedSource.tags.join(', ')} · </>}
+                      {t('Last run', '最近运行')} · {selectedSource.health.lastStatus ?? '—'} · {t('Consecutive failures', '连续失败')} {selectedSource.health.consecutiveFailures ?? '—'}
+                    </p>
                     {selectedSource.health.lastError && <div className="wb-alert wb-alert--warn">{selectedSource.health.lastError}</div>}
                     {selectedSource.automaticCollectionBlocked && (
                       <div className="wb-alert wb-alert--error" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
@@ -589,12 +528,13 @@ export function SourcesPage({
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 10, flexWrap: 'wrap' }}>
                             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5 }}>
                               <input type="checkbox" checked={ackUnblockCharge} onChange={(e) => setAckUnblockCharge(e.target.checked)} />
-                              <span>acknowledgePotentialCharge: true</span>
+                              <span>{t('I verified the unresolved request and accept possible duplicate charges.', '我已核对未决请求，并了解再次执行可能产生重复费用。')}</span>
                             </label>
                             <button
                               type="button"
                               className="ds-btn"
                               style={{ height: 28, fontSize: 11 }}
+                              disabled={!ackUnblockCharge || unblockMut.isPending}
                               onClick={async () => {
                                 setOpsMsg(null);
                                 try {
@@ -619,73 +559,70 @@ export function SourcesPage({
                     }}>{t('Job details', '任务详情')}</button>}</div>}
 
                     {selectedSource.deliveryMode === 'pull' && actor.clientKind === 'browser' && (
-                      <form onSubmit={handleCollect} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 650 }}>
-                          <Play size={13} color="var(--wb-purple)" />
-                          <span>{canWrite ? t('Dispatch Pull Collect Job', '下发主动采集任务') : t('Personal Manual Collection (Subject to Plan Quota)', '个人手动采集（受套餐策略与个人额度限制）')}</span>
-                          <span className="tag tag--line" style={{ height: 18, fontSize: 9 }}>Idempotency-Key auto</span>
-                        </div>
-                        <p className="muted">
-                          {!selectedSourceCap?.enabled
-                            ? t('Provider not ready. Check network settings and credentials.', '渠道未就绪，请检查联网设置及凭证。')
-                            : !selectedSourceCap.targetTypes.includes(selectedSource.target.type) || !selectedSourceCap.contentKinds.includes(selectedSource.contentKind)
-                              ? t('This source target or content type is outside the provider capability.', '该来源的目标或内容类型超出渠道能力范围。')
-                            : budgetDisabled ? t('Provider budget is disabled or has a zero cap.', '该渠道预算已停用或上限为零。')
-                            : maxAllowedLimit === 0 ? t('Manual collection is unavailable under your effective policy or remaining quota.', '有效策略或剩余额度不允许手动采集。')
-                            : selectedSourceCap.automaticRequestReplay === false ? t('This provider can incur usage charges.', '该渠道可能产生使用费用。')
-                            : null}
-                        </p>
-                        {selectedSourceCap?.limitations.map(note => <small key={note}>{note}</small>)}
-                        {selectedSource.target.type === 'post' && (selectedSourceCap?.provider === 'kaix' || selectedSourceCap?.provider === 'red_crawler') &&
-                          <small>{t('Post collection uses the limit as the maximum number of comments.', '按主帖采集时，limit 表示最多采集的评论数。')}</small>}
-                        <div className="wb-grid-2">
-                          <div className="wb-field">
-                            <label htmlFor="collect-from">from (UTC)</label>
-                            <input id="collect-from" type="datetime-local" className="wb-input" value={collectFrom} onChange={(e) => setCollectFrom(e.target.value)} required />
-                          </div>
-                          <div className="wb-field">
-                            <label htmlFor="collect-to">to (UTC)</label>
-                            <input id="collect-to" type="datetime-local" className="wb-input" value={collectTo} onChange={(e) => setCollectTo(e.target.value)} required />
-                          </div>
-                        </div>
-                        <div className="wb-grid-2">
-                          <div className="wb-field">
-                            <label htmlFor="collect-limit">limit (max {maxAllowedLimit})</label>
-                            <input id="collect-limit" type="number" className="wb-input" min={1} max={maxAllowedLimit} value={collectLimit} onChange={(e) => setDraftLimit(Number(e.target.value) || 0)} />
-                          </div>
-                          <div className="wb-field">
-                            <label>{t('Options', '调度选项')}</label>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 11.5, paddingTop: 4 }}>
-                              {selectedSource.fallbackProvider && (
-                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                                  <input type="checkbox" checked={fallbackSelected} disabled={!fallbackSelected && !fallbackCap?.enabled} onChange={(e) => setUseFallback(e.target.checked)} />
-                                  <span>{t('Use fallback', '使用备援')} ({selectedSource.fallbackProvider}{fallbackCap?.enabled ? '' : ' · ' + t('not ready', '未就绪')})</span>
-                                </label>
-                              )}
-                              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, opacity: canIncludeComments ? 1 : 0.5 }}>
-                                <input type="checkbox" disabled={!canIncludeComments} checked={canIncludeComments && includeComments} onChange={(e) => setIncludeComments(e.target.checked)} />
-                                <span>includeComments</span>
-                              </label>
-                            </div>
-                          </div>
-                        </div>
-                        {canIncludeComments && includeComments && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 11.5 }}>
-                            <label htmlFor="collect-comments">maxCommentsPerPost (1–{limits.maxComments})</label>
-                            <input id="collect-comments" type="number" className="wb-input" style={{ width: 70 }} min={1} max={limits.maxComments} value={limits.comments ?? maxComments} onChange={(e) => setMaxComments(Math.min(50, Math.max(1, Number(e.target.value) || 1)))} />
-                          </div>
-                        )}
+                      <form onSubmit={handleCollect} className="collection-form collection-operation">
                         <div>
+                          <h3><Play size={15} />{t('Run manual collection', '手动采集')}</h3>
+                          <p className="collection-hint">{t('Choose a UTC time window and an item limit. The job enters the queue after submission.', '选择 UTC 时间范围和条数上限。提交后任务进入队列。')}</p>
+                        </div>
+                        {!canDispatch && <p className="wb-alert wb-alert--warn">
+                          {selectedSource.state !== 'active' ? t('Activate this source before submitting.', '请先启用来源。')
+                            : selectedSource.automaticCollectionBlocked ? t('Resolve the blocked provider request above.', '请先处理上方的未决请求。')
+                            : !selectedSourceCap?.enabled ? t('Check service networking and credentials for this provider.', '渠道未就绪，请检查服务联网和凭证。')
+                            : budgetDisabled ? t('Enable the provider budget and set positive caps.', '渠道预算已停用或上限为零，请检查渠道配额。')
+                            : maxAllowedLimit === 0 ? t('Check the source target, account policy and remaining quota.', '请检查目标类型、账号策略和剩余额度。') : null}
+                        </p>}
+                        <div className="collection-toolbar">
+                          <button className="ds-btn ds-btn--ghost" type="button" onClick={() => setCollectWindow(1)}>{t('Last 24 hours', '最近 24 小时')}</button>
+                          <button className="ds-btn ds-btn--ghost" type="button" onClick={() => setCollectWindow(7)}>{t('Last 7 days', '最近 7 天')}</button>
+                        </div>
+                        <div className="wb-grid-2 collection-form-grid">
+                          <label className="wb-field">{t('Start (UTC)', '开始时间（UTC）')}
+                            <input type="datetime-local" className="wb-input" value={collectFrom} onChange={e => setCollectFrom(e.target.value)} required />
+                          </label>
+                          <label className="wb-field">{t('End (UTC)', '结束时间（UTC）')}
+                            <input type="datetime-local" className="wb-input" value={collectTo} onChange={e => setCollectTo(e.target.value)} required />
+                          </label>
+                          <label className="wb-field">{t('Item limit', '采集上限')}
+                            <input type="number" className="wb-input" required min={1} max={Math.max(1, maxAllowedLimit)} value={collectLimit}
+                              aria-describedby="collection-limit-hint" onChange={e => setDraftLimit(Number(e.target.value) || 0)} />
+                            <small className="collection-hint" id="collection-limit-hint">{t('Allowed for this request', '当前请求可用上限')} · {maxAllowedLimit} {t('items', '条')}
+                              {selectedSource.target.type === 'post' && ['kaix', 'red_crawler'].includes(selectedSourceCap?.provider ?? '') && t(' of comments', '评论')}</small>
+                          </label>
+                          {selectedSource.fallbackProvider && <label className="wb-field">{t('Provider to use', '执行渠道')}
+                            <select className="wb-select" value={fallbackSelected ? 'fallback' : 'primary'} onChange={e => setUseFallback(e.target.value === 'fallback')}>
+                              <option value="primary">{selectedSource.primaryProvider} · {t('Primary', '主渠道')}</option>
+                              <option value="fallback" disabled={!fallbackSelected && !fallbackCap?.enabled}>{selectedSource.fallbackProvider} · {t('Fallback', '备援')}</option>
+                            </select>
+                          </label>}
+                        </div>
+                        {canIncludeComments && <label className="collection-checkbox">
+                          <input type="checkbox" checked={includeComments} onChange={e => setIncludeComments(e.target.checked)} /> {t('Also fetch comments', '同时采集评论')}
+                        </label>}
+                        {canIncludeComments && includeComments && <label className="wb-field">{t('Comments per post', '每帖评论上限')}
+                          <input type="number" className="wb-input" required min={1} max={limits.maxComments} value={limits.comments ?? maxComments}
+                            onChange={e => setMaxComments(Math.max(1, Number(e.target.value) || 1))} />
+                        </label>}
+                        {selectedSourceCap?.limitations.length ? <details className="collection-disclosure">
+                          <summary>{t('Provider limits', '查看渠道限制')}</summary>
+                          <ul>{selectedSourceCap.limitations.map(note => <li key={note}>{note}</li>)}</ul>
+                        </details> : null}
+                        <div className="collection-operation-footer">
+                          {collectionQuote && <div className="collection-hint">
+                            <span>{t('First provider execution', '首次渠道执行')} · {t('1 request', '1 次请求')} / {collectionQuote.system} {t('reserved resource units', '单位预留资源')}</span>
+                            {!canWrite && <span>{t('Personal reservation at submission', '提交时个人预留')} · {t('1 request', '1 次请求')} / {collectionQuote.personal} {t('resource units', '单位资源')}</span>}
+                            {selectedSourceCap?.automaticRequestReplay === false && <span>{t('This provider may charge for usage.', '该渠道可能产生费用。')}</span>}
+                          </div>}
                           <button type="submit" className="ds-btn" disabled={!canDispatch || collectLimit < 1 || collectLimit > maxAllowedLimit || collectMut.isPending}>
-                            {t('Submit Collect Job', '提交采集任务')}
+                            {collectMut.isPending ? t('Submitting…', '正在提交…') : t('Submit Collect Job', '提交采集任务')}
                           </button>
                         </div>
                       </form>
                     )}
 
                     {actor.clientKind === 'browser' && selectedSource.deliveryMode === 'pull' && supportsRefresh && (
-                      <form onSubmit={handleRefreshIds} style={{ borderTop: '1px solid var(--line)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <div style={{ fontSize: 12, fontWeight: 650 }}>{t('Batch refresh by stored post ID', '按已入库主帖 ID 批量刷新')} · {t('Max IDs', '最多 ID')} {maxRefreshIds} · {refreshCap?.provider}</div>
+                      <form onSubmit={handleRefreshIds} className="collection-form collection-operation">
+                        <h3>{t('Refresh stored posts', '刷新已入库帖子')}</h3>
+                        <p className="collection-hint">{t('Paste internal post IDs from this source, separated by commas or spaces.', '请粘贴当前来源已入库帖子的内部 ID，用逗号或空格分隔。')} {t('Max IDs', '最多 ID')} {maxRefreshIds} · {refreshCap?.provider}</p>
                         <div style={{ display: 'flex', gap: 8 }}>
                           <input aria-label={t('Stored post IDs', '已入库主帖 ID')} className="wb-input" style={{ flex: 1 }} value={refreshIdsRaw} onChange={(e) => setRefreshIdsRaw(e.target.value)} placeholder="33333333-3333-4333-8333-333333333301" />
                           <button type="submit" className="ds-btn ds-btn--ghost" disabled={!canRefresh || refreshMut.isPending}>
@@ -697,26 +634,24 @@ export function SourcesPage({
 
                     {canWrite && selectedSource.deliveryMode === 'push' && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        <form onSubmit={handleIngest} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <form onSubmit={handleIngest} className="collection-form collection-operation">
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 650 }}>
-                              <Upload size={13} color="var(--wb-purple)" />
-                              {t('Push Ingest Batch (1 MiB / 100 items max)', '手工单批推流导入 (external_ingest)')}
-                            </span>
+                            <h3><Upload size={15} />{t('Import an ingest batch', '推流导入')}</h3>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <label className="ds-btn ds-btn--ghost" style={{ height: 28, fontSize: 11, cursor: 'pointer' }}>
+                              <label className="ds-btn ds-btn--ghost collection-file-picker">
                                 <span>{t('Load JSON File', '载入 JSON 文件')}</span>
                                 <input
                                   type="file"
                                   accept=".json,application/json"
                                   aria-label={t('Import canonical JSON file', '导入规范 JSON 文件')}
-                                  style={{ display: 'none' }}
+                                  className="collection-file-input"
                                   disabled={selectedSource.state !== 'active' || ingestMut.isPending}
                                   onChange={importIngestFile}
                                 />
                               </label>
                             </div>
                           </div>
+                          <p className="collection-hint">{t('Paste a JSON object with an items array or load a file. Each batch accepts up to 100 items and 1 MiB.', '粘贴包含 items 数组的 JSON 对象，或选择本地文件。单批最多 100 条、1 MiB。')}</p>
                           {selectedSource.state !== 'active' && <p className="muted">{t('Activate this source before pushing content.', '请启用当前来源后再推流。')}</p>}
                           <textarea aria-label={t('Push batch JSON', '推流批次 JSON')} className="wb-textarea" rows={5} style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }} value={ingestJson} onChange={(e) => setIngestDraft({ sourceId: selectedSource.id, text: e.target.value })} placeholder='{"items": [...]}' />
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -734,8 +669,8 @@ export function SourcesPage({
                 </div>
 
                 {/* Recent Jobs List */}
-                <div className="ds-card">
-                  <div className="ds-card-hd">
+                <div className="ds-card collection-panel">
+                  <div className="ds-card-hd collection-panel-header">
                     <div>
                       <div className="ds-card-title">{t('Collection Jobs (Last 50)', '来源采集任务监控')}</div>
                       <div className="ds-card-sub">{t('Inspect phase telemetry or cancel/retry/continue jobs', '支持取消排队 / 重试 / 断点续跑控制')}</div>
@@ -793,8 +728,8 @@ export function SourcesPage({
           </div>
         </div>
         {canWrite && selectedSource && isRedditArchiveSource(selectedSource) && (
-          <div className="ds-card">
-            <div className="ds-card-hd">
+          <div className="ds-card collection-panel">
+            <div className="ds-card-hd collection-panel-header">
               <div>
                 <div className="ds-card-title">{t('Admin-Only Offline Archive Plugin (R4)', '管理员专用离线归档外挂工具 (R4)')}</div>
                 <div className="ds-card-sub">{t('Isolated external Python/DuckDB command generator · never runs inside main server', '独立仓外插件命令生成器，严格遵循主线隔离与推流契约')}</div>
@@ -815,8 +750,7 @@ export function SourcesPage({
           source={sourceEditor === 'edit' ? selectedSource : undefined}
           onClose={() => setSourceEditor(null)}
           onSaved={id => {
-            setTab('sources');
-            setSelectedSourceId(id);
+            onNavigate('/sources?sourceId=' + id);
             setStateFilter('all');
             setGroupFilter('');
             setOpsMsg({ text: t('Source saved.', '来源已保存。') });
@@ -833,23 +767,26 @@ export function SourcesPage({
           <button className="ds-btn ds-btn--ghost" type="button" onClick={() => setInspectJobId(null)}>{t('Close', '关闭')}</button>
         </div> : (
         <div className="sr-modal-backdrop" onClick={() => setInspectJobId(null)}>
-          <div className="sr-modal" style={{ width: 'min(560px, 100%)', padding: '22px 26px' }} onClick={(e) => e.stopPropagation()}>
+          <div className="sr-modal collection-dialog" style={{ width: 'min(560px, 100%)', padding: '22px 26px' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 650 }}>
-                Job Control · {jobDetailQuery.data.job.id.slice(0, 8)}
+                {t('Job details', '任务详情')} · {jobDetailQuery.data.job.id.slice(0, 8)}
               </h3>
-              <button type="button" className="sr-btn sr-btn--subtle sr-btn--xs" onClick={() => setInspectJobId(null)}>
+              <button type="button" className="sr-btn sr-btn--subtle sr-btn--xs" aria-label={t('Close job details', '关闭任务详情')} onClick={() => setInspectJobId(null)}>
                 <X size={14} />
               </button>
             </div>
             {(() => {
               const job = jobDetailQuery.data!.job;
               const risky = job.provider_state.phase === 'starting' || job.provider_state.phase === 'unknown';
+              const source = sources.find(item => item.id === job.source_id);
+              const actionLabels = { cancel: t('Cancel job', '取消任务'), retry: t('Retry job', '重试任务'), continue: t('Resume provider run', '续跑渠道任务') };
               return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 12.5 }}>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <span className="tag tag--lilac">status: {job.status}</span>
-                    <span className="tag tag--apricot">phase: {job.provider_state.phase ?? '—'}</span>
+                <div className="collection-form">
+                  <div className="collection-toolbar">
+                    <span className="collection-status">{t('Status', '状态')} · {job.status}</span>
+                    <span className="collection-status">{t('Provider phase', '渠道阶段')} · {job.provider_state.phase ?? '—'}</span>
+                    <span className="collection-status">{job.provider}</span>
                   </div>
                   <code>{job.id}</code>
                   <span>{t('Processed / inserted / updated', '处理 / 新增 / 更新')} · {job.records_processed} / {job.records_inserted ?? '—'} / {job.records_updated ?? '—'}</span>
@@ -860,17 +797,19 @@ export function SourcesPage({
                   {job.result_summary?.creditsUsed !== undefined &&
                     <span>{t('Credits reported by the provider', '渠道报告的积分用量')} · {job.result_summary.creditsUsed}</span>}
                   {job.result_summary?.warning && <div className="wb-alert wb-alert--warn">{job.result_summary.warning}</div>}
-                  {job.request_json && (
-                    <pre style={{ background: '#fbfcf7', border: '1px solid var(--line)', padding: 10, borderRadius: 6, fontSize: 11, margin: 0, overflow: 'auto' }}>
-                      {JSON.stringify(job.request_json, null, 2)}
-                    </pre>
-                  )}
-                  {job.purpose !== 'ingest' && ['queued', 'running', 'retrying', 'failed', 'cancelled'].includes(job.status) && (
+                  {job.request_json && <details className="collection-disclosure">
+                    <summary>{t('Request parameters', '查看请求参数')}</summary>
+                    <pre className="collection-code">{JSON.stringify(job.request_json, null, 2)}</pre>
+                  </details>}
+                  {job.purpose !== 'ingest' && source && source.state !== 'active' && <p className="collection-hint">
+                    {t('Activate this source before managing its jobs.', '启用该来源后才能管理任务。')}
+                  </p>}
+                  {source?.state === 'active' && job.purpose !== 'ingest' && ['queued', 'running', 'retrying', 'failed', 'cancelled'].includes(job.status) && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
                       {risky && ['failed', 'cancelled'].includes(job.status) && (
                         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#8f3f2a', fontWeight: 600 }}>
                           <input type="checkbox" checked={ackJobCharge} onChange={(e) => setAckJobCharge(e.target.checked)} />
-                          <span>acknowledgePotentialCharge: true</span>
+                          <span>{t('I accept possible duplicate provider charges.', '我了解重试可能产生重复渠道费用。')}</span>
                         </label>
                       )}
                       <div style={{ display: 'flex', gap: 8 }}>
@@ -881,19 +820,20 @@ export function SourcesPage({
                             key={act}
                             type="button"
                             className={`ds-btn ${act === 'cancel' ? 'ds-btn--danger' : ''}`}
-                            style={{ height: 30, fontSize: 11 }}
                             disabled={jobActionMut.isPending || (act !== 'cancel' && risky && !ackJobCharge)}
                             onClick={async () => {
                               try {
                                 await jobActionMut.mutateAsync({ jobId: job.id, sourceId: job.source_id, action: act, acknowledgePotentialCharge: ackJobCharge });
-                                setOpsMsg({ text: `Executed ${act} on job ${job.id.slice(0, 8)}` });
+                                const message = t('Job action submitted.', '任务操作已提交。') + ' · ' + job.id.slice(0, 8);
+                                if (tab === 'jobs') setJobNotice(message);
+                                else setOpsMsg({ text: message });
                                 setInspectJobId(null);
                               } catch (err) {
                                 setJobActionError(formatApiError(err));
                               }
                             }}
                           >
-                            {act}
+                            {actionLabels[act]}
                           </button>
                         ))}
                       </div>
@@ -906,37 +846,7 @@ export function SourcesPage({
         </div>
       ))}
 
-      {/* Edit Budget Modal */}
-      {editBudget && (
-        <div className="sr-modal-backdrop" onClick={() => setEditBudget(null)}>
-          <div className="sr-modal" style={{ width: 'min(480px, 100%)', padding: '22px 26px' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 650 }}>
-                Edit Quota · {editBudget.provider} (rev {bRev})
-              </h3>
-              <button type="button" className="sr-btn sr-btn--subtle sr-btn--xs" onClick={() => setEditBudget(null)}><X size={14} /></button>
-            </div>
-            {bErr && <div className="wb-alert wb-alert--error" style={{ marginBottom: 12 }}>{bErr}</div>}
-            <form onSubmit={handleSaveBudget} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-                <input type="checkbox" checked={bEnabled} onChange={(e) => setBEnabled(e.target.checked)} />
-                <span>Provider enabled</span>
-              </label>
-              <div className="wb-grid-2">
-                <div className="wb-field"><label htmlFor="budget-dailyRequests">dailyRequests</label><input id="budget-dailyRequests" type="number" className="wb-input" min={0} max={1000000} value={bDailyReq} onChange={(e) => setBDailyReq(Number(e.target.value))} /></div>
-                <div className="wb-field"><label htmlFor="budget-monthlyRequests">monthlyRequests</label><input id="budget-monthlyRequests" type="number" className="wb-input" min={0} max={10000000} value={bMonthlyReq} onChange={(e) => setBMonthlyReq(Number(e.target.value))} /></div>
-                <div className="wb-field"><label htmlFor="budget-dailyResources">dailyResources</label><input id="budget-dailyResources" type="number" className="wb-input" min={0} max={100000000} value={bDailyRes} onChange={(e) => setBDailyRes(Number(e.target.value))} /></div>
-                <div className="wb-field"><label htmlFor="budget-monthlyResources">monthlyResources</label><input id="budget-monthlyResources" type="number" className="wb-input" min={0} max={1000000000} value={bMonthlyRes} onChange={(e) => setBMonthlyRes(Number(e.target.value))} /></div>
-              </div>
-              <div className="wb-field"><label htmlFor="budget-minimumIntervalMs">minimumIntervalMs</label><input id="budget-minimumIntervalMs" type="number" className="wb-input" min={0} max={3600000} value={bInterval} onChange={(e) => setBInterval(Number(e.target.value))} /></div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                <button type="button" className="ds-btn ds-btn--ghost" onClick={() => setEditBudget(null)}>{t('Cancel', '取消')}</button>
-                <button type="submit" className="ds-btn" disabled={updateBudgetMut.isPending}>{t('Save Budget', '更新配额')}</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {editBudget && <ProviderBudgetEditor budget={editBudget} onClose={() => setEditBudget(null)} />}
     </div>
   );
 }

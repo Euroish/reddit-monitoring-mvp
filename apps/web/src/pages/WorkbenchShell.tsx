@@ -116,7 +116,7 @@ export function WorkbenchShell({
     [sources],
   );
   const zeroQuotaProviders = useMemo(
-    () => budgets.filter((b) => b.enabled && b.daily_requests === 0),
+    () => budgets.filter((b) => b.enabled && Math.min(b.daily_requests, b.monthly_requests, b.daily_resources, b.monthly_resources) === 0),
     [budgets],
   );
   const unreadNotifs = alertsDismissed ? 0 : blockedSources.length + zeroQuotaProviders.length;
@@ -190,8 +190,9 @@ export function WorkbenchShell({
       return { pct: Math.min(100, Math.round((used / cap) * 100)), used: fmt(used), cap: fmt(cap) };
     }
     if (!budgets.length) return { pct: 0, used: '0', cap: '0' };
-    const totalUsed = budgets.reduce((s, b) => s + (b.requests_today ?? 0), 0);
-    const totalCap = budgets.reduce((s, b) => s + (b.enabled ? Math.max(0, b.daily_requests) : 0), 0);
+    const enabled = budgets.filter(b => b.enabled);
+    const totalUsed = enabled.reduce((sum, budget) => sum + (budget.requests_today ?? 0), 0);
+    const totalCap = enabled.reduce((sum, budget) => sum + budget.daily_requests, 0);
     if (totalCap <= 0) return { pct: 0, used: fmt(totalUsed), cap: '0 cap' };
     const pct = Math.min(100, Math.round((totalUsed / totalCap) * 100));
     return { pct, used: fmt(totalUsed), cap: fmt(totalCap) };
@@ -311,7 +312,7 @@ export function WorkbenchShell({
           </button>
           <button
             type="button"
-            className={`rail-btn ${route === '/sources' ? 'is-active' : ''}`}
+            className={`rail-btn ${(route === '/sources' || route === '/admin/queue') ? 'is-active' : ''}`}
             onClick={() => navigateAndClose('/sources')}
             data-tip={t('Sources & Quotas', '来源与采集')}
             aria-label={t('Sources & Quotas', '来源与采集')}
@@ -327,17 +328,6 @@ export function WorkbenchShell({
           >
             <Bookmark size={18} />
           </button>
-          {canWrite && (
-            <button
-              type="button"
-              className={`rail-btn ${route === '/admin/queue' ? 'is-active' : ''}`}
-              onClick={() => navigateAndClose('/admin/queue')}
-              data-tip={t('AI Review Queue', 'AI 发布审核队列')}
-              aria-label={t('AI Review Queue', 'AI 发布审核队列')}
-            >
-              <Sparkles size={18} />
-            </button>
-          )}
         </div>
 
         <div className="rail-sep" />
@@ -628,6 +618,7 @@ export function WorkbenchShell({
             <button
               type="button"
               className={`nav-item ${route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' ? 'is-active' : ''}`}
+              aria-current={route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' ? 'page' : undefined}
               onClick={() => navigateAndClose('/sources?tab=sources')}
             >
               <Database size={14} className="nav-ic" />
@@ -637,6 +628,7 @@ export function WorkbenchShell({
             <button
               type="button"
               className={`nav-item ${route === '/sources' && currentTab === 'jobs' ? 'is-active' : ''}`}
+              aria-current={route === '/sources' && currentTab === 'jobs' ? 'page' : undefined}
               onClick={() => navigateAndClose('/sources?tab=jobs')}
             >
               <RefreshCw size={14} className="nav-ic" />
@@ -646,11 +638,21 @@ export function WorkbenchShell({
             <button
               type="button"
               className={`nav-item ${route === '/sources' && currentTab === 'budgets' ? 'is-active' : ''}`}
+              aria-current={route === '/sources' && currentTab === 'budgets' ? 'page' : undefined}
               onClick={() => navigateAndClose('/sources?tab=budgets')}
             >
               <Sliders size={14} className="nav-ic" />
               <span>{t('Channel Quotas', '渠道配额')}</span>
             </button>
+            {canWrite && (
+              <button type="button"
+                className={'nav-item ' + (route === '/admin/queue' ? 'is-active' : '')}
+                aria-current={route === '/admin/queue' ? 'page' : undefined}
+                onClick={() => navigateAndClose('/admin/queue')}>
+                <Sparkles size={14} className="nav-ic" />
+                <span>{t('AI Release Review', 'AI 发布审核队列')}</span>
+              </button>
+            )}
           </div>
         </nav>
 
@@ -660,7 +662,7 @@ export function WorkbenchShell({
             <>
               <div className="usage-card">
                 <div className="uc-top">
-                  <span>{t('Daily Resource Quota', '今日采集资源配额')}</span>
+                  <span>{canWrite ? t('Channel requests today', '今日渠道请求') : t('Personal requests reserved today', '今日个人预留请求')}</span>
                   <b>{quotaStats.pct}%</b>
                 </div>
                 <div className="uc-bar">
@@ -668,7 +670,7 @@ export function WorkbenchShell({
                 </div>
                 <div className="uc-meta">
                   <span>
-                    {quotaStats.used} / {quotaStats.cap}
+                    {quotaStats.used} / {quotaStats.cap} {t('requests', '次请求')}
                   </span>
                   <button type="button" onClick={() => navigateAndClose('/sources?tab=budgets')}>
                     {t('Manage', '治理')}

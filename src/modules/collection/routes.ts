@@ -1,3 +1,4 @@
+import { providerBudgetBounds } from "../../../packages/contracts/src/collection-budget";
 import { createHash, randomUUID } from "node:crypto";
 import { Type } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
@@ -89,11 +90,11 @@ export async function collectionRoutes(
         body: Type.Object(
           {
             enabled: Type.Boolean(),
-            dailyRequests: Type.Integer({ minimum: 0, maximum: 1000000 }),
-            monthlyRequests: Type.Integer({ minimum: 0, maximum: 10000000 }),
-            dailyResources: Type.Integer({ minimum: 0, maximum: 100000000 }),
-            monthlyResources: Type.Integer({ minimum: 0, maximum: 1000000000 }),
-            minimumIntervalMs: Type.Integer({ minimum: 0, maximum: 3600000 }),
+            dailyRequests: Type.Integer(providerBudgetBounds.dailyRequests),
+            monthlyRequests: Type.Integer(providerBudgetBounds.monthlyRequests),
+            dailyResources: Type.Integer(providerBudgetBounds.dailyResources),
+            monthlyResources: Type.Integer(providerBudgetBounds.monthlyResources),
+            minimumIntervalMs: Type.Integer(providerBudgetBounds.minimumIntervalMs),
             revision: Type.Integer({ minimum: 1 }),
           },
           { additionalProperties: false },

@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Value } from "@sinclair/typebox/value";
+import { providerResourceReservation, viewerCollectionDemand } from "../../packages/contracts/src/collection-budget";
 import { SourceUpdate, REDDIT_ARCHIVE_SOURCE_TAG, type CollectionSource } from "../../packages/contracts/src/source-content";
 import { collectionLimits, isRedditArchiveSource } from "../../apps/web/src/lib/collectionLimits.js";
 import type { QuotasSummaryResponse } from "../../apps/web/src/contracts/api.js";
@@ -101,4 +102,14 @@ describe("sourceLabels utilities", () => {
     assert.equal(formatExactTime("invalid"), "时间未知");
     assert.equal(formatRelativeTime(null), "时间未知");
   });
+});
+
+it("keeps provider reservation units distinct from viewer requests and item counts", () => {
+  assert.equal(providerResourceReservation({ provider: "feed", targetType: "feed", pageSize: 10 }), 11);
+  assert.equal(providerResourceReservation({ provider: "twitterapis", targetType: "account", pageSize: 3, requestResourceUpperBound: 20 }), 20);
+  assert.equal(viewerCollectionDemand("twitterapis", "account", 3, {}).resources, 3);
+  assert.equal(providerResourceReservation({ provider: "scrapebadger", targetType: "account", pageSize: 3, requestResourceUpperBound: 100, refresh: true }), 3);
+  assert.equal(providerResourceReservation({ provider: "kaix", targetType: "post", pageSize: 10 }), 11);
+  assert.equal(viewerCollectionDemand("kaix", "search", 10, { includeComments: true, maxCommentsPerPost: 2 }).resources, 30);
+  assert.equal(providerResourceReservation({ provider: "kaix", targetType: "search", pageSize: 10, includeComments: true, maxCommentsPerPost: 2 }), 31);
 });

@@ -1,3 +1,4 @@
+import '../styles/collection.css';
 import { useMemo, useState } from 'react';
 import {
   AlertTriangle,
@@ -260,13 +261,14 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
   };
 
   return (
-    <div style={{ padding: '20px 24px 40px', maxWidth: 1360, margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 18 }}>
+    <div className="ds-page collection-page">
+      <div className="crumb"><span>{t('Workbench', '工作台')}</span><span>/</span><span>{t('Collection Ops', '数据接入')}</span><span>/</span><b>{t('AI Release Review', 'AI 发布审核队列')}</b></div>
+      <div className="page-head">
         <div>
-          <h1 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700 }}>
+          <h1 className="page-title">
             {t('AI Release Review Queue', 'AI 发布审核与台账队列')}
           </h1>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
+          <p className="page-desc">
             {t(
               'Verify registry diffs against official primary evidence before publishing to /ai.',
               '所有注册表变更候选必须核验官方一手链接与日期精度后，方可发布到公开 /ai 页面。',
@@ -277,6 +279,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
           <button
             type="button"
             className={`ds-btn ${tab === 'ops' ? '' : 'ds-btn--ghost'}`}
+            aria-pressed={tab === 'ops'}
             onClick={() => setTab('ops')}
           >
             {t('Automation & Ops', '自动化与运维')}
@@ -284,6 +287,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
           <button
             type="button"
             className={`ds-btn ${tab === 'queue' ? '' : 'ds-btn--ghost'}`}
+            aria-pressed={tab === 'queue'}
             onClick={() => setTab('queue')}
           >
             {t('Exception Queue', '异常审核队列')}
@@ -291,6 +295,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
           <button
             type="button"
             className={`ds-btn ${tab === 'published' ? '' : 'ds-btn--ghost'}`}
+            aria-pressed={tab === 'published'}
             onClick={() => setTab('published')}
           >
             {t('Published Events', '已发布事件')}
@@ -298,6 +303,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
           <button
             type="button"
             className={`ds-btn ${tab === 'sources' ? '' : 'ds-btn--ghost'}`}
+            aria-pressed={tab === 'sources'}
             onClick={() => setTab('sources')}
           >
             {t('Sources & Registry', '官方来源与注册表')}
@@ -335,19 +341,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
               <div>
                 <h2 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700 }}>{t('7-Day Automation Summary', '近 7 天自动化运行摘要')}</h2>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {opsSummaryQ.data && <>
-                    {t('AI scheduler configured', 'AI 调度配置')} {opsSummaryQ.data.schedulerConfigured ? 'ON' : 'OFF'} ·
-                    {' '}{t('Collection network configured', '普通采集联网配置')} {opsSummaryQ.data.sourceNetworkingConfigured ? 'ON' : 'OFF'} ·
-                    {' '}{t('Shadow mode', '影子模式')} {opsSummaryQ.data.shadowMode ? 'ON' : 'OFF'} ·
-                    {' '}{t('Collection worker heartbeat', '采集 Worker 心跳')} {opsSummaryQ.data.collectionWorker?.heartbeatFresh
-                      ? opsSummaryQ.data.collectionWorker.state : t('unavailable or stale', '缺失或陈旧')} ·
-                    {' '}LLM {opsSummaryQ.data.llmConfigured ? t('configured', '已配置') : t('rule-only', '仅规则')}
-                    {' '}{t('UTC reservations', 'UTC 日预留')} {opsSummaryQ.data.llmBudget.reservedToday}/{opsSummaryQ.data.llmBudget.dailyLimit} ·
-                    {' '}AA {t('key', '凭证')} {opsSummaryQ.data.aaKeyConfigured ? t('configured', '已配置') : t('missing', '未配置')} ·
-                    {' '}{opsSummaryQ.data.aaPublicRedistribution ? t('public redistribution configured', '已启用公开分发配置') : t('internal only', '仅内部使用')}
-                  </>}
-                </div>
+
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button
@@ -369,8 +363,18 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
               </div>
             </div>
 
+            {opsSummaryQ.data && (
+              <dl className="collection-source-facts collection-ai-state">
+                <div><dt>{t('AI scheduler', 'AI 调度')}</dt><dd>{opsSummaryQ.data.schedulerConfigured ? t('Enabled', '已启用') : t('Disabled', '已关闭')}</dd></div>
+                <div><dt>{t('Source networking', '普通采集联网')}</dt><dd>{opsSummaryQ.data.sourceNetworkingConfigured ? t('Enabled', '已启用') : t('Disabled', '已关闭')}</dd></div>
+                <div><dt>{t('Discovery mode', '发现模式')}</dt><dd>{opsSummaryQ.data.shadowMode ? t('Shadow evaluation', '影子评估') : t('Vendor policy', '按厂商发布策略')}</dd></div>
+                <div><dt>{t('Collection worker', '采集 Worker')}</dt><dd>{opsSummaryQ.data.collectionWorker?.heartbeatFresh ? opsSummaryQ.data.collectionWorker.state : t('Heartbeat unavailable', '心跳缺失或陈旧')}</dd></div>
+                <div><dt>{t('LLM reservation (UTC day)', 'LLM 预留（UTC 日）')}</dt><dd>{opsSummaryQ.data.llmConfigured ? t('Configured', '已配置') : t('Rule-only', '仅规则匹配')} · {opsSummaryQ.data.llmBudget.reservedToday}/{opsSummaryQ.data.llmBudget.dailyLimit}</dd></div>
+                <div><dt>Artificial Analysis</dt><dd>{opsSummaryQ.data.aaKeyConfigured ? t('Key configured', '凭证已配置') : t('Key missing', '凭证未配置')} · {opsSummaryQ.data.aaPublicRedistribution ? t('Public redistribution configured', '已配置公开分发') : t('Internal only', '仅内部使用')}</dd></div>
+              </dl>
+            )}
             {opsSummaryQ.error && <div role="alert" className="wb-alert wb-alert--error">{formatApiError(opsSummaryQ.error)}</div>}
-            <p>{t('Discovery scans stored content from qualifying sources and verifies official URLs. Use Sources & Registry to check upstream collection and vendor bindings.', '发现扫描符合来源条件的入库内容并核验官方链接。可在「官方来源与注册表」检查上游采集与厂商关联。')}</p>
+            <p className="collection-hint">{t('Discovery scans stored content from qualifying sources and verifies official URLs. Use Sources & Registry to check upstream collection and vendor bindings.', '发现扫描符合来源条件的入库内容并核验官方链接。可在「官方来源与注册表」检查上游采集与厂商关联。')}</p>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
               {[
@@ -406,7 +410,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16 }}>
+          <div className="collection-ai-grid">
             <div className="ds-card" style={{ padding: 16 }}>
               <h3 style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 700 }}>{t('Per-Vendor Auto-Publish Rollout', '分厂商自动发布灰度开关')}</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -483,7 +487,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
       )}
 
       {tab === 'queue' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.15fr) minmax(340px, 0.85fr)', gap: 18, alignItems: 'start' }}>
+        <div className="collection-ai-grid">
           <div className="ds-card" style={{ padding: 16 }}>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
               <select
