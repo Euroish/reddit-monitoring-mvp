@@ -619,6 +619,13 @@ export function useAttachProjectBatchMutation() {
   });
 }
 
+export function usePreviewResearchPlanMutation() {
+  return useMutation({
+    mutationFn: (payload: import('../contracts/api').ResearchPlanPreviewRequest) =>
+      apiClient.previewResearchPlan(payload),
+  });
+}
+
 export function useUpdateProjectBatchStatusMutation() {
   const qc = useQueryClient();
   return useMutation({

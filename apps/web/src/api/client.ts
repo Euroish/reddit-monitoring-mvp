@@ -609,6 +609,15 @@ export const apiClient = {
     });
   },
 
+  async previewResearchPlan(
+    payload: import('../contracts/api').ResearchPlanPreviewRequest,
+  ): Promise<import('../contracts/api').ResearchPlanPreviewResponse> {
+    return liveFetch('/research/collection-plans/preview', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
   async getQuotasSummary(): Promise<QuotasSummaryResponse> {
     return liveFetch('/quotas/summary');
   },

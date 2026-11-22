@@ -44,6 +44,8 @@ export function QuotasManagementView({
   const [pDailyRes, setPDailyRes] = useState<string>('0');
   const [pMaxBatch, setPMaxBatch] = useState<number>(20);
   const [pMaxProjects, setPMaxProjects] = useState<number>(3);
+  const [pMaxLookbackDays, setPMaxLookbackDays] = useState<number>(7);
+  const [pAllowProviderChoice, setPAllowProviderChoice] = useState<boolean>(false);
   const [pExportEnabled, setPExportEnabled] = useState<boolean>(true);
   const [pErr, setPErr] = useState<string | null>(null);
 
@@ -69,6 +71,8 @@ export function QuotasManagementView({
     setPDailyRes(p.dailyResources === null ? '' : String(p.dailyResources));
     setPMaxBatch(p.maxBatchLimit);
     setPMaxProjects(p.maxProjects ?? 3);
+    setPMaxLookbackDays(p.maxLookbackDays ?? 7);
+    setPAllowProviderChoice(p.allowProviderChoice ?? false);
     setPExportEnabled(p.exportEnabled ?? true);
     setPErr(null);
   };
@@ -88,6 +92,8 @@ export function QuotasManagementView({
           maxBatchLimit: pMaxBatch,
           maxCommentsPerPost: pMaxComments,
           maxProjects: pMaxProjects,
+          maxLookbackDays: pMaxLookbackDays,
+          allowProviderChoice: pAllowProviderChoice,
           exportEnabled: pExportEnabled,
           revision: editingPlan.revision,
         },
@@ -278,7 +284,14 @@ export function QuotasManagementView({
                 <label className="wb-field">{t('Max private projects', '私有项目数量上限')}
                   <input className="wb-input" type="number" min={0} max={500} value={pMaxProjects} onChange={event => setPMaxProjects(Number(event.target.value))} />
                 </label>
+                <label className="wb-field">{t('Max lookback window (days)', '最大历史回溯天数')}
+                  <input className="wb-input" type="number" min={1} max={365} value={pMaxLookbackDays} onChange={event => setPMaxLookbackDays(Number(event.target.value))} />
+                </label>
               </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                <input type="checkbox" checked={pAllowProviderChoice} onChange={(e) => setPAllowProviderChoice(e.target.checked)} />
+                <span>{t('Allow choosing specific collection provider (field policy)', '允许在研究采集中选择特定渠道 Provider（字段级权限）')}</span>
+              </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
                 <input type="checkbox" checked={pExportEnabled} onChange={(e) => setPExportEnabled(e.target.checked)} />
                 <span>{t('Allow CSV/JSON data export (reserved policy toggle)', '允许 CSV / JSON 数据导出（权益预留开关）')}</span>

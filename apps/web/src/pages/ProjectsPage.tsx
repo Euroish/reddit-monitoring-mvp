@@ -25,7 +25,6 @@ import {
 } from 'lucide-react';
 import {
   formatApiError,
-  useCapabilitiesQuery,
   useContentListQuery,
   useCreateProjectMutation,
   useDeleteProjectMutation,
@@ -90,7 +89,6 @@ export function ProjectsPage({
 
   const projectsQuery = useProjectsQuery(true);
   const sourcesQuery = useSourcesQuery(true);
-  const capabilitiesQuery = useCapabilitiesQuery(true);
   const quotasSummaryQuery = useQuotasSummaryQuery(true);
   const projects = useMemo(() => projectsQuery.data?.projects ?? [], [projectsQuery.data?.projects]);
   const sources = useMemo(() => sourcesQuery.data?.sources ?? [], [sourcesQuery.data?.sources]);
@@ -104,15 +102,25 @@ export function ProjectsPage({
   const requestedSourceId = searchParams.get('sourceId');
   const requestedSource = researchSources.find(source => source.id === requestedSourceId);
 
+  const missingUrlProject = Boolean(
+    urlProjectId && !projectsQuery.isLoading && !projects.some((p) => p.id === urlProjectId),
+  );
+
   useEffect(() => {
-    if (urlProjectId && projects.some((p) => p.id === urlProjectId) && urlProjectId !== selectedProjectId) {
-      onSelectProjectId(urlProjectId);
-    } else if (projects.length > 0 && !projects.some((p) => p.id === selectedProjectId)) {
+    if (urlProjectId) {
+      if (projects.some((p) => p.id === urlProjectId) && urlProjectId !== selectedProjectId) {
+        onSelectProjectId(urlProjectId);
+      }
+      return;
+    }
+    if (projects.length > 0 && !projects.some((p) => p.id === selectedProjectId)) {
       onSelectProjectId(projects[0].id);
     }
   }, [projects, selectedProjectId, urlProjectId, onSelectProjectId]);
 
-  const selectedProject = projects.find((p) => p.id === (urlProjectId || selectedProjectId)) || projects[0];
+  const selectedProject = missingUrlProject
+    ? undefined
+    : projects.find((p) => p.id === (urlProjectId || selectedProjectId)) || projects[0];
   const canWrite = Boolean(selectedProject?.can_edit ?? isAdmin);
   const activeView: 'list' | 'collect' | 'jobs' | 'batches' | 'overview' =
     urlView === 'list' || urlView === 'collect' || urlView === 'jobs' || urlView === 'batches' || urlView === 'overview'
@@ -557,12 +565,26 @@ export function ProjectsPage({
           }}
           onCreate={() => openCreate()}
         />
+      ) : missingUrlProject ? (
+        <div className="wb-card" style={{ padding: 28, textAlign: 'center' }}>
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>
+            {t('Project not found or no access', '项目不存在或当前账号无权访问')}
+          </div>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>
+            {t(
+              `Requested project ID "${urlProjectId}" is not in your accessible projects list. It may have been deleted or belong to another user.`,
+              `请求的 projectId「${urlProjectId}」不在当前账号可访问的项目列表中，可能已被删除或属于其他用户的私有项目。`,
+            )}
+          </div>
+          <button type="button" className="ds-btn" onClick={() => go('/projects?view=list')}>
+            {t('Back to All Projects', '返回全部项目')}
+          </button>
+        </div>
       ) : activeView === 'collect' && selectedProject ? (
         <ProjectCollectView
           actor={actor}
           project={selectedProject}
           sources={sources}
-          capabilities={capabilitiesQuery.data?.providers ?? []}
           onNavigate={go}
         />
       ) : activeView === 'jobs' && selectedProject ? (
@@ -1216,10 +1238,15 @@ export function ProjectsPage({
             </div>
 
             <div className="wb-alert wb-alert--info" style={{ marginBottom: 14 }}>
-              {t(
-                'Project rules govern analytics & drilldown only — never rewrites source crawl targets or triggers paid runs.',
-                '项目固化过滤条件仅作用于已存数据统计聚合与钻取，不会改写来源采集词，也不会主动触发付费抓取。',
-              )}
+              {modalMode === 'create'
+                ? t(
+                    'New research projects always start with 0 samples. You will define research targets and run a preflight check on the next screen.',
+                    '新建研究项目初始样本严格为 0，不会自动继承历史数据。创建后将直接进入「数据接入」配置研究目标与预检。',
+                  )
+                : t(
+                    'Advanced analysis filters govern stored sample aggregation only — never rewrites source crawl targets or triggers paid runs.',
+                    '高级分析过滤条件仅作用于已纳入本项目的样本聚合与钻取，不会改写来源采集词，也不会主动触发付费抓取。',
+                  )}
             </div>
 
             {formError && (
@@ -1253,25 +1280,11 @@ export function ProjectsPage({
               </div>
 
               <div className="wb-field">
-                <label htmlFor="monitoring-project-desc">{t('Research Topic / Notes (optional)', '研究主题与说明（可选）')}</label>
+                <label htmlFor="monitoring-project-desc">{t('Research Topic / Notes (optional)', '研究主题与目标说明（可选）')}</label>
                 <input id="monitoring-project-desc" className="wb-input" value={formDescription} onChange={(e) => setFormDescription(e.target.value)} maxLength={500} placeholder={t('e.g. Track developer feedback on AI coding tools', '例如：追踪开发者对 AI 编程工具的真实反馈')} />
               </div>
 
-              {modalMode === 'create' && isAdmin && (
-                <div className="wb-field">
-                  <label>{t('Project Dataset Mode', '项目数据模式')}</label>
-                  <div className="seg">
-                    <button type="button" className={formDatasetMode === 'batch' ? 'on' : ''} onClick={() => setFormDatasetMode('batch')}>
-                      {t('Empty Batch Project (0 initial samples)', '空白批次项目（初始 0 样本，推荐）')}
-                    </button>
-                    <button type="button" className={formDatasetMode === 'source_filter' ? 'on' : ''} onClick={() => setFormDatasetMode('source_filter')}>
-                      {t('Shared Live Source View', '共享自动采集视图')}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {formDatasetMode === 'source_filter' && (
+              {modalMode === 'edit' && formDatasetMode === 'source_filter' && (
               <div className="wb-field">
                 <label>{t('Bound Research Sources (min 1 · Information Feed sources excluded)', '绑定研究来源（至少 1 个 · 资讯信息流源已隔离）')}</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 6, maxHeight: 130, overflowY: 'auto', padding: 8, border: '1px solid var(--line)', borderRadius: 6 }}>
@@ -1299,72 +1312,78 @@ export function ProjectsPage({
               </div>
               )}
 
-              <div className="wb-grid-2">
-                <div className="wb-field">
-                  <label>{t('anyTerms (OR, comma separated)', 'anyTerms（任意命中 OR）')}</label>
-                  <input className="wb-input" value={formAnyTerms} onChange={(e) => setFormAnyTerms(e.target.value)} placeholder="pricing, billing, churn" />
-                </div>
-                <div className="wb-field">
-                  <label>{t('allTerms (AND, comma separated)', 'allTerms（全部命中 AND）')}</label>
-                  <input className="wb-input" value={formAllTerms} onChange={(e) => setFormAllTerms(e.target.value)} placeholder="kubernetes" />
-                </div>
-              </div>
+              {modalMode === 'edit' && (
+                <details className="collection-disclosure">
+                  <summary>{t('Advanced analysis filter rules (optional)', '高级分析过滤规则（可选，仅过滤已有样本）')}</summary>
+                  <div style={{ display: 'grid', gap: 10, marginTop: 10 }}>
+                    <div className="wb-grid-2">
+                      <div className="wb-field">
+                        <label>{t('anyTerms (OR, comma separated)', 'anyTerms（任意命中 OR）')}</label>
+                        <input className="wb-input" value={formAnyTerms} onChange={(e) => setFormAnyTerms(e.target.value)} placeholder="pricing, billing, churn" />
+                      </div>
+                      <div className="wb-field">
+                        <label>{t('allTerms (AND, comma separated)', 'allTerms（全部命中 AND）')}</label>
+                        <input className="wb-input" value={formAllTerms} onChange={(e) => setFormAllTerms(e.target.value)} placeholder="kubernetes" />
+                      </div>
+                    </div>
 
-              <div className="wb-grid-2">
-                <div className="wb-field">
-                  <label>{t('exclusions (NOT)', 'exclusions（排除词）')}</label>
-                  <input className="wb-input" value={formExclusions} onChange={(e) => setFormExclusions(e.target.value)} placeholder="hiring, sponsorship" />
-                </div>
-                <div className="wb-field">
-                  <label>{t('Search Scope', '词项匹配范围')}</label>
-                  <select className="wb-select" value={formScope} onChange={(e) => setFormScope(e.target.value as SearchScope)}>
-                    <option value="title_text">title_text</option>
-                    <option value="title">title</option>
-                    <option value="text">text</option>
-                  </select>
-                </div>
-              </div>
+                    <div className="wb-grid-2">
+                      <div className="wb-field">
+                        <label>{t('exclusions (NOT)', 'exclusions（排除词）')}</label>
+                        <input className="wb-input" value={formExclusions} onChange={(e) => setFormExclusions(e.target.value)} placeholder="hiring, sponsorship" />
+                      </div>
+                      <div className="wb-field">
+                        <label>{t('Search Scope', '词项匹配范围')}</label>
+                        <select className="wb-select" value={formScope} onChange={(e) => setFormScope(e.target.value as SearchScope)}>
+                          <option value="title_text">title_text</option>
+                          <option value="title">title</option>
+                          <option value="text">text</option>
+                        </select>
+                      </div>
+                    </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-                <div className="wb-field">
-                  <label>{t('Signal', '信号')}</label>
-                  <select className="wb-select" value={formSignal} onChange={(e) => setFormSignal(e.target.value as '' | SignalType)}>
-                    <option value="">All</option>
-                    <option value="pain">pain</option>
-                    <option value="discussion">discussion</option>
-                  </select>
-                </div>
-                <div className="wb-field">
-                  <label>{t('Platform', '平台')}</label>
-                  <select className="wb-select" value={formPlatform} onChange={(e) => setFormPlatform(e.target.value as '' | Platform)}>
-                    <option value="">All</option>
-                    <option value="reddit">reddit</option>
-                    <option value="x">x</option>
-                    <option value="bluesky">bluesky</option>
-                    <option value="web">web</option>
-                  </select>
-                </div>
-                <div className="wb-field">
-                  <label>{t('Kind', '形态')}</label>
-                  <select className="wb-select" value={formKind} onChange={(e) => setFormKind(e.target.value as '' | ContentKind)}>
-                    <option value="">All</option>
-                    <option value="post">post</option>
-                    <option value="comment">comment</option>
-                    <option value="article">article</option>
-                  </select>
-                </div>
-              </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                      <div className="wb-field">
+                        <label>{t('Signal', '信号')}</label>
+                        <select className="wb-select" value={formSignal} onChange={(e) => setFormSignal(e.target.value as '' | SignalType)}>
+                          <option value="">All</option>
+                          <option value="pain">pain</option>
+                          <option value="discussion">discussion</option>
+                        </select>
+                      </div>
+                      <div className="wb-field">
+                        <label>{t('Platform', '平台')}</label>
+                        <select className="wb-select" value={formPlatform} onChange={(e) => setFormPlatform(e.target.value as '' | Platform)}>
+                          <option value="">All</option>
+                          <option value="reddit">reddit</option>
+                          <option value="x">x</option>
+                          <option value="bluesky">bluesky</option>
+                        </select>
+                      </div>
+                      <div className="wb-field">
+                        <label>{t('Kind', '形态')}</label>
+                        <select className="wb-select" value={formKind} onChange={(e) => setFormKind(e.target.value as '' | ContentKind)}>
+                          <option value="">All</option>
+                          <option value="post">post</option>
+                          <option value="comment">comment</option>
+                          <option value="article">article</option>
+                        </select>
+                      </div>
+                    </div>
 
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, paddingTop: 4 }}>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={formThreadAware} onChange={(e) => setFormThreadAware(e.target.checked)} />
-                  <span>thread_aware ({t('fold comments to roots', '评论回溯根帖')})</span>
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={formIncludePush} onChange={(e) => setFormIncludePush(e.target.checked)} />
-                  <span>include_push_in_trends</span>
-                </label>
-              </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, paddingTop: 4 }}>
+                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={formThreadAware} onChange={(e) => setFormThreadAware(e.target.checked)} />
+                        <span>thread_aware ({t('fold comments to roots', '评论回溯根帖')})</span>
+                      </label>
+                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={formIncludePush} onChange={(e) => setFormIncludePush(e.target.checked)} />
+                        <span>include_push_in_trends</span>
+                      </label>
+                    </div>
+                  </div>
+                </details>
+              )}
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
                 <span style={{ fontSize: 11, color: 'var(--faint)' }}>

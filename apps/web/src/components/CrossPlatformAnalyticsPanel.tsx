@@ -318,6 +318,9 @@ export function CrossPlatformAnalyticsPanel({
                   <div style={{ height: 72 }}>
                     <KpiSparkChart values={series.length ? series : [0]} color={colors.purple} />
                   </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>
+                    {t('Chart totals use full server facets; preview list shows up to 5 items from the latest 100 loaded.', '趋势与计数基于服务端全量分面聚合；下方仅预览当前已加载片段（最多 100 条）中的前 5 条。')}
+                  </div>
                   {pfItems.length === 0 ? (
                     <p className="collection-hint">{t('No recent items in loaded slice.', '当前页暂无该平台样本。')}</p>
                   ) : (

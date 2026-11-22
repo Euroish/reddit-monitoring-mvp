@@ -7,7 +7,7 @@ export function isRedditArchiveSource(source: CollectionSource) {
 }
 
 export function isResearchSource(source: CollectionSource) {
-  return source.platform !== 'web';
+  return source.usageDomain ? source.usageDomain === 'research' : source.platform !== 'web';
 }
 
 export function collectionLimits(

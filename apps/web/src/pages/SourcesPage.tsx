@@ -24,7 +24,6 @@ import {
   useProviderCredentialsQuery,
   useQuotasSummaryQuery,
   useRefreshSourceMutation,
-  useSourceJobsQuery,
   useSourcesQuery,
   useUnblockSourceMutation,
   useUpdateSourceMutation,
@@ -36,11 +35,10 @@ import { QuotasManagementView } from '../components/QuotasManagementView';
 import { R4ArchivePanel } from '../components/R4ArchivePanel';
 import { SourceEditor } from '../components/SourceEditor';
 import { SourceImportDialog } from '../components/SourceImportDialog';
-import { collectionLimits, isRedditArchiveSource } from '../lib/collectionLimits';
+import { collectionLimits, isRedditArchiveSource, isResearchSource } from '../lib/collectionLimits';
 import {
   type Actor,
   type ProviderBudget,
-  type SourceJob,
   formatSourceTarget,
   generateUuidV4,
   isValidUuid,
@@ -105,7 +103,7 @@ export function SourcesPage({
   const filterCapability = capabilities.find(capability => capability.provider === providerFilter);
   const channelIds = [...new Set([...capabilities.map(capability => capability.provider), 'external_ingest', ...sources.map(source => source.primaryProvider)])];
   const domainSources = sources.filter(source =>
-    domainFilter === 'all' ? true : domainFilter === 'feed' ? source.platform === 'web' : source.platform !== 'web',
+    domainFilter === 'all' ? true : domainFilter === 'feed' ? !isResearchSource(source) : isResearchSource(source),
   );
   const visibleSources = domainSources.filter(source => (stateFilter === 'all' || source.state === stateFilter) &&
     (!groupFilter || source.sourceGroup === groupFilter) && (!providerFilter || source.primaryProvider === providerFilter || source.fallbackProvider === providerFilter) &&
@@ -119,7 +117,6 @@ export function SourcesPage({
     });
     return () => cancelAnimationFrame(frame);
   }, [launchSourceId, selectedSource?.id]);
-  const jobsQuery = useSourceJobsQuery(tab === 'sources' ? selectedSource?.id ?? null : null);
   const [sourceEditor, setSourceEditor] = useState<'create' | 'edit' | null>(() => openNewFromUrl && canWrite ? 'create' : null);
   const [importOpen, setImportOpen] = useState(false);
 
@@ -830,59 +827,21 @@ export function SourcesPage({
                   </div>
                 </div>
 
-                {/* Recent Jobs List */}
+                {/* Task execution history lives in the standalone Jobs view (P1-03) */}
                 <div className="ds-card collection-panel">
                   <div className="ds-card-hd collection-panel-header">
                     <div>
-                      <div className="ds-card-title">{t('Collection Jobs (Last 50)', '来源采集任务监控')}</div>
-                      <div className="ds-card-sub">{t('Inspect phase telemetry or cancel/retry/continue jobs', '支持取消排队 / 重试 / 断点续跑控制')}</div>
+                      <div className="ds-card-title">{t('Collection Execution & Jobs', '采集任务与执行日志')}</div>
+                      <div className="ds-card-sub">{t('Source directory stays focused on configuration & health; inspect runs, retries, and errors in the standalone Jobs view.', '来源列表专注配置、健康与发起；任务进度、错误与重试请前往独立「采集任务」视图查看。')}</div>
                     </div>
-                    <button type="button" className="icon-square" style={{ width: 28, height: 28 }} aria-label={t('Refresh source and jobs', '刷新来源与任务')} onClick={() => { void jobsQuery.refetch(); void sourcesQuery.refetch(); }}>
+                    <button
+                      type="button"
+                      className="ds-btn ds-btn--ghost"
+                      onClick={() => onNavigate('/sources?tab=jobs&sourceId=' + selectedSource.id)}
+                    >
                       <RefreshCw size={12} />
+                      <span>{t('Open Jobs for this Source', '查看该来源任务')}</span>
                     </button>
-                  </div>
-                  <div className="ds-card-bd" style={{ paddingTop: 6 }}>
-                    {jobsQuery.error ? <div role="alert" className="wb-alert wb-alert--error">{formatApiError(jobsQuery.error)}</div> :
-                    jobsQuery.isPending ? <div role="status">{t('Loading jobs…', '正在加载任务…')}</div> :
-                    (jobsQuery.data?.jobs || []).length === 0 ? (
-                      <div style={{ padding: 22, textAlign: 'center', fontSize: 12, color: 'var(--muted)' }}>
-                        {t('No jobs recorded for this source yet.', '该来源暂无采集任务记录。')}
-                      </div>
-                    ) : (
-                      (jobsQuery.data?.jobs || []).map((job: SourceJob) => {
-                        const phase = job.provider_state.phase ?? '—';
-                        const isDone = job.status === 'succeeded' || job.status === 'completed';
-                        return (
-                          <div key={job.id} className="job-row">
-                            <span className="wc-ico" style={{ background: job.status === 'failed' ? '#fdf0ec' : job.status === 'running' ? '#eaf6f1' : '#f4f6f0' }}>
-                              <RefreshCw size={13} color={job.status === 'failed' ? '#a8462f' : job.status === 'running' ? '#1c6f5c' : 'var(--ink-3)'} />
-                            </span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <b style={{ display: 'block', fontSize: 11.5 }}>{job.operation} · {job.provider}</b>
-                              <span style={{ display: 'block', fontSize: 10, color: 'var(--faint)' }}>
-                                {job.created_at.slice(0, 16).replace('T', ' ')} · {job.records_processed} {t('processed', '已处理')} · +{job.records_inserted ?? '—'} / ~{job.records_updated ?? '—'} · phase: {phase}
-                              </span>
-                              {job.error && <span style={{ display: 'block', fontSize: 10, color: '#a8462f' }}>{job.error}</span>}
-                            </div>
-                            <span className={`chip-state ${isDone ? 'active' : job.status === 'running' ? 'paused' : 'archived'}`}>
-                              {job.status}
-                            </span>
-                            <button
-                              type="button"
-                              className="ds-btn ds-btn--ghost"
-                              style={{ height: 26, padding: '0 10px', fontSize: 10.5 }}
-                              onClick={() => {
-                                setInspectJobId(job.id);
-                                setJobActionError('');
-                                setAckJobCharge(false);
-                              }}
-                            >
-                              {t('Control', '控制')}
-                            </button>
-                          </div>
-                        );
-                      })
-                    )}
                   </div>
                 </div>
               </>

@@ -221,6 +221,8 @@ export interface PlanPolicyDto {
   maxBatchLimit: number;
   maxCommentsPerPost: number;
   maxProjects?: number;
+  maxLookbackDays?: number;
+  allowProviderChoice?: boolean;
   exportEnabled?: boolean;
   updatedAt: string;
   revision: number;
@@ -236,6 +238,8 @@ export interface EffectivePolicyDto {
   maxBatchLimit: number;
   maxCommentsPerPost: number;
   maxProjects?: number;
+  maxLookbackDays?: number;
+  allowProviderChoice?: boolean;
   exportEnabled?: boolean;
   hasOverride: boolean;
 }
@@ -321,8 +325,10 @@ export interface CollectionBatchDto {
   platform: Platform;
   provider: ProviderName;
   deliveryMode: DeliveryMode;
+  usageDomain?: 'research' | 'feed';
   label: string;
   itemCount: number;
+  visibility?: 'private' | 'shared';
   createdAt: string;
   createdByUserId: string | null;
 }
@@ -337,9 +343,62 @@ export interface ProjectBatchDto {
   deliveryMode: DeliveryMode;
   label: string;
   itemCount: number;
+  visibility?: 'private' | 'shared';
   status: 'enabled' | 'disabled' | 'removed';
   addedAt: string;
   createdAt: string;
+}
+
+export interface ResearchPlanPreviewRequest {
+  projectId?: string;
+  sourceId?: string;
+  platform?: 'reddit' | 'x' | 'bluesky';
+  targetType?: 'community' | 'account' | 'search';
+  targetValue?: string;
+  from: string;
+  to: string;
+  limit: number;
+  includeComments?: boolean;
+  maxCommentsPerPost?: number;
+  useFallback?: boolean;
+}
+
+export interface ResearchPlanPreviewResponse {
+  resolutionStatus: 'matched_source' | 'needs_admin_source' | 'blocked';
+  executable: boolean;
+  matchedSource: {
+    id: string;
+    label: string;
+    platform: Platform;
+    provider: string;
+    target: SourceTarget;
+    lastSuccessAt: string | null;
+  } | null;
+  resolvedTarget: { platform: string | null; type: string; value: string } | null;
+  coverage: {
+    status: 'empty' | 'unknown';
+    existingItemCount: number;
+    lastSuccessAt: string | null;
+    note: string;
+  };
+  reusableBatches: Array<{
+    id: string;
+    label: string;
+    itemCount: number;
+    visibility: 'private' | 'shared';
+    createdAt: string;
+  }>;
+  estimate: { requests: number; systemResources: number; personalResources: number };
+  blockers: string[];
+  fieldPolicy: {
+    canEditTarget: boolean;
+    canChooseProvider: boolean;
+    canUseFallback: boolean;
+    canIncludeComments: boolean;
+    maxLookbackDays: number;
+    maxBatchLimit: number;
+    maxCommentsPerPost: number;
+  };
 }
 
 export interface UserAccountDto {
