@@ -474,7 +474,7 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
     { width: 390, height: 844 },
   ];
   await nav.getByRole("button", { name: "公开首页" }).click();
-  await page.getByRole("heading", { name: "SIFTLINE 公开信息首页" }).waitFor();
+  await page.getByRole("heading", { name: "重要变化，先一步发现。" }).waitFor();
   for (const viewport of viewports) {
     await page.setViewportSize(viewport);
     await page.waitForTimeout(120);
