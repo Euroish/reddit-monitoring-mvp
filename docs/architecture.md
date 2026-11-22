@@ -1,6 +1,6 @@
 # 主线架构规范（STD-100）
 
-本文定义系统运行拓扑、Post-050 `20 → <= 24` 表节制演进约束、L1–L3 扩源路线与单机安全基线。实码状态与 V2 排期见[当前状态与规划](status.md)，契约路由见[数据与 API 契约](contracts.md)，产品两条工作流与度量边界见[产品规范](README.md)。
+本文定义系统运行拓扑、模块化依赖边界、Postgres 迁移安全演进、L1–L3 扩源路线与单机安全基线。实码状态与 V2 排期见[当前状态与规划](status.md)，契约路由见[数据与 API 契约](contracts.md)，产品两条工作流与度量边界见[产品规范](README.md)。
 
 ---
 
@@ -39,11 +39,11 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 | --- | --- | --- | --- |
 | ARC-01 | MUST | 后端锁定 Node 24+、TypeScript、Fastify 5、`@sinclair/typebox`（`removeAdditional: false`）、`pg`、`pg-query-stream`、PostgreSQL 16；**`[LIVE]` 网页解析依赖 `rss-parser`、`cheerio`、`sanitize-html`（`linkedom` + `@mozilla/readability` 属 `[V2]` Phase C 按需引入）**；构建复制 `src/storage/schema/*.sql` 至 `dist/` 并校验 SHA-256。 | 构建与编译态启动验收 |
 | ARC-02 | MUST | Compose 内存配额锁定 `db: 1350m`、`app: 1536m`、`proxy: 128m` 与 `json-file` 日志轮转（`max-size: 10m, max-file: 3`），透传 `WORKER_CONCURRENCY`（默认 6）；优雅停机 `SIGTERM`/`SIGINT` 限 `15_000ms`；主线镜像零 Python/DuckDB/Chromium。 | Compose 配置与停机测试 |
-| ARC-03 | MUST | 仅多实现采集边界保留 `ContentProvider` 接口；业务模块内部直写接收 `Pool \| PoolClient` 的命名 SQL 函数（写事务用 `PoolClient`）；`scripts/check-docs.ts` 守卫禁旧层导入、禁类封装、`<= 450` 行/文件与 `<= 220` 字/非模板行。 | `docs:check` 与 AST lint |
+| ARC-03 | MUST | 仅多实现采集边界保留 `ContentProvider` 接口；业务模块内部直写接收 `Pool \| PoolClient` 的命名 SQL 函数（写事务用 `PoolClient`）；允许按独立业务域新增 `src/modules/<domain>/` 与子目录，由 `eslint.config.mjs`（异步安全、禁 `*Repository`/`InMemory*` 与 ORM）与 `.dependency-cruiser.cjs`（零循环依赖、跨模块隔离、前后端解耦）强制守门。 | `lint:api`、`lint:arch` 与 `lint:policy` |
 
 ---
 
-## 2. `[LIVE]` 入口地图与五模块所有权
+## 2. `[LIVE]` 入口地图与领域模块所有权
 
 | 模块路径 | 入口 | 独家表所有权与核心职责 |
 | :--- | :--- | :--- |
@@ -58,11 +58,11 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 
 | ID | 等级 | 模块边界与不可变迁移规则 | 验收出口 |
 | --- | --- | --- | --- |
-| MOD-01 | MUST | 模块间 `MUST NOT` 越权写他方独占表；`src/connectors/`、`src/shared/` `MUST NOT` 导入 `pg` 连接；主干已合入的迁移不可改写、移动或删除；PR 按目标基线校验，结构变更追加顺延编号的前向迁移。 | `docs:check` 与 PG 迁移验证 |
+| MOD-01 | MUST | 模块间 `MUST NOT` 越权写他方独占表或跨模块导入 `routes.ts`/`access`/`workspace`；`src/connectors/`、`src/shared/` `MUST NOT` 直接导入 `pg` 连接；主干已合入的迁移不可改写、移动或删除；新迁移由 `Squawk` 审计锁表/索引安全并经 `CODEOWNERS` 审查。 | `lint:policy`、`lint:arch`、`Squawk` 与 PG 迁移验证 |
 
 ---
 
-## 3. 存储、检索引擎与 `[V2]` 内容价值复利（`20 → <= 24` 表上限）
+## 3. 存储、检索引擎与 `[V2]` 内容价值复利
 
 ### 3.1 `[LIVE]` `commitContentBatch` 与双字词 GIN 检索
 
@@ -76,7 +76,7 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 
 ### 3.2 研发容量边界与增量设计
 
-当前主干迁移到 `053` 共 **24 张表**，为本阶段单机发布预算。先通过已有发现、观测、专题及保存查询支撑投入产出验证。长期若发现状态归属、写入负载或独立可恢复性有明确需要，应先用设计决策记录数据量、替代方案、迁移、容量和回滚成本，再调整预算。
+当前主干迁移到 `053` 共 **24 张表**，**不再设置僵化的表数上限**。新增表须遵循三项工程纪律：① 确认独立数据所有权与生命周期（避免向 JSONB 塞异构结构，也避免无谓拆表）；② 新增 SQL 通过 `Squawk` 锁安全检查、PG16 回滚验收与 `.github/CODEOWNERS` 审查；③ 评估单机 4 GB / 60 GB 下的索引体积、写入放大与清理策略。
 
 | 方向 | 实施边界 | 引入额外结构的依据 |
 | --- | --- | --- |
@@ -104,4 +104,4 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 ## 5. 单机容量与 CI 门禁基线
 
 - **Compose 实配**（`docker-compose.yml`）：`db: 1350m`、`app: 1536m`、`proxy: 128m`，容器日志 `json-file (10m×3)`；实际运行占用和版本见[生产快照](status.md)。
-- **CI 门禁**：`npm run docs:check` → `npm run lint` → `npm run typecheck` → `npm run build` → `npm run test:unit` → 隔离 PG16 `test:postgres` + `smoke:compiled`。
+- **CI 门禁**：四层路径分流流水线（`.github/workflows/verify.yml`）→ 单一必过 **`CI Gate`**（`policy-and-secrets`、`api-quality`、`web-quality`、`sql-lint`、`ci-lint`、`pg-integration`、按需/主干 `browser-e2e` 与 `docker-dryrun`），辅以周级安全巡检（`.github/workflows/security-scheduled.yml`）。

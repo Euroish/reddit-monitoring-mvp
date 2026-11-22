@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import type { PoolClient } from "pg";
 import type {
   PublicContentKind,
   ContentReference,

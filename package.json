@@ -12,8 +12,14 @@
     "build": "npm run build:api && npm run build:web",
     "build:api": "node scripts/build-api.mjs",
     "build:web": "npm --prefix apps/web run build",
-    "lint": "npm run docs:check && npm --prefix apps/web run lint",
+    "lint": "npm run lint:policy && npm run lint:api && npm run lint:arch && npm run lint:web",
+    "lint:policy": "tsx scripts/check-docs.ts",
+    "lint:api": "eslint .",
+    "lint:arch": "depcruise src apps/api/src apps/web/src packages/contracts/src --config .dependency-cruiser.cjs",
+    "lint:web": "npm --prefix apps/web run lint",
     "docs:check": "tsx scripts/check-docs.ts",
+    "check:openapi": "tsx scripts/check-openapi.ts",
+    "check:web-bundle": "node scripts/check-web-bundle.mjs",
     "test:unit": "tsx --test tests/unit/*.test.ts",
     "test:postgres": "tsx --test --test-concurrency=1 tests/integration/*-postgres.test.ts",
     "test:browser": "tsx --test tests/browser/*.test.ts",
@@ -41,13 +47,18 @@
     "sanitize-html": "^2.18.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/node": "^24.19.2",
     "@types/pg": "^8.15.2",
     "@types/pg-query-stream": "^1.0.3",
     "@types/sanitize-html": "^2.16.2",
+    "dependency-cruiser": "^17.4.3",
+    "eslint": "^9.39.5",
+    "globals": "^17.14.0",
     "playwright": "^1.59.1",
     "tsx": "^4.20.3",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.73.0"
   },
   "engines": {
     "node": ">=24"

@@ -1,0 +1,9 @@
+# High-risk boundaries require owner review (schema evolution, auth, contracts, CI, runtime image)
+/src/storage/schema/      @Euroish
+/src/modules/access/      @Euroish
+/packages/contracts/      @Euroish
+/.github/workflows/       @Euroish
+/Dockerfile               @Euroish
+/docker-compose.yml       @Euroish
+/.dependency-cruiser.cjs  @Euroish
+/eslint.config.mjs        @Euroish

@@ -115,7 +115,8 @@ function requestPage(url: URL, ip: string, signal: AbortSignal, headers?: Record
         },
         family, signal, agent: false,
         lookup: (_host, _options, callback) => callback(null, ip, family),
-      }, async (response) => {
+      }, (response) => {
+        void (async () => {
         try {
           const status = response.statusCode ?? 500;
           if ([301, 302, 303, 307, 308].includes(status) && response.headers.location) {
@@ -154,6 +155,7 @@ function requestPage(url: URL, ip: string, signal: AbortSignal, headers?: Record
           response.destroy();
           reject(error);
         }
+        })();
       });
       req.on("error", reject);
       req.end();
