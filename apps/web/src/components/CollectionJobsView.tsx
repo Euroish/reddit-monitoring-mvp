@@ -16,12 +16,14 @@ function formatDurationMs(job: RecentJobDto): string {
 export function CollectionJobsView({
   actor,
   sources,
+  onInspect,
 }: {
   actor: Actor;
   sources: CollectionSource[];
+  onInspect: (id: string) => void;
 }) {
   const { t } = useI18n();
-  const isAdmin = actor.role === 'owner' || actor.role === 'admin';
+  const isAdmin = actor.clientKind === 'browser' && actor.role !== 'viewer';
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [sourceFilter, setSourceFilter] = useState<string>('');
   const [actionErr, setActionErr] = useState<string | null>(null);
@@ -142,7 +144,7 @@ export function CollectionJobsView({
               {jobs.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--faint)' }}>
-                    {jobsQuery.isLoading ? t('Loading jobs...', '加载任务中...') : t('No matching collection jobs.', '暂无匹配的采集任务记录。')}
+                    {jobsQuery.error ? formatApiError(jobsQuery.error) : jobsQuery.isLoading ? t('Loading jobs...', '加载任务中...') : t('No matching collection jobs.', '暂无匹配的采集任务记录。')}
                   </td>
                 </tr>
               ) : (
@@ -157,7 +159,10 @@ export function CollectionJobsView({
                     <td>
                       <span className="tag tag--line" style={{ fontSize: 10 }}>{j.purpose}/{j.operation}</span>
                       <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2 }}>
-                        {isAdmin ? (j.requesterEmail ?? t('system scheduler', '系统自动排期')) : t('you', '本人')}
+                        {!isAdmin ? t('you', '本人') :
+                          j.requestedByClientKind === 'machine' ? t('Machine Key', '机器密钥') + (j.requesterEmail ? ' · ' + j.requesterEmail : '') :
+                          j.requestedByClientKind === 'browser' ? j.requesterEmail ?? t('Browser session', '浏览器会话') :
+                          j.purpose === 'scheduled' ? t('System scheduler', '系统自动排期') : t('Requester unavailable', '未记录发起者')}
                       </div>
                     </td>
                     <td>
@@ -165,7 +170,7 @@ export function CollectionJobsView({
                         {j.status}
                       </span>
                       <div style={{ fontSize: 10.5, color: 'var(--faint)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
-                        phase: {j.phase ?? 'idle'} · reqs: {j.requestCount}
+                        phase: {j.phase ?? '—'} · reqs: {j.requestCount}
                       </div>
                     </td>
                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>
@@ -183,6 +188,7 @@ export function CollectionJobsView({
                     </td>
                     <td className="num">
                       <div style={{ display: 'inline-flex', gap: 4 }}>
+                        <button className="ds-btn ds-btn--ghost" type="button" onClick={() => onInspect(j.id)}>{t('Details', '详情')}</button>
                         {['queued', 'running', 'retrying'].includes(j.status) && (
                           <button type="button" className="ds-btn ds-btn--danger" style={{ height: 24, padding: '0 8px', fontSize: 10.5 }} onClick={() => runAction(j, 'cancel')}>
                             <StopCircle size={11} /> {t('Cancel', '取消')}

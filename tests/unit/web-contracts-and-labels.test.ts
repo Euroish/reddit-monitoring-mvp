@@ -1,9 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import {
-  DEFAULT_CAPABILITIES,
-  mergeServerCapabilities,
-} from "../../apps/web/src/contracts/api.js";
+import { Value } from "@sinclair/typebox/value";
+import { SourceUpdate, REDDIT_ARCHIVE_SOURCE_TAG, type CollectionSource } from "../../packages/contracts/src/source-content";
+import { collectionLimits, isRedditArchiveSource } from "../../apps/web/src/lib/collectionLimits.js";
+import type { QuotasSummaryResponse } from "../../apps/web/src/contracts/api.js";
+import { KaixContentConnector } from "../../src/connectors/reddit/kaix-content.connector";
 import {
   SOURCE_GROUPS,
   TIER_SHORT,
@@ -16,72 +17,53 @@ import {
   toUtcDatetimeLocal,
 } from "../../apps/web/src/lib/sourceLabels.js";
 
-describe("mergeServerCapabilities", () => {
-  it("applies dynamic server overrides for limits, comments, fallback, and flags", () => {
-    const merged = mergeServerCapabilities([
-      {
-        platform: "reddit",
-        provider: "kaix",
-        enabled: false,
-        targetTypes: ["community"],
-        contentKinds: ["post"],
-        maxLimit: 75,
-        supportsComments: false,
-        maxCommentsPerPost: null,
-        refreshByIds: false,
-        automaticRequestReplay: true,
-        fallbackAllowed: [],
-      },
-      {
-        platform: "web",
-        provider: "feed",
-        enabled: true,
-        maxLimit: 250,
-        supportsComments: true,
-        maxCommentsPerPost: 15,
-        fallbackAllowed: ["scrapebadger"],
-      },
-    ]);
+describe("source configuration and collection controls", () => {
+  const source: CollectionSource = {
+    id: "00000000-0000-4000-8000-000000000001", label: "Fixture", platform: "reddit", primaryProvider: "kaix",
+    fallbackProvider: null, deliveryMode: "pull", state: "active", target: { type: "community", community: "local" },
+    contentKind: "post", revision: 1, createdAt: "2026-11-22T00:00:00.000Z", updatedAt: "2026-11-22T00:00:00.000Z",
+    tier: "T2", sourceGroup: null, ownerEntityId: null, locale: null, tags: [], fetchPolicy: {}, health: {}, coverage: "unknown",
+  };
 
-    const reddit = merged.find((c) => c.platform === "reddit" && c.provider === "kaix");
-    assert.ok(reddit);
-    assert.equal(reddit.enabled, false);
-    assert.deepEqual(reddit.targetTypes, ["community"]);
-    assert.deepEqual(reddit.contentKinds, ["post"]);
-    assert.equal(reddit.maxLimit, 75);
-    assert.equal(reddit.supportsComments, false);
-    assert.equal(reddit.maxCommentsPerPost, null);
-    assert.equal(reddit.refreshByIds, false);
-    assert.equal(reddit.automaticRequestReplay, true);
-    assert.deepEqual(reddit.fallbackAllowed, []);
-
-    const feed = merged.find((c) => c.platform === "web" && c.provider === "feed");
-    assert.ok(feed);
-    assert.equal(feed.maxLimit, 250);
-    assert.equal(feed.supportsComments, true);
-    assert.equal(feed.maxCommentsPerPost, 15);
-    assert.deepEqual(feed.fallbackAllowed, ["scrapebadger"]);
+  it("accepts source metadata and optimistic revision while keeping target identity immutable", () => {
+    const patch = {
+      revision: 2, label: "Feed", schedule: { enabled: true, cadenceSeconds: 3600 },
+      sourceGroup: "ai-firsthand", tier: "T1", locale: "en-US", ownerEntityId: "vendor",
+      tags: ["official"], fetchPolicy: { maxItems: 20, stripTrackingParams: false }, fallbackProvider: null,
+    };
+    assert.ok(Value.Check(SourceUpdate, patch));
+    assert.equal(Value.Check(SourceUpdate, { ...patch, target: { type: "feed", url: "https://fixture.example" } }), false);
+    assert.equal(Value.Check(SourceUpdate, { ...patch, revision: 0 }), false);
   });
 
-  it("ignores invalid types and falls back to defaults cleanly", () => {
-    const merged = mergeServerCapabilities([
-      {
-        platform: "reddit",
-        provider: "kaix",
-        enabled: "yes",
-        maxLimit: Number.NaN,
-        supportsComments: 1,
-        maxCommentsPerPost: "ten",
-        fallbackAllowed: "red_crawler",
+  it("requires reported provider readiness and limits Viewer collection by resolved remaining quota", () => {
+    const live = new KaixContentConnector({ networkEnabled: true, apiToken: "fixture" }).capability;
+    const personal: QuotasSummaryResponse = {
+      scope: "personal", resetsAtUtc: "2026-11-23T00:00:00.000Z",
+      effectivePolicy: {
+        planTier: "pro", manualCollectEnabled: true, allowedProviders: ["kaix"], allowedSourceIds: [source.id],
+        dailyRequests: 3, dailyResources: 100, maxBatchLimit: 20, maxCommentsPerPost: 4, hasOverride: true,
       },
-    ]);
-    const base = DEFAULT_CAPABILITIES.find((c) => c.platform === "reddit" && c.provider === "kaix")!;
-    const actual = merged.find((c) => c.platform === "reddit" && c.provider === "kaix")!;
-    assert.equal(actual.enabled, base.enabled);
-    assert.equal(actual.maxLimit, base.maxLimit);
-    assert.equal(actual.supportsComments, base.supportsComments);
-    assert.equal(actual.maxCommentsPerPost, base.maxCommentsPerPost);
-    assert.deepEqual(actual.fallbackAllowed, base.fallbackAllowed);
+      myUsage: { requestsReserved: 1, requestsExecuted: 1, resourcesReserved: 75, byProvider: [] },
+    };
+    assert.equal(collectionLimits(source, undefined, personal, true, false, 0).maxLimit, 0);
+    assert.equal(collectionLimits(source, { ...live, enabled: false }, personal, true, false, 0).maxLimit, 0);
+    assert.equal(collectionLimits(source, live, undefined, false, false, 0).maxLimit, 0);
+    assert.deepEqual(collectionLimits(source, live, personal, false, true, 30), {
+      maxLimit: 5, optionalComments: true, maxComments: 4, comments: 4,
+    });
+    assert.equal(collectionLimits({ ...source, id: "another" }, live, personal, false, false, 0).maxLimit, 0);
+    assert.equal(collectionLimits({ ...source, target: { type: "post", postId: "post" } }, live, personal, false, false, 0).maxLimit, 4);
+    assert.equal(collectionLimits(source, live, personal, true, true, 50).maxLimit, 39);
+    assert.equal(collectionLimits(source, { ...live, provider: "twitterapis" }, personal, true, false, 0).maxLimit, 20);
+  });
+
+  it("identifies only explicitly tagged Reddit archive Push sources", () => {
+    const push: CollectionSource = { ...source, deliveryMode: "push", primaryProvider: "external_ingest" };
+    assert.equal(isRedditArchiveSource(push), false);
+    assert.equal(isRedditArchiveSource({ ...source, tags: [REDDIT_ARCHIVE_SOURCE_TAG] }), false);
+    assert.equal(isRedditArchiveSource({ ...push, platform: "web", tags: [REDDIT_ARCHIVE_SOURCE_TAG] }), false);
+    assert.equal(isRedditArchiveSource({ ...push, tags: [REDDIT_ARCHIVE_SOURCE_TAG] }), true);
   });
 });
 

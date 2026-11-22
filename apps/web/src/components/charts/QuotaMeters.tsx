@@ -80,7 +80,7 @@ export function QuotaMeters({
         <span>
           {t(
             'Conservative reserved quotas (daily_requests / daily_resources) gate automatic & manual dispatches before upstream vendor billing is incurred.',
-            '配额表展示服务端保守预留额度（请求与资源上限），不等同于第三方渠道实际账单；0 上限或接近上限时会自动标记并拦截自动采集。',
+            '配额表展示服务端保守预留额度（请求与资源上限），不等同于第三方渠道实际账单；预算关闭或固定上限不足时停止执行；窗口额度消耗完后，符合条件的任务等待 UTC 日或月重置。',
           )}
         </span>
       </div>
@@ -146,6 +146,10 @@ export function QuotaMeters({
                 </div>
               </div>
 
+              <div className="source-health">
+                <span>{t('Daily resources reserved', '日资源预留')} {b.resources_today ?? 0}/{b.daily_resources}</span>
+                <span>{t('Monthly resources reserved', '月资源预留')} {b.resources_month ?? 0}/{b.monthly_resources}</span>
+              </div>
               {onSelectEdit && (
                 <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 10, color: 'var(--faint)' }}>

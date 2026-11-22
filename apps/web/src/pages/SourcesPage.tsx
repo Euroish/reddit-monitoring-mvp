@@ -16,7 +16,6 @@ import {
   formatApiError,
   useBudgetsQuery,
   useCollectSourceMutation,
-  useCreateSourceMutation,
   useIngestSourceMutation,
   useJobActionMutation,
   useJobDetailQuery,
@@ -32,17 +31,13 @@ import { CollectionJobsView } from '../components/CollectionJobsView';
 import { ProviderCredentialsTab } from '../components/ProviderCredentialsTab';
 import { QuotasManagementView } from '../components/QuotasManagementView';
 import { R4ArchivePanel } from '../components/R4ArchivePanel';
+import { SourceEditor } from '../components/SourceEditor';
+import { SourceImportDialog } from '../components/SourceImportDialog';
+import { collectionLimits, isRedditArchiveSource } from '../lib/collectionLimits';
 import {
   type Actor,
-  type ContentKind,
-  DEFAULT_CAPABILITIES,
-  type DeliveryMode,
-  type FallbackProviderName,
-  type Platform,
   type ProviderBudget,
-  type ProviderName,
   type SourceJob,
-  type TargetType,
   formatSourceTarget,
   generateUuidV4,
   isValidUuid,
@@ -59,7 +54,7 @@ export function SourcesPage({
   initialQueryString?: string;
 }) {
   const { t } = useI18n();
-  const canWrite = actor.role === 'owner' || actor.role === 'admin';
+  const canWrite = actor.clientKind === 'browser' && actor.role !== 'viewer';
 
   const sp = new URLSearchParams(initialQueryString);
   const urlTab = sp.get('tab');
@@ -69,7 +64,7 @@ export function SourcesPage({
   const budgetsQuery = useBudgetsQuery(canWrite);
   const quotasSummaryQuery = useQuotasSummaryQuery(true);
   const sources = useMemo(() => sourcesQuery.data?.sources ?? [], [sourcesQuery.data?.sources]);
-  const capabilities = sourcesQuery.data?.capabilities || DEFAULT_CAPABILITIES;
+  const capabilities = sourcesQuery.isError ? [] : sourcesQuery.data?.capabilities ?? [];
   const budgets = budgetsQuery.data?.budgets || [];
 
   type SourcesTab = 'sources' | 'jobs' | 'budgets';
@@ -79,146 +74,53 @@ export function SourcesPage({
   const setTab = (val: SourcesTab) => setTabState({ key: `${urlTab}:${canWrite}`, val });
   const [channelsOpen, setChannelsOpen] = useState(false);
 
-  const [stateFilter, setStateFilter] = useState<'all' | 'active' | 'paused'>('all');
-  const [selectedSourceId, setSelectedSourceId] = useState<string>('');
-
-  const selectedSource = sources.find((s) => s.id === selectedSourceId) || sources[0];
-  const jobsQuery = useSourceJobsQuery(selectedSource?.id || null);
-
-  // Create Source Modal
-  const [createOpen, setCreateOpen] = useState(() => openNewFromUrl && canWrite);
-  const [cMode, setCMode] = useState<DeliveryMode>('pull');
-  const [cPlatform, setCPlatform] = useState<Platform>('reddit');
-  const [cProvider, setCProvider] = useState<ProviderName>('kaix');
-  const [cFallback, setCFallback] = useState<'' | FallbackProviderName>('');
-  const [cLabel, setCLabel] = useState('');
-  const [cTargetType, setCTargetType] = useState<TargetType>('community');
-  const [cTargetValue, setCTargetValue] = useState('');
-  const [cKind, setCKind] = useState<ContentKind>('post');
-  const [cError, setCError] = useState<string | null>(null);
-  const createSourceMut = useCreateSourceMutation();
-
-  const matchingCapsForPlatform = useMemo(
-    () => capabilities.filter((c) => c.platform === cPlatform),
-    [capabilities, cPlatform],
-  );
-  const activeCap = useMemo(
-    () => capabilities.find((c) => c.provider === cProvider),
-    [capabilities, cProvider],
-  );
-
-  const handleModeChange = (nextMode: DeliveryMode) => {
-    setCMode(nextMode);
-    if (nextMode === 'push') {
-      setCProvider('external_ingest');
-      setCFallback('');
-      setCTargetType('search');
-      setCKind('post');
-      return;
-    }
-    const first = capabilities.find((c) => c.platform === cPlatform);
-    if (first) {
-      setCProvider(first.provider);
-      setCTargetType(first.targetTypes[0]);
-      setCKind(first.contentKinds[0]);
-      setCFallback('');
-    }
-  };
-
-  const handlePlatformChange = (nextPlat: Platform) => {
-    setCPlatform(nextPlat);
-    if (cMode === 'push') return;
-    const first = capabilities.find((c) => c.platform === nextPlat);
-    if (first) {
-      setCProvider(first.provider);
-      setCTargetType(first.targetTypes[0]);
-      setCKind(first.contentKinds[0]);
-      setCFallback('');
-    }
-  };
-
-  const handleProviderChange = (nextProv: ProviderName) => {
-    setCProvider(nextProv);
-    const cap = capabilities.find((c) => c.provider === nextProv);
-    if (!cap) return;
-    if (!cap.targetTypes.includes(cTargetType)) setCTargetType(cap.targetTypes[0]);
-    if (!cap.contentKinds.includes(cKind)) setCKind(cap.contentKinds[0]);
-    if (cFallback && !cap.fallbackAllowed.includes(cFallback)) setCFallback('');
-  };
-
-  const handleCreateSource = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCError(null);
-    try {
-      const val = cTargetValue.trim() || (cMode === 'push' ? 'r4-archive-import' : 'default');
-      const targetPayload: Record<string, string> =
-        cTargetType === 'community'
-          ? { type: 'community', community: val }
-          : cTargetType === 'account'
-            ? { type: 'account', account: val }
-            : cTargetType === 'post'
-              ? { type: 'post', postId: val }
-              : cTargetType === 'feed'
-                ? { type: 'feed', url: val }
-                : { type: 'search', query: val };
-      const res = await createSourceMut.mutateAsync({
-        platform: cPlatform,
-        primaryProvider: cMode === 'push' ? 'external_ingest' : cProvider,
-        ...(cMode === 'pull' && cFallback ? { fallbackProvider: cFallback } : {}),
-        label: cLabel.trim(),
-        target: targetPayload,
-        contentKind: cKind,
-        deliveryMode: cMode,
-      });
-      setSelectedSourceId(res.source.id);
-      setCreateOpen(false);
-      setCLabel('');
-      setCTargetValue('');
-    } catch (err) {
-      setCError(formatApiError(err));
-    }
-  };
+  const [stateFilter, setStateFilter] = useState<'all' | 'active' | 'paused' | 'archived'>('all');
+  const [groupFilter, setGroupFilter] = useState('');
+  const [selectedSourceId, setSelectedSourceId] = useState(() => sp.get('sourceId') ?? '');
+  const visibleSources = sources.filter(source => (stateFilter === 'all' || source.state === stateFilter) &&
+    (!groupFilter || source.sourceGroup === groupFilter));
+  const selectedSource = visibleSources.find(source => source.id === selectedSourceId) ?? visibleSources[0];
+  const jobsQuery = useSourceJobsQuery(selectedSource?.id ?? null);
+  const [sourceEditor, setSourceEditor] = useState<'create' | 'edit' | null>(() => openNewFromUrl && canWrite ? 'create' : null);
+  const [importOpen, setImportOpen] = useState(false);
 
   // Lifecycle & Operations
   const updateSourceMut = useUpdateSourceMutation();
   const unblockMut = useUnblockSourceMutation();
   const [ackUnblockCharge, setAckUnblockCharge] = useState(false);
-  const [opsMsg, setOpsMsg] = useState<{ text: string; isError?: boolean } | null>(null);
+  const [opsMsg, setOpsMsg] = useState<{ text: string; isError?: boolean; jobId?: string } | null>(null);
 
   // Pull Collect (default last 7 days to now in UTC)
   const [collectFrom, setCollectFrom] = useState(() =>
     new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 16),
   );
   const [collectTo, setCollectTo] = useState(() => new Date().toISOString().slice(0, 16));
-  const [collectLimit, setCollectLimit] = useState(50);
+  const [draftLimit, setDraftLimit] = useState<number | null>(null);
   const [includeComments, setIncludeComments] = useState(false);
   const [maxComments, setMaxComments] = useState(20);
   const [useFallback, setUseFallback] = useState(false);
   const collectMut = useCollectSourceMutation();
   const collectIdemRef = useRef<{ sig: string; key: string }>({ sig: '', key: generateUuidV4() });
 
-  const selectedSourceCap = useMemo(() => {
-    if (!selectedSource) return undefined;
-    const activeProv = useFallback && selectedSource.fallback_provider ? selectedSource.fallback_provider : selectedSource.primary_provider;
-    return capabilities.find((c) => c.provider === activeProv);
-  }, [selectedSource, useFallback, capabilities]);
-
-  const maxAllowedLimit = useMemo(() => {
-    if (!selectedSourceCap) return 100;
-    if (selectedSourceCap.provider === 'red_crawler' && selectedSource?.target.type !== 'post') return 100;
-    if (selectedSourceCap.provider === 'kaix' && includeComments) return Math.max(1, Math.floor(2000 / (maxComments + 1)));
-    return selectedSourceCap.maxLimit;
-  }, [selectedSourceCap, selectedSource, includeComments, maxComments]);
-
-  const canIncludeComments = useMemo(() => {
-    if (!selectedSourceCap || !selectedSourceCap.supportsComments) return false;
-    if (selectedSourceCap.postOnlyComments && selectedSource?.target.type !== 'post') return false;
-    return true;
-  }, [selectedSourceCap, selectedSource]);
+  const fallbackCap = capabilities.find(cap => cap.provider === selectedSource?.fallbackProvider);
+  const fallbackSelected = useFallback && Boolean(selectedSource?.fallbackProvider);
+  const selectedSourceCap = fallbackSelected ? fallbackCap :
+    capabilities.find(cap => cap.provider === selectedSource?.primaryProvider);
+  const limits = collectionLimits(selectedSource, selectedSourceCap, quotasSummaryQuery.data, canWrite, includeComments, maxComments);
+  const { maxLimit: maxAllowedLimit, optionalComments: canIncludeComments } = limits;
+  const collectLimit = draftLimit ?? Math.min(50, Math.max(1, maxAllowedLimit));
+  function providerBudgetDisabled(provider: string | undefined) {
+    return budgets.some(budget => budget.provider === provider &&
+      (!budget.enabled || Math.min(budget.daily_requests, budget.monthly_requests, budget.daily_resources, budget.monthly_resources) < 1)) ||
+      (quotasSummaryQuery.data?.providerAvailability?.some(item => item.provider === provider && item.budgetEnabled === false) ?? false);
+  }
+  const budgetDisabled = providerBudgetDisabled(selectedSourceCap?.provider);
+  const canDispatch = selectedSource?.state === 'active' && !selectedSource.automaticCollectionBlocked &&
+    !budgetDisabled && maxAllowedLimit > 0;
 
   const handleCollect = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedSource) return;
+    if (!selectedSource || !canDispatch) return;
     setOpsMsg(null);
     const fromIso = toSafeUtcIso(collectFrom);
     const toIso = toSafeUtcIso(collectTo);
@@ -230,14 +132,19 @@ export function SourcesPage({
       setOpsMsg({ text: t('from must be strictly earlier than to.', '开始时间必须早于结束时间。'), isError: true });
       return;
     }
+    if (!Number.isInteger(collectLimit) || collectLimit < 1 || collectLimit > maxAllowedLimit) {
+      setOpsMsg({ text: t('Enter a limit within the current allowance.', '请输入当前额度范围内的批量上限。'), isError: true });
+      return;
+    }
     const payload = {
       from: fromIso,
       to: toIso,
-      limit: Math.min(collectLimit, maxAllowedLimit),
-      includeComments: canIncludeComments ? includeComments : false,
-      useFallback,
-      ...(canIncludeComments && includeComments ? { maxCommentsPerPost: maxComments } : {}),
+      limit: collectLimit,
+      includeComments: limits.comments !== undefined,
+      useFallback: fallbackSelected,
+      ...(limits.comments !== undefined ? { maxCommentsPerPost: limits.comments } : {}),
     };
+
     const sig = JSON.stringify({ sourceId: selectedSource.id, payload });
     if (collectIdemRef.current.sig !== sig) collectIdemRef.current = { sig, key: generateUuidV4() };
     try {
@@ -247,7 +154,7 @@ export function SourcesPage({
         idempotencyKey: collectIdemRef.current.key,
       });
       collectIdemRef.current = { sig: '', key: generateUuidV4() };
-      setOpsMsg({ text: t(`Dispatched collect job ${res.jobId}`, `已入队采集任务 ${res.jobId}`) });
+      setOpsMsg({ text: t(`Dispatched collect job ${res.jobId}`, `已入队采集任务 ${res.jobId}`), jobId: res.jobId });
     } catch (err) {
       setOpsMsg({ text: formatApiError(err), isError: true });
     }
@@ -258,20 +165,28 @@ export function SourcesPage({
   const refreshMut = useRefreshSourceMutation();
   const refreshIdemRef = useRef<{ sig: string; key: string }>({ sig: '', key: generateUuidV4() });
 
-  const supportsRefresh = useMemo(() => {
-    if (!selectedSource) return false;
-    const p1 = capabilities.find((c) => c.provider === selectedSource.primary_provider)?.refreshByIds;
-    const p2 = selectedSource.fallback_provider ? capabilities.find((c) => c.provider === selectedSource.fallback_provider)?.refreshByIds : false;
-    return Boolean(p1 || p2);
-  }, [selectedSource, capabilities]);
+  const refreshCap = capabilities.find(cap => cap.enabled && cap.refreshByIds &&
+    (cap.provider === selectedSource?.primaryProvider || cap.provider === selectedSource?.fallbackProvider));
+  const refreshPolicy = canWrite ? undefined : quotasSummaryQuery.data?.effectivePolicy;
+  const refreshUsage = quotasSummaryQuery.data?.myUsage;
+  const maxRefreshIds = Math.max(0, refreshPolicy ? Math.min(
+    20, refreshPolicy.maxBatchLimit,
+    refreshPolicy.dailyResources === null ? Infinity : refreshPolicy.dailyResources - (refreshUsage?.resourcesReserved ?? 0),
+  ) : 20);
+  const supportsRefresh = Boolean(refreshCap && selectedSource && (canWrite ||
+    (refreshPolicy?.manualCollectEnabled && refreshPolicy.allowedProviders.includes(refreshCap.provider) &&
+      (refreshPolicy.allowedSourceIds === null || refreshPolicy.allowedSourceIds.includes(selectedSource.id)) &&
+      (refreshPolicy.dailyRequests === null || (refreshUsage?.requestsReserved ?? 0) < refreshPolicy.dailyRequests))));
+  const canRefresh = supportsRefresh && maxRefreshIds > 0 && selectedSource?.state === 'active' &&
+    !selectedSource.automaticCollectionBlocked && !providerBudgetDisabled(refreshCap?.provider);
 
   const handleRefreshIds = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedSource) return;
+    if (!selectedSource || !canRefresh) return;
     setOpsMsg(null);
     const ids = [...new Set(refreshIdsRaw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean))];
-    if (ids.length < 1 || ids.length > 20 || ids.some((id) => !isValidUuid(id))) {
-      setOpsMsg({ text: t('Provide 1..20 valid UUID v4 content IDs.', '请输入 1~20 个合法 UUID v4 格式的帖子 ID。'), isError: true });
+    if (ids.length < 1 || ids.length > maxRefreshIds || ids.some((id) => !isValidUuid(id))) {
+      setOpsMsg({ text: t('Enter valid v4 UUIDs within your refresh allowance.', '请输入当前刷新额度内有效的 UUID v4 格式帖子 ID。'), isError: true });
       return;
     }
     const sig = JSON.stringify({ sourceId: selectedSource.id, ids });
@@ -279,77 +194,21 @@ export function SourcesPage({
     try {
       const res = await refreshMut.mutateAsync({ sourceId: selectedSource.id, contentIds: ids, idempotencyKey: refreshIdemRef.current.key });
       refreshIdemRef.current = { sig: '', key: generateUuidV4() };
-      setOpsMsg({ text: t(`Queued refresh job ${res.jobId}`, `已入队批量刷新任务 ${res.jobId}`) });
+      setOpsMsg({ text: t(`Queued refresh job ${res.jobId}`, `已入队批量刷新任务 ${res.jobId}`), jobId: res.jobId });
     } catch (err) {
       setOpsMsg({ text: formatApiError(err), isError: true });
     }
   };
 
   // Push Ingest
-  const [ingestJson, setIngestJson] = useState('');
+  const [ingestDraft, setIngestDraft] = useState<{ sourceId: string; text: string }>();
+  const ingestJson = ingestDraft?.sourceId === selectedSource?.id ? (ingestDraft?.text ?? '') : '';
   const ingestMut = useIngestSourceMutation();
   const ingestIdemRef = useRef<{ sig: string; key: string }>({ sig: '', key: generateUuidV4() });
 
-  const fillSampleIngest = () => {
-    if (!selectedSource) return;
-    const now = new Date().toISOString();
-    const rand = Math.random().toString(36).slice(2, 7);
-    const plat = selectedSource.platform;
-    const isComment = selectedSource.content_kind === 'comment';
-    const externalId =
-      plat === 'reddit' ? `${isComment ? 't1' : 't3'}_demo${rand}` : `ext_${rand}`;
-    const platformDetails =
-      plat === 'reddit'
-        ? { platform: 'reddit', community: 'localllama', flair: null, nsfw: false }
-        : plat === 'x'
-          ? { platform: 'x', conversationId: null, isReply: false, isRepost: false, isQuote: false, sensitive: false }
-          : plat === 'web'
-            ? { platform: 'web', publisher: 'archive', canonicalUrl: null, feedUrl: null }
-            : { platform: 'bluesky', cid: null };
-    setIngestJson(
-      JSON.stringify(
-        {
-          items: [
-            {
-              platform: plat,
-              kind: selectedSource.content_kind,
-              externalId,
-              title: isComment ? null : 'Sample pushed insight: pricing & latency pain',
-              text: 'Manually verified push sample complying with TypeBox Ingest contract.',
-              url:
-                plat === 'reddit'
-                  ? `https://www.reddit.com/r/localllama/comments/demo${rand}/`
-                  : `https://example.org/items/${externalId}`,
-              language: 'en',
-              author: { externalId: 'manual_sample_1', handle: null, displayName: 'Archive Sample', url: null },
-              publishedAt: now,
-              fetchedAt: now,
-              availability: 'available',
-              references: [],
-              media: [],
-              platformDetails,
-              observation: {
-                sourceId: selectedSource.id,
-                provider: 'external_ingest',
-                sourceObservedAt: null,
-                fetchedAt: now,
-                timeBasis: 'archive_initial',
-                maturity: 'initial',
-                metrics: plat === 'reddit' ? { 'reddit.score': 12 } : {},
-                evidenceKey: `ui-sample-${externalId}-${rand}`,
-              },
-            },
-          ],
-        },
-        null,
-        2,
-      ),
-    );
-  };
-
   const handleIngest = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedSource || ingestMut.isPending) return;
+    if (!selectedSource || selectedSource.state !== 'active' || ingestMut.isPending) return;
     setOpsMsg(null);
     if (utf8ByteLength(ingestJson) > 1048576) {
       setOpsMsg({ text: t('413 Pre-flight: JSON payload exceeds 1 MiB limit.', '预检拦截：负载超过 1 MiB 上限。'), isError: true });
@@ -361,7 +220,7 @@ export function SourcesPage({
     try {
       const res = await ingestMut.mutateAsync({ sourceId: selectedSource.id, rawJson: ingestJson, idempotencyKey: ingestIdemRef.current.key });
       ingestIdemRef.current = { sig: '', key: generateUuidV4() };
-      setOpsMsg({ text: t(`Ingested ${res.accepted} items (added ${res.added}, updated ${res.updated}). Job ${res.jobId}`, `推流成功：接收 ${res.accepted} 条（新增 ${res.added}，更新 ${res.updated}），任务 ${res.jobId}`) });
+      setOpsMsg({ text: t(`Ingested ${res.accepted} items (added ${res.added}, updated ${res.updated}). Job ${res.jobId}`, `推流成功：接收 ${res.accepted} 条（新增 ${res.added}，更新 ${res.updated}），任务 ${res.jobId}`), jobId: res.jobId });
     } catch (err) {
       setOpsMsg({ text: formatApiError(err), isError: true });
     }
@@ -370,7 +229,7 @@ export function SourcesPage({
   const importIngestFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
-    if (!file || !selectedSource || ingestMut.isPending) return;
+    if (!file || selectedSource?.state !== 'active' || ingestMut.isPending) return;
     if (file.size > 1048576) {
       setOpsMsg({
         text: t('413 Pre-flight: JSON file exceeds 1 MiB limit.', '预检拦截：文件超过 1 MiB 上限，未发送请求。'),
@@ -388,7 +247,7 @@ export function SourcesPage({
         return;
       }
       JSON.parse(raw);
-      setIngestJson(raw);
+      setIngestDraft({ sourceId: selectedSource.id, text: raw });
       setOpsMsg(null);
     } catch (err) {
       setOpsMsg({
@@ -402,7 +261,8 @@ export function SourcesPage({
 
   // Job Action & Budget Modal
   const jobActionMut = useJobActionMutation();
-  const [inspectJobId, setInspectJobId] = useState<string | null>(null);
+  const [inspectJobId, setInspectJobId] = useState<string | null>(() => sp.get('jobId'));
+  const [jobActionError, setJobActionError] = useState('');
   const jobDetailQuery = useJobDetailQuery(inspectJobId);
   const [ackJobCharge, setAckJobCharge] = useState(false);
 
@@ -452,8 +312,7 @@ export function SourcesPage({
     }
   };
 
-  const visibleSources = sources.filter((s) => (stateFilter === 'all' ? true : s.state === stateFilter));
-  const blockedCount = sources.filter((s) => s.automatic_collection_blocked).length;
+  const blockedCount = sources.filter((s) => s.automaticCollectionBlocked).length;
 
   return (
     <div className="ds-page">
@@ -489,10 +348,14 @@ export function SourcesPage({
                 <Sliders size={13} />
                 <span>{t('Quota Governance', '配额治理')}</span>
               </button>
-              <button type="button" className="ds-btn" onClick={() => setCreateOpen(true)}>
+              <button type="button" className="ds-btn" onClick={() => setSourceEditor('create')}>
                 <Plus size={14} />
                 <span>{t('Add Source', '新建来源')}</span>
               </button>
+              <button type="button" className="ds-btn ds-btn--ghost" onClick={() => setImportOpen(true)}>
+                <Upload size={13} /> {t('Import sources', '批量导入来源')}
+              </button>
+              <a className="ds-btn ds-btn--ghost" href="/admin/queue">{t('AI operations', 'AI 情报运维')}</a>
             </>
           )}
         </div>
@@ -533,9 +396,9 @@ export function SourcesPage({
       </div>
 
       {tab === 'jobs' ? (
-        <CollectionJobsView actor={actor} sources={sources} />
+        <CollectionJobsView actor={actor} sources={sources} onInspect={id => { setJobActionError(''); setAckJobCharge(false); setInspectJobId(id); }} />
       ) : tab === 'budgets' ? (
-        <QuotasManagementView actor={actor} budgets={budgets} providers={capabilities} onEditBudget={openBudgetModal} />
+        <QuotasManagementView actor={actor} budgets={budgets} budgetError={budgetsQuery.error} providers={capabilities} sources={sources} onEditBudget={openBudgetModal} />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {canWrite && (
@@ -556,6 +419,17 @@ export function SourcesPage({
               </div>
               {channelsOpen && (
                 <div className="ds-card-bd">
+                  <div className="source-health">
+                    <strong>{t('Registered collection providers', '已注册采集渠道')}</strong>
+                    {capabilities.length === 0 && <span>{t('No provider readiness data available.', '暂无渠道就绪信息。')}</span>}
+                    {capabilities.map(capability => (
+                      <span key={capability.provider}>
+                        {capability.provider} · {capability.enabled ? t('Ready', '就绪') : t('Not ready', '未就绪')}
+                        {providerBudgetDisabled(capability.provider) ? ' · ' + t('Budget disabled', '预算停用') : ''}
+                      </span>
+                    ))}
+                    <p>{t('Web and Bluesky require source networking. Feed previews also respect any configured URL allowlist.', 'Web 和 Bluesky 需要开启采集联网。Feed 预览还会检查当前配置的 URL 白名单。')}</p>
+                  </div>
                   <ProviderCredentialsTab canManage={canWrite} />
                 </div>
               )}
@@ -574,9 +448,9 @@ export function SourcesPage({
                   <div className="ds-card-sub">{t('Pull & Push channels · optimistic lock revision', '状态、主备渠道与推流区分')}</div>
                 </div>
                 <div className="seg">
-                  {(['all', 'active', 'paused'] as const).map((st) => (
+                  {(['all', 'active', 'paused', 'archived'] as const).map((st) => (
                     <button key={st} type="button" className={stateFilter === st ? 'on' : ''} onClick={() => setStateFilter(st)}>
-                      {st === 'all' ? t('All', '全部') : st === 'active' ? t('Active', '运行中') : t('Paused', '暂停')}
+                      {st === 'all' ? t('All', '全部') : st === 'active' ? t('Active', '运行中') : st === 'paused' ? t('Paused', '暂停') : t('Archived', '归档')}
                     </button>
                   ))}
                 </div>
@@ -584,6 +458,15 @@ export function SourcesPage({
 
               <div className="ds-card-bd" style={{ paddingTop: 10 }}>
                 <div style={{ display: 'grid', gap: 8 }}>
+                  <label className="wb-field">{t('Filter by source group', '按分类筛选')}
+                    <select className="wb-select" value={groupFilter} onChange={event => setGroupFilter(event.target.value)}>
+                      <option value="">{t('All groups', '全部分类')}</option>
+                      {[...new Set(sources.map(source => source.sourceGroup).filter(Boolean))].sort().map(group => <option key={group}>{group}</option>)}
+                    </select>
+                  </label>
+                  {sourcesQuery.isError && <div role="alert" className="wb-alert wb-alert--error">{formatApiError(sourcesQuery.error)}</div>}
+                  {sourcesQuery.isPending && <div role="status">{t('Loading sources…', '正在加载来源…')}</div>}
+                  {sourcesQuery.isSuccess && visibleSources.length === 0 && <div>{t('No sources match these filters.', '没有符合筛选条件的来源。')}</div>}
                   {visibleSources.map((s) => {
                     const active = s.id === selectedSource?.id;
                     return (
@@ -594,6 +477,11 @@ export function SourcesPage({
                           setSelectedSourceId(s.id);
                           setOpsMsg(null);
                           setAckUnblockCharge(false);
+                          setDraftLimit(null);
+                          setUseFallback(false);
+                          setIncludeComments(false);
+                          setRefreshIdsRaw('');
+                          setIngestDraft(undefined);
                         }}
                         style={{
                           textAlign: 'left',
@@ -613,10 +501,10 @@ export function SourcesPage({
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                           <span className="tag" style={{ height: 19, fontSize: 9.5 }}>{s.platform}</span>
-                          <span className="tag tag--lilac" style={{ height: 19, fontSize: 9.5 }}>{s.primary_provider}</span>
-                          {s.fallback_provider && <span className="tag tag--mint" style={{ height: 19, fontSize: 9.5 }}>fb: {s.fallback_provider}</span>}
-                          <span className="tag tag--line" style={{ height: 19, fontSize: 9.5 }}>{s.delivery_mode}</span>
-                          {s.automatic_collection_blocked && (
+                          <span className="tag tag--lilac" style={{ height: 19, fontSize: 9.5 }}>{s.primaryProvider}</span>
+                          {s.fallbackProvider && <span className="tag tag--mint" style={{ height: 19, fontSize: 9.5 }}>fb: {s.fallbackProvider}</span>}
+                          <span className="tag tag--line" style={{ height: 19, fontSize: 9.5 }}>{s.deliveryMode}</span>
+                          {s.automaticCollectionBlocked && (
                             <span className="tag" style={{ height: 19, fontSize: 9.5, background: '#fdf0ec', color: '#8f3f2a' }}>
                               <ShieldAlert size={10} /> BLOCKED
                             </span>
@@ -644,12 +532,13 @@ export function SourcesPage({
                     </div>
                     {canWrite && (
                       <div className="seg">
+                        <button type="button" onClick={() => setSourceEditor('edit')}>{t('Edit source', '编辑来源')}</button>
                         {(['active', 'paused', 'archived'] as const).map((st) => (
                           <button
                             key={st}
                             type="button"
                             className={selectedSource.state === st ? 'on' : ''}
-                            disabled={updateSourceMut.isPending}
+                            disabled={updateSourceMut.isPending || selectedSource.state === st}
                             onClick={async () => {
                               setOpsMsg(null);
                               try {
@@ -671,7 +560,23 @@ export function SourcesPage({
                   </div>
 
                   <div className="ds-card-bd" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {selectedSource.automatic_collection_blocked && (
+                    <div className="source-health">
+                      <span>{t('Classification', '分类')} · {selectedSource.sourceGroup ?? '—'} · {selectedSource.tier}{selectedSource.locale ? ' · ' + selectedSource.locale : ''}</span>
+                      <span>{t('Schedule', '调度')} · {selectedSource.deliveryMode === 'push' ? t('External', '外部推流') : selectedSource.schedule?.enabled ? t('Enabled', '已启用') : t('Disabled', '已停用')}</span>
+                      {selectedSource.target.type === 'feed' && selectedSource.target.list &&
+                        <details><summary>{t('List mapping', '列表解析映射')}</summary>
+                          {Object.entries(selectedSource.target.list).map(([name, value]) => <div key={name}>{name} · <code>{value}</code></div>)}
+                        </details>}
+                      {selectedSource.tags.length > 0 && <span>{t('Tags', '标签')} · {selectedSource.tags.join(', ')}</span>}
+                      <span>{t('Next due (UTC)', '下次到期（UTC）')} · {selectedSource.nextDueAt ?? '—'}</span>
+                      <span>{t('Last checked (UTC)', '最近检查（UTC）')} · {selectedSource.lastCheckedAt ?? '—'}</span>
+                      <span>{t('Last success (UTC)', '最近成功（UTC）')} · {selectedSource.lastSuccessAt ?? '—'}</span>
+                      <span>{t('Health', '健康状态')} · {selectedSource.health.lastStatus ?? '—'} · {t('Consecutive failures', '连续失败')} {selectedSource.health.consecutiveFailures ?? '—'}</span>
+                      <span>{t('Fetched / inserted', '最近抓取 / 入库')} · {selectedSource.health.lastFetchedCount ?? '—'} / {selectedSource.health.lastInsertedCount ?? '—'}</span>
+                      <a href={'/content?sourceId=' + selectedSource.id}>{t('View stored content for this source', '查询该来源的已入库内容')}</a>
+                    </div>
+                    {selectedSource.health.lastError && <div className="wb-alert wb-alert--warn">{selectedSource.health.lastError}</div>}
+                    {selectedSource.automaticCollectionBlocked && (
                       <div className="wb-alert wb-alert--error" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 650 }}>
                           <AlertTriangle size={14} />
@@ -707,37 +612,54 @@ export function SourcesPage({
                       </div>
                     )}
 
-                    {opsMsg && <div className={`wb-alert ${opsMsg.isError ? 'wb-alert--error' : 'wb-alert--success'}`}>{opsMsg.text}</div>}
+                    {opsMsg && <div role={opsMsg.isError ? 'alert' : 'status'} className={`wb-alert ${opsMsg.isError ? 'wb-alert--error' : 'wb-alert--success'}`}>{opsMsg.text}{opsMsg.jobId && <button className="ds-btn ds-btn--ghost" type="button" onClick={() => {
+                      setJobActionError('');
+                      setAckJobCharge(false);
+                      setInspectJobId(opsMsg.jobId ?? null);
+                    }}>{t('Job details', '任务详情')}</button>}</div>}
 
-                    {selectedSource.delivery_mode === 'pull' && (canWrite || quotasSummaryQuery.data?.effectivePolicy.manualCollectEnabled) && (
+                    {selectedSource.deliveryMode === 'pull' && actor.clientKind === 'browser' && (
                       <form onSubmit={handleCollect} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 650 }}>
                           <Play size={13} color="var(--wb-purple)" />
                           <span>{canWrite ? t('Dispatch Pull Collect Job', '下发主动采集任务') : t('Personal Manual Collection (Subject to Plan Quota)', '个人手动采集（受套餐策略与个人额度限制）')}</span>
                           <span className="tag tag--line" style={{ height: 18, fontSize: 9 }}>Idempotency-Key auto</span>
                         </div>
+                        <p className="muted">
+                          {!selectedSourceCap?.enabled
+                            ? t('Provider not ready. Check network settings and credentials.', '渠道未就绪，请检查联网设置及凭证。')
+                            : !selectedSourceCap.targetTypes.includes(selectedSource.target.type) || !selectedSourceCap.contentKinds.includes(selectedSource.contentKind)
+                              ? t('This source target or content type is outside the provider capability.', '该来源的目标或内容类型超出渠道能力范围。')
+                            : budgetDisabled ? t('Provider budget is disabled or has a zero cap.', '该渠道预算已停用或上限为零。')
+                            : maxAllowedLimit === 0 ? t('Manual collection is unavailable under your effective policy or remaining quota.', '有效策略或剩余额度不允许手动采集。')
+                            : selectedSourceCap.automaticRequestReplay === false ? t('This provider can incur usage charges.', '该渠道可能产生使用费用。')
+                            : null}
+                        </p>
+                        {selectedSourceCap?.limitations.map(note => <small key={note}>{note}</small>)}
+                        {selectedSource.target.type === 'post' && (selectedSourceCap?.provider === 'kaix' || selectedSourceCap?.provider === 'red_crawler') &&
+                          <small>{t('Post collection uses the limit as the maximum number of comments.', '按主帖采集时，limit 表示最多采集的评论数。')}</small>}
                         <div className="wb-grid-2">
                           <div className="wb-field">
-                            <label>from (UTC)</label>
-                            <input type="datetime-local" className="wb-input" value={collectFrom} onChange={(e) => setCollectFrom(e.target.value)} required />
+                            <label htmlFor="collect-from">from (UTC)</label>
+                            <input id="collect-from" type="datetime-local" className="wb-input" value={collectFrom} onChange={(e) => setCollectFrom(e.target.value)} required />
                           </div>
                           <div className="wb-field">
-                            <label>to (UTC)</label>
-                            <input type="datetime-local" className="wb-input" value={collectTo} onChange={(e) => setCollectTo(e.target.value)} required />
+                            <label htmlFor="collect-to">to (UTC)</label>
+                            <input id="collect-to" type="datetime-local" className="wb-input" value={collectTo} onChange={(e) => setCollectTo(e.target.value)} required />
                           </div>
                         </div>
                         <div className="wb-grid-2">
                           <div className="wb-field">
-                            <label>limit (max {maxAllowedLimit})</label>
-                            <input type="number" className="wb-input" min={1} max={maxAllowedLimit} value={collectLimit} onChange={(e) => setCollectLimit(Number(e.target.value) || 1)} />
+                            <label htmlFor="collect-limit">limit (max {maxAllowedLimit})</label>
+                            <input id="collect-limit" type="number" className="wb-input" min={1} max={maxAllowedLimit} value={collectLimit} onChange={(e) => setDraftLimit(Number(e.target.value) || 0)} />
                           </div>
                           <div className="wb-field">
                             <label>{t('Options', '调度选项')}</label>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 11.5, paddingTop: 4 }}>
-                              {selectedSource.fallback_provider && (
+                              {selectedSource.fallbackProvider && (
                                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                                  <input type="checkbox" checked={useFallback} onChange={(e) => setUseFallback(e.target.checked)} />
-                                  <span>useFallback ({selectedSource.fallback_provider})</span>
+                                  <input type="checkbox" checked={fallbackSelected} disabled={!fallbackSelected && !fallbackCap?.enabled} onChange={(e) => setUseFallback(e.target.checked)} />
+                                  <span>{t('Use fallback', '使用备援')} ({selectedSource.fallbackProvider}{fallbackCap?.enabled ? '' : ' · ' + t('not ready', '未就绪')})</span>
                                 </label>
                               )}
                               <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, opacity: canIncludeComments ? 1 : 0.5 }}>
@@ -749,31 +671,31 @@ export function SourcesPage({
                         </div>
                         {canIncludeComments && includeComments && (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 11.5 }}>
-                            <span>maxCommentsPerPost (1..50):</span>
-                            <input type="number" className="wb-input" style={{ width: 70 }} min={1} max={50} value={maxComments} onChange={(e) => setMaxComments(Math.min(50, Math.max(1, Number(e.target.value) || 1)))} />
+                            <label htmlFor="collect-comments">maxCommentsPerPost (1–{limits.maxComments})</label>
+                            <input id="collect-comments" type="number" className="wb-input" style={{ width: 70 }} min={1} max={limits.maxComments} value={limits.comments ?? maxComments} onChange={(e) => setMaxComments(Math.min(50, Math.max(1, Number(e.target.value) || 1)))} />
                           </div>
                         )}
                         <div>
-                          <button type="submit" className="ds-btn" disabled={selectedSource.state !== 'active' || selectedSource.automatic_collection_blocked || collectMut.isPending}>
+                          <button type="submit" className="ds-btn" disabled={!canDispatch || collectLimit < 1 || collectLimit > maxAllowedLimit || collectMut.isPending}>
                             {t('Submit Collect Job', '提交采集任务')}
                           </button>
                         </div>
                       </form>
                     )}
 
-                    {canWrite && selectedSource.delivery_mode === 'pull' && supportsRefresh && (
+                    {actor.clientKind === 'browser' && selectedSource.deliveryMode === 'pull' && supportsRefresh && (
                       <form onSubmit={handleRefreshIds} style={{ borderTop: '1px solid var(--line)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <div style={{ fontSize: 12, fontWeight: 650 }}>{t('Batch Refresh by Content IDs (1..20 UUIDs)', '显式批量 ID 刷新 (POST /refresh)')}</div>
+                        <div style={{ fontSize: 12, fontWeight: 650 }}>{t('Batch refresh by stored post ID', '按已入库主帖 ID 批量刷新')} · {t('Max IDs', '最多 ID')} {maxRefreshIds} · {refreshCap?.provider}</div>
                         <div style={{ display: 'flex', gap: 8 }}>
-                          <input className="wb-input" style={{ flex: 1 }} value={refreshIdsRaw} onChange={(e) => setRefreshIdsRaw(e.target.value)} placeholder="33333333-3333-4333-8333-333333333301" />
-                          <button type="submit" className="ds-btn ds-btn--ghost" disabled={refreshMut.isPending}>
+                          <input aria-label={t('Stored post IDs', '已入库主帖 ID')} className="wb-input" style={{ flex: 1 }} value={refreshIdsRaw} onChange={(e) => setRefreshIdsRaw(e.target.value)} placeholder="33333333-3333-4333-8333-333333333301" />
+                          <button type="submit" className="ds-btn ds-btn--ghost" disabled={!canRefresh || refreshMut.isPending}>
                             {t('Refresh IDs', '刷新 ID')}
                           </button>
                         </div>
                       </form>
                     )}
 
-                    {canWrite && selectedSource.delivery_mode === 'push' && (
+                    {canWrite && selectedSource.deliveryMode === 'push' && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                         <form onSubmit={handleIngest} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
@@ -789,21 +711,19 @@ export function SourcesPage({
                                   accept=".json,application/json"
                                   aria-label={t('Import canonical JSON file', '导入规范 JSON 文件')}
                                   style={{ display: 'none' }}
-                                  disabled={ingestMut.isPending}
+                                  disabled={selectedSource.state !== 'active' || ingestMut.isPending}
                                   onChange={importIngestFile}
                                 />
                               </label>
-                              <button type="button" className="ds-btn ds-btn--ghost" style={{ height: 28, fontSize: 11 }} onClick={fillSampleIngest}>
-                                {t('Load Sample JSON', '填充合法样例')}
-                              </button>
                             </div>
                           </div>
-                          <textarea className="wb-textarea" rows={5} style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }} value={ingestJson} onChange={(e) => setIngestJson(e.target.value)} placeholder='{"items": [...]}' />
+                          {selectedSource.state !== 'active' && <p className="muted">{t('Activate this source before pushing content.', '请启用当前来源后再推流。')}</p>}
+                          <textarea aria-label={t('Push batch JSON', '推流批次 JSON')} className="wb-textarea" rows={5} style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }} value={ingestJson} onChange={(e) => setIngestDraft({ sourceId: selectedSource.id, text: e.target.value })} placeholder='{"items": [...]}' />
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span style={{ fontSize: 10.5, color: 'var(--faint)' }}>
                               {(utf8ByteLength(ingestJson) / 1024).toFixed(1)} KiB / 1024 KiB
                             </span>
-                            <button type="submit" className="ds-btn ds-btn--brand" disabled={!ingestJson.trim() || ingestMut.isPending}>
+                            <button type="submit" className="ds-btn ds-btn--brand" disabled={selectedSource.state !== 'active' || !ingestJson.trim() || ingestMut.isPending}>
                               {t('Upload Push Batch', '提交推流批次')}
                             </button>
                           </div>
@@ -820,18 +740,20 @@ export function SourcesPage({
                       <div className="ds-card-title">{t('Collection Jobs (Last 50)', '来源采集任务监控')}</div>
                       <div className="ds-card-sub">{t('Inspect phase telemetry or cancel/retry/continue jobs', '支持取消排队 / 重试 / 断点续跑控制')}</div>
                     </div>
-                    <button type="button" className="icon-square" style={{ width: 28, height: 28 }} onClick={() => jobsQuery.refetch()}>
+                    <button type="button" className="icon-square" style={{ width: 28, height: 28 }} aria-label={t('Refresh source and jobs', '刷新来源与任务')} onClick={() => { void jobsQuery.refetch(); void sourcesQuery.refetch(); }}>
                       <RefreshCw size={12} />
                     </button>
                   </div>
                   <div className="ds-card-bd" style={{ paddingTop: 6 }}>
-                    {(jobsQuery.data?.jobs || []).length === 0 ? (
+                    {jobsQuery.error ? <div role="alert" className="wb-alert wb-alert--error">{formatApiError(jobsQuery.error)}</div> :
+                    jobsQuery.isPending ? <div role="status">{t('Loading jobs…', '正在加载任务…')}</div> :
+                    (jobsQuery.data?.jobs || []).length === 0 ? (
                       <div style={{ padding: 22, textAlign: 'center', fontSize: 12, color: 'var(--muted)' }}>
                         {t('No jobs recorded for this source yet.', '该来源暂无采集任务记录。')}
                       </div>
                     ) : (
                       (jobsQuery.data?.jobs || []).map((job: SourceJob) => {
-                        const phase = job.provider_state?.phase ?? 'done';
+                        const phase = job.provider_state.phase ?? '—';
                         const isDone = job.status === 'succeeded' || job.status === 'completed';
                         return (
                           <div key={job.id} className="job-row">
@@ -841,7 +763,7 @@ export function SourcesPage({
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <b style={{ display: 'block', fontSize: 11.5 }}>{job.operation} · {job.provider}</b>
                               <span style={{ display: 'block', fontSize: 10, color: 'var(--faint)' }}>
-                                {job.created_at.slice(0, 16).replace('T', ' ')} · {job.records_processed} {t('records', '条')} · phase: {phase}
+                                {job.created_at.slice(0, 16).replace('T', ' ')} · {job.records_processed} {t('processed', '已处理')} · +{job.records_inserted ?? '—'} / ~{job.records_updated ?? '—'} · phase: {phase}
                               </span>
                               {job.error && <span style={{ display: 'block', fontSize: 10, color: '#a8462f' }}>{job.error}</span>}
                             </div>
@@ -854,6 +776,7 @@ export function SourcesPage({
                               style={{ height: 26, padding: '0 10px', fontSize: 10.5 }}
                               onClick={() => {
                                 setInspectJobId(job.id);
+                                setJobActionError('');
                                 setAckJobCharge(false);
                               }}
                             >
@@ -869,7 +792,7 @@ export function SourcesPage({
             )}
           </div>
         </div>
-        {canWrite && selectedSource?.delivery_mode === 'push' && (
+        {canWrite && selectedSource && isRedditArchiveSource(selectedSource) && (
           <div className="ds-card">
             <div className="ds-card-hd">
               <div>
@@ -878,104 +801,37 @@ export function SourcesPage({
               </div>
             </div>
             <div className="ds-card-bd">
-              <R4ArchivePanel sourceId={selectedSource.id} />
+              <a className="ds-btn ds-btn--ghost" href={'/settings?tab=keys&archiveSource=' + selectedSource.id}>{t('Set up a scoped archive key', '配置归档专用密钥')}</a>
+              <R4ArchivePanel key={selectedSource.id} sourceId={selectedSource.id} active={selectedSource.state === 'active'} />
             </div>
           </div>
         )}
         </div>
       )}
 
-      {/* Create Source Modal */}
-      {createOpen && (
-        <div className="sr-modal-backdrop" onClick={() => setCreateOpen(false)}>
-          <div className="sr-modal" style={{ width: 'min(540px, 100%)', padding: '22px 26px' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 650 }}>
-                {t('Create Collection Source', '新建采集来源（能力约束表单）')}
-              </h3>
-              <button type="button" className="sr-btn sr-btn--subtle sr-btn--xs" onClick={() => setCreateOpen(false)}>
-                <X size={15} />
-              </button>
-            </div>
-            {cError && <div className="wb-alert wb-alert--error" style={{ marginBottom: 12 }}>{cError}</div>}
-
-            <form onSubmit={handleCreateSource} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div className="wb-grid-2">
-                <div className="wb-field">
-                  <label>deliveryMode</label>
-                  <select className="wb-select" value={cMode} onChange={(e) => handleModeChange(e.target.value as DeliveryMode)}>
-                    <option value="pull">pull</option>
-                    <option value="push">push (external_ingest)</option>
-                  </select>
-                </div>
-                <div className="wb-field">
-                  <label>platform</label>
-                  <select className="wb-select" value={cPlatform} onChange={(e) => handlePlatformChange(e.target.value as Platform)}>
-                    <option value="reddit">reddit</option>
-                    <option value="x">x</option>
-                    <option value="bluesky">bluesky</option>
-                    <option value="web">web</option>
-                  </select>
-                </div>
-              </div>
-              <div className="wb-grid-2">
-                <div className="wb-field">
-                  <label>primaryProvider</label>
-                  {cMode === 'push' ? (
-                    <input className="wb-input" value="external_ingest" disabled />
-                  ) : (
-                    <select className="wb-select" value={cProvider} onChange={(e) => handleProviderChange(e.target.value as ProviderName)}>
-                      {matchingCapsForPlatform.map((cap) => (
-                        <option key={cap.provider} value={cap.provider}>{cap.provider} {cap.enabled ? '' : '(disabled)'}</option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-                <div className="wb-field">
-                  <label>fallbackProvider</label>
-                  <select className="wb-select" disabled={cMode === 'push' || !activeCap || activeCap.fallbackAllowed.length === 0} value={cFallback} onChange={(e) => setCFallback(e.target.value as '' | FallbackProviderName)}>
-                    <option value="">None</option>
-                    {(activeCap?.fallbackAllowed || []).map((fb) => <option key={fb} value={fb}>{fb}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="wb-field">
-                <label>label (1..100 chars)</label>
-                <input className="wb-input" value={cLabel} onChange={(e) => setCLabel(e.target.value)} required maxLength={100} />
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-                <div className="wb-field">
-                  <label>target.type</label>
-                  <select className="wb-select" value={cTargetType} onChange={(e) => setCTargetType(e.target.value as TargetType)}>
-                    {(cMode === 'push' ? (['search', 'community', 'post', 'account', 'feed'] as TargetType[]) : activeCap?.targetTypes || ['search']).map((tt) => (
-                      <option key={tt} value={tt}>{tt}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="wb-field">
-                  <label>contentKind</label>
-                  <select className="wb-select" value={cKind} onChange={(e) => setCKind(e.target.value as ContentKind)}>
-                    {(cMode === 'push' ? (['post', 'comment', 'article'] as ContentKind[]) : activeCap?.contentKinds || ['post']).map((k) => (
-                      <option key={k} value={k}>{k}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="wb-field">
-                  <label>target value</label>
-                  <input className="wb-input" value={cTargetValue} onChange={(e) => setCTargetValue(e.target.value)} placeholder="SaaS" required />
-                </div>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
-                <button type="button" className="ds-btn ds-btn--ghost" onClick={() => setCreateOpen(false)}>{t('Cancel', '取消')}</button>
-                <button type="submit" className="ds-btn" disabled={createSourceMut.isPending}>{t('Create Source', '创建来源')}</button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {sourceEditor && canWrite && (sourceEditor === 'create' || selectedSource) && (
+        <SourceEditor
+          capabilities={capabilities}
+          source={sourceEditor === 'edit' ? selectedSource : undefined}
+          onClose={() => setSourceEditor(null)}
+          onSaved={id => {
+            setTab('sources');
+            setSelectedSourceId(id);
+            setStateFilter('all');
+            setGroupFilter('');
+            setOpsMsg({ text: t('Source saved.', '来源已保存。') });
+            setSourceEditor(null);
+          }}
+        />
       )}
+      {importOpen && canWrite && <SourceImportDialog onClose={() => setImportOpen(false)} />}
 
       {/* Job Detail & Control Modal */}
-      {inspectJobId && jobDetailQuery.data?.job && (
+      {inspectJobId && (
+        !jobDetailQuery.data?.job ? <div role={jobDetailQuery.error ? 'alert' : 'status'} className="wb-alert">
+          {jobDetailQuery.error ? formatApiError(jobDetailQuery.error) : t('Loading job details…', '正在加载任务详情…')}
+          <button className="ds-btn ds-btn--ghost" type="button" onClick={() => setInspectJobId(null)}>{t('Close', '关闭')}</button>
+        </div> : (
         <div className="sr-modal-backdrop" onClick={() => setInspectJobId(null)}>
           <div className="sr-modal" style={{ width: 'min(560px, 100%)', padding: '22px 26px' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -993,38 +849,47 @@ export function SourcesPage({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 12.5 }}>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <span className="tag tag--lilac">status: {job.status}</span>
-                    <span className="tag tag--apricot">phase: {job.provider_state.phase}</span>
+                    <span className="tag tag--apricot">phase: {job.provider_state.phase ?? '—'}</span>
                   </div>
+                  <code>{job.id}</code>
+                  <span>{t('Processed / inserted / updated', '处理 / 新增 / 更新')} · {job.records_processed} / {job.records_inserted ?? '—'} / {job.records_updated ?? '—'}</span>
+                  {job.provider_state.runId && <span>Provider run · {job.provider_state.runId}</span>}
+                  {job.error && <div role="alert" className="wb-alert wb-alert--error">{job.error}</div>}
+                  {jobActionError && <div role="alert" className="wb-alert wb-alert--error">{jobActionError}</div>}
+                  {job.source_id && <a href={'/content?sourceId=' + job.source_id}>{t('View stored content for this source', '查询该来源的已入库内容')}</a>}
+                  {job.result_summary?.creditsUsed !== undefined &&
+                    <span>{t('Credits reported by the provider', '渠道报告的积分用量')} · {job.result_summary.creditsUsed}</span>}
                   {job.result_summary?.warning && <div className="wb-alert wb-alert--warn">{job.result_summary.warning}</div>}
                   {job.request_json && (
                     <pre style={{ background: '#fbfcf7', border: '1px solid var(--line)', padding: 10, borderRadius: 6, fontSize: 11, margin: 0, overflow: 'auto' }}>
                       {JSON.stringify(job.request_json, null, 2)}
                     </pre>
                   )}
-                  {canWrite && (job.status === 'queued' || job.status === 'running' || job.status === 'failed') && (
+                  {job.purpose !== 'ingest' && ['queued', 'running', 'retrying', 'failed', 'cancelled'].includes(job.status) && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
-                      {risky && (
+                      {risky && ['failed', 'cancelled'].includes(job.status) && (
                         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#8f3f2a', fontWeight: 600 }}>
                           <input type="checkbox" checked={ackJobCharge} onChange={(e) => setAckJobCharge(e.target.checked)} />
                           <span>acknowledgePotentialCharge: true</span>
                         </label>
                       )}
                       <div style={{ display: 'flex', gap: 8 }}>
-                        {(['cancel', 'retry', 'continue'] as const).map((act) => (
+                        {(['failed', 'cancelled'].includes(job.status)
+                          ? (job.provider_state.phase === 'running' || job.provider_state.phase === 'reading' ? (['continue'] as const) : (['retry'] as const))
+                          : (['cancel'] as const)).map((act) => (
                           <button
                             key={act}
                             type="button"
                             className={`ds-btn ${act === 'cancel' ? 'ds-btn--danger' : ''}`}
                             style={{ height: 30, fontSize: 11 }}
-                            disabled={jobActionMut.isPending}
+                            disabled={jobActionMut.isPending || (act !== 'cancel' && risky && !ackJobCharge)}
                             onClick={async () => {
                               try {
                                 await jobActionMut.mutateAsync({ jobId: job.id, sourceId: job.source_id, action: act, acknowledgePotentialCharge: ackJobCharge });
                                 setOpsMsg({ text: `Executed ${act} on job ${job.id.slice(0, 8)}` });
                                 setInspectJobId(null);
                               } catch (err) {
-                                setOpsMsg({ text: formatApiError(err), isError: true });
-                                setInspectJobId(null);
+                                setJobActionError(formatApiError(err));
                               }
                             }}
                           >
@@ -1039,7 +904,7 @@ export function SourcesPage({
             })()}
           </div>
         </div>
-      )}
+      ))}
 
       {/* Edit Budget Modal */}
       {editBudget && (
@@ -1058,12 +923,12 @@ export function SourcesPage({
                 <span>Provider enabled</span>
               </label>
               <div className="wb-grid-2">
-                <div className="wb-field"><label>dailyRequests</label><input type="number" className="wb-input" min={0} max={1000000} value={bDailyReq} onChange={(e) => setBDailyReq(Number(e.target.value))} /></div>
-                <div className="wb-field"><label>monthlyRequests</label><input type="number" className="wb-input" min={0} max={10000000} value={bMonthlyReq} onChange={(e) => setBMonthlyReq(Number(e.target.value))} /></div>
-                <div className="wb-field"><label>dailyResources</label><input type="number" className="wb-input" min={0} max={100000000} value={bDailyRes} onChange={(e) => setBDailyRes(Number(e.target.value))} /></div>
-                <div className="wb-field"><label>monthlyResources</label><input type="number" className="wb-input" min={0} max={1000000000} value={bMonthlyRes} onChange={(e) => setBMonthlyRes(Number(e.target.value))} /></div>
+                <div className="wb-field"><label htmlFor="budget-dailyRequests">dailyRequests</label><input id="budget-dailyRequests" type="number" className="wb-input" min={0} max={1000000} value={bDailyReq} onChange={(e) => setBDailyReq(Number(e.target.value))} /></div>
+                <div className="wb-field"><label htmlFor="budget-monthlyRequests">monthlyRequests</label><input id="budget-monthlyRequests" type="number" className="wb-input" min={0} max={10000000} value={bMonthlyReq} onChange={(e) => setBMonthlyReq(Number(e.target.value))} /></div>
+                <div className="wb-field"><label htmlFor="budget-dailyResources">dailyResources</label><input id="budget-dailyResources" type="number" className="wb-input" min={0} max={100000000} value={bDailyRes} onChange={(e) => setBDailyRes(Number(e.target.value))} /></div>
+                <div className="wb-field"><label htmlFor="budget-monthlyResources">monthlyResources</label><input id="budget-monthlyResources" type="number" className="wb-input" min={0} max={1000000000} value={bMonthlyRes} onChange={(e) => setBMonthlyRes(Number(e.target.value))} /></div>
               </div>
-              <div className="wb-field"><label>minimumIntervalMs</label><input type="number" className="wb-input" min={0} max={3600000} value={bInterval} onChange={(e) => setBInterval(Number(e.target.value))} /></div>
+              <div className="wb-field"><label htmlFor="budget-minimumIntervalMs">minimumIntervalMs</label><input id="budget-minimumIntervalMs" type="number" className="wb-input" min={0} max={3600000} value={bInterval} onChange={(e) => setBInterval(Number(e.target.value))} /></div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                 <button type="button" className="ds-btn ds-btn--ghost" onClick={() => setEditBudget(null)}>{t('Cancel', '取消')}</button>
                 <button type="submit" className="ds-btn" disabled={updateBudgetMut.isPending}>{t('Save Budget', '更新配额')}</button>

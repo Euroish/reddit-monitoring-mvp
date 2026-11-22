@@ -322,7 +322,7 @@ export function ProjectsPage({
     () =>
       Boolean(
         selectedProject?.source_ids.some(
-          (sid) => sources.find((s) => s.id === sid)?.delivery_mode === 'push',
+          (sid) => sources.find((s) => s.id === sid)?.deliveryMode === 'push',
         ),
       ),
     [selectedProject?.source_ids, sources],
@@ -1177,7 +1177,7 @@ export function ProjectsPage({
                             setFormSourceIds((prev) => (checked ? prev.filter((id) => id !== s.id) : [...prev, s.id]))
                           }
                         />
-                        <span>{s.label} ({s.delivery_mode})</span>
+                        <span>{s.label} ({s.deliveryMode})</span>
                       </label>
                     );
                   })}

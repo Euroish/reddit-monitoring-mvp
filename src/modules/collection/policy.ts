@@ -238,6 +238,11 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
     const resetsAtUtc = new Date(Date.UTC(utcNow.getUTCFullYear(), utcNow.getUTCMonth(), utcNow.getUTCDate() + 1)).toISOString();
 
     if (actor.role === "viewer") {
+      const budgets = await pool.query<{ provider: string; enabled: boolean }>(
+        `SELECT provider,enabled AND LEAST(daily_requests,monthly_requests,daily_resources,monthly_resources)>0 AS enabled
+         FROM source_provider_budget`,
+      );
+      const budgetFlags = new Map(budgets.rows.map(row => [row.provider, row.enabled]));
       return {
         scope: "personal" as const,
         resetsAtUtc,
@@ -247,6 +252,7 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
           provider: p.capability.provider,
           platform: p.capability.platform,
           enabled: p.capability.enabled,
+          budgetEnabled: budgetFlags.get(p.capability.provider) === true,
           planAllowed: effective.manualCollectEnabled && effective.allowedProviders.includes(p.capability.provider),
         })),
       };

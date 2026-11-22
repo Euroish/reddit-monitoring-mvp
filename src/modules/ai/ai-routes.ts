@@ -8,9 +8,10 @@ import {
   AiModelsQuery,
   AiPublishCandidateBody,
   AiUpdatesQuery,
+  AiVendorSourceBinding,
 } from "../../../packages/contracts/src/ai-catalog";
 import { ParamsId, type Actor } from "../../../packages/contracts/src/source-content";
-import { fail } from "../../storage/db";
+import { fail, transaction } from "../../storage/db";
 import {
   getAiEventDetail,
   getAiModelDetail,
@@ -310,6 +311,48 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
        FROM ai_registry_source ORDER BY code ASC`,
     );
     return { items: res.rows };
+  });
+
+  typed.get("/v1/admin/ai/vendor-sources", async (req) => {
+    requireAiAdmin(req.actor);
+    const { rows } = await pool.query(
+      'SELECT source_id AS "sourceId", vendor_id AS "vendorId", source_role AS "sourceRole", is_official AS "isOfficial" ' +
+      'FROM ai_vendor_source ORDER BY source_id, vendor_id',
+    );
+    return { items: rows };
+  });
+
+  typed.put("/v1/admin/ai/vendor-sources", {
+    schema: { body: AiVendorSourceBinding },
+  }, async (req) => {
+    requireAiAdmin(req.actor);
+    const { sourceId, vendorId, sourceRole, isOfficial } = req.body;
+    return transaction(pool, async (client) => {
+      const source = await client.query(
+        "SELECT cs.id FROM collection_source cs JOIN source s ON s.id=cs.platform_id WHERE cs.id=$1 " +
+        "AND s.code='web' AND cs.delivery_mode='pull' AND cs.content_kind='article' FOR UPDATE OF cs", [sourceId],
+      );
+      if (!source.rowCount) fail(422, "An existing Web article pull source is required");
+      const vendor = await client.query("SELECT id FROM ai_vendor WHERE id=$1 FOR KEY SHARE", [vendorId]);
+      if (!vendor.rowCount) fail(404, "AI vendor not found");
+      const other = await client.query("SELECT 1 FROM ai_vendor_source WHERE source_id=$1 AND vendor_id<>$2", [sourceId, vendorId]);
+      if (other.rowCount) fail(409, "Remove the current vendor binding before choosing a different vendor");
+      await client.query(
+        "INSERT INTO ai_vendor_source(source_id,vendor_id,source_role,is_official) VALUES($1,$2,$3,$4) " +
+        "ON CONFLICT(source_id,vendor_id) DO UPDATE SET source_role=EXCLUDED.source_role,is_official=EXCLUDED.is_official",
+        [sourceId, vendorId, sourceRole, isOfficial],
+      );
+      return req.body;
+    });
+  });
+
+  typed.delete("/v1/admin/ai/vendor-sources/:sourceId/:vendorId", {
+    schema: { params: Type.Pick(AiVendorSourceBinding, ["sourceId", "vendorId"]) },
+  }, async (req) => {
+    requireAiAdmin(req.actor);
+    const { sourceId, vendorId } = req.params;
+    await pool.query("DELETE FROM ai_vendor_source WHERE source_id=$1 AND vendor_id=$2", [sourceId, vendorId]);
+    return { removed: true };
   });
 
   typed.post(

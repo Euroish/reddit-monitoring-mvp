@@ -112,7 +112,7 @@ export function WorkbenchShell({
   const [alertsDismissed, setAlertsDismissed] = useState(false);
 
   const blockedSources = useMemo(
-    () => sources.filter((s) => s.automatic_collection_blocked),
+    () => sources.filter((s) => s.automaticCollectionBlocked),
     [sources],
   );
   const zeroQuotaProviders = useMemo(
