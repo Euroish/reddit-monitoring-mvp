@@ -38,7 +38,7 @@ npm run docs:check && npm run lint && npm run typecheck && npm run test:unit && 
 
 ### 0.3 四大冲突热区与轻量同步约定
 
-- **SQL 迁移（`src/storage/schema/`）**：`001..050` 及已合入 `main` 的迁移严禁改写；**编号先合先占**，后合者同步时顺延重编号；PR 必须声明 `表变更：+N（总计 X/24）`。
+- **SQL 迁移（`src/storage/schema/`）**：`001..053` 及已合入 `main` 的迁移严禁改写；**编号先合先占**，后合者同步时顺延重编号；PR 必须声明 `新建表 +N / 当前总计 X；索引与写入成本评估`。
 - **共享契约（`packages/contracts/src/*`）**：唯一契约真源，严禁在前端复制平行副本或做破坏式字段重命名；多方共享契约变更先发小 PR 合入 `main`。
 - **入口与前端架构**：`app.ts` / `App.tsx` 保持薄装配；首页 `/` 严禁引入 ECharts（原生 SVG 微图），分析页统一 `React.lazy` 模块化 `echarts/core`；后端守五模块 `<= 450` 行/文件与 `<= 220` 字/代码行。
 - **文档与开工声明**：仓库可新增 Markdown 文档，发布包继续按 `DOCUMENTATION_FILES` 选档。代码变动同 PR 更新对应规范。开分支前发 1 行同步：`[feat/xxx] 负责人：@A | 触碰区域：... | 新迁移：无/+N表`；PR 描述附 3 行：**变更摘要 / 影响范围（表、契约、冲突清单）/ 验证结果**。

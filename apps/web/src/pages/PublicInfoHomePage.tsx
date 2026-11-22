@@ -349,9 +349,9 @@ export function PublicInfoHomePage({
           </section>
         </div>
 
-        {/* Right Column: 48h Momentum + 08:00 Digest Preview */}
+        {/* Right Column: 48h Momentum (Distinct Ranked Panel) + 08:00 Digest Zone */}
         <div>
-          <section className="pih-section" aria-labelledby="pih-hot-heading">
+          <section className="pih-section pih-section--momentum" aria-labelledby="pih-hot-heading">
             <div className="pih-section-hd">
               <div>
                 <h2 id="pih-hot-heading" className="pih-section-title">
@@ -383,28 +383,31 @@ export function PublicInfoHomePage({
             )}
             {hotItems.length > 0 && (
               <div className="pih-compact-list">
-                {hotItems.map((story) => {
+                {hotItems.map((story, idx) => {
                   const rep = story.representative;
                   const title = decodeHtmlEntities(rep.title);
                   return (
-                    <div key={story.storyKey} className="pih-compact-item">
-                      <button
-                        type="button"
-                        className="pih-compact-title"
-                        onClick={() => setReader(storyToReaderPreview(story))}
-                      >
-                        {title}
-                      </button>
-                      <div className="pih-compact-meta">
-                        <span className={`story-tier-pill tier-${rep.tier.toLowerCase()}`}>{TIER_SHORT[rep.tier]}</span>
-                        <span>{rep.sourceLabel}</span>
-                        <span>·</span>
-                        <span className="tabular-nums">
-                          {t('Heat', '热度')} {story.heat48h.toFixed(1)}
-                        </span>
-                        {story.sourceCount >= 2 && (
-                          <span>· {story.sourceCount} {t('sources', '源')}</span>
-                        )}
+                    <div key={story.storyKey} className="pih-compact-item pih-rank-row">
+                      <span className="pih-rank-num">{String(idx + 1).padStart(2, '0')}</span>
+                      <div>
+                        <button
+                          type="button"
+                          className="pih-compact-title"
+                          onClick={() => setReader(storyToReaderPreview(story))}
+                        >
+                          {title}
+                        </button>
+                        <div className="pih-compact-meta">
+                          <span className={`story-tier-pill tier-${rep.tier.toLowerCase()}`}>{TIER_SHORT[rep.tier]}</span>
+                          <span>{rep.sourceLabel}</span>
+                          <span>·</span>
+                          <span className="tabular-nums">
+                            {t('Heat', '热度')} {story.heat48h.toFixed(1)}
+                          </span>
+                          {story.sourceCount >= 2 && (
+                            <span>· {story.sourceCount} {t('sources', '源')}</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -413,7 +416,7 @@ export function PublicInfoHomePage({
             )}
           </section>
 
-          <section className="pih-section" aria-labelledby="pih-digest-heading">
+          <section className="pih-section pih-section--digest" aria-labelledby="pih-digest-heading">
             <div className="pih-section-hd">
               <div>
                 <h2 id="pih-digest-heading" className="pih-section-title">

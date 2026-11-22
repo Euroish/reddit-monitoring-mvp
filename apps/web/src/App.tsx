@@ -6,10 +6,10 @@ import { LogoProvider } from './components/BrandMark';
 import { type PublicRoute, PublicSiteShell } from './components/PublicSiteShell';
 import { ThemeProvider } from './components/ThemeStudio';
 import { type Lang, LangContext } from './i18n/translations';
-import { AiNewsPage } from './pages/AiNewsPage';
 import { PublicInfoHomePage } from './pages/PublicInfoHomePage';
 import type { WorkbenchRoute } from './pages/WorkbenchShell';
 
+const AiNewsPage = lazy(() => import('./pages/AiNewsPage').then((m) => ({ default: m.AiNewsPage })));
 const GuidePage = lazy(() => import('./pages/GuidePage').then((m) => ({ default: m.GuidePage })));
 const DocsPage = lazy(() => import('./pages/DocsPage').then((m) => ({ default: m.DocsPage })));
 const Homepage = lazy(() => import('./pages/Homepage').then((m) => ({ default: m.Homepage })));
@@ -34,6 +34,9 @@ const WorkspacePage = lazy(() =>
 const SettingsPage = lazy(() =>
   import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
 );
+const AiReviewQueuePage = lazy(() =>
+  import('./pages/AiReviewQueuePage').then((m) => ({ default: m.AiReviewQueuePage })),
+);
 
 type AppRoute = PublicRoute | '/guide' | WorkbenchRoute;
 
@@ -46,6 +49,7 @@ const WORKBENCH_ROUTES: WorkbenchRoute[] = [
   '/sources',
   '/workspace',
   '/settings',
+  '/admin/queue',
 ];
 
 const AUTH_REQUIRED_ROUTES: WorkbenchRoute[] = [
@@ -53,6 +57,7 @@ const AUTH_REQUIRED_ROUTES: WorkbenchRoute[] = [
   '/sources',
   '/workspace',
   '/settings',
+  '/admin/queue',
 ];
 
 const LEGACY_FEED_PARAMS = ['view', 'date', 'sourceGroup', 'tier', 'language', 'sourceId'] as const;
@@ -377,7 +382,11 @@ export function App() {
                 </Suspense>
               )}
 
-              {loc.pathname === '/ai' && <AiNewsPage onNavigate={navigate} />}
+              {loc.pathname === '/ai' && (
+                <Suspense fallback={<PageFallback label={t('Loading AI Release Intelligence...', '正在加载 AI 资讯中心…')} />}>
+                  <AiNewsPage actor={actor} search={loc.search} onNavigate={navigate} onOpenAuth={openAuth} />
+                </Suspense>
+              )}
 
               {loc.pathname === '/docs' && (
                 <Suspense fallback={<PageFallback label={t('Opening the documentation center…', '正在打开文档中心…')} />}>
@@ -547,6 +556,10 @@ export function App() {
 
               {workbenchRoute === '/settings' && actor && (
                 <SettingsPage actor={actor} initialQueryString={loc.search} />
+              )}
+
+              {workbenchRoute === '/admin/queue' && actor && (
+                <AiReviewQueuePage actor={actor} onNavigate={navigate} />
               )}
             </WorkbenchShell>
           </Suspense>

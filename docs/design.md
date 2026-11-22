@@ -78,7 +78,7 @@
 
 | ID | 等级 | 信息架构、图表联动与多端交互 | 验收出口 |
 | --- | --- | --- | --- |
-| UX-01 | MUST NOT | 在产品界面暴露 `Phase`、`Legacy`、`Repository` 等内部代号。主导航清楚提供阅读与分析入口，当前路由以第 1 节为准。规划功能标注状态，产品文案与已部署能力一致。 | 路由、入口与文案审查 |
+| UX-01 | MUST NOT | 在产品界面暴露 `Phase`、`Legacy`、`Repository` 等内部代号。主导航清楚提供阅读与分析入口（`/`、`/product`、`/ai`、`/docs` 及工作台 `/app/feed`、`/content`、`/projects`、`/sources`、`/workspace`、`/settings`）。规划功能标注状态，产品文案与已部署能力一致。 | 路由、入口与文案审查 |
 | UX-02 | MUST | 内容展示来源、作者、发布时间/入库时间及回退依据、语种和有效指标。数字采用 `tabular-nums`，正文行宽与对比度满足可读性，颜色以外还提供文字或形状编码。 | 内容、时间与无障碍验证 |
 | UX-03 | MUST | 分析图与下方列表共享过滤和权限。`[V2]` 图表点击可下钻并保留返回状态，比较显示窗口、分母、覆盖和证据。未知覆盖保持未知，取得覆盖证据后才能声明零命中。 | 图表/列表一致性及回放 E2E |
 | UX-04 | MUST | `[V2]` 推荐显示原因并支持负反馈和偏好控制，订阅显示触发条件、频率和退订。外部探索与 AI 展示数据来源、完整度、成本和失败恢复，关闭扩展时基础阅读与研究可用。 | 推荐、订阅和扩展降级测试 |
@@ -87,7 +87,16 @@
 
 交互状态优先及时响应。抽屉和弹窗使用短时 `transform/opacity` 动效，尊重 `prefers-reduced-motion`。自动化验证覆盖真实用户任务，视觉评审以截图和可操作性证据记录。
 
-## 5. 设计资产与历史边界
+## 5. `[LIVE]` 公开站点视觉统一与 `/ai` AI 发布情报中心
+
+- **单一公共设计系统（`tokens.css`）**：公开站点 4 个一级页面（`/`、`/product`、`/ai`、`/docs`）统一由 `PublicSiteShell` 承载并共享 `tokens.css` 语义变量（`--header-glass`、`--hero-bg`、`--opal-soft`、`--wisteria`、`--ink`、`--teal`、`--paper`、`--radius-pill`、`--radius-wb-card`），保持 `1280px` 主容器、一致圆角/按钮层级、`focus-visible` 与 `prefers-reduced-motion` 支持，并在 `1440×900`、`768×1024`、`390×844` 三端零横向溢出。
+- **页面级视觉节奏区分**：
+  - `/`（`PublicInfoHomePage`）：编辑精选区、48h 热度排名区（`01..06` + 矿物底色）、8 大频道浏览与 `08:00` 日报主题区各有独立版式。
+  - `/docs`（`DocsPage` embedded 模式）：取消嵌套 `100vh` 滚动条，正文阅读列宽约束于 `<= 780px`，保留数据库文档 CRUD/PDF 附件/乐观锁编辑能力。
+  - `/ai`（`AiNewsPage` + `components/ai/*`）：**Vendor × Time 发布矩阵**（支持 `week`/`month`/`6m`/`12m`/`year` 缩放、`Today` 基准线、厂商/类型/状态/关键词筛选、悬停预览气泡、点击详情抽屉 + `/ai?event=:id` 可分享链接 + 同模型版本演进链 + 规格/价格原始单位观测 + 官方主证据链）、分指标独立展示的**第三方评测榜单**（未配置 `ARTIFICIAL_ANALYSIS_API_KEY` 时诚实渲染未配置空态，绝不编造分数）以及联动 `ReaderDrawer` 的**官方一手更新流**。
+  - `/admin/queue`（`AiReviewQueuePage`）：仅 `owner`/`admin` 浏览器会话可见，提供候选筛选、批量忽略、乐观锁 `revision` 审核编辑、官方主证据发布门控、已发布事件撤回与注册表源手动同步/试跑。
+
+## 6. 设计资产与历史边界
 
 `feat/semrush-frontend-rebuild` 的早期提取决策属于历史背景。当前维护对象为 `main` 的组件、路由、契约和测试，后续更新通过短分支增量合入。旧分支文件数、目标行数和尚未执行的提取清单不再充当现行设计要求。历史审计保存在 [早期蓝图](research/deep-audit-and-architecture-blueprint-20261118.md)。
 

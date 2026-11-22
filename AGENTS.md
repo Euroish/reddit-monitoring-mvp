@@ -24,7 +24,7 @@
 
 - **真实性红线**：`MUST NOT` 将 `[V2]` 规划项（如 `linkedom`/`Readability`、`story_cluster`、`stream_class`、`/discovery/query`、`/content/:id/enrich`）或未启用渠道写成 `[LIVE]`；用户指令高于规划。
 - **单主干与反漂移红线**：仓库唯一常驻主干为 **`main`**（不设常驻 `develop`/`prod`）；所有改动须从最新 `origin/main` 切短分支（`feat/*` `<= 3` 天、`fix/*` `<= 1` 天），合前以 `git merge/rebase origin/main` 同步（严禁跨分支拷贝覆盖文件），AI 解冲突后必须核对 `git diff origin/main --stat` 且全量 CI 绿灯后 `Squash and Merge`；发版打 `vX.Y.Z` 不可变 Tag。
-- **精简建表纪律**：主干已合入迁移不可改写、迁移或删除。追加下一个可用编号，由 PR 基线校验。主干至 `053` 为 **24 张表**，本阶段单机上限 **24**；生产实际版本见[状态](docs/status.md)。PR 声明表增量，调整预算需单独评审数据所有权、负载、迁移和回滚。
+- **精简建表纪律**：主干已合入迁移（`001..053`）不可改写、移动或删除；追加下一个可用编号并由 PR 基线校验。主干至 `053` 为 **24 张表**（原阶段单机上限 **24**）；PR #16 新增 `054`（14 表）与 `055`（3 表）共 `17` 张 `ai_*` 情报与运维表（实码总计 **41 张表**，超出 24 表预算 `+17`，需在主干合入评审时确认预算调整，详见 [状态](docs/status.md)）。PR 须声明表增量、索引与写放大评估，永不恢复已删 27 张历史表。
 - **主线与外挂隔离**：主线只运行轻量 `Fastify 5 + TypeBox + PG16 + React`（零 Python/DuckDB/Chromium）；R4 `plugins/zst-archive/` 与 L3 重型/强反爬采集器 `MUST` 外置运行，只持带明确 `allowedSourceIds` 与 `ingest` scope 的 Machine Key 调用 `POST /v1/sources/:id/ingest`。
 - **五模块与写入纪律**：`access`、`collection`、`content`、`projects`、`workspace` 仅允许平铺命名 SQL 函数（`<= 450` 行/文件、`<= 220` 字/代码行、禁 `class`/`*Repository`/`InMemory*`）；全库唯一内容写入口为 `commitContentBatch`；`/v1/content/*` 仅 `GET/HEAD` 映射 `read` scope；付费渠道 `unknown` 永不自动重放；禁输出密钥、禁无授权 `git push --force`。
 4.开发代码提交pr原则
