@@ -49,7 +49,7 @@ git diff --stat origin/main...HEAD
 | :--- | :--- |
 | 文档 PR 或文档合入 | 文档、仓库策略、密钥扫描；PR 附变更范围摘要 |
 | 普通后端 PR | ESLint、依赖及表写入边界、类型、OpenAPI、单测、真实 PG16 集成、编译运行时冒烟 |
-| 前端或高风险入口 PR | 在适用检查外用编译产物跑 Chromium 业务旅程。适用于前端、API 装配、访问控制、主要用户模块和共享契约，其他 PR 可加 `run-e2e` |
+| 前端或高风险入口 PR | 前端改动也验证前后端依赖边界。用编译产物跑 Chromium 业务旅程。适用于前端、API 装配、访问控制、主要用户模块和共享契约，其他 PR 可加 `run-e2e` |
 | 新 SQL 或部署配置 | 新 SQL 运行 Squawk；Docker / Compose 文件变更运行 Compose 解析和两种镜像构建。工作流变更运行 actionlint |
 | 运行时变更合入 `main` | 验证合入后的 API、Web、PG16、编译冒烟和 Chromium，用于发现独立改动组合后的问题 |
 | 手动全量或 `v*` Tag | 完整运行时检查与发布包验真。手动运行也检查 Docker，Tag 必须指向 `main` 上的提交，检查通过后构建并发布两种镜像。周级工作流检查完整历史密钥、依赖审计和 Docker |

@@ -52,7 +52,7 @@ jobs:
           docker run --rm \
             -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
             -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.28.0 git /repo --redact --log-opts="$range"
-      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run lint:policy
         env:
           MIGRATION_BASE_SHA: ${{ steps.scope.outputs.base }}
@@ -108,16 +108,18 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             apps/web/package-lock.json
-      - run: npm ci --ignore-scripts
-      - name: API lint, dependency and SQL ownership boundaries, types, contracts and unit tests
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Dependency and SQL ownership boundaries
+        if: fromJSON(needs.policy.outputs.scope).api || fromJSON(needs.policy.outputs.scope).web
+        run: npm run lint:arch
+      - name: API lint, types, contracts and unit tests
         if: fromJSON(needs.policy.outputs.scope).api
         run: |
           npm run lint:api
-          npm run lint:arch
           npx tsc --noEmit
           npm run check:openapi
           npm run test:unit
-      - run: npm --prefix apps/web ci --ignore-scripts
+      - run: npm --prefix apps/web ci --ignore-scripts --no-audit --no-fund
         if: fromJSON(needs.policy.outputs.scope).web || fromJSON(needs.policy.outputs.scope).browser
       - run: npm run lint:web
         if: fromJSON(needs.policy.outputs.scope).web
