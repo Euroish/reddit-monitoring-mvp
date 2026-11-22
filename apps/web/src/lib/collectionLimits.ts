@@ -10,6 +10,10 @@ export function isResearchSource(source: CollectionSource) {
   return source.usageDomain ? source.usageDomain === 'research' : source.platform !== 'web';
 }
 
+export function sourceNeedsAttention(source: CollectionSource) {
+  return source.automaticCollectionBlocked || (source.health.consecutiveFailures ?? 0) > 0 || Boolean(source.health.lastError);
+}
+
 export function collectionLimits(
   source: CollectionSource | undefined,
   capability: SourceCapability | undefined,

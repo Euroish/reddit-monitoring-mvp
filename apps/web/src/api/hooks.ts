@@ -325,12 +325,12 @@ export function useUpdateSourceMutation() {
       id: string;
       input: SourcePatch;
     }) => apiClient.updateSource(id, input),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ['sources'] });
-      qc.invalidateQueries({ queryKey: ['projects'] });
-      qc.invalidateQueries({ queryKey: ['overview'] });
-      qc.invalidateQueries({ queryKey: ['jobs', vars.id] });
-    },
+    onSuccess: (_data, vars) => Promise.all([
+      qc.invalidateQueries({ queryKey: ['sources'] }),
+      qc.invalidateQueries({ queryKey: ['projects'] }),
+      qc.invalidateQueries({ queryKey: ['overview'] }),
+      qc.invalidateQueries({ queryKey: ['jobs', vars.id] }),
+    ]),
   });
 }
 

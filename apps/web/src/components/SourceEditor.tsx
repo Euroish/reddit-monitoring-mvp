@@ -46,25 +46,40 @@ function availableFallback(
 }
 
 export function SourceEditor({
-  capabilities, source, preferredChannel, preferredPreset, onClose, onSaved,
+  capabilities, source, domain, preferredChannel, preferredPreset, previewOnly = false, onClose, onSaved,
 }: {
   capabilities: SourceCapability[];
   source?: CollectionSource;
+  domain: 'all' | 'research' | 'feed';
+  previewOnly?: boolean;
   preferredChannel?: SourceCapability;
   preferredPreset?: 'push' | 'reddit_archive';
   onClose: () => void;
   onSaved: (id: string) => void;
 }) {
   const { t } = useI18n();
+  const wizard = !source && domain !== 'all';
+  const [step, setStep] = useState(0);
+  const stepHeading = useRef<HTMLHeadingElement>(null);
+  const stepLabels = [
+    domain === 'feed' ? t('Channel and address', '频道与地址') : t('Collection target', '采集目标'),
+    domain === 'feed' ? t('Parsing and classification', '解析与分类') : t('Provider and classification', '渠道与分类'),
+    domain === 'feed' ? t('Updates and save', '更新与保存') : t('Scheduling and save', '调度与保存'),
+  ];
+  function goToStep(next: number) {
+    setStep(next);
+    setError('');
+    requestAnimationFrame(() => stepHeading.current?.focus());
+  }
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { dialog.current?.showModal(); }, []);
-  const [platform, setPlatform] = useState<SourceInput['platform']>(
-    source?.platform ?? (preferredPreset === 'reddit_archive' ? 'reddit' : preferredChannel?.platform ?? 'web'),
-  );
+  const initialPlatform = source?.platform ?? preferredChannel?.platform ?? (domain === 'research' || preferredPreset === 'reddit_archive' ? 'reddit' : 'web');
+  const [platform, setPlatform] = useState<SourceInput['platform']>(initialPlatform);
+  const allowedPlatforms = platforms.filter(item => domain === 'all' || (item === 'web') === (domain === 'feed'));
   const [mode, setMode] = useState<SourceInput['deliveryMode']>(source?.deliveryMode ?? (preferredPreset ? 'push' : 'pull'));
   const [provider, setProvider] = useState<string>(preferredChannel?.provider ?? '');
-  const [targetType, setTargetType] = useState<SourceTarget['type']>(preferredPreset ? 'search' : 'feed');
-  const [kind, setKind] = useState<SourceInput['contentKind']>(preferredPreset === 'reddit_archive' ? 'post' : 'article');
+  const [targetType, setTargetType] = useState<SourceTarget['type']>(preferredPreset ? 'search' : initialPlatform === 'reddit' ? 'community' : 'feed');
+  const [kind, setKind] = useState<SourceInput['contentKind']>(initialPlatform === 'web' ? 'article' : 'post');
   const [targetValue, setTargetValue] = useState('');
   const [listFormat, setListFormat] = useState<'' | 'web_list' | 'json_list'>('');
   const [error, setError] = useState('');
@@ -109,11 +124,44 @@ export function SourceEditor({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const fields = new FormData(event.currentTarget);
+    if (busy) return;
+    const form = event.currentTarget;
+    const intent = (event.nativeEvent as SubmitEvent).submitter?.getAttribute('value');
+    if (wizard) {
+      const lastStep = intent === 'next' ? step : stepLabels.length - 1;
+      for (const field of form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input, select, textarea')) {
+        const fieldStep = Number(field.closest<HTMLElement>('[data-source-step]')?.dataset.sourceStep ?? step);
+        if (fieldStep <= lastStep && !field.validity.valid) {
+          if (fieldStep !== step) goToStep(fieldStep);
+          requestAnimationFrame(() => {
+            if (field.getClientRects().length === 0) {
+              const details = field.closest('details');
+              if (details) details.open = true;
+            }
+            field.reportValidity();
+          });
+          return;
+        }
+      }
+      if (intent === 'next') {
+        goToStep(step + 1);
+        return;
+      }
+    }
+    const fields = new FormData(form);
     const metadata = readMetadata(fields);
     setError('');
     try {
       const fallbackValue = (readText(fields, 'fallback') || undefined) as SourceInput['fallbackProvider'];
+      if (source && previewOnly) {
+        await preview.mutateAsync({
+          platform: source.platform, deliveryMode: source.deliveryMode, contentKind: source.contentKind,
+          primaryProvider: source.primaryProvider as SourceInput['primaryProvider'],
+          fallbackProvider: (source.fallbackProvider ?? undefined) as SourceInput['fallbackProvider'],
+          label: source.label, target: source.target, fetchPolicy: source.fetchPolicy,
+        });
+        return;
+      }
       if (source) {
         const hasScheduleChange = Object.entries(metadata.schedule).some(([key, value]) =>
           value !== source.schedule?.[key as keyof typeof source.schedule]) ||
@@ -145,7 +193,7 @@ export function SourceEditor({
         fallbackProvider: fallbackValue,
         target: { type: target, [targetFields[target]]: value, ...(query && { query }), ...(list && { list }) } as SourceTarget,
       };
-      if ((event.nativeEvent as SubmitEvent).submitter?.getAttribute('value') === 'preview') {
+      if (intent === 'preview') {
         await preview.mutateAsync(input);
       } else {
         const result = await create.mutateAsync(input);
@@ -160,16 +208,20 @@ export function SourceEditor({
     <dialog ref={dialog} className="sr-modal source-editor collection-dialog" aria-labelledby="source-editor-title"
       onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
       <header className="source-editor-header">
-        <h3 id="source-editor-title">{source ? t('Edit source', '编辑来源') : t('Create Collection Source', '新建采集来源')}</h3>
+        <h3 id="source-editor-title">{previewOnly ? t('Preview fetch', '预览抓取') : source ? t('Edit source', '编辑来源') : t('Create Collection Source', '新建采集来源')}</h3>
         <button type="button" className="sr-btn sr-btn--subtle" aria-label={t('Close', '关闭')} onClick={onClose} disabled={busy}><X size={16} /></button>
       </header>
-      <p className="collection-hint">{source
+      <p className="collection-hint">{previewOnly && source ? formatSourceTarget(source.target) : source
         ? t('Update classification, schedule or fetch settings for this source.', '可修改分类、调度和抓取设置。')
         : t('Choose how content arrives, then provide a target and name. Preview to check the configuration before saving.', '先选择接入方式，再填写目标和名称。保存前可用预览检查配置。')}</p>
-      <form className="collection-form" onSubmit={submit} onChange={() => { if (preview.data) preview.reset(); }}>
-        <fieldset className="source-editor-fields" disabled={busy}>
+      {wizard && <ol className="source-wizard-steps" aria-label={t('Source setup steps', '来源设置步骤')}>
+        {stepLabels.map((label, index) => <li key={label} aria-current={index === step ? 'step' : undefined}>{index + 1}. {label}</li>)}
+      </ol>}
+      {wizard && <h4 className="source-step-heading" ref={stepHeading} tabIndex={-1}>{stepLabels[step]}</h4>}
+      <form className="collection-form" noValidate={wizard} onSubmit={submit} onChange={() => { if (preview.data) preview.reset(); }}>
+        {!previewOnly && <fieldset className="source-editor-fields" disabled={busy}>
           {!source && (
-            <>
+            <div className="collection-form" data-source-step="0" hidden={wizard && step !== 0}>
               <div className="wb-grid-2">
                 <label className="wb-field">{t('Collection mode', '接入方式')}
                   <select className="wb-select" aria-label={t('Collection mode', '接入方式')} value={mode} onChange={event => {
@@ -186,11 +238,12 @@ export function SourceEditor({
                   <select className="wb-select" aria-label={t('Platform', '平台')} value={platform} onChange={event => {
                     const next = event.target.value as typeof platform;
                     setPlatform(next);
+                    if (mode === 'pull') setTargetType(next === 'reddit' ? 'community' : 'feed');
                     setKind(next === 'web' ? 'article' : 'post');
                     setProvider('');
                     setTargetValue('');
                   }}>
-                    {platforms.map(value => <option key={value}>{value}</option>)}
+                    {allowedPlatforms.map(value => <option key={value}>{value}</option>)}
                   </select>
                 </label>
               </div>
@@ -229,7 +282,11 @@ export function SourceEditor({
               {mode === 'pull' && target && cap?.keywordSearch === 'global' && cap.provider === 'kaix' && !['feed', 'search'].includes(target) && (
                 <label className="wb-field">{t('Optional target query', '目标内关键词（可选）')}<input name="scopedQuery" className="wb-input" maxLength={200} /></label>
               )}
-              {providerName === 'feed' && target === 'feed' && (
+              <label className="wb-field">{t('Source name', '来源名称')} <small>{t('Required', '必填')}</small><input name="label" className="wb-input" required maxLength={100} /></label>
+            </div>
+          )}
+          <div className="collection-form" data-source-step="1" hidden={wizard && step !== 1}>
+              {!source && providerName === 'feed' && target === 'feed' && (
                 <>
                   <label className="wb-field">{t('Feed format', 'Feed 解析格式')}
                     <select className="wb-select" value={listFormat} onChange={event => setListFormat(event.target.value as typeof listFormat)}>
@@ -244,10 +301,10 @@ export function SourceEditor({
                   ))}</div>}
                 </>
               )}
-            </>
-          )}
           {source && <p className="muted">{formatSourceTarget(source.target)} · {t('To change the target, create a replacement source and archive this one.', '如需更换目标，请新建来源后归档当前来源。')}</p>}
-          <label className="wb-field">{t('Source name', '来源名称')}<input name="label" className="wb-input" required maxLength={100} defaultValue={source?.label} /></label>
+          {source && <label className="wb-field">{t('Source name', '来源名称')}<input name="label" className="wb-input" required maxLength={100} defaultValue={source.label} /></label>}
+          <details className="collection-disclosure" open={!wizard}>
+            <summary>{t('Optional classification', '可选分类信息')}</summary>
           <div className="wb-grid-2">
             <label className="wb-field">{t('Source group', '来源分类')}<input name="sourceGroup" className="wb-input" pattern={SourceGroupPattern.replaceAll('_-', '_\\-')} defaultValue={source?.sourceGroup ?? ''} /></label>
             <label className="wb-field">{t('Source tier', '来源等级')}<select name="tier" className="wb-select" defaultValue={source?.tier ?? 'T2'}><option>T1</option><option>T1_5</option><option>T2</option></select></label>
@@ -258,6 +315,7 @@ export function SourceEditor({
             <input name="tags" className="wb-input" defaultValue={source?.tags.filter(tag => !archivedReddit || tag !== REDDIT_ARCHIVE_SOURCE_TAG).join(', ')} />
           </label>
           {archivedReddit && <label><input name="redditArchive" type="checkbox" defaultChecked={Boolean(source?.tags.includes(REDDIT_ARCHIVE_SOURCE_TAG) || preferredPreset === 'reddit_archive')} /> {t('Reddit offline archive (R4)', 'Reddit 离线归档（R4）')}</label>}
+          </details>
           {mode === 'pull' && (
             <>
               {(fallback || source?.fallbackProvider) && (
@@ -270,6 +328,14 @@ export function SourceEditor({
                 </label>
               )}
               {providerName === 'kaix' && fallback && <p className="muted">{t('Both Reddit channels use Apify and share its credential and availability.', '两个 Reddit 渠道均使用 Apify，共用凭证并受其可用性影响。')}</p>}
+            </>
+          )}
+          </div>
+          <div className="collection-form" data-source-step="2" hidden={wizard && step !== 2}>
+          {wizard && <p className="collection-hint">{platform} · {providerName} · {targetValue || (providerName === 'newsnow' ? t('Selected NewsNow board', '已选 NewsNow 榜单') : '')}</p>}
+          {mode === 'push' && wizard && <p>{t('Push sources receive data through the ingest API or a JSON upload.', '推流来源通过接入 API 或 JSON 上传接收数据。')}</p>}
+          {mode === 'pull' && (
+            <>
               {capabilities.some(item => item.provider === providerName && item.automaticRequestReplay === false) &&
                 <p className="muted">{t('Automatic runs may use paid provider resources within the configured system budget.', '自动调度可能在系统渠道预算内使用付费资源。')}</p>}
               <label><input name="scheduled" type="checkbox" defaultChecked={source?.schedule?.enabled ?? false} /> {t('Enable automatic scheduling', '启用自动调度')}</label>
@@ -294,17 +360,23 @@ export function SourceEditor({
               )}
             </>
           )}
-        </fieldset>
+          </div>
+        </fieldset>}
         {error && <div role="alert" className="wb-alert wb-alert--error">{error}</div>}
         {preview.data && <section className="wb-alert wb-alert--info collection-form" role="status">
           <p>{preview.data.mode === 'fetched' ? t('Fetched preview', '已试抓预览') : t('Configuration validated', '配置已校验')} · {preview.data.providerEnabled ? t('provider ready', '渠道就绪') : t('provider unavailable', '渠道未就绪')} · {formatSourceTarget(preview.data.target)}</p>
           {preview.data.items.length > 0 && <ul>{preview.data.items.map((item, index) => <li key={index}>{item.title ?? item.url ?? '—'}</li>)}</ul>}
-          {preview.data.feeds.length > 0 && <ul>{preview.data.feeds.map(url => <li key={url}><button className="ds-btn ds-btn--ghost" type="button" onClick={() => { setTargetValue(url); preview.reset(); }}>{url}</button></li>)}</ul>}
+          {preview.data.feeds.length > 0 && <ul>{preview.data.feeds.map(url => <li key={url}><button className="ds-btn ds-btn--ghost" type="button" onClick={() => { if (!previewOnly) { setTargetValue(url); preview.reset(); if (wizard) goToStep(0); } }} disabled={previewOnly}>{url}</button></li>)}</ul>}
         </section>}
-        <footer className="source-editor-header">
+        <footer className="source-editor-header source-editor-footer">
           <button className="ds-btn ds-btn--ghost" type="button" onClick={onClose} disabled={busy}>{t('Cancel', '取消')}</button>
-          {!source && <button className="ds-btn ds-btn--ghost" type="submit" value="preview" disabled={busy || !providerName}>{preview.isPending ? t('Checking…', '正在校验…') : t('Preview source', '预览来源')}</button>}
-          <button className="ds-btn" type="submit" value="save" disabled={busy || !providerName}>{source ? t('Save source', '保存来源') : t('Create Source', '创建来源')}</button>
+          {wizard && step > 0 && <button className="ds-btn ds-btn--ghost" type="button" onClick={() => goToStep(step - 1)} disabled={busy}>{t('Previous', '上一步')}</button>}
+          {wizard && step < stepLabels.length - 1 ? (
+            <button className="ds-btn" type="submit" value="next" disabled={busy || !providerName}>{t('Next', '下一步')}</button>
+          ) : <>
+            {(!source || previewOnly) && <button className={previewOnly ? 'ds-btn' : 'ds-btn ds-btn--ghost'} type="submit" value="preview" disabled={busy || !providerName}>{preview.isPending ? t('Checking…', '正在校验…') : previewOnly ? t('Run fetch preview', '执行预览抓取') : t('Preview source', '预览来源')}</button>}
+            {!previewOnly && <button className="ds-btn" type="submit" value="save" disabled={busy || !providerName}>{source ? t('Save source', '保存来源') : t('Create Source', '创建来源')}</button>}
+          </>}
         </footer>
       </form>
     </dialog>

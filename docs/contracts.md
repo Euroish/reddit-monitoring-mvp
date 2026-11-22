@@ -54,6 +54,8 @@
 | COL-04 | MUST | `[LIVE]` `POST /v1/projects/:id/hydrate` 每次限 30 根帖 × 50 评论，**当前实现仅支持 `kaix`（`projects/routes.ts:34` 与 `hydrate.ts` 锁定，`red_crawler` 仅用于 `scheduled` 采集备源）**；`[V2 Phase D]` 按题动态探索 `POST /v1/discovery/query` 拆解 4 正交槽分波写入 `stream_class='adhoc'` 系统源，支持一键转 `pull`。 | 批量水合与探索测试 |
 | ING-01 | MUST | `POST /v1/sources/:id/ingest` 为 L3 外部 Sidecar 与 R4 `plugins/zst-archive/` 的唯一推流入口；强校验 `ingest` scope、非空 `allowedSourceIds` 与 `Idempotency-Key`；输入 `ContentItem` 的 `id` 字段可选（服务端确定性生成）；单批限 `1..100` 项且解码体 `<=1 MiB`；首次返回 `201`、重放同载体 `200`、异体 `409`。 | 推流边界与 201/200/409 E2E |
 
+- **`[LIVE]` 项目采集预检**由 `POST /v1/research/collection-plans/preview` 提供，返回目标匹配、阻断原因、首轮用量估算、可见存量、授权批次和有效字段权限。带 `projectId` 的预检和采集提交均要求有项目写权限的浏览器会话。Viewer 的可见存量按共享及本人批次统计，选择备用渠道须经有效套餐授权。预检期间的额度为查询时估算，提交时重验套餐与配额，执行时由 Worker 按既有预算与租约规则预留渠道资源。
+
 ### 安全加固候选分支的认证契约
 
 `GET /v1/access/invites` 列出最多 50 条当前角色负责的邀请状态，响应不含邀请码和收件人邮箱。`DELETE /v1/access/invites/:id` 撤销同一权限范围内的邀请，已发邮件链接在完成注册时重新校验邀请状态。

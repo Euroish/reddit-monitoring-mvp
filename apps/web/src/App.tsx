@@ -458,7 +458,7 @@ export function App() {
               route={workbenchRoute}
               currentSearch={loc.search}
               selectedProjectId={selectedProjectId}
-              onSelectProjectId={setSelectedProjectId}
+              onSelectProjectId={id => { setSelectedProjectId(id); setContentDetailId(null); }}
               onNavigate={navigate}
               onOpenAuth={openAuth}
             >
@@ -553,7 +553,7 @@ export function App() {
               )}
 
               {workbenchRoute === '/sources' && actor && (
-                <SourcesPage actor={actor} initialQueryString={loc.search} onNavigate={navigate} />
+                <SourcesPage key={new URLSearchParams(loc.search).get('domain') ?? 'all'} actor={actor} initialQueryString={loc.search} onNavigate={navigate} />
               )}
 
               {workbenchRoute === '/workspace' && actor && (

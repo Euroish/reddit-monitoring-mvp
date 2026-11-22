@@ -2859,3 +2859,57 @@
   gap: 5px;
   overflow-wrap: anywhere;
 }
+.project-switcher {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(900px, calc(100vw - 32px));
+  max-width: none;
+  max-height: 80dvh;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--bg, white);
+  color: var(--ink);
+}
+
+.project-switcher[open] { display: flex; flex-direction: column; gap: 14px; }
+.project-switcher::backdrop { background: rgb(23 33 28 / 45%); }
+.project-switcher-header,
+.project-switcher-filters,
+.project-switcher footer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.project-switcher-header { justify-content: space-between; }
+.project-switcher-header h2,
+.project-switcher-results h3 { margin: 0; }
+.project-switcher-filters [aria-pressed='true'] { border-color: var(--wb-teal); color: var(--wb-teal); }
+.project-switcher-results { display: grid; gap: 18px; overflow: auto; padding: 3px; }
+.project-switcher footer { justify-content: flex-end; }
+.project-switcher-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.project-switcher-card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface, white);
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.project-switcher-card:hover,
+.project-switcher-card[aria-current='true'] { border-color: var(--wb-teal); }
+.project-switcher-card > svg { flex: none; color: var(--wb-teal); }
+.project-switcher-copy { display: grid; flex: 1; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.project-switcher-copy > span,
+.project-switcher-copy > small { color: var(--muted); }
+.project-switcher-shared { background: var(--wb-tint); color: var(--wb-purple-deep); }
+
+@media (max-width: 600px) {
+  .project-switcher { width: 100vw; height: 100dvh; max-height: none; padding: 16px; border-radius: 0; }
+  .project-switcher-results { flex: 1; }
+  .project-switcher-cards { grid-template-columns: 1fr; }
+  .project-switcher .ds-btn, .project-switcher .icon-square { min-height: 44px; }
+}

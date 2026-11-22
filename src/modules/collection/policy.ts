@@ -107,12 +107,17 @@ export async function admitViewerCollection(
     resources: number;
     includeComments?: boolean;
     maxCommentsPerPost?: number;
+    useFallback?: boolean;
     from?: string;
     to?: string;
   },
 ) {
   if (actor.clientKind !== "browser" || actor.role !== "viewer") return;
   const effective = await loadEffectivePolicyForUser(client, actor.userId, true);
+
+  if (req.useFallback && !effective.allowProviderChoice) {
+    fail(403, "Your plan does not allow choosing a backup provider");
+  }
 
   if (!effective.manualCollectEnabled) {
     fail(403, `Manual collection is disabled for ${effective.planTier} tier`);
@@ -187,6 +192,7 @@ export async function isViewerJobStillAuthorized(db: Pool | PoolClient, job: {
   provider: string;
   collection_source_id: string;
   page_size: number;
+  request_json?: { useFallback?: unknown } | null;
 }, commentLimit?: number): Promise<boolean> {
   if (!job.requested_by_user_id || job.requested_by_client_kind !== "browser") return true;
   const user = (
@@ -199,6 +205,7 @@ export async function isViewerJobStillAuthorized(db: Pool | PoolClient, job: {
   if (user.role !== "viewer") return true;
   const effective = await loadEffectivePolicyForUser(db, job.requested_by_user_id);
   if (!effective.manualCollectEnabled) return false;
+  if (job.request_json?.useFallback === true && !effective.allowProviderChoice) return false;
   if (!effective.allowedProviders.includes(job.provider)) return false;
   if (job.page_size > effective.maxBatchLimit || (commentLimit ?? 0) > effective.maxCommentsPerPost) return false;
   if (effective.allowedSourceIds !== null && !effective.allowedSourceIds.includes(job.collection_source_id)) {

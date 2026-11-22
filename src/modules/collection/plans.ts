@@ -5,9 +5,11 @@ import type { Pool, QueryResultRow } from "pg";
 import { providerResourceReservation } from "../../../packages/contracts/src/collection-budget";
 import { ResearchPlanPreviewInput, type Actor } from "../../../packages/contracts/src/source-content";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
+import { assertProjectWritable } from "../projects/index";
 import { fail } from "../../storage/db";
 import { loadEffectivePolicyForUser, viewerCollectionDemand, type EffectivePolicy } from "./policy";
 import { sourceSelect } from "./sql";
+import { collectionRequestRestriction, isCollectionBudgetDisabled } from "./config";
 
 type PlanBody = Static<typeof ResearchPlanPreviewInput>;
 
@@ -29,7 +31,7 @@ function buildFieldPolicy(isViewer: boolean, effective: EffectivePolicy) {
   return {
     canEditTarget: true,
     canChooseProvider: !isViewer || effective.allowProviderChoice,
-    canUseFallback: !isViewer,
+    canUseFallback: !isViewer || effective.allowProviderChoice,
     canIncludeComments: !isViewer || effective.maxCommentsPerPost > 0,
     maxLookbackDays: isViewer ? effective.maxLookbackDays : 365,
     maxBatchLimit: isViewer ? effective.maxBatchLimit : 300,
@@ -41,6 +43,7 @@ function collectPolicyBlockers(isViewer: boolean, effective: EffectivePolicy, bo
   if (!isViewer) return [];
   const blockers: string[] = [];
   if (!effective.manualCollectEnabled) blockers.push(`Manual collection is disabled for ${effective.planTier} tier`);
+  if (body.useFallback && !effective.allowProviderChoice) blockers.push("Your plan does not allow choosing a backup provider");
   if (spanDays > effective.maxLookbackDays + 0.05) {
     blockers.push(`Window (${Math.ceil(spanDays)}d) exceeds plan max lookback (${effective.maxLookbackDays}d)`);
   }
@@ -68,31 +71,32 @@ async function collectSourceBlockers(
   if (matched.automatic_collection_blocked) {
     blockers.push("Source is blocked pending review of an unresolved paid request");
   }
+  if (matched.state !== "active") blockers.push("Research source is paused or archived");
   if (isViewer && !effective.allowedProviders.includes(providerName)) {
     blockers.push(`Provider ${providerName} is not enabled for ${effective.planTier} tier`);
   }
   if (isViewer && effective.allowedSourceIds !== null && !effective.allowedSourceIds.includes(matched.id)) {
     blockers.push("This source is outside your allowed collection scope");
   }
-  const budgetRow = (
-    await pool.query<{
-      enabled: boolean;
-      daily_requests: number;
-      monthly_requests: number;
-      daily_resources: number;
-      monthly_resources: number;
-    }>(
-      "SELECT enabled, daily_requests, monthly_requests, daily_resources, monthly_resources FROM source_provider_budget WHERE provider=$1",
-      [providerName],
-    )
-  ).rows[0];
-  if (
-    budgetRow &&
-    (!budgetRow.enabled ||
-      Math.min(budgetRow.daily_requests, budgetRow.monthly_requests, budgetRow.daily_resources, budgetRow.monthly_resources) <= 0)
-  ) {
+  if (await isCollectionBudgetDisabled(pool, providerName)) {
     blockers.push(`System channel budget for ${providerName} is disabled or zero`);
   }
+  return blockers;
+}
+
+async function previewQuotaBlockers(pool: Pool, userId: string | undefined, effective: EffectivePolicy, personalResources: number) {
+  if (effective.dailyRequests === null && effective.dailyResources === null) return [];
+  const { rows: [usage] } = await pool.query<{ requests: number; resources: number }>(
+    `SELECT COALESCE(SUM(requests_reserved),0)::int AS requests,
+            COALESCE(SUM(resources_reserved),0)::int AS resources
+     FROM user_provider_usage WHERE user_id=$1 AND day=(NOW() AT TIME ZONE 'UTC')::date`,
+    [userId],
+  );
+  const blockers: string[] = [];
+  if (effective.dailyRequests !== null && usage.requests + 1 > effective.dailyRequests)
+    blockers.push("Daily user collection request quota reached");
+  if (effective.dailyResources !== null && usage.resources + personalResources > effective.dailyResources)
+    blockers.push("Daily user collection resource quota reached");
   return blockers;
 }
 
@@ -108,8 +112,9 @@ async function previewMatchedSource(
   fieldPolicy: ReturnType<typeof buildFieldPolicy>,
 ) {
   const isViewer = actor.role === "viewer";
+  const fallbackRequested = body.useFallback && fieldPolicy.canUseFallback;
   const providerName: string =
-    body.useFallback && !isViewer && matched.fallback_provider ? matched.fallback_provider : matched.primary_provider;
+    fallbackRequested && matched.fallback_provider ? matched.fallback_provider : matched.primary_provider;
   const provider = providers.find(
     (p) => p.capability.provider === providerName && p.capability.platform === matched.platform,
   );
@@ -117,6 +122,9 @@ async function previewMatchedSource(
     ...policyBlockers,
     ...(await collectSourceBlockers(pool, isViewer, effective, matched, providerName, provider)),
   ];
+  if (fallbackRequested && !matched.fallback_provider) blockers.push("No fallback provider configured for this source");
+  const restriction = collectionRequestRestriction(providerName, matched.platform, matched.target.type, body);
+  if (restriction) blockers.push(restriction);
   const pageSize = providerName === "twitterapis" ? Math.min(body.limit, 20) : body.limit;
   const systemResources = provider
     ? providerResourceReservation({
@@ -132,13 +140,19 @@ async function previewMatchedSource(
     includeComments: body.includeComments,
     maxCommentsPerPost: body.maxCommentsPerPost,
   }).resources;
+  if (isViewer) blockers.push(...await previewQuotaBlockers(pool, actor.userId, effective, personalResources));
 
   const { rows: [inv] } = await pool.query<{ count: string }>(
     `SELECT COUNT(DISTINCT d.content_id)::text AS count
      FROM content_discovery d
      JOIN content c ON c.id = d.content_id
-     WHERE d.collection_source_id = $1 AND c.created_at_source >= $2::timestamptz AND c.created_at_source < $3::timestamptz`,
-    [matched.id, body.from, body.to],
+     WHERE d.collection_source_id = $1 AND c.created_at_source >= $2::timestamptz AND c.created_at_source < $3::timestamptz
+       AND (NOT $4::boolean OR EXISTS (
+         SELECT 1 FROM collection_batch_item i JOIN collection_batch b ON b.id=i.batch_id
+         WHERE i.content_id=d.content_id AND b.collection_source_id=d.collection_source_id
+           AND (b.visibility='shared' OR b.created_by_user_id=$5::uuid)
+       ))`,
+    [matched.id, body.from, body.to, isViewer, actor.userId ?? null],
   );
   const existingItemCount = Number(inv?.count ?? 0);
   const { rows: reusableBatches } = await pool.query<{
@@ -197,6 +211,7 @@ export async function planRoutes(app: FastifyInstance, pool: Pool, providers: Co
       const actor = request.actor!;
       if (actor.clientKind !== "browser") fail(403, "Browser session required");
       const body = request.body;
+      if (body.projectId) await assertProjectWritable(pool, actor, body.projectId);
       const fromMs = Date.parse(body.from);
       const toMs = Date.parse(body.to);
       if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs) fail(422, "Invalid collection window");
@@ -207,9 +222,9 @@ export async function planRoutes(app: FastifyInstance, pool: Pool, providers: Co
 
       const { rows: candidateRows } = await pool.query(
         `${sourceSelect}
-         WHERE cs.usage_domain = 'research' AND cs.delivery_mode = 'pull' AND cs.state = 'active'
+         WHERE cs.usage_domain = 'research' AND cs.delivery_mode = 'pull'
            AND ($1::uuid[] IS NULL OR cs.id = ANY($1::uuid[]))
-         ORDER BY cs.created_at, cs.id`,
+         ORDER BY (cs.state='active') DESC, cs.created_at, cs.id`,
         [actor.allowedSourceIds],
       );
       let matched = body.sourceId ? candidateRows.find((r) => r.id === body.sourceId) : undefined;

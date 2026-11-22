@@ -5,9 +5,9 @@ import { useI18n } from '../i18n/translations';
 
 const maxFileBytes = 512 * 1024;
 
-export function SourceImportDialog({ onClose }: { onClose: () => void }) {
+export function SourceImportDialog({ defaultFormat = 'opml', onClose }: { defaultFormat?: 'opml' | 'json'; onClose: () => void }) {
   const { t } = useI18n();
-  const [format, setFormat] = useState<'opml' | 'json'>('opml');
+  const [format, setFormat] = useState(defaultFormat);
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
   const dialog = useRef<HTMLDialogElement>(null);

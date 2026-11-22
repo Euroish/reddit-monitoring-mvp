@@ -17,8 +17,9 @@ import {
 } from "../../../packages/contracts/src/source-content";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { canonical, commitContentBatch, prepareContentBatch } from "../content/index";
+import { assertProjectWritable } from "../projects/index";
 import { fail, transaction } from "../../storage/db";
-import { sourcePreviewRoute, validateFallback, validateSource } from "./config";
+import { collectionRequestRestriction, isCollectionBudgetDisabled, sourcePreviewRoute, validateFallback, validateSource } from "./config";
 import { sourceImportRoute } from "./import";
 import { admitViewerCollection, viewerCollectionDemand } from "./policy";
 import { assertSource, insertSource, listPublicSources, listSources, lockSource, audit } from "./sql";
@@ -329,13 +330,20 @@ export async function collectionRoutes(
           request.actor!,
           request.params.id,
         );
+        if (request.body.projectId) {
+          if (request.actor!.clientKind !== "browser") fail(403, "Browser session required");
+          await assertProjectWritable(client, request.actor!, request.body.projectId);
+        }
         const key = request.headers["idempotency-key"];
         const previous = (await client.query(
-          "SELECT id,request_json FROM source_collection_job WHERE collection_source_id=$1 AND request_key=$2 AND purpose='collect' AND operation='radar'",
+          "SELECT id,request_json,requested_by_user_id,requested_by_client_kind FROM source_collection_job WHERE collection_source_id=$1 AND request_key=$2 AND purpose='collect' AND operation='radar'",
           [source.id, key],
         )).rows[0];
         if (previous) {
-          if (canonical(previous.request_json) !== canonical(request.body)) fail(409, "Idempotency key already used with different request");
+          if (previous.requested_by_client_kind !== request.actor!.clientKind ||
+              previous.requested_by_user_id !== (request.actor!.userId ?? null) ||
+              canonical(previous.request_json) !== canonical(request.body))
+            fail(409, "Idempotency key already used with different request");
           return { jobId: previous.id };
         }
         if (source.delivery_mode !== "pull")
@@ -349,29 +357,8 @@ export async function collectionRoutes(
             item.capability.provider === providerName &&
             item.capability.platform === source.platform,
         );
-        const maxComments = request.body.maxCommentsPerPost ?? 15;
-        if (
-          providerName === "kaix" &&
-          source.target.type !== "post" &&
-          request.body.limit *
-            (request.body.includeComments ? maxComments + 1 : 1) >
-            2000
-        )
-          fail(422, "Requested batch exceeds 2000 nodes");
-        if (
-          providerName === "bluesky_appview" &&
-          (request.body.limit > 100 || request.body.includeComments)
-        )
-          fail(422, "Bluesky supports at most 100 authored posts per request");
-        if ((providerName === "twitterapis" && request.body.includeComments) ||
-            (providerName === "scrapebadger" && (request.body.limit > 100 || request.body.includeComments)))
-          fail(422, "X collection exceeds the provider page limit or requests comments");
-        if (providerName === "red_crawler" &&
-          (request.body.limit > (source.target.type === "post" ? 50 : 100) ||
-           (request.body.includeComments && source.target.type !== "post")))
-          fail(422, "red_crawler supports one bounded search or post comment run per task");
-        if (source.platform === "web" && (request.body.limit > 100 || request.body.includeComments))
-          fail(422, "Web collection supports up to 100 articles per task");
+        const restriction = collectionRequestRestriction(providerName, source.platform, source.target.type, request.body);
+        if (restriction) fail(422, restriction);
         if (!provider?.capability.enabled)
           fail(
             422,
@@ -379,12 +366,15 @@ export async function collectionRoutes(
           );
         if (source.automatic_collection_blocked)
           fail(409, "Collection is blocked pending review of an unresolved operation");
+        if (request.body.projectId && await isCollectionBudgetDisabled(client, providerName))
+          fail(409, "System channel budget is disabled or zero");
         const pageSize =
           providerName === "twitterapis" ? Math.min(request.body.limit, 20) : request.body.limit;
         await admitViewerCollection(client, request.actor!, {
           sourceId: source.id,
           from: request.body.from,
           to: request.body.to,
+          useFallback: request.body.useFallback,
           ...viewerCollectionDemand(providerName, source.target.type, pageSize, request.body),
         });
         const id = randomUUID();

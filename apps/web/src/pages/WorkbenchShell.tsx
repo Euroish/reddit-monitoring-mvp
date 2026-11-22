@@ -5,8 +5,6 @@ import {
   Bookmark,
   BookOpen,
   Calendar,
-  Check,
-  ChevronDown,
   Command,
   Database,
   ExternalLink,
@@ -44,6 +42,7 @@ import {
   useSavedQueriesQuery,
   useSourcesQuery,
 } from '../api/hooks';
+import { ProjectSwitcher } from '../components/ProjectSwitcher';
 import { SiftlineLogo } from '../components/BrandMark';
 import { useLogo } from '../components/brandContext';
 import { useTheme } from '../components/themeContext';
@@ -102,7 +101,7 @@ export function WorkbenchShell({
   const [quickTerm, setQuickTerm] = useState('');
   const [quickErr, setQuickErr] = useState<string | null>(null);
 
-  const [openPop, setOpenPop] = useState<'proj' | 'create' | 'notif' | 'avatar' | null>(null);
+  const [openPop, setOpenPop] = useState<'create' | 'notif' | 'avatar' | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -124,9 +123,9 @@ export function WorkbenchShell({
   const currentDomainParam = searchParams.get('domain') || '';
   const urlProjectId = searchParams.get('projectId') || '';
 
-  const resolvedProject = projects.find((p) => p.id === (urlProjectId || selectedProjectId)) || projects[0];
-  const myProjects = useMemo(() => projects.filter((p) => !p.is_shared), [projects]);
-  const sharedProjects = useMemo(() => projects.filter((p) => p.is_shared), [projects]);
+  const resolvedProject = urlProjectId
+    ? projects.find(project => project.id === urlProjectId)
+    : projects.find(project => project.id === selectedProjectId) ?? projects[0];
 
   const activeDomain: 'feed' | 'research' | 'ops' | 'settings' =
     route === '/settings'
@@ -236,14 +235,6 @@ export function WorkbenchShell({
     },
     [onNavigate],
   );
-
-  const projInitials = (name?: string) => {
-    if (!name) return 'SL';
-    const words = name.trim().split(/\s+/);
-    return words.length >= 2
-      ? (words[0][0] + words[1][0]).toUpperCase()
-      : name.slice(0, 2).toUpperCase();
-  };
 
   const userInitial = actor ? actor.email.slice(0, 2).toUpperCase() : 'G';
 
@@ -399,27 +390,23 @@ export function WorkbenchShell({
         {/* Domain Context Header: Project Switcher ONLY in Research Domain */}
         {activeDomain === 'research' && actor ? (
           <div className="proj-switch-wrap" data-pop-root>
-            <button
-              type="button"
-              className="proj-switch"
-              onClick={() => setOpenPop(openPop === 'proj' ? null : 'proj')}
-              aria-expanded={openPop === 'proj'}
-            >
-              <span className="ps-avatar">{projInitials(resolvedProject?.name)}</span>
-              <span className="ps-txt">
-                <b>{resolvedProject?.name || t('Select Research Project', '选择研究项目')}</b>
-                <small>
-                  {resolvedProject
-                    ? resolvedProject.dataset_mode === 'batch'
-                      ? (resolvedProject.enabled_batch_count ?? 0) > 0
-                        ? `${resolvedProject.enabled_batch_count} ${t('active batches', '个已启用批次')}`
-                        : t('Pending data ingestion', '待接入研究数据')
-                      : `${resolvedProject.source_ids.length} ${t('sources', '个绑定来源')}`
-                    : t('Create or select a project', '新建或选择一个项目')}
-                </small>
-              </span>
-              <ChevronDown size={14} color="var(--faint)" />
-            </button>
+            <ProjectSwitcher projects={projects} selected={resolvedProject}
+              onCreate={() => navigateAndClose('/projects?new=1')}
+              onSelect={project => {
+                onSelectProjectId(project.id);
+                if (project.id === urlProjectId) return;
+                const projectId = encodeURIComponent(project.id);
+                if (route === '/content') {
+                  navigateAndClose('/content?projectId=' + projectId);
+                  return;
+                }
+                const requested = route === '/projects' ? currentView : '';
+                const canKeepView = project.can_edit !== false &&
+                  (requested === 'jobs' || requested === 'overview' ||
+                    (project.dataset_mode === 'batch' && ['collect', 'batches'].includes(requested)));
+                const view = canKeepView ? requested : 'overview';
+                navigateAndClose('/projects?view=' + view + '&projectId=' + projectId);
+              }} />
 
             <div className="proj-quick-bar">
               <button
@@ -439,93 +426,6 @@ export function WorkbenchShell({
               </button>
             </div>
 
-            {openPop === 'proj' && (
-              <div className="ds-pop" style={{ top: '100%', left: 12, width: 300 }}>
-                <div className="pop-hd">
-                  <span>{t('Switch Research Project', '切换研究项目')}</span>
-                  <span>{projects.length}</span>
-                </div>
-                <div style={{ display: 'grid', gap: 4, maxHeight: 280, overflowY: 'auto' }}>
-                  {myProjects.length > 0 && (
-                    <>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--faint)', padding: '4px 6px 2px' }}>
-                        {t('My Projects', '我的项目')}
-                      </div>
-                      {myProjects.map((p) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          className={`pop-opt ${p.id === resolvedProject?.id ? 'on' : ''}`}
-                          onClick={() => {
-                            onSelectProjectId(p.id);
-                            setOpenPop(null);
-                            const nextView = route === '/projects' && ['collect', 'jobs', 'batches', 'overview'].includes(currentView)
-                              ? `&view=${currentView}`
-                              : '';
-                            if (route === '/content') onNavigate(`/content?projectId=${encodeURIComponent(p.id)}`);
-                            else onNavigate(`/projects?projectId=${encodeURIComponent(p.id)}${nextView}`);
-                          }}
-                        >
-                          <span className="ps-avatar" style={{ width: 24, height: 24, fontSize: 9.5 }}>
-                            {projInitials(p.name)}
-                          </span>
-                          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            <b style={{ display: 'block', fontSize: 11.5 }}>{p.name}</b>
-                            <small style={{ color: 'var(--faint)', fontSize: 10 }}>
-                              {p.description || (p.dataset_mode === 'batch' ? `${p.enabled_batch_count ?? 0} ${t('batches', '批次')}` : `${p.source_ids.length} ${t('sources', '来源')}`)}
-                            </small>
-                          </span>
-                          {p.id === resolvedProject?.id && <Check size={13} color="var(--wb-purple)" />}
-                        </button>
-                      ))}
-                    </>
-                  )}
-                  {sharedProjects.length > 0 && (
-                    <>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--faint)', padding: '6px 6px 2px' }}>
-                        {t('Shared Projects', '共享项目')}
-                      </div>
-                      {sharedProjects.map((p) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          className={`pop-opt ${p.id === resolvedProject?.id ? 'on' : ''}`}
-                          onClick={() => {
-                            onSelectProjectId(p.id);
-                            setOpenPop(null);
-                            if (route === '/content') onNavigate(`/content?projectId=${encodeURIComponent(p.id)}`);
-                            else onNavigate(`/projects?projectId=${encodeURIComponent(p.id)}`);
-                          }}
-                        >
-                          <span className="ps-avatar" style={{ width: 24, height: 24, fontSize: 9.5 }}>
-                            {projInitials(p.name)}
-                          </span>
-                          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            <b style={{ display: 'block', fontSize: 11.5 }}>
-                              {p.name} {!p.can_edit && <span style={{ fontSize: 9.5, fontWeight: 500, color: 'var(--faint)' }}>[{t('Read-only', '只读')}]</span>}
-                            </b>
-                            <small style={{ color: 'var(--faint)', fontSize: 10 }}>
-                              {p.description || (p.dataset_mode === 'batch' ? `${p.enabled_batch_count ?? 0} ${t('batches', '批次')}` : `${p.source_ids.length} ${t('sources', '来源')}`)}
-                            </small>
-                          </span>
-                          {p.id === resolvedProject?.id && <Check size={13} color="var(--wb-purple)" />}
-                        </button>
-                      ))}
-                    </>
-                  )}
-                </div>
-                <div style={{ borderTop: '1px solid var(--line)', marginTop: 6, paddingTop: 6 }}>
-                  <button
-                    type="button"
-                    className="pop-opt"
-                    onClick={() => navigateAndClose('/projects?new=1')}
-                  >
-                    <Plus size={13} />
-                    <span>{t('Create Research Project', '新建研究项目')}</span>
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         ) : (
           <div className="proj-switch-wrap">

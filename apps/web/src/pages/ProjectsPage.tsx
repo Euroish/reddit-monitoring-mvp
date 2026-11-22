@@ -39,9 +39,10 @@ import { DailyTrendChart } from '../components/charts/DailyTrendChart';
 import { DistributionCards } from '../components/charts/DistributionCharts';
 import { useChartColors } from '../components/charts/chartUtils';
 import { CrossPlatformAnalyticsPanel } from '../components/CrossPlatformAnalyticsPanel';
+import { ProjectCollectView } from '../components/ProjectCollectView';
+import '../styles/collection.css';
 import {
   ProjectBatchesView,
-  ProjectCollectView,
   ProjectJobsView,
   ProjectListView,
 } from '../components/ProjectWorkspaceViews';
@@ -125,7 +126,7 @@ export function ProjectsPage({
   const activeView: 'list' | 'collect' | 'jobs' | 'batches' | 'overview' =
     urlView === 'list' || urlView === 'collect' || urlView === 'jobs' || urlView === 'batches' || urlView === 'overview'
       ? urlView
-      : selectedProject && selectedProject.dataset_mode === 'batch' && (selectedProject.enabled_batch_count ?? 0) === 0
+      : canWrite && selectedProject && selectedProject.dataset_mode === 'batch' && (selectedProject.enabled_batch_count ?? 0) === 0
         ? 'collect'
         : 'overview';
   const go = useCallback(
@@ -198,7 +199,10 @@ export function ProjectsPage({
     setFormRevision(1);
     setFormError(null);
     setConflict409(false);
-  }, []);
+  }, [setModalMode, setFormName, setFormDescription, setFormDatasetMode, setFormSourceIds,
+    setFormAnyTerms, setFormAllTerms, setFormExclusions, setFormScope, setFormSignal,
+    setFormPlatform, setFormKind, setFormThreadAware, setFormIncludePush, setFormRevision,
+    setFormError, setConflict409]);
 
   useEffect(() => {
     if (!activeSection) return;
@@ -216,6 +220,7 @@ export function ProjectsPage({
   const didHandleUrlNew = useRef(false);
   useEffect(() => {
     if (openNewFromUrl && canCreateProject && !didHandleUrlNew.current) {
+      if (requestedSourceId && sourcesQuery.isPending) return;
       const timer = setTimeout(() => {
         didHandleUrlNew.current = true;
         if (requestedSourceId && !requestedSource) {
@@ -226,7 +231,7 @@ export function ProjectsPage({
       return () => clearTimeout(timer);
     }
     return undefined;
-  }, [openNewFromUrl, canCreateProject, openCreate, requestedSource, requestedSourceId, t]);
+  }, [openNewFromUrl, canCreateProject, openCreate, requestedSource, requestedSourceId, sourcesQuery.isPending, t]);
 
   useEffect(() => {
     if (!openFilterPop) return;
@@ -607,15 +612,16 @@ export function ProjectsPage({
         </div>
       ) : activeView === 'collect' && selectedProject ? (
         <ProjectCollectView
+          key={selectedProject.id}
           actor={actor}
           project={selectedProject}
           sources={sources}
           onNavigate={go}
         />
       ) : activeView === 'jobs' && selectedProject ? (
-        <ProjectJobsView project={selectedProject} onNavigate={go} />
+        <ProjectJobsView key={selectedProject.id} project={selectedProject} jobId={searchParams.get('jobId') ?? undefined} onNavigate={go} />
       ) : activeView === 'batches' && selectedProject ? (
-        <ProjectBatchesView project={selectedProject} allProjects={projects} onNavigate={go} />
+        <ProjectBatchesView key={selectedProject.id} project={selectedProject} batchId={searchParams.get('batchId') ?? undefined} allProjects={projects} onNavigate={go} />
       ) : (
         <>
           {selectedProject && (
@@ -1264,7 +1270,9 @@ export function ProjectsPage({
 
             <div className="wb-alert wb-alert--info" style={{ marginBottom: 14 }}>
               {modalMode === 'create'
-                ? t(
+                ? formDatasetMode === 'source_filter' && requestedSource
+                  ? t('This project will use stored and future samples from the selected source.', '此项目将使用所选来源已入库和后续入库的样本。') + ' · ' + requestedSource.label
+                  : t(
                     'New research projects always start with 0 samples. You will define research targets and run a preflight check on the next screen.',
                     '新建研究项目初始样本严格为 0，不会自动继承历史数据。创建后将直接进入「数据接入」配置研究目标与预检。',
                   )

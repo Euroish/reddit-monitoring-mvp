@@ -1,9 +1,38 @@
 import type { Static } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
+import type { Pool, PoolClient } from "pg";
 import { SourceInput, SourcePreview, type PublicContentKind, type SourceTarget } from "../../../packages/contracts/src/source-content";
 import { ContentProviderError, type ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { fail } from "../../storage/db";
+
+export function collectionRequestRestriction(
+  provider: string,
+  platform: string,
+  target: string,
+  input: { limit: number; includeComments?: boolean; maxCommentsPerPost?: number },
+): string | undefined {
+  if (provider === "kaix" && target !== "post" &&
+      input.limit * (input.includeComments ? (input.maxCommentsPerPost ?? 15) + 1 : 1) > 2000)
+    return "Requested batch exceeds 2000 nodes";
+  if (provider === "bluesky_appview" && (input.limit > 100 || input.includeComments))
+    return "Bluesky supports at most 100 authored posts per request";
+  if ((provider === "twitterapis" && input.includeComments) ||
+      (provider === "scrapebadger" && (input.limit > 100 || input.includeComments)))
+    return "X collection exceeds the provider page limit or requests comments";
+  if (provider === "red_crawler" && (input.limit > (target === "post" ? 50 : 100) || (input.includeComments && target !== "post")))
+    return "red_crawler supports one bounded search or post comment run per task";
+  if (platform === "web" && (input.limit > 100 || input.includeComments))
+    return "Web collection supports up to 100 articles per task";
+}
+
+export async function isCollectionBudgetDisabled(db: Pool | PoolClient, provider: string) {
+  const { rows: [budget] } = await db.query<{ disabled: boolean }>(
+    `SELECT NOT enabled OR LEAST(daily_requests, monthly_requests, daily_resources, monthly_resources)<=0 AS disabled
+     FROM source_provider_budget WHERE provider=$1`, [provider],
+  );
+  return budget?.disabled ?? false;
+}
 
 export function validateFallback(providers: ContentProvider[], input: {
   primary: string; fallback: string; delivery: string; target: SourceTarget; kind: PublicContentKind;
