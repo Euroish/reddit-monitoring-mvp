@@ -39,7 +39,6 @@ import { ProviderCredentialsTab } from '../components/ProviderCredentialsTab';
 import { useTheme } from '../components/themeContext';
 import { type Actor, type MachineScope } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
-import { isRedditArchiveSource } from '../lib/collectionLimits';
 
 const ALL_SCOPES: MachineScope[] = ['read', 'export', 'ingest', 'collect', 'sources:write', 'projects:write'];
 
@@ -53,7 +52,7 @@ export function SettingsPage({
   const { lang, t } = useI18n();
   const { activeLogo, setActiveIdx, setSwitcherOpen } = useLogo();
   const { palette, setStudioOpen } = useTheme();
-  const canManage = actor.clientKind === 'browser' && actor.role !== 'viewer';
+  const canManage = actor.role === 'owner' || actor.role === 'admin';
 
   type SettingsTab = 'account' | 'providers' | 'members' | 'keys' | 'brand';
   const sp = new URLSearchParams(initialQueryString);
@@ -82,8 +81,6 @@ export function SettingsPage({
 
   const sources = sourcesQuery.data?.sources || [];
   const keys = keysQuery.data?.keys || [];
-  const requestedArchiveSource = sp.get('archiveSource');
-  const archiveSource = sources.find(source => source.id === requestedArchiveSource && source.state === 'active' && isRedditArchiveSource(source));
 
   const [inviteRole, setInviteRole] = useState<'viewer' | 'admin'>('viewer');
   const [inviteEmail, setInviteEmail] = useState('');
@@ -486,17 +483,17 @@ export function SettingsPage({
                     <div className="wb-field">
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                         <label style={{ margin: 0 }}>{t('Scopes', '授权作用域')}</label>
-                        {requestedArchiveSource && (
-                          <button type="button" className="ds-btn ds-btn--quiet" disabled={!archiveSource}
-                            onClick={() => {
-                              if (!archiveSource) return;
-                              setLabel('r4-open-corpus-pusher');
-                              setScopes(['ingest']);
-                              setAllowedSourceIds([archiveSource.id]);
-                            }}>
-                            {t('Use archive source preset', '应用归档来源预设')}
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          className="ds-btn ds-btn--quiet"
+                          style={{ height: 22, fontSize: 10, padding: '0 8px' }}
+                          onClick={() => {
+                            setLabel((prev) => prev || 'r4-open-corpus-pusher');
+                            setScopes(['ingest', 'read']);
+                          }}
+                        >
+                          {t('Preset: R4 Archive Push (ingest + read)', '一键预设: R4 归档推流 (ingest + read)')}
+                        </button>
                       </div>
                       <div className="pill-select">
                         {ALL_SCOPES.map((sc) => (
@@ -527,8 +524,6 @@ export function SettingsPage({
                         ))}
                       </div>
                     </div>
-                    {requestedArchiveSource && !archiveSource && !sourcesQuery.isPending &&
-                      <p className="muted">{t('The requested archive source is unavailable or inactive.', '指定的归档来源不可用或未启用。')}</p>}
                     {keyErr && <div className="wb-alert wb-alert--error">{keyErr}</div>}
                     <div>
                       <button type="submit" className="ds-btn" disabled={createKeyMut.isPending}>

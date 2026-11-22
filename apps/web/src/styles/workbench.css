@@ -2779,39 +2779,3 @@
     height: 58px;
   }
 }
-.source-editor {
-  width: min(620px, calc(100% - 24px));
-  max-height: calc(100dvh - 24px);
-  margin: auto;
-  overflow: auto;
-  padding: 20px;
-  color: var(--ink);
-}
-
-.source-editor::backdrop {
-  background: rgb(0 0 0 / 46%);
-}
-
-.source-editor-fields {
-  display: grid;
-  gap: 10px;
-  margin: 0 0 12px;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-}
-
-.source-editor-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 10px 0;
-}
-
-.source-health {
-  display: grid;
-  gap: 5px;
-  overflow-wrap: anywhere;
-}

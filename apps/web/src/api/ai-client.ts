@@ -1,30 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { VendorSourceBinding as AiSourceBinding } from '../../../../packages/contracts/src/ai-catalog';
-import { liveFetch } from './client';
-
-export type { VendorSourceBinding as AiSourceBinding } from '../../../../packages/contracts/src/ai-catalog';
-
-interface AiSyncResult {
-  runId?: string;
-  skippedLocked?: boolean;
-  skippedUnchanged?: boolean;
-  fetchedCount?: number;
-  changedCount?: number;
-  candidatesCreated?: number;
-  snapshotsSaved?: number;
-}
-
-interface AiSyncRun {
-  id: string;
-  sourceCode: string;
-  triggerKind: string;
-  status: string;
-  itemsSeen: number;
-  itemsChanged: number;
-  candidatesCreated: number;
-  startedAt: string;
-  errorMessage: string | null;
-}
+import { ApiError } from '../contracts/api';
 
 export interface AiVendorItem {
   id: string;
@@ -184,8 +159,24 @@ export interface AiRegistrySourceItem {
   lastError: string | null;
 }
 
-function aiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  return liveFetch<T>('/api' + path, { ...init, rawBase: true });
+async function aiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const url = path.startsWith('/api/') ? path : `/api${path}`;
+  const res = await fetch(url, {
+    credentials: 'same-origin',
+    headers: {
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(init?.headers ?? {}),
+    },
+    ...init,
+  });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) {
+    const msg = data?.error?.message || `HTTP ${res.status}`;
+    const code = data?.error?.code || `http_${res.status}`;
+    throw new ApiError(res.status, code, msg);
+  }
+  return data as T;
 }
 
 function toQs(params: Record<string, string | number | undefined | null>): string {
@@ -219,12 +210,7 @@ export const aiApi = {
     aiFetch<{
       windowDays: number;
       shadowMode: boolean;
-      schedulerConfigured: boolean;
-      collectionWorker: { state: string; lastHeartbeatAt: string; heartbeatFresh: boolean } | null;
-      llmBudget: { dailyLimit: number; reservedToday: number };
-      sourceNetworkingConfigured: boolean;
       llmConfigured: boolean;
-      aaKeyConfigured: boolean;
       aaPublicRedistribution: boolean;
       metrics: {
         autoPublished: number;
@@ -252,7 +238,7 @@ export const aiApi = {
       }>;
     }>('/v1/admin/ai/ops/audit'),
   runDiscovery: (body: { shadowMode?: boolean; lookbackHours?: number; archiveLowValue?: boolean }) =>
-    aiFetch<{ scanned: number; autoPublished: number; shadowPassed: number; candidatesQueued: number; archived: number; skippedNonOfficial: number }>('/v1/admin/ai/discovery/run', {
+    aiFetch<{ scanned: number; autoPublished: number; shadowPassed: number; candidatesQueued: number; archived: number }>('/v1/admin/ai/discovery/run', {
       method: 'POST',
       body: JSON.stringify(body),
     }),
@@ -299,14 +285,8 @@ export const aiApi = {
       body: JSON.stringify({ reason }),
     }),
   listSources: () => aiFetch<{ items: AiRegistrySourceItem[] }>('/v1/admin/ai/sources'),
-  listSyncRuns: () => aiFetch<{ items: AiSyncRun[] }>('/v1/admin/ai/sync-runs'),
-  listSourceBindings: () => aiFetch<{ items: AiSourceBinding[] }>('/v1/admin/ai/vendor-sources'),
-  saveSourceBinding: (body: AiSourceBinding) =>
-    aiFetch<AiSourceBinding>('/v1/admin/ai/vendor-sources', { method: 'PUT', body: JSON.stringify(body) }),
-  removeSourceBinding: ({ sourceId, vendorId }: AiSourceBinding) =>
-    aiFetch<{ removed: boolean }>('/v1/admin/ai/vendor-sources/' + sourceId + '/' + vendorId, { method: 'DELETE' }),
   triggerSync: (code: string, dryRun = false) =>
-    aiFetch<AiSyncResult>(`/v1/admin/ai/sources/${encodeURIComponent(code)}/sync`, {
+    aiFetch<Record<string, unknown>>(`/v1/admin/ai/sources/${encodeURIComponent(code)}/sync`, {
       method: 'POST',
       body: JSON.stringify({ dryRun }),
     }),
@@ -401,10 +381,6 @@ export function useAiAdminMutations() {
     void qc.invalidateQueries({ queryKey: ['ai'] });
   };
   return {
-    patch: useMutation({
-      mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => aiApi.patchCandidate(id, body),
-      onSuccess: invalidate,
-    }),
     publish: useMutation({
       mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => aiApi.publishCandidate(id, body),
       onSuccess: invalidate,

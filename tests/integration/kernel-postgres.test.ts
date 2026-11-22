@@ -247,11 +247,6 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
       );
       assert.equal(responses[0].json().jobId, responses[1].json().jobId);
       assert.equal(responses[0].json().added, 32);
-      const recent = await app.inject({ url: "/v1/source-jobs/recent?sourceId=" + a.id, headers });
-      const browserJob = recent.json().jobs.find((job: { id: string }) => job.id === responses[0].json().jobId);
-      assert.equal(browserJob.requestedByClientKind, "browser");
-      assert.equal(browserJob.purpose, "ingest");
-      assert.equal(browserJob.recordsInserted, 32);
       assert.equal((await ingest({ items: [item] })).statusCode, 409);
       assert.equal(
         (
@@ -354,13 +349,6 @@ test("PG16 HTTP workbench: auth, mixed ingest, permissions, replay, NULL cursors
           .statusCode,
         403,
       );
-      const machineReceipt = await app.inject({
-        method: "POST", url: "/v1/sources/" + a.id + "/ingest",
-        headers: { ...machine, "idempotency-key": "machine-receipt" }, payload: { items: [item] },
-      });
-      assert.equal(machineReceipt.statusCode, 201, machineReceipt.body);
-      const machineJobs = await app.inject({ url: "/v1/source-jobs/recent?sourceId=" + a.id, headers });
-      assert.equal(machineJobs.json().jobs.find((job: { id: string }) => job.id === machineReceipt.json().jobId).requestedByClientKind, "machine");
       const other = batchItem(b.id, {
         externalId: "t3_other123",
         publishedAt: known.publishedAt,

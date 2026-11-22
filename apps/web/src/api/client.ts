@@ -37,14 +37,12 @@ import {
   type SavedQueryDto,
   type SessionPayload,
   type SourceInput,
-  type SourcePatch,
-  type SourcePreviewResult,
-  type SourceImport,
-  type SourceImportResult,
   type SourceJob,
   type StoryFeed,
   type StoryQuery,
   type UserAccountDto,
+  mergeServerCapabilities,
+  normalizeCollectionSource,
   normalizeSourceJob,
 } from '../contracts/api';
 
@@ -66,7 +64,7 @@ function buildQueryParams(params: Record<string, unknown>): string {
   return s ? `?${s}` : '';
 }
 
-export async function liveFetch<T>(
+async function liveFetch<T>(
   path: string,
   options: RequestInit & { rawBase?: boolean } = {},
 ): Promise<T> {
@@ -201,7 +199,11 @@ export const apiClient = {
   },
 
   async getCapabilities(): Promise<CapabilitiesResponse> {
-    return liveFetch('/capabilities');
+    const raw = await liveFetch<Record<string, unknown>>('/capabilities');
+    return {
+      ...(raw as unknown as CapabilitiesResponse),
+      providers: mergeServerCapabilities(raw.providers),
+    };
   },
 
   async getOpenApiSummary(): Promise<Record<string, unknown>> {
@@ -329,23 +331,26 @@ export const apiClient = {
   },
 
   async getSources(): Promise<{ sources: CollectionSource[]; capabilities: CapabilitiesResponse['providers'] }> {
-    return liveFetch('/sources');
+    const res = await liveFetch<{ sources: Array<Record<string, unknown>>; capabilities: unknown }>('/sources');
+    return {
+      sources: (res.sources || []).map(normalizeCollectionSource),
+      capabilities: mergeServerCapabilities(res.capabilities),
+    };
   },
 
   async createSource(input: SourceInput): Promise<{ source: CollectionSource }> {
-    return liveFetch('/sources', { method: 'POST', body: JSON.stringify(input) });
+    const res = await liveFetch<{ source: Record<string, unknown> }>('/sources', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+    return { source: normalizeCollectionSource(res.source) };
   },
 
-  async previewSource(input: SourceInput): Promise<SourcePreviewResult> {
-    return liveFetch('/sources/preview', { method: 'POST', body: JSON.stringify(input) });
-  },
-
-  async importSources(input: SourceImport): Promise<SourceImportResult> {
-    return liveFetch('/sources/import', { method: 'POST', body: JSON.stringify(input) });
-  },
-
-  async updateSource(id: string, input: SourcePatch): Promise<{ updated: boolean }> {
-    return liveFetch('/sources/' + id, {
+  async updateSource(
+    id: string,
+    input: { fallbackProvider?: 'scrapebadger' | 'red_crawler' | null; state?: CollectionSource['state']; revision: number },
+  ): Promise<{ updated: boolean }> {
+    return liveFetch(`/sources/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(input),
     });
