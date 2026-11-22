@@ -32,6 +32,8 @@ export interface EffectivePolicy {
   maxBatchLimit: number;
   maxCommentsPerPost: number;
   maxProjects: number;
+  maxLookbackDays: number;
+  allowProviderChoice: boolean;
   exportEnabled: boolean;
   hasOverride: boolean;
 }
@@ -46,6 +48,8 @@ interface PolicyRow {
   max_batch_limit: number;
   max_comments_per_post: number;
   max_projects: number;
+  max_lookback_days: number;
+  allow_provider_choice: boolean;
   export_enabled: boolean;
   updated_at: string;
   revision: number;
@@ -64,6 +68,8 @@ export function resolveEffectivePolicy(policy: PolicyRow, override: QuotaOverrid
     maxBatchLimit: typeof o.maxBatchLimit === "number" ? o.maxBatchLimit : policy.max_batch_limit,
     maxCommentsPerPost: policy.max_comments_per_post,
     maxProjects: policy.max_projects ?? 3,
+    maxLookbackDays: policy.max_lookback_days ?? 7,
+    allowProviderChoice: policy.allow_provider_choice ?? false,
     exportEnabled: policy.export_enabled ?? true,
     hasOverride: Boolean(override && Object.keys(override).length > 0),
   };
@@ -101,6 +107,8 @@ export async function admitViewerCollection(
     resources: number;
     includeComments?: boolean;
     maxCommentsPerPost?: number;
+    from?: string;
+    to?: string;
   },
 ) {
   if (actor.clientKind !== "browser" || actor.role !== "viewer") return;
@@ -120,6 +128,12 @@ export async function admitViewerCollection(
   }
   if (req.includeComments && (req.maxCommentsPerPost ?? 15) > effective.maxCommentsPerPost) {
     fail(422, `Comment hydration exceeds your plan max (${effective.maxCommentsPerPost})`);
+  }
+  if (req.from && req.to) {
+    const spanDays = (Date.parse(req.to) - Date.parse(req.from)) / 86_400_000;
+    if (Number.isFinite(spanDays) && spanDays > effective.maxLookbackDays + 0.05) {
+      fail(422, `Requested window exceeds your plan max lookback (${effective.maxLookbackDays} days)`);
+    }
   }
 
   await client.query(
@@ -284,6 +298,8 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
         maxBatchLimit: p.max_batch_limit,
         maxCommentsPerPost: p.max_comments_per_post,
         maxProjects: p.max_projects ?? 3,
+        maxLookbackDays: p.max_lookback_days ?? 7,
+        allowProviderChoice: p.allow_provider_choice ?? false,
         exportEnabled: p.export_enabled ?? true,
         updatedAt: p.updated_at,
         revision: p.revision,
@@ -322,9 +338,11 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
            SET manual_collect_enabled=$2, allowed_providers=$3, allowed_source_ids=$4,
                daily_requests=$5, daily_resources=$6, max_batch_limit=$7,
                max_comments_per_post=$8, max_projects=COALESCE($9, max_projects),
-               export_enabled=COALESCE($10, export_enabled),
-               updated_by=$11, updated_at=NOW(), revision=revision+1
-           WHERE plan_tier=$1 AND revision=$12
+               max_lookback_days=COALESCE($10, max_lookback_days),
+               allow_provider_choice=COALESCE($11, allow_provider_choice),
+               export_enabled=COALESCE($12, export_enabled),
+               updated_by=$13, updated_at=NOW(), revision=revision+1
+           WHERE plan_tier=$1 AND revision=$14
            RETURNING *`,
           [
             request.params.tier,
@@ -336,6 +354,8 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
             request.body.maxBatchLimit,
             request.body.maxCommentsPerPost,
             request.body.maxProjects ?? null,
+            request.body.maxLookbackDays ?? null,
+            request.body.allowProviderChoice ?? null,
             request.body.exportEnabled ?? null,
             actor.userId,
             request.body.revision,
@@ -370,6 +390,8 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
             maxBatchLimit: updated.max_batch_limit,
             maxCommentsPerPost: updated.max_comments_per_post,
             maxProjects: updated.max_projects ?? 3,
+            maxLookbackDays: updated.max_lookback_days ?? 7,
+            allowProviderChoice: updated.allow_provider_choice ?? false,
             exportEnabled: updated.export_enabled ?? true,
             updatedAt: updated.updated_at,
             revision: updated.revision,

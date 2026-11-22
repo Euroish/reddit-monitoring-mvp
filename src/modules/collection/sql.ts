@@ -43,6 +43,7 @@ export function sourceFromRow(
     lastSuccessAt: row.last_success_at?.toISOString() ?? null,
     automaticCollectionBlocked: row.automatic_collection_blocked,
     coverage: row.coverage,
+    usageDomain: row.usage_domain ?? (row.platform === "web" ? "feed" : "research"),
   };
 }
 export async function listSources(
@@ -72,11 +73,11 @@ export async function insertSource(
       `INSERT INTO collection_source(
         id,platform_id,primary_provider,label,target,content_kind,delivery_mode,
         fallback_provider,created_at,updated_at,schedule,next_due_at,tier,
-        owner_entity_id,source_group,tags,locale,fetch_policy
+        owner_entity_id,source_group,tags,locale,fetch_policy,usage_domain
       )
       SELECT $1,id,$2,$3,$4,$5,$6,$8,NOW(),NOW(),$9::jsonb,
         CASE WHEN $9::jsonb @> '{"enabled":true}' THEN now() END,
-        $10,$11,$12,$13,$14,$15::jsonb
+        $10,$11,$12,$13,$14,$15::jsonb,$16
       FROM source WHERE code=$7 RETURNING id`,
       [
         randomUUID(),
@@ -94,6 +95,7 @@ export async function insertSource(
         input.tags ?? [],
         input.locale ?? null,
         input.fetchPolicy ?? {},
+        input.platform === "web" ? "feed" : "research",
       ],
     )
   ).rows[0];

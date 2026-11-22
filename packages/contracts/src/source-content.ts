@@ -387,6 +387,7 @@ export const Source = strictMerge([
     lastCheckedAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
     lastSuccessAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
     automaticCollectionBlocked: Type.Optional(Type.Boolean()),
+    usageDomain: Type.Optional(Type.Union([Type.Literal("research"), Type.Literal("feed")])),
     coverage: Type.Union([Type.Literal("unknown"), Type.Literal("partial")]),
   }),
 ]);
@@ -510,6 +511,8 @@ export const PlanPolicyInput = Type.Object(
     maxBatchLimit: Type.Integer({ minimum: 1, maximum: 2000 }),
     maxCommentsPerPost: Type.Integer({ minimum: 0, maximum: 50 }),
     maxProjects: Type.Optional(Type.Integer({ minimum: 0, maximum: 500 })),
+    maxLookbackDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 365 })),
+    allowProviderChoice: Type.Optional(Type.Boolean()),
     exportEnabled: Type.Optional(Type.Boolean()),
     revision: Type.Integer({ minimum: 1 }),
   },
@@ -688,6 +691,26 @@ export const ProjectBatchAttachInput = Type.Object(
 );
 export const ProjectBatchStatusInput = Type.Object(
   { status: ProjectBatchStatus },
+  { additionalProperties: false },
+);
+export const BatchVisibilityInput = Type.Object(
+  { visibility: Type.Union([Type.Literal("private"), Type.Literal("shared")]) },
+  { additionalProperties: false },
+);
+export const ResearchPlanPreviewInput = Type.Object(
+  {
+    projectId: Type.Optional(Id),
+    sourceId: Type.Optional(Id),
+    platform: Type.Optional(Type.Union([Type.Literal("reddit"), Type.Literal("x"), Type.Literal("bluesky")])),
+    targetType: Type.Optional(Type.Union([Type.Literal("community"), Type.Literal("account"), Type.Literal("search")])),
+    targetValue: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
+    from: DateTime,
+    to: DateTime,
+    limit: Type.Integer({ minimum: 1, maximum: 300 }),
+    includeComments: Type.Optional(Type.Boolean()),
+    maxCommentsPerPost: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+    useFallback: Type.Optional(Type.Boolean()),
+  },
   { additionalProperties: false },
 );
 export const ProjectInput = Type.Object(

@@ -23,6 +23,7 @@ import { sourceImportRoute } from "./import";
 import { admitViewerCollection, viewerCollectionDemand } from "./policy";
 import { assertSource, insertSource, listPublicSources, listSources, lockSource, audit } from "./sql";
 import { batchRoutes, recordCommittedBatch } from "./batches";
+import { planRoutes } from "./plans";
 
 export async function collectionRoutes(
   app: FastifyInstance,
@@ -33,6 +34,7 @@ export async function collectionRoutes(
   sourcePreviewRoute(app, providers);
   await sourceImportRoute(app, pool, providers);
   await batchRoutes(app, pool);
+  await planRoutes(app, pool, providers);
   api.get(
     "/v1/public/sources",
     { schema: { response: { 200: PublicSourceDirectory } } },
@@ -381,6 +383,8 @@ export async function collectionRoutes(
           providerName === "twitterapis" ? Math.min(request.body.limit, 20) : request.body.limit;
         await admitViewerCollection(client, request.actor!, {
           sourceId: source.id,
+          from: request.body.from,
+          to: request.body.to,
           ...viewerCollectionDemand(providerName, source.target.type, pageSize, request.body),
         });
         const id = randomUUID();

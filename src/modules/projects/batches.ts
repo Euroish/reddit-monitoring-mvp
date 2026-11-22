@@ -13,6 +13,7 @@ export interface ProjectBatchItem {
   deliveryMode: string;
   label: string;
   itemCount: number;
+  visibility: "private" | "shared";
   status: "enabled" | "disabled" | "removed";
   addedAt: string;
   createdAt: string;
@@ -34,6 +35,7 @@ export async function listProjectBatches(
             cs.delivery_mode AS "deliveryMode",
             cb.label,
             cb.item_count AS "itemCount",
+            cb.visibility,
             mpb.status,
             mpb.added_at AS "addedAt",
             cb.created_at AS "createdAt"
@@ -61,13 +63,21 @@ export async function attachBatchToProject(
     await client.query("SELECT id FROM monitor_project WHERE id=$1 FOR UPDATE", [projectId]);
     await assertProjectWritable(client, actor, projectId);
     const batch = (
-      await client.query<{ id: string; collection_source_id: string }>(
-        "SELECT id, collection_source_id FROM collection_batch WHERE id=$1",
+      await client.query<{
+        id: string;
+        collection_source_id: string;
+        visibility: "private" | "shared";
+        created_by_user_id: string | null;
+      }>(
+        "SELECT id, collection_source_id, visibility, created_by_user_id FROM collection_batch WHERE id=$1",
         [batchId],
       )
     ).rows[0];
     if (!batch) fail(404, "Batch not found");
     if (actor.allowedSourceIds !== null && !actor.allowedSourceIds.includes(batch.collection_source_id)) {
+      fail(404, "Batch not found");
+    }
+    if (actor.role === "viewer" && batch.visibility !== "shared" && batch.created_by_user_id !== actor.userId) {
       fail(404, "Batch not found");
     }
     await client.query(

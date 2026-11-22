@@ -3,7 +3,8 @@ import { Type } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool, PoolClient } from "pg";
-import { Id } from "../../../packages/contracts/src/source-content";
+import { BatchVisibilityInput, Id, ParamsId } from "../../../packages/contracts/src/source-content";
+import { fail, transaction } from "../../storage/db";
 
 const BatchesQuery = Type.Object(
   {
@@ -27,16 +28,24 @@ export async function recordCommittedBatch(
     sourceLabel: string;
     userId: string | null;
     contentIds: readonly string[];
+    visibility?: "private" | "shared";
   },
-): Promise<{ batchId: string; itemCount: number }> {
+): Promise<{ batchId: string; itemCount: number; visibility: "private" | "shared" }> {
   const uniqueIds = [...new Set(input.contentIds)];
+  let visibility: "private" | "shared" = input.visibility ?? "shared";
+  if (!input.visibility && input.userId) {
+    const userRow = (
+      await client.query<{ role: string }>("SELECT role FROM app_user WHERE id=$1", [input.userId])
+    ).rows[0];
+    if (userRow?.role === "viewer") visibility = "private";
+  }
   const label = `${input.sourceLabel} · ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC`;
-  const { rows: [batch] } = await client.query<{ id: string }>(
-    `INSERT INTO collection_batch(id, job_id, collection_source_id, created_by_user_id, label, item_count)
-     VALUES($1, $2, $3, $4, $5, 0)
+  const { rows: [batch] } = await client.query<{ id: string; visibility: "private" | "shared" }>(
+    `INSERT INTO collection_batch(id, job_id, collection_source_id, created_by_user_id, label, item_count, visibility)
+     VALUES($1, $2, $3, $4, $5, 0, $6)
      ON CONFLICT (job_id) DO UPDATE SET label = collection_batch.label
-     RETURNING id`,
-    [randomUUID(), input.jobId, input.sourceId, input.userId, label],
+     RETURNING id, visibility`,
+    [randomUUID(), input.jobId, input.sourceId, input.userId, label, visibility],
   );
   if (uniqueIds.length > 0) {
     await client.query(
@@ -53,13 +62,14 @@ export async function recordCommittedBatch(
      RETURNING item_count`,
     [batch.id],
   );
-  return { batchId: batch.id, itemCount: updated.item_count };
+  return { batchId: batch.id, itemCount: updated.item_count, visibility: batch.visibility };
 }
 
 export async function batchRoutes(app: FastifyInstance, pool: Pool) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   api.get("/v1/batches", { schema: { querystring: BatchesQuery } }, async (request) => {
     const actor = request.actor!;
+    const isViewer = actor.role === "viewer";
     const limit = request.query.limit ?? 50;
     const { rows } = await pool.query<{
       id: string;
@@ -69,8 +79,10 @@ export async function batchRoutes(app: FastifyInstance, pool: Pool) {
       platform: string;
       provider: string;
       deliveryMode: string;
+      usageDomain: string;
       label: string;
       itemCount: number;
+      visibility: "private" | "shared";
       createdAt: string;
       createdByUserId: string | null;
     }>(
@@ -81,8 +93,10 @@ export async function batchRoutes(app: FastifyInstance, pool: Pool) {
               p.code AS platform,
               COALESCE(j.provider, cs.primary_provider) AS provider,
               cs.delivery_mode AS "deliveryMode",
+              cs.usage_domain AS "usageDomain",
               cb.label,
               cb.item_count AS "itemCount",
+              cb.visibility,
               cb.created_at AS "createdAt",
               cb.created_by_user_id AS "createdByUserId"
        FROM collection_batch cb
@@ -92,10 +106,37 @@ export async function batchRoutes(app: FastifyInstance, pool: Pool) {
        WHERE ($1::uuid[] IS NULL OR cb.collection_source_id = ANY($1::uuid[]))
          AND ($2::uuid IS NULL OR cb.collection_source_id = $2)
          AND ($3::uuid IS NULL OR cb.job_id = $3)
+         AND (NOT $4::boolean OR cb.visibility = 'shared' OR cb.created_by_user_id = $5::uuid)
        ORDER BY cb.created_at DESC, cb.id DESC
-       LIMIT $4`,
-      [actor.allowedSourceIds, request.query.sourceId ?? null, request.query.jobId ?? null, limit],
+       LIMIT $6`,
+      [
+        actor.allowedSourceIds,
+        request.query.sourceId ?? null,
+        request.query.jobId ?? null,
+        isViewer,
+        actor.userId ?? null,
+        limit,
+      ],
     );
     return { batches: rows };
   });
+
+  api.patch(
+    "/v1/batches/:id/visibility",
+    { schema: { params: ParamsId, body: BatchVisibilityInput } },
+    async (request) => {
+      const actor = request.actor!;
+      if (actor.clientKind !== "browser" || actor.role === "viewer") {
+        fail(403, "Administrator browser session required");
+      }
+      return transaction(pool, async (client) => {
+        const res = await client.query<{ id: string; visibility: "private" | "shared" }>(
+          "UPDATE collection_batch SET visibility=$2 WHERE id=$1 RETURNING id, visibility",
+          [request.params.id, request.body.visibility],
+        );
+        if (!res.rowCount) fail(404, "Batch not found");
+        return { updated: true, batch: res.rows[0] };
+      });
+    },
+  );
 }

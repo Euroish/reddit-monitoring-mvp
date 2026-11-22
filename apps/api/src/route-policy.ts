@@ -64,6 +64,7 @@ const VIEWER_ALLOWED_POSTS = new Set([
   "/v1/auth/mfa/recovery-codes",
   "/v1/sources/:id/collect",
   "/v1/sources/:id/refresh",
+  "/v1/research/collection-plans/preview",
   "/v1/projects",
   "/v1/projects/:id/hydrate",
   "/v1/projects/:id/batches",

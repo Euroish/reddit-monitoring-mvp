@@ -341,4 +341,66 @@ test("empty batch projects, viewer ownership isolation, and batch enable/disable
     payload: { name: "Viewer A Fourth Project", datasetMode: "batch" },
   });
   assert.equal(projA4.statusCode, 403, projA4.body);
+
+  // 8. P0-03 Cross-user private batch isolation on the SAME source:
+  // Insert a private batch owned by Viewer A on the same sourceId -> Viewer B must NOT see or attach it!
+  const viewerAId = (await db.pool.query<{ id: string }>("SELECT id FROM app_user WHERE email='viewer-a@example.test'")).rows[0].id;
+  const privateBatchId = "11111111-2222-4333-8444-555555555555";
+  await db.pool.query(
+    `INSERT INTO collection_batch(id, job_id, collection_source_id, created_by_user_id, label, item_count, visibility)
+     VALUES($1, NULL, $2, $3, 'Viewer A Private Batch', 1, 'private')`,
+    [privateBatchId, sourceId, viewerAId],
+  );
+  // Viewer A sees their own private batch
+  const aListBatches = (await app.inject({ method: "GET", url: "/v1/batches", headers: viewerAHeaders })).json().batches;
+  assert.ok(aListBatches.some((b: { id: string }) => b.id === privateBatchId), "Viewer A must see own private batch");
+  // Viewer B does NOT see Viewer A's private batch, even on the same source
+  const bListBatches = (await app.inject({ method: "GET", url: "/v1/batches", headers: viewerBHeaders })).json().batches;
+  assert.equal(bListBatches.some((b: { id: string }) => b.id === privateBatchId), false, "Viewer B must NOT see Viewer A's private batch");
+  // Viewer B creates own project and tries to attach Viewer A's private batch -> 404!
+  const projB = (await app.inject({
+    method: "POST",
+    url: "/v1/projects",
+    headers: viewerBHeaders,
+    payload: { name: "Viewer B Project", datasetMode: "batch" },
+  })).json();
+  const bSteal = await app.inject({
+    method: "POST",
+    url: `/v1/projects/${projB.id}/batches`,
+    headers: viewerBHeaders,
+    payload: { batchId: privateBatchId },
+  });
+  assert.equal(bSteal.statusCode, 404, "Viewer B must be blocked from attaching Viewer A's private batch");
+  // Viewer B CAN attach Owner's shared batch1
+  const bShared = await app.inject({
+    method: "POST",
+    url: `/v1/projects/${projB.id}/batches`,
+    headers: viewerBHeaders,
+    payload: { batchId: batch1Id },
+  });
+  assert.equal(bShared.statusCode, 200, bShared.body);
+
+  // 9. P0-02 & P1-01 Server-side collection plan preview:
+  // Unregistered target -> needs_admin_source; excessive lookback -> blocked by maxLookbackDays!
+  const from30d = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  const previewUnreg = await app.inject({
+    method: "POST",
+    url: "/v1/research/collection-plans/preview",
+    headers: viewerAHeaders,
+    payload: {
+      projectId: projA.id,
+      platform: "reddit",
+      targetType: "community",
+      targetValue: "r/NonExistentCommunity",
+      from: from30d,
+      to: nowIso,
+      limit: 10,
+    },
+  });
+  assert.equal(previewUnreg.statusCode, 200, previewUnreg.body);
+  const pBody = previewUnreg.json();
+  assert.equal(pBody.resolutionStatus, "needs_admin_source");
+  assert.equal(pBody.executable, false);
+  assert.equal(pBody.fieldPolicy.maxLookbackDays, 7);
+  assert.ok(pBody.blockers.some((b: string) => /max lookback/i.test(b)), "Free viewer 30d window must be flagged against 7d maxLookbackDays");
 });
