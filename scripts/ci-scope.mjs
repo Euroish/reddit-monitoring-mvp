@@ -14,7 +14,7 @@ export function verificationScope(files, { event, full = false, forceBrowser = f
     if (/^\.github\/workflows\/|^scripts\/ci-scope\.(mjs|test\.mjs)$/.test(file)) {
       scope.workflow = true;
       areas.add("shared");
-    } else if (/^(Dockerfile|\.dockerignore|docker-compose\.yml)$|^deploy\//.test(file)) {
+    } else if (/^(Dockerfile|\.dockerignore|docker-compose\.yml|scripts\/verify-container-build\.sh)$|^deploy\//.test(file)) {
       scope.docker = true;
     } else if (file.startsWith("tests/browser/")) {
       scope.browser = true;

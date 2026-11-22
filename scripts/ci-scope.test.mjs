@@ -12,7 +12,9 @@ test("PR checks follow risk and unknown paths use the shared-code scope", () => 
   assert.deepEqual(enabled(["apps/web/src/new-feature.tsx"]), ["browser", "project", "web"]);
   assert.deepEqual(enabled(["src/modules/access/session.ts"]), ["api", "browser", "postgres", "project"]);
   assert.deepEqual(enabled(["tests/browser/workbench.test.ts"]), ["api", "browser", "project"]);
-  assert.deepEqual(enabled([".dockerignore"]), ["docker"]);
+  for (const file of [".dockerignore", "scripts/verify-container-build.sh"]) {
+    assert.deepEqual(enabled([file]), ["docker"]);
+  }
   assert.deepEqual(enabled(["scripts/ci-scope.mjs"]), ["api", "browser", "postgres", "project", "web", "workflow"]);
   for (const file of ["package-lock.json", "packages/contracts/src/new.ts", "new-runtime-config"]) {
     assert.deepEqual(enabled([file]), ["api", "browser", "postgres", "project", "web"]);
