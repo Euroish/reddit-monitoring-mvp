@@ -4,11 +4,41 @@
  * (enforced by `.dependency-cruiser.cjs` `modules-public-api-only`).
  */
 export { canonical } from "./batch";
+export {
+  heuristicV1Enricher,
+  upgradeContentEnrichment,
+  type ContentEnricher,
+  type ContentEnrichmentUpgrade,
+  type EnrichedContentFields,
+} from "./enrich";
 export { summarizeScopedContent } from "./facets";
+export {
+  loadContentDimensionsByIds,
+  loadPlatformEngagementBaselines,
+  loadTopCommentsForPosts,
+  queryFeedCandidates,
+  type ContentDimensionSummary,
+  type FeedCandidateRow,
+  type PlatformEngagementBaseline,
+  type TopCommentPreview,
+} from "./feed-queries";
+export {
+  queryAuthorDirectory,
+  queryCommunityBreakdowns,
+  queryCommunityMatrix,
+  queryMonitorPosts,
+  queryScopedBucketStats,
+  queryScopedTextSamples,
+  type AuthorDirectoryRow,
+  type CommunityMatrixRow,
+  type MonitorPostRow,
+  type RawBucketStats,
+} from "./intel-queries";
 export {
   countDiscoveriesBySourceSince,
   findHydratableRedditPosts,
   findRefreshablePostsForSource,
+  hasSourceDiscoveries,
   isContentVisibleToActor,
   listAiFirsthandArticles,
   listAiOfficialFeedUpdates,

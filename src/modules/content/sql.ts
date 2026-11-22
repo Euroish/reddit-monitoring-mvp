@@ -3,6 +3,7 @@ import { stableUuidFromString } from "../../shared/ids/stable-id";
 import { detectLanguage } from "../../shared/text/language";
 import { fail } from "../../shared/errors";
 import { publicSearchDocument } from "./search";
+import { heuristicV1Enricher, toAuthorProfileRecord, type AuthorProfileRecord } from "./enrich";
 import {
   canonical,
   type ContentBatchSource,
@@ -27,6 +28,25 @@ const replacementColumns = [
   "content_evidence_key",
   "content_version_fetched_at",
 ];
+const promotedReplacementColumns = [
+  "author_handle",
+  "community_name",
+  "external_domain",
+  "hashtags",
+  "has_media",
+  "primary_media_url",
+  "card_layout",
+  "metric_score",
+  "metric_comments",
+  "metric_views",
+  "metric_likes",
+  "metric_reposts",
+  "metric_bookmarks",
+  "upvote_ratio",
+  "engagement_score",
+  "discussion_ratio",
+  "metrics_updated_at",
+];
 const preservedColumns = ["url", "permalink", "language", "created_at_source"];
 // Multiple discovery channels can carry the same version of an article.
 const sameVersionConflict = `EXCLUDED.content_evidence_key=content.content_evidence_key
@@ -41,6 +61,7 @@ const sameVersion = `EXCLUDED.content_evidence_key=content.content_evidence_key
   AND EXCLUDED.content_observed_at IS NOT DISTINCT FROM content.content_observed_at`;
 const changed = `(${newer}) OR ((${sameVersion}) AND content.availability NOT IN ('deleted','removed') AND
   ((content.title IS NULL AND EXCLUDED.title IS NOT NULL) OR (content.body_text IS NULL AND EXCLUDED.body_text IS NOT NULL)))`;
+const enrichmentGuard = `content.enrichment_version > EXCLUDED.enrichment_version`;
 const assignments = [
   ...["title", "body_text"].map(
     (column) =>
@@ -50,6 +71,15 @@ const assignments = [
     (column) =>
       `${column}=CASE WHEN ${newer} THEN EXCLUDED.${column} ELSE content.${column} END`,
   ),
+  ...promotedReplacementColumns.map(
+    (column) =>
+      `${column}=CASE WHEN (${newer}) OR ((${sameVersion}) AND content.availability NOT IN ('deleted','removed')) THEN EXCLUDED.${column} ELSE content.${column} END`,
+  ),
+  ...["clean_excerpt", "intent_tag", "intent_confidence", "enrichment_version", "enrichment_source"].map(
+    (column) =>
+      `${column}=CASE WHEN ${enrichmentGuard} THEN content.${column} WHEN (${newer}) OR ((${sameVersion}) AND content.availability NOT IN ('deleted','removed')) THEN EXCLUDED.${column} ELSE content.${column} END`,
+  ),
+  `velocity_score=CASE WHEN ${newer} THEN GREATEST(0, (EXCLUDED.engagement_score - content.engagement_score) / GREATEST(0.25, EXTRACT(EPOCH FROM (COALESCE(EXCLUDED.metrics_updated_at, NOW()) - COALESCE(content.metrics_updated_at, content.first_seen_at))) / 3600.0))::real ELSE content.velocity_score END`,
   ...preservedColumns.map(
     (column) =>
       `${column}=CASE WHEN ${newer} THEN COALESCE(EXCLUDED.${column},content.${column}) ELSE content.${column} END`,
@@ -99,6 +129,58 @@ async function resolveMissingBatchNodes(
   if (rows.length !== nodes.length) conflict("Content identity resolution failed");
 }
 
+function mergeProfileRecord(prev: AuthorProfileRecord | undefined, next: AuthorProfileRecord): AuthorProfileRecord {
+  if (!prev) return next;
+  return {
+    handle: next.handle,
+    externalId: next.externalId ?? prev.externalId,
+    displayName: next.displayName ?? prev.displayName,
+    avatarUrl: next.avatarUrl ?? prev.avatarUrl,
+    bio: next.bio ?? prev.bio,
+    location: next.location ?? prev.location,
+    verified: next.verified || prev.verified,
+    followersCount: next.followersCount ?? prev.followersCount,
+    followingCount: next.followingCount ?? prev.followingCount,
+    statusesCount: next.statusesCount ?? prev.statusesCount,
+    accountCreatedAt: next.accountCreatedAt ?? prev.accountCreatedAt,
+    lastSeenAt: Date.parse(next.lastSeenAt) > Date.parse(prev.lastSeenAt) ? next.lastSeenAt : prev.lastSeenAt,
+  };
+}
+
+async function upsertAuthorProfiles(client: PoolClient, platformId: string, nodes: PreparedContentBatch["nodes"]) {
+  const byHandle = new Map<string, AuthorProfileRecord>();
+  for (const { item } of nodes) {
+    const rec = toAuthorProfileRecord(item);
+    if (rec) byHandle.set(rec.handle, mergeProfileRecord(byHandle.get(rec.handle), rec));
+  }
+  if (!byHandle.size) return;
+  const profiles = [...byHandle.values()].sort((a, b) => a.handle.localeCompare(b.handle));
+  await client.query(
+    `INSERT INTO content_author_profile(
+       platform_id,author_handle,author_external_id,display_name,avatar_url,bio,location,
+       verified,followers_count,following_count,statuses_count,account_created_at,last_seen_at,metrics_updated_at
+     )
+     SELECT $1,v->>'handle',v->>'externalId',v->>'displayName',v->>'avatarUrl',v->>'bio',v->>'location',
+       COALESCE((v->>'verified')::boolean,false),(v->>'followersCount')::bigint,(v->>'followingCount')::bigint,
+       (v->>'statusesCount')::bigint,(v->>'accountCreatedAt')::timestamptz,(v->>'lastSeenAt')::timestamptz,(v->>'lastSeenAt')::timestamptz
+     FROM UNNEST($2::jsonb[]) AS input(v)
+     ON CONFLICT(platform_id,author_handle) DO UPDATE SET
+       author_external_id=COALESCE(EXCLUDED.author_external_id,content_author_profile.author_external_id),
+       display_name=COALESCE(EXCLUDED.display_name,content_author_profile.display_name),
+       avatar_url=COALESCE(EXCLUDED.avatar_url,content_author_profile.avatar_url),
+       bio=COALESCE(EXCLUDED.bio,content_author_profile.bio),
+       location=COALESCE(EXCLUDED.location,content_author_profile.location),
+       verified=(content_author_profile.verified OR EXCLUDED.verified),
+       followers_count=COALESCE(EXCLUDED.followers_count,content_author_profile.followers_count),
+       following_count=COALESCE(EXCLUDED.following_count,content_author_profile.following_count),
+       statuses_count=COALESCE(EXCLUDED.statuses_count,content_author_profile.statuses_count),
+       account_created_at=COALESCE(EXCLUDED.account_created_at,content_author_profile.account_created_at),
+       last_seen_at=GREATEST(content_author_profile.last_seen_at,EXCLUDED.last_seen_at),
+       metrics_updated_at=GREATEST(content_author_profile.metrics_updated_at,EXCLUDED.metrics_updated_at)`,
+    [platformId, profiles.map((p) => JSON.stringify(p))],
+  );
+}
+
 // Caller owns the transaction and source -> job locks. This function never opens one.
 export async function commitContentBatch(
   client: PoolClient,
@@ -120,11 +202,10 @@ export async function commitContentBatch(
     JSON.stringify({
       ...item,
       language: item.language ?? detectLanguage(item.title, item.text),
-      id: stableUuidFromString(
-        `${item.platform}:content:${item.kind}:${item.externalId}`,
-      ),
+      id: stableUuidFromString(`${item.platform}:content:${item.kind}:${item.externalId}`),
       firstFetchedAt,
       lastFetchedAt,
+      enriched: heuristicV1Enricher.enrich(item),
     }),
   );
   const result = await client.query(
@@ -139,13 +220,34 @@ export async function commitContentBatch(
            OR c.content_media<>v->'media' OR (c.platform_details-'feedUrl') IS DISTINCT FROM ((v->'platformDetails')-'feedUrl'))) AS conflict
       FROM content c JOIN input ON c.source_id=$1 AND c.kind=v->>'kind' AND c.external_id=v->>'externalId'
     ), written AS (
-    INSERT INTO content(id,source_id,external_id,kind,title,body_text,url,permalink,created_at_source,first_seen_at,last_seen_at,content_author,content_media,content_references,platform_details,language,availability,content_observed_at,content_evidence_key,content_version_fetched_at)
+    INSERT INTO content(
+      id,source_id,external_id,kind,title,body_text,url,permalink,created_at_source,first_seen_at,last_seen_at,
+      content_author,content_media,content_references,platform_details,language,availability,
+      content_observed_at,content_evidence_key,content_version_fetched_at,
+      author_handle,community_name,external_domain,hashtags,has_media,primary_media_url,card_layout,
+      clean_excerpt,intent_tag,intent_confidence,enrichment_version,enrichment_source,
+      metric_score,metric_comments,metric_views,metric_likes,metric_reposts,metric_bookmarks,upvote_ratio,
+      engagement_score,discussion_ratio,velocity_score,metrics_updated_at
+    )
     SELECT (v->>'id')::uuid,$1,v->>'externalId',v->>'kind',
       CASE WHEN v->>'availability' IN ('removed','deleted') THEN NULL ELSE v->>'title' END,
       CASE WHEN v->>'availability' IN ('removed','deleted') THEN NULL ELSE v->>'text' END,
       v->>'url',v->>'url',(v->>'publishedAt')::timestamptz,(v->>'firstFetchedAt')::timestamptz,(v->>'lastFetchedAt')::timestamptz,
       NULLIF(v->'author','null'::jsonb),v->'media',v->'references',v->'platformDetails',v->>'language',v->>'availability',
-      (v->'observation'->>'sourceObservedAt')::timestamptz,v->'observation'->>'evidenceKey',(v->>'fetchedAt')::timestamptz
+      (v->'observation'->>'sourceObservedAt')::timestamptz,v->'observation'->>'evidenceKey',(v->>'fetchedAt')::timestamptz,
+      v->'enriched'->>'authorHandle',v->'enriched'->>'communityName',v->'enriched'->>'externalDomain',
+      ARRAY(SELECT jsonb_array_elements_text(v->'enriched'->'hashtags')),
+      (v->'enriched'->>'hasMedia')::boolean,v->'enriched'->>'primaryMediaUrl',v->'enriched'->>'cardLayout',
+      v->'enriched'->>'cleanExcerpt',v->'enriched'->>'intentTag',(v->'enriched'->>'intentConfidence')::real,
+      (v->'enriched'->>'enrichmentVersion')::smallint,v->'enriched'->>'enrichmentSource',
+      (v->'enriched'->>'metricScore')::integer,(v->'enriched'->>'metricComments')::integer,(v->'enriched'->>'metricViews')::bigint,
+      (v->'enriched'->>'metricLikes')::integer,(v->'enriched'->>'metricReposts')::integer,(v->'enriched'->>'metricBookmarks')::integer,
+      (v->'enriched'->>'upvoteRatio')::real,COALESCE((v->'enriched'->>'engagementScore')::real,0),
+      COALESCE((v->'enriched'->>'discussionRatio')::real,0),
+      CASE WHEN (v->>'publishedAt')::timestamptz IS NOT NULL
+        THEN (COALESCE((v->'enriched'->>'engagementScore')::real,0) / GREATEST(1.0, EXTRACT(EPOCH FROM ((v->>'fetchedAt')::timestamptz - (v->>'publishedAt')::timestamptz)) / 3600.0))::real
+        ELSE 0 END,
+      (v->>'fetchedAt')::timestamptz
     FROM input
     ORDER BY (v->>'kind') COLLATE "C",(v->>'externalId') COLLATE "C"
     ON CONFLICT(source_id,kind,external_id) DO UPDATE SET ${assignments}
@@ -162,18 +264,9 @@ export async function commitContentBatch(
     [source.platformId, values],
   );
   await resolveMissingBatchNodes(client, source.platformId, batch.nodes, result.rows);
-  const identities = new Map(
-    result.rows.map((row) => [
-      `${row.kind}:${row.external_id}`,
-      row.id as string,
-    ]),
-  );
-  const documents = result.rows
-    .filter((row) => row.changed)
-    .map((row) => {
-      const document = publicSearchDocument(row.title, row.body_text, now);
-      return JSON.stringify({ id: row.id, ...document });
-    });
+  await upsertAuthorProfiles(client, source.platformId, batch.nodes);
+  const identities = new Map(result.rows.map((row) => [`${row.kind}:${row.external_id}`, row.id as string]));
+  const documents = result.rows.filter((row) => row.changed).map((row) => JSON.stringify({ id: row.id, ...publicSearchDocument(row.title, row.body_text, now) }));
   if (documents.length) {
     await client.query(
       `INSERT INTO public_content_search_document(content_id,format_version,search_text,title_length,text_present,indexed_at,fingerprint)
@@ -188,24 +281,9 @@ export async function commitContentBatch(
     `INSERT INTO content_discovery(content_id,collection_source_id,first_fetched_at,last_fetched_at)
     SELECT (v->>'id')::uuid,$2,(v->>'firstFetchedAt')::timestamptz,(v->>'lastFetchedAt')::timestamptz FROM UNNEST($1::jsonb[]) AS input(v)
     ON CONFLICT(content_id,collection_source_id) DO UPDATE SET first_fetched_at=LEAST(content_discovery.first_fetched_at,EXCLUDED.first_fetched_at),last_fetched_at=GREATEST(content_discovery.last_fetched_at,EXCLUDED.last_fetched_at) WHERE EXCLUDED.first_fetched_at<content_discovery.first_fetched_at OR EXCLUDED.last_fetched_at>content_discovery.last_fetched_at+interval '6 hours'`,
-    [
-      batch.nodes.map((node) =>
-        JSON.stringify({
-          id: identities.get(identity(node.item)),
-          firstFetchedAt: node.firstFetchedAt,
-          lastFetchedAt: node.lastFetchedAt,
-        }),
-      ),
-      source.id,
-    ],
+    [batch.nodes.map((node) => JSON.stringify({ id: identities.get(identity(node.item)), firstFetchedAt: node.firstFetchedAt, lastFetchedAt: node.lastFetchedAt })), source.id],
   );
-  const observations = batch.observations.map(({ item, hash }) =>
-    JSON.stringify({
-      ...item.observation,
-      id: identities.get(identity(item)),
-      hash,
-    }),
-  );
+  const observations = batch.observations.map(({ item, hash }) => JSON.stringify({ ...item.observation, id: identities.get(identity(item)), hash }));
   const inserted = await client.query(
     `INSERT INTO content_observation(content_id,collection_source_id,provider,source_observed_at,fetched_at,time_basis,maturity,metrics,evidence_key,payload_hash)
     SELECT (v->>'id')::uuid,$2,v->>'provider',(v->>'sourceObservedAt')::timestamptz,(v->>'fetchedAt')::timestamptz,v->>'timeBasis',v->>'maturity',v->'metrics',v->>'evidenceKey',v->>'hash' FROM UNNEST($1::jsonb[]) AS input(v)
@@ -226,14 +304,10 @@ export async function commitContentBatch(
         AND o.time_basis=v->>'timeBasis' AND o.maturity=v->>'maturity' AND o.metrics=v->'metrics'`,
       [observations, source.id],
     );
-    if (verified.rows[0]?.ok !== observations.length)
-      conflict("Conflicting observation evidence key");
+    if (verified.rows[0]?.ok !== observations.length) conflict("Conflicting observation evidence key");
   }
   const added = result.rows.filter((row) => row.inserted).length;
-  return {
-    added,
-    updated: result.rows.filter((row) => !row.inserted && row.changed).length,
-  };
+  return { added, updated: result.rows.filter((row) => !row.inserted && row.changed).length };
 }
 
 export function contentFromRow(

@@ -250,6 +250,7 @@ async function commitCollectedPage(
       page.httpEtag ?? null, page.httpLastModified ?? null, elapsedMs, !page.exhausted, page.items.length, counts.added,
     ],
   );
+  return counts.added + counts.updated > 0;
 }
 
 function isTransientCollectionError(error: unknown) {
@@ -433,6 +434,7 @@ export async function workOnce(
   providers: ContentProvider[],
   signal?: AbortSignal,
   hostCooldown?: Map<string, number>,
+  onBatchCommitted?: (sourceId: string) => void | Promise<void>,
 ) {
   if (signal?.aborted) return false;
   const claim = await claimNextJob(pool, pruneCooldownHosts(hostCooldown), hostCooldown);
@@ -477,7 +479,10 @@ export async function workOnce(
       return true;
     }
     const batch = prepareContentBatch(page.items);
-    await transaction(pool, (client) => commitCollectedPage(client, job, source, provider, token, page, batch, elapsedMs));
+    const dirty = await transaction(pool, (client) => commitCollectedPage(client, job, source, provider, token, page, batch, elapsedMs));
+    if (dirty && onBatchCommitted) {
+      await Promise.resolve(onBatchCommitted(source.id)).catch(() => {});
+    }
   } catch (error) {
     await transaction(pool, (client) => handleJobError(client, providers, job, source, provider, token, error, elapsedMs, signal));
   }
@@ -501,7 +506,7 @@ async function computeIdleWaitMs(pool: Pool): Promise<number> {
   return Math.min(maxIdleWaitMs, Math.max(500, Math.ceil(raw)));
 }
 
-export function startWorker(pool: Pool, providers: ContentProvider[], onError?: (error: unknown) => void) {
+export function startWorker(pool: Pool, providers: ContentProvider[], onError?: (error: unknown) => void, onBatchCommitted?: (sourceId: string) => void | Promise<void>) {
   const controller = new AbortController();
   const startedAt = new Date();
   const hostCooldown = new Map<string, number>();
@@ -588,7 +593,7 @@ export function startWorker(pool: Pool, providers: ContentProvider[], onError?: 
         });
         if (scheduled.enqueuedCount > 0) wakeAll();
       }
-      const worked = await workOnce(pool, providers, controller.signal, hostCooldown).catch((error) => {
+      const worked = await workOnce(pool, providers, controller.signal, hostCooldown, onBatchCommitted).catch((error) => {
         onError?.(error);
         return false;
       });

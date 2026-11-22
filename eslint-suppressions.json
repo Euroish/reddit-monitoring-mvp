@@ -11,7 +11,7 @@
   },
   "src/connectors/reddit/red-crawler.ts": {
     "complexity": {
-      "count": 2
+      "count": 1
     }
   },
   "src/connectors/web/sources.ts": {

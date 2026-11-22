@@ -1,6 +1,6 @@
 import type { ContentProvider } from "../shared/content-provider.interface";
 import { ContentProviderError } from "../shared/content-provider.interface";
-import { metricFields, normalizeTweet, normalizeXTarget } from "./twitterapis";
+import { buildXSearchQuery, metricFields, normalizeTweet, normalizeXTarget } from "./twitterapis";
 
 export function scrapeBadger(
   env = process.env,
@@ -34,7 +34,14 @@ export function scrapeBadger(
     const fetchedAt = new Date().toISOString();
     const items = tweets.slice(0, 100).map((row) => normalizeTweet({
       ...row,
-      author: row?.author ?? { id: row?.user_id, username: row?.username, name: row?.user_name },
+      author: row?.author ?? {
+        id: row?.user_id,
+        username: row?.username,
+        name: row?.user_name,
+        followers_count: row?.user_followers_count ?? row?.followers_count,
+        profilePicture: row?.user_avatar ?? row?.profile_image_url_https,
+        verified: row?.user_verified,
+      },
     }, sourceId, fetchedAt, provider));
     const credits = response.headers.get("x-credits-used");
     return {
@@ -62,10 +69,9 @@ export function scrapeBadger(
     async collectPage(request) {
       const target = normalizeXTarget(request.source.target, request.source.contentKind);
       const from = Date.parse(request.from), to = Date.parse(request.to);
-      const query = target.type === "account" ? `from:${target.account}` : `(${target.query})`;
       const params = new URLSearchParams({
-        query: `${query} since_time:${Math.floor(from / 1000)} until_time:${Math.ceil(to / 1000)}`,
-        query_type: "Latest",
+        query: buildXSearchQuery(target, from, to),
+        query_type: target.sort === "top" || target.sort === "hot" ? "Top" : "Latest",
         count: String(request.limit),
       });
       const page = await read("tweets/advanced_search", params, request.source.id, request.signal);

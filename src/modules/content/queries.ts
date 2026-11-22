@@ -257,3 +257,14 @@ export async function listAiOfficialFeedUpdates(
     )
   ).rows;
 }
+
+export async function hasSourceDiscoveries(
+  db: Pool | PoolClient,
+  sourceId: string,
+): Promise<boolean> {
+  const { rowCount } = await db.query(
+    "SELECT 1 FROM content_discovery WHERE collection_source_id=$1 LIMIT 1",
+    [sourceId],
+  );
+  return Boolean(rowCount);
+}

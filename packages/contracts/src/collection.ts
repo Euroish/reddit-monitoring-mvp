@@ -23,12 +23,60 @@ const feedList = (format: "web_list" | "json_list", field: typeof ListSelector) 
   author: Type.Optional(field),
 }, { additionalProperties: false });
 
+export const TargetSort = Type.Union([
+  Type.Literal("new"),
+  Type.Literal("top"),
+  Type.Literal("hot"),
+  Type.Literal("relevance"),
+]);
+
+export const TargetTimeRange = Type.Union([
+  Type.Literal("hour"),
+  Type.Literal("day"),
+  Type.Literal("week"),
+  Type.Literal("month"),
+  Type.Literal("year"),
+  Type.Literal("all"),
+]);
+
+const optionalQueryHints = {
+  sort: Type.Optional(TargetSort),
+  timeRange: Type.Optional(TargetTimeRange),
+  minLikes: Type.Optional(Type.Integer({ minimum: 0, maximum: 1000000 })),
+  minComments: Type.Optional(Type.Integer({ minimum: 0, maximum: 100000 })),
+  excludeReposts: Type.Optional(Type.Boolean()),
+  language: Type.Optional(Type.String({ minLength: 2, maxLength: 8 })),
+};
+
 export const Target = Type.Union([
-  Type.Object({ type: Type.Literal("search"), query: Type.String({ minLength: 1, maxLength: 512 }) }, { additionalProperties: false }),
-  Type.Object({ type: Type.Literal("community"), community: Type.String({ minLength: 1, maxLength: 100 }), query: Type.Optional(Type.String({ maxLength: 200 })) }, { additionalProperties: false }),
-  Type.Object({ type: Type.Literal("account"), account: Type.String({ minLength: 1, maxLength: 253 }), query: Type.Optional(Type.String({ maxLength: 200 })) }, { additionalProperties: false }),
+  Type.Object({
+    type: Type.Literal("search"),
+    query: Type.String({ minLength: 1, maxLength: 512 }),
+    ...optionalQueryHints,
+  }, { additionalProperties: false }),
+  Type.Object({
+    type: Type.Literal("community"),
+    community: Type.String({ minLength: 1, maxLength: 100 }),
+    query: Type.Optional(Type.String({ maxLength: 200 })),
+    ...optionalQueryHints,
+  }, { additionalProperties: false }),
+  Type.Object({
+    type: Type.Literal("account"),
+    account: Type.String({ minLength: 1, maxLength: 253 }),
+    accounts: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { minItems: 1, maxItems: 20, uniqueItems: true })),
+    query: Type.Optional(Type.String({ maxLength: 200 })),
+    sort: Type.Optional(TargetSort),
+    excludeReposts: Type.Optional(Type.Boolean()),
+  }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("post"), postId: Type.String({ minLength: 1, maxLength: 100 }), query: Type.Optional(Type.String({ maxLength: 200 })) }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("feed"), url: Type.String({ format: "uri", maxLength: 2000 }), list: Type.Optional(Type.Union([feedList("web_list", ListSelector), feedList("json_list", ListPath)])) }, { additionalProperties: false }),
+]);
+
+export const FeedLane = Type.Union([
+  Type.Literal("discussion"),
+  Type.Literal("release"),
+  Type.Literal("monitor_only"),
+  Type.Literal("news"),
 ]);
 
 export const FallbackProvider = Type.Union([Type.Literal("scrapebadger"), Type.Literal("red_crawler")]);
@@ -86,6 +134,8 @@ export const SourceInput = Type.Object(
     tags: Type.Optional(SourceTags),
     locale: Type.Optional(SourceLocale),
     fetchPolicy: Type.Optional(SourceFetchPolicy),
+    feedLane: Type.Optional(FeedLane),
+    qualityGrade: Type.Optional(NullableText),
     label: Type.String({ minLength: 1, maxLength: 100 }),
     target: Target,
     contentKind: Kind,
@@ -110,6 +160,7 @@ export const SourceListQuery = Type.Object({
   sourceGroup: Type.Optional(Type.String({ pattern: SourceGroupPattern })),
   tier: Type.Optional(SourceTier),
   state: Type.Optional(Type.Union([Type.Literal("active"), Type.Literal("paused"), Type.Literal("archived")])),
+  feedLane: Type.Optional(FeedLane),
   truncatedOnly: Type.Optional(Type.Boolean()),
 }, { additionalProperties: false });
 
@@ -125,7 +176,8 @@ export const SourcePreview = Type.Object({
 
 export const PublicSourceSummary = Type.Object({
   id: Id, label: Type.String(), platform: Platform, sourceGroup: SourceGroup, tier: SourceTier,
-  locale: SourceLocale, state: Type.String(), lastSuccessAt: Type.Union([DateTime, Type.Null()]),
+  locale: SourceLocale, state: Type.String(), feedLane: Type.Optional(FeedLane),
+  lastSuccessAt: Type.Union([DateTime, Type.Null()]),
   count48h: Type.Integer({ minimum: 0 }),
 }, { additionalProperties: false });
 
@@ -227,6 +279,7 @@ export const Hydrate = Type.Object({
   maxCommentsPerPost: Type.Integer({ minimum: 1, maximum: 50 }),
 }, { additionalProperties: false });
 
+export type FeedLaneValue = Static<typeof FeedLane>;
 export type SourceTarget = Static<typeof Target>;
 export type CollectionSource = Static<typeof Source>;
 
