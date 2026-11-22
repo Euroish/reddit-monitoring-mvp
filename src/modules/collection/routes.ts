@@ -1,3 +1,4 @@
+import { providerBudgetBounds } from "../../../packages/contracts/src/collection-budget";
 import { createHash, randomUUID } from "node:crypto";
 import { Type } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
@@ -5,21 +6,14 @@ import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool } from "pg";
 import {
   Collect,
-  FallbackProvider,
   IdempotencyHeaders,
   Ingest,
   ParamsId,
   PublicSourceDirectory,
-  SourceFetchPolicy,
-  SourceGroup,
   SourceInput,
   SourceListQuery,
-  SourceLocale,
-  SourceSchedule,
-  SourceOwner,
-  SourceTags,
-  SourceTier,
   Source,
+  SourceUpdate,
 } from "../../../packages/contracts/src/source-content";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { canonical, commitContentBatch, prepareContentBatch } from "../content/index";
@@ -96,11 +90,11 @@ export async function collectionRoutes(
         body: Type.Object(
           {
             enabled: Type.Boolean(),
-            dailyRequests: Type.Integer({ minimum: 0, maximum: 1000000 }),
-            monthlyRequests: Type.Integer({ minimum: 0, maximum: 10000000 }),
-            dailyResources: Type.Integer({ minimum: 0, maximum: 100000000 }),
-            monthlyResources: Type.Integer({ minimum: 0, maximum: 1000000000 }),
-            minimumIntervalMs: Type.Integer({ minimum: 0, maximum: 3600000 }),
+            dailyRequests: Type.Integer(providerBudgetBounds.dailyRequests),
+            monthlyRequests: Type.Integer(providerBudgetBounds.monthlyRequests),
+            dailyResources: Type.Integer(providerBudgetBounds.dailyResources),
+            monthlyResources: Type.Integer(providerBudgetBounds.monthlyResources),
+            minimumIntervalMs: Type.Integer(providerBudgetBounds.minimumIntervalMs),
             revision: Type.Integer({ minimum: 1 }),
           },
           { additionalProperties: false },
@@ -170,26 +164,7 @@ export async function collectionRoutes(
     {
       schema: {
         params: ParamsId,
-        body: Type.Object(
-          {
-            label: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-            sourceGroup: Type.Optional(SourceGroup),
-            tags: Type.Optional(SourceTags),
-            locale: Type.Optional(SourceLocale),
-            fetchPolicy: Type.Optional(SourceFetchPolicy),
-            fallbackProvider: Type.Optional(Type.Union([FallbackProvider, Type.Null()])),
-            schedule: Type.Optional(SourceSchedule),
-            tier: Type.Optional(SourceTier),
-            ownerEntityId: Type.Optional(SourceOwner),
-            state: Type.Optional(Type.Union([
-              Type.Literal("active"),
-              Type.Literal("paused"),
-              Type.Literal("archived"),
-            ])),
-            revision: Type.Integer({ minimum: 1 }),
-          },
-          { additionalProperties: false },
-        ),
+        body: SourceUpdate,
       },
     },
     async (request) =>
@@ -299,9 +274,10 @@ export async function collectionRoutes(
         }
         const jobId = randomUUID();
         await client.query(
-          `INSERT INTO source_collection_job(id,collection_source_id,status,purpose,operation,provider,ingest_key,payload_hash,next_run_at,created_at)
-        VALUES($1,$2,'succeeded','ingest','ingest','external_ingest',$3,$4,NOW(),NOW())`,
-          [jobId, source.id, key, hash],
+          `INSERT INTO source_collection_job(id,collection_source_id,status,purpose,operation,provider,ingest_key,payload_hash,
+            next_run_at,created_at,requested_by_user_id,requested_by_client_kind)
+          VALUES($1,$2,'succeeded','ingest','ingest','external_ingest',$3,$4,NOW(),NOW(),$5,$6)`,
+          [jobId, source.id, key, hash, request.actor!.userId, request.actor!.clientKind],
         );
         const counts = await commitContentBatch(
           client,
@@ -418,7 +394,8 @@ export async function collectionRoutes(
       return {
         jobs: (
           await pool.query(
-            `SELECT id,status,operation,provider,provider_state,records_processed,error,created_at
+            `SELECT id,collection_source_id,status,purpose,operation,provider,provider_state,records_processed,
+               records_inserted,records_updated,error,created_at,finished_at,requested_by_client_kind
              FROM source_collection_job
              WHERE collection_source_id=$1
                AND ($2 OR (requested_by_user_id=$3 AND requested_by_client_kind='browser'))

@@ -236,3 +236,11 @@ export type AiVendor = Static<typeof AiVendorSchema>;
 export type AiReleaseEvent = Static<typeof AiReleaseEventSchema>;
 export type AiModelSummary = Static<typeof AiModelSummarySchema>;
 export type AiLlmExtraction = Static<typeof AiLlmExtractionSchema>;
+export const AiVendorSourceRoles = ["blog", "changelog", "docs", "release_notes", "model_card", "other"] as const;
+export const AiVendorSourceBinding = Type.Object({
+  sourceId: Type.String({ format: "uuid" }),
+  vendorId: Type.String({ format: "uuid" }),
+  sourceRole: Type.Union(AiVendorSourceRoles.map(role => Type.Literal(role))),
+  isOfficial: Type.Boolean(),
+}, { additionalProperties: false });
+export type VendorSourceBinding = Static<typeof AiVendorSourceBinding>;

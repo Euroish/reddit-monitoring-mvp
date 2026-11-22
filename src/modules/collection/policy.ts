@@ -83,27 +83,7 @@ export async function loadEffectivePolicyForUser(
   return resolveEffectivePolicy(policyRow, userRow.quota_override);
 }
 
-export function requestedCommentLimit(
-  provider: string, targetType: string, pageSize: number,
-  request: { includeComments?: boolean; maxCommentsPerPost?: number },
-) {
-  if (targetType === "post") {
-    if (provider === "kaix") return Math.min(pageSize, request.maxCommentsPerPost ?? 50);
-    if (provider === "red_crawler") return pageSize;
-  }
-  return request.includeComments ? request.maxCommentsPerPost ?? 15 : undefined;
-}
-
-export function viewerCollectionDemand(
-  provider: string, targetType: string, limit: number,
-  request: { includeComments?: boolean; maxCommentsPerPost?: number },
-) {
-  const commentLimit = requestedCommentLimit(provider, targetType, limit, request);
-  const resources = provider === "kaix" && commentLimit !== undefined
-    ? (targetType === "post" ? commentLimit + 1 : limit * (commentLimit + 1))
-    : limit;
-  return { provider, limit, resources, includeComments: commentLimit !== undefined, maxCommentsPerPost: commentLimit };
-}
+export { requestedCommentLimit, viewerCollectionDemand } from "../../../packages/contracts/src/collection-budget";
 
 export async function admitViewerCollection(
   client: PoolClient,
@@ -238,6 +218,11 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
     const resetsAtUtc = new Date(Date.UTC(utcNow.getUTCFullYear(), utcNow.getUTCMonth(), utcNow.getUTCDate() + 1)).toISOString();
 
     if (actor.role === "viewer") {
+      const budgets = await pool.query<{ provider: string; enabled: boolean }>(
+        `SELECT provider,enabled AND LEAST(daily_requests,monthly_requests,daily_resources,monthly_resources)>0 AS enabled
+         FROM source_provider_budget`,
+      );
+      const budgetFlags = new Map(budgets.rows.map(row => [row.provider, row.enabled]));
       return {
         scope: "personal" as const,
         resetsAtUtc,
@@ -247,6 +232,7 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
           provider: p.capability.provider,
           platform: p.capability.platform,
           enabled: p.capability.enabled,
+          budgetEnabled: budgetFlags.get(p.capability.provider) === true,
           planAllowed: effective.manualCollectEnabled && effective.allowedProviders.includes(p.capability.provider),
         })),
       };

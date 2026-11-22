@@ -551,7 +551,7 @@ export function App() {
               )}
 
               {workbenchRoute === '/sources' && actor && (
-                <SourcesPage actor={actor} initialQueryString={loc.search} />
+                <SourcesPage actor={actor} initialQueryString={loc.search} onNavigate={navigate} />
               )}
 
               {workbenchRoute === '/workspace' && actor && (

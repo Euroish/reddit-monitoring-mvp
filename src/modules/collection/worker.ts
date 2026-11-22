@@ -1,3 +1,4 @@
+import { providerResourceReservation } from "../../../packages/contracts/src/collection-budget";
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { Pool } from "pg";
@@ -116,13 +117,15 @@ export async function workOnce(
     ) {
       const hydrate = job.operation === "hydrate";
       const refresh = Array.isArray(job.request_json.externalIds);
-      const kaixThread = job.provider === "kaix" && (hydrate || source.target.type === "post");
-      const resources = refresh ? job.page_size : kaixThread
-        ? 1 + Math.min(job.page_size, job.request_json.maxCommentsPerPost ?? 50)
-        : ["twitterapis", "scrapebadger"].includes(job.provider)
-          ? (provider.capability.requestResourceUpperBound ?? 20)
-          : Math.min(2000, job.page_size *
-              (job.request_json.includeComments ? (job.request_json.maxCommentsPerPost ?? 15) + 1 : 1) + 1);
+      const resources = providerResourceReservation({
+        ...job.request_json,
+        provider: job.provider,
+        targetType: source.target.type,
+        pageSize: job.page_size,
+        hydration: hydrate,
+        refresh,
+        requestResourceUpperBound: provider.capability.requestResourceUpperBound,
+      });
       const admitted = await transaction(pool, async (client) => {
         const currentSource = await lockSource(client, workerActor, source.id);
         if (job.purpose === "scheduled" && !currentSource.schedule.enabled) {
