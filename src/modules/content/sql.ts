@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { stableUuidFromString } from "../../shared/ids/stable-id";
 import { detectLanguage } from "../../shared/text/language";
-import { fail } from "../../storage/db";
+import { fail } from "../../shared/errors";
 import { publicSearchDocument } from "./search";
 import {
   canonical,
@@ -58,6 +58,47 @@ const assignments = [
   "last_seen_at=GREATEST(content.last_seen_at,EXCLUDED.last_seen_at)",
 ].join(",\n");
 
+function hasConflictingContentVersion(
+  row: import("pg").QueryResultRow,
+  item: PreparedContentBatch["nodes"][number]["item"],
+) {
+  const observedMs = item.observation.sourceObservedAt ? Date.parse(item.observation.sourceObservedAt) : undefined;
+  if (row.content_evidence_key !== item.observation.evidenceKey || row.content_observed_at?.getTime() !== observedMs) {
+    return false;
+  }
+  return (
+    (item.title !== null && row.title !== null && item.title !== row.title) ||
+    (item.text !== null && row.body_text !== null && item.text !== row.body_text) ||
+    item.availability !== row.availability ||
+    canonical(item.references) !== canonical(row.content_references) ||
+    canonical(item.media) !== canonical(row.content_media) ||
+    canonical({ ...item.platformDetails, feedUrl: undefined }) !==
+      canonical({ ...row.platform_details, feedUrl: undefined })
+  );
+}
+
+async function resolveMissingBatchNodes(
+  client: PoolClient,
+  platformId: string,
+  nodes: PreparedContentBatch["nodes"],
+  rows: import("pg").QueryResultRow[],
+) {
+  if (rows.length === nodes.length) return;
+  const returned = new Set(rows.map((row) => `${row.kind}:${row.external_id}`));
+  const missing = nodes.filter((node) => !returned.has(identity(node.item)));
+  const stored = await client.query(
+    `SELECT c.* FROM content c JOIN UNNEST($2::jsonb[]) v
+      ON c.kind=v->>'kind' AND c.external_id=v->>'externalId' WHERE c.source_id=$1 FOR UPDATE OF c`,
+    [platformId, missing.map((node) => JSON.stringify(node.item))],
+  );
+  for (const row of stored.rows) {
+    const node = missing.find((candidate) => identity(candidate.item) === `${row.kind}:${row.external_id}`)!;
+    if (hasConflictingContentVersion(row, node.item)) conflict("Conflicting content in the same version");
+    rows.push({ ...row, inserted: false, changed: false });
+  }
+  if (rows.length !== nodes.length) conflict("Content identity resolution failed");
+}
+
 // Caller owns the transaction and source -> job locks. This function never opens one.
 export async function commitContentBatch(
   client: PoolClient,
@@ -109,7 +150,7 @@ export async function commitContentBatch(
     ORDER BY (v->>'kind') COLLATE "C",(v->>'externalId') COLLATE "C"
     ON CONFLICT(source_id,kind,external_id) DO UPDATE SET ${assignments}
     WHERE NOT (${sameVersionConflict}) AND ((${changed})
-      OR EXCLUDED.first_seen_at<content.first_seen_at OR EXCLUDED.last_seen_at>content.last_seen_at)
+      OR EXCLUDED.first_seen_at<content.first_seen_at OR EXCLUDED.last_seen_at>content.last_seen_at+interval '6 hours')
     RETURNING content.*,(xmax=0) AS inserted
     ) SELECT w.id,w.kind,w.external_id,w.title,w.body_text,w.inserted,
         (w.title,w.body_text,w.content_evidence_key,w.content_observed_at,w.content_version_fetched_at,w.content_author,w.availability,w.platform_details,w.content_media,w.content_references,w.url,w.language,w.created_at_source)
@@ -120,50 +161,7 @@ export async function commitContentBatch(
       WHERE NOT p.conflict AND NOT EXISTS(SELECT 1 FROM written w WHERE w.id=p.id)`,
     [source.platformId, values],
   );
-  if (result.rows.length !== batch.nodes.length) {
-    const returned = new Set(
-      result.rows.map((row) => `${row.kind}:${row.external_id}`),
-    );
-    const missing = batch.nodes.filter(
-      (node) => !returned.has(identity(node.item)),
-    );
-    const stored = await client.query(
-      `SELECT c.* FROM content c JOIN UNNEST($2::jsonb[]) v
-      ON c.kind=v->>'kind' AND c.external_id=v->>'externalId' WHERE c.source_id=$1 FOR UPDATE OF c`,
-      [source.platformId, missing.map((node) => JSON.stringify(node.item))],
-    );
-    for (const row of stored.rows) {
-      const node = missing.find(
-        (node) => identity(node.item) === `${row.kind}:${row.external_id}`,
-      )!;
-      const item = node.item;
-      if (
-        row.content_evidence_key === item.observation.evidenceKey &&
-        row.content_observed_at?.getTime() ===
-          (item.observation.sourceObservedAt
-            ? Date.parse(item.observation.sourceObservedAt)
-            : undefined)
-      ) {
-        if (
-          (item.title !== null &&
-            row.title !== null &&
-            item.title !== row.title) ||
-          (item.text !== null &&
-            row.body_text !== null &&
-            item.text !== row.body_text) ||
-          item.availability !== row.availability ||
-          canonical(item.references) !== canonical(row.content_references) ||
-          canonical(item.media) !== canonical(row.content_media) ||
-          canonical({ ...item.platformDetails, feedUrl: undefined }) !== canonical({ ...row.platform_details, feedUrl: undefined })
-        ) {
-          conflict("Conflicting content in the same version");
-        }
-      }
-      result.rows.push({ ...row, inserted: false, changed: false });
-    }
-    if (result.rows.length !== batch.nodes.length)
-      conflict("Content identity resolution failed");
-  }
+  await resolveMissingBatchNodes(client, source.platformId, batch.nodes, result.rows);
   const identities = new Map(
     result.rows.map((row) => [
       `${row.kind}:${row.external_id}`,
@@ -189,7 +187,7 @@ export async function commitContentBatch(
   await client.query(
     `INSERT INTO content_discovery(content_id,collection_source_id,first_fetched_at,last_fetched_at)
     SELECT (v->>'id')::uuid,$2,(v->>'firstFetchedAt')::timestamptz,(v->>'lastFetchedAt')::timestamptz FROM UNNEST($1::jsonb[]) AS input(v)
-    ON CONFLICT(content_id,collection_source_id) DO UPDATE SET first_fetched_at=LEAST(content_discovery.first_fetched_at,EXCLUDED.first_fetched_at),last_fetched_at=GREATEST(content_discovery.last_fetched_at,EXCLUDED.last_fetched_at)`,
+    ON CONFLICT(content_id,collection_source_id) DO UPDATE SET first_fetched_at=LEAST(content_discovery.first_fetched_at,EXCLUDED.first_fetched_at),last_fetched_at=GREATEST(content_discovery.last_fetched_at,EXCLUDED.last_fetched_at) WHERE EXCLUDED.first_fetched_at<content_discovery.first_fetched_at OR EXCLUDED.last_fetched_at>content_discovery.last_fetched_at+interval '6 hours'`,
     [
       batch.nodes.map((node) =>
         JSON.stringify({
@@ -240,7 +238,7 @@ export async function commitContentBatch(
 
 export function contentFromRow(
   row: import("pg").QueryResultRow,
-): import("../../../packages/contracts/src/source-content").PublicContent {
+): import("../../../packages/contracts/src/content").PublicContent {
   const iso = (value: Date | null) => value?.toISOString() ?? null;
   const hasText = typeof row.body_text === "string" && row.body_text.trim().length > 0;
   return {

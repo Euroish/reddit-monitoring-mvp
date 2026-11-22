@@ -2,11 +2,12 @@ import { createHash } from "node:crypto";
 import { load } from "cheerio";
 import Parser from "rss-parser";
 import sanitize from "sanitize-html";
-import type { JsonValue, SourceTarget } from "../../../packages/contracts/src/source-content";
+import type { JsonValue } from "../../../packages/contracts/src/source-content";
+import { SourceTarget } from "../../../packages/contracts/src/collection";
 import type { webBoards } from "../../../packages/contracts/src/web-boards";
 import { stableUuidFromString } from "../../shared/ids/stable-id";
 import { detectLanguage, detectWebChannel } from "../../shared/text/language";
-import { fail } from "../../storage/db";
+import { fail } from "../../shared/errors";
 import { ContentProviderError, type CollectedContent, type CollectedPage, type ContentProvider } from "../shared/content-provider.interface";
 import { canonicalizeUrl, httpsUrl, read, type ReadPage } from "./http";
 

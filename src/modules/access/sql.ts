@@ -4,8 +4,9 @@ import {
   randomUUID,
 } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import type { Actor } from "../../../packages/contracts/src/source-content";
-import { fail, transaction } from "../../storage/db";
+import type { Actor } from "../../../packages/contracts/src/access";
+import { fail } from "../../shared/errors";
+import { transaction } from "../../storage/db";
 
 import { hashPassword } from "./password";
 export { hashPassword, verifyPassword } from "./password";
@@ -278,4 +279,102 @@ export async function listAccessAudit(pool: Pool) {
      ORDER BY a.created_at DESC LIMIT 50`,
   );
   return result.rows;
+}
+
+export async function writeAuditLog(
+  db: Pool | PoolClient,
+  input: {
+    actorUserId?: string | null;
+    actorType?: "session" | "machine" | null;
+    action: string;
+    resourceType?: string | null;
+    resourceId?: string | null;
+    meta?: unknown;
+  },
+) {
+  await db.query(
+    `INSERT INTO app_audit_log(id,actor_user_id,actor_type,action,resource_type,resource_id,meta_json)
+     VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)`,
+    [
+      randomUUID(),
+      input.actorUserId ?? null,
+      input.actorType ?? "session",
+      input.action,
+      input.resourceType ?? null,
+      input.resourceId ?? null,
+      JSON.stringify(input.meta ?? {}),
+    ],
+  );
+}
+
+export async function getUserQuotaRecord(
+  db: Pool | PoolClient,
+  userId: string,
+  lockForUpdate = false,
+) {
+  const lockClause = lockForUpdate ? " FOR UPDATE" : "";
+  return (
+    await db.query<{
+      status: string;
+      plan_tier: "free" | "pro";
+      quota_override: Record<string, unknown> | null;
+    }>(`SELECT status, plan_tier, quota_override FROM app_user WHERE id=$1${lockClause}`, [userId])
+  ).rows[0];
+}
+
+export async function getUserRoleStatus(
+  db: Pool | PoolClient,
+  userId: string,
+  lockForUpdate = false,
+) {
+  const lockClause = lockForUpdate ? " FOR UPDATE" : "";
+  return (
+    await db.query<{ id: string; role: string; status: string }>(
+      `SELECT id, role, status FROM app_user WHERE id=$1${lockClause}`,
+      [userId],
+    )
+  ).rows[0];
+}
+
+export async function updateUserQuotaOverride(
+  db: Pool | PoolClient,
+  userId: string,
+  quotaOverrideJson: string | null,
+) {
+  await db.query(
+    "UPDATE app_user SET quota_override=$2, updated_at=NOW() WHERE id=$1",
+    [userId, quotaOverrideJson],
+  );
+}
+
+export async function listUsersForQuotaSummary(db: Pool | PoolClient) {
+  return (
+    await db.query<{
+      id: string;
+      email: string;
+      role: string;
+      status: string;
+      plan_tier: "free" | "pro";
+      quota_override: Record<string, unknown> | null;
+    }>(
+      `SELECT id, email, role, status, plan_tier, quota_override
+       FROM app_user
+       ORDER BY CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, created_at ASC`,
+    )
+  ).rows;
+}
+
+export async function getUserEmailsByIds(
+  db: Pool | PoolClient,
+  userIds: string[],
+): Promise<Map<string, string>> {
+  const unique = [...new Set(userIds.filter(Boolean))];
+  if (!unique.length) return new Map();
+  const rows = (
+    await db.query<{ id: string; email: string }>(
+      "SELECT id, email FROM app_user WHERE id = ANY($1::uuid[])",
+      [unique],
+    )
+  ).rows;
+  return new Map(rows.map((r) => [r.id, r.email]));
 }

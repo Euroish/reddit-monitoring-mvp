@@ -1,12 +1,6 @@
-import type {
-  CollectionSource,
-  ContentObservation,
-  JsonValue,
-  PublicContent,
-  PublicContentKind,
-  SourceCapability,
-  SourceTarget,
-} from "../../../packages/contracts/src/source-content";
+import type { CollectionSource, SourceCapability, SourceTarget } from "../../../packages/contracts/src/collection";
+import type { ContentObservation, PublicContent } from "../../../packages/contracts/src/content";
+import type { JsonValue, PublicContentKind } from "../../../packages/contracts/src/common";
 
 export interface CollectedContent extends Omit<
   PublicContent,

@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
-import type { ContentMedia, ContentReference, PublicContentKind, SourceCapability, SourceTarget } from "../../../packages/contracts/src/source-content";
+import type { ContentMedia } from "../../../packages/contracts/src/source-content";
+import { ContentReference } from "../../../packages/contracts/src/content";
+import { PublicContentKind } from "../../../packages/contracts/src/common";
+import { SourceCapability, SourceTarget } from "../../../packages/contracts/src/collection";
 import { stableUuidFromString } from "../../shared/ids/stable-id";
-import { fail } from "../../storage/db";
+import { fail } from "../../shared/errors";
 import {
   ContentProviderError,
   type CollectedContent,

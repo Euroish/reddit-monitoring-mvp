@@ -1,8 +1,9 @@
 import type { Static } from "@sinclair/typebox";
 import type { Pool, PoolClient } from "pg";
 import type { StoryEvidence, StoryFeed, StoryQuery } from "../../../packages/contracts/src/content-stories";
-import type { Actor, ContentAuthor } from "../../../packages/contracts/src/source-content";
-import { fail } from "../../storage/db";
+import type { Actor } from "../../../packages/contracts/src/access";
+import type { ContentAuthor } from "../../../packages/contracts/src/content";
+import { fail } from "../../shared/errors";
 import { compileContentFilter, contentSourceTables } from "./search";
 import { groupStories, type StoryTitle } from "./story-groups";
 
@@ -85,36 +86,140 @@ function dateWindow(query: Query, now: number) {
   return { view, from: to - spanHours * hour, lookback: to - lookbackHours * hour, to };
 }
 
+interface SourceWaveQueue {
+  sid: string;
+  indices: number[];
+  head: number;
+}
+
+class SourcePosHeap {
+  private readonly items: SourceWaveQueue[] = [];
+
+  get size() {
+    return this.items.length;
+  }
+
+  push(entry: SourceWaveQueue) {
+    this.items.push(entry);
+    let idx = this.items.length - 1;
+    while (idx > 0) {
+      const parent = (idx - 1) >> 1;
+      if (this.pos(parent) <= this.pos(idx)) break;
+      [this.items[parent], this.items[idx]] = [this.items[idx], this.items[parent]];
+      idx = parent;
+    }
+  }
+
+  pop(): SourceWaveQueue | undefined {
+    if (!this.items.length) return undefined;
+    const top = this.items[0];
+    const last = this.items.pop()!;
+    if (this.items.length) {
+      this.items[0] = last;
+      this.sink(0);
+    }
+    return top;
+  }
+
+  private pos(i: number) {
+    return this.items[i].indices[this.items[i].head];
+  }
+
+  private sink(i: number) {
+    const n = this.items.length;
+    while (true) {
+      let smallest = i;
+      const left = 2 * i + 1;
+      const right = left + 1;
+      if (left < n && this.pos(left) < this.pos(smallest)) smallest = left;
+      if (right < n && this.pos(right) < this.pos(smallest)) smallest = right;
+      if (smallest === i) break;
+      [this.items[i], this.items[smallest]] = [this.items[smallest], this.items[i]];
+      i = smallest;
+    }
+  }
+}
+
+function orderIntoWaves(items: StoryFeed["items"], maxPerRun: number) {
+  const seen = new Map<string, number>();
+  const waves = new Map<number, StoryFeed["items"]>();
+  for (const item of items) {
+    const sid = item.representative.sourceId;
+    const count = seen.get(sid) ?? 0;
+    seen.set(sid, count + 1);
+    const wave = Math.floor(count / (item.representative.tier === "T2" ? 1 : maxPerRun));
+    const bucket = waves.get(wave);
+    if (bucket) bucket.push(item);
+    else waves.set(wave, [item]);
+  }
+  return [...waves.keys()].sort((a, b) => a - b).flatMap((w) => waves.get(w)!);
+}
+
+function buildSourceQueues(pending: StoryFeed["items"]) {
+  const bySource = new Map<string, SourceWaveQueue>();
+  for (let i = 0; i < pending.length; i++) {
+    const sid = pending[i].representative.sourceId;
+    let queue = bySource.get(sid);
+    if (!queue) {
+      queue = { sid, indices: [], head: 0 };
+      bySource.set(sid, queue);
+    }
+    queue.indices.push(i);
+  }
+  const heap = new SourcePosHeap();
+  for (const q of bySource.values()) heap.push(q);
+  return { bySource, heap };
+}
+
+function pickEarliestParked(parked: Set<SourceWaveQueue>) {
+  let chosen: SourceWaveQueue | undefined;
+  for (const candidate of parked) {
+    if (!chosen || candidate.indices[candidate.head] < chosen.indices[chosen.head]) chosen = candidate;
+  }
+  if (chosen) parked.delete(chosen);
+  return chosen;
+}
+
 export function diversifyStories(
   items: StoryFeed["items"],
   maxPerRun = 2,
   windowSize = 12,
 ): StoryFeed["items"] {
   if (items.length <= maxPerRun) return items;
-  const seen = new Map<string, number>();
-  const waves = new Map<number, StoryFeed["items"]>();
-  for (const item of items) {
-    const sourceId = item.representative.sourceId;
-    const count = seen.get(sourceId) ?? 0;
-    seen.set(sourceId, count + 1);
-    const cap = item.representative.tier === "T2" ? 1 : maxPerRun;
-    const wave = Math.floor(count / cap);
-    const bucket = waves.get(wave);
-    if (bucket) bucket.push(item);
-    else waves.set(wave, [item]);
-  }
-  const pending = [...waves.keys()].sort((a, b) => a - b).flatMap(w => waves.get(w)!);
+  const pending = orderIntoWaves(items, maxPerRun);
+  const { bySource, heap } = buildSourceQueues(pending);
+  const parked = new Set<SourceWaveQueue>();
+  const recent = new Map<string, number>();
   const result: StoryFeed["items"] = [];
-  while (pending.length) {
-    const recent = new Map<string, number>();
-    const start = Math.max(0, result.length - (windowSize - 1));
-    for (let i = start; i < result.length; i++) {
-      const sid = result[i].representative.sourceId;
-      recent.set(sid, (recent.get(sid) ?? 0) + 1);
+
+  for (let step = 0; step < pending.length; step++) {
+    let chosen: SourceWaveQueue | undefined;
+    while (heap.size > 0) {
+      const candidate = heap.pop()!;
+      if ((recent.get(candidate.sid) ?? 0) < maxPerRun) {
+        chosen = candidate;
+        break;
+      }
+      parked.add(candidate);
     }
-    let pick = pending.findIndex(item => (recent.get(item.representative.sourceId) ?? 0) < maxPerRun);
-    if (pick === -1) pick = 0;
-    result.push(pending.splice(pick, 1)[0]);
+    chosen ??= pickEarliestParked(parked);
+    if (!chosen) break;
+    result.push(pending[chosen.indices[chosen.head++]]);
+    recent.set(chosen.sid, (recent.get(chosen.sid) ?? 0) + 1);
+    if (result.length >= windowSize) {
+      const expiredSid = result[result.length - windowSize].representative.sourceId;
+      const nextCount = (recent.get(expiredSid) ?? 0) - 1;
+      if (nextCount <= 0) recent.delete(expiredSid);
+      else recent.set(expiredSid, nextCount);
+      const expiredQueue = bySource.get(expiredSid)!;
+      if (nextCount < maxPerRun && expiredSid !== chosen.sid && parked.delete(expiredQueue) && expiredQueue.head < expiredQueue.indices.length) {
+        heap.push(expiredQueue);
+      }
+    }
+    if (chosen.head < chosen.indices.length) {
+      if ((recent.get(chosen.sid) ?? 0) >= maxPerRun) parked.add(chosen);
+      else heap.push(chosen);
+    }
   }
   return result;
 }

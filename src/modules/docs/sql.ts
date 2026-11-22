@@ -1,30 +1,26 @@
 import { randomUUID } from "node:crypto";
-import { Type } from "@sinclair/typebox";
-import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
-import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
-import { ParamsId, type Actor } from "../../../packages/contracts/src/source-content";
+import type { Actor } from "../../../packages/contracts/src/access";
 import {
-  DocInput, DocPatch, DocSummary, DocDetail,
-  type DocCategory, type DocKind, type DocStatus,
+  type DocCategory,
+  type DocDetail,
+  type DocInput,
+  type DocKind,
+  type DocPatch,
+  type DocStatus,
+  type DocSummary,
 } from "../../../packages/contracts/src/product-docs";
-import { fail } from "../../storage/db";
+import { fail } from "../../shared/errors";
 
 /**
- * Product documentation pages (052 -> 053: doc_page).
+ * Product documentation pages (doc_page).
  * One row per document. kind=markdown renders an internal page, kind=link points
  * at an external (already hosted) URL, kind=file stores one attachment (PDF) inline.
  */
 
-const ParamsSlug = Type.Object(
-  { slug: Type.String({ minLength: 1, maxLength: 80 }) },
-  { additionalProperties: false },
-);
-
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const SUMMARY_COLS =
   "id,slug,category,title,summary,kind,pinned,sort_rank,status,external_url,file_name,file_mime,octet_length(file_bytes) AS file_size,updated_at";
-
 const DETAIL_COLS = `${SUMMARY_COLS},body_md,revision,created_at`;
 
 interface DocRow {
@@ -47,7 +43,7 @@ interface DocRow {
   updated_at: Date;
 }
 
-function isManager(actor: Actor | null | undefined) {
+export function isManager(actor: Actor | null | undefined) {
   return Boolean(actor && actor.clientKind === "browser" && actor.role !== "viewer");
 }
 
@@ -82,8 +78,9 @@ function toDetail(row: DocRow): DocDetail {
 function normalizeUrl(value: string | null | undefined) {
   if (!value) return null;
   const trimmed = value.trim();
-  if (!/^https:\/\/[^\s]+$/i.test(trimmed))
+  if (!/^https:\/\/[^\s]+$/i.test(trimmed)) {
     fail(400, "External documents require an https:// link");
+  }
   return trimmed;
 }
 
@@ -94,8 +91,9 @@ function decodeFile(file: { name: string; mime: string; dataBase64: string }) {
   const buffer = Buffer.from(file.dataBase64.replace(/^data:[^;]+;base64,/, ""), "base64");
   if (!buffer.length) fail(400, "Empty attachment");
   if (buffer.length > MAX_FILE_BYTES) fail(413, "Attachment exceeds the 8 MB limit");
-  if (buffer.subarray(0, 5).toString("latin1") !== "%PDF-")
+  if (buffer.subarray(0, 5).toString("latin1") !== "%PDF-") {
     fail(400, "Attachment is not a valid PDF file");
+  }
   return { name: file.name, mime: "application/pdf", bytes: buffer };
 }
 
@@ -112,19 +110,23 @@ export async function listDocPages(pool: Pool, actor: Actor | null) {
 }
 
 export async function getDocPage(pool: Pool, actor: Actor | null, slug: string) {
-  const row = (await pool.query<DocRow>(
-    `SELECT ${DETAIL_COLS} FROM doc_page WHERE slug=$1 AND ($2::boolean OR status='published')`,
-    [slug, isManager(actor)],
-  )).rows[0];
+  const row = (
+    await pool.query<DocRow>(
+      `SELECT ${DETAIL_COLS} FROM doc_page WHERE slug=$1 AND ($2::boolean OR status='published')`,
+      [slug, isManager(actor)],
+    )
+  ).rows[0];
   if (!row) fail(404, "Document not found");
   return toDetail(row);
 }
 
 export async function getDocAttachment(pool: Pool, actor: Actor | null, slug: string) {
-  const row = (await pool.query<{ kind: DocKind; file_bytes: Buffer | null; file_name: string | null }>(
-    "SELECT kind,file_bytes,file_name FROM doc_page WHERE slug=$1 AND ($2::boolean OR status='published')",
-    [slug, isManager(actor)],
-  )).rows[0];
+  const row = (
+    await pool.query<{ kind: DocKind; file_bytes: Buffer | null; file_name: string | null }>(
+      "SELECT kind,file_bytes,file_name FROM doc_page WHERE slug=$1 AND ($2::boolean OR status='published')",
+      [slug, isManager(actor)],
+    )
+  ).rows[0];
   if (!row) fail(404, "Document not found");
   if (row.kind !== "file" || !row.file_bytes) fail(404, "Document has no attachment");
   return {
@@ -133,11 +135,7 @@ export async function getDocAttachment(pool: Pool, actor: Actor | null, slug: st
   };
 }
 
-export async function createDocPage(
-  pool: Pool,
-  actor: Actor,
-  input: DocInput,
-) {
+export async function createDocPage(pool: Pool, actor: Actor, input: DocInput) {
   if (!input.title.trim()) fail(400, "Document title is required");
   const externalUrl = input.kind === "link" ? normalizeUrl(input.externalUrl) : null;
   if (input.kind === "link" && !externalUrl) fail(400, "External documents require an https:// link");
@@ -172,68 +170,51 @@ export async function createDocPage(
   return toDetail(row);
 }
 
-export async function updateDocPage(
-  pool: Pool,
-  actor: Actor,
-  id: string,
-  patch: DocPatch,
-) {
-  const current = (await pool.query(`SELECT ${DETAIL_COLS} FROM doc_page WHERE id = $1`, [id])).rows[0] as
-    | DocRow
-    | undefined;
-  if (!current) fail(404, "Document not found");
+function resolveValidatedDocFields(current: DocRow, patch: DocPatch) {
   if (patch.title !== undefined && !patch.title.trim()) fail(400, "Document title is required");
   const kind = patch.kind ?? current.kind;
   const attachment = patch.file ? decodeFile(patch.file) : null;
-  const externalUrl =
-    kind === "link"
-      ? normalizeUrl(patch.externalUrl ?? current.external_url)
-      : null;
+  const externalUrl = kind === "link" ? normalizeUrl(patch.externalUrl ?? current.external_url) : null;
   if (kind === "link" && !externalUrl) fail(400, "External documents require an https:// link");
-  if (kind === "file" && !attachment && (current.kind !== "file" || current.file_size === null))
+  if (kind === "file" && !attachment && (current.kind !== "file" || current.file_size === null)) {
     fail(400, "Attachment required");
+  }
+  const summary = patch.summary === undefined ? current.summary : patch.summary.trim();
+  const bodyMd = kind === "markdown" ? (patch.bodyMd ?? current.body_md ?? "") : "";
+  return { kind, attachment, externalUrl, summary, bodyMd };
+}
 
-  // 只有换了附件或切换了 kind 才重写 BYTEA，避免置顶/改标题时整块 8 MB 往返与 TOAST 写放大
-  const fileTouched = Boolean(attachment) || kind !== current.kind;
+function buildUpdatePayload(id: string, actor: Actor, current: DocRow, patch: DocPatch) {
+  const resolved = resolveValidatedDocFields(current, patch);
+  const fileTouched = Boolean(resolved.attachment) || resolved.kind !== current.kind;
   const values: unknown[] = [
-    id,
-    (patch.title ?? current.title).trim(),
-    patch.category ?? current.category,
-    patch.summary === undefined ? current.summary : patch.summary.trim(),
-    kind,
-    kind === "markdown" ? patch.bodyMd ?? current.body_md ?? "" : "",
-    externalUrl,
-    patch.pinned === undefined ? current.pinned : patch.pinned,
-    patch.sortRank === undefined ? current.sort_rank : patch.sortRank,
-    patch.status === undefined ? current.status : patch.status,
-    actor.userId,
+    id, (patch.title ?? current.title).trim(), patch.category ?? current.category, resolved.summary,
+    resolved.kind, resolved.bodyMd, resolved.externalUrl, patch.pinned ?? current.pinned,
+    patch.sortRank ?? current.sort_rank, patch.status ?? current.status, actor.userId,
   ];
   const sets = [
-    "title=$2",
-    "category=$3",
-    "summary=$4",
-    "kind=$5",
-    "body_md=$6",
-    "external_url=$7",
-    "pinned=$8",
-    "sort_rank=$9",
-    "status=$10",
-    "revision=revision+1",
-    "updated_at=NOW()",
-    "updated_by=$11",
+    "title=$2", "category=$3", "summary=$4", "kind=$5", "body_md=$6",
+    "external_url=$7", "pinned=$8", "sort_rank=$9", "status=$10",
+    "revision=revision+1", "updated_at=NOW()", "updated_by=$11",
   ];
   if (fileTouched) {
-    const file = kind === "file" ? attachment : null;
+    const file = resolved.kind === "file" ? resolved.attachment : null;
     values.push(file?.name ?? null, file?.mime ?? null, file?.bytes ?? null);
     sets.push(`file_name=$${values.length - 2}`, `file_mime=$${values.length - 1}`, `file_bytes=$${values.length}`);
   }
   values.push(patch.expectedRevision ?? current.revision);
+  return { sets, values };
+}
+
+export async function updateDocPage(pool: Pool, actor: Actor, id: string, patch: DocPatch) {
+  const current = (await pool.query(`SELECT ${DETAIL_COLS} FROM doc_page WHERE id = $1`, [id])).rows[0] as
+    | DocRow
+    | undefined;
+  if (!current) fail(404, "Document not found");
+  const { sets, values } = buildUpdatePayload(id, actor, current, patch);
   const where = `id=$1 AND revision=$${values.length}`;
   const row = (
-    await pool.query(
-      `UPDATE doc_page SET ${sets.join(",")} WHERE ${where} RETURNING ${DETAIL_COLS}`,
-      values,
-    )
+    await pool.query(`UPDATE doc_page SET ${sets.join(",")} WHERE ${where} RETURNING ${DETAIL_COLS}`, values)
   ).rows[0] as DocRow | undefined;
   if (!row) fail(409, "Document was modified by someone else; reload and retry");
   return toDetail(row);
@@ -244,82 +225,4 @@ export async function deleteDocPage(pool: Pool, actor: Actor, id: string) {
   const result = await pool.query("DELETE FROM doc_page WHERE id = $1", [id]);
   if (!result.rowCount) fail(404, "Document not found");
   return { deleted: true };
-}
-
-function asciiName(name: string) {
-  return name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
-}
-
-export async function docsRoutes(app: FastifyInstance, pool: Pool) {
-  const api = app.withTypeProvider<TypeBoxTypeProvider>();
-  const requireManager = (actor: Actor | null) => {
-    if (!isManager(actor)) fail(403, "Administrator access required");
-    return actor as Actor;
-  };
-
-  const detailResponse = { 200: Type.Object({ doc: DocDetail }) };
-  api.get("/v1/docs", {
-    schema: { response: { 200: Type.Object({ docs: Type.Array(DocSummary) }) } },
-  }, async (request) => ({ docs: await listDocPages(pool, request.actor) }));
-
-  api.get(
-    "/v1/docs/:slug",
-    { schema: { params: ParamsSlug, response: detailResponse } },
-    async (request) => ({
-      doc: await getDocPage(pool, request.actor, request.params.slug),
-    }),
-  );
-
-  api.get(
-    "/v1/docs/:slug/file",
-    {
-      schema: {
-        params: ParamsSlug,
-        response: {
-          200: {
-            description: "PDF attachment",
-            content: {
-              "application/pdf": { schema: Type.Unsafe<Buffer>({ type: "string", format: "binary" }) },
-            },
-          },
-        },
-      },
-    },
-    async (request, reply) => {
-      const file = await getDocAttachment(pool, request.actor, request.params.slug);
-      return reply
-        .header("Content-Type", "application/pdf")
-        .header("X-Content-Type-Options", "nosniff")
-        .header("Content-Security-Policy", "default-src 'none'; sandbox")
-        .header("Content-Length", String(file.bytes.length))
-        .header(
-          "Content-Disposition",
-          `inline; filename="${asciiName(file.name)}"; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-        )
-        .header("Cache-Control", "private, no-store")
-        .send(file.bytes);
-    },
-  );
-
-  api.post(
-    "/v1/docs",
-    { schema: { body: DocInput, response: detailResponse }, bodyLimit: 12 * 1024 * 1024 },
-    async (request) => ({
-      doc: await createDocPage(pool, requireManager(request.actor), request.body),
-    }),
-  );
-
-  api.patch(
-    "/v1/docs/:id",
-    { schema: { params: ParamsId, body: DocPatch, response: detailResponse }, bodyLimit: 12 * 1024 * 1024 },
-    async (request) => ({
-      doc: await updateDocPage(pool, requireManager(request.actor), request.params.id, request.body),
-    }),
-  );
-
-  api.delete(
-    "/v1/docs/:id",
-    { schema: { params: ParamsId, response: { 200: Type.Object({ deleted: Type.Boolean() }) } } },
-    async (request) => deleteDocPage(pool, requireManager(request.actor), request.params.id),
-  );
 }

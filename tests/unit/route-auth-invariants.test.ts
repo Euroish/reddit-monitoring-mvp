@@ -9,7 +9,8 @@ import { buildApp } from "../../apps/api/src/app";
 import { resolveRoutePolicy } from "../../apps/api/src/route-policy";
 import { canonical } from "../../src/modules/content/batch";
 import { compileContentFilter, decodeCursor } from "../../src/modules/content/search";
-import { auditTableWriteOwnership } from "../../scripts/check-table-ownership";
+import { auditTableReadOwnership, auditTableWriteOwnership } from "../../scripts/check-table-ownership";
+import { diversifyStories } from "../../src/modules/content/stories";
 
 const origin = "https://invariants.example.test";
 const sessionSecret = "route-auth-invariants-fixture-secret-key";
@@ -67,6 +68,12 @@ test("INV-001: route policy blocks machine keys on all privileged/auth/workspace
   assert.equal(declarative.viewerAllowed, false);
   assert.equal(declarative.machineAllowed, false);
   assert.equal(declarative.browserOnlyAuthRoute, true);
+
+  const declarativeAdminGet = resolveRoutePolicy("GET", "/v1/custom/admin-report", {
+    declarative: { access: "admin", browserOnly: true },
+  });
+  assert.equal(declarativeAdminGet.viewerAllowed, false);
+  assert.equal(declarativeAdminGet.machineAllowed, false);
 });
 
 test("INV-001: unauthenticated requests to protected routes are rejected before DB access", async (t) => {
@@ -187,4 +194,78 @@ test("Property invariants: decodeCursor, compileContentFilter, and canonical hol
     assert.equal(canonical(a), canonical(b));
     assert.equal(canonical(JSON.parse(canonical(a))), canonical(a));
   }
+});
+
+test("INV-008: table read-ownership audit rejects unauthorized cross-module reads while permitting contracted shared reads", () => {
+  const dir = mkdtempSync(join(tmpdir(), "table-read-ownership-"));
+  try {
+    mkdirSync(join(dir, "src", "modules", "content"), { recursive: true });
+    mkdirSync(join(dir, "src", "modules", "ai"), { recursive: true });
+    writeFileSync(
+      join(dir, "src", "modules", "content", "search.ts"),
+      `export const q = "SELECT c.id FROM content c JOIN source s ON s.id=c.source_id JOIN collection_source cs ON cs.id=c.id";`,
+    );
+    const allowed = auditTableReadOwnership(dir);
+    assert.deepEqual(allowed.violations, []);
+
+    writeFileSync(
+      join(dir, "src", "modules", "ai", "leak.ts"),
+      `export const q = "SELECT id FROM content WHERE title IS NOT NULL";`,
+    );
+    const denied = auditTableReadOwnership(dir);
+    assert.ok(denied.violations.length >= 1);
+    assert.match(denied.violations[0], /content/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("PERF: diversifyStories preserves sliding-window diversity and scales sub-quadratically to 5,000 items", () => {
+  const mkItem = (idx: number, sid: string, tier: "T1" | "T1_5" | "T2" = "T1") => ({
+    storyKey: `story-${idx}`,
+    representative: {
+      id: `00000000-0000-0000-0000-${String(idx).padStart(12, "0")}`,
+      url: null,
+      platform: "web" as const,
+      sourceId: sid,
+      title: `Story ${idx}`,
+      author: null,
+      publishedAt: "2026-11-20T00:00:00.000Z",
+      tier,
+      thumbnail: null,
+      sourceLabel: sid,
+      discoveredAt: "2026-11-20T00:00:00.000Z",
+    },
+    excerpt: null,
+    related: [],
+    relatedCount: 0,
+    tierBreakdown: { T1: 1, T1_5: 0, T2: 0 },
+    sparkline48h: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    sourceCount: 1,
+    heat48h: 5000 - idx,
+    change6h: null,
+    trend: "new" as const,
+    badges: [],
+    updatedAt: "2026-11-20T00:00:00.000Z",
+  });
+
+  const small = [
+    mkItem(1, "s1"),
+    mkItem(2, "s1"),
+    mkItem(3, "s1"),
+    mkItem(4, "s2"),
+    mkItem(5, "s3"),
+    mkItem(6, "s4"),
+  ];
+  const ordered = diversifyStories(small, 2, 12);
+  assert.equal(ordered.length, 6);
+  // Third s1 item is pushed to wave 1 after s2, s3, s4 when enough sources exist.
+  assert.equal(ordered[2].representative.sourceId, "s2");
+
+  const large = Array.from({ length: 5000 }, (_, i) => mkItem(i, `src-${i % 40}`));
+  const t0 = performance.now();
+  const res = diversifyStories(large, 2, 12);
+  const elapsedMs = performance.now() - t0;
+  assert.equal(res.length, 5000);
+  assert.ok(elapsedMs < 500, `Expected O(N log S) diversifyStories < 500ms, took ${elapsedMs.toFixed(1)}ms`);
 });

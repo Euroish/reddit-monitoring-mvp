@@ -1,11 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
-import type {
-  Actor,
-  Filter,
-} from "../../../packages/contracts/src/source-content";
-import { compileContentFilter } from "../content/index";
-import { fail } from "../../storage/db";
+import type { Actor } from "../../../packages/contracts/src/access";
+import type { Filter } from "../../../packages/contracts/src/content";
+import { fail } from "../../shared/errors";
+import { isContentVisibleToActor, loadAnnotatedContentByIds } from "../content/index";
 
 export async function listSavedQueries(pool: Pool, actor: Actor) {
   return (
@@ -15,12 +13,8 @@ export async function listSavedQueries(pool: Pool, actor: Actor) {
     )
   ).rows;
 }
-export async function saveQuery(
-  pool: Pool,
-  actor: Actor,
-  name: string,
-  filter: Filter,
-) {
+
+export async function saveQuery(pool: Pool, actor: Actor, name: string, filter: Filter) {
   return (
     await pool.query(
       "INSERT INTO content_saved_query(id,user_id,name,query,created_at,updated_at) VALUES($1,$2,$3,$4,NOW(),NOW()) RETURNING id",
@@ -28,17 +22,36 @@ export async function saveQuery(
     )
   ).rows[0];
 }
+
 export async function listAnnotations(pool: Pool, actor: Actor) {
-  const compiled = compileContentFilter(actor, {});
-  compiled.values.push(actor.userId);
-  return (
-    await pool.query(
-      `SELECT a.content_id,a.favorite,a.note,a.revision,c.title,c.body_text,c.external_id FROM content_annotation a JOIN content c ON c.id=a.content_id JOIN source p ON p.id=c.source_id
-    WHERE ${compiled.text} AND a.user_id=$${compiled.values.length} ORDER BY a.updated_at DESC,a.content_id DESC LIMIT 100`,
-      compiled.values,
+  const annotations = (
+    await pool.query<{ content_id: string; favorite: boolean; note: string; revision: number }>(
+      "SELECT content_id,favorite,note,revision FROM content_annotation WHERE user_id=$1 ORDER BY updated_at DESC,content_id DESC LIMIT 100",
+      [actor.userId],
     )
   ).rows;
+  const contentById = await loadAnnotatedContentByIds(
+    pool,
+    actor,
+    annotations.map((row) => row.content_id),
+  );
+  return annotations.flatMap((row) => {
+    const content = contentById.get(row.content_id);
+    if (!content) return [];
+    return [
+      {
+        content_id: row.content_id,
+        favorite: row.favorite,
+        note: row.note,
+        revision: row.revision,
+        title: content.title,
+        body_text: content.body_text,
+        external_id: content.external_id,
+      },
+    ];
+  });
 }
+
 export async function updateAnnotation(
   pool: Pool,
   actor: Actor,
@@ -47,17 +60,13 @@ export async function updateAnnotation(
   note: string,
   revision: number,
 ) {
-  const compiled = compileContentFilter(actor, {});
-  compiled.values.push(contentId);
-  const visible = await pool.query(
-    `SELECT c.id FROM content c JOIN source p ON p.id=c.source_id WHERE ${compiled.text} AND c.id=$${compiled.values.length}`,
-    compiled.values,
-  );
-  if (!visible.rowCount) fail(404, "Content not found");
+  if (!(await isContentVisibleToActor(pool, actor, contentId))) {
+    fail(404, "Content not found");
+  }
   const result = await pool.query(
     `INSERT INTO content_annotation(user_id,content_id,favorite,note,created_at,updated_at)
-    SELECT $1,$2,$3,$4,NOW(),NOW() WHERE $5=0 OR EXISTS(SELECT 1 FROM content_annotation WHERE user_id=$1 AND content_id=$2)
-    ON CONFLICT(user_id,content_id) DO UPDATE SET favorite=EXCLUDED.favorite,note=EXCLUDED.note,updated_at=NOW(),revision=content_annotation.revision+1 WHERE content_annotation.revision=$5 RETURNING revision`,
+     SELECT $1,$2,$3,$4,NOW(),NOW() WHERE $5=0 OR EXISTS(SELECT 1 FROM content_annotation WHERE user_id=$1 AND content_id=$2)
+     ON CONFLICT(user_id,content_id) DO UPDATE SET favorite=EXCLUDED.favorite,note=EXCLUDED.note,updated_at=NOW(),revision=content_annotation.revision+1 WHERE content_annotation.revision=$5 RETURNING revision`,
     [actor.userId, contentId, favorite, note, revision],
   );
   if (!result.rowCount) fail(409, "Annotation changed; reload before saving");

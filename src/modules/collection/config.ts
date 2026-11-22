@@ -1,9 +1,10 @@
 import type { Static } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
-import { SourceInput, SourcePreview, type PublicContentKind, type SourceTarget } from "../../../packages/contracts/src/source-content";
+import type { PublicContentKind } from "../../../packages/contracts/src/common";
+import { SourceInput, SourcePreview, type SourceTarget } from "../../../packages/contracts/src/collection";
 import { ContentProviderError, type ContentProvider } from "../../connectors/shared/content-provider.interface";
-import { fail } from "../../storage/db";
+import { fail } from "../../shared/errors";
 
 export function validateFallback(providers: ContentProvider[], input: {
   primary: string; fallback: string; delivery: string; target: SourceTarget; kind: PublicContentKind;
@@ -37,7 +38,7 @@ export function sourcePreviewRoute(app: FastifyInstance, providers: ContentProvi
   let fetching = false;
   app.withTypeProvider<TypeBoxTypeProvider>().post("/v1/sources/preview", {
     schema: { body: SourceInput, response: { 200: SourcePreview } },
-    config: { rateLimit: { max: 12, timeWindow: "1 minute" } },
+    config: { rateLimit: { max: 12, timeWindow: "1 minute" }, auth: { access: "admin", machineScope: "sources:write" } },
   }, async (request, reply) => {
     if (request.actor!.clientKind !== "browser" || request.actor!.role === "viewer")
       fail(403, "Administrator browser session required");

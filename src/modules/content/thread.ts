@@ -1,15 +1,18 @@
 import type { Pool } from "pg";
-import type { Actor, Filter } from "../../../packages/contracts/src/source-content";
-import { projectSources } from "../projects/index";
-import { fail } from "../../storage/db";
-import { compileContentFilter, contentSelect } from "./search";
+import type { Actor } from "../../../packages/contracts/src/access";
+import type { Filter } from "../../../packages/contracts/src/content";
+import { fail } from "../../shared/errors";
+import { compileContentFilter, contentSelect, type ContentScopeResolver } from "./search";
 import { contentFromRow } from "./sql";
 
 export async function readThread(
   pool: Pool, actor: Actor, id: string, projectId: string | undefined,
   filter: Filter, view: "top" | "matches" | "op",
+  resolveProjectScope?: ContentScopeResolver,
 ) {
-  const project = projectId ? await projectSources(pool, actor, projectId) : undefined;
+  const project = projectId
+    ? await (resolveProjectScope ?? (() => fail(500, "Project scope resolver is unavailable")))(pool, actor, projectId)
+    : undefined;
   const compiled = compileContentFilter(actor, filter, project?.source_ids, project?.filter);
   compiled.values.push(id);
   const idParam = `$${compiled.values.length}::uuid`;
@@ -47,7 +50,7 @@ export async function readThread(
     ), sample AS MATERIALIZED (
       SELECT id FROM descendants LIMIT 200
     )
-    ${contentSelect(compiled.visible, `, root.context_missing, (${match.text}) AS matched`)}
+    ${contentSelect(compiled.visible, `, root.context_missing, (${match.text}) AS matched`, compiled.needsSearchDocument)}
     JOIN root ON root.source_id=c.source_id
     WHERE c.id IN (SELECT id FROM ancestors UNION SELECT id FROM sample)
     ORDER BY (c.id=root.id) DESC, (c.id=${idParam}) DESC, (c.id IN (SELECT id FROM ancestors)) DESC,

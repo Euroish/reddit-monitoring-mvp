@@ -1,14 +1,37 @@
 import type { Pool } from "pg";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
+import { notifyChannel } from "../../platform/pg-notify";
 
 export async function scheduleDueSourcesOnce(pool: Pool, providers: ContentProvider[]) {
-  const limits = Object.fromEntries(providers.filter(({ capability }) => capability.enabled).map(({ capability }) => [
-    capability.provider, capability.requestResourceUpperBound ??
-      (capability.provider === "newsnow" ? 30 : 100),
-  ]));
-  if (!Object.keys(limits).length) return;
-  await pool.query(`
-    WITH due AS MATERIALIZED (
+  const limits = Object.fromEntries(
+    providers
+      .filter(({ capability }) => capability.enabled)
+      .map(({ capability }) => [
+        capability.provider,
+        capability.requestResourceUpperBound ?? (capability.provider === "newsnow" ? 30 : 100),
+      ]),
+  );
+  if (!Object.keys(limits).length) return { enqueuedCount: 0 };
+  const result = await pool.query(
+    `WITH provider_caps AS MATERIALIZED (
+      SELECT key AS primary_provider, value::int AS cap
+      FROM jsonb_each_text($1::jsonb)
+    ), provider_costs AS MATERIALIZED (
+      SELECT DISTINCT cs.primary_provider,
+        CASE WHEN cs.primary_provider IN ('twitterapis','scrapebadger') THEN pc.cap ELSE LEAST(
+          COALESCE((cs.schedule->>'pageSize')::int,25),
+          COALESCE((cs.fetch_policy->>'maxItems')::int,100),
+          pc.cap,
+          CASE WHEN cs.primary_provider='feed' AND cs.last_checked_at IS NULL THEN 8
+            WHEN cs.target->>'type'='post' AND cs.primary_provider IN ('kaix','red_crawler') THEN 50 END) + 1 END AS cost
+      FROM collection_source cs
+      JOIN provider_caps pc ON pc.primary_provider = cs.primary_provider
+      WHERE cs.state='active' AND cs.delivery_mode='pull' AND NOT cs.automatic_collection_blocked
+        AND cs.schedule @> '{"enabled":true}' AND cs.next_due_at<=now()
+    ), provider_readiness AS MATERIALIZED (
+      SELECT primary_provider, cost, provider_ready_at(primary_provider, cost) <= now() AS is_ready
+      FROM provider_costs
+    ), due AS MATERIALIZED (
       SELECT cs.id,cs.primary_provider,cs.schedule,page.size AS page_size,
         GREATEST(COALESCE(cs.incremental_to - make_interval(secs =>
           COALESCE((cs.schedule->>'overlapSeconds')::int,300)),
@@ -18,18 +41,17 @@ export async function scheduleDueSourcesOnce(pool: Pool, providers: ContentProvi
             ELSE COALESCE((cs.schedule->>'maxCatchupHours')::int,6) END)) AS from_at,
         now() AS to_at
       FROM collection_source cs
-      CROSS JOIN LATERAL (SELECT ($1::jsonb->>cs.primary_provider)::int AS cap) provider
+      JOIN provider_caps pc ON pc.primary_provider = cs.primary_provider
       CROSS JOIN LATERAL (SELECT LEAST(
         COALESCE((cs.schedule->>'pageSize')::int,25),
         COALESCE((cs.fetch_policy->>'maxItems')::int,100),
-        provider.cap,
+        pc.cap,
         CASE WHEN cs.primary_provider='feed' AND cs.last_checked_at IS NULL THEN 8
           WHEN cs.target->>'type'='post' AND cs.primary_provider IN ('kaix','red_crawler') THEN 50 END) AS size) page
+      JOIN provider_readiness pr ON pr.primary_provider = cs.primary_provider
+        AND pr.cost = (CASE WHEN cs.primary_provider IN ('twitterapis','scrapebadger') THEN pc.cap ELSE page.size + 1 END)
       WHERE cs.state='active' AND cs.delivery_mode='pull' AND NOT cs.automatic_collection_blocked
-        AND provider.cap IS NOT NULL AND cs.schedule @> '{"enabled":true}'
-        AND cs.next_due_at<=now()
-        AND provider_ready_at(cs.primary_provider,
-          CASE WHEN cs.primary_provider IN ('twitterapis','scrapebadger') THEN provider.cap ELSE page.size+1 END)<=now()
+        AND cs.schedule @> '{"enabled":true}' AND cs.next_due_at<=now() AND pr.is_ready
         AND NOT EXISTS (SELECT 1 FROM source_collection_job j WHERE j.collection_source_id=cs.id
           AND j.status IN ('queued','retrying','running') AND j.operation<>'hydrate')
       ORDER BY cs.next_due_at,cs.id LIMIT 32 FOR UPDATE OF cs SKIP LOCKED
@@ -42,5 +64,10 @@ export async function scheduleDueSourcesOnce(pool: Pool, providers: ContentProvi
     )
     UPDATE collection_source cs SET next_due_at=now() + make_interval(secs =>
       COALESCE((schedule->>'intervalSeconds')::int,(schedule->>'cadenceSeconds')::int,3600))
-    FROM enqueued WHERE cs.id=enqueued.collection_source_id`, [limits]);
+    FROM enqueued WHERE cs.id=enqueued.collection_source_id`,
+    [limits],
+  );
+  const enqueuedCount = result.rowCount ?? 0;
+  if (enqueuedCount > 0) await notifyChannel(pool, "collection_jobs_ready");
+  return { enqueuedCount };
 }

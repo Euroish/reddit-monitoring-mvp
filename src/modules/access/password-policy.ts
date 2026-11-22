@@ -1,4 +1,4 @@
-import { fail } from "../../storage/db";
+import { fail } from "../../shared/errors";
 
 const commonPasswords = new Set([
   "123456789012345",

@@ -27,7 +27,7 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
                        │  Docker 内部网络（proxy 可选；宿主机仅绑 127.0.0.1 或零暴露端口）
         Fastify 5 单容器应用 (app, mem_limit=1536m, Dockerfile --target runtime)
         ├── HTTP 读平面：onRequest @fastify/rate-limit -> preParsing 鉴权 -> apiPool (max=8)
-        └── 后台调度平面：5s 到期扫描 (LIMIT 32) + 6 协程并发 (hostCooldown=1500ms) + workerPool (max=4)
+        └── 后台调度平面：PG LISTEN/NOTIFY (`collection_jobs_ready`) + 自适应调度扫描 (LIMIT 32, provider_readiness CTE) + 6 协程并发 (hostCooldown=1500ms) + workerPool (max=4)
                        │
       PostgreSQL 16 (db, postgres:16-alpine, mem_limit=1350m, pg_trgm, LZ4 TOAST)
 ```
@@ -43,25 +43,27 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 
 ---
 
-## 2. `[LIVE]` 入口地图与领域模块所有权
+## 2. `[LIVE]` 入口地图、严格 DAG 依赖与 7 域 46 表所有权
 
-| 模块路径 | 入口 | 独家表所有权与核心职责 |
+| 模块路径 | DAG 依赖（仅允许 `index.ts` 门面） | 独家写表所有权与跨模块读契约 |
 | :--- | :--- | :--- |
-| **`apps/api/src/`** | HTTP 与进程入口 | `app.ts`（`requestTimeout: 30_000`、`connectionTimeout: 10_000`、`onRequest` 全局限流 120/min、`preParsing` Default-Deny 鉴权、Swagger `/v1/openapi.json`、`/v1/capabilities`）、`server.ts`（`apiPool: 8` + `workerPool: 4` + 7 Providers + `AI_SYNC_ENABLED` 调度器）。 |
-| **`src/modules/access/`** | `routes`、`email-routes`、`mfa-routes`、`sql` | `app_user`、`app_user_password`、`app_invite`、`app_audit_log`、`app_session`、`app_auth_challenge`、`app_auth_mfa`、`app_auth_mfa_login`（浏览器 Cookie、邮件验证/找回、管理员 MFA 与 43 字符一次性 SHA-256 `machine` API Key）。 |
-| **`src/modules/ai/`** | `index`、`ai-routes`、`ai-scheduler`、`ai-history-cli` | `054..056` 新增的 19 张 `ai_*` 表；AI 发布日历、注册表双轨 Diff、官方自动发现流水线（`AI_SYNC_ENABLED` 按源周期调度，默认关闭）与离线历史 Seed 导入/分页 Backfill。 |
-| **`src/modules/collection/`** | `index`、源配置、调度、任务、配额、凭证 | `source`、`collection_source`、`source_collection_job`、`source_provider_budget`、`source_provider_usage`、`source_worker_heartbeat`、`source_provider_credential`、`plan_collection_policy`、`user_provider_usage`；含预览、OPML/JSON 导入、到期扫描与 6 协程 Worker。 |
-| **`src/modules/content/`** | `index`、批量写入、检索、资讯、文档 | `content`、`content_discovery`、`content_observation`、`public_content_search_document`、`doc_page`；唯一写入口 `commitContentBatch`、唯一过滤 `compileContentFilter`、48h 事件聚簇、分面、闭包树、流式导出与文档中心（`markdown`/外链/PDF 单附件）。 |
-| **`src/modules/projects/`** | `routes`、`sql` | `monitor_project`、`monitor_project_source`；项目三段词 `GROUPING SETS` 概览与显式 `kaix` 水合。 |
-| **`src/modules/workspace/`** | `routes`、`sql` | `content_saved_query`、`content_annotation`（仅限浏览器会话隔离读写）。 |
-| **`src/connectors/`** | 一等 Provider 边界 | `web/{http,sources}`、`reddit/{kaix,red-crawler,kaix.config}`、`x/{twitterapis,scrapebadger}`、`bluesky/bluesky-appview-content.connector`、`shared/content-provider.interface`（**零 `pg` 依赖**）。 |
-| **`packages/contracts/src/` & `src/shared/` & `src/storage/`** | 契约与底层公共函数 | TypeBox 契约真源、`stable-id` / `language` 语言与通道识别、`db` 池/事务与 SQL 迁移运行器。 |
+| **`apps/api/src/`** | 引 `src/modules/*/index`、`src/platform/*` | `app.ts`（`onRoute` 强制全路由声明 `config.auth` 否则启动失败；`preParsing` 对无声明路由 Fail-Closed；`onRequest` 全局限流 120/min；`apiPool: 8`）、`server.ts`（`workerPool: 4` + 7 Providers + `AI_SYNC_ENABLED`）。 |
+| **`src/platform/ & src/shared/`** | 零 `src/modules/` 与 `apps/` 依赖 | `route-auth.ts`（声明式权限类型）、`pg-notify.ts`（通道白名单 `LISTEN/NOTIFY` 连接器）、`shared/{errors,canonical,ids,language}`（零 `pg` 依赖叶子工具）。 |
+| **`src/modules/access/`** | **严格叶子域**（零跨模块依赖） | 独家读写 8 张表：`app_user`、`app_user_password`、`app_invite`、`app_audit_log`、`app_session`、`app_auth_challenge`、`app_auth_mfa`、`app_auth_mfa_login`。通过 `writeAuditLog` 与用户查询门面服务下游。 |
+| **`src/modules/docs/`** | **严格叶子域**（零跨模块依赖） | 独家读写 1 张表：`doc_page`（产品文档中心：`markdown` / 外链 / inline PDF 单附件，乐观锁 `revision`）。 |
+| **`src/modules/content/`** | **严格叶子域**（经 `resolveProjectScope` 注入专题范围） | 独家写 4 张表：`content`、`content_discovery`、`content_observation`、`public_content_search_document`。唯一内容写入口 `commitContentBatch`（6 小时复用时间戳写放大节流）；通过 `queries.ts`/`index.ts` 暴露只读查询与 `summarizeScopedContent`。契约许可跨读 `collection` 的 `source` 与 `collection_source` 可见性边界。 |
+| **`src/modules/collection/`** | `access/index`、`content/index` | 独家读写 9 张表：`source`、`collection_source`、`source_collection_job`、`source_provider_budget`、`source_provider_usage`、`source_worker_heartbeat`、`source_provider_credential`、`plan_collection_policy`、`user_provider_usage`。含预览、OPML/JSON 导入、`provider_readiness` CTE 到期扫描与 `LISTEN/NOTIFY` 协程 Worker。 |
+| **`src/modules/projects/`** | `content/index`、`collection/index` | 独家读写 2 张表：`monitor_project`、`monitor_project_source`。`projectOverview` 委托 `content` 的 `summarizeScopedContent`；`POST /v1/projects/:id/hydrate` 锁定项目后委托 `enqueueHydrationForScope`。 |
+| **`src/modules/workspace/`** | `content/index` | 独家读写 2 张表：`content_saved_query`、`content_annotation`（严格浏览器会话隔离，标注经 `loadAnnotatedContentByIds` / `isContentVisibleToActor` 校验可见性）。 |
+| **`src/modules/ai/`** | `content/index` | 独家读写 19 张 `ai_*` 表（`054..056`）；经 `listAiFirsthandArticles`、`searchAiOfficialArticlesByTerm`（复用搜索索引）与 `listAiOfficialFeedUpdates` 获取官方资讯，零裸 SQL 跨表直查。 |
+| **`src/connectors/`** | 零 `pg`/`storage`/`modules` 依赖 | `web/{http,sources}`、`reddit/{kaix,red-crawler,kaix.config}`、`x/{twitterapis,scrapebadger}`、`bluesky/bluesky-appview-content.connector`、`shared/content-provider.interface`。 |
+| **`packages/contracts/src/`** | **纯叶子契约**（按域拆分） | `common`、`access`、`content`、`collection`、`projects`、`content-stories`、`product-docs`、`ai-catalog`（`source-content.ts` 仅作兼容 Barrel）。 |
+
+> 注：`schema_migration` 由引导器 `src/storage/` 独家维护，合计 46 张公有表（`8+1+4+9+2+2+19+1 = 46`）。全模块写归属零白名单共享，跨模块读仅允许契约声明的 `source` 与 `collection_source`。
 
 | ID | 等级 | 模块边界与不可变迁移规则 | 验收出口 |
 | --- | --- | --- | --- |
-| MOD-01 | MUST | 模块间跨模块引用只允许经目标模块公开 `index.ts` 门面，禁止深挖内部文件或越权写他方独占表（`scripts/check-table-ownership.ts`），禁跨模块导入 `routes.ts`/`access`/`workspace`；`src/connectors/`、`src/shared/` `MUST NOT` 直接导入 `pg` 连接；主干已合入的迁移不可改写、移动或删除；新迁移由 `Squawk` 审计锁表/索引安全并经 `CODEOWNERS` 审查（核心约束汇总见[核心不变量台账](invariants.md)）。 | `lint:policy`、`lint:arch`、`Squawk` 与 PG 迁移验证 |
-
----
+| MOD-01 | MUST | 跨模块依赖必须严格遵循单向 DAG 并只经 `index.ts` 公开门面；禁止跨模块导入 `routes.ts` 或 `workspace`；每张表在 `src/modules/` 仅有一个写主（零共享写白名单），除 `source`/`collection_source`（仅供 `content` 读）外严禁跨模块 `FROM/JOIN` 读表（`scripts/check-table-ownership.ts`）；`src/connectors/`、`src/shared/` 禁导 `pg` 与 `src/storage/`；全路由 `MUST` 显式声明 `config.auth`。主干已合入迁移不可改写、移动或删除。 | `lint:policy`、`lint:arch`、`check:openapi`、`Squawk` |
 
 ## 3. 存储、检索引擎与 `[V2]` 内容价值复利
 
@@ -101,7 +103,7 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 
 | ID | 等级 | 调度、抗滥用与 SSRF 安全规则 | 验收出口 |
 | --- | --- | --- | --- |
-| RUN-01 | MUST | 进程内 Worker 运行 `WORKER_CONCURRENCY`（`[1, 12]`，默认 `6`）、5s 到期扫描（`LIMIT 32`）与同域 `1500ms` 冷却；Feed 遇 `304` 或无新增按 `1.5x` 指数退避（上限 12h），截断保持配置周期不空转；每小时清理各源最新 5 条以外且超 14 天的普通终结任务，保留幂等回执和未决付费状态；付费 `unknown` 永不重放。采集租约 180 秒覆盖最长 120 秒的同步 X 请求并预留本地处理时间。 | 并发冷却、清理与停发 E2E |
+| RUN-01 | MUST | 进程内 Worker 运行 `WORKER_CONCURRENCY`（`[1, 12]`，默认 `6`）、`LISTEN/NOTIFY`（`collection_jobs_ready`）唤醒加自适应休眠（最长 `15s`）与 5s `provider_readiness` CTE 到期扫描（`LIMIT 32`）与同域 `1500ms` 冷却；Feed 遇 `304` 或无新增按 `1.5x` 指数退避（上限 12h），截断保持配置周期不空转；每小时清理各源最新 5 条以外且超 14 天的普通终结任务，保留幂等回执和未决付费状态；付费 `unknown` 永不重放。采集租约 180 秒覆盖最长 120 秒的同步 X 请求并预留本地处理时间。 | 并发冷却、清理与停发 E2E |
 | SAFE-01 | MUST | `/v1/*` Default-Deny；`@fastify/rate-limit` 置于 `onRequest`（先于 `preParsing` `findActor` 保证 429 零查库）；`/v1/content/*` 仅 `GET/HEAD` 允许 `machine` `read` scope（任何写/AI 端点需管理员浏览器会话或独立作用域）；浏览器写操作校验同源 `Origin`；直连公网源站须限制边缘入口并验证来源；隧道模式只绑定回环。数据库禁暴露宿主机端口。 | `429` 零查库与 `POST /v1/content/*` 403 测试 |
 | SAFE-02 | MUST | 连接池预算总计 `12`（`apiPool: 8` + `workerPool: 4`）；流式导出全局单槽、`REPEATABLE READ READ ONLY`、`35s` 空闲超时与 `X-Accel-Buffering: no`，断流即销毁 `QueryStream` 释放连接。 | 并发导出与断流测试 |
 | SAFE-03 | MUST | 全部 Web 请求经 `src/connectors/web/http.ts`：拒绝非 HTTPS、带凭证/端口/裸 IP URL；DNS `resolve4`/`resolve6` 纳入 `[3000, 15000]ms` 总超时并要求 **`addresses.every(isPublicIp)`**；手动跟跳最多 3 跳且逐跳重验 DNS 与 Socket `lookup` 绑定；传输与解压上限 `2 MiB`。 | SSRF 与重定向单测 |
