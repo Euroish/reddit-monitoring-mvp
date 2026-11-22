@@ -73,12 +73,14 @@ export function ContentExplorerPage({
   initialDetailId,
   onClearDetailId,
   onOpenAuth,
+  onNavigate,
 }: {
   actor: Actor | null;
   initialQueryString: string;
   initialDetailId: string | null;
   onClearDetailId: () => void;
   onOpenAuth?: (tab?: 'login' | 'register', reason?: string) => void;
+  onNavigate?: (path: string) => void;
 }) {
   const { t } = useI18n();
   const colors = useChartColors();
@@ -388,11 +390,22 @@ export function ContentExplorerPage({
   return (
     <div className="ds-page">
       <div className="crumb">
-        <span>{t('Workbench', '工作台')}</span>
+        <button type="button" onClick={() => onNavigate?.('/projects?view=list')}>
+          {t('Research Workspace', '研究工作区')}
+        </button>
         <span>/</span>
-        <span>{t('Research', '研究')}</span>
-        <span>/</span>
-        <b>{t('Content Explorer', '内容检索')}</b>
+        {projectId && (() => {
+          const activeProj = projects.find((p) => p.id === projectId);
+          return activeProj ? (
+            <>
+              <button type="button" onClick={() => onNavigate?.(`/projects?view=overview&projectId=${encodeURIComponent(activeProj.id)}`)}>
+                {activeProj.name}
+              </button>
+              <span>/</span>
+            </>
+          ) : null;
+        })()}
+        <b>{t('Content Explorer', '内容研究')}</b>
       </div>
 
       <div className="page-head">

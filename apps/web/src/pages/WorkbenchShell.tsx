@@ -32,6 +32,7 @@ import {
   Sliders,
   Sparkles,
   User,
+  Users,
   X,
 } from 'lucide-react';
 import {
@@ -48,6 +49,7 @@ import { useLogo } from '../components/brandContext';
 import { useTheme } from '../components/themeContext';
 import { type Actor, type CapabilitiesResponse, validateSearchTerm } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
+import { isResearchSource } from '../lib/collectionLimits';
 
 export type WorkbenchRoute = '/app/feed' | '/projects' | '/content' | '/sources' | '/workspace' | '/settings' | '/admin/queue';
 
@@ -126,12 +128,14 @@ export function WorkbenchShell({
   const myProjects = useMemo(() => projects.filter((p) => !p.is_shared), [projects]);
   const sharedProjects = useMemo(() => projects.filter((p) => p.is_shared), [projects]);
 
-  const activeDomain: 'feed' | 'research' | 'ops' =
-    route === '/app/feed'
-      ? 'feed'
-      : canWrite && (route === '/sources' || route === '/admin/queue')
-        ? 'ops'
-        : 'research';
+  const activeDomain: 'feed' | 'research' | 'ops' | 'settings' =
+    route === '/settings'
+      ? 'settings'
+      : route === '/app/feed'
+        ? 'feed'
+        : canWrite && (route === '/sources' || route === '/admin/queue')
+          ? 'ops'
+          : 'research';
   const pidQs = resolvedProject ? `&projectId=${encodeURIComponent(resolvedProject.id)}` : '';
   const pidQueryOnly = resolvedProject ? `?projectId=${encodeURIComponent(resolvedProject.id)}` : '';
 
@@ -304,11 +308,11 @@ export function WorkbenchShell({
           </button>
           <button
             type="button"
-            className={`rail-btn ${activeDomain === 'research' && route !== '/settings' ? 'is-active' : ''}`}
+            className={`rail-btn ${activeDomain === 'research' ? 'is-active' : ''}`}
             onClick={() => navigateAndClose(resolvedProject ? `/projects?projectId=${encodeURIComponent(resolvedProject.id)}` : '/projects')}
             data-tip={t('Research Workspace', '研究工作区')}
             aria-label={t('Research Workspace', '研究工作区')}
-            aria-current={activeDomain === 'research' && route !== '/settings' ? 'page' : undefined}
+            aria-current={activeDomain === 'research' ? 'page' : undefined}
           >
             <FolderKanban size={18} />
           </button>
@@ -340,10 +344,11 @@ export function WorkbenchShell({
           </button>
           <button
             type="button"
-            className={`rail-btn ${route === '/settings' ? 'is-active' : ''}`}
-            onClick={() => navigateAndClose('/settings')}
+            className={`rail-btn ${activeDomain === 'settings' ? 'is-active' : ''}`}
+            onClick={() => navigateAndClose('/settings?tab=account')}
             data-tip={t('Account & Settings', '账户与设置')}
             aria-label={t('Account & Settings', '账户与设置')}
+            aria-current={activeDomain === 'settings' ? 'page' : undefined}
           >
             <Settings size={18} />
           </button>
@@ -416,20 +421,21 @@ export function WorkbenchShell({
               <ChevronDown size={14} color="var(--faint)" />
             </button>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 12px 0', fontSize: 11 }}>
+            <div className="proj-quick-bar">
               <button
                 type="button"
-                className="collection-text-button"
+                className={`proj-quick-btn ${route === '/projects' && currentView === 'list' ? 'is-active' : ''}`}
                 onClick={() => navigateAndClose('/projects?view=list')}
               >
-                {t('All projects', '全部项目')} ({projects.length})
+                <span>{t('All projects', '全部项目')} ({projects.length})</span>
               </button>
               <button
                 type="button"
-                className="collection-text-button"
+                className="proj-quick-btn proj-quick-btn--primary"
                 onClick={() => navigateAndClose('/projects?new=1')}
               >
-                + {t('New project', '新建项目')}
+                <Plus size={12} />
+                <span>{t('New project', '新建项目')}</span>
               </button>
             </div>
 
@@ -524,17 +530,23 @@ export function WorkbenchShell({
         ) : (
           <div className="proj-switch-wrap">
             <div className="proj-switch" style={{ cursor: 'default' }}>
-              <span className="ps-avatar">{activeDomain === 'ops' ? 'OP' : 'SL'}</span>
+              <span className="ps-avatar">
+                {activeDomain === 'ops' ? 'OP' : activeDomain === 'settings' ? 'AC' : 'SL'}
+              </span>
               <span className="ps-txt">
                 <b>
                   {activeDomain === 'ops'
-                    ? t('Operations Admin', '全局运维管理')
-                    : t('Information Feed', '资讯信息流')}
+                    ? t('Operations Admin', '运维管理')
+                    : activeDomain === 'settings'
+                      ? t('Account & Settings', '账户与设置')
+                      : t('Information Feed', '资讯信息流')}
                 </b>
                 <small>
                   {activeDomain === 'ops'
-                    ? t('Cross-project sources & quotas', '跨项目来源、调度与配额')
-                    : t('Curated news & AI releases', '独立阅读域 · 无项目上下文')}
+                    ? t('Cross-project sources, quotas & provider keys', '跨项目来源、调度、配额与渠道密钥')
+                    : activeDomain === 'settings'
+                      ? t('Sessions, members, machine keys & skin', '会话安全、成员权限、机器密钥与皮肤')
+                      : t('Curated news & AI releases', '独立阅读域 · 无项目上下文')}
                 </small>
               </span>
             </div>
@@ -701,23 +713,23 @@ export function WorkbenchShell({
                 <p className="nav-label">{t('Sources & Auto-Schedule', '来源与自动调度')}</p>
                 <button
                   type="button"
-                  className={`nav-item ${route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentDomainParam !== 'feed' ? 'is-active' : ''}`}
-                  aria-current={route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentDomainParam !== 'feed' ? 'page' : undefined}
+                  className={`nav-item ${route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentTab !== 'providers' && currentDomainParam !== 'feed' ? 'is-active' : ''}`}
+                  aria-current={route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentTab !== 'providers' && currentDomainParam !== 'feed' ? 'page' : undefined}
                   onClick={() => navigateAndClose('/sources?tab=sources&domain=research')}
                 >
                   <Database size={14} className="nav-ic" />
                   <span>{t('Research Sources', '研究采集源')}</span>
-                  <em className="ni-count">{sources.filter((s) => s.platform !== 'web').length}</em>
+                  <em className="ni-count">{sources.filter(isResearchSource).length}</em>
                 </button>
                 <button
                   type="button"
-                  className={`nav-item ${route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentDomainParam === 'feed' ? 'is-active' : ''}`}
-                  aria-current={route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentDomainParam === 'feed' ? 'page' : undefined}
+                  className={`nav-item ${route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentTab !== 'providers' && currentDomainParam === 'feed' ? 'is-active' : ''}`}
+                  aria-current={route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentTab !== 'providers' && currentDomainParam === 'feed' ? 'page' : undefined}
                   onClick={() => navigateAndClose('/sources?tab=sources&domain=feed')}
                 >
                   <Globe size={14} className="nav-ic" />
                   <span>{t('Feed Sources', '资讯信息流源')}</span>
-                  <em className="ni-count">{sources.filter((s) => s.platform === 'web').length}</em>
+                  <em className="ni-count">{sources.filter((s) => !isResearchSource(s)).length}</em>
                 </button>
                 <button
                   type="button"
@@ -733,6 +745,15 @@ export function WorkbenchShell({
 
               <div className="nav-group">
                 <p className="nav-label">{t('Channels & Governance', '渠道与策略治理')}</p>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/sources' && currentTab === 'providers' ? 'is-active' : ''}`}
+                  aria-current={route === '/sources' && currentTab === 'providers' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/sources?tab=providers')}
+                >
+                  <Key size={14} className="nav-ic" />
+                  <span>{t('Provider API Keys', '第三方采集密钥')}</span>
+                </button>
                 <button
                   type="button"
                   className={`nav-item ${route === '/sources' && currentTab === 'budgets' ? 'is-active' : ''}`}
@@ -751,14 +772,53 @@ export function WorkbenchShell({
                   <Sparkles size={14} className="nav-ic" />
                   <span>{t('AI Release Review', 'AI 发布审核队列')}</span>
                 </button>
+              </div>
+            </>
+          )}
+
+          {activeDomain === 'settings' && (
+            <>
+              <div className="nav-group">
+                <p className="nav-label">{t('Account & Access', '账户与安全')}</p>
                 <button
                   type="button"
-                  className={`nav-item ${route === '/settings' ? 'is-active' : ''}`}
-                  aria-current={route === '/settings' ? 'page' : undefined}
+                  className={`nav-item ${!currentTab || currentTab === 'account' ? 'is-active' : ''}`}
+                  aria-current={!currentTab || currentTab === 'account' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/settings?tab=account')}
+                >
+                  <User size={14} className="nav-ic" />
+                  <span>{t('Account & RBAC', '当前账户与角色')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`nav-item ${currentTab === 'members' ? 'is-active' : ''}`}
+                  aria-current={currentTab === 'members' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/settings?tab=members')}
+                >
+                  <Users size={14} className="nav-ic" />
+                  <span>{t('Members & Invites', '成员与权限')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`nav-item ${currentTab === 'keys' ? 'is-active' : ''}`}
+                  aria-current={currentTab === 'keys' ? 'page' : undefined}
                   onClick={() => navigateAndClose('/settings?tab=keys')}
                 >
                   <Key size={14} className="nav-ic" />
-                  <span>{t('Members & Machine Keys', '成员与 Machine Key')}</span>
+                  <span>{t('Machine API Keys', '机器 API 密钥')}</span>
+                </button>
+              </div>
+
+              <div className="nav-group">
+                <p className="nav-label">{t('Appearance', '外观与品牌')}</p>
+                <button
+                  type="button"
+                  className={`nav-item ${currentTab === 'brand' ? 'is-active' : ''}`}
+                  aria-current={currentTab === 'brand' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/settings?tab=brand')}
+                >
+                  <Palette size={14} className="nav-ic" />
+                  <span>{t('Brand Mark & Skin', '品牌标识与皮肤')}</span>
                 </button>
               </div>
             </>

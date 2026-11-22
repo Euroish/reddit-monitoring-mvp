@@ -426,13 +426,38 @@ export function ProjectsPage({
     <div className="ds-page">
       {/* Breadcrumb */}
       <div className="crumb">
-        <button type="button" onClick={() => onDrilldown('')}>
-          {t('Workbench', '工作台')}
+        <button type="button" onClick={() => go('/projects?view=list')}>
+          {t('Research Workspace', '研究工作区')}
         </button>
         <span>/</span>
-        <span>{t('Monitoring Projects', '监测项目')}</span>
-        <span>/</span>
-        <b>{selectedProject?.name || 'SIFTLINE'}</b>
+        {activeView === 'list' ? (
+          <b>{t('All Projects', '全部项目')}</b>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() =>
+                go(
+                  selectedProject
+                    ? `/projects?view=overview&projectId=${encodeURIComponent(selectedProject.id)}`
+                    : '/projects?view=list',
+                )
+              }
+            >
+              {selectedProject?.name || t('Projects', '全部项目')}
+            </button>
+            <span>/</span>
+            <b>
+              {activeView === 'collect'
+                ? t('Data Ingestion', '数据接入')
+                : activeView === 'jobs'
+                  ? t('Collection Jobs', '采集任务')
+                  : activeView === 'batches'
+                    ? t('Data Batches', '数据批次')
+                    : t('Project Overview', '项目总览')}
+            </b>
+          </>
+        )}
       </div>
 
       {/* DeepSeek Page Header */}

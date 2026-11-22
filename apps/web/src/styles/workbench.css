@@ -178,6 +178,50 @@
   box-shadow: 0 2px 8px -4px rgba(var(--ink-rgb), 0.18);
 }
 
+.proj-quick-bar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 0 12px 6px;
+}
+
+.proj-quick-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--white);
+  color: var(--ink-2, var(--ink));
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 550;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+}
+
+.proj-quick-btn:hover {
+  background: var(--bg-2, rgba(var(--ink-rgb), 0.04));
+  border-color: var(--line-2);
+  color: var(--ink);
+}
+
+.proj-quick-btn.is-active {
+  background: var(--wb-tint);
+  border-color: rgba(var(--ink-rgb), 0.14);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.proj-quick-btn--primary {
+  background: rgba(var(--ink-rgb), 0.04);
+}
+
 .ps-avatar {
   width: 29px;
   height: 29px;

@@ -262,7 +262,13 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
 
   return (
     <div className="ds-page collection-page">
-      <div className="crumb"><span>{t('Workbench', '工作台')}</span><span>/</span><span>{t('Collection Ops', '数据接入')}</span><span>/</span><b>{t('AI Release Review', 'AI 发布审核队列')}</b></div>
+      <div className="crumb">
+        <button type="button" onClick={() => onNavigate('/sources?tab=sources&domain=research')}>
+          {t('Operations Admin', '运维管理')}
+        </button>
+        <span>/</span>
+        <b>{t('AI Release Review', 'AI 发布审核队列')}</b>
+      </div>
       <div className="page-head">
         <div>
           <h1 className="page-title">

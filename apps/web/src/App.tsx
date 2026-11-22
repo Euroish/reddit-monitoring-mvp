@@ -480,6 +480,7 @@ export function App() {
                   initialDetailId={contentDetailId}
                   onClearDetailId={() => setContentDetailId(null)}
                   onOpenAuth={(tab, reason) => openAuth(tab, reason, currentFullPath)}
+                  onNavigate={navigate}
                 />
               )}
 
@@ -568,7 +569,7 @@ export function App() {
               )}
 
               {workbenchRoute === '/settings' && actor && (
-                <SettingsPage actor={actor} initialQueryString={loc.search} />
+                <SettingsPage actor={actor} initialQueryString={loc.search} onNavigate={navigate} />
               )}
 
               {workbenchRoute === '/admin/queue' && actor && (

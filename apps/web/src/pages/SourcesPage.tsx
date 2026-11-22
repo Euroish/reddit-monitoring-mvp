@@ -76,15 +76,35 @@ export function SourcesPage({
   const capabilities = sourcesQuery.isError ? [] : sourcesQuery.data?.capabilities ?? [];
   const budgets = budgetsQuery.data?.budgets || [];
 
-  const tab = urlTab === 'budgets' || urlTab === 'jobs' ? urlTab : 'sources';
-  const credentialsQuery = useProviderCredentialsQuery(canWrite && tab === 'sources');
+  const routeDomain = sp.get('domain');
+  const domainFilter: 'all' | 'research' | 'feed' =
+    routeDomain === 'research' || routeDomain === 'feed' ? routeDomain : 'all';
+  const tab =
+    urlTab === 'budgets' || urlTab === 'jobs' || (urlTab === 'providers' && canWrite)
+      ? urlTab
+      : 'sources';
+  const credentialsQuery = useProviderCredentialsQuery(canWrite && (tab === 'sources' || tab === 'providers'));
   const networkOff = credentialsQuery.data?.networkEnabled === false;
-  const pageTitle = tab === 'jobs' ? t('Collection jobs', '采集任务') : tab === 'budgets'
-    ? (canWrite ? t('Channel quotas', '渠道配额') : t('My collection quota', '我的采集配额'))
-    : t('Sources', '来源列表');
-  const pageDescription = tab === 'jobs' ? t('Track collection requests, storage results and failures.', '查看采集状态、入库结果和失败原因。')
-    : tab === 'budgets' ? t('Review request and resource limits, usage and collection permissions.', '分别查看请求与资源额度、用量及采集权限。')
-    : t('Choose a source to check its health, collect content or review recent jobs.', '选择一个来源，检查运行状态、提交采集或查看历史任务。');
+  const pageTitle =
+    tab === 'jobs'
+      ? t('Global Collection Jobs', '全站采集任务')
+      : tab === 'budgets'
+        ? (canWrite ? t('Quotas & Plan Policies', '渠道配额与套餐策略') : t('My Collection Quota', '我的采集配额'))
+        : tab === 'providers'
+          ? t('Provider API Keys', '第三方采集密钥')
+          : domainFilter === 'feed'
+            ? t('Feed Sources', '资讯信息流源')
+            : domainFilter === 'research'
+              ? t('Research Sources', '研究采集源')
+              : t('Sources', '来源列表');
+  const pageDescription =
+    tab === 'jobs'
+      ? t('Track collection requests, storage results and failures.', '查看全站采集状态、入库结果和失败原因。')
+      : tab === 'budgets'
+        ? t('Review request and resource limits, usage and collection permissions.', '分别查看渠道请求与资源额度、用量及 Free/Pro 套餐策略。')
+        : tab === 'providers'
+          ? t('Manage encrypted upstream provider credentials (Apify, TwitterAPIs, ScrapeBadger) for pull collection.', '集中管理第三方采集服务商凭证（Apify、TwitterAPIs、ScrapeBadger 等），配置后即可用于研究或资讯拉取。')
+          : t('Choose a source to check its health, schedule auto-collection, or jump to its jobs.', '选择一个来源，检查运行状态、管理自动爬取调度或跳转至任务记录。');
   const [channelsOpen, setChannelsOpen] = useState(false);
   const credentialsButton = useRef<HTMLButtonElement>(null);
 
@@ -97,9 +117,6 @@ export function SourcesPage({
   const [launchSourceId, setLaunchSourceId] = useState<string>();
   const operationForm = useRef<HTMLFormElement>(null);
   const routeSourceId = sp.get('sourceId');
-  const routeDomain = sp.get('domain');
-  const domainFilter: 'all' | 'research' | 'feed' =
-    routeDomain === 'research' || routeDomain === 'feed' ? routeDomain : 'all';
   const filterCapability = capabilities.find(capability => capability.provider === providerFilter);
   const channelIds = [...new Set([...capabilities.map(capability => capability.provider), 'external_ingest', ...sources.map(source => source.primaryProvider)])];
   const domainSources = sources.filter(source =>
@@ -357,9 +374,9 @@ export function SourcesPage({
   return (
     <div className="ds-page collection-page">
       <div className="crumb">
-        <span>{t('Workbench', '工作台')}</span>
-        <span>/</span>
-        <span>{t('Collection Ops', '数据接入')}</span>
+        <button type="button" onClick={() => onNavigate('/sources?tab=sources&domain=research')}>
+          {t('Operations Admin', '运维管理')}
+        </button>
         <span>/</span>
         <b>{pageTitle}</b>
       </div>
@@ -407,6 +424,13 @@ export function SourcesPage({
           }} onInspect={id => { setJobActionError(''); setAckJobCharge(false); setInspectJobId(id); }} />
       ) : tab === 'budgets' ? (
         <QuotasManagementView actor={actor} budgets={budgets} budgetError={budgetsQuery.error} budgetsPending={budgetsQuery.isPending} providers={capabilities} sources={sources} onEditBudget={setEditBudget} />
+      ) : tab === 'providers' ? (
+        <div className="collection-stack">
+          {networkOff && <div role="status" className="wb-alert wb-alert--warn collection-panel-notice">
+            {t('Server collection networking is off. Set SOURCE_NETWORK_ENABLED=true in the deployment environment and recreate the app container to enable pull collection.', '服务端采集联网已关闭。在部署环境设置 SOURCE_NETWORK_ENABLED=true 并重建应用容器后，才能拉取。')}
+          </div>}
+          <ProviderCredentialsTab canManage={canWrite} />
+        </div>
       ) : (
         <div className="collection-stack">
           {canWrite && (
