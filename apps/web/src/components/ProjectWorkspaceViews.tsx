@@ -135,10 +135,10 @@ export function ProjectJobsView({
   onNavigate: (path: string) => void;
 }) {
   const { t } = useI18n();
-  const jobsQuery = useRecentJobsQuery({ projectId: project.id, limit: 30 }, true);
+  const jobsQuery = useRecentJobsQuery({ projectId: project.id, jobId, limit: jobId ? 1 : 30 }, true);
   const queryClient = useQueryClient();
   const completedBatchId = jobsQuery.data?.jobs.find(job => job.id === jobId &&
-    (job.status === 'succeeded' || job.status === 'completed'))?.batchId;
+    ['succeeded', 'completed', 'failed'].includes(job.status))?.batchId;
   useEffect(() => {
     if (!completedBatchId) return;
     void queryClient.invalidateQueries({ queryKey: ['projectBatches', project.id] });
@@ -147,7 +147,7 @@ export function ProjectJobsView({
     void queryClient.invalidateQueries({ queryKey: ['content'] });
     void queryClient.invalidateQueries({ queryKey: ['batches'] });
   }, [queryClient, project.id, completedBatchId]);
-  const jobs = (jobsQuery.data?.jobs ?? []).filter(job => !jobId || job.id === jobId);
+  const jobs = jobsQuery.data?.jobs ?? [];
   const projectPath = `&projectId=${encodeURIComponent(project.id)}`;
   const statusLabels: Record<string, string> = {
     queued: t('Queued', '已排队'), running: t('Running', '采集中'), retrying: t('Waiting to retry', '等待重试'),
@@ -159,7 +159,7 @@ export function ProjectJobsView({
     <div className="ds-card">
       <div className="ds-card-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
         <div>
-          <div className="ds-card-title">{t(`Collection Jobs · ${project.name}`, `采集任务 · ${project.name}`)}</div>
+          <div className="ds-card-title">{jobId ? t('Collection progress', '本次采集进度') : t(`Collection Jobs · ${project.name}`, `采集任务 · ${project.name}`)}</div>
           <div className="ds-card-sub">{t('Execution status, errors, and ingested counts for this project.', '仅展示归属当前项目的采集任务进度、错误与入库结果。')}</div>
         </div>
         <div className="collection-toolbar">
@@ -178,7 +178,7 @@ export function ProjectJobsView({
         {jobsQuery.isPending ? (
           <p className="collection-hint">{t('Loading project jobs…', '正在加载项目任务…')}</p>
         ) : jobsQuery.isError ? <p role="alert">{formatApiError(jobsQuery.error)}</p> : jobs.length === 0 ? (
-          <p className="collection-hint">{jobId ? t('This job is not in the recent project list. Refresh or open all project jobs.', '此任务暂未出现在项目近期记录中。可刷新或查看全部任务。') : t('No collection jobs recorded for this project yet.', '当前项目还没有采集任务记录。')}</p>
+          <p className="collection-hint">{jobId ? t('This collection is no longer visible to this account.', '当前账号无法查看此采集记录，可返回项目任务。') : t('No collection jobs recorded for this project yet.', '当前项目还没有采集任务记录。')}</p>
         ) : (
           <div style={{ display: 'grid', gap: 8 }}>
             {jobs.map((job) => (
@@ -187,17 +187,25 @@ export function ProjectJobsView({
                   <b style={{ fontSize: 12 }}>
                     [{job.platform.toUpperCase()}] {job.sourceLabel}
                   </b>
-                  {jobId && <div className="collection-hint">{t('Job ID', '任务编号')} · <code>{job.id}</code></div>}
+
                   <div style={{ fontSize: 11, color: 'var(--muted)' }}>
                     {job.createdAt.slice(0, 16).replace('T', ' ')} UTC · {t('Processed / Inserted / Updated', '处理/新增/更新')}: {job.recordsProcessed} / +{job.recordsInserted} / ~{job.recordsUpdated}
                   </div>
-                  {job.error && <div style={{ fontSize: 11, color: '#a8462f' }}>{job.error}</div>}
-                  {job.status === 'failed' && <p className="collection-hint">{t('Review the error before starting another collection. Contact an administrator if a provider charge is unresolved.', '重新采集前请先核对失败原因。渠道计费未决时，请联系管理员。')}</p>}
+                  {job.status === 'queued' && <p role="status">{t('Waiting for a collection worker. This page updates automatically.', '等待开始采集。此处会自动更新。')}</p>}
+                  {job.status === 'running' && <p role="status">{t('Collecting and saving available results.', '正在采集并保存可用结果。')}</p>}
+                  {job.status === 'retrying' && <p role="status">{t('Waiting for an automatic retry.', '正在等待系统重试。')}</p>}
+                  {job.status === 'failed' && <p className="collection-hint">{job.phase === 'unknown' || job.phase === 'starting'
+                    ? t('The service charge is unresolved. Ask an administrator to review it before starting another collection.', '服务额度消耗待核实。开始下一次采集前，请联系管理员核对。')
+                    : t('This collection did not finish. Review the details before starting again.', '此次采集未完成。请先查看详情，再决定是否重新采集。')}</p>}
+                  {jobId && (job.error || job.finishedAt) && <details className="source-detail-disclosure">
+                    <summary>{t('Collection details', '采集详情')}</summary>
+                    <p><code>{job.id}</code></p>{job.error && <p>{job.error}</p>}
+                  </details>}
                 </div>
                 <Badge className={`chip-state ${job.status === 'succeeded' ? 'active' : job.status === 'running' ? 'paused' : 'archived'}`}>
-                  {statusLabels[job.status] ?? job.status}
+                  {statusLabels[job.status] ?? t('Status unavailable', '状态暂不可用')}
                 </Badge>
-                {job.batchId && (
+                {job.batchId && (job.status === 'succeeded' || job.status === 'completed' || job.status === 'failed') && (
                   <button
                     type="button"
                     className="ds-btn ds-btn--ghost"
