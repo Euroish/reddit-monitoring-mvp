@@ -21,8 +21,7 @@ export async function ensureManagedSource(
       `SELECT cs.*, s.code AS platform
        FROM collection_source cs
        JOIN source s ON s.id = cs.platform_id
-       WHERE s.code = $1 AND cs.primary_provider = $2 AND cs.content_kind = $3 AND cs.target = $4::jsonb
-       FOR UPDATE OF cs`,
+       WHERE s.code = $1 AND cs.primary_provider = $2 AND cs.content_kind = $3 AND cs.target = $4::jsonb`,
       [input.platform, input.primaryProvider, input.contentKind, target],
     )
   ).rows[0];
@@ -33,6 +32,37 @@ export async function ensureManagedSource(
     return sourceFromRow(existing);
   }
   return insertSource(client, input, target, "monitor");
+}
+
+export async function syncManagedMonitorSchedules(
+  client: PoolClient,
+  schedules: ReadonlyArray<{ sourceId: string; cadenceSeconds: number | null }>,
+) {
+  if (!schedules.length) return;
+  const sourceIds = schedules.map(item => item.sourceId);
+  await client.query(
+    "SELECT id FROM collection_source WHERE monitor_managed AND id=ANY($1::uuid[]) ORDER BY id FOR UPDATE",
+    [sourceIds],
+  );
+  await client.query(
+    `WITH desired AS (
+       SELECT * FROM unnest($1::uuid[], $2::int[]) AS input(id,cadence)
+     ), changed AS (
+       UPDATE collection_source cs
+       SET schedule=(cs.schedule - 'intervalSeconds') || CASE WHEN d.cadence IS NULL
+             THEN '{"enabled":false}'::jsonb ELSE jsonb_build_object('enabled',true,'cadenceSeconds',d.cadence) END,
+           next_due_at=CASE WHEN d.cadence IS NOT NULL THEN now() END,
+           updated_at=now(),revision=cs.revision+1
+       FROM desired d WHERE cs.id=d.id AND cs.monitor_managed AND (
+         (d.cadence IS NULL AND (cs.schedule @> '{"enabled":true}' OR cs.next_due_at IS NOT NULL)) OR
+         (d.cadence IS NOT NULL AND cs.state='active' AND
+           (NOT (cs.schedule @> '{"enabled":true}') OR cs.schedule->>'cadenceSeconds' IS DISTINCT FROM d.cadence::text))
+       ) RETURNING cs.id, d.cadence
+     ) UPDATE source_collection_job j SET status='cancelled',finished_at=now(),lease_token=NULL,lease_until=NULL
+       FROM changed c WHERE j.collection_source_id=c.id AND c.cadence IS NULL AND j.purpose='scheduled'
+         AND j.status IN ('queued','retrying') AND j.provider_state='{}'`,
+    [sourceIds, schedules.map(item => item.cadenceSeconds)],
+  );
 }
 
 function collectionProvider(source: QueryResultRow, body: Static<typeof Collect>, providers: ContentProvider[]) {

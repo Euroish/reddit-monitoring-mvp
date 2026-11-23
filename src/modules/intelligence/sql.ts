@@ -21,7 +21,10 @@ import {
 } from "../collection/index";
 import {
   estimateMonitorCollection,
+  lockMonitorLifecycle,
+  monitorSourceIds,
   provisionMonitorSources,
+  reconcileMonitorSources,
 } from "./provisioning";
 
 export interface MonitorWithSources {
@@ -139,12 +142,13 @@ export async function createMonitor(
   const dailyItemBudget = input.dailyItemBudget ?? 1000;
   const enabled = input.enabled ?? true;
   await transaction(pool, async (client) => {
+    await lockMonitorLifecycle(client);
     await client.query(
       `INSERT INTO intel_monitor(id, owner_user_id, kind, name, config, schedule_interval_hours, daily_item_budget, enabled, created_at, updated_at)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW())`,
       [id, actor.userId, input.kind, input.name.trim(), input.config, intervalHours, dailyItemBudget, enabled],
     );
-    await provisionMonitorSources(client, providers, id, input.kind, input.config, intervalHours);
+    await reconcileMonitorSources(client, await provisionMonitorSources(client, providers, id, input.kind, input.config));
     if (actor.allowedSourceIds !== null) await selectMonitor(client, actor, id);
   });
   return (await loadMonitor(pool, actor, id)).monitor;
@@ -158,10 +162,12 @@ export async function updateMonitor(
   patch: Static<typeof MonitorPatchBody>,
 ): Promise<IntelMonitorDto> {
   await transaction(pool, async (client) => {
+    await lockMonitorLifecycle(client);
     const row = await selectMonitor(client, actor, id, true);
     if (row.revision !== patch.revision) fail(409, "Monitor changed; reload before saving");
-    const reconfigure = patch.config !== undefined || patch.scheduleIntervalHours !== undefined;
-    if ((reconfigure || (patch.enabled && !row.enabled)) && !isStaffBrowser(actor)) {
+    const scheduleChanged = patch.scheduleIntervalHours !== undefined && patch.scheduleIntervalHours !== row.schedule_interval_hours;
+    const enabledChanged = patch.enabled !== undefined && patch.enabled !== row.enabled;
+    if ((patch.config || scheduleChanged || (enabledChanged && patch.enabled)) && !isStaffBrowser(actor)) {
       fail(403, "An administrator browser session is required to configure or enable monitoring");
     }
 
@@ -177,9 +183,12 @@ export async function updateMonitor(
        WHERE id=$1`,
       [id, nextName, nextConfig, nextInterval, nextBudget, nextEnabled],
     );
-    if (reconfigure) {
-      await provisionMonitorSources(client, providers, id, row.kind, nextConfig, nextInterval);
+    if (patch.config) {
+      const affectedSourceIds = await provisionMonitorSources(client, providers, id, row.kind, nextConfig);
       if (actor.allowedSourceIds !== null) await selectMonitor(client, actor, id);
+      await reconcileMonitorSources(client, affectedSourceIds);
+    } else if (enabledChanged || scheduleChanged) {
+      await reconcileMonitorSources(client, await monitorSourceIds(client, id));
     }
     if (!nextEnabled || patch.config || nextBudget < row.daily_item_budget) {
       await cancelUnstartedMonitorHydrations(client, id);
@@ -190,10 +199,13 @@ export async function updateMonitor(
 
 export async function deleteMonitor(pool: Pool, actor: Actor, id: string, revision: number): Promise<{ deleted: true }> {
   return transaction(pool, async (client) => {
+    await lockMonitorLifecycle(client);
     const row = await selectMonitor(client, actor, id, true);
     if (row.revision !== revision) fail(409, "Monitor changed; reload before deleting");
-    await cancelUnstartedMonitorHydrations(client, id);
+    const affectedSourceIds = await monitorSourceIds(client, id);
     await client.query("DELETE FROM intel_monitor WHERE id=$1", [id]);
+    await reconcileMonitorSources(client, affectedSourceIds);
+    await cancelUnstartedMonitorHydrations(client, id);
     return { deleted: true };
   });
 }

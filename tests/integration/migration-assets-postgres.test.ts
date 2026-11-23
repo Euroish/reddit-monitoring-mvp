@@ -120,6 +120,7 @@ test("PG16 upgrades applied 058 to the immutable batch migrations and safely rer
     "059_project_batches_and_ownership.sql", "060_batch_visibility_and_field_policy.sql",
     "061_content_enrichment_and_source_lanes.sql", "062_feed_personalization_and_seen.sql",
     "063_social_intelligence_monitors_and_rollups.sql", "064_feed_positive_event_idempotency.sql",
+    "065_monitor_managed_sources.sql",
   ]);
   assert.deepEqual(await runMigrations({ pool: db.pool }), []);
   const after = await db.pool.query("SELECT filename,checksum FROM schema_migration ORDER BY filename");
@@ -155,9 +156,11 @@ test("PG16 upgrades main 060 to V2 without changing historical checksums or batc
   assert.deepEqual(await runMigrations({ pool: db.pool }), [
     "061_content_enrichment_and_source_lanes.sql", "062_feed_personalization_and_seen.sql",
     "063_social_intelligence_monitors_and_rollups.sql", "064_feed_positive_event_idempotency.sql",
+    "065_monitor_managed_sources.sql",
   ]);
   assert.deepEqual(await snapshot(), existing);
   assert.deepEqual((await db.pool.query("SELECT filename,checksum FROM schema_migration ORDER BY filename")).rows.slice(0, before.length), before);
   assert.equal((await db.pool.query("SELECT feed_lane,usage_domain FROM collection_source WHERE id=$1", [sourceId])).rows[0].usage_domain, "research");
+  assert.equal((await db.pool.query("SELECT monitor_managed FROM collection_source WHERE id=$1", [sourceId])).rows[0].monitor_managed, false);
   assert.deepEqual(await runMigrations({ pool: db.pool }), []);
 });

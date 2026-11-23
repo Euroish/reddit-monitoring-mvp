@@ -160,10 +160,11 @@ test("PG16 collection entry parity: constraints, atomic rejection, and relative-
     assert.equal((await create(viewer)).statusCode, 403);
     const createdStaff = await create(owner);
     assert.equal(createdStaff.statusCode, 200, createdStaff.body);
-    const pausedSourceId = (await db.pool.query("SELECT collection_source_id FROM intel_monitor_source WHERE monitor_id=$1",
-      [createdStaff.json().monitor.id])).rows[0].collection_source_id;
+    const { id: pausedSourceId, revision } = (await db.pool.query(
+      `SELECT cs.id, cs.revision FROM intel_monitor_source ms JOIN collection_source cs ON cs.id=ms.collection_source_id
+       WHERE ms.monitor_id=$1`, [createdStaff.json().monitor.id])).rows[0];
     const pause = await app.inject({ method: "PATCH", url: `/v1/sources/${pausedSourceId}`, headers: owner,
-      payload: { revision: 1, state: "paused" } });
+      payload: { revision, state: "paused" } });
     assert.equal(pause.statusCode, 200, pause.body);
     assert.equal((await create(owner)).statusCode, 409);
     assert.equal((await db.pool.query("SELECT state FROM collection_source WHERE id=$1", [pausedSourceId])).rows[0].state, "paused");
@@ -175,5 +176,47 @@ test("PG16 collection entry parity: constraints, atomic rejection, and relative-
     assert.equal(disable.statusCode, 200, disable.body);
     assert.equal((await app.inject({ method: "PATCH", url: ownedMonitor, headers: viewer,
       payload: { revision: 2, enabled: true } })).statusCode, 403);
+  });
+
+  await t.test("managed schedules follow active references and retain operator-managed sources", async () => {
+    const path = "/v1/intelligence/monitors";
+    const config = { platforms: ["reddit"], subreddits: ["shared_schedule"] };
+    async function create(name: string, scheduleIntervalHours: number, enabled: boolean) {
+      const result = await app.inject({ method: "POST", url: path, headers: owner,
+        payload: { kind: "community_bundle", name, config, scheduleIntervalHours, enabled } });
+      assert.equal(result.statusCode, 200, result.body);
+      return result.json().monitor.id as string;
+    }
+    const slower = await create("Initially disabled", 8, false);
+    const sharedSourceId = (await db.pool.query("SELECT collection_source_id FROM intel_monitor_source WHERE monitor_id=$1", [slower])).rows[0].collection_source_id;
+    const sourceState = async () => (await db.pool.query(
+      "SELECT monitor_managed,schedule,next_due_at FROM collection_source WHERE id=$1", [sharedSourceId])).rows[0];
+    assert.equal((await sourceState()).schedule.enabled, false);
+    assert.equal((await sourceState()).next_due_at, null);
+    const faster = await create("Faster", 4, true);
+    assert.equal((await sourceState()).schedule.cadenceSeconds, 4 * 3600);
+    const enable = await app.inject({ method: "PATCH", url: `${path}/${slower}`, headers: owner,
+      payload: { revision: 1, enabled: true } });
+    assert.equal(enable.statusCode, 200, enable.body);
+    const remove = (id: string, revision: number) => app.inject({ method: "DELETE", url: `${path}/${id}`, headers: owner,
+      payload: { revision } });
+    const deleted = await remove(faster, 1);
+    assert.equal(deleted.statusCode, 200, deleted.body);
+    assert.equal((await sourceState()).schedule.cadenceSeconds, 8 * 3600);
+    const jobId = randomUUID();
+    await db.pool.query(`INSERT INTO source_collection_job(id,collection_source_id,status,purpose,operation,provider,from_at,to_at,
+      page_size,max_pages,next_run_at,created_at) VALUES($1,$2,'queued','scheduled','radar','kaix',now()-interval '1 minute',now(),20,1,now(),now())`,
+    [jobId, sharedSourceId]);
+    const retarget = await app.inject({ method: "PATCH", url: `${path}/${slower}`, headers: owner,
+      payload: { revision: 2, config: { ...config, subreddits: ["new_schedule"] } } });
+    assert.equal(retarget.statusCode, 200, retarget.body);
+    assert.equal((await sourceState()).schedule.enabled, false);
+    assert.equal((await sourceState()).next_due_at, null);
+    assert.equal((await db.pool.query("SELECT status FROM source_collection_job WHERE id=$1", [jobId])).rows[0].status, "cancelled");
+
+    await db.pool.query("UPDATE collection_source SET monitor_managed=false,schedule=jsonb_set(schedule,'{enabled}','true') WHERE id=$1", [sharedSourceId]);
+    const operatorReference = await create("Existing operator source", 2, true);
+    assert.equal((await remove(operatorReference, 1)).statusCode, 200);
+    assert.equal((await sourceState()).schedule.enabled, true);
   });
 });
