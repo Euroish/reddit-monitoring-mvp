@@ -552,6 +552,23 @@ test("browser: project switching and guided intake with real project and role bo
   await capture("intake-failed-1440");
   assert.equal(upstreamCalls, 2);
 
+  const sharedBatchId = (await db.pool.query(`INSERT INTO collection_batch(id,collection_source_id,label,visibility)
+    VALUES(gen_random_uuid(),$1,'Reusable shared evidence','shared') RETURNING id`, [sourceId])).rows[0].id;
+  await db.pool.query("INSERT INTO monitor_project_batch(project_id,batch_id) VALUES($1,$2)", [sharedId, sharedBatchId]);
+  await page.goto(origin + `/projects?view=batches&projectId=${sharedId}`);
+  const sharedBatch = page.getByRole("row").filter({ hasText: "Reusable shared evidence" });
+  await sharedBatch.getByRole("button", { name: "引入到项目" }).waitFor();
+  assert.equal(await sharedBatch.getByRole("button", { name: /禁用|移除/ }).count(), 0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await capture("readonly-shared-batch-390");
+  await sharedBatch.getByLabel("选择要复用到的目标项目").selectOption(firstId);
+  await sharedBatch.getByRole("button", { name: "引入到项目" }).press("Enter");
+  await page.getByRole("status").filter({ hasText: "已将该批次复用到项目『私人研究一』" }).waitFor();
+  await page.goto(origin + `/projects?view=batches&projectId=${firstId}`);
+  await page.getByRole("row").filter({ hasText: "Reusable shared evidence" }).getByRole("button", { name: "禁用" }).waitFor();
+  assert.equal(upstreamCalls, 2);
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   await logout();
   await login("free@example.test");
