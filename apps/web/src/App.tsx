@@ -458,7 +458,7 @@ export function App() {
               route={workbenchRoute}
               currentSearch={loc.search}
               selectedProjectId={selectedProjectId}
-              onSelectProjectId={setSelectedProjectId}
+              onSelectProjectId={id => { setSelectedProjectId(id); setContentDetailId(null); }}
               onNavigate={navigate}
               onOpenAuth={openAuth}
             >
@@ -480,6 +480,7 @@ export function App() {
                   initialDetailId={contentDetailId}
                   onClearDetailId={() => setContentDetailId(null)}
                   onOpenAuth={(tab, reason) => openAuth(tab, reason, currentFullPath)}
+                  onNavigate={navigate}
                 />
               )}
 
@@ -533,10 +534,12 @@ export function App() {
 
               {workbenchRoute === '/projects' && actor && (
                 <ProjectsPage
+                  key={new URLSearchParams(loc.search).get('projectId') ?? ''}
                   actor={actor}
                   selectedProjectId={selectedProjectId}
                   onSelectProjectId={setSelectedProjectId}
                   initialSearchString={loc.search}
+                  onNavigate={navigate}
                   onDrilldown={(projectId, extraQs) => {
                     const sp = new URLSearchParams(extraQs || '');
                     if (projectId) sp.set('projectId', projectId);
@@ -551,7 +554,7 @@ export function App() {
               )}
 
               {workbenchRoute === '/sources' && actor && (
-                <SourcesPage actor={actor} initialQueryString={loc.search} />
+                <SourcesPage key={new URLSearchParams(loc.search).get('domain') ?? 'all'} actor={actor} initialQueryString={loc.search} onNavigate={navigate} />
               )}
 
               {workbenchRoute === '/workspace' && actor && (
@@ -567,7 +570,7 @@ export function App() {
               )}
 
               {workbenchRoute === '/settings' && actor && (
-                <SettingsPage actor={actor} initialQueryString={loc.search} />
+                <SettingsPage actor={actor} initialQueryString={loc.search} onNavigate={navigate} />
               )}
 
               {workbenchRoute === '/admin/queue' && actor && (

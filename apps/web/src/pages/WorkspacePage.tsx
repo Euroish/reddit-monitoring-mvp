@@ -1,3 +1,4 @@
+import { Card } from '../components/ui/card';
 import { useState } from 'react';
 import { ArrowUpRight, Bookmark, ChevronRight, Heart, Play, Plus, Star, Trash2, Users } from 'lucide-react';
 import {
@@ -51,11 +52,11 @@ export function WorkspacePage({
   return (
     <div className="ds-page">
       <div className="crumb">
-        <span>{t('Workbench', '工作台')}</span>
+        <button type="button" onClick={() => onNavigate?.('/projects?view=list')}>
+          {t('Research Workspace', '研究工作区')}
+        </button>
         <span>/</span>
-        <span>{t('Research', '研究')}</span>
-        <span>/</span>
-        <b>{t('Personal Workspace', '个人工作区')}</b>
+        <b>{tab === 'annotations' ? t('Annotations', '批注与收藏') : t('Saved Queries', '保存的查询')}</b>
       </div>
 
       <div className="page-head">
@@ -251,7 +252,7 @@ export function WorkspacePage({
           </div>
 
           <div className="c4">
-            <div className="ds-card" style={{ height: '100%' }}>
+            <Card className="ds-card" style={{ height: '100%' }}>
               <div className="ds-card-hd">
                 <div>
                   <div className="ds-card-title">{t('Research Summary', '研究记录概览')}</div>
@@ -280,7 +281,7 @@ export function WorkspacePage({
                   {t('Continue →', '继续研判 →')}
                 </button>
               </div>
-            </div>
+            </Card>
           </div>
         </div>
       )}

@@ -11,6 +11,6 @@
 | **INV-005** | **迁移前向不可变与 DDL 回滚安全**：已合入 `main` 的 SQL 迁移永不改写/删除；新迁移顺延编号且单文件失败必须完整回滚 DDL 与 `schema_migration` 台账；`050` 退役表永不复活。 | `npm run lint:policy`、`Squawk` (`sql-lint`)、`tests/integration/migration-assets-postgres.test.ts` |
 | **INV-006** | **前端构建产物零后端密钥泄漏**：前端构建产物中严禁出现 `VITE_*` 敏感密钥、Apify Token、私钥或数据库连接串；图表（含 ECharts）可自由按场景加载渲染。 | `npm run check:web-bundle`、`tests/unit/repository-policy.test.ts` |
 | **INV-007** | **严格单向 DAG、公开门面与零循环依赖**：`access`/`docs`/`content` 为严格叶子域，仅允许 `collection` -> `{access,content}`、`feed`/`workspace`/`ai` -> `{content}`、`intelligence`/`projects` -> `{content,collection}` 单向依赖且只经 `index.ts` 公开门面；`apps/api/src/` 禁引模块内部文件；全仓零循环依赖。 | `.dependency-cruiser.cjs`（`npm run lint:arch`） |
-| **INV-008** | **数据库表唯一写归属与受控读契约**：9 域 55 表执行严格零共享写归属（每表唯一写模块），且除契约许可的 `source`/`collection_source` 供 `content` 只读关联外，严禁跨模块直接 `FROM/JOIN` 读取他域数据表。 | `scripts/check-table-ownership.ts`（`npm run lint:arch`） |
+| **INV-008** | **数据库表唯一写归属与受控读契约**：9 域 58 表执行严格零共享写归属（每表唯一写模块），且除契约许可的 `source`/`collection_source` 供 `content` 只读关联外，严禁跨模块直接 `FROM/JOIN` 读取他域数据表。 | `scripts/check-table-ownership.ts`（`npm run lint:arch`） |
 | **INV-009** | **主线 4 GB 轻量运行时边界**：主线服务端零 ORM（Prisma/TypeORM/Drizzle）、零 Redis/BullMQ、零无头浏览器/Python/DuckDB；重型与反爬采集通过外置 Sidecar + 受限 Machine Key 接入。 | `eslint.config.mjs`、`.dependency-cruiser.cjs`、`docker-dryrun` |
 | **INV-010** | **验证不可自降级**：禁止在 PR 中通过添加 `.only(` 屏蔽测试，修改 CI/ESLint/边界检查规则或新增 `.skip`/抑制注释须经 `Governance Guard` 高亮提示与 `CODEOWNERS` 审查。 | `scripts/check-governance-diff.mjs`、`.github/CODEOWNERS` |

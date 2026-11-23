@@ -1,4 +1,4 @@
--- 059_content_enrichment_and_source_lanes.sql
+-- 061_content_enrichment_and_source_lanes.sql
 -- Promote hot-path analytics & visual-card scalar columns on content,
 -- store normalized author profile telemetry, classify source lanes,
 -- archive passive news/marketing sources, and calibrate Reddit+X 20k/day budget ceilings.

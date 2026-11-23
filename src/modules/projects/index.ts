@@ -1,2 +1,3 @@
 export { projectRoutes, projectRoutes as registerProjectsModule } from "./routes";
-export { projectSources, projectSources as resolveProjectScope } from "./sql";
+export { assertProjectWritable, listProjectBatchIds, projectSources, resolveProjectScope } from "./sql";
+export { attachBatchToProjectInTx } from "./batches";

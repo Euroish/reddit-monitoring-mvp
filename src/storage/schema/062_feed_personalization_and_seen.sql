@@ -1,4 +1,4 @@
--- 060_feed_personalization_and_seen.sql
+-- 062_feed_personalization_and_seen.sql
 -- Feed seen-item anti-join tracking, batched interaction events,
 -- decayed multi-dimension user affinities, and explicit anti-filter-bubble preferences.
 

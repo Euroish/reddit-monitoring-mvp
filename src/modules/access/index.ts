@@ -29,3 +29,5 @@ export async function pruneAccessArtifacts(pool: Pool) {
     pruneMfaChallenges(pool),
   ]);
 }
+
+export { listStaffOwnerIds } from "./sql";

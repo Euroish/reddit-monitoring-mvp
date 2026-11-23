@@ -79,7 +79,7 @@ function makeRedditBatchItem(
   };
 }
 
-test("PG16 V2 end-to-end: 059-062 schemas, enricher monotonicity, DELETE source, feed anti-repeat, and intelligence rollups", async (t) => {
+test("PG16 V2 end-to-end: 061-064 schemas, enricher monotonicity, DELETE source, feed anti-repeat, and intelligence rollups", async (t) => {
   const db = await testDatabase();
   t.after(db.close);
   await bootstrapOwner(db.pool, "fixture-password-123", "owner@example.test");

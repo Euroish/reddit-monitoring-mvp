@@ -1,3 +1,17 @@
+import type { ResearchCollectionRestriction } from '../../../../packages/contracts/src/collection.js';
+export type { ResearchPlanPreviewRequest, ResearchCollectionRestriction } from '../../../../packages/contracts/src/collection.js';
+import type { SourceCapability, SourceTarget } from '../../../../packages/contracts/src/source-content.js';
+export type { CollectionSource, SourceCapability, SourceTarget } from '../../../../packages/contracts/src/source-content.js';
+export type {
+  CollectionSourceInput as SourceInput, CollectionSourceUpdate as SourcePatch,
+  CollectionSourcePreview as SourcePreviewResult, CollectionSourceImport as SourceImport,
+} from '../../../../packages/contracts/src/source-content.js';
+export interface SourceImportResult {
+  created: number;
+  skipped: number;
+  errors: Array<{ index: number; label: string; error: string }>;
+}
+
 export type Role = 'owner' | 'admin' | 'viewer';
 export type ClientKind = 'browser' | 'machine';
 export type Platform = 'reddit' | 'x' | 'bluesky' | 'web';
@@ -208,6 +222,10 @@ export interface PlanPolicyDto {
   dailyResources: number | null;
   maxBatchLimit: number;
   maxCommentsPerPost: number;
+  maxProjects?: number;
+  maxLookbackDays?: number;
+  allowProviderChoice?: boolean;
+  exportEnabled?: boolean;
   updatedAt: string;
   revision: number;
 }
@@ -221,6 +239,10 @@ export interface EffectivePolicyDto {
   dailyResources: number | null;
   maxBatchLimit: number;
   maxCommentsPerPost: number;
+  maxProjects?: number;
+  maxLookbackDays?: number;
+  allowProviderChoice?: boolean;
+  exportEnabled?: boolean;
   hasOverride: boolean;
 }
 
@@ -253,6 +275,7 @@ export interface QuotasSummaryResponse {
     platform: Platform;
     enabled: boolean;
     planAllowed: boolean;
+    budgetEnabled: boolean;
   }>;
   planPolicies?: PlanPolicyDto[];
   users?: Array<{
@@ -277,7 +300,7 @@ export interface RecentJobDto {
   platform: Platform;
   status: JobStatus;
   purpose: string;
-  operation: 'collect' | 'refresh' | 'hydrate' | 'ingest';
+  operation: 'collect' | 'radar' | 'refresh' | 'hydrate' | 'ingest';
   provider: ProviderName;
   phase: ProviderPhase | null;
   pageSize: number | null;
@@ -291,7 +314,80 @@ export interface RecentJobDto {
   finishedAt: string | null;
   requestedByUserId: string | null;
   requestedByClientKind: ClientKind | null;
+  batchId?: string | null;
+  projectId?: string | null;
   requesterEmail: string | null;
+}
+
+export interface CollectionBatchDto {
+  id: string;
+  jobId: string | null;
+  sourceId: string;
+  sourceLabel: string;
+  platform: Platform;
+  provider: ProviderName;
+  deliveryMode: DeliveryMode;
+  usageDomain?: 'research' | 'feed';
+  label: string;
+  itemCount: number;
+  visibility?: 'private' | 'shared';
+  createdAt: string;
+  createdByUserId: string | null;
+}
+
+export interface ProjectBatchDto {
+  batchId: string;
+  jobId: string | null;
+  sourceId: string;
+  sourceLabel: string;
+  platform: Platform;
+  provider: ProviderName;
+  deliveryMode: DeliveryMode;
+  label: string;
+  itemCount: number;
+  visibility?: 'private' | 'shared';
+  status: 'enabled' | 'disabled' | 'removed';
+  addedAt: string;
+  createdAt: string;
+}
+
+export interface ResearchPlanPreviewResponse {
+  resolutionStatus: 'matched_source' | 'needs_admin_source' | 'blocked';
+  executable: boolean;
+  matchedSource: {
+    id: string;
+    label: string;
+    platform: Platform;
+    provider: string;
+    target: SourceTarget;
+    lastSuccessAt: string | null;
+  } | null;
+  resolvedTarget: { platform: string | null; type: string; value: string } | null;
+  coverage: {
+    status: 'empty' | 'unknown';
+    existingItemCount: number;
+    lastSuccessAt: string | null;
+    note: string;
+  };
+  reusableBatches: Array<{
+    id: string;
+    label: string;
+    itemCount: number;
+    visibility: 'private' | 'shared';
+    createdAt: string;
+  }>;
+  estimate: { requests: number; systemResources: number; personalResources: number };
+  blockers: string[];
+  restrictions?: ResearchCollectionRestriction[];
+  fieldPolicy: {
+    canEditTarget: boolean;
+    canChooseProvider: boolean;
+    canUseFallback: boolean;
+    canIncludeComments: boolean;
+    maxLookbackDays: number;
+    maxBatchLimit: number;
+    maxCommentsPerPost: number;
+  };
 }
 
 export interface UserAccountDto {
@@ -312,24 +408,6 @@ export interface AuditEventDto {
   meta: Record<string, unknown>;
   createdAt: string;
   actorEmail: string | null;
-}
-
-export interface SourceCapability {
-  platform: Platform;
-  provider: PullProviderName;
-  enabled: boolean;
-  targetTypes: TargetType[];
-  contentKinds: ContentKind[];
-  maxLimit: number;
-  supportsComments: boolean;
-  maxCommentsPerPost: number | null;
-  postOnlyComments?: boolean;
-  nonPostLimit?: number;
-  refreshByIds: boolean;
-  automaticRequestReplay: boolean;
-  fallbackAllowed: FallbackProviderName[];
-  metrics: Array<{ key: string; direction?: 'higher' | 'lower' }>;
-  notes?: string;
 }
 
 export interface CapabilitiesResponse {
@@ -372,12 +450,18 @@ export interface ListQuery extends ContentFilter {
 export interface Project {
   id: string;
   name: string;
+  description?: string | null;
+  dataset_mode?: 'source_filter' | 'batch';
   filter: ContentFilter;
   revision: number;
   thread_aware: boolean;
   include_push_in_trends: boolean;
   source_ids: string[];
   owner_user_id?: string | null;
+  can_edit?: boolean;
+  is_shared?: boolean;
+  enabled_batch_count?: number;
+  total_batch_count?: number;
   hydration?: Record<string, unknown>;
   created_at?: string;
   updated_at?: string;
@@ -385,8 +469,10 @@ export interface Project {
 
 export interface ProjectInput {
   name: string;
-  sourceIds: string[];
-  filter: ContentFilter;
+  description?: string | null;
+  datasetMode?: 'source_filter' | 'batch';
+  sourceIds?: string[];
+  filter?: ContentFilter;
   threadAware?: boolean;
   includePushInTrends?: boolean;
 }
@@ -508,56 +594,18 @@ export interface ExportJsonResult {
   };
 }
 
-export interface SourceTarget {
-  type: TargetType;
-  value?: string;
-  community?: string;
-  subreddit?: string;
-  query?: string;
-  account?: string;
-  handle?: string;
-  postId?: string;
-  url?: string;
-}
-
-export interface CollectionSource {
-  id: string;
-  platform: Platform;
-  primary_provider: ProviderName;
-  fallback_provider: FallbackProviderName | null;
-  label: string;
-  target: SourceTarget;
-  content_kind: ContentKind;
-  delivery_mode: DeliveryMode;
-  state: SourceState;
-  automatic_collection_blocked: boolean;
-  revision: number;
-  coverage?: 'unknown' | 'partial';
-  created_at: string;
-  updated_at: string;
-}
-
-export interface SourceInput {
-  platform: Platform;
-  primaryProvider: ProviderName;
-  fallbackProvider?: FallbackProviderName;
-  label: string;
-  target: Record<string, string>;
-  contentKind: ContentKind;
-  deliveryMode: DeliveryMode;
-}
-
 export type JobStatus = 'queued' | 'running' | 'retrying' | 'succeeded' | 'completed' | 'failed' | 'cancelled';
 export type ProviderPhase = 'idle' | 'starting' | 'running' | 'reading' | 'unknown' | 'done' | 'failed';
 
 export interface SourceJob {
   id: string;
   source_id: string;
+  purpose?: string;
   status: JobStatus;
-  operation: 'collect' | 'refresh' | 'hydrate' | 'ingest';
+  operation: 'collect' | 'radar' | 'refresh' | 'hydrate' | 'ingest';
   provider: ProviderName;
   provider_state: {
-    phase: ProviderPhase;
+    phase?: ProviderPhase;
     runId?: string;
   };
   phase?: ProviderPhase;
@@ -570,6 +618,7 @@ export interface SourceJob {
   result_summary?: {
     warning?: string;
     provider_run_id?: string;
+    creditsUsed?: number;
   };
   request_json?: Record<string, unknown>;
   created_at: string;
@@ -622,144 +671,6 @@ export interface MachineKeyDto {
   allowed_source_ids: string[] | null;
   expires_at: string;
 }
-
-// Authoritative capability matrix from Section 3.3.2
-export const DEFAULT_CAPABILITIES: SourceCapability[] = [
-  {
-    platform: 'reddit',
-    provider: 'kaix',
-    enabled: true,
-    targetTypes: ['community', 'account', 'post', 'search'],
-    contentKinds: ['post', 'comment'],
-    maxLimit: 300,
-    supportsComments: true,
-    maxCommentsPerPost: 50,
-    refreshByIds: true,
-    automaticRequestReplay: false,
-    fallbackAllowed: ['red_crawler'],
-    metrics: [
-      { key: 'reddit.score', direction: 'higher' },
-      { key: 'reddit.num_comments', direction: 'higher' },
-      { key: 'reddit.upvote_ratio', direction: 'higher' },
-    ],
-    notes: 'Search limit * (comments ? maxC + 1 : 1) <= 2000; single post up to 50 comments.',
-  },
-  {
-    platform: 'reddit',
-    provider: 'red_crawler',
-    enabled: true,
-    targetTypes: ['community', 'account', 'post', 'search'],
-    contentKinds: ['post', 'comment'],
-    maxLimit: 100,
-    nonPostLimit: 100,
-    supportsComments: true,
-    postOnlyComments: true,
-    maxCommentsPerPost: 50,
-    refreshByIds: false,
-    automaticRequestReplay: false,
-    fallbackAllowed: [],
-    metrics: [
-      { key: 'reddit.score', direction: 'higher' },
-      { key: 'reddit.num_comments', direction: 'higher' },
-      { key: 'reddit.upvote_ratio', direction: 'higher' },
-    ],
-    notes: 'Non-post targets max 100 & disallow comments; post target max 50 comments.',
-  },
-  {
-    platform: 'x',
-    provider: 'twitterapis',
-    enabled: true,
-    targetTypes: ['search', 'account'],
-    contentKinds: ['post'],
-    maxLimit: 20,
-    supportsComments: false,
-    maxCommentsPerPost: null,
-    refreshByIds: false,
-    automaticRequestReplay: false,
-    fallbackAllowed: ['scrapebadger'],
-    metrics: [
-      { key: 'x.likes', direction: 'higher' },
-      { key: 'x.reposts', direction: 'higher' },
-      { key: 'x.replies', direction: 'higher' },
-      { key: 'x.quotes', direction: 'higher' },
-      { key: 'x.views', direction: 'higher' },
-      { key: 'x.bookmarks', direction: 'higher' },
-    ],
-    notes: 'limit <= 20, comments disabled.',
-  },
-  {
-    platform: 'x',
-    provider: 'scrapebadger',
-    enabled: true,
-    targetTypes: ['search', 'account'],
-    contentKinds: ['post'],
-    maxLimit: 100,
-    supportsComments: false,
-    maxCommentsPerPost: null,
-    refreshByIds: true,
-    automaticRequestReplay: false,
-    fallbackAllowed: [],
-    metrics: [
-      { key: 'x.likes', direction: 'higher' },
-      { key: 'x.reposts', direction: 'higher' },
-      { key: 'x.replies', direction: 'higher' },
-      { key: 'x.quotes', direction: 'higher' },
-      { key: 'x.views', direction: 'higher' },
-      { key: 'x.bookmarks', direction: 'higher' },
-    ],
-    notes: 'limit <= 100, supports refreshByIds (1..20 IDs).',
-  },
-  {
-    platform: 'web',
-    provider: 'newsnow',
-    enabled: true,
-    targetTypes: ['search'],
-    contentKinds: ['article'],
-    maxLimit: 100,
-    supportsComments: false,
-    maxCommentsPerPost: null,
-    refreshByIds: false,
-    automaticRequestReplay: true,
-    fallbackAllowed: [],
-    metrics: [{ key: 'web.rank', direction: 'lower' }],
-    notes: 'search target query="hackernews", limit <= 100.',
-  },
-  {
-    platform: 'web',
-    provider: 'feed',
-    enabled: true,
-    targetTypes: ['feed'],
-    contentKinds: ['article'],
-    maxLimit: 100,
-    supportsComments: false,
-    maxCommentsPerPost: null,
-    refreshByIds: false,
-    automaticRequestReplay: true,
-    fallbackAllowed: [],
-    metrics: [],
-    notes: 'Only allowlisted HTTPS URLs in FEED_ALLOWED_URLS; limit <= 100.',
-  },
-  {
-    platform: 'bluesky',
-    provider: 'bluesky_appview',
-    enabled: true,
-    targetTypes: ['account'],
-    contentKinds: ['post'],
-    maxLimit: 100,
-    supportsComments: false,
-    maxCommentsPerPost: null,
-    refreshByIds: false,
-    automaticRequestReplay: true,
-    fallbackAllowed: [],
-    metrics: [
-      { key: 'bluesky.likes', direction: 'higher' },
-      { key: 'bluesky.replies', direction: 'higher' },
-      { key: 'bluesky.reposts', direction: 'higher' },
-      { key: 'bluesky.quotes', direction: 'higher' },
-    ],
-    notes: 'Account handle or did:, limit <= 100.',
-  },
-];
 
 // Validation helpers aligned with packages/contracts/src/source-content.ts
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -833,10 +744,15 @@ export function generateUuidV4(): string {
   });
 }
 
-export function formatSourceTarget(target: SourceTarget | Record<string, unknown> | undefined): string {
+export function formatSourceTarget(target: SourceTarget | undefined): string {
   if (!target) return '';
-  const t = target as Record<string, unknown>;
-  return String(t.community ?? t.subreddit ?? t.query ?? t.account ?? t.handle ?? t.postId ?? t.url ?? t.value ?? '');
+  switch (target.type) {
+    case 'search': return target.query;
+    case 'community': return target.community;
+    case 'account': return target.account;
+    case 'post': return target.postId;
+    case 'feed': return target.url;
+  }
 }
 
 export function formatContentAuthor(author: ContentAuthor | null | undefined): string {
@@ -845,25 +761,6 @@ export function formatContentAuthor(author: ContentAuthor | null | undefined): s
   if (author.displayName) return author.displayName;
   if (author.externalId) return `anon:${author.externalId.slice(0, 8)}`;
   return 'anonymous';
-}
-
-export function normalizeCollectionSource(raw: Record<string, unknown>): CollectionSource {
-  return {
-    id: String(raw.id || ''),
-    platform: (raw.platform as Platform) || 'reddit',
-    primary_provider: ((raw.primary_provider ?? raw.primaryProvider) as ProviderName) || 'external_ingest',
-    fallback_provider: ((raw.fallback_provider ?? raw.fallbackProvider ?? null) as FallbackProviderName | null),
-    label: String(raw.label || ''),
-    target: (raw.target as SourceTarget) || { type: 'search' },
-    content_kind: ((raw.content_kind ?? raw.contentKind) as ContentKind) || 'post',
-    delivery_mode: ((raw.delivery_mode ?? raw.deliveryMode) as DeliveryMode) || 'pull',
-    state: (raw.state as SourceState) || 'active',
-    automatic_collection_blocked: Boolean(raw.automatic_collection_blocked ?? raw.automaticCollectionBlocked ?? false),
-    revision: Number(raw.revision ?? 1),
-    coverage: (raw.coverage as 'unknown' | 'partial' | undefined) ?? 'partial',
-    created_at: String(raw.created_at ?? raw.createdAt ?? new Date().toISOString()),
-    updated_at: String(raw.updated_at ?? raw.updatedAt ?? new Date().toISOString()),
-  };
 }
 
 export function normalizeSourceJob(raw: Record<string, unknown>): SourceJob {
@@ -876,46 +773,13 @@ export function normalizeSourceJob(raw: Record<string, unknown>): SourceJob {
     operation: (raw.operation as SourceJob['operation']) || 'collect',
     provider: (raw.provider as ProviderName) || 'external_ingest',
     provider_state: {
-      phase: ps?.phase ?? (raw.phase as ProviderPhase | undefined) ?? 'done',
+      phase: ps?.phase ?? (raw.phase as ProviderPhase | undefined),
       ...(ps?.runId ? { runId: ps.runId } : {}),
     },
     records_processed: Number(raw.records_processed ?? 0),
     error: raw.error ? String(raw.error) : null,
     created_at: String(raw.created_at ?? raw.createdAt ?? new Date().toISOString()),
   };
-}
-
-export function mergeServerCapabilities(rawList: unknown): SourceCapability[] {
-  if (!Array.isArray(rawList) || rawList.length === 0) return DEFAULT_CAPABILITIES;
-  const byProvider = new Map<string, Record<string, unknown>>();
-  for (const entry of rawList) {
-    if (entry && typeof entry === 'object' && 'provider' in entry) {
-      byProvider.set(String((entry as Record<string, unknown>).provider), entry as Record<string, unknown>);
-    }
-  }
-  return DEFAULT_CAPABILITIES.map((base) => {
-    const live = byProvider.get(base.provider);
-    if (!live) return base;
-    return {
-      ...base,
-      enabled: typeof live.enabled === 'boolean' ? live.enabled : base.enabled,
-      targetTypes: Array.isArray(live.targetTypes) ? (live.targetTypes as TargetType[]) : base.targetTypes,
-      contentKinds: Array.isArray(live.contentKinds) ? (live.contentKinds as ContentKind[]) : base.contentKinds,
-      maxLimit: typeof live.maxLimit === 'number' && Number.isFinite(live.maxLimit) ? live.maxLimit : base.maxLimit,
-      supportsComments: typeof live.supportsComments === 'boolean' ? live.supportsComments : base.supportsComments,
-      maxCommentsPerPost:
-        live.maxCommentsPerPost === null ||
-        (typeof live.maxCommentsPerPost === 'number' && Number.isFinite(live.maxCommentsPerPost))
-          ? live.maxCommentsPerPost
-          : base.maxCommentsPerPost,
-      refreshByIds: typeof live.refreshByIds === 'boolean' ? live.refreshByIds : base.refreshByIds,
-      automaticRequestReplay:
-        typeof live.automaticRequestReplay === 'boolean' ? live.automaticRequestReplay : base.automaticRequestReplay,
-      fallbackAllowed: Array.isArray(live.fallbackAllowed)
-        ? (live.fallbackAllowed as FallbackProviderName[])
-        : base.fallbackAllowed,
-    };
-  });
 }
 
 export type {

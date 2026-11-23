@@ -11,6 +11,7 @@ import { commitContentBatch, prepareContentBatch } from "../content/index";
 import { budgetedSocialProviders, cancelHydrationOutsideBudget, lockSocialDispatchBudget } from "./automatic-hydration";
 import { isViewerJobStillAuthorized, recordUserExecutedRequest, requestedCommentLimit } from "./policy";
 import { scheduleDueSourcesOnce } from "./schedule";
+import { recordCommittedBatch, type BatchCommittedHook } from "./batches";
 import { lockSource, sourceFromRow } from "./sql";
 
 const workerActor = { allowedSourceIds: null } as Actor;
@@ -195,6 +196,7 @@ async function commitCollectedPage(
   page: CollectedPage,
   batch: ReturnType<typeof prepareContentBatch>,
   elapsedMs: number,
+  onBatchCommitted?: BatchCommittedHook,
 ) {
   const finishingSource = await lockSource(client, workerActor, source.id, false);
   const current = (
@@ -210,6 +212,16 @@ async function commitCollectedPage(
     batch,
     new Date().toISOString(),
   );
+  const committed = await recordCommittedBatch(client, {
+    jobId: job.id, sourceId: source.id, sourceLabel: source.label,
+    userId: job.requested_by_user_id ?? null, contentIds: counts.contentIds,
+  });
+  const projectId = job.request_json?.projectId;
+  if (typeof projectId === "string" && onBatchCommitted) {
+    await onBatchCommitted(client, {
+      batchId: committed.batchId, projectId, userId: job.requested_by_user_id ?? null,
+    });
+  }
   const scheduled = job.purpose === "scheduled";
   const nextPage =
     scheduled && finishingSource.state === "active" && finishingSource.schedule.enabled &&
@@ -432,14 +444,19 @@ function assertProviderReadyForJob(job: QueryResultRow, provider: ContentProvide
   }
 }
 
-type BatchCommittedHook = (sourceId: string, result: { changed: boolean; hydration: boolean }) => void | Promise<void>;
+export type WorkerHooks = {
+  // Runs in the content transaction: a failed project attachment rolls back the page.
+  onProjectBatchCommitted?: BatchCommittedHook;
+  // Runs after commit: failures must never replay an already charged collection.
+  onSourceContentCommitted?: (sourceId: string, result: { changed: boolean; hydration: boolean }) => void | Promise<void>;
+};
 
 export async function workOnce(
   pool: Pool,
   providers: ContentProvider[],
   signal?: AbortSignal,
   hostCooldown?: Map<string, number>,
-  onBatchCommitted?: BatchCommittedHook,
+  hooks: WorkerHooks = {},
 ) {
   if (signal?.aborted) return false;
   const claim = await claimNextJob(pool, pruneCooldownHosts(hostCooldown), hostCooldown);
@@ -484,9 +501,10 @@ export async function workOnce(
       return true;
     }
     const batch = prepareContentBatch(page.items);
-    const dirty = await transaction(pool, (client) => commitCollectedPage(client, job, source, provider, token, page, batch, elapsedMs));
-    if (onBatchCommitted && (dirty || source.target.type === "community")) {
-      await Promise.resolve().then(() => onBatchCommitted(source.id, {
+    const dirty = await transaction(pool, (client) => commitCollectedPage(client, job, source, provider, token, page, batch, elapsedMs, hooks.onProjectBatchCommitted));
+    const onSourceContentCommitted = hooks.onSourceContentCommitted;
+    if (onSourceContentCommitted && (dirty || source.target.type === "community")) {
+      await Promise.resolve().then(() => onSourceContentCommitted(source.id, {
         changed: dirty,
         hydration: job.operation === "hydrate",
       })).catch(() => {});
@@ -514,7 +532,7 @@ async function computeIdleWaitMs(pool: Pool): Promise<number> {
   return Math.min(maxIdleWaitMs, Math.max(500, Math.ceil(raw)));
 }
 
-export function startWorker(pool: Pool, providers: ContentProvider[], onError?: (error: unknown) => void, onBatchCommitted?: BatchCommittedHook) {
+export function startWorker(pool: Pool, providers: ContentProvider[], onError?: (error: unknown) => void, hooks: WorkerHooks = {}) {
   const controller = new AbortController();
   const startedAt = new Date();
   const hostCooldown = new Map<string, number>();
@@ -601,7 +619,7 @@ export function startWorker(pool: Pool, providers: ContentProvider[], onError?: 
         });
         if (scheduled.enqueuedCount > 0) wakeAll();
       }
-      const worked = await workOnce(pool, providers, controller.signal, hostCooldown, onBatchCommitted).catch((error) => {
+      const worked = await workOnce(pool, providers, controller.signal, hostCooldown, hooks).catch((error) => {
         onError?.(error);
         return false;
       });
@@ -622,4 +640,14 @@ export function startWorker(pool: Pool, providers: ContentProvider[], onError?: 
       await heartbeat("stopped");
     },
   };
+}
+
+
+export async function readCollectionWorkerHealth(pool: Pool) {
+  const { rows: [worker] } = await pool.query<{ state: string; lastHeartbeatAt: Date; heartbeatFresh: boolean }>(
+    `SELECT state, last_heartbeat_at AS "lastHeartbeatAt",
+       last_heartbeat_at > now() - interval '90 seconds' AS "heartbeatFresh"
+     FROM source_worker_heartbeat WHERE id='unified-collection'`,
+  );
+  return worker ?? null;
 }

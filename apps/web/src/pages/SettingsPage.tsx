@@ -35,35 +35,42 @@ import { AccountEmailStart, AccountPasswordForm } from '../components/AccountEma
 import { MfaSecurityCard } from '../components/AdministratorMfa';
 import { SiftlineLogo } from '../components/BrandMark';
 import { useLogo } from '../components/brandContext';
-import { ProviderCredentialsTab } from '../components/ProviderCredentialsTab';
 import { useTheme } from '../components/themeContext';
 import { type Actor, type MachineScope } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
+import { isRedditArchiveSource } from '../lib/collectionLimits';
 
 const ALL_SCOPES: MachineScope[] = ['read', 'export', 'ingest', 'collect', 'sources:write', 'projects:write'];
 
 export function SettingsPage({
   actor,
   initialQueryString = '',
+  onNavigate,
 }: {
   actor: Actor;
   initialQueryString?: string;
+  onNavigate?: (path: string) => void;
 }) {
   const { lang, t } = useI18n();
   const { activeLogo, setActiveIdx, setSwitcherOpen } = useLogo();
   const { palette, setStudioOpen } = useTheme();
-  const canManage = actor.role === 'owner' || actor.role === 'admin';
+  const canManage = actor.clientKind === 'browser' && actor.role !== 'viewer';
 
-  type SettingsTab = 'account' | 'providers' | 'members' | 'keys' | 'brand';
+  type SettingsTab = 'account' | 'members' | 'keys' | 'brand';
   const sp = new URLSearchParams(initialQueryString);
   const rawTab = sp.get('tab');
-  const urlTab: SettingsTab =
-    rawTab === 'keys' || rawTab === 'providers' || rawTab === 'members' || rawTab === 'brand' || rawTab === 'account'
+  const tab: SettingsTab =
+    rawTab === 'keys' || rawTab === 'members' || rawTab === 'brand' || rawTab === 'account'
       ? rawTab
       : 'account';
-  const [tabState, setTabState] = useState<{ key: string; val: SettingsTab } | null>(null);
-  const tab = tabState?.key === urlTab ? tabState.val : urlTab;
-  const setTab = (val: SettingsTab) => setTabState({ key: urlTab, val });
+  const tabLabel =
+    tab === 'members'
+      ? t('Members & Invites', '成员与权限')
+      : tab === 'keys'
+        ? t('Machine API Keys', '机器 API 密钥')
+        : tab === 'brand'
+          ? t('Brand Mark & Skin', '品牌标识与皮肤')
+          : t('Account & RBAC', '当前账户与角色');
 
   const keysQuery = useMachineKeysQuery(true);
   const sourcesQuery = useSourcesQuery(true);
@@ -81,6 +88,8 @@ export function SettingsPage({
 
   const sources = sourcesQuery.data?.sources || [];
   const keys = keysQuery.data?.keys || [];
+  const requestedArchiveSource = sp.get('archiveSource');
+  const archiveSource = sources.find(source => source.id === requestedArchiveSource && source.state === 'active' && isRedditArchiveSource(source));
 
   const [inviteRole, setInviteRole] = useState<'viewer' | 'admin'>('viewer');
   const [inviteEmail, setInviteEmail] = useState('');
@@ -143,11 +152,11 @@ export function SettingsPage({
   return (
     <div className="ds-page">
       <div className="crumb">
-        <span>{t('Workbench', '工作台')}</span>
+        <button type="button" onClick={() => onNavigate?.('/settings?tab=account')}>
+          {t('Account & Settings', '账户与设置')}
+        </button>
         <span>/</span>
-        <span>{t('Access & Settings', '权限与设置')}</span>
-        <span>/</span>
-        <b>{t('Account, Invites & Keys', '账户与安全')}</b>
+        <b>{tabLabel}</b>
       </div>
 
       <div className="page-head">
@@ -191,22 +200,6 @@ export function SettingsPage({
           {diagOutput}
         </div>
       )}
-
-      <div style={{ borderBottom: '1px solid var(--line)', marginBottom: 16 }}>
-        <div className="tabs">
-          {([
-            ['account', t('Account & RBAC', '当前账户与角色')],
-            ...(canManage ? ([['providers', t('Provider API Keys', '第三方采集密钥')]] as const) : []),
-            ['members', t('Members & Invites', '成员与权限')],
-            ['keys', t('Machine API Keys', '机器 API 密钥')],
-            ['brand', t('Brand Mark & Skin', '品牌标识与皮肤')],
-          ] as const).map(([v, l]) => (
-            <button key={v} type="button" aria-selected={tab === v} onClick={() => setTab(v)}>
-              {l}
-            </button>
-          ))}
-        </div>
-      </div>
 
       {tab === 'account' && (
         <div className="ds-grid">
@@ -302,8 +295,6 @@ export function SettingsPage({
           </div>
         </div>
       )}
-
-      {tab === 'providers' && <ProviderCredentialsTab canManage={canManage} />}
 
       {tab === 'members' && (
         <div className="ds-grid">
@@ -483,17 +474,17 @@ export function SettingsPage({
                     <div className="wb-field">
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                         <label style={{ margin: 0 }}>{t('Scopes', '授权作用域')}</label>
-                        <button
-                          type="button"
-                          className="ds-btn ds-btn--quiet"
-                          style={{ height: 22, fontSize: 10, padding: '0 8px' }}
-                          onClick={() => {
-                            setLabel((prev) => prev || 'r4-open-corpus-pusher');
-                            setScopes(['ingest', 'read']);
-                          }}
-                        >
-                          {t('Preset: R4 Archive Push (ingest + read)', '一键预设: R4 归档推流 (ingest + read)')}
-                        </button>
+                        {requestedArchiveSource && (
+                          <button type="button" className="ds-btn ds-btn--quiet" disabled={!archiveSource}
+                            onClick={() => {
+                              if (!archiveSource) return;
+                              setLabel('r4-open-corpus-pusher');
+                              setScopes(['ingest']);
+                              setAllowedSourceIds([archiveSource.id]);
+                            }}>
+                            {t('Use archive source preset', '应用归档来源预设')}
+                          </button>
+                        )}
                       </div>
                       <div className="pill-select">
                         {ALL_SCOPES.map((sc) => (
@@ -524,6 +515,8 @@ export function SettingsPage({
                         ))}
                       </div>
                     </div>
+                    {requestedArchiveSource && !archiveSource && !sourcesQuery.isPending &&
+                      <p className="muted">{t('The requested archive source is unavailable or inactive.', '指定的归档来源不可用或未启用。')}</p>}
                     {keyErr && <div className="wb-alert wb-alert--error">{keyErr}</div>}
                     <div>
                       <button type="submit" className="ds-btn" disabled={createKeyMut.isPending}>

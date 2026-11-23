@@ -57,3 +57,6 @@ export {
   type ContentScopeResolver,
 } from "./search";
 export { commitContentBatch, prepareContentBatch } from "./sql";
+
+export { countSourceSamples, isWebArticlePullSource } from "./queries";
+export type { BatchMembership } from "./search";

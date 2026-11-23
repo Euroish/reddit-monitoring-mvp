@@ -9,9 +9,10 @@
 | 领域概念 | 核心标识与不可变约束 |
 | :--- | :--- |
 | **`Platform` / `Provider`** | 平台 `reddit` \| `x` \| `bluesky` \| `web`；渠道 `feed` \| `newsnow` \| `kaix` \| `red_crawler` \| `twitterapis` \| `scrapebadger` \| `bluesky_appview` \| `external_ingest`。 |
-| **`CollectionSource`** | 唯一键 `(platform_id, primary_provider, content_kind, target)`；创建后 `deliveryMode`（`pull` \| `push`）不可变；V2 新增 `feed_lane`（`discussion` \| `release` \| `monitor_only` \| `news`）与 `quality_grade`。 |
+| **`CollectionSource`** | 唯一键 `(platform_id, primary_provider, content_kind, target)`；创建后 `deliveryMode`（`pull` \| `push`）不可变；V2 新增 `feed_lane`（`discussion` \| `release` \| `monitor_only` \| `news`）与 `quality_grade`。`usageDomain`（`research` / `feed`）区分采集管理工作区，`feedLane` 控制推荐分发，两者独立，旧客户端省略 V2 字段的 PATCH 保留原值。 |
 | **`Content`** | 业务身份 `(source_id, kind, external_id)`（外部 ID 统一字符串，X 主帖与回复同属 `post`）。版本决胜三元组 `(content_observed_at IS NOT NULL, COALESCE(content_observed_at, content_version_fetched_at), content_evidence_key COLLATE "C")`；同键同版本内容冲突抛 `409`；`deleted`/`removed` 清空正文且禁止落后版本复活。对外 `textState`（`full` \| `summary` \| `missing`）由正文与 `platform_details.textCompleteness` 派生。 |
 | **`Observation`** | 时序快照按 `(content_id, collection_source_id, provider, evidence_key)` 唯一存储；同 `payload_hash` 重放静默忽略（`updated=0`），同键异值返 `409`；`newsnow` 仅在携带 `web.rank` 或其他指标时使用 UTC 1 小时快照桶生成 `evidenceKey`。 |
+| **批次与项目** | `collection_batch` / `collection_batch_item` 属于采集域，`monitor_project_batch` 属于项目域。批次型项目只读启用且授权的批次，Viewer 仅可见共享或本人批次，内容查询在同一 discovery 上求批次来源与来源过滤的交集。 |
 | **三轴时间** | `publishedAt`、`sourceObservedAt`、`fetchedAt` 彻底分离，未知原始时间保持 `null`。 |
 
 ---
@@ -31,7 +32,8 @@
 
 1. **采集与付费熔断**：`POST /v1/sources/:id/collect` 强校验 `Idempotency-Key`（同源同键同体复用 `job`，异体返 `409`）；`POST /v1/sources/:id/ingest` 接收 `1..100` 条且解压体 `<= 1 MiB`（首次 `201`、重放同载体 `200`、异体 `409`）。仅当首次付费请求明确失败/429 且无已计费 Run 时允许单跳切备（`twitterapis -> scrapebadger`、`kaix -> red_crawler`）；`unknown` 状态立即阻断来源，须显式 `acknowledgePotentialCharge: true` 解封。
 2. **检索、分面与讨论树**：`compileContentFilter` 统一在权限交集内编译三段词、双字词 GIN、`sourceGroup`/`tier`/`language`/`hasMedia`/`signal` 与 `[from, to)`；列表使用 Keyset 游标（范围或项目 `revision` 变化返 `409 cursor_scope_changed`）；`/v1/content/facets` 强校验正区间 `<= 90` 天；`/v1/content/:id/thread?view=top|matches|op` 递归上限 32 跳、返回上限 200 节点，断链标 `contextMissing = true`。
-3. **流式导出**：`GET /v1/content/export?format=csv|json` 默认 1 万、上限 5 万行，`REPEATABLE READ READ ONLY` + 全局单槽锁（冲突 `429 + Retry-After: 5`）；JSON 结尾输出 `{ complete: true }`，CSV 中和 `=+-@` 公式注入。
+3. **研究采集预检**：`POST /v1/research/collection-plans/preview` 返回 `restrictions`、字段权限、可见存量与预算估算。提交与执行分别重验项目权限、套餐、配额及供应商预算。`GET /v1/batches?forProjectId=` 仅返回有项目写权限、授权、非空且尚未关联的研究批次。
+4. **流式导出**：`GET /v1/content/export?format=csv|json` 默认 1 万、上限 5 万行，`REPEATABLE READ READ ONLY` + 全局单槽锁（冲突 `429 + Retry-After: 5`）；JSON 结尾输出 `{ complete: true }`，CSV 中和 `=+-@` 公式注入。
 
 ---
 
@@ -52,18 +54,18 @@
 
 ---
 
-## 5. 已注册全量 HTTP 路由清册（`check:openapi` 实测：`115` 路径 / `131` 操作）
+## 5. 已注册全量 HTTP 路由清册（`check:openapi` 实测：`122` 路径 / `140` 操作）
 
 | 资源域（路径 / 操作） | 已注册路由端点 |
 | :--- | :--- |
 | **System (4 / 4)** | `GET /healthz`、`GET /readyz`、`GET /v1/capabilities`、`GET /v1/openapi.json` |
 | **Access (24 / 26)** | `GET /v1/auth/session`、`POST /v1/auth/{login,register,logout,logout-all}`、`GET /v1/auth/sessions`、`DELETE /v1/auth/sessions/:id`、`POST /v1/auth/password/change`、`POST /v1/auth/email/{register,reset,verify}/{start,finish}`、`POST /v1/auth/mfa/{complete,recovery-codes,step-up}`、`GET/POST /v1/access/keys`、`DELETE /v1/access/keys/:id`、`GET/POST /v1/access/invites`、`DELETE /v1/access/invites/:id`、`GET /v1/access/users`、`PATCH /v1/access/users/:id`、`GET /v1/access/audit` |
-| **Collection & Quotas (24 / 27)** | `GET /v1/public/sources`、`GET/POST /v1/sources`、`PATCH/DELETE /v1/sources/:id`、`POST /v1/sources/{preview,import}`、`POST /v1/sources/:id/{collect,ingest,refresh,unblock}`、`GET /v1/sources/:id/jobs`、`GET /v1/sources/budgets`、`PUT /v1/sources/budgets/:provider`、`GET /v1/sources/credentials`、`PUT/DELETE /v1/sources/credentials/:provider`、`POST /v1/sources/credentials/:provider/test`、`GET /v1/source-jobs`、`GET /v1/source-jobs/recent`、`GET /v1/source-jobs/:id`、`POST /v1/source-jobs/:id/{cancel,retry,continue}`、`GET /v1/quotas/summary`、`PUT /v1/quotas/plans/:tier`、`PUT /v1/quotas/users/:id` |
+| **Collection & Quotas (27 / 30)** | `GET /v1/public/sources`、`GET/POST /v1/sources`、`PATCH/DELETE /v1/sources/:id`、`POST /v1/sources/{preview,import}`、`POST /v1/sources/:id/{collect,ingest,refresh,unblock}`、`GET /v1/sources/:id/jobs`、`GET /v1/sources/budgets`、`PUT /v1/sources/budgets/:provider`、`GET /v1/sources/credentials`、`PUT/DELETE /v1/sources/credentials/:provider`、`POST /v1/sources/credentials/:provider/test`、`GET /v1/source-jobs`、`GET /v1/source-jobs/recent`、`GET /v1/source-jobs/:id`、`POST /v1/source-jobs/:id/{cancel,retry,continue}`、`GET /v1/quotas/summary`、`PUT /v1/quotas/plans/:tier`、`PUT /v1/quotas/users/:id`、`GET /v1/batches`、`PATCH /v1/batches/:id/visibility`、`POST /v1/research/collection-plans/preview` |
 | **Content (8 / 8)** | `GET /v1/content`、`GET /v1/content/{feed,facets,stories,export}`、`GET /v1/projects/:id/content`、`GET /v1/content/:id`、`GET /v1/content/:id/thread` |
 | **Feed [V2] (5 / 6)** | `GET /v1/feed/{stream,hot}`、`POST /v1/feed/events`、`GET/PATCH /v1/feed/preferences`、`POST /v1/feed/preferences/reset` |
 | **Intelligence [V2] (10 / 13)** | `GET/POST /v1/intelligence/monitors`、`GET/PATCH/DELETE /v1/intelligence/monitors/:id`、`POST /v1/intelligence/monitors/:id/{estimate,collect}`、`GET /v1/intelligence/monitors/:id/{overview,posts}`、`GET /v1/intelligence/authors`、`GET /v1/intelligence/authors/:platform/:handle`、`GET /v1/intelligence/communities`、`GET /v1/intelligence/communities/:subreddit` |
-| **Projects (4 / 7)** | `GET/POST /v1/projects`、`GET/PATCH/DELETE /v1/projects/:id`、`GET /v1/projects/:id/overview`、`POST /v1/projects/:id/hydrate` |
+| **Projects (6 / 10)** | `GET/POST /v1/projects`、`GET/PATCH/DELETE /v1/projects/:id`、`GET /v1/projects/:id/overview`、`POST /v1/projects/:id/hydrate`、`GET/POST /v1/projects/:id/batches`、`PATCH /v1/projects/:id/batches/:batchId` |
 | **Docs (4 / 6)** | `GET/POST /v1/docs`、`GET /v1/docs/:slug`、`GET /v1/docs/:slug/file`、`PATCH/DELETE /v1/docs/:id` |
 | **Workspace (4 / 6)** | `GET/POST /v1/workspace/queries`、`DELETE /v1/workspace/queries/:id`、`GET /v1/workspace/annotations`、`GET/PUT /v1/workspace/annotations/:id` |
 | **AI Catalog Public (8 / 8)** | `GET /v1/ai/{vendors,models,events,updates,rankings}`、`GET /v1/ai/{models,events,rankings}/:id` |
-| **AI Admin (20 / 20)** | `GET /v1/admin/ai/{queue,sources,sync-runs,history/status,rankings}`、`GET /v1/admin/ai/ops/{summary,audit}`、`PATCH /v1/admin/ai/candidates/:id`、`POST /v1/admin/ai/candidates/bulk-dismiss`、`POST /v1/admin/ai/candidates/:id/{publish,reject}`、`PATCH /v1/admin/ai/events/:id`、`POST /v1/admin/ai/events/:id/{unpublish,rollback}`、`POST /v1/admin/ai/{models,aliases,discovery/run}`、`POST /v1/admin/ai/sources/:code/sync`、`PATCH /v1/admin/ai/vendors/:id/autopublish`、`POST /v1/admin/ai/alerts/:id/resolve` |
+| **AI Admin (22 / 23)** | `GET /v1/admin/ai/{queue,sources,sync-runs,history/status,rankings}`、`GET /v1/admin/ai/ops/{summary,audit}`、`PATCH /v1/admin/ai/candidates/:id`、`POST /v1/admin/ai/candidates/bulk-dismiss`、`POST /v1/admin/ai/candidates/:id/{publish,reject}`、`PATCH /v1/admin/ai/events/:id`、`POST /v1/admin/ai/events/:id/{unpublish,rollback}`、`POST /v1/admin/ai/{models,aliases,discovery/run}`、`POST /v1/admin/ai/sources/:code/sync`、`PATCH /v1/admin/ai/vendors/:id/autopublish`、`POST /v1/admin/ai/alerts/:id/resolve`、`GET/PUT /v1/admin/ai/vendor-sources`、`DELETE /v1/admin/ai/vendor-sources/:sourceId/:vendorId` |

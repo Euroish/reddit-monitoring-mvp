@@ -2,22 +2,24 @@ import type { Pool } from "pg";
 import { Type } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
-import { IdempotencyHeaders, ParamsId, strictMerge } from "../../../packages/contracts/src/common";
+import { Id, IdempotencyHeaders, ParamsId, strictMerge } from "../../../packages/contracts/src/common";
 import { Hydrate } from "../../../packages/contracts/src/collection";
-import { ProjectInput } from "../../../packages/contracts/src/projects";
+import { ProjectBatchAttachInput, ProjectBatchStatusInput, ProjectInput } from "../../../packages/contracts/src/projects";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { notifyChannel } from "../../platform/pg-notify";
 import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
-import { enqueueHydrationForScope } from "../collection/index";
-import { deleteProject, listProjects, projectOverview, projectSources, writeProject } from "./sql";
+import { enqueueHydrationForScope, loadAuthorizedBatches } from "../collection/index";
+import { deleteProject, listProjectBatchIds, listProjects, projectOverview, projectSources, resolveProjectScope, writeProject } from "./sql";
+
+import { attachBatchToProject, listProjectBatches, updateProjectBatchStatus } from "./batches";
 
 const Revision = Type.Object({ revision: Type.Integer({ minimum: 1 }) }, { additionalProperties: false });
 
 export async function projectRoutes(app: FastifyInstance, pool: Pool, providers: ContentProvider[]) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   const readAuth = { auth: { access: "authenticated" as const, machineScope: "read" as const } };
-  const writeAuth = { auth: { access: "admin" as const, machineScope: "projects:write" as const } };
+  const writeAuth = { auth: { access: "viewer_write" as const, machineScope: "projects:write" as const } };
 
   api.get(
     "/v1/projects",
@@ -56,11 +58,16 @@ export async function projectRoutes(app: FastifyInstance, pool: Pool, providers:
       }
       const outcome = await transaction(pool, async (client) => {
         await client.query("SELECT id FROM monitor_project WHERE id=$1 FOR UPDATE", [request.params.id]);
-        const project = await projectSources(client, request.actor!, request.params.id);
+        const actor = request.actor!;
+        const project = await resolveProjectScope(client, actor, request.params.id);
+        const sourceIds = 'batchMembership' in project
+          ? [...new Set((await loadAuthorizedBatches(client, actor, await listProjectBatchIds(client, actor, project.id))).map(batch => batch.sourceId))]
+          : project.source_ids;
         return enqueueHydrationForScope(
           client,
           request.actor!,
-          { projectId: project.id, sourceIds: project.source_ids, filter: project.filter },
+          { projectId: project.id, sourceIds, filter: project.filter,
+            batchMembership: "batchMembership" in project ? project.batchMembership : undefined },
           request.headers["idempotency-key"],
           request.body,
         );
@@ -73,5 +80,25 @@ export async function projectRoutes(app: FastifyInstance, pool: Pool, providers:
     "/v1/projects/:id/overview",
     { config: readAuth, schema: { params: ParamsId } },
     (request) => projectOverview(pool, request.actor!, request.params.id),
+  );
+  api.get("/v1/projects/:id/batches", { config: { auth: { access: "authenticated", browserOnly: true } }, schema: { params: ParamsId } }, async (request) => ({
+    batches: await listProjectBatches(pool, request.actor!, request.params.id),
+  }));
+  api.post(
+    "/v1/projects/:id/batches",
+    { config: { auth: { access: "viewer_write", browserOnly: true } }, schema: { params: ParamsId, body: ProjectBatchAttachInput } },
+    (request) => attachBatchToProject(pool, request.actor!, request.params.id, request.body.batchId),
+  );
+  api.patch(
+    "/v1/projects/:id/batches/:batchId",
+    {
+      config: { auth: { access: "viewer_write", browserOnly: true } },
+      schema: {
+        params: Type.Object({ id: Id, batchId: Id }),
+        body: ProjectBatchStatusInput,
+      },
+    },
+    (request) =>
+      updateProjectBatchStatus(pool, request.actor!, request.params.id, request.params.batchId, request.body.status),
   );
 }

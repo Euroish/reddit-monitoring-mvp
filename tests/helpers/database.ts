@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { runMigrations } from "../../src/storage/schema/run-migrations";
 
-export async function testDatabase() {
+export async function testDatabase(schemaDir?: string) {
   if (!process.env.TEST_SOURCE_DATABASE_URL)
     throw new Error(
       "TEST_SOURCE_DATABASE_URL is required; use an isolated loopback source_validation_* PG16 database",
@@ -35,7 +35,7 @@ export async function testDatabase() {
     options: "-c timezone=UTC",
   });
   try {
-    await runMigrations({ pool });
+    await runMigrations({ pool, schemaDir });
   } catch (error) {
     await pool.end();
     await admin.query(`DROP DATABASE "${database}"`);

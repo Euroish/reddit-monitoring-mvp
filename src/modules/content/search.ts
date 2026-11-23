@@ -4,6 +4,10 @@ import type { Actor } from "../../../packages/contracts/src/access";
 import type { Filter } from "../../../packages/contracts/src/content";
 import { fail } from "../../shared/errors";
 
+export interface BatchMembership {
+  contains: (bind: (value: unknown) => string, column: "c.id" | "d.content_id") => string;
+}
+
 export interface ContentScope {
   id: string;
   revision: number;
@@ -11,6 +15,7 @@ export interface ContentScope {
   filter: Filter;
   thread_aware: boolean;
   include_push_in_trends: boolean;
+  batchMembership?: BatchMembership;
 }
 
 export type ContentScopeResolver = (
@@ -133,6 +138,7 @@ export function compileContentFilter(
   projectSourceIds?: readonly string[],
   projectFilter: Filter = {},
   pullOnly = false,
+  batchMembership?: BatchMembership,
 ) {
   const values: unknown[] = [];
   const bind = (value: unknown) => {
@@ -146,6 +152,7 @@ export function compileContentFilter(
   if (projectSourceIds) {
     discovery.push(`d.collection_source_id=ANY(${bind(projectSourceIds)}::uuid[])`);
   }
+  if (batchMembership) discovery.push(batchMembership.contains(bind, "d.content_id"));
   if (pullOnly) discovery.push("cs.delivery_mode='pull'");
   for (const scope of [projectFilter, requestFilter]) {
     if (scope.deliveryMode) discovery.push(`cs.delivery_mode=${bind(scope.deliveryMode)}`);

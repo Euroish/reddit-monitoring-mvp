@@ -8,8 +8,11 @@ import {
   AiModelsQuery,
   AiPublishCandidateBody,
   AiUpdatesQuery,
+  AiVendorSourceBinding,
 } from "../../../packages/contracts/src/ai-catalog";
 import { ParamsId } from "../../../packages/contracts/src/common";
+import { transaction } from "../../storage/db";
+import { isWebArticlePullSource } from "../content/index";
 import { fail } from "../../shared/errors";
 import {
   getAiEventDetail,
@@ -112,7 +115,7 @@ const SyncBody = Type.Object({
   dryRun: Type.Optional(Type.Boolean()),
 }, { additionalProperties: false });
 
-export async function aiRoutes(app: FastifyInstance, pool: Pool) {
+export async function aiRoutes(app: FastifyInstance, pool: Pool, readWorkerHealth?: import("./ai-discovery").ReadWorkerHealth) {
   const typed = app.withTypeProvider<TypeBoxTypeProvider>();
 
   // ── 8 explicit public read routes ──────────────────────────────────────────
@@ -284,6 +287,43 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
     return { items: res.rows };
   });
 
+  typed.get("/v1/admin/ai/vendor-sources", { config: { auth: { access: "admin" } } }, async () => {
+    const { rows } = await pool.query(
+      'SELECT source_id AS "sourceId", vendor_id AS "vendorId", source_role AS "sourceRole", is_official AS "isOfficial" ' +
+      'FROM ai_vendor_source ORDER BY source_id, vendor_id',
+    );
+    return { items: rows };
+  });
+
+  typed.put("/v1/admin/ai/vendor-sources", {
+    config: { auth: { access: "admin_mfa" } },
+    schema: { body: AiVendorSourceBinding },
+  }, async (req) => {
+    const { sourceId, vendorId, sourceRole, isOfficial } = req.body;
+    return transaction(pool, async (client) => {
+      if (!(await isWebArticlePullSource(client, sourceId))) fail(422, "An existing Web article pull source is required");
+      const vendor = await client.query("SELECT id FROM ai_vendor WHERE id=$1 FOR KEY SHARE", [vendorId]);
+      if (!vendor.rowCount) fail(404, "AI vendor not found");
+      const other = await client.query("SELECT 1 FROM ai_vendor_source WHERE source_id=$1 AND vendor_id<>$2", [sourceId, vendorId]);
+      if (other.rowCount) fail(409, "Remove the current vendor binding before choosing a different vendor");
+      await client.query(
+        "INSERT INTO ai_vendor_source(source_id,vendor_id,source_role,is_official) VALUES($1,$2,$3,$4) " +
+        "ON CONFLICT(source_id,vendor_id) DO UPDATE SET source_role=EXCLUDED.source_role,is_official=EXCLUDED.is_official",
+        [sourceId, vendorId, sourceRole, isOfficial],
+      );
+      return req.body;
+    });
+  });
+
+  typed.delete("/v1/admin/ai/vendor-sources/:sourceId/:vendorId", {
+    config: { auth: { access: "admin_mfa" } },
+    schema: { params: Type.Pick(AiVendorSourceBinding, ["sourceId", "vendorId"]) },
+  }, async (req) => {
+    const { sourceId, vendorId } = req.params;
+    await pool.query("DELETE FROM ai_vendor_source WHERE source_id=$1 AND vendor_id=$2", [sourceId, vendorId]);
+    return { removed: true };
+  });
+
   typed.post("/v1/admin/ai/sources/:code/sync", {config: { auth: { access: "admin_mfa" } }, schema: { params: ParamsSourceCode, body: SyncBody } },
     async (req) => {
       return syncRegistrySourceByCode(pool, req.params.code, {
@@ -309,7 +349,7 @@ export async function aiRoutes(app: FastifyInstance, pool: Pool) {
   typed.get("/v1/admin/ai/ops/summary", { config: { auth: { access: "admin" } } }, async (req) => {
     const q = req.query as { days?: string };
     const days = q?.days ? Number(q.days) || 7 : 7;
-    return getAiOpsSummary(pool, days);
+    return getAiOpsSummary(pool, days, readWorkerHealth);
   });
 
   typed.get("/v1/admin/ai/ops/audit", { config: { auth: { access: "admin" } } }, async () => {

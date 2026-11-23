@@ -92,7 +92,7 @@ export async function exportRoutes(
         const project = projectId
           ? await (resolveProjectScope ?? (() => fail(500, "Project scope resolver is unavailable")))(client, request.actor!, projectId)
           : undefined;
-        const compiled = compileContentFilter(request.actor!, filter, project?.source_ids, project?.filter);
+        const compiled = compileContentFilter(request.actor!, filter, project?.batchMembership ? undefined : project?.source_ids, project?.filter, false, project?.batchMembership);
         const match = matchedAnchors(compiled, filter.threadAware ?? project?.thread_aware ?? false);
         signature = filterSignature(request.actor!, filter, project && { id: project.id, revision: project.revision });
         compiled.values.push(maxRows + 1);

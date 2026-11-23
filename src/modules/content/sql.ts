@@ -197,7 +197,7 @@ export async function commitContentBatch(
     )
       fail(422, "Page/source identity mismatch");
   }
-  if (!batch.nodes.length) return { added: 0, updated: 0 };
+  if (!batch.nodes.length) return { added: 0, updated: 0, contentIds: [] as string[] };
   const values = batch.nodes.map(({ item, firstFetchedAt, lastFetchedAt }) =>
     JSON.stringify({
       ...item,
@@ -307,7 +307,11 @@ export async function commitContentBatch(
     if (verified.rows[0]?.ok !== observations.length) conflict("Conflicting observation evidence key");
   }
   const added = result.rows.filter((row) => row.inserted).length;
-  return { added, updated: result.rows.filter((row) => !row.inserted && row.changed).length };
+  return {
+    added,
+    updated: result.rows.filter((row) => !row.inserted && row.changed).length,
+    contentIds: [...identities.values()],
+  };
 }
 
 export function contentFromRow(

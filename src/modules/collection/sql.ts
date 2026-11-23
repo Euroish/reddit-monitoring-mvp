@@ -46,6 +46,7 @@ export function sourceFromRow(row: import("pg").QueryResultRow): CollectionSourc
     lastSuccessAt: row.last_success_at?.toISOString() ?? null,
     automaticCollectionBlocked: row.automatic_collection_blocked,
     coverage: row.coverage,
+    usageDomain: row.usage_domain ?? (row.platform === "web" ? "feed" : "research"),
   };
 }
 
@@ -109,17 +110,18 @@ export async function insertSource(
       `INSERT INTO collection_source(
         id,platform_id,primary_provider,label,target,content_kind,delivery_mode,
         fallback_provider,created_at,updated_at,schedule,next_due_at,tier,
-        owner_entity_id,source_group,tags,locale,fetch_policy,feed_lane,quality_grade
+        owner_entity_id,source_group,tags,locale,fetch_policy,feed_lane,quality_grade,usage_domain
       )
       SELECT $1,id,$2,$3,$4,$5,$6,$8,NOW(),NOW(),$9::jsonb,
         CASE WHEN $9::jsonb @> '{"enabled":true}' THEN now() END,
-        $10,$11,$12,$13,$14,$15::jsonb,$16,$17
+        $10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18
       FROM source WHERE code=$7 RETURNING id`,
       [
         randomUUID(), input.primaryProvider, input.label, target, input.contentKind, input.deliveryMode,
         input.platform, input.fallbackProvider ?? null, input.schedule ?? { enabled: false },
         input.tier ?? "T2", input.ownerEntityId ?? null, input.sourceGroup ?? null, input.tags ?? [],
         input.locale ?? null, input.fetchPolicy ?? {}, input.feedLane ?? "discussion", input.qualityGrade ?? null,
+        input.platform === "web" ? "feed" : "research",
       ],
     )
   ).rows[0];
@@ -157,11 +159,15 @@ export async function removeOrArchiveSource(
      WHERE collection_source_id=$1 AND status IN ('queued','retrying')`,
     [id],
   );
-  const [hasDisc, hasJobs] = await Promise.all([
+  const [hasDisc, { rows: [history] }] = await Promise.all([
     hasSourceDiscoveries(client, id),
-    client.query("SELECT 1 FROM source_collection_job WHERE collection_source_id=$1 LIMIT 1", [id]),
+    client.query<{ exists: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM source_collection_job WHERE collection_source_id=$1)
+           OR EXISTS (SELECT 1 FROM collection_batch WHERE collection_source_id=$1) AS exists`,
+      [id],
+    ),
   ]);
-  if (!hasDisc && !hasJobs.rowCount) {
+  if (!hasDisc && !history.exists) {
     await client.query("DELETE FROM collection_source WHERE id=$1", [id]);
     await audit(client, actor, "source.delete", source.id);
     return { deleted: true, mode: "deleted" };

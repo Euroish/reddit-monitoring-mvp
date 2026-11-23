@@ -44,7 +44,7 @@
 | [README.md](../README.md) | 仓库总入口、核心能力概览与开发启动 |
 | [AGENTS.md](../AGENTS.md) | Agent 与协作者红线约束 |
 | [README.md](README.md)（本文） | 产品支柱、业务边界、2026-11-23 定案与度量诚实性 |
-| [architecture.md](architecture.md) | 4 GB 运行拓扑、9 域 DAG、55 表所有权、检索、L1–L3/R4 隔离与安全底线 |
+| [architecture.md](architecture.md) | 4 GB 运行拓扑、9 域 DAG、58 表所有权、检索、L1–L3/R4 隔离与安全底线 |
 | [invariants.md](invariants.md) | `INV-001`..`INV-010` 核心工程不变量与门禁索引 |
 | [contracts.md](contracts.md) | Domain 对象、认证授权、采集/查询/导出规则与 OpenAPI 115 路由实测清单 |
 | [design.md](design.md) | 现有 UI 基线与 Frontend V2 信息架构/交互视觉规范 |

@@ -68,8 +68,25 @@ jobs:
         run: |
           git diff --diff-filter=A --name-only --no-renames -z "$BASE" HEAD -- 'src/storage/schema/*.sql' > "$RUNNER_TEMP/new-migrations"
           mapfile -d '' -t migrations < "$RUNNER_TEMP/new-migrations"
-          if (( ${#migrations[@]} )); then
-            docker run --rm -v "$PWD:/repo:ro" -w /repo ghcr.io/sbdchd/squawk:2.9.0 "${migrations[@]}"
+          if (( ${#migrations[@]} == 0 )); then
+            exit 0
+          fi
+          lint_dir="$RUNNER_TEMP/migration-lint"
+          mkdir -p "$lint_dir"
+          cp --parents -- "${migrations[@]}" "$lint_dir"
+          regular=()
+          for file in "${migrations[@]}"; do
+            if [[ "$file" == src/storage/schema/059_project_batches_and_ownership.sql ]] &&
+               echo "ca149dda66979d260c2d2091b11d97ffbb88ed19d8366cdab48c0052ba75c893  $file" | sha256sum --check --status; then
+              # The three indexes build on tables created in the same transaction.
+              # This exact already-applied file must retain its checksum.
+              docker run --rm --network none -v "$lint_dir:/repo:ro" -w /repo ghcr.io/sbdchd/squawk:2.9.0 --exclude=require-concurrent-index-creation "$file"
+            else
+              regular+=("$file")
+            fi
+          done
+          if (( ${#regular[@]} )); then
+            docker run --rm --network none -v "$lint_dir:/repo:ro" -w /repo ghcr.io/sbdchd/squawk:2.9.0 "${regular[@]}"
           fi
 
   project:
@@ -154,13 +171,19 @@ jobs:
         run: npx playwright install-deps chromium
       - name: Browser journeys against compiled runtime
         if: fromJSON(needs.policy.outputs.scope).browser
+        env:
+          CAPTURE_SOURCE_OPS: '1'
+          CAPTURE_PROJECT_INTAKE: '1'
         run: npm run test:browser
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: '!cancelled() && fromJSON(needs.policy.outputs.scope).browser'
         with:
           name: core-browser-evidence
           if-no-files-found: ignore
-          path: output/validation/kernel/
+          path: |
+            output/validation/kernel/
+            output/validation/source-operations/
+            output/validation/project-intake/
 
   workflow:
     name: GitHub Actions workflow lint

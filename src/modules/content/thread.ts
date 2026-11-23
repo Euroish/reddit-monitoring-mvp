@@ -13,7 +13,7 @@ export async function readThread(
   const project = projectId
     ? await (resolveProjectScope ?? (() => fail(500, "Project scope resolver is unavailable")))(pool, actor, projectId)
     : undefined;
-  const compiled = compileContentFilter(actor, filter, project?.source_ids, project?.filter);
+  const compiled = compileContentFilter(actor, filter, project?.batchMembership ? undefined : project?.source_ids, project?.filter, false, project?.batchMembership);
   compiled.values.push(id);
   const idParam = `$${compiled.values.length}::uuid`;
   const match = compiled;

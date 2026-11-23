@@ -12,4 +12,8 @@ export { policyRoutes } from "./policy";
 export { refreshRoutes } from "./refresh";
 export { collectionRoutes, collectionRoutes as registerCollectionModule } from "./routes";
 export { allSourcesExist, listSourcesByIds } from "./sql";
-export { startWorker } from "./worker";
+export { readCollectionWorkerHealth, startWorker } from "./worker";
+
+export { batchMembership, loadAuthorizedBatches } from "./batches";
+export { loadEffectivePolicyForUser } from "./policy";
+export { getUserRoleStatus, listStaffOwnerIds } from "../access/index";

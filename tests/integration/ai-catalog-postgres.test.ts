@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { testDatabase } from "../helpers/database";
 import { buildApp } from "../../apps/api/src/app";
+import { webSource } from "../../src/connectors/web/sources";
 import { bootstrapOwner } from "../../src/modules/access/sql";
 import { parseLiteLlmPayload, parseOpenRouterPayload } from "../../src/modules/ai/ai-registry";
 import { applyRegistryItems, syncRegistrySourceByCode } from "../../src/modules/ai/ai-sync";
@@ -31,6 +32,7 @@ test(
 
     const app = await buildApp({
       pool,
+      providers: [webSource("feed", {})],
       sessionSecret: SECRET,
       origin: ORIGIN,
       secureCookies: false,
@@ -164,6 +166,33 @@ test(
         headers: { authorization: `Bearer ${machineToken}` },
       });
       assert.equal(machineQueue.statusCode, 403);
+
+      const source = await app.inject({
+        method: "POST", url: "/v1/sources", headers: { cookie: ownerCookie, origin: ORIGIN },
+        payload: {
+          platform: "web", primaryProvider: "feed", deliveryMode: "pull", contentKind: "article",
+          label: "Official binding", target: { type: "feed", url: "https://www.anthropic.com/news/binding-fixture" },
+        },
+      });
+      assert.equal(source.statusCode, 200, source.body);
+      const sourceId = source.json().source.id;
+      const vendorId = anthropicVendor.id;
+      const binding = { sourceId, vendorId, sourceRole: "changelog", isOfficial: true };
+      const bindingUrl = "/v1/admin/ai/vendor-sources";
+      const ownerHeaders = { cookie: ownerCookie, origin: ORIGIN };
+      assert.equal((await app.inject({ method: "PUT", url: bindingUrl, headers: { cookie: viewerCookie, origin: ORIGIN }, payload: binding })).statusCode, 403);
+      assert.equal((await app.inject({ url: bindingUrl, headers: { authorization: "Bearer " + machineToken } })).statusCode, 403);
+      const saved = await app.inject({ method: "PUT", url: bindingUrl, headers: ownerHeaders, payload: binding });
+      assert.equal(saved.statusCode, 200, saved.body);
+      assert.ok((await app.inject({ url: bindingUrl, headers: ownerHeaders })).json().items.some(
+        (item: { sourceId: string; vendorId: string; sourceRole: string }) =>
+          item.sourceId === sourceId && item.vendorId === vendorId && item.sourceRole === "changelog",
+      ));
+      const conflicting = vendorsBody.items.find(vendor => vendor.slug === "openai")!;
+      assert.equal((await app.inject({ method: "PUT", url: bindingUrl, headers: ownerHeaders,
+        payload: { ...binding, vendorId: conflicting.id } })).statusCode, 409);
+      assert.equal((await app.inject({ method: "DELETE", url: bindingUrl + "/" + sourceId + "/" + vendorId, headers: ownerHeaders })).statusCode, 200);
+      assert.equal((await pool.query("SELECT 1 FROM ai_vendor_source WHERE source_id=$1", [sourceId])).rowCount, 0);
 
       // 4. Owner lists queue, tests 409 revision conflict, publishes candidate -> visible publicly -> unpublishes
       const queueRes = await app.inject({
