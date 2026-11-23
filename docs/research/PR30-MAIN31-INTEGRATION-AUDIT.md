@@ -74,3 +74,14 @@ PR30 基线 8221dd2，主干 4b05369，共同基线 8626ce7。合并预览识别
 | `tests/integration/kernel-postgres.test.ts` | M | — | 保留并验证 |
 | `tests/integration/project-batches-postgres.test.ts` | A | — | 保留并验证 |
 | `tests/unit/web-contracts-and-labels.test.ts` | M | — | 保留并验证 |
+
+
+
+## 后端兼容与迁移结果
+
+- API 装配层注入项目可编辑校验、批次关系处理和 Worker 健康度读取。PR31 的单向依赖、声明式鉴权、分域共享契约、PG LISTEN/NOTIFY 和表级所有权检查均保留。
+- 批次清单与可见性由 collection 验证，项目关系由 projects 持有。内容过滤接收 collection 构建的参数化批次见证，并在同一 discovery 来源范围内求交。Viewer 的项目统计和批次清单共享授权口径，机器访问受 scope 和来源范围约束。
+- 已应用迁移 `059` 和 `060` 保留原始字节。059 的 SHA-256 为 `ca149dda66979d260c2d2091b11d97ffbb88ed19d8366cdab48c0052ba75c893`，060 为 `3ebc21d5e74029b4eb963dc4eece265311ced206a3f15112d0ece97964bdc44c`。本机既有 060 台账的对应记录已只读核对。
+- 059 的三个普通索引位于同一事务新建的空表上。从其已应用的哈希限定单条 Squawk 例外可维护可重放性。工作流仅把待验证的 SQL 文件交给 Squawk。新旧迁移的 Atomic rollback、058 到 060 及幂等重跑由隔离 PG16 验证。
+
+[业务矩阵](FRONTEND-BACKEND-BUSINESS-MATRIX.md) · [缺陷记录](BASELINE-DEFECTS.md) · [验证记录](PR30-VERIFICATION.md)
