@@ -139,6 +139,7 @@ test("PG16 upgrades main 060 to V2 without changing historical checksums or batc
   const before = (await db.pool.query("SELECT filename,checksum FROM schema_migration ORDER BY filename")).rows;
   assert.match(before.at(-1).filename, /^060_/);
   const sourceId = randomUUID(), batchId = randomUUID(), projectId = randomUUID();
+  const mediaId = randomUUID(), officialId = randomUUID();
   await db.pool.query(
     `INSERT INTO collection_source(id,platform_id,primary_provider,label,target,content_kind,delivery_mode,created_at,updated_at)
      SELECT $1,id,'external_ingest','Existing research','{"type":"search","query":"retained"}','post','push',now(),now()
@@ -147,6 +148,18 @@ test("PG16 upgrades main 060 to V2 without changing historical checksums or batc
   await db.pool.query("INSERT INTO collection_batch(id,collection_source_id,label,visibility) VALUES($1,$2,'Existing batch','shared')", [batchId, sourceId]);
   await db.pool.query("INSERT INTO monitor_project(id,name,dataset_mode) VALUES($1,'Existing project','batch')", [projectId]);
   await db.pool.query("INSERT INTO monitor_project_batch(project_id,batch_id) VALUES($1,$2)", [projectId, batchId]);
+  await db.pool.query(
+    `INSERT INTO collection_source(id,platform_id,primary_provider,label,target,content_kind,delivery_mode,
+       source_group,schedule,next_due_at,created_at,updated_at)
+     SELECT fixture.id, s.id, 'feed', fixture.label, jsonb_build_object('type','rss','url',fixture.url),
+       'article','pull',fixture.source_group,'{"enabled":true,"cadenceSeconds":3600}',now(),now(),now()
+     FROM source s CROSS JOIN (VALUES
+       ($1::uuid,'Media fixture','https://example.com/legacy-media.xml','tech-media'),
+       ($2::uuid,'V2EX-named official fixture','https://example.com/official.xml','ai-firsthand')
+     ) AS fixture(id,label,url,source_group) WHERE s.code='web'`, [mediaId, officialId],
+  );
+  await db.pool.query("INSERT INTO ai_vendor_source(vendor_id,source_id) SELECT id,$1 FROM ai_vendor WHERE slug='openai'", [officialId]);
+  await db.pool.query("UPDATE source_provider_budget SET daily_resources=1000,enabled=false WHERE provider='kaix'");
   const snapshot = async () => (await db.pool.query(
     `SELECT row_to_json(b) AS batch, row_to_json(p) AS project, row_to_json(pb) AS membership
      FROM collection_batch b JOIN monitor_project_batch pb ON pb.batch_id=b.id
@@ -162,5 +175,13 @@ test("PG16 upgrades main 060 to V2 without changing historical checksums or batc
   assert.deepEqual((await db.pool.query("SELECT filename,checksum FROM schema_migration ORDER BY filename")).rows.slice(0, before.length), before);
   assert.equal((await db.pool.query("SELECT feed_lane,usage_domain FROM collection_source WHERE id=$1", [sourceId])).rows[0].usage_domain, "research");
   assert.equal((await db.pool.query("SELECT monitor_managed FROM collection_source WHERE id=$1", [sourceId])).rows[0].monitor_managed, false);
+  const readSource = async (id: string) => (await db.pool.query(
+    `SELECT state,feed_lane,schedule->'enabled' AS scheduled,next_due_at IS NOT NULL AS due
+     FROM collection_source WHERE id=$1`, [id],
+  )).rows[0];
+  assert.deepEqual(await readSource(mediaId), { state: "archived", feed_lane: "news", scheduled: false, due: false });
+  assert.deepEqual(await readSource(officialId), { state: "active", feed_lane: "release", scheduled: true, due: true });
+  assert.deepEqual((await db.pool.query("SELECT enabled,daily_resources FROM source_provider_budget WHERE provider='kaix'")).rows,
+    [{ enabled: false, daily_resources: 10000 }]);
   assert.deepEqual(await runMigrations({ pool: db.pool }), []);
 });
