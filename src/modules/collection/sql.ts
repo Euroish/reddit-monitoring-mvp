@@ -80,14 +80,15 @@ export async function insertSource(
   pool: Pool | PoolClient,
   input: Static<typeof SourceInput>,
   target: SourceTarget,
+  mode: "admin" | "monitor" = "admin",
 ): Promise<CollectionSource> {
-  const archived = (
+  const archived = mode === "admin" ? (
     await pool.query<{ id: string }>(
       `SELECT cs.id FROM collection_source cs JOIN source s ON s.id=cs.platform_id
        WHERE s.code=$1 AND cs.primary_provider=$2 AND cs.content_kind=$3 AND cs.target=$4::jsonb AND cs.state='archived'`,
       [input.platform, input.primaryProvider, input.contentKind, target],
     )
-  ).rows[0];
+  ).rows[0] : undefined;
   if (archived) {
     const schedule = input.schedule ?? { enabled: false };
     await pool.query(

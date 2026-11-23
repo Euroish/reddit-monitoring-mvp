@@ -27,7 +27,7 @@ export async function intelligenceRoutes(app: FastifyInstance, pool: Pool, provi
     { config: readAuth, schema: { querystring: Type.Object({ kind: Type.Optional(MonitorKind) }, { additionalProperties: false }) } },
     async (request) => ({ monitors: await listMonitors(pool, request.actor!, request.query.kind) }));
   api.post("/v1/intelligence/monitors",
-    { config: writeAuth, schema: { body: MonitorCreateBody } },
+    { config: { auth: { access: "admin", browserOnly: true } }, schema: { body: MonitorCreateBody } },
     async (request) => ({ monitor: await createMonitor(pool, request.actor!, providers, request.body) }));
   api.get("/v1/intelligence/monitors/:id",
     { config: readAuth, schema: { params: ParamsId } },

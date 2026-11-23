@@ -36,9 +36,12 @@ const monitorAccess = `($2::uuid IS NULL OR m.owner_user_id=$2)
     WHERE ms.monitor_id=m.id AND NOT (ms.collection_source_id=ANY($3))
   ))`;
 
+function isStaffBrowser(actor: Actor) {
+  return actor.clientKind === "browser" && (actor.role === "owner" || actor.role === "admin");
+}
+
 function monitorAccessParameters(actor: Actor) {
-  const staffBrowser = actor.clientKind === "browser" && (actor.role === "owner" || actor.role === "admin");
-  return [staffBrowser ? null : actor.userId, actor.allowedSourceIds] as const;
+  return [isStaffBrowser(actor) ? null : actor.userId, actor.allowedSourceIds] as const;
 }
 
 async function selectMonitor(db: Pool | PoolClient, actor: Actor, id: string, lock = false) {
@@ -157,6 +160,10 @@ export async function updateMonitor(
   await transaction(pool, async (client) => {
     const row = await selectMonitor(client, actor, id, true);
     if (row.revision !== patch.revision) fail(409, "Monitor changed; reload before saving");
+    const reconfigure = patch.config !== undefined || patch.scheduleIntervalHours !== undefined;
+    if ((reconfigure || (patch.enabled && !row.enabled)) && !isStaffBrowser(actor)) {
+      fail(403, "An administrator browser session is required to configure or enable monitoring");
+    }
 
     const nextName = patch.name?.trim() ?? row.name;
     const nextConfig = patch.config ?? row.config;
@@ -170,7 +177,7 @@ export async function updateMonitor(
        WHERE id=$1`,
       [id, nextName, nextConfig, nextInterval, nextBudget, nextEnabled],
     );
-    if (patch.config || patch.scheduleIntervalHours !== undefined) {
+    if (reconfigure) {
       await provisionMonitorSources(client, providers, id, row.kind, nextConfig, nextInterval);
       if (actor.allowedSourceIds !== null) await selectMonitor(client, actor, id);
     }

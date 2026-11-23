@@ -8,7 +8,7 @@ import { fail } from "../../shared/errors";
 import { canonical } from "../content/index";
 import { collectionRequestRestriction, isCollectionBudgetDisabled, validateSource } from "./config";
 import { admitViewerCollection, viewerCollectionDemand } from "./policy";
-import { insertSource, lockSource, sourceFromRow, sourceSelect } from "./sql";
+import { insertSource, lockSource, sourceFromRow } from "./sql";
 
 export async function ensureManagedSource(
   client: PoolClient,
@@ -27,20 +27,12 @@ export async function ensureManagedSource(
     )
   ).rows[0];
   if (existing) {
-    if (existing.state !== "active") {
-      await client.query(
-        `UPDATE collection_source
-         SET state='active',schedule=COALESCE($2::jsonb,schedule),
-             next_due_at=CASE WHEN COALESCE($2::jsonb,schedule) @> '{"enabled":true}' THEN COALESCE(next_due_at,now()) END,
-             revision=revision+1,updated_at=NOW()
-         WHERE id=$1`,
-        [existing.id, input.schedule ?? null],
-      );
-      return sourceFromRow((await client.query(`${sourceSelect} WHERE cs.id=$1`, [existing.id])).rows[0]);
+    if (existing.state !== "active" || existing.delivery_mode !== "pull") {
+      fail(409, "Matching source is unavailable; review its state and delivery mode in source management");
     }
     return sourceFromRow(existing);
   }
-  return insertSource(client, input, target);
+  return insertSource(client, input, target, "monitor");
 }
 
 function collectionProvider(source: QueryResultRow, body: Static<typeof Collect>, providers: ContentProvider[]) {

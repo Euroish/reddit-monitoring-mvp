@@ -151,4 +151,29 @@ test("PG16 collection entry parity: constraints, atomic rejection, and relative-
     assert.equal((await db.pool.query("SELECT 1 FROM source_collection_job")).rowCount, 0);
     assert.equal((await db.pool.query("SELECT 1 FROM user_provider_usage")).rowCount, 0);
   });
+
+  await t.test("source provisioning requires a staff browser and respects administrative source state", async () => {
+    const path = "/v1/intelligence/monitors";
+    const config = { platforms: ["reddit"], subreddits: ["paused_example"] };
+    const payload = { kind: "community_bundle", name: "Paused source", config };
+    const create = (headers: typeof owner) => app.inject({ method: "POST", url: path, headers, payload });
+    assert.equal((await create(viewer)).statusCode, 403);
+    const createdStaff = await create(owner);
+    assert.equal(createdStaff.statusCode, 200, createdStaff.body);
+    const pausedSourceId = (await db.pool.query("SELECT collection_source_id FROM intel_monitor_source WHERE monitor_id=$1",
+      [createdStaff.json().monitor.id])).rows[0].collection_source_id;
+    const pause = await app.inject({ method: "PATCH", url: `/v1/sources/${pausedSourceId}`, headers: owner,
+      payload: { revision: 1, state: "paused" } });
+    assert.equal(pause.statusCode, 200, pause.body);
+    assert.equal((await create(owner)).statusCode, 409);
+    assert.equal((await db.pool.query("SELECT state FROM collection_source WHERE id=$1", [pausedSourceId])).rows[0].state, "paused");
+    const ownedMonitor = `${path}/${monitorId}`;
+    assert.equal((await app.inject({ method: "PATCH", url: ownedMonitor, headers: viewer,
+      payload: { revision: 1, config } })).statusCode, 403);
+    const disable = await app.inject({ method: "PATCH", url: ownedMonitor, headers: viewer,
+      payload: { revision: 1, enabled: false } });
+    assert.equal(disable.statusCode, 200, disable.body);
+    assert.equal((await app.inject({ method: "PATCH", url: ownedMonitor, headers: viewer,
+      payload: { revision: 2, enabled: true } })).statusCode, 403);
+  });
 });
