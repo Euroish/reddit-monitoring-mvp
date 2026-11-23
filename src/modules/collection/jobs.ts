@@ -17,6 +17,7 @@ const RecentJobsQuery = Type.Object(
     status: Type.Optional(Type.String({ maxLength: 32 })),
     sourceId: Type.Optional(Type.String({ format: "uuid" })),
     projectId: Type.Optional(Type.String({ format: "uuid" })),
+    jobId: Type.Optional(ParamsId.properties.id),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
     offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 10000 })),
   },
@@ -54,6 +55,7 @@ export async function jobRoutes(app: FastifyInstance, pool: Pool, listProjectBat
          AND ($3::uuid IS NULL OR j.collection_source_id = $3)
          AND ($4 OR (j.requested_by_user_id = $5 AND j.requested_by_client_kind = 'browser'))
          AND ($8::uuid IS NULL OR j.request_json->>'projectId' = $8::text OR cb.id=ANY($9::uuid[]))
+         AND ($10::uuid IS NULL OR j.id = $10)
        ORDER BY j.created_at DESC, j.id DESC
        LIMIT $6 OFFSET $7`,
       [
@@ -66,6 +68,7 @@ export async function jobRoutes(app: FastifyInstance, pool: Pool, listProjectBat
         offset,
         projectId ?? null,
         batchIds,
+        request.query.jobId ?? null,
       ],
     );
     const emails = isAdmin

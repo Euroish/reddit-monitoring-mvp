@@ -579,7 +579,7 @@ export function useRevokeProviderCredentialMutation() {
   });
 }
 
-export function useRecentJobsQuery(params: { status?: string; sourceId?: string; projectId?: string; limit?: number; offset?: number } = {}, enabled = true) {
+export function useRecentJobsQuery(params: { jobId?: string; status?: string; sourceId?: string; projectId?: string; limit?: number; offset?: number } = {}, enabled = true) {
   return useQuery({
     queryKey: ['recentJobs', params],
     queryFn: () => apiClient.getRecentJobs(params),
@@ -588,7 +588,7 @@ export function useRecentJobsQuery(params: { status?: string; sourceId?: string;
   });
 }
 
-export function useBatchesQuery(params: { sourceId?: string; jobId?: string; limit?: number } = {}, enabled = true) {
+export function useBatchesQuery(params: { forProjectId?: string; sourceId?: string; jobId?: string; limit?: number } = {}, enabled = true) {
   return useQuery({
     queryKey: ['batches', params],
     queryFn: () => apiClient.getBatches(params),

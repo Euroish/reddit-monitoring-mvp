@@ -1,4 +1,5 @@
-export type { ResearchPlanPreviewRequest } from '../../../../packages/contracts/src/collection.js';
+import type { ResearchCollectionRestriction } from '../../../../packages/contracts/src/collection.js';
+export type { ResearchPlanPreviewRequest, ResearchCollectionRestriction } from '../../../../packages/contracts/src/collection.js';
 import type { SourceCapability, SourceTarget } from '../../../../packages/contracts/src/source-content.js';
 export type { CollectionSource, SourceCapability, SourceTarget } from '../../../../packages/contracts/src/source-content.js';
 export type {
@@ -377,6 +378,7 @@ export interface ResearchPlanPreviewResponse {
   }>;
   estimate: { requests: number; systemResources: number; personalResources: number };
   blockers: string[];
+  restrictions?: ResearchCollectionRestriction[];
   fieldPolicy: {
     canEditTarget: boolean;
     canChooseProvider: boolean;

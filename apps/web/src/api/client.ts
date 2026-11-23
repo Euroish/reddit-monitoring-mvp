@@ -563,6 +563,7 @@ export const apiClient = {
   },
 
   async getRecentJobs(params: {
+    jobId?: string;
     status?: string;
     sourceId?: string;
     projectId?: string;
@@ -574,6 +575,7 @@ export const apiClient = {
   },
 
   async getBatches(params: {
+    forProjectId?: string;
     sourceId?: string;
     jobId?: string;
     limit?: number;

@@ -289,6 +289,11 @@ export const ResearchPlanPreviewInput = Type.Object(
 
 export type ResearchPlanPreviewRequest = Static<typeof ResearchPlanPreviewInput>;
 
+export type ResearchCollectionRestriction =
+  | "target_unavailable" | "manual_disabled" | "provider_choice" | "scope_limit"
+  | "provider_unavailable" | "charge_unresolved" | "source_inactive" | "source_access"
+  | "budget_unavailable" | "quota_exhausted" | "unsupported_scope";
+
 export const BatchVisibilityInput = Type.Object(
   { visibility: Type.Union([Type.Literal("private"), Type.Literal("shared")]) },
   { additionalProperties: false },

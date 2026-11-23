@@ -14,10 +14,13 @@ const BatchesQuery = Type.Object(
   {
     sourceId: Type.Optional(Id),
     jobId: Type.Optional(Id),
+    forProjectId: Type.Optional(Id),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
   },
   { additionalProperties: false },
 );
+
+export type RequireWritableProject = (db: Pool | PoolClient, actor: Actor, projectId: string) => Promise<unknown>;
 
 export type BatchCommittedHook = (
   client: PoolClient,
@@ -67,12 +70,21 @@ export async function recordCommittedBatch(
   return { batchId: batch.id, itemCount: updated.item_count, visibility: batch.visibility };
 }
 
-export async function batchRoutes(app: FastifyInstance, pool: Pool) {
+export async function batchRoutes(app: FastifyInstance, pool: Pool, project?: {
+  assertWritable: RequireWritableProject;
+  listBatchIds: (db: Pool, actor: Actor, id: string) => Promise<string[]>;
+}) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   api.get("/v1/batches", { config: { auth: { access: "authenticated", browserOnly: true } }, schema: { querystring: BatchesQuery } }, async (request) => {
     const actor = request.actor!;
     const isViewer = actor.role === "viewer";
     const limit = request.query.limit ?? 50;
+    let attachedIds: string[] | null = null;
+    if (request.query.forProjectId) {
+      if (!project) fail(500, "Project scope resolver is unavailable");
+      await project.assertWritable(pool, actor, request.query.forProjectId);
+      attachedIds = await project.listBatchIds(pool, actor, request.query.forProjectId);
+    }
     const { rows } = await pool.query<{
       id: string;
       jobId: string | null;
@@ -109,6 +121,7 @@ export async function batchRoutes(app: FastifyInstance, pool: Pool) {
          AND ($2::uuid IS NULL OR cb.collection_source_id = $2)
          AND ($3::uuid IS NULL OR cb.job_id = $3)
          AND (NOT $4::boolean OR cb.visibility = 'shared' OR cb.created_by_user_id = $5::uuid)
+         AND ($7::uuid[] IS NULL OR (cs.usage_domain = 'research' AND cb.item_count > 0 AND NOT (cb.id = ANY($7))))
        ORDER BY cb.created_at DESC, cb.id DESC
        LIMIT $6`,
       [
@@ -118,6 +131,7 @@ export async function batchRoutes(app: FastifyInstance, pool: Pool) {
         isViewer,
         actor.userId ?? null,
         limit,
+        attachedIds,
       ],
     );
     return { batches: rows };

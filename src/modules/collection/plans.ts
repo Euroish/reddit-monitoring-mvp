@@ -1,19 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
-import type { Pool, PoolClient, QueryResultRow } from "pg";
+import type { Pool, QueryResultRow } from "pg";
 import { providerResourceReservation } from "../../../packages/contracts/src/collection-budget";
 import type { Actor } from "../../../packages/contracts/src/access";
-import { ResearchPlanPreviewInput, type ResearchPlanPreviewRequest } from "../../../packages/contracts/src/collection";
+import { ResearchPlanPreviewInput, type ResearchCollectionRestriction, type ResearchPlanPreviewRequest } from "../../../packages/contracts/src/collection";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { countSourceSamples } from "../content/index";
 import { fail } from "../../shared/errors";
 import { loadEffectivePolicyForUser, viewerCollectionDemand, type EffectivePolicy } from "./policy";
-import { batchMembership } from "./batches";
+import { batchMembership, type RequireWritableProject } from "./batches";
 import { sourceSelect } from "./sql";
 import { collectionRequestRestriction, isCollectionBudgetDisabled } from "./config";
-
-export type RequireWritableProject = (db: Pool | PoolClient, actor: Actor, projectId: string) => Promise<unknown>;
-
 
 function normalizeTargetValue(targetType: string, raw: string): string {
   const trimmed = raw.trim();
@@ -41,19 +38,21 @@ function buildFieldPolicy(isViewer: boolean, effective: EffectivePolicy) {
   };
 }
 
-function collectPolicyBlockers(isViewer: boolean, effective: EffectivePolicy, body: ResearchPlanPreviewRequest, spanDays: number): string[] {
+type Restriction = { code: ResearchCollectionRestriction; message: string };
+
+function collectPolicyBlockers(isViewer: boolean, effective: EffectivePolicy, body: ResearchPlanPreviewRequest, spanDays: number): Restriction[] {
   if (!isViewer) return [];
-  const blockers: string[] = [];
-  if (!effective.manualCollectEnabled) blockers.push(`Manual collection is disabled for ${effective.planTier} tier`);
-  if (body.useFallback && !effective.allowProviderChoice) blockers.push("Your plan does not allow choosing a backup provider");
+  const blockers: Restriction[] = [];
+  if (!effective.manualCollectEnabled) blockers.push({ code: "manual_disabled", message: `Manual collection is disabled for ${effective.planTier} tier` });
+  if (body.useFallback && !effective.allowProviderChoice) blockers.push({ code: "provider_choice", message: "Your plan does not allow choosing a backup provider" });
   if (spanDays > effective.maxLookbackDays + 0.05) {
-    blockers.push(`Window (${Math.ceil(spanDays)}d) exceeds plan max lookback (${effective.maxLookbackDays}d)`);
+    blockers.push({ code: "scope_limit", message: `Window (${Math.ceil(spanDays)}d) exceeds plan max lookback (${effective.maxLookbackDays}d)` });
   }
   if (body.limit > effective.maxBatchLimit) {
-    blockers.push(`Limit (${body.limit}) exceeds plan max (${effective.maxBatchLimit})`);
+    blockers.push({ code: "scope_limit", message: `Limit (${body.limit}) exceeds plan max (${effective.maxBatchLimit})` });
   }
   if (body.includeComments && (body.maxCommentsPerPost ?? 15) > effective.maxCommentsPerPost) {
-    blockers.push(`Comments per post exceeds plan max (${effective.maxCommentsPerPost})`);
+    blockers.push({ code: "scope_limit", message: `Comments per post exceeds plan max (${effective.maxCommentsPerPost})` });
   }
   return blockers;
 }
@@ -65,23 +64,23 @@ async function collectSourceBlockers(
   matched: QueryResultRow,
   providerName: string,
   provider: ContentProvider | undefined,
-): Promise<string[]> {
-  const blockers: string[] = [];
+): Promise<Restriction[]> {
+  const blockers: Restriction[] = [];
   if (!provider?.capability.enabled) {
-    blockers.push(`Provider ${providerName} is disabled or missing credentials/networking`);
+    blockers.push({ code: "provider_unavailable", message: `Provider ${providerName} is disabled or missing credentials/networking` });
   }
   if (matched.automatic_collection_blocked) {
-    blockers.push("Source is blocked pending review of an unresolved paid request");
+    blockers.push({ code: "charge_unresolved", message: "Source is blocked pending review of an unresolved paid request" });
   }
-  if (matched.state !== "active") blockers.push("Research source is paused or archived");
+  if (matched.state !== "active") blockers.push({ code: "source_inactive", message: "Research source is paused or archived" });
   if (isViewer && !effective.allowedProviders.includes(providerName)) {
-    blockers.push(`Provider ${providerName} is not enabled for ${effective.planTier} tier`);
+    blockers.push({ code: "source_access", message: `Provider ${providerName} is not enabled for ${effective.planTier} tier` });
   }
   if (isViewer && effective.allowedSourceIds !== null && !effective.allowedSourceIds.includes(matched.id)) {
-    blockers.push("This source is outside your allowed collection scope");
+    blockers.push({ code: "source_access", message: "This source is outside your allowed collection scope" });
   }
   if (await isCollectionBudgetDisabled(pool, providerName)) {
-    blockers.push(`System channel budget for ${providerName} is disabled or zero`);
+    blockers.push({ code: "budget_unavailable", message: `System channel budget for ${providerName} is disabled or zero` });
   }
   return blockers;
 }
@@ -94,11 +93,11 @@ async function previewQuotaBlockers(pool: Pool, userId: string | undefined, effe
      FROM user_provider_usage WHERE user_id=$1 AND day=(NOW() AT TIME ZONE 'UTC')::date`,
     [userId],
   );
-  const blockers: string[] = [];
+  const blockers: Restriction[] = [];
   if (effective.dailyRequests !== null && usage.requests + 1 > effective.dailyRequests)
-    blockers.push("Daily user collection request quota reached");
+    blockers.push({ code: "quota_exhausted", message: "Daily user collection request quota reached" });
   if (effective.dailyResources !== null && usage.resources + personalResources > effective.dailyResources)
-    blockers.push("Daily user collection resource quota reached");
+    blockers.push({ code: "quota_exhausted", message: "Daily user collection resource quota reached" });
   return blockers;
 }
 
@@ -110,7 +109,7 @@ async function previewMatchedSource(
   body: ResearchPlanPreviewRequest,
   matched: QueryResultRow,
   normalizedTarget: string | null,
-  policyBlockers: string[],
+  policyBlockers: Restriction[],
   fieldPolicy: ReturnType<typeof buildFieldPolicy>,
 ) {
   const isViewer = actor.role === "viewer";
@@ -124,9 +123,9 @@ async function previewMatchedSource(
     ...policyBlockers,
     ...(await collectSourceBlockers(pool, isViewer, effective, matched, providerName, provider)),
   ];
-  if (fallbackRequested && !matched.fallback_provider) blockers.push("No fallback provider configured for this source");
+  if (fallbackRequested && !matched.fallback_provider) blockers.push({ code: "provider_choice", message: "No fallback provider configured for this source" });
   const restriction = collectionRequestRestriction(providerName, matched.platform, matched.target.type, body);
-  if (restriction) blockers.push(restriction);
+  if (restriction) blockers.push({ code: "unsupported_scope", message: restriction });
   const pageSize = providerName === "twitterapis" ? Math.min(body.limit, 20) : body.limit;
   const systemResources = provider
     ? providerResourceReservation({
@@ -192,7 +191,8 @@ async function previewMatchedSource(
     },
     reusableBatches,
     estimate: { requests: 1, systemResources, personalResources },
-    blockers,
+    blockers: blockers.map(item => item.message),
+    restrictions: [...new Set(blockers.map(item => item.code))],
     fieldPolicy,
   };
 }
@@ -222,8 +222,9 @@ export async function planRoutes(app: FastifyInstance, pool: Pool, providers: Co
         `${sourceSelect}
          WHERE cs.usage_domain = 'research' AND cs.delivery_mode = 'pull'
            AND ($1::uuid[] IS NULL OR cs.id = ANY($1::uuid[]))
+           AND ($2::uuid[] IS NULL OR cs.id = ANY($2::uuid[]))
          ORDER BY (cs.state='active') DESC, cs.created_at, cs.id`,
-        [actor.allowedSourceIds],
+        [actor.allowedSourceIds, isViewer ? effective.allowedSourceIds : null],
       );
       let matched = body.sourceId ? candidateRows.find((r) => r.id === body.sourceId) : undefined;
       let normalizedTarget: string | null = null;
@@ -252,9 +253,10 @@ export async function planRoutes(app: FastifyInstance, pool: Pool, providers: Co
           reusableBatches: [],
           estimate: { requests: 0, systemResources: 0, personalResources: 0 },
           blockers: [
-            ...policyBlockers,
+            ...policyBlockers.map(item => item.message),
             "Target is not registered as an active research source yet; an administrator must approve and create it in Operations.",
           ],
+          restrictions: ["target_unavailable" as const, ...new Set(policyBlockers.map(item => item.code))],
           fieldPolicy,
         };
       }

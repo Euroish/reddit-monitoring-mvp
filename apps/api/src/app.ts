@@ -266,7 +266,7 @@ export async function buildApp(options: {
   const vault = options.credentialVault ?? createCredentialVault(options.pool, options.sessionSecret);
   await credentialRoutes(app, vault);
   await policyRoutes(app, options.pool, providers);
-  await registerCollectionModule(app, options.pool, providers, assertProjectWritable);
+  await registerCollectionModule(app, options.pool, providers, assertProjectWritable, listProjectBatchIds);
   await refreshRoutes(app, options.pool, providers);
   await jobRoutes(app, options.pool, listProjectBatchIds);
 

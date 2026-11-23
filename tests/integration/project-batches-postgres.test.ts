@@ -399,6 +399,39 @@ test("empty batch projects, viewer ownership isolation, and batch enable/disable
     payload: { batchId: batch1Id },
   });
   assert.equal(bShared.statusCode, 200, bShared.body);
+  const eligibleB = await app.inject({
+    method: "GET", url: `/v1/batches?forProjectId=${projB.id}`, headers: viewerBHeaders,
+  });
+  assert.equal(eligibleB.statusCode, 200, eligibleB.body);
+  const eligibleIds = (eligibleB.json().batches as { id: string }[]).map(batch => batch.id);
+  assert.ok(eligibleIds.includes(batch2Id));
+  assert.ok(!eligibleIds.includes(batch1Id), "already linked data is excluded before pagination");
+  assert.ok(!eligibleIds.includes(privateBatchId), "other users' private data is excluded");
+  assert.equal((await app.inject({
+    method: "GET", url: `/v1/batches?forProjectId=${sharedProj.id}`, headers: viewerBHeaders,
+  })).statusCode, 403);
+
+
+  // A duplicate discovery in a different source must not satisfy a project batch's source filter.
+  const other = await app.inject({
+    method: "POST", url: "/v1/sources", headers: ownerHeaders,
+    payload: { label: "Second discovery", platform: "reddit", deliveryMode: "push",
+      primaryProvider: "external_ingest", contentKind: "post", target: { type: "search", query: "other" } },
+  });
+  assert.equal(other.statusCode, 200, other.body);
+  const otherId = other.json().source.id;
+  await db.pool.query(
+    `INSERT INTO content_discovery(content_id, collection_source_id, first_fetched_at, last_fetched_at)
+     SELECT content_id, $1, first_fetched_at, last_fetched_at FROM content_discovery WHERE collection_source_id=$2`,
+    [otherId, sourceId],
+  );
+  for (const [filter, expected] of [[sourceId, 2], [otherId, 0]] as const) {
+    const list = await app.inject({
+      method: "GET", url: `/v1/projects/${projB.id}/content?sourceId=${filter}`, headers: viewerBHeaders,
+    });
+    assert.equal(list.statusCode, 200, list.body);
+    assert.equal(list.json().items.length, expected, "batch and explicit source filters share one discovery witness");
+  }
 
   // 9. P0-02 & P1-01 Server-side collection plan preview:
   // Unregistered target -> needs_admin_source; excessive lookback -> blocked by maxLookbackDays!
@@ -421,6 +454,8 @@ test("empty batch projects, viewer ownership isolation, and batch enable/disable
   const pBody = previewUnreg.json();
   assert.equal(pBody.resolutionStatus, "needs_admin_source");
   assert.equal(pBody.executable, false);
+  assert.ok(pBody.restrictions.includes("target_unavailable"));
+  assert.ok(pBody.restrictions.includes("scope_limit"));
   assert.equal(pBody.fieldPolicy.maxLookbackDays, 7);
   assert.ok(pBody.blockers.some((b: string) => /max lookback/i.test(b)), "Free viewer 30d window must be flagged against 7d maxLookbackDays");
 });

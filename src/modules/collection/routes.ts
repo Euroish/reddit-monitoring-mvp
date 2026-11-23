@@ -25,8 +25,8 @@ import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
 import { canonical, commitContentBatch, prepareContentBatch } from "../content/index";
 import { collectionRequestRestriction, isCollectionBudgetDisabled, sourcePreviewRoute, validateFallback, validateSource } from "./config";
-import { batchRoutes, recordCommittedBatch } from "./batches";
-import { planRoutes, type RequireWritableProject } from "./plans";
+import { batchRoutes, recordCommittedBatch, type RequireWritableProject } from "./batches";
+import { planRoutes } from "./plans";
 import { sourceImportRoute } from "./import";
 import { admitViewerCollection, viewerCollectionDemand } from "./policy";
 import { assertSource, audit, insertSource, listPublicSources, listSources, lockSource } from "./sql";
@@ -126,11 +126,14 @@ function validateCollectWindowAndProvider(
   return providerName as string;
 }
 
-export async function collectionRoutes(app: FastifyInstance, pool: Pool, providers: ContentProvider[], requireWritableProject?: RequireWritableProject) {
+export async function collectionRoutes(app: FastifyInstance, pool: Pool, providers: ContentProvider[], requireWritableProject?: RequireWritableProject,
+  listProjectBatchIds?: (db: Pool, actor: Actor, id: string) => Promise<string[]>,
+) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   sourcePreviewRoute(app, providers);
   await sourceImportRoute(app, pool, providers);
-  await batchRoutes(app, pool);
+  await batchRoutes(app, pool, requireWritableProject && listProjectBatchIds
+    ? { assertWritable: requireWritableProject, listBatchIds: listProjectBatchIds } : undefined);
   await planRoutes(app, pool, providers, requireWritableProject);
   api.get(
     "/v1/public/sources",
