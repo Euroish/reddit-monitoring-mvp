@@ -13,6 +13,7 @@ import { appendFileSync } from "node:fs";
 const GOVERNANCE_PATTERNS = [
   /^\.github\/workflows\//,
   /^\.github\/CODEOWNERS$/,
+  /^(?:AGENTS\.md|docs\/development\.md|\.github\/pull_request_template\.md)$/,
   /^eslint\.config\.mjs$/,
   /^scripts\/(?:ci-scope(?:\.test)?\.mjs|verify-container-build\.sh)$/,
   /^\.dependency-cruiser\.cjs$/,
