@@ -17,6 +17,8 @@ export const PUBLIC_READ_ROUTES = new Set([
   "/v1/content/facets",
   "/v1/content/:id",
   "/v1/content/:id/thread",
+  "/v1/feed/stream",
+  "/v1/feed/hot",
   ...DOC_READ_ROUTES,
   "/v1/ai/vendors",
   "/v1/ai/models",

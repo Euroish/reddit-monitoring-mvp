@@ -1,81 +1,53 @@
-# 产品规范、指标口径与文档总览（STD-100）
+# 产品规范、业务边界与度量诚实性
 
-本文拥有产品边界、用户任务、度量口径和验收原则。实现状态由 [status.md](status.md) 记录，生产状态由 [development.md](development.md) 的部署记录及运行库核实。`[LIVE]` 表示 `main` 已有代码与注册入口，`[V2]` 表示待实现规格。代码合入不自动代表生产已部署。
+本文定义 SIFTLINE 的核心产品定位、业务边界、2026-11-23 定案以及不可妥协的数据口径原则。实现状态与生产基线见 [status.md](status.md)，接口实测清单见 [contracts.md](contracts.md)。
 
-## 1. 产品目标与两条核心工作流
+## 1. 核心产品支柱（共享单核底座）
 
-SIFTLINE 是社媒情报分析与高质量信息分发工作台。社媒研究与信息流共同使用采集、身份去重、观测、检索和权限底座，拥有各自完整的任务入口和验收。公开阅读首页承担信息获取，专题研究承担持续的数据分析。产品能力以用户完成的任务衡量。
+| 产品支柱 | 解决的核心用户任务 | 数据与核心引擎 | 典型入口 |
+| :--- | :--- | :--- | :--- |
+| **高价值讨论流与热榜** | 像刷信息流一样高效消费高讨论度技术/产品内容，持续破除信息茧房且滑动绝不重复 | `feed_lane` 隔离新闻、`4` 池破茧重排（`50%` 兴趣 / `25%` 全网热议 / `15%` 未知高赞探索 / `10%` 6h 飙升）、`14d` 半衰期 + Plackett-Luce + 滑窗打散、`feed_user_seen` | `/v1/feed/stream`、`/v1/feed/hot`、`/v1/feed/events`、`/v1/feed/preferences` |
+| **Semrush 级社媒与 GEO 监测** | 追踪 Reddit 与 X 上的关键词声量占比（SoV）、被大模型引用的高权重外链域名（GEO）、关注 KOL 动态画像及一揽子 Subreddit 对比分析 | `intel_monitor` 三合一模型（`keyword` / `author_list` / `community_bundle`）、15–20 账号批查询拼装、`6h/1d` 增量预聚合分桶 `intel_rollup_bucket`、先估价后采门禁 | `/v1/intelligence/monitors*`、`/v1/intelligence/authors*`、`/v1/intelligence/communities*` |
+| **AI 发布情报中心** | 跟踪全球 AI 厂商模型与产品发布、官方一手证据链与第三方榜单 | `ai_vendor` / `ai_release_event` / `ai_model`、离线可验证历史基线 `data/ai/history/v1/`、管理员审核发布队列 | `/v1/ai/*`、`/v1/admin/ai/*` |
 
-| 核心工作流 | 用户要完成的判断 | 主要数据与结果 | 当前 `main` 基线 | `[V2]` 交付目标 |
-| --- | --- | --- | --- | --- |
-| 社媒情报与分析 | 某个产品、品牌或话题在哪些社区被讨论，变化来自哪里，哪些原帖与回复值得跟进 | 已采集帖子、评论、互动观测、专题过滤、时间趋势、平台分布、证据清单 | `/content` 检索与分面、`/projects` 专题和日趋势、评论树 `top/matches/op`、按来源与渠道隔离的指标曲线、收藏批注和导出 | 覆盖质量视图、同窗专题对比、社区与作者研究、可复现报告、变化提醒 |
-| 高质量信息流与分发 | 今天应该读什么，为什么推荐给我，哪些变化需要主动通知 | 已入库文章与事件、来源等级、关联报道、阅读反馈、订阅条件 | `/` 公开精选与 `/app/feed` 的 `latest/hot/digest`、8 频道、微图、原文跳转与阅读抽屉 | 显式兴趣、阅读状态、正负反馈、个性化排序、订阅与可靠投递 |
+## 2. 产品边界与 2026-11-23 定案
 
-社媒分析借鉴 Ahrefs/Semrush 的实体研究、时间比较、过滤下钻和证据导出体验。推荐借鉴 TikTok 的兴趣反馈、候选排序、探索和控制能力，排序目标以研究价值、信源质量与新信息发现为主。产品研究依据及逐步验收见 [产品策略研究](research/product-strategy.md)。
+### 明确不做（Out of Scope）
 
-### 产品边界
+- **不做通用新闻阅读器或营销热榜搬运站**：默认流仅采信高讨论社区与官方一手发布源。
+- **不做传统搜索引擎 SEO 排名或广告归因**：不做 Google SERP 排名追踪、外链技术审计、购买流量估算或代发帖控评。
+- **不做无边界大模型黑盒打分**：摘要、意图与推荐理由必须可追溯至原帖、评论或观测证据；AI 分析与高成本扩源受预算与开关门控。
 
-- 采集范围包括已配置的社媒、社区、RSS/Atom、网页列表与外部受限推流，渠道支持情况由注册连接器、凭证及运行配置共同决定。来源数量属于带时间戳的运行快照。
-- 分析对象包括专题、品牌、账号、社区、内容和事件。账号及社区的独立实体视图属于 `[V2]`，当前可使用来源和过滤条件进行研究。
-- 内容分析输出必须能回到匹配原文、评论节点、来源和观测时间。情感、痛点分类、主题提取与 AI 摘要需要单独验证和标识。
-- 信息分发包括站内发现、日报与 `[V2]` 用户订阅投递。外部 Sidecar 向系统写入数据的 ingest 与向用户发送消息的 delivery 分别验收。
-- SEO 排名、关键词难度、站点技术审计、购买流量估算与社媒代发属于当前产品边界之外。现有数据也不能推导完整受众画像、全网覆盖或因果营销归因。
+### 2026-11-23 已确认执行决议
 
-### 完成交付的共同条件
+1. **信源清洗**：迁入 `059` 归档现有被动媒体新闻与 V2EX/营销榜单源（完整保留 `ai_vendor_source` 官方发布源）；后续高讨论 L1/L2 信源由维护者精选补充。
+2. **摘要与意图识别**：采用可插拔 `heuristic_v1` + 版本化升级钩子（`upgradeContentEnrichment`）低复杂度起步，保证结构化卡片立即可用且便于后期平滑替换为分类器/LLM。
+3. **采集预算额度**：X + Reddit 直调 API 总上限校准为 `<= 20,000` 条/天，采集前通过 `estimate` 预估配额。
+4. **分期交付顺序**：Backend V2 优先完成数据库、模块边界与前端 BFF 接口收口（暂不修改现有前端），待后端合入并稳态运行后再全面重做前端 UI/UX；匿名访客在信息流自动使用非个性化高价值混排。
 
-每项能力必须声明用户任务、数据来源、可用范围、权限、成本、失败行为和验收样例。分析必须可重放过滤条件并查看原始证据。推荐必须有排序理由和用户反馈控制。推送必须有订阅、去重、投递状态和退订路径。具体优先级与交付顺序由状态文档维护。
+## 3. 度量诚实性与工程规则（`docs:check` 受控 ID）
 
-## 2. 规范规则表
+| ID | 等级 | 规则描述 | 验收出口 |
+| :--- | :--- | :--- | :--- |
+| **PRD-01** | MUST | 检索、列表、导出与统计只读库内已存数据并共享权限交集（`allowedSourceIds`），读路径严禁触发付费采集；全库仅按 `commitContentBatch` 唯一入库。 | 权限一致性与读路径隔离测试 |
+| **PRD-02** | MUST | 监测先经 `estimate` 预估费用再 `collect`；外部推流（`POST /v1/sources/:id/ingest`）与内部调度清晰分离。 | 估价门禁与推流幂等测试 |
+| **MET-01** | MUST NOT | 将库内样本量或样本内品牌提及占比夸大为“全网声量/全网触达”；`overview` 强制附带 `{ coverage, sampleSize, windowFrom, windowTo, jobSuccessCount, jobFailedCount }` 样本声明。 | 契约响应与前端覆盖条审查 |
+| **MET-02** | MUST | **零伪造曲线与零假零值**：趋势/火花线 `sparkline` 必须源于真实 `content_observation` 或分桶快照（缺测则如实返回空/现有节点，禁拼造假斜率）；X 互动率（ER）明确标注分母口径（`by_views` \| `by_followers`），分母均缺时返回 `null` 而非 `0`；Velocity 前窗无覆盖返回 `deltaPct = null`。 | `intelligence-metrics` 与火花线真实性测试 |
+| **MET-03** | MUST | 严格分离 `publishedAt`、`sourceObservedAt`、`fetchedAt` 三轴时间（未知存 `null`）；跨平台热度仅通过平台内 7 天基线百分位归一化（`unifiedHeat 0..100`）横向比较，原始指标禁止跨平台混加。 | 时间边界与归一化单测 |
+| **ENG-01** | MUST | 保持 9 域单向无环 DAG（`lint:arch`）与每表唯一写归属（`check-table-ownership.ts`），新增 SQL 迁移通过 `Squawk`、`PG16` 回滚与 `CODEOWNERS` 审查，禁止为 UI 卡片私建旁路表。 | CI 架构与 SQL 门禁 |
+| **ENG-02** | MUST | 付费渠道 `unknown` 永不自动重放（须 `acknowledgePotentialCharge` 人工解封）；上线前必须隔离 PG16 备份演练与版本回退核验。 | 停发闸门与恢复演练 |
 
-规格关键词 `MUST` / `MUST NOT` / `SHOULD` / `MAY` 由 `npm run docs:check` 校验，全仓规则 ID 全局唯一。
+## 4. 文档维护职责矩阵
 
-| ID | 等级 | 产品能力与边界规则 | 验收出口 |
-| --- | --- | --- | --- |
-| PRD-01 | MUST | 三段词（`anyTerms`/`allTerms`/`exclusions`）、中文双字词和短代号检索只读库内数据。图表、列表、导出和专题统计必须使用相同权限与过滤口径，读路径禁止触发收费采集。 | 过滤一致性与无收费读路径测试 |
-| PRD-02 | MUST | 来源声明 `tier`、`sourceGroup`、`locale` 与 `fetchPolicy`。订阅前提供预览，支持 OPML/JSON 导入。`[V2]` 新接入旧文按原始发布时间参与归档，信息流新鲜度、样本覆盖和采集成功分别衡量。 | 预览、导入、时间边界与覆盖测试 |
-| PRD-03 | MUST | 社媒分析与信息流均能下钻原始证据。已实现事件聚簇采用规范链接、64-bit SimHash 和版本边界，代表报道按 `T1 > T1_5 > T2` 选举。专题提供时间趋势、平台分布、评论树与有界导出，`[V2]` 增加同窗对比和覆盖解释。 | 事件、专题及证据链 E2E |
-| PRD-04 | MUST | `[V2]` 推荐依次交付兴趣设置、反馈记录、可解释排序和实验评估。订阅推送须提供去重、失败恢复与退订。外部探索和 AI 成本进入现有预算与权限控制，并保留来源、结果版本和失败状态。 | 推荐理由、投递幂等与预算测试 |
-
-| ID | 等级 | 度量诚实性与样本口径 | 验收出口 |
-| --- | --- | --- | --- |
-| MET-01 | MUST NOT | 将库内去重内容量、匹配量或已采集品牌提及占比描述为全网声量、全网份额或真实触达。`newsnow` 排名与 HTTP `304` 不代表新增互动。覆盖未知、停采与新接入必须在趋势解释中可见。 | 响应字段与文案审查 |
-| MET-02 | MUST | 内容身份 `(source_id, kind, external_id)`、发现关系与真实渠道观测分开统计。当前默认故事流按 `pull` 来源查询，专题受 `includePushInTrends` 控制。`[V2]` 实时、归档、临时探索的纳入方式须有显式契约。 | 去重、权限和样本集合测试 |
-| MET-03 | MUST | `publishedAt`、`sourceObservedAt` 和 `fetchedAt` 三轴时间分别保留。未知发布时间保持 `null`，界面标识回退依据。趋势、日报和对比明确区间、时区、粒度、有效覆盖与未知数据。 | 时间边界与空值测试 |
-| MET-04 | MUST | `threadAware=true` 按可见根帖计 `contentCount` 并另报 `matchedContentCount`。跨平台、渠道或 `timeBasis` 的原始互动分开计算，按 `(sourceId, provider, metricKey)` 分线并保留 `null`。`[V2]` 对比先验证分母与覆盖，同源同指标才展示可比增量。 | 聚合、分线与比较拒绝测试 |
-
-| ID | 等级 | 工程精简与验证原则 | 验收出口 |
-| --- | --- | --- | --- |
-| ENG-01 | MUST | 以模块化单体函数式核心（按独立业务域划分 `src/modules/<domain>/`，通过 `index.ts` 门面隔离）、`commitContentBatch` 唯一采集入库及进程内 Worker 为当前基线。不设僵化表数上限，新增表须具备清晰的数据所有权（由 `scripts/check-table-ownership.ts` 守门）、通过 `Squawk` 锁安全校验、PG16 回滚测试与 `CODEOWNERS` 审查，禁止仅为界面卡片建表。 | `lint:arch`、`Squawk` 与迁移测试 |
-| ENG-02 | MUST NOT | 通过压行、无用途抽象和重复契约隐藏复杂度。后端业务域按模块门面与异步安全门禁组织（见[核心不变量台账](invariants.md)），前端按页面、编辑器和图表职责组织。首页微图使用原生 SVG，分析模块按路由懒加载 `echarts/core`。 | 边界校验、构建与性能证据 |
-| ENG-03 | MUST | 测试覆盖纯逻辑、隔离 PG16 的 API 行为和核心用户任务。付费调用的 `unknown` 状态落库后停止自动重放，恢复需要 `acknowledgePotentialCharge`。上线前核对代码版本、迁移水位、配置及回滚条件。 | CI、生产验收与恢复记录 |
-
-## 3. 文档职责与维护
-
-规范文档按决策职责维护，保留产品、架构、数据、设计、研究、运维和实施记录。代码 PR 同步受影响的事实及验收，历史材料标明时间与只读性质。新增研究文件须由规范入口链接，发布包选档由 `DOCUMENTATION_FILES` 决定。
-
-### 项目入口与协作
-
-- [README.md](../README.md) 负责仓库总入口及开发启动，保持 `<=60` 行。
-- [AGENTS.md](../AGENTS.md) 负责 Agent 入口、协作和必须遵守的不变量。
-
-### 现行规范与记录
-
-- [产品规范](README.md) 负责用户任务、边界、指标语义和验收原则。
-- [当前状态](status.md) 负责带代码依据的实现清单、待办与优先级。
-- [开发与运维](development.md) 负责环境、验证、备份、部署及故障台账。
-- [主线架构](architecture.md) 负责模块、数据所有权、资源与演进决策。
-- [数据与 API 契约](contracts.md) 负责对象、过滤、时间、版本、权限及路由。
-- [交互与分析设计](design.md) 负责页面任务、分析下钻、推荐反馈和多端交互。
-- [来源矩阵](research/data-sources.md) 负责来源分类、连接器、质量与覆盖。
-- [产品策略研究](research/product-strategy.md) 负责行业证据、取舍、数据就绪条件与交付验收。
-- [扩源与外挂隔离](plans/source-expansion.md) 负责采集演进、完结记录及外部重型任务边界。
-
-### 历史研究与早期审计
-
-以下文件保留溯源价值，现状以当前规范、主干代码和部署记录核实。
-
-- [早期架构尸检](research/architecture_audit_and_rebuild_spec.md)
-- [旧双源清理规格](research/source_replacement_and_twitterapi_io_removal_spec.md)
-- [2026-11-18 审计蓝图](research/deep-audit-and-architecture-blueprint-20261118.md)
-- [早期产品架构讨论](research/product-architecture-conversation-20261118.md)
-- [外部架构输入归档](research/ChatGPT-讲解仓库文档-20261118-1807.md)
+| 文档 | 唯一职责 |
+| :--- | :--- |
+| [README.md](../README.md) | 仓库总入口、核心能力概览与开发启动 |
+| [AGENTS.md](../AGENTS.md) | Agent 与协作者红线约束 |
+| [README.md](README.md)（本文） | 产品支柱、业务边界、2026-11-23 定案与度量诚实性 |
+| [architecture.md](architecture.md) | 4 GB 运行拓扑、9 域 DAG、58 表所有权、检索、L1–L3/R4 隔离与安全底线 |
+| [invariants.md](invariants.md) | `INV-001`..`INV-010` 核心工程不变量与门禁索引 |
+| [contracts.md](contracts.md) | Domain 对象、认证授权、采集/查询/导出规则与 OpenAPI 115 路由实测清单 |
+| [design.md](design.md) | 现有 UI 基线与 Frontend V2 信息架构/交互视觉规范 |
+| [status.md](status.md) | 生产抽样、`main` 基线、PR #32 实码盘点与 5 项待收口缺口 |
+| [development.md](development.md) | 分支协作、CI 门禁、本地验证、Docker 部署与生产运维手册 |
+| [backend-v2-blueprint.md](plans/backend-v2-blueprint.md) | 已批准 Backend V2 产品与架构完整设计规格 |

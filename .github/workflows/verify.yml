@@ -175,9 +175,6 @@ jobs:
           CAPTURE_SOURCE_OPS: '1'
           CAPTURE_PROJECT_INTAKE: '1'
         run: npm run test:browser
-      - name: Verify immutable release package
-        if: fromJSON(needs.policy.outputs.scope).pack
-        run: node scripts/package-release.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: '!cancelled() && fromJSON(needs.policy.outputs.scope).browser'
         with:

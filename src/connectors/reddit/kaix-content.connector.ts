@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import type {
-  ContentReference } from "../../../packages/contracts/src/source-content";
+import type { ContentReference } from "../../../packages/contracts/src/content";
 import { PublicContentKind } from "../../../packages/contracts/src/common";
 import { SourceCapability, SourceTarget } from "../../../packages/contracts/src/collection";
 import { stableUuidFromString } from "../../shared/ids/stable-id";
 import type { KaixConfig } from "./kaix.config";
+import { buildRedditDetails, extractRedditMedia } from "./reddit-fields";
 import {
   ContentProviderError,
   type CollectedContent,
@@ -116,13 +116,19 @@ export class KaixContentConnector implements ContentProvider {
         "Kaix query must contain 1–200 characters without controls",
         false,
       );
+    const hints = {
+      ...("sort" in target && target.sort ? { sort: target.sort } : {}),
+      ...("timeRange" in target && target.timeRange ? { timeRange: target.timeRange } : {}),
+      ...("minLikes" in target && target.minLikes !== undefined ? { minLikes: target.minLikes } : {}),
+      ...("minComments" in target && target.minComments !== undefined ? { minComments: target.minComments } : {}),
+    };
     if (target.type === "search") {
       if (!query || kind !== "post")
         throw new ContentProviderError(
           "Kaix global search collects posts only",
           false,
         );
-      return { type: "search", query: query.trim() };
+      return { type: "search", query: query.trim(), ...hints };
     }
     if (target.type === "feed")
       throw new ContentProviderError("Unsupported kaix target", false);
@@ -155,7 +161,7 @@ export class KaixContentConnector implements ContentProvider {
       throw new ContentProviderError("Invalid kaix target identifier", false);
     const filter = query ? { query: query.trim() } : {};
     return target.type === "community"
-      ? { type: "community", community: name, ...filter }
+      ? { type: "community", community: name, ...filter, ...hints }
       : target.type === "account"
         ? { type: "account", account: name, ...filter }
         : { type: "post", postId: name, ...filter };
@@ -217,7 +223,11 @@ export class KaixContentConnector implements ContentProvider {
       maxCommentsPerPost: commentLimit,
       ...(thread
         ? { commentSort: request.commentSort ?? "top" }
-        : { sort: "new", time: "all", maxItems: request.limit }),
+        : {
+            sort: ("sort" in target && target.sort) || "new",
+            time: ("timeRange" in target && target.timeRange) || "all",
+            maxItems: request.limit,
+          }),
     };
     if (target.type === "search")
       Object.assign(input, { mode: "search", keyword: target.query });
@@ -380,6 +390,14 @@ export class KaixContentConnector implements ContentProvider {
           Date.parse(item.publishedAt) >= to)
       )
         continue;
+      const minScore = "minLikes" in target ? target.minLikes : undefined;
+      const minComments = "minComments" in target ? target.minComments : undefined;
+      if (item.kind === "post" && minScore !== undefined && (item.observation.metrics["reddit.score"] ?? 0) < minScore) {
+        continue;
+      }
+      if (item.kind === "post" && minComments !== undefined && (item.observation.metrics["reddit.num_comments"] ?? 0) < minComments) {
+        continue;
+      }
       items.push(item);
     }
     const returnedItems = data.filter(row => object(row)?.type === request.source.contentKind).length;
@@ -540,27 +558,18 @@ export class KaixContentConnector implements ContentProvider {
               handle: author,
               displayName: null,
               url: `https://www.reddit.com/user/${encodeURIComponent(author)}/`,
+              ...(httpUrl(row.authorIconUrl ?? row.authorAvatar)
+                ? { avatarUrl: httpUrl(row.authorIconUrl ?? row.authorAvatar) }
+                : {}),
             }
           : null,
       references,
-      media:
-        linked && linked !== url
-          ? [
-              {
-                type: "link",
-                url: linked,
-                previewUrl: null,
-                altText: null,
-                durationSeconds: null,
-              },
-            ]
+      media: kind === "post"
+        ? extractRedditMedia(row, url, linked)
+        : linked && linked !== url
+          ? [{ type: "link", url: linked, previewUrl: null, altText: null, durationSeconds: null }]
           : [],
-      platformDetails: {
-        platform: "reddit",
-        community,
-        flair: text(row.linkFlairText),
-        nsfw: typeof row.over18 === "boolean" ? row.over18 : null,
-      },
+      platformDetails: buildRedditDetails(row, community, linked),
       observation: {
         provider: "kaix",
         sourceId: request.source.id,

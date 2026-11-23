@@ -258,6 +258,17 @@ export async function listAiOfficialFeedUpdates(
   ).rows;
 }
 
+export async function hasSourceDiscoveries(
+  db: Pool | PoolClient,
+  sourceId: string,
+): Promise<boolean> {
+  const { rowCount } = await db.query(
+    "SELECT 1 FROM content_discovery WHERE collection_source_id=$1 LIMIT 1",
+    [sourceId],
+  );
+  return Boolean(rowCount);
+}
+
 
 export async function isWebArticlePullSource(db: Pool | PoolClient, id: string) {
   const { rowCount } = await db.query(
@@ -266,6 +277,31 @@ export async function isWebArticlePullSource(db: Pool | PoolClient, id: string) 
     [id],
   );
   return Boolean(rowCount);
+}
+
+export async function findCommunityHydrationCandidates(
+  db: PoolClient, sourceId: string, community: string,
+): Promise<string[]> {
+  const { rows } = await db.query<{ external_id: string }>(
+    `WITH recent_posts AS (
+       SELECT c.external_id, c.metric_comments, c.engagement_score
+       FROM content_discovery d
+       JOIN content c ON c.id=d.content_id
+       WHERE d.collection_source_id=$1 AND c.community_name=$2
+         AND c.kind='post' AND c.availability='available'
+         AND c.external_id ~ '^t3_[a-z0-9]{2,32}$'
+         AND COALESCE(c.created_at_source,c.first_seen_at) >= now()-interval '7 days'
+         AND c.metric_comments IS NOT NULL
+     ), threshold AS (
+       SELECT percentile_cont(0.8) WITHIN GROUP (ORDER BY metric_comments) AS p80
+       FROM recent_posts
+     )
+     SELECT external_id FROM recent_posts CROSS JOIN threshold
+     WHERE metric_comments > p80
+     ORDER BY metric_comments DESC, engagement_score DESC, external_id`,
+    [sourceId, community],
+  );
+  return rows.map(({ external_id }) => external_id);
 }
 
 export async function countSourceSamples(db: Pool, id: string, from: string, to: string, membership?: import("./search").BatchMembership) {

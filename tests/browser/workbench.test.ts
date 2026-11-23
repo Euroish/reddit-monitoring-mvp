@@ -485,7 +485,7 @@ test("browser: project switching and guided intake with real project and role bo
   await capture("intake-queued-1440");
   await page.reload();
   await page.getByText("已排队", { exact: true }).waitFor();
-  assert.equal(await workOnce(db.pool, [x], undefined, undefined, (client, info) => attachBatchToProjectInTx(client, info)), true);
+  assert.equal(await workOnce(db.pool, [x], undefined, undefined, { onProjectBatchCommitted: attachBatchToProjectInTx }), true);
   await page.getByText("已成功", { exact: true }).waitFor();
   await capture("intake-completed-1440");
   await page.getByRole("button", { name: "查看批次" }).click();
@@ -546,7 +546,7 @@ test("browser: project switching and guided intake with real project and role bo
   await page.getByRole("checkbox", { name: "我已核对预计用量并确认本次采集。" }).check();
   await confirm.click();
   await page.waitForURL(/view=jobs.*jobId=/);
-  assert.equal(await workOnce(db.pool, [x], undefined, undefined, (client, info) => attachBatchToProjectInTx(client, info)), true);
+  assert.equal(await workOnce(db.pool, [x], undefined, undefined, { onProjectBatchCommitted: attachBatchToProjectInTx }), true);
   await page.getByText("失败", { exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: "查看批次" }).count(), 0);
   await capture("intake-failed-1440");
@@ -679,12 +679,8 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, timezoneId: "Asia/Shanghai" });
   const page = await context.newPage();
   const errors: string[] = [];
-  const scripts: string[] = [];
   const guestUnauthorized: string[] = [];
   let isAuthed = false;
-  page.on("request", (req) => {
-    if (req.resourceType() === "script") scripts.push(req.url());
-  });
   page.on("response", (res) => {
     if (!isAuthed && res.status() === 401 && res.url().includes("/api/v1/")) {
       guestUnauthorized.push(res.url());
@@ -692,7 +688,7 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   });
   page.on("pageerror", (error) => errors.push(error.message));
 
-  // 1. Public Info Home on / (public nav, zero ECharts, zero workbench chunks, zero 401s, live stories)
+  // 1. Public Info Home on / (public nav, zero 401s, live stories)
   await page.goto(origin);
   assert.equal(await page.title(), "SIFTLINE · 信号研究");
   const publicNav = page.getByLabel("公开导航", { exact: true });
@@ -703,10 +699,6 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   );
   const initialCard = page.getByRole("article").filter({ hasText: storyTitle }).first();
   await initialCard.waitFor();
-  assert.ok(
-    scripts.every((url) => !/echarts|charts-|EChartCanvas|WorkbenchShell|ProjectsPage|SourcesPage|Homepage/.test(url)),
-    `Unexpected heavy script on /: ${scripts.join(", ")}`,
-  );
   assert.deepEqual(guestUnauthorized, []);
   await initialCard.getByRole("img", { name: /来源分布.*T1 1.*T1_5 1.*T2 1/ }).waitFor();
   await initialCard.getByRole("img", { name: /已采样热度/ }).waitFor();

@@ -8,6 +8,7 @@ import { createPgNotifier } from "../../platform/pg-notify";
 import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
 import { commitContentBatch, prepareContentBatch } from "../content/index";
+import { budgetedSocialProviders, cancelHydrationOutsideBudget, lockSocialDispatchBudget } from "./automatic-hydration";
 import { isViewerJobStillAuthorized, recordUserExecutedRequest, requestedCommentLimit } from "./policy";
 import { scheduleDueSourcesOnce } from "./schedule";
 import { recordCommittedBatch, type BatchCommittedHook } from "./batches";
@@ -91,9 +92,9 @@ async function claimNextJob(pool: Pool, cooledHosts: string[], hostCooldown?: Ma
 function estimateResources(job: QueryResultRow, source: QueryResultRow, provider: ContentProvider) {
   const hydrate = job.operation === "hydrate";
   const refresh = Array.isArray(job.request_json.externalIds);
-  const kaixThread = job.provider === "kaix" && (hydrate || source.target.type === "post");
+  const threadRequest = hydrate || (job.provider === "kaix" && source.target.type === "post");
   if (refresh) return job.page_size;
-  if (kaixThread) return 1 + Math.min(job.page_size, job.request_json.maxCommentsPerPost ?? 50);
+  if (threadRequest) return 1 + Math.min(job.page_size, job.request_json.maxCommentsPerPost ?? 50);
   if (["twitterapis", "scrapebadger"].includes(job.provider)) {
     return provider.capability.requestResourceUpperBound ?? 20;
   }
@@ -141,7 +142,9 @@ async function admitJobDispatch(
       );
       return false;
     }
+    if (budgetedSocialProviders.includes(job.provider)) await lockSocialDispatchBudget(client);
     await client.query("SELECT 1 FROM source_provider_budget WHERE provider=$1 FOR UPDATE", [job.provider]);
+    if (job.request_json.autoMonitorId && (await cancelHydrationOutsideBudget(client, job.id, token, resources))) return false;
     const deferred = await client.query(
       `UPDATE source_collection_job SET status='queued',next_run_at=ready.at,lease_token=NULL,lease_until=NULL,
         attempts=attempts-1,error='Waiting for provider budget'
@@ -262,6 +265,7 @@ async function commitCollectedPage(
       page.httpEtag ?? null, page.httpLastModified ?? null, elapsedMs, !page.exhausted, page.items.length, counts.added,
     ],
   );
+  return counts.added + counts.updated > 0;
 }
 
 function isTransientCollectionError(error: unknown) {
@@ -440,12 +444,19 @@ function assertProviderReadyForJob(job: QueryResultRow, provider: ContentProvide
   }
 }
 
+export type WorkerHooks = {
+  // Runs in the content transaction: a failed project attachment rolls back the page.
+  onProjectBatchCommitted?: BatchCommittedHook;
+  // Runs after commit: failures must never replay an already charged collection.
+  onSourceContentCommitted?: (sourceId: string, result: { changed: boolean; hydration: boolean }) => void | Promise<void>;
+};
+
 export async function workOnce(
   pool: Pool,
   providers: ContentProvider[],
   signal?: AbortSignal,
   hostCooldown?: Map<string, number>,
-  onBatchCommitted?: BatchCommittedHook,
+  hooks: WorkerHooks = {},
 ) {
   if (signal?.aborted) return false;
   const claim = await claimNextJob(pool, pruneCooldownHosts(hostCooldown), hostCooldown);
@@ -490,7 +501,14 @@ export async function workOnce(
       return true;
     }
     const batch = prepareContentBatch(page.items);
-    await transaction(pool, (client) => commitCollectedPage(client, job, source, provider, token, page, batch, elapsedMs, onBatchCommitted));
+    const dirty = await transaction(pool, (client) => commitCollectedPage(client, job, source, provider, token, page, batch, elapsedMs, hooks.onProjectBatchCommitted));
+    const onSourceContentCommitted = hooks.onSourceContentCommitted;
+    if (onSourceContentCommitted && (dirty || source.target.type === "community")) {
+      await Promise.resolve().then(() => onSourceContentCommitted(source.id, {
+        changed: dirty,
+        hydration: job.operation === "hydrate",
+      })).catch(() => {});
+    }
   } catch (error) {
     await transaction(pool, (client) => handleJobError(client, providers, job, source, provider, token, error, elapsedMs, signal));
   }
@@ -514,7 +532,7 @@ async function computeIdleWaitMs(pool: Pool): Promise<number> {
   return Math.min(maxIdleWaitMs, Math.max(500, Math.ceil(raw)));
 }
 
-export function startWorker(pool: Pool, providers: ContentProvider[], onError?: (error: unknown) => void, onBatchCommitted?: BatchCommittedHook) {
+export function startWorker(pool: Pool, providers: ContentProvider[], onError?: (error: unknown) => void, hooks: WorkerHooks = {}) {
   const controller = new AbortController();
   const startedAt = new Date();
   const hostCooldown = new Map<string, number>();
@@ -601,7 +619,7 @@ export function startWorker(pool: Pool, providers: ContentProvider[], onError?: 
         });
         if (scheduled.enqueuedCount > 0) wakeAll();
       }
-      const worked = await workOnce(pool, providers, controller.signal, hostCooldown, onBatchCommitted).catch((error) => {
+      const worked = await workOnce(pool, providers, controller.signal, hostCooldown, hooks).catch((error) => {
         onError?.(error);
         return false;
       });

@@ -118,9 +118,46 @@ test("PG16 upgrades applied 058 to the immutable batch migrations and safely rer
   assert.equal((await db.pool.query("SELECT to_regclass('collection_batch') AS table_name")).rows[0].table_name, null);
   assert.deepEqual(await runMigrations({ pool: db.pool }), [
     "059_project_batches_and_ownership.sql", "060_batch_visibility_and_field_policy.sql",
+    "061_content_enrichment_and_source_lanes.sql", "062_feed_personalization_and_seen.sql",
+    "063_social_intelligence_monitors_and_rollups.sql", "064_feed_positive_event_idempotency.sql",
   ]);
   assert.deepEqual(await runMigrations({ pool: db.pool }), []);
   const after = await db.pool.query("SELECT filename,checksum FROM schema_migration ORDER BY filename");
   assert.deepEqual(after.rows.slice(0, before.rows.length), before.rows);
   assert.equal((await db.pool.query("SELECT to_regclass('idx_monitor_project_batch_project_status') IS NOT NULL AS exists")).rows[0].exists, true);
+});
+
+test("PG16 upgrades main 060 to V2 without changing historical checksums or batch/project state", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "monitor-v2-main060-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const schema = join(process.cwd(), "src/storage/schema");
+  const baseline = (await readdir(schema)).filter(file => /^\d{3}_.+\.sql$/.test(file) && Number(file.slice(0, 3)) <= 60);
+  await Promise.all(baseline.map(file => copyFile(join(schema, file), join(directory, file))));
+  const db = await testDatabase(directory);
+  t.after(db.close);
+  const before = (await db.pool.query("SELECT filename,checksum FROM schema_migration ORDER BY filename")).rows;
+  assert.match(before.at(-1).filename, /^060_/);
+  const sourceId = randomUUID(), batchId = randomUUID(), projectId = randomUUID();
+  await db.pool.query(
+    `INSERT INTO collection_source(id,platform_id,primary_provider,label,target,content_kind,delivery_mode,created_at,updated_at)
+     SELECT $1,id,'external_ingest','Existing research','{"type":"search","query":"retained"}','post','push',now(),now()
+     FROM source WHERE code='reddit'`, [sourceId],
+  );
+  await db.pool.query("INSERT INTO collection_batch(id,collection_source_id,label,visibility) VALUES($1,$2,'Existing batch','shared')", [batchId, sourceId]);
+  await db.pool.query("INSERT INTO monitor_project(id,name,dataset_mode) VALUES($1,'Existing project','batch')", [projectId]);
+  await db.pool.query("INSERT INTO monitor_project_batch(project_id,batch_id) VALUES($1,$2)", [projectId, batchId]);
+  const snapshot = async () => (await db.pool.query(
+    `SELECT row_to_json(b) AS batch, row_to_json(p) AS project, row_to_json(pb) AS membership
+     FROM collection_batch b JOIN monitor_project_batch pb ON pb.batch_id=b.id
+     JOIN monitor_project p ON p.id=pb.project_id WHERE b.id=$1`, [batchId],
+  )).rows;
+  const existing = await snapshot();
+  assert.deepEqual(await runMigrations({ pool: db.pool }), [
+    "061_content_enrichment_and_source_lanes.sql", "062_feed_personalization_and_seen.sql",
+    "063_social_intelligence_monitors_and_rollups.sql", "064_feed_positive_event_idempotency.sql",
+  ]);
+  assert.deepEqual(await snapshot(), existing);
+  assert.deepEqual((await db.pool.query("SELECT filename,checksum FROM schema_migration ORDER BY filename")).rows.slice(0, before.length), before);
+  assert.equal((await db.pool.query("SELECT feed_lane,usage_domain FROM collection_source WHERE id=$1", [sourceId])).rows[0].usage_domain, "research");
+  assert.deepEqual(await runMigrations({ pool: db.pool }), []);
 });

@@ -160,6 +160,46 @@ module.exports = {
       },
     },
     {
+      name: "modules-no-cross-feed",
+      severity: "error",
+      comment: "Feed product domain stays top-level isolated; no sibling module may depend on feed.",
+      from: { path: "^src/modules/([^/]+)/" },
+      to: {
+        path: "^src/modules/feed/",
+        pathNot: "^src/modules/$1/",
+      },
+    },
+    {
+      name: "modules-no-cross-intelligence",
+      severity: "error",
+      comment: "Intelligence product domain stays top-level isolated; no sibling module may depend on intelligence.",
+      from: { path: "^src/modules/([^/]+)/" },
+      to: {
+        path: "^src/modules/intelligence/",
+        pathNot: "^src/modules/$1/",
+      },
+    },
+    {
+      name: "modules-feed-dag",
+      severity: "error",
+      comment: "feed may depend only on content public facade.",
+      from: { path: "^src/modules/feed/" },
+      to: {
+        path: "^src/modules/",
+        pathNot: ["^src/modules/feed/", "^src/modules/content/index\\.ts$"],
+      },
+    },
+    {
+      name: "modules-intelligence-dag",
+      severity: "error",
+      comment: "intelligence may depend only on content and collection public facades.",
+      from: { path: "^src/modules/intelligence/" },
+      to: {
+        path: "^src/modules/",
+        pathNot: ["^src/modules/intelligence/", "^src/modules/(content|collection)/index\\.ts$"],
+      },
+    },
+    {
       name: "no-retired-paths-or-connectors",
       severity: "error",
       comment: "Prevent re-introducing retired pre-050 architecture layers or retired online connectors.",

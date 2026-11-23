@@ -1,34 +1,33 @@
-# Agent 开发与协作入口（STD-100）
+# Agent 开发与协作入口
 
-作业前核实当前检出分支（主干统一为 `main`，生产目录 `/root/workspaces/reddit-monitoring-mvp`）及 `git status`，并遵守[团队分支治理与 AI 协作准则](docs/development.md#0-团队分支治理与-ai-协作准则)。仓库可按需新增 Markdown 文档，发布包按 `scripts/release-package-lib.mjs` 的 `DOCUMENTATION_FILES` 选档。
+开工前核实当前检出分支（主干统一为 `main`，生产工作目录 `/root/workspaces/reddit-monitoring-mvp`）与 `git status`，并严格遵守[开发与运维手册](docs/development.md)的分支与验证规范。
 
-## 1. 两份唯一真源
+## 1. 两份动态状态真源
 
-1. **[docs/development.md](docs/development.md)**：团队分支治理与 AI 协作准则、分层 CI 门禁、单机环境、多阶段镜像构建、PG16/Compose 参数、备份恢复、交付历史与生产发布核对。
-2. **[docs/status.md](docs/status.md)**：`main` 实码盘点、生产采样与两条研发路线。
+1. **[docs/development.md](docs/development.md)**：单主干协作流程、分层 CI 门禁、本地验证、多阶段 Docker 构建、安全加固、备份恢复与生产只读巡检 SQL。
+2. **[docs/status.md](docs/status.md)**：`生产环境实测基线`、`origin/main` 主干与 `Backend V2` 分支（PR #32）实时状态、未收口缺口与后续路线。
 
-## 2. 规范职责矩阵
+## 2. 规范职责矩阵（唯一真源）
 
 | 文档 | 唯一管辖范围 |
 | :--- | :--- |
-| [产品边界与口径](docs/README.md) | 社媒情报分析与高质量信息分发、共同度量及规范索引 |
-| [主线架构](docs/architecture.md) | 模块边界、数据演进与迁移安全、L1–L3 扩源、SSRF/鉴权安全与 4 GB 预算 |
-| [核心不变量台账](docs/invariants.md) | `INV-001`..`INV-010` 系统不可破坏约束与自动化验证映射 |
-| [数据与 API 契约](docs/contracts.md) | Domain 对象、版本/幂等、`[LIVE]` 已注册路径/操作 vs `[V2]` 规划接口规范 |
-| [前端与融合规范](docs/design.md) | 公开站与研究工作台、分析下钻、推荐交互和图表边界 |
-| [来源矩阵](docs/research/data-sources.md) | 来源准入、采样快照与 L1–L3 扩源策略 |
-| [演进与外挂隔离](docs/plans/source-expansion.md) | 已完结 R1–R3/`050` 清单、`051+` 规则、R4 `plugins/zst-archive/` 与 L3 Sidecar 隔离 |
-| [产品策略研究](docs/research/product-strategy.md) | 行业实践、样本就绪、推荐反馈与分阶段验收 |
-| [历史归档](docs/research/architecture_audit_and_rebuild_spec.md) | `main@7045185` 尸检与早期替换规格（仅作只读溯源，不作现状依据） |
+| [产品边界与口径](docs/README.md) | 产品目标、不做清单、2026-11-23 定案与指标诚实性规则 |
+| [系统架构与边界](docs/architecture.md) | 4 GB 运行拓扑、9 域 DAG、58 表所有权、检索、L1–L3/R4 隔离与 SSRF/资源边界 |
+| [核心不变量台账](docs/invariants.md) | `INV-001`..`INV-010` 强制门禁与自动化回归测试映射 |
+| [数据与 API 契约](docs/contracts.md) | 领域模型、认证/MFA/Scope、采集幂等、`feed`/`intelligence` 契约与全量路由清单 |
+| [前端 V2 交互规范](docs/design.md) | 现有 UI 基线与面向 `/v1/feed/*`、`/v1/intelligence/*` 的 Frontend V2 重构设计 |
+| [Backend V2 蓝图](docs/plans/backend-v2-blueprint.md) | 已批准的 Backend V2 产品与架构总设计 |
 
-## 3. 核心架构不变量（MUST / MUST NOT）
+## 3. 核心工程红线（MUST / MUST NOT）
 
-- **真实性红线**：`MUST NOT` 将 `[V2]` 规划项（如 `linkedom`/`Readability`、`story_cluster`、`stream_class`、`/discovery/query`、`/content/:id/enrich`）或未启用渠道写成 `[LIVE]`；用户指令高于规划。
-- **单主干与反漂移红线**：仓库唯一常驻主干为 **`main`**（不设常驻 `develop`/`prod`）；从最新 `origin/main` 切短分支（`feat/*` `<= 3` 天、`fix/*` `<= 1` 天），独立 PR 直接指向 `main`，评审通过且 `CI Gate` 绿灯即可 `Squash and Merge`。遇到冲突或关键文件重叠时，同步 `origin/main`，核对 `git diff origin/main --stat` 并重跑相关检查；发版打 `vX.Y.Z` 不可变 Tag。
-- **迁移安全纪律（不设僵化表数上限）**：主干已合入迁移（`001..058`）不可改写、移动或删除；新迁移顺延编号，由 `docs:check`、`Squawk`（防锁表/并发索引隐患）、PG16 事务回滚测试与 `.github/CODEOWNERS` 联合把关；`050` 退役旧表不可复活。
-- **主线与外挂隔离**：主线只运行轻量 `Fastify 5 + TypeBox + PG16 + React`（零 Python/DuckDB/Chromium/ORM/Redis）；R4 `plugins/zst-archive/` 与 L3 重型/强反爬采集器 `MUST` 外置运行，只持带明确 `allowedSourceIds` 与 `ingest` scope 的 Machine Key 调用 `POST /v1/sources/:id/ingest`。
-- **模块化边界与代码质量纪律**：允许按独立业务域新增 `src/modules/<domain>/` 与子目录（不设僵化模块数或 450 行硬上限），但 `MUST` 通过 `eslint`（异步安全 `no-floating-promises` / 禁 `*Repository` 与 `InMemory*`）、`dependency-cruiser`（零循环依赖、禁跨模块引 `routes.ts`、禁越界耦合 `access`/`workspace`、禁跨模块深挖内部文件、禁前端引后端 `src/`）与路由鉴权/表写归属契约校验；全库唯一内容写入口为 `commitContentBatch`；`/v1/content/*` 仅 `GET/HEAD` 映射 `read` scope；付费渠道 `unknown` 永不自动重放；禁输出密钥、禁无授权 `git push --force`。
-4.开发代码提交pr原则
-  全面低复杂度，最大程度利用代码效率和性能
-  尽可能轻量/模块化/长期迭代
-  不断提高仓库的代码质量，定期清理漂移
+- **真实性红线**：`MUST NOT` 混淆“生产运行版本”、“`origin/main` 已合入代码”与“未合入 PR 分支代码”；`MUST NOT` 伪造趋势、火花线、百分比或把未实装接口写成 `[LIVE]`；用户明确指令高于历史文档。
+- **单主干与反漂移红线**：仓库唯一常驻主干为 **`main`**（不设常驻 `develop`/`prod`）；所有改动从最新 `origin/main` 切短分支（`feat/*` `<= 3` 天、`fix/*` `<= 1` 天），通过 `CI Gate` 与评审后 `Squash and Merge`；发版使用 `vX.Y.Z` 不可变 Tag；禁输出密钥、禁无授权 `git push --force`。
+- **前向迁移不可变**：主干已合入 SQL 迁移（`001..060`）严禁改写、移动或删除；新迁移顺延编号（V2 分支 `061..064`），由 `docs:check`、`Squawk`、PG16 回滚测试与 `.github/CODEOWNERS` 联合把关；`050` 退役旧表永不复活。
+- **主线与外挂隔离**：主线只运行 `Fastify 5 + TypeBox + PostgreSQL 16 + React`（零 ORM、Redis、Python、DuckDB、无头浏览器）；R4 `plugins/zst-archive/` 与重型/反爬 L3 采集器 `MUST` 外置运行，只持锁死 `allowedSourceIds` 与 `ingest` scope 的 Machine Key 调 `POST /v1/sources/:id/ingest`。
+- **9 域 DAG、唯一写入口与安全底线**：严格遵守[核心不变量台账](docs/invariants.md)（`INV-001`..`INV-010`）与 `eslint`、`depcruise`、`check-table-ownership`、`check:openapi` 门禁；全库内容写唯一入口为 `commitContentBatch`；`/v1/content/*` 仅 `GET/HEAD` 映射 `read` scope；付费渠道 `unknown` 永不自动重放。
+
+## 4. PR 代码质量准则
+
+- 全面追求低时空复杂度，优先在 SQL 层与热路径标量列完成过滤与聚合，消除无谓 `JSONB` 解包与重放写放大。
+- 保持轻量、模块化、高内聚低耦合，严禁单实现 `*Repository` / `InMemory*` 样板包装与跨模块深挖内部文件。
+- 随代码变动同步清理过期文档与漂移规则，维持库表与接口契约零歧义，降低长期迭代成本。

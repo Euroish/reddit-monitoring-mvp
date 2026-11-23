@@ -5,10 +5,11 @@ import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool, PoolClient } from "pg";
 import type { Actor } from "../../../packages/contracts/src/access";
-import { IdempotencyHeaders, ParamsId, SourceGroup, SourceLocale, SourceTier } from "../../../packages/contracts/src/common";
+import { IdempotencyHeaders, NullableText, ParamsId, SourceGroup, SourceLocale, SourceTier } from "../../../packages/contracts/src/common";
 import {
   Collect,
   FallbackProvider,
+  FeedLane,
   Ingest,
   PublicSourceDirectory,
   Source,
@@ -29,7 +30,7 @@ import { batchRoutes, recordCommittedBatch, type RequireWritableProject } from "
 import { planRoutes } from "./plans";
 import { sourceImportRoute } from "./import";
 import { admitViewerCollection, viewerCollectionDemand } from "./policy";
-import { assertSource, audit, insertSource, listPublicSources, listSources, lockSource } from "./sql";
+import { assertSource, audit, insertSource, listPublicSources, listSources, lockSource, removeOrArchiveSource } from "./sql";
 
 const PatchSourceBody = Type.Object(
   {
@@ -42,6 +43,8 @@ const PatchSourceBody = Type.Object(
     schedule: Type.Optional(SourceSchedule),
     tier: Type.Optional(SourceTier),
     ownerEntityId: Type.Optional(SourceOwner),
+    feedLane: Type.Optional(FeedLane),
+    qualityGrade: Type.Optional(NullableText),
     state: Type.Optional(Type.Union([Type.Literal("active"), Type.Literal("paused"), Type.Literal("archived")])),
     revision: Type.Integer({ minimum: 1 }),
   },
@@ -83,13 +86,15 @@ async function applySourcePatch(
     `UPDATE collection_source SET label=$2,state=$3,fallback_provider=$4,revision=revision+1,updated_at=NOW(),
       schedule=COALESCE($5::jsonb,schedule),next_due_at=CASE WHEN $5::jsonb IS NULL THEN next_due_at
         WHEN $5::jsonb @> '{"enabled":true}' THEN now() END,
-      tier=COALESCE($6,tier),owner_entity_id=$7,source_group=$8,tags=$9,locale=$10,fetch_policy=$11::jsonb
+      tier=COALESCE($6,tier),owner_entity_id=$7,source_group=$8,tags=$9,locale=$10,fetch_policy=$11::jsonb,
+      feed_lane=COALESCE($12,feed_lane),quality_grade=$13
       WHERE id=$1`,
     [
       source.id, body.label ?? source.label, body.state ?? source.state,
       pick(body.fallbackProvider, source.fallback_provider), body.schedule ?? null, body.tier ?? null,
       pick(body.ownerEntityId, source.owner_entity_id), pick(body.sourceGroup, source.source_group),
       pick(body.tags, source.tags), pick(body.locale, source.locale), pick(body.fetchPolicy, source.fetch_policy),
+      body.feedLane ?? null, pick(body.qualityGrade, source.quality_grade ?? null),
     ],
   );
   if (body.state && body.state !== "active") {
@@ -254,6 +259,19 @@ export async function collectionRoutes(app: FastifyInstance, pool: Pool, provide
       schema: { params: ParamsId, body: PatchSourceBody },
     },
     (request) => transaction(pool, (client) => applySourcePatch(client, request.actor!, request.params.id, request.body, providers)),
+  );
+  api.delete(
+    "/v1/sources/:id",
+    {
+      config: { auth: { access: "admin", machineScope: "sources:write" } },
+      schema: { params: ParamsId },
+    },
+    (request) => {
+      if (request.actor!.clientKind !== "browser") {
+        fail(403, "Delete sources from a browser administrator session");
+      }
+      return transaction(pool, (client) => removeOrArchiveSource(client, request.actor!, request.params.id));
+    },
   );
   api.post(
     "/v1/sources/:id/ingest",

@@ -25,10 +25,12 @@ const SHARED_READ_ALLOWLIST: Record<string, { allowedModules: string[]; reason: 
 const EXPLICIT_OWNERS: Array<{ match: RegExp; owner: string }> = [
   { match: /^app_[a-z0-9_]+$/, owner: "access" },
   { match: /^doc_page$/, owner: "docs" },
-  { match: /^(?:content|content_discovery|content_observation|public_content_search_document)$/, owner: "content" },
+  { match: /^(?:content|content_discovery|content_observation|content_author_profile|public_content_search_document)$/, owner: "content" },
   { match: /^(?:source|collection_source|collection_batch(?:_item)?|source_.+|plan_collection_policy|user_provider_usage)$/, owner: "collection" },
   { match: /^monitor_project(?:_source|_batch)?$/, owner: "projects" },
   { match: /^(?:content_saved_query|content_annotation)$/, owner: "workspace" },
+  { match: /^feed_user_.+$/, owner: "feed" },
+  { match: /^intel_.+$/, owner: "intelligence" },
   { match: /^ai_.+$/, owner: "ai" },
 ];
 
