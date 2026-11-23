@@ -371,6 +371,26 @@ test("empty batch projects, viewer ownership isolation, and batch enable/disable
     payload: { batchId: privateBatchId },
   });
   assert.equal(bSteal.statusCode, 404, "Viewer B must be blocked from attaching Viewer A's private batch");
+  // Staff may link a private batch to a shared project without disclosing it to other viewers.
+  const sharedAttach = await app.inject({
+    method: "POST",
+    url: `/v1/projects/${sharedProj.id}/batches`,
+    headers: ownerHeaders,
+    payload: { batchId: privateBatchId },
+  });
+  assert.equal(sharedAttach.statusCode, 200, sharedAttach.body);
+  for (const [headers, expected] of [[ownerHeaders, 1], [viewerAHeaders, 1], [viewerBHeaders, 0]] as const) {
+    const { project } = (await app.inject({
+      method: "GET", url: `/v1/projects/${sharedProj.id}/overview`, headers,
+    })).json();
+    assert.equal(project.enabled_batch_count, expected);
+    assert.equal(project.total_batch_count, expected);
+    const { batches } = (await app.inject({
+      method: "GET", url: `/v1/projects/${sharedProj.id}/batches`, headers,
+    })).json();
+    assert.equal(batches.length, expected);
+  }
+
   // Viewer B CAN attach Owner's shared batch1
   const bShared = await app.inject({
     method: "POST",

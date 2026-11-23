@@ -287,6 +287,8 @@ export const ResearchPlanPreviewInput = Type.Object(
   { additionalProperties: false },
 );
 
+export type ResearchPlanPreviewRequest = Static<typeof ResearchPlanPreviewInput>;
+
 export const BatchVisibilityInput = Type.Object(
   { visibility: Type.Union([Type.Literal("private"), Type.Literal("shared")]) },
   { additionalProperties: false },

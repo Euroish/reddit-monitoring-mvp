@@ -1,3 +1,4 @@
+export type { ResearchPlanPreviewRequest } from '../../../../packages/contracts/src/collection.js';
 import type { SourceCapability, SourceTarget } from '../../../../packages/contracts/src/source-content.js';
 export type { CollectionSource, SourceCapability, SourceTarget } from '../../../../packages/contracts/src/source-content.js';
 export type {
@@ -347,20 +348,6 @@ export interface ProjectBatchDto {
   status: 'enabled' | 'disabled' | 'removed';
   addedAt: string;
   createdAt: string;
-}
-
-export interface ResearchPlanPreviewRequest {
-  projectId?: string;
-  sourceId?: string;
-  platform?: 'reddit' | 'x' | 'bluesky';
-  targetType?: 'community' | 'account' | 'search';
-  targetValue?: string;
-  from: string;
-  to: string;
-  limit: number;
-  includeComments?: boolean;
-  maxCommentsPerPost?: number;
-  useFallback?: boolean;
 }
 
 export interface ResearchPlanPreviewResponse {

@@ -1,9 +1,9 @@
-import type { Static } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import { providerResourceReservation } from "../../../packages/contracts/src/collection-budget";
-import { ResearchPlanPreviewInput, type Actor } from "../../../packages/contracts/src/source-content";
+import type { Actor } from "../../../packages/contracts/src/access";
+import { ResearchPlanPreviewInput, type ResearchPlanPreviewRequest } from "../../../packages/contracts/src/collection";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { countSourceSamples } from "../content/index";
 import { fail } from "../../shared/errors";
@@ -14,7 +14,6 @@ import { collectionRequestRestriction, isCollectionBudgetDisabled } from "./conf
 
 export type RequireWritableProject = (db: Pool | PoolClient, actor: Actor, projectId: string) => Promise<unknown>;
 
-type PlanBody = Static<typeof ResearchPlanPreviewInput>;
 
 function normalizeTargetValue(targetType: string, raw: string): string {
   const trimmed = raw.trim();
@@ -42,7 +41,7 @@ function buildFieldPolicy(isViewer: boolean, effective: EffectivePolicy) {
   };
 }
 
-function collectPolicyBlockers(isViewer: boolean, effective: EffectivePolicy, body: PlanBody, spanDays: number): string[] {
+function collectPolicyBlockers(isViewer: boolean, effective: EffectivePolicy, body: ResearchPlanPreviewRequest, spanDays: number): string[] {
   if (!isViewer) return [];
   const blockers: string[] = [];
   if (!effective.manualCollectEnabled) blockers.push(`Manual collection is disabled for ${effective.planTier} tier`);
@@ -108,7 +107,7 @@ async function previewMatchedSource(
   actor: Actor,
   providers: ContentProvider[],
   effective: EffectivePolicy,
-  body: PlanBody,
+  body: ResearchPlanPreviewRequest,
   matched: QueryResultRow,
   normalizedTarget: string | null,
   policyBlockers: string[],

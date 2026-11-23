@@ -6,7 +6,7 @@ import type { Filter } from "../../../packages/contracts/src/content";
 import type { ProjectInput } from "../../../packages/contracts/src/projects";
 import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
-import { allSourcesExist, batchMembership, listStaffOwnerIds, loadEffectivePolicyForUser } from "../collection/index";
+import { allSourcesExist, batchMembership, listStaffOwnerIds, loadAuthorizedBatches, loadEffectivePolicyForUser } from "../collection/index";
 import { compileContentFilter, summarizeScopedContent } from "../content/index";
 
 type ProjectWrite = Static<typeof ProjectInput>;
@@ -30,33 +30,52 @@ export interface Project {
 export async function listProjects(pool: Pool | PoolClient, actor: Actor, id?: string) {
   const isViewer = actor.role === "viewer";
   const staffIds = await listStaffOwnerIds(pool);
-  return (await pool.query<Project>(`
+  const restrictBatches = isViewer || actor.allowedSourceIds !== null;
+  const { rows } = await pool.query<Project & { batch_ids: string[]; enabled_batch_ids: string[] }>(`
     SELECT p.id, p.name, p.description, p.dataset_mode, p.owner_user_id, p.filter,
       p.revision, p.thread_aware, p.include_push_in_trends, p.created_at, p.updated_at,
       s.source_ids,
       (NOT $3::boolean OR p.owner_user_id = $4::uuid) AS can_edit,
       (p.owner_user_id IS NULL OR p.owner_user_id=ANY($5::uuid[])) AS is_shared,
       COALESCE(b.enabled_batch_count, 0)::int AS enabled_batch_count,
-      COALESCE(b.total_batch_count, 0)::int AS total_batch_count
+      COALESCE(b.total_batch_count, 0)::int AS total_batch_count,
+      COALESCE(b.batch_ids, ARRAY[]::uuid[]) AS batch_ids,
+      COALESCE(b.enabled_batch_ids, ARRAY[]::uuid[]) AS enabled_batch_ids
     FROM monitor_project p
     CROSS JOIN LATERAL (
       SELECT ARRAY(SELECT collection_source_id FROM monitor_project_source WHERE project_id=p.id ORDER BY collection_source_id) AS source_ids
     ) s
     LEFT JOIN LATERAL (
       SELECT COUNT(*) FILTER (WHERE status = 'enabled') AS enabled_batch_count,
-             COUNT(*) FILTER (WHERE status <> 'removed') AS total_batch_count
+             COUNT(*) FILTER (WHERE status <> 'removed') AS total_batch_count,
+             ARRAY_AGG(batch_id) FILTER (WHERE $7::boolean AND status <> 'removed') AS batch_ids,
+             ARRAY_AGG(batch_id) FILTER (WHERE $7::boolean AND status = 'enabled') AS enabled_batch_ids
       FROM monitor_project_batch
       WHERE project_id = p.id
     ) b ON true
     WHERE ($1::uuid[] IS NULL OR s.source_ids <@ $1)
       AND ($2::uuid IS NULL OR p.id=$2)
+      AND ($6::boolean OR p.dataset_mode <> 'batch')
       AND (
         NOT $3::boolean
         OR p.owner_user_id = $4::uuid
         OR p.owner_user_id IS NULL
         OR p.owner_user_id=ANY($5::uuid[])
       )
-    ORDER BY p.updated_at DESC`, [actor.allowedSourceIds, id ?? null, isViewer, actor.userId ?? null, staffIds])).rows;
+    ORDER BY p.updated_at DESC`, [
+    actor.allowedSourceIds, id ?? null, isViewer, actor.userId ?? null, staffIds,
+    actor.clientKind === "browser", restrictBatches,
+  ]);
+  const visibleIds = new Set((await loadAuthorizedBatches(pool, actor, [...new Set(rows.flatMap(row => row.batch_ids))]))
+    .map(batch => batch.batchId));
+  return rows.map(({ batch_ids, enabled_batch_ids, ...project }) => {
+    if (!restrictBatches) return project;
+    return {
+      ...project,
+      enabled_batch_count: enabled_batch_ids.filter(id => visibleIds.has(id)).length,
+      total_batch_count: batch_ids.filter(id => visibleIds.has(id)).length,
+    };
+  });
 }
 
 export async function projectSources(pool: Pool | PoolClient, actor: Actor, id: string) {
