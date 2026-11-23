@@ -501,7 +501,7 @@ export function ProjectsPage({
             {overview && <> · {t('Coverage', '口径')} <b>{t('Stored samples', '已存样本')}</b></>}
             {(selectedProject.dataset_mode === 'batch' || hasBoundPushSource) && <> · {
               selectedProject.dataset_mode === 'batch' || selectedProject.include_push_in_trends
-                ? t('Trends include push samples', '趋势包含推流样本')
+                ? t('Push/R4 included in trends', '趋势已计入推流/归档样本')
                 : t('Trends use pull samples', '趋势使用拉取样本')
             }</>}
           </p>}
