@@ -48,6 +48,6 @@
 | [invariants.md](invariants.md) | `INV-001`..`INV-010` 核心工程不变量与门禁索引 |
 | [contracts.md](contracts.md) | Domain 对象、认证授权、采集/查询/导出规则与 OpenAPI 115 路由实测清单 |
 | [design.md](design.md) | 现有 UI 基线与 Frontend V2 信息架构/交互视觉规范 |
-| [status.md](status.md) | 生产抽样、`main` 基线、PR #32 实码盘点与 5 项待收口缺口 |
+| [status.md](status.md) | 生产最近已知基线、主干已合入代码、在途质量修复与未收口事项 |
 | [development.md](development.md) | 分支协作、CI 门禁、本地验证、Docker 部署与生产运维手册 |
 | [backend-v2-blueprint.md](plans/backend-v2-blueprint.md) | 已批准 Backend V2 产品与架构完整设计规格 |

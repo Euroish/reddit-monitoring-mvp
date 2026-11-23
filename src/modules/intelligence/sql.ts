@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Static } from "@sinclair/typebox";
 import type { Pool, PoolClient } from "pg";
 import type { Actor } from "../../../packages/contracts/src/access";
@@ -12,6 +12,7 @@ import type { ContentProvider } from "../../connectors/shared/content-provider.i
 import { notifyChannel } from "../../platform/pg-notify";
 import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
+import { canonical } from "../content/index";
 import {
   DAILY_SOCIAL_ITEM_CEILING,
   cancelUnstartedMonitorHydrations,
@@ -226,13 +227,11 @@ export async function triggerMonitorCollect(
     includeComments,
     maxCommentsPerPost,
   });
-  if (estimate.exceedsMonitorBudget) {
-    fail(422, `Estimated collection (${estimate.estimatedMaxItems}) exceeds monitor daily budget (${monitor.dailyItemBudget})`);
-  }
-  if (estimate.exceedsSystemCeiling) {
-    fail(429, `Estimated collection would exceed ${DAILY_SOCIAL_ITEM_CEILING}/day system social ceiling`);
-  }
-
+  // Fingerprint client intent, not the server's newly generated absolute window.
+  const requestHash = createHash("sha256").update(canonical({
+    monitorId: id, revision: monitor.revision, lookbackHours: body.lookbackHours ?? 168,
+    limit, includeComments, maxCommentsPerPost,
+  })).digest("hex");
   const to = new Date();
   const from = new Date(to.getTime() - (body.lookbackHours ?? 168) * 3_600_000);
   const outcome = await transaction(pool, async (client) => {
@@ -247,9 +246,18 @@ export async function triggerMonitorCollect(
         includeComments,
         maxCommentsPerPost,
         requestKey: `${idempotencyKey}:${sourceId}`,
+        requestHash,
       });
       jobIds.push(res.jobId);
       if (res.created) anyCreated = true;
+    }
+    // Replays must remain retrievable after quotas change. New jobs and their
+    // personal reservations roll back together if the monitor budget rejects.
+    if (anyCreated && estimate.exceedsMonitorBudget) {
+      fail(422, `Estimated collection (${estimate.estimatedMaxItems}) exceeds monitor daily budget (${monitor.dailyItemBudget})`);
+    }
+    if (anyCreated && estimate.exceedsSystemCeiling) {
+      fail(429, `Estimated collection would exceed ${DAILY_SOCIAL_ITEM_CEILING}/day system social ceiling`);
     }
     return { jobIds, anyCreated };
   });

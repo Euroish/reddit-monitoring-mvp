@@ -109,14 +109,15 @@ export async function attachBatchToProjectInTx(
     if (!user || user.status !== "active") return;
     if (user?.role === "viewer" && project.owner_user_id !== input.userId) return;
   }
-  await client.query(
+  // Later pages and retries must not override a user's disable/remove decision.
+  const attached = await client.query(
     `INSERT INTO monitor_project_batch(project_id, batch_id, status, added_by_user_id, added_at, updated_at)
      VALUES($1, $2, 'enabled', $3, NOW(), NOW())
-     ON CONFLICT (project_id, batch_id)
-     DO UPDATE SET status='enabled', updated_at=NOW()`,
+     ON CONFLICT (project_id, batch_id) DO NOTHING
+     RETURNING batch_id`,
     [input.projectId, input.batchId, input.userId],
   );
-  await client.query(
+  if (attached.rowCount) await client.query(
     "UPDATE monitor_project SET revision=revision+1, updated_at=NOW() WHERE id=$1",
     [input.projectId],
   );

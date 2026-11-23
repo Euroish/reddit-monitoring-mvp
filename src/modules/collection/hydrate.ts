@@ -19,8 +19,9 @@ export async function enqueueHydrationForScope(
   const hash = createHash("sha256").update(JSON.stringify([ids, input.maxCommentsPerPost])).digest("hex");
   const requestKey = `hydrate:${scope.projectId}:${key}`;
   const existing = (
-    await client.query<{ id: string; payload_hash: string; collection_source_id: string }>(
-      "SELECT id,payload_hash,collection_source_id FROM source_collection_job WHERE operation='hydrate' AND request_key=$1 ORDER BY id",
+    await client.query<{ id: string; payload_hash: string; collection_source_id: string;
+      requested_by_user_id: string | null; requested_by_client_kind: string | null }>(
+      "SELECT id,payload_hash,collection_source_id,requested_by_user_id,requested_by_client_kind FROM source_collection_job WHERE operation='hydrate' AND request_key=$1 ORDER BY id",
       [requestKey],
     )
   ).rows;
@@ -28,7 +29,8 @@ export async function enqueueHydrationForScope(
     if (!existing.every((job) => scope.sourceIds.includes(job.collection_source_id))) {
       fail(404, "Collection job not found");
     }
-    if (existing[0].payload_hash !== hash) {
+    if (existing.some(job => job.requested_by_client_kind !== actor.clientKind ||
+        job.requested_by_user_id !== (actor.userId ?? null)) || existing[0].payload_hash !== hash) {
       fail(409, "Idempotency key already used with different posts");
     }
     return { jobIds: existing.map((job) => job.id), created: false };

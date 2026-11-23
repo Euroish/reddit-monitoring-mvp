@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { Static } from "@sinclair/typebox";
-import type { Pool, PoolClient } from "pg";
+import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type { Actor } from "../../../packages/contracts/src/access";
-import type { CollectionSource, SourceInput } from "../../../packages/contracts/src/collection";
+import type { Collect, CollectionSource, SourceInput } from "../../../packages/contracts/src/collection";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { fail } from "../../shared/errors";
 import { canonical } from "../content/index";
-import { validateSource } from "./config";
+import { collectionRequestRestriction, isCollectionBudgetDisabled, validateSource } from "./config";
 import { admitViewerCollection, viewerCollectionDemand } from "./policy";
 import { insertSource, lockSource, sourceFromRow, sourceSelect } from "./sql";
 
@@ -43,64 +43,61 @@ export async function ensureManagedSource(
   return insertSource(client, input, target);
 }
 
+function collectionProvider(source: QueryResultRow, body: Static<typeof Collect>, providers: ContentProvider[]) {
+  if (source.delivery_mode !== "pull") fail(409, "Push sources cannot be scheduled");
+  const from = Date.parse(body.from);
+  const to = Date.parse(body.to);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) fail(422, "Invalid collection window");
+  const providerName = body.useFallback ? source.fallback_provider : source.primary_provider;
+  if (!providerName) fail(422, "No fallback provider configured for this source");
+  const provider = providers.find(
+    item => item.capability.provider === providerName && item.capability.platform === source.platform,
+  );
+  const restriction = collectionRequestRestriction(providerName, source.platform, source.target.type, body);
+  if (restriction) fail(422, restriction);
+  if (!provider?.capability.enabled) fail(422, "Provider networking is disabled or credentials are missing");
+  if (source.automatic_collection_blocked) fail(409, "Collection is blocked pending review of an unresolved operation");
+  return providerName as string;
+}
+
 export async function enqueueCollectionForSource(
   client: PoolClient,
   actor: Actor,
   providers: ContentProvider[],
-  input: {
-    sourceId: string;
-    from: string;
-    to: string;
-    limit: number;
-    includeComments?: boolean;
-    maxCommentsPerPost?: number;
-    requestKey: string;
-  },
+  input: Static<typeof Collect> & { sourceId: string; requestKey: string; requestHash?: string },
 ): Promise<{ jobId: string; created: boolean }> {
-  const source = await lockSource(client, actor, input.sourceId);
-  if (source.delivery_mode !== "pull") fail(409, "Push sources cannot be scheduled");
-  if (source.automatic_collection_blocked) fail(409, "Collection is blocked pending unresolved review");
-  const body = {
-    from: input.from,
-    to: input.to,
-    limit: input.limit,
-    includeComments: Boolean(input.includeComments),
-    maxCommentsPerPost: input.maxCommentsPerPost,
-  };
+  const { sourceId, requestKey, requestHash, ...body } = input;
+  const source = await lockSource(client, actor, sourceId);
   const previous = (
     await client.query(
-      "SELECT id, request_json FROM source_collection_job WHERE collection_source_id=$1 AND request_key=$2 AND purpose='collect' AND operation='radar'",
-      [source.id, input.requestKey],
+      "SELECT id,request_json,payload_hash,requested_by_user_id,requested_by_client_kind FROM source_collection_job WHERE collection_source_id=$1 AND request_key=$2 AND purpose='collect' AND operation='radar'",
+      [source.id, requestKey],
     )
   ).rows[0];
   if (previous) {
-    if (canonical(previous.request_json) !== canonical(body)) {
-      fail(409, "Idempotency key already used with different collection parameters");
+    if (previous.requested_by_client_kind !== actor.clientKind ||
+        previous.requested_by_user_id !== (actor.userId ?? null) ||
+        (requestHash ? previous.payload_hash !== requestHash : canonical(previous.request_json) !== canonical(body))) {
+      fail(409, "Idempotency key already used with different request");
     }
     return { jobId: previous.id, created: false };
   }
-  const providerName: string = source.primary_provider;
-  const provider = providers.find(
-    (item) => item.capability.provider === providerName && item.capability.platform === source.platform,
-  );
-  if (!provider?.capability.enabled) {
-    fail(422, `Provider ${providerName} networking is disabled or credentials are missing`);
-  }
-  const pageSize = providerName === "twitterapis" ? Math.min(input.limit, 20) : input.limit;
-  if (actor.role === "viewer") {
-    await admitViewerCollection(client, actor, {
-      sourceId: source.id,
-      ...viewerCollectionDemand(providerName, source.target.type, pageSize, body),
-    });
-  }
+  const providerName = collectionProvider(source, body, providers);
+  if (body.projectId && await isCollectionBudgetDisabled(client, providerName))
+    fail(409, "System channel budget is disabled or zero");
+  const pageSize = providerName === "twitterapis" ? Math.min(body.limit, 20) : body.limit;
+  await admitViewerCollection(client, actor, {
+    sourceId: source.id, from: body.from, to: body.to, useFallback: body.useFallback,
+    ...viewerCollectionDemand(providerName, source.target.type, pageSize, body),
+  });
   const id = randomUUID();
   await client.query(
     `INSERT INTO source_collection_job(
        id,collection_source_id,status,purpose,operation,provider,from_at,to_at,
-       page_size,max_pages,next_run_at,created_at,request_key,request_json,requested_by_user_id,requested_by_client_kind
+       page_size,max_pages,next_run_at,created_at,request_key,request_json,requested_by_user_id,requested_by_client_kind,payload_hash
      )
-     VALUES($1,$2,'queued','collect','radar',$3,$4,$5,$6,1,NOW(),NOW(),$7,$8,$9,$10)`,
-    [id, source.id, providerName, input.from, input.to, pageSize, input.requestKey, body, actor.userId, actor.clientKind],
+     VALUES($1,$2,'queued','collect','radar',$3,$4,$5,$6,1,NOW(),NOW(),$7,$8,$9,$10,$11)`,
+    [id, source.id, providerName, body.from, body.to, pageSize, requestKey, body, actor.userId, actor.clientKind, requestHash ?? null],
   );
   return { jobId: id, created: true };
 }

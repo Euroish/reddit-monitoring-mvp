@@ -97,6 +97,24 @@ test("PG16 main + V2: transactional project attachment, isolated post-commit fai
   assert.equal(next.itemCount, 2);
   assert.equal((await record()).itemCount, 2);
 
+  // Repeated worker callbacks must preserve membership decisions and revisions.
+  const batchId = replayed[0].batchId;
+  for (const status of ["disabled", "removed", "enabled"]) {
+    const changed = await app.inject({ method: "PATCH", url: `/v1/projects/${projectId}/batches/${batchId}`,
+      headers, payload: { status } });
+    assert.equal(changed.statusCode, 200, changed.body);
+    const before = (await db.pool.query("SELECT revision FROM monitor_project WHERE id=$1", [projectId])).rows[0].revision;
+    await Promise.all([1, 2, 3].map(() => transaction(db.pool, client => attachBatchToProjectInTx(client, {
+      projectId, batchId, userId: null,
+    }))));
+    assert.equal((await db.pool.query("SELECT status FROM monitor_project_batch WHERE project_id=$1 AND batch_id=$2",
+      [projectId, batchId])).rows[0].status, status);
+    assert.equal((await db.pool.query("SELECT revision FROM monitor_project WHERE id=$1", [projectId])).rows[0].revision, before);
+  }
+  const explicit = await app.inject({ method: "POST", url: `/v1/projects/${projectId}/batches`, headers, payload: { batchId } });
+  assert.equal(explicit.statusCode, 200, explicit.body);
+  assert.equal(explicit.json().batch.status, "enabled", "explicit user reuse may re-enable a removed batch");
+
   // Job retention may remove an empty run while its batch remains a historical artifact.
   const empty = await app.inject({ method: "POST", url: "/v1/sources", headers,
     payload: { platform: "reddit", primaryProvider: "external_ingest", deliveryMode: "push", label: "Retained history",
