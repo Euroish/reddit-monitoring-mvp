@@ -12,7 +12,7 @@ test("release packaging allowlist excludes credentials/data and verification det
   for (const folder of [
     "dist/apps/api/src", "dist/src/storage/schema", "dist/src/modules/ai", "dist/data/ai/history/v1", "data/ai/history/v1",
     "dist/workers", "dist/plugins/zst-archive", "plugins/zst-archive",
-    "apps/web/dist", "src/storage/schema", "deploy/env", "docs/research", "docs/plans",
+    "apps/web/dist", "src/storage/schema", "deploy/env", "docs/plans",
   ]) await mkdir(path.join(root, folder), { recursive: true });
   const sampleHistoryBody = "[]\n";
   const sampleHistorySha = createHash("sha256").update(sampleHistoryBody).digest("hex");
@@ -31,17 +31,13 @@ test("release packaging allowlist excludes credentials/data and verification det
     ["dist/src/storage/schema/001_fixture.sql", "SELECT 1;"],
     ["apps/web/dist/index.html", "<html lang='en'>synthetic</html>"], ["src/storage/schema/001_fixture.sql", "SELECT 1;"],
     ["package.json", JSON.stringify({ name: "synthetic", version: "0.7.0" })], ["package-lock.json", "{}"],
-    ["docs/research/data-sources.md", "candidate evidence"], ["docs/research/product-strategy.md", "product evidence"], ["docs/plans/source-expansion.md", "future design"],
-    ["docs/research/source_replacement_and_twitterapi_io_removal_spec.md", "source removal and replacement spec"],
+    ["AGENTS.md", "agent guide"], ["README.md", "readme"],
     ["docs/README.md", "product and architecture"], ["docs/architecture.md", "architecture"],
-    ["docs/development.md", "development"], ["docs/status.md", "status"],
+    ["docs/development.md", "development"], ["docs/invariants.md", "invariants"],
+    ["docs/plans/backend-v2-blueprint.md", "v2 blueprint"], ["docs/status.md", "status"],
     ["docs/contracts.md", "data contracts"], ["docs/design.md", "interaction design"],
-    ["docs/research/architecture_audit_and_rebuild_spec.md", "audit decisions"],
     ["dist/plugins/zst-archive/archive.js", "throw new Error('external plugin');"],
     ["plugins/zst-archive/archive.py", "raise RuntimeError('external plugin')"],
-    ["docs/research/ChatGPT-讲解仓库文档-20261118-1807.md", "research input"],
-    ["docs/research/deep-audit-and-architecture-blueprint-20261118.md", "deep audit and architecture blueprint"],
-    ["docs/research/product-architecture-conversation-20261118.md", "conversation archive"],
     ["docs/private-notes.md", "unapproved notes"],
     ["deploy/apify-relay.Dockerfile", "FROM scratch"],
     ["deploy/apify-relay.compose.yml", "services: {}"],

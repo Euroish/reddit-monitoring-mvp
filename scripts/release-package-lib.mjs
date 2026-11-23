@@ -25,15 +25,9 @@ export const DOCUMENTATION_FILES = Object.freeze([
   'docs/contracts.md',
   'docs/design.md',
   'docs/development.md',
+  'docs/invariants.md',
+  'docs/plans/backend-v2-blueprint.md',
   'docs/status.md',
-  'docs/research/product-architecture-conversation-20261118.md',
-  'docs/research/data-sources.md',
-  'docs/research/product-strategy.md',
-  'docs/research/ChatGPT-讲解仓库文档-20261118-1807.md',
-  'docs/research/deep-audit-and-architecture-blueprint-20261118.md',
-  'docs/research/architecture_audit_and_rebuild_spec.md',
-  'docs/research/source_replacement_and_twitterapi_io_removal_spec.md',
-  'docs/plans/source-expansion.md',
 ]);
 const safeName = value => typeof value === 'string' && !path.posix.isAbsolute(value) && !value.includes('\\')
   && !value.split('/').some(part => !part || part === '.' || part === '..');

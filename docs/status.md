@@ -1,44 +1,39 @@
-# 主干交付状态、生产基线与下一步
+# 主干交付状态、生产基线与演进路线
 
-本页记录可核验的运行状态和下一步取舍。[产品规范](README.md)定义产品和度量边界，[架构](architecture.md)定义系统所有权与容量，[开发手册](development.md)记录发布与回滚方法。
+本页是仓库唯一维护实时工程进度的页面，严格区分**线上生产运行态**、**`origin/main` 主干代码**与**未合入的 Backend V2 分支（PR #32）**，绝不把未部署代码写成线上事实。
 
-## 0. 当前主干基线与实测资产清单（[LIVE]）
+---
 
-`[LIVE]` 表示在主干有入口及实现。生产上线状态以实际镜像、迁移与验收为准。
+## 1. 三层实时基线对照
 
-| 功能 | 当前 `main` 主干基线（迁移 `001..058`） |
-| --- | --- |
-| 社媒样本与研究 | Reddit、X、Bluesky、Web 的规范化抓取接口、范围受控的外部推流及已存样本查询。专业工作台提供 `/content` 检索与分面、帖子与评论树、观测历史；`/projects` 提供保存的来源与主题范围、时间 × 平台趋势和 Reddit 主题评论补采。机器 Key 权限沿来源范围过滤。平台支持、生产开通和分析覆盖分别验收。 |
-| 资讯与公开站 | `/` 提供编辑式情报首页（紧凑检索、自动焦点信号、48h 热榜、8 频道今日精选、实时 `/v1/ai/events` 动态预览 + 08:00 每日简报、同页 `nextOffset` 连续分页、阅读抽屉与 `EditorialFooter`）；`/app/feed` 提供完整排序与过滤；`/product`、`/guide`、`/docs` 可访问；`/ai` 已上线 **AI 发布情报中心**（浅色时间矩阵、模型详情抽屉、评测榜单与官方一手更新流，仅展示有官方证据的发布事件）。排序依据来源等级、可见证据、衰减和来源多样性。 |
-| 账号安全与 AI 流水线 | 支持邮件验证/找回、管理员 TOTP MFA、浏览器会话管理与 scrypt v2 渐进切换；`/admin/queue` 浏览器管理员审核队列；`src/modules/ai/` 独立承载 `ai-scheduler`（`AI_SYNC_ENABLED=true` 开启，默认关闭）、`data/ai/history/v1/` 离线幂等冷启动（`ai:history:*` CLI）与游标分页历史回填。 |
-| 凭证与调度 | 持久队列、单机 Worker、付费状态恢复、平台与用户额度、凭证加密和可配置 Apify 中继。 |
-| 数据库 | `001..050` 基线 20 表；`051/052` 凭证与额度 3 表；`053` `doc_page`；`054..056` AI 情报与历史回填 19 表；`057/058` 邮箱验证与管理员 MFA 3 表，当前主干共 **46 表**（已取消僵化表数硬上限，后续 `059+` 迁移改由不可变校验、`Squawk` 与 `CODEOWNERS` 把关）。 |
+| 层级 | 提交 / 版本 | 状态摘要与实测证据 |
+| :--- | :--- | :--- |
+| **线上生产环境**<br>（2026-11-22 抽样，未改动） | `f3bcc1b` (`monitoring-unified:f3bcc1b3f402` / `...-web:f3bcc1b3f402`) | 5 个健康容器运行中（`proxy` / `app` / `db` / `apify-relay` / `apify-secure-gateway`）。PG16 已应用至 `058`（46 表，~51 MiB）；库内为 V2 清洗前构成：101 活跃源（95 `feed`、4 `newsnow`、1 `kaix`、1 `external_ingest`；3,492 篇 Web、10 条 Reddit 帖、5 条评论、5 条 X 帖），90 条 AI 发布事件可查（`AI_SYNC_ENABLED=false`）。 |
+| **`origin/main` 主干**<br>（PR #31 已合入，待上线） | `4b05369` | 完成 7 域严格无环 DAG 重构、`check-table-ownership` 单写归属守卫、全路由声明式 `config.auth` 与 PG16 `LISTEN/NOTIFY` 运行时优化；迁移至 `058`（46 表）。 |
+| **Backend V2 开发分支**<br>（PR #32 · **Draft 未完成态**） | `feat/backend-v2-feed-intelligence` | 已落地迁移 `059–061`（9 域 55 表）、Reddit/X 连接器富化（媒体/域名/粉丝画像/Top 排序）、`content` 标量物化与 `heuristic_v1`、`feed`（6 操作）+ `intelligence`（13 操作）BFF、`DELETE /v1/sources/:id`；`115` OpenAPI 路径 / `131` 操作、全套单测与隔离 PG16 15 套集成测试通过；正按下方第 2 节清单逐项收口。 |
 
-## 1. 生产只读抽样
+---
 
-采样于 **2026-11-22 13:39（北京时间）**。状态会随部署和采集更新。
+## 2. Draft PR #32 待收口缺口（Merge / Un-draft 前核对）
 
-| 检查 | 结果 |
-| --- | --- |
-| 发布版本 | API `monitoring-unified:f3bcc1b3f402` 与代理 `monitoring-unified-web:f3bcc1b3f402` 均来自主干 `f3bcc1b3f402`，于 13:38 切换。公网首页、AI 情报和文档中心已通过浏览器与 API 验证。 |
-| 数据库与进程 | PG16 已应用至 `058`，46 张公共表，约 51 MiB。API 和数据库健康，1 个近期活跃 Worker。 |
-| 来源与任务 | 101 个活跃配置，包括 95 个 Feed、4 个热榜排期源、1 个 Kaix 和 1 个外部推流源。24 小时内创建的任务中 813 成功、16 失败。任务成功数记录执行结果，分析页面独立展示覆盖。 |
-| AI 发布情报 | 启动时已导入 v1 历史数据，90 条发布事件可公开查询。自动同步关闭。 |
+为保证与[核心度量诚实性](README.md#3-度量诚实性与工程规则docscheck-受控-id)及 [Backend V2 蓝图](plans/backend-v2-blueprint.md) 100% 一致，以下 5 项已核实缺口明确挂账，将在 PR #32 转为 Ready 前处理或显式裁决：
 
-同一巡检窗口内，库中有 3,492 篇 Web 文章、10 条 Reddit 主帖、5 条 Reddit 评论及 5 条 X 帖子。Bluesky 暂无入库。跨平台比较前需确认目标来源、窗口、缺口、指标与可追溯样本。来源配置细分见[来源矩阵](research/data-sources.md)。
+1. **热榜合成假 `sparkline`（高优先级）**：`src/modules/feed/sql.ts` 当前返回 `[heat*0.45, heat*0.72, heat*0.88, heat]` 硬编码曲线，违背零伪造指标红线；需改为基于 `content_observation` 真实时序快照计算（不足 2 点时如实返回空/现有节点）。
+2. **`feed_user_event` 幂等与 KOL/GEO 指标精度（高优先级）**：
+   - `feed_user_event`（迁移 `060` / `src/modules/feed/sql.ts`）需增加 `(user_id, content_id, event_type)` 去重防刷机制，避免重复上报 `bookmark`/`useful` 叠加权重；
+   - `src/modules/intelligence/analytics.ts` 的 KOL 个人页 ER 需补充聚合 `comments`/`reposts`/`bookmarks`；
+   - `src/modules/content/intel-queries.ts` 的 GEO 外链域名榜当前排除评论区，需区分或纳回评论区高赞引用。
+3. **跨源共振度 `corroborationCount`（中优先级）**：`src/modules/content/feed-queries.ts` 当前返回字面量 `1 AS corroboration_count`，需接入 `story-groups.ts` 的 SimHash 多源聚簇计数。
+4. **`community_bundle` 自动 P80 评论补采（中优先级）**：当前 Worker `onBatchCommitted` 仅刷新 `intel_rollup_bucket`，尚缺自动识别超出板块 P80 热度的主帖并按预算入队 `hydrate` 评论任务的触发器（目前仅支持手动带 `includeComments: true` 触发）。
+5. **高讨论信源重建（上线后运营动作）**：`059` 归档被动新闻与 V2EX 后，待新版本部署上线再由人工精选补充 HN/Lobsters/GitHub Trending/HF Papers 与目标 Subreddit/KOL（本项有意留到部署后执行）。
 
-## 2. 发布验证与后端稳定性
+> **仓库在途 PR 清单**：仅 **PR #32**（`feat/backend-v2-feed-intelligence` · Draft · Backend V2）与 **PR #30**（`codex/source-operations-ux` · Draft，按指令保留不关闭）。
 
-- 本次用生产备份在隔离 PG16 验证 `052 → 058`，覆盖登录、工作台、文档草稿权限、编辑冲突和 PDF 下载。文档编辑、发布和删除尚缺集中审计记录。
-- 旧版 API 和代理已在升级后的隔离库通过启动、登录与公开访问验收。生产保持 scrypt v1 兼容写。下次发布继续核对迁移台账、Worker 心跳、公开与登录态流程。
-- 迁移按前向演进处理。应用版本回退和数据库恢复各有独立验收，恢复边界见[开发手册](development.md#备份隔离恢复与发布校验)。
+---
 
-## 3. 两条研发路径（[V2]）
+## 3. 下一阶段推进顺序
 
-| 顺序 | 社媒研究与分析 | 高质量信息流与分发 | 完成门槛 |
-| --- | --- | --- | --- |
-| 1 · 样本可信 | 挑选一组可持续的 Reddit 主题与社区，用已有专题、分面和评论树核对覆盖、样本偏差、评论深度和缺失指标。 | 完善信源准入、来源多样性和保活诊断，保留最新、热门与日报为可解释的基线。 | 同一窗口从图表回到明细能复算，能区分零命中、范围外、采集缺口。先用现有表和接口。 |
-| 2 · 可重复工作流 | 验证对比与下钻需求，用相同来源、时窗和统计口径比较专题、社区和作者；输出可重跑的导出。 | 用明确的订阅、收藏、隐藏与反馈验证个性化排序，保留非个性化入口；对比去重、多样性、相关性和无结果比例。 | 小样本对照、可解释理由、权限边界、可关闭，且基线与新策略可比较。 |
-| 3 · 按需扩展 | 达到容量门槛后再评估物化、离线归档或覆盖补采。 | 投递经过订阅、静默周期、幂等去重、密度上限和重试预算验收后再上线。 | 有真实需求、负载样本、回退路径和成本边界。当前没有用户级推荐、通知投递和自动探索生产闭环。 |
-
-事件持久化、`stream_class`、正文补采、`/v1/discovery/query` 及 `/v1/content/:id/enrich` 仍是可评估方向（下一可用迁移编号为 `059+`）。先验证用户任务，再选成本最低的实现。
+1. **收口 PR #32 后端 V2 缺口**：补齐真实 `sparkline`、事件防重、KOL ER / GEO 引用精度与自动 P80 水合/跨源共振 -> `Squawk` + PG16 全套绿灯 -> 取消 Draft 并 Squash 合入 `main`。
+2. **生产库备份与安全升级**：在 `agy-server` 执行 `db:backup` 与隔离恢复验证，构建 `runtime` + `proxy` 镜像升级线上容器（安全应用 `059–061`）。
+3. **精选高讨论 L1/L2 信源与压测验证**：启用高讨论社区源与重点监控器，核验单机 4 GB / 60 GB 资源水位与 <15 ms 仪表盘聚合响应。
+4. **启动 Frontend V2 全面重做**：在稳定冻结的 `/v1/feed/*` 与 `/v1/intelligence/*` 契约上重构全新现代 UI/UX。
