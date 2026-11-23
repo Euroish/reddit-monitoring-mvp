@@ -367,6 +367,7 @@ test("browser: project switching and guided intake with real project and role bo
   });
   assert.equal(sourceResponse.status(), 200, await sourceResponse.text());
   const sourceId = (await sourceResponse.json()).source.id as string;
+  await db.pool.query("UPDATE source_provider_budget SET enabled=false WHERE provider='twitterapis'");
   await page.goto(origin + intakePath(sharedId));
   await page.getByText("目前没有可添加的已有研究数据。").waitFor();
   assert.equal(await page.getByRole("button", { name: "使用已有数据", exact: true }).count(), 0);
@@ -374,6 +375,13 @@ test("browser: project switching and guided intake with real project and role bo
   await start.click();
   await page.getByRole("heading", { name: "选择研究对象" }).waitFor();
   await capture("owner-target-1440");
+  await page.getByRole("radio", { name: /Registered X source/ }).check();
+  await page.getByRole("button", { name: "继续设置范围" }).click();
+  await page.getByText("该采集服务暂无可用预算。", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("link", { name: "检查渠道预算" }).getAttribute("href"), "/sources?tab=budgets");
+  assert.equal(await confirm.count(), 0);
+  await db.pool.query("UPDATE source_provider_budget SET enabled=true WHERE provider='twitterapis'");
+  await page.getByRole("button", { name: "更换研究对象" }).click();
   await page.getByRole("button", { name: "输入其他研究对象" }).click();
   await page.getByLabel("目标平台").selectOption("x");
   await page.getByLabel("目标内容").fill("@newtarget");
