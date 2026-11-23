@@ -36,6 +36,7 @@ test("PG16 collection entry parity: constraints, atomic rejection, and relative-
       dailyItemBudget: 10000 } });
   assert.equal(created.statusCode, 200, created.body);
   const monitorId = created.json().monitor.id as string;
+  await db.pool.query(`UPDATE intel_monitor SET owner_user_id=(SELECT id FROM app_user WHERE email='viewer@example.test') WHERE id=$1`, [monitorId]);
   const sourceId = (await db.pool.query("SELECT collection_source_id FROM intel_monitor_source WHERE monitor_id=$1", [monitorId])).rows[0].collection_source_id;
   const collect = (headers: typeof owner, key: string, payload: object) => app.inject({ method: "POST",
     url: `/v1/intelligence/monitors/${monitorId}/collect`, headers: { ...headers, "idempotency-key": key }, payload });
@@ -44,6 +45,32 @@ test("PG16 collection entry parity: constraints, atomic rejection, and relative-
     await db.pool.query("DELETE FROM source_collection_job; DELETE FROM user_provider_usage; DELETE FROM source_provider_usage");
     await db.pool.query(`UPDATE plan_collection_policy SET manual_collect_enabled=true,allowed_providers='{kaix}',
       max_lookback_days=1,max_batch_limit=20,max_comments_per_post=2,daily_requests=100,daily_resources=10000 WHERE plan_tier='free'`);
+  });
+
+  await t.test("monitor authorization scopes lists, detail, analytics and mutations", async () => {
+    const staff = await app.inject({ method: "POST", url: "/v1/intelligence/monitors", headers: owner,
+      payload: { kind: "keyword", name: "Staff monitor", config: { platforms: ["reddit"], keywords: ["staff"] } } });
+    assert.equal(staff.statusCode, 200, staff.body);
+    const staffId = staff.json().monitor.id as string;
+    const list = await app.inject({ url: "/v1/intelligence/monitors", headers: viewer });
+    assert.equal(list.statusCode, 200, list.body);
+    assert.deepEqual(list.json().monitors.map((monitor: { id: string }) => monitor.id), [monitorId]);
+    const staffPath = `/v1/intelligence/monitors/${staffId}`;
+    for (const url of [staffPath, `${staffPath}/overview`, `${staffPath}/posts`, `/v1/intelligence/communities?monitorId=${staffId}`]) {
+      assert.equal((await app.inject({ url, headers: viewer })).statusCode, 404);
+    }
+    assert.equal((await app.inject({ method: "PATCH", url: staffPath, headers: viewer,
+      payload: { revision: 1, name: "Denied" } })).statusCode, 404);
+    assert.equal((await app.inject({ method: "DELETE", url: staffPath, headers: viewer,
+      payload: { revision: 1 } })).statusCode, 404);
+    assert.equal((await app.inject({ url: `/v1/intelligence/monitors/${monitorId}`, headers: owner })).statusCode, 200);
+    const key = await app.inject({ method: "POST", url: "/v1/access/keys", headers: owner,
+      payload: { label: "Scoped monitor reader", scopes: ["read"], allowedSourceIds: [sourceId], expiresInDays: 7 } });
+    assert.equal(key.statusCode, 200, key.body);
+    const machine = { authorization: `Bearer ${key.json().token}` };
+    const machineList = await app.inject({ url: "/v1/intelligence/monitors", headers: machine });
+    assert.equal(machineList.statusCode, 200, machineList.body);
+    assert.deepEqual(machineList.json().monitors, []);
   });
 
   await t.test("manual and monitor routes enforce the same personal lookback", async () => {
