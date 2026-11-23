@@ -98,7 +98,7 @@ flowchart TD
 | :--- | :--- | :--- |
 | **L1 · 主线内置直采（\$0）** | `feed`（RSS/Atom + `web_list` + `json_list`）、`newsnow`（`packages/contracts/src/web-boards.ts` 内置 6 榜单）、`bluesky_appview` | 动态 HTTPS 抓取（`FEED_ALLOWED_URLS` 留空时受全局公网 IP DNS 校验放行）、OPML/JSON 批量导入、`ETag`/`304` 1.5× 指数退避（上限 12h）与 `1500ms` 同域冷却。 |
 | **L2 · 预算门控付费 API** | Reddit（`kaix` 主力 + `red_crawler` 备源）、X（`twitterapis` 主力 + `scrapebadger` 备源与批量补全） | V2 升级富媒体、社区/外链域名、作者粉丝画像与 `top`/`min_faves` 原生排序；X 多账号监测自动拼装 15–20 人 `from:u1 OR from:u2` 批次查询；单页钳制 `twitterapis <= 20`；触发 `unknown` 状态立即熔断停采。 |
-| **R4 / L3 · 外部物理隔离外挂** | `plugins/zst-archive/`（Python/DuckDB 离线归档转换器）与未来 L3 无头/反爬采集器 | 严禁进入主线 Dockerfile 与 `release:pack` 清单；必须独立部署并仅持锁死 `allowedSourceIds` + `ingest` scope 的 Machine Key 调 `POST /v1/sources/:id/ingest`（单批 `1..100` 条、`<= 1 MiB`、`Idempotency-Key` 幂等）。 |
+| **R4 / L3 · 外部物理隔离外挂** | `plugins/zst-archive/`（Python/DuckDB 离线归档转换器）与未来 L3 无头/反爬采集器 | 严禁进入主线 Dockerfile；必须独立部署并仅持锁死 `allowedSourceIds` + `ingest` scope 的 Machine Key 调 `POST /v1/sources/:id/ingest`（单批 `1..100` 条、`<= 1 MiB`、`Idempotency-Key` 幂等）。 |
 
 > 已退役的 `twitterapi_io` 与 `arctic_shift` 连接器代码已在主线物理删除，并由 `scripts/check-docs.ts` 与 `eslint.config.mjs` 防止回流；历史观测中的 `provider` 标识保留只读溯源。
 

@@ -18,7 +18,7 @@ git fetch origin && git switch -c feat/<module>-<topic> origin/main
 git diff --stat origin/main...HEAD
 ```
 
-- **四大高冲突热区同步约定**：修改 **`src/storage/schema/*.sql`**（已合入迁移严禁改动，撞号顺延）、**`packages/contracts/src/`**（禁止前端复制平行副本）、**`apps/api/src/{app,route-policy}.ts` / `apps/web/src/App.tsx`**（保持薄装配）、**`docs/` 与 `DOCUMENTATION_FILES`** 前，若 `origin/main` 已前移须先 `rebase/merge` 并重跑完整本地门禁；未就绪 PR 一律保持 **Draft**。
+- **四大高冲突热区同步约定**：修改 **`src/storage/schema/*.sql`**（已合入迁移严禁改动，撞号顺延）、**`packages/contracts/src/`**（禁止前端复制平行副本）、**`apps/api/src/{app,route-policy}.ts` / `apps/web/src/App.tsx`**（保持薄装配）、**`docs/`** 前，若 `origin/main` 已前移须先 `rebase/merge` 并重跑完整本地门禁；未就绪 PR 一律保持 **Draft**。
 
 ---
 
@@ -28,11 +28,11 @@ git diff --stat origin/main...HEAD
 
 | 变更范围 | 自动触发门禁 |
 | :--- | :--- |
-| 纯文档（`docs/**`、`README.md`、`AGENTS.md`） | `lint:policy`（链接/锚点/退役路径/迁移不可变）+ `Gitleaks` 密钥扫描 |
-| 后端代码（`src/**`、`apps/api/**`、`tests/**`） | `lint:arch`（`depcruise` + 表写归属）+ `lint:api`（ESLint）+ `tsc` + `check:openapi` + `test:unit` + `test:postgres` + `smoke:compiled` + 涉及核心模块时触发 Playwright `test:browser` |
+| 纯文档（`docs/**`、`README.md`、`AGENTS.md`） | `lint:policy`（断链/锚点/退役路径/迁移不可变；`docs/` 允许图片/示意图资产）+ `Gitleaks` 密钥扫描 |
+| 纯后端代码（`src/**`、`apps/api/**`、`tests/{unit,integration}/**`） | `lint:arch`（`depcruise` + 表写归属）+ `lint:api`（ESLint）+ `tsc` + `check:openapi` + `test:unit` + `test:postgres` + `smoke:compiled`（**不再拖慢触发旧前端 Chromium E2E**） |
 | 新增 SQL 迁移 | 自动运行 **`Squawk`** 锁表与索引并发风险扫描 + PG16 集成验证 |
-| 前端 / 共享契约 / 部署 | `lint:web` + `build:web` + `check:web-bundle`；修改 `Dockerfile`/`compose`/`deploy/` 触发多阶段构建；修改 `release-package-lib.mjs` 触发 `package-release` |
-| PR 治理防弱化 | `scripts/check-governance-diff.mjs`（新增 `.only(` 直接阻断，改动门禁/加 `.skip`/`eslint-disable` 高亮审计）；ESLint 后端圈复杂度上限 `25`，清理后运行 `npx eslint . --prune-suppressions` 收缩基线 |
+| 前端 / 浏览器 / 契约 / 合入主干 | 前端改动及 `run-e2e` 标签或 `push` 到 `main` 时触发 `lint:web` + `build:web` + `check:web-bundle`（仅查密钥泄漏）+ Chromium `test:browser`；改 `packages/contracts/` 双端联动校验；改 `Dockerfile`/`compose`/`deploy/` 触发容器构建校验 |
+| PR 治理防弱化 | `scripts/check-governance-diff.mjs`（新增 `.only(` 直接阻断，改动门禁/加 `.skip`/`eslint-disable` 高亮审计） |
 
 **测试分层原则**：纯算法/解析/规范化进 `tests/unit/*.test.ts`；路由契约与鉴权用 Fastify `inject()`；SQL/事务/并发/幂等使用隔离 `postgres:16-alpine` 运行 `tests/integration/*-postgres.test.ts`；多端交互与可用性进 `tests/browser/*.test.ts`。
 
@@ -48,7 +48,7 @@ npm run lint                  # 串联 lint:policy + lint:api + lint:arch + lint
 npm run typecheck             # 服务端 tsc + 前端 apps/web tsc
 npm run check:openapi         # 零库启动验证 OpenAPI 3.x 与 100% 声明式鉴权
 npm run test:unit             # 全量单元测试
-npm run build && npm run check:web-bundle   # 编译前后端、同步 SQL/历史资产与前端包检查
+npm run build && npm run check:web-bundle   # 编译前后端、同步 SQL/历史资产并扫描前端包密钥泄漏
 ```
 
 使用一次性隔离 `postgres:16-alpine` 容器跑真实 PG16 集成测试与编译冒烟：
@@ -119,13 +119,11 @@ AI_SYNC_ENABLED=false
 - **密码哈希平滑升版（`scrypt v1 -> v2`）**：先上线支持双读的镜像（保持 `AUTH_SCRYPT_V2_WRITE_ENABLED=false`），压测确认登录 p95 无虞后再开启渐进重哈希；开启期间双版本 KDF 均不降回只读 v1 的旧镜像。
 - **服务商凭证主密钥轮换**：备份并停 Worker 后传入旧 `CREDENTIALS_MASTER_KEY` 与新 `NEXT_CREDENTIALS_MASTER_KEY`，依次执行 `node dist/src/modules/collection/credential-rotation.js --check` 与 `--apply` 短事务重加密后切换环境变量启动。
 
-### 5.4 备份恢复、发版打包与只读巡检
+### 5.4 备份恢复与只读巡检
 
 ```sh
 npm run db:backup -- --file output/backups/<unique-name>.dump
 npm run db:restore -- --file output/backups/<unique-name>.dump --target info_workbench_restore_check
-npm run release:pack
-npm run release:verify -- output/releases/<dir>
 ```
 
 > 切记在部署前于隔离恢复库演练新迁移、前后端冒烟及回退兼容性；生产切换后核对两个容器镜像的 `org.opencontainers.image.revision` 与 `/readyz`。

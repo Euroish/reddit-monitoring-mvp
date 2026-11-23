@@ -36,6 +36,6 @@
 
 ## 3. UI 性能、无障碍与视觉工程约束
 
-- **首屏轻量边界**：首页及信息流卡片内微图仅使用**原生 SVG**（`StoryMicrocharts`）；所有分析工作台重型图表按路由 `React.lazy` 懒加载模块化 `echarts/core`，由 `npm run check:web-bundle` 在 CI 自动阻断首屏静态打包 ECharts 及密钥泄漏。
+- **图表渲染与打包边界**：所有页面（含首页与展示页）均可按场景自由使用 **ECharts** 或 **原生 SVG** 微图；`npm run check:web-bundle` 在 CI 专注阻断前端产物泄漏后端密钥或数据库连接串。
 - **响应式与可读性**：所有数据指标使用 `tabular-nums`，在 `1440×900`、`768×1024`、`390×844` 三档视口下保持零横向溢出；动效仅限短时 `transform/opacity` 并尊重 `prefers-reduced-motion`；支持键盘导航与 `focus-visible`。
 - **产品文案纪律**：界面严禁暴露 `Phase`、`Legacy`、`Repository` 等内部工程代号；对缺失字段、未知时间、停采缺口或未配置榜单给出诚实空态。

@@ -172,12 +172,8 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors: string[] = [];
-  const scripts: string[] = [];
   const guestUnauthorized: string[] = [];
   let isAuthed = false;
-  page.on("request", (req) => {
-    if (req.resourceType() === "script") scripts.push(req.url());
-  });
   page.on("response", (res) => {
     if (!isAuthed && res.status() === 401 && res.url().includes("/api/v1/")) {
       guestUnauthorized.push(res.url());
@@ -185,7 +181,7 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   });
   page.on("pageerror", (error) => errors.push(error.message));
 
-  // 1. Public Info Home on / (public nav, zero ECharts, zero workbench chunks, zero 401s, live stories)
+  // 1. Public Info Home on / (public nav, zero 401s, live stories)
   await page.goto(origin);
   assert.equal(await page.title(), "SIFTLINE · 信号研究");
   const publicNav = page.getByLabel("公开导航", { exact: true });
@@ -196,10 +192,6 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   );
   const initialCard = page.getByRole("article").filter({ hasText: storyTitle }).first();
   await initialCard.waitFor();
-  assert.ok(
-    scripts.every((url) => !/echarts|charts-|EChartCanvas|WorkbenchShell|ProjectsPage|SourcesPage|Homepage/.test(url)),
-    `Unexpected heavy script on /: ${scripts.join(", ")}`,
-  );
   assert.deepEqual(guestUnauthorized, []);
   await initialCard.getByRole("img", { name: /来源分布.*T1 1.*T1_5 1.*T2 1/ }).waitFor();
   await initialCard.getByRole("img", { name: /已采样热度/ }).waitFor();

@@ -2,10 +2,10 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-export function verificationScope(files, { event, full = false, forceBrowser = false, release = false }) {
+export function verificationScope(files, { event, full = false, forceBrowser = false, release: _release = false }) {
   const scope = {
     api: false, web: false, postgres: false, browser: forceBrowser,
-    docker: event === "workflow_dispatch", workflow: false, pack: release || event === "workflow_dispatch",
+    docker: event === "workflow_dispatch", workflow: false,
   };
   const areas = new Set();
 
@@ -22,26 +22,22 @@ export function verificationScope(files, { event, full = false, forceBrowser = f
     } else if (file.startsWith("apps/web/") || file === "scripts/check-web-bundle.mjs") {
       areas.add("web");
     } else if (/^(src|apps\/api|data|tests)\//.test(file) ||
-               /^(eslint\.config\.mjs|eslint-suppressions\.json|\.dependency-cruiser\.cjs)$/.test(file)) {
+               /^(eslint\.config\.mjs|\.dependency-cruiser\.cjs)$/.test(file)) {
       areas.add("api");
-      if (/^apps\/api\/|^src\/(config|platform|shared|storage)\/|^src\/modules\/(access|ai|content|docs|feed|intelligence|projects|workspace)\/|^data\/|^tests\/helpers\//.test(file)) {
-        scope.browser = true;
-      }
     } else {
-      areas.add("shared"); // Locks, contracts, scripts, and new paths use the conservative default.
-    }
-    if (/^scripts\/(package-release|release-package-lib|verify-release)\.mjs$|^\.github\/workflows\/release\.yml$/.test(file)) {
-      scope.pack = true;
+      areas.add("shared"); // Locks, contracts, scripts, and new paths use shared build/typecheck checks.
     }
   }
 
-  if (full || areas.has("shared") || (event === "push" && (areas.size || scope.browser || scope.docker))) {
+  if (full || (event === "push" && (areas.size || scope.browser || scope.docker))) {
     scope.api = scope.web = scope.postgres = scope.browser = true;
+  } else if (areas.has("shared")) {
+    scope.api = scope.web = scope.postgres = true;
   }
   if (areas.has("api")) scope.api = scope.postgres = true;
   if (areas.has("web")) scope.web = scope.browser = true;
   if (full) scope.workflow = true;
-  return { ...scope, project: scope.api || scope.web || scope.postgres || scope.browser || scope.pack };
+  return { ...scope, project: scope.api || scope.web || scope.postgres || scope.browser };
 }
 
 function git(...args) {

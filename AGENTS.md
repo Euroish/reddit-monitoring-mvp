@@ -1,6 +1,6 @@
 # Agent 开发与协作入口
 
-开工前核实当前检出分支（主干统一为 `main`，生产工作目录 `/root/workspaces/reddit-monitoring-mvp`）与 `git status`，并严格遵守[开发与运维手册](docs/development.md)的分枝与验证规范。发布包受控文档清单由 `scripts/release-package-lib.mjs` 的 `DOCUMENTATION_FILES` 唯一定义。
+开工前核实当前检出分支（主干统一为 `main`，生产工作目录 `/root/workspaces/reddit-monitoring-mvp`）与 `git status`，并严格遵守[开发与运维手册](docs/development.md)的分支与验证规范。
 
 ## 1. 两份动态状态真源
 
