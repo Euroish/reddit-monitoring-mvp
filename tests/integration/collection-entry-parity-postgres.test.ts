@@ -6,6 +6,7 @@ import { buildApp } from "../../apps/api/src/app";
 import { bootstrapOwner } from "../../src/modules/access/index";
 import { KaixContentConnector } from "../../src/connectors/reddit/kaix-content.connector";
 import { redCrawler } from "../../src/connectors/reddit/red-crawler";
+import { workOnce } from "../../src/modules/collection/worker";
 import { testDatabase } from "../helpers/database";
 
 test("PG16 collection entry parity: constraints, atomic rejection, and relative-window replay", async t => {
@@ -218,5 +219,31 @@ test("PG16 collection entry parity: constraints, atomic rejection, and relative-
     const operatorReference = await create("Existing operator source", 2, true);
     assert.equal((await remove(operatorReference, 1)).statusCode, 200);
     assert.equal((await sourceState()).schedule.enabled, true);
+  });
+
+  await t.test("scheduled dispatch enforces the cross-provider social ceiling before any charge", async () => {
+    const monitored = await app.inject({ method: "POST", url: "/v1/intelligence/monitors", headers: owner,
+      payload: { kind: "community_bundle", name: "Global budget", config: { platforms: ["reddit"], subreddits: ["global_budget"] } } });
+    assert.equal(monitored.statusCode, 200, monitored.body);
+    const scheduledSourceId = (await db.pool.query("SELECT collection_source_id FROM intel_monitor_source WHERE monitor_id=$1",
+      [monitored.json().monitor.id])).rows[0].collection_source_id;
+    const jobId = randomUUID();
+    await db.pool.query(`INSERT INTO source_collection_job(id,collection_source_id,status,purpose,operation,provider,from_at,to_at,
+      page_size,max_pages,next_run_at,created_at) VALUES($1,$2,'queued','scheduled','radar','kaix',now()-interval '1 minute',now(),20,1,now(),now())`,
+    [jobId, scheduledSourceId]);
+    await db.pool.query(`INSERT INTO source_provider_usage(provider,day,requests,resources_reserved)
+      VALUES('twitterapis',(now() AT TIME ZONE 'UTC')::date,1,19990)`);
+    let providerCalls = 0;
+    const kaix = new KaixContentConnector({ networkEnabled: true, apiToken: "fixture" }, async () => {
+      providerCalls++;
+      throw new Error("The provider must not be contacted above the system limit");
+    });
+    assert.equal(await workOnce(db.pool, [kaix]), true);
+    assert.equal(providerCalls, 0);
+    const result = await db.pool.query(`SELECT status,request_count,error,
+      next_run_at=date_trunc('day',now(),'UTC')+interval '24 hours' AS next_utc_day
+      FROM source_collection_job WHERE id=$1`, [jobId]);
+    assert.deepEqual(result.rows, [{ status: "queued", request_count: 0, error: "Waiting for system social budget", next_utc_day: true }]);
+    assert.equal((await db.pool.query("SELECT 1 FROM source_provider_usage WHERE provider='kaix'")).rowCount, 0);
   });
 });

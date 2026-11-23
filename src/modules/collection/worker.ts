@@ -9,7 +9,7 @@ import { createPgNotifier } from "../../platform/pg-notify";
 import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
 import { commitContentBatch, prepareContentBatch } from "../content/index";
-import { budgetedSocialProviders, cancelHydrationOutsideBudget, lockSocialDispatchBudget } from "./automatic-hydration";
+import { budgetedSocialProviders, cancelHydrationOutsideBudget, deferSocialCollectionOutsideBudget, lockSocialDispatchBudget } from "./automatic-hydration";
 import { isViewerJobStillAuthorized, recordUserExecutedRequest, requestedCommentLimit } from "./policy";
 import { scheduleDueSourcesOnce } from "./schedule";
 import { recordCommittedBatch, type BatchCommittedHook } from "./batches";
@@ -133,9 +133,14 @@ async function admitJobDispatch(
       );
       return false;
     }
-    if (budgetedSocialProviders.includes(job.provider)) await lockSocialDispatchBudget(client);
+    const socialProvider = budgetedSocialProviders.includes(job.provider);
+    if (socialProvider) await lockSocialDispatchBudget(client);
     await client.query("SELECT 1 FROM source_provider_budget WHERE provider=$1 FOR UPDATE", [job.provider]);
-    if (job.request_json.autoMonitorId && (await cancelHydrationOutsideBudget(client, job.id, token, resources))) return false;
+    if (job.request_json.autoMonitorId) {
+      if (await cancelHydrationOutsideBudget(client, job.id, token, resources)) return false;
+    } else if (socialProvider && await deferSocialCollectionOutsideBudget(client, job.id, token, resources)) {
+      return false;
+    }
     const deferred = await client.query(
       `UPDATE source_collection_job SET status='queued',next_run_at=ready.at,lease_token=NULL,lease_until=NULL,
         attempts=attempts-1,error='Waiting for provider budget'
