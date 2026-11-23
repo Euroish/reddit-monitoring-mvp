@@ -8,7 +8,6 @@ import {
   Play,
   Plus,
   RefreshCw,
-  ShieldAlert,
   Unlock,
   Upload,
   X,
@@ -32,8 +31,10 @@ import { CollectionJobsView } from '../components/CollectionJobsView';
 import { ProviderCredentialsTab } from '../components/ProviderCredentialsTab';
 import { QuotasManagementView } from '../components/QuotasManagementView';
 import { R4ArchivePanel } from '../components/R4ArchivePanel';
-import { FeedSourcePreview, ResearchSourceProjects, SourceDomainSummary, SourceJobHistory } from '../components/SourceDomainOverview';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { SourceJobHistory } from '../components/SourceDomainOverview';
+import { FeedSourceDetail, ResearchSourceDetail } from '../components/SourceManagementDetail';
+import { Button } from '../components/ui/button';
+import { useSourceStatus } from '../lib/sourceStatus';
 import { Input } from '../components/ui/input';
 import { SourceEditor } from '../components/SourceEditor';
 import { SourceImportDialog } from '../components/SourceImportDialog';
@@ -67,12 +68,20 @@ export function SourcesPage({
   onNavigate: (path: string) => void;
 }) {
   const { t } = useI18n();
+  const sourceStatus = useSourceStatus();
   const queryClient = useQueryClient();
   const canWrite = actor.clientKind === 'browser' && actor.role !== 'viewer';
 
   const sp = new URLSearchParams(initialQueryString);
   const urlTab = sp.get('tab');
   const openNewFromUrl = sp.get('new') === '1';
+  const returnProjectId = sp.get('returnProjectId');
+  const targetPlatform = sp.get('targetPlatform');
+  const targetType = sp.get('targetType');
+  const targetValue = sp.get('targetValue')?.slice(0, 512);
+  const requestedTarget = (targetPlatform === 'reddit' || targetPlatform === 'x' || targetPlatform === 'bluesky') &&
+    (targetType === 'account' || targetType === 'community' || targetType === 'search') && targetValue
+    ? { platform: targetPlatform, type: targetType, value: targetValue } as const : undefined;
 
   const denied = !canWrite && (actor.clientKind !== 'browser' || (urlTab !== 'budgets' && urlTab !== 'jobs'));
   const sourcesQuery = useSourcesQuery(!denied);
@@ -144,7 +153,7 @@ export function SourcesPage({
     (healthFilter !== 'attention' || sourceNeedsAttention(source)) &&
     (!groupFilter || source.sourceGroup === groupFilter) && (!providerFilter || source.primaryProvider === providerFilter || source.fallbackProvider === providerFilter) &&
     (!sourceSearch.trim() || `${source.label} ${formatSourceTarget(source.target)} ${source.platform} ${source.sourceGroup ?? ''}`.toLocaleLowerCase().includes(sourceSearch.trim().toLocaleLowerCase())));
-  const selectedSource = visibleSources.find(source => source.id === routeSourceId) ?? visibleSources[0];
+  const selectedSource = domainSources.find(source => source.id === routeSourceId) ?? visibleSources[0];
   useEffect(() => {
     if (!launchSourceId || launchSourceId !== selectedSource?.id) return;
     const frame = requestAnimationFrame(() => {
@@ -171,6 +180,11 @@ export function SourcesPage({
     setCreateChannel(undefined);
     setCreatePreset(undefined);
     setSourceEditor(null);
+    if (openNewFromUrl && returnProjectId && requestedTarget) {
+      onNavigate('/projects?' + new URLSearchParams({ view: 'collect', projectId: returnProjectId,
+        resumePlatform: requestedTarget.platform, resumeType: requestedTarget.type, resumeTarget: requestedTarget.value }));
+      return;
+    }
     if (openNewFromUrl) {
       sp.delete('new');
       onNavigate('/sources' + (sp.size ? '?' + sp.toString() : ''));
@@ -441,7 +455,7 @@ export function SourcesPage({
             <>
               <button type="button" className="ds-btn" onClick={() => { setCreateChannel(undefined); setCreatePreset(undefined); setSourceEditor('create'); }}>
                 <Plus size={14} />
-                <span>{feedDomain ? t('Add feed source', '添加资讯源') : domainView ? t('Add research source', '新建研究源') : t('Add Source', '新建来源')}</span>
+                <span>{feedDomain ? t('Add feed source', '添加资讯源') : domainView ? t('Add research target', '添加研究目标') : t('Add Source', '新建来源')}</span>
               </button>
               <button type="button" className="ds-btn ds-btn--ghost" onClick={() => setImportOpen(true)}>
                 <Upload size={13} /> {feedDomain ? t('Import OPML', '导入 OPML') : t('Import sources', '批量导入来源')}
@@ -481,8 +495,7 @@ export function SourcesPage({
         </div>
       ) : (
         <div className="collection-stack">
-          {domainView && sourcesQuery.isSuccess && <SourceDomainSummary sources={domainSources} domain={domainFilter} />}
-          {canWrite && <section className="source-channel-summary" aria-label={t('Channel readiness', '渠道健康')}>
+          {canWrite && !domainView && <section className="source-channel-summary" aria-label={t('Channel readiness', '渠道健康')}>
             <div>
               <strong>{t('Channel readiness', '渠道健康')}</strong>
               {networkOff ? <span>{t('Collection networking is off.', '服务端采集联网已关闭。')}</span>
@@ -507,13 +520,6 @@ export function SourcesPage({
                   </div>
                   <div className="ds-card-sub">{feedDomain ? t('Select a channel to inspect its latest stories.', '选择频道，查看最近入库资讯。') : t('Search by target, platform or name.', '可按目标、平台或来源名称查找。')}</div>
                 </div>
-                <div className="seg collection-segment">
-                  {(['all', 'active', 'paused', 'archived'] as const).map((st) => (
-                    <button key={st} type="button" className={stateFilter === st ? 'on' : ''} aria-pressed={stateFilter === st} onClick={() => { setStateFilter(st); resetSourceDraft(); }}>
-                      {st === 'all' ? t('All', '全部') : st === 'active' ? t('Active', '已启用') : st === 'paused' ? t('Paused', '暂停') : t('Archived', '归档')}
-                    </button>
-                  ))}
-                </div>
               </div>
 
               <div className="ds-card-bd" style={{ paddingTop: 10 }}>
@@ -521,21 +527,30 @@ export function SourcesPage({
                   <label className="wb-field">{t('Find a source', '查找来源')}
                     <Input type="search" className="wb-input" value={sourceSearch} onChange={event => { setSourceSearch(event.target.value); resetSourceDraft(); }} placeholder={feedDomain ? t('Channel name or URL', '频道名称或地址') : t('Name or target', '来源名称或采集目标')} />
                   </label>
-                  {domainView && <div className="source-directory-filter-pair">
+                  <label className="wb-field">{t('Status', '状态')}
+                    <select className="wb-select" value={healthFilter || stateFilter} onChange={event => {
+                      const value = event.target.value;
+                      const health = value === 'attention' || value === 'scheduled';
+                      setHealthFilter(health ? value : '');
+                      setStateFilter(health ? 'all' : value as typeof stateFilter);
+                      resetSourceDraft();
+                    }}>
+                      <option value="all">{t('All sources', '全部来源')}</option>
+                      <option value="attention">{t('Needs attention', '需处理')}</option>
+                      <option value="scheduled">{t('Scheduled', '已启用定时')}</option>
+                      <option value="active">{t('Active', '已启用')}</option>
+                      <option value="paused">{t('Paused', '已暂停')}</option>
+                      <option value="archived">{t('Archived', '已归档')}</option>
+                    </select>
+                  </label>
+                  <details className="source-directory-advanced" open={!domainView || undefined}>
+                    <summary>{t('More filters', '更多筛选')}</summary>
                     {!feedDomain && <label className="wb-field">{t('Platform', '平台')}
-                      <select className="wb-select" value={effectivePlatform} onChange={event => { setPlatformFilter(event.target.value); resetSourceDraft(); }}>
+                      <select className="wb-select" value={effectivePlatform} onChange={event => setPlatformFilter(event.target.value)}>
                         <option value="">{t('All platforms', '全部平台')}</option>
                         {[...new Set(domainSources.map(source => source.platform))].sort().map(platform => <option key={platform}>{platform}</option>)}
                       </select>
                     </label>}
-                    <label className="wb-field">{t('Update health', '更新状态')}
-                      <select className="wb-select" value={healthFilter} onChange={event => { setHealthFilter(event.target.value); resetSourceDraft(); }}>
-                        <option value="">{t('All update states', '全部更新状态')}</option>
-                        <option value="scheduled">{t('Scheduled', '定时更新已开启')}</option>
-                        <option value="attention">{t('Needs attention', '需处理')}</option>
-                      </select>
-                    </label>
-                  </div>}
                   <label className="wb-field">{t('Collection channel', '采集渠道')}
                     <select className="wb-select" aria-label={t('Collection channel', '采集渠道')} value={providerFilter} onChange={event => { setProviderFilter(event.target.value); resetSourceDraft(); }}>
                       <option value="">{t('All channels', '全部渠道')}</option>
@@ -570,6 +585,11 @@ export function SourcesPage({
                       {[...new Set(domainSources.map(source => source.sourceGroup).filter(Boolean))].sort().map(group => <option key={group}>{group}</option>)}
                     </select>
                   </label>
+                  </details>
+                  {(stateFilter !== 'all' || healthFilter || effectivePlatform || groupFilter || providerFilter || sourceSearch) &&
+                    <button className="collection-text-button source-clear-filters" type="button" onClick={() => {
+                      setStateFilter('all'); setHealthFilter(''); setPlatformFilter(''); setGroupFilter(''); setProviderFilter(''); setSourceSearch('');
+                    }}>{t('Clear filters', '清除筛选')}</button>}
                   {sourcesQuery.isError && <div role="alert" className="wb-alert wb-alert--error">{formatApiError(sourcesQuery.error)}</div>}
                   {sourcesQuery.isPending && <div role="status">{t('Loading sources…', '正在加载来源…')}</div>}
                   {sourcesQuery.isSuccess && visibleSources.length === 0 && <p className="collection-hint">{providerFilter && !domainSources.some(source => source.primaryProvider === providerFilter || source.fallbackProvider === providerFilter)
@@ -586,30 +606,10 @@ export function SourcesPage({
                         className="collection-source-select"
                         aria-pressed={active}
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                          <b>{s.label}</b>
-                          <span className={'collection-status ' + (s.state === 'active' ? 'collection-status--ok' : '')}>{s.state === 'active' ? t('Active', '已启用') : s.state === 'paused' ? t('Paused', '暂停') : t('Archived', '已归档')}</span>
-                        </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                          <span className="tag" style={{ height: 19, fontSize: 9.5 }}>{s.platform}</span>
-                          <span className="tag tag--lilac" style={{ height: 19, fontSize: 9.5 }}>{s.primaryProvider}</span>
-                          {s.fallbackProvider && <span className="tag tag--mint" style={{ height: 19, fontSize: 9.5 }}>fb: {s.fallbackProvider}</span>}
-                          <span className="tag tag--line">{s.deliveryMode === 'pull' ? t('Pull', '主动拉取') : t('Push', '外部推流')}</span>
-                          {s.schedule?.enabled && <span className="tag tag--mint">{t('Scheduled', '已设定时')}</span>}
-                          {sourceNeedsAttention(s) && !s.automaticCollectionBlocked && <span className="tag tag--line">{t('Needs attention', '需处理')}</span>}
-                          {s.automaticCollectionBlocked && (
-                            <span className="tag" style={{ height: 19, fontSize: 9.5, background: '#fdf0ec', color: '#8f3f2a' }}>
-                              <ShieldAlert size={10} /> {t('Blocked', '已阻断')}
-                            </span>
-                          )}
-                        </div>
-                        <small>{formatSourceTarget(s.target)}</small>
+                        <span className="source-directory-row-title"><strong>{s.label}</strong><small>{sourceStatus.status(s)}</small></span>
+                        <small>{feedDomain ? (s.deliveryMode === 'pull' ? t('Subscription', '订阅抓取') : t('External delivery', '外部推送')) : s.platform} · {formatSourceTarget(s.target)}</small>
+                        {s.lastSuccessAt && <small><time dateTime={s.lastSuccessAt}>{sourceStatus.timestamp(s.lastSuccessAt)}</time></small>}
                       </button>
-                      {s.state === 'active' && !s.automaticCollectionBlocked && actor.clientKind === 'browser' && (s.deliveryMode === 'pull' || canWrite) &&
-                        <button type="button" className="ds-btn ds-btn--ghost collection-source-launch" onClick={() => selectSource(s.id, true)}
-                          aria-label={(s.deliveryMode === 'pull' ? t('Start collection', '发起采集') : t('Open push ingest', '查看推流')) + ' · ' + s.label}>
-                          {s.deliveryMode === 'pull' ? t('Start collection', '发起采集') : t('Open push ingest', '查看推流')}
-                        </button>}
                       </div>
                     );
                   })}
@@ -628,8 +628,7 @@ export function SourcesPage({
                     <div>
                       <div className="ds-card-title">{selectedSource.label}</div>
                       <div className="ds-card-sub">
-                        <span>{t('Target', '目标')} · </span><code>{selectedSource.target.type}</code> = <code>{formatSourceTarget(selectedSource.target) || '—'}</code>
-                        {' · '}{t('Revision', '版本')} {selectedSource.revision}
+                        <span>{formatSourceTarget(selectedSource.target)}</span>
                       </div>
                     </div>
                     {canWrite && (
@@ -663,100 +662,30 @@ export function SourcesPage({
                     )}
                   </div>
 
-                  <Tabs value={section} className="source-detail-tabs" onValueChange={value => {
-                    const next = sourceSections.find(item => item === value);
-                    if (next) onNavigate(sourcePath(selectedSource.id, next));
-                  }}>
-                  {domainView && <TabsList className="source-detail-nav" aria-label={t('Source detail sections', '来源详情分区')}>
-                    {sourceSections.map(item => <TabsTrigger key={item} value={item} className="ds-btn ds-btn--ghost">
-                      {item === 'overview' ? (feedDomain ? t('Story preview', '内容预览') : t('Overview', '概览'))
-                        : item === 'plan' ? (feedDomain ? t('Fetch & update', '抓取与更新') : t('Collection plan', '采集计划'))
-                          : item === 'jobs' ? t('Job history', '任务记录') : t('Diagnostics', '技术诊断')}
-                    </TabsTrigger>)}
-                  </TabsList>}
-                  <TabsContent value={section} className="ds-card-bd source-detail-body">
-                    {feedDomain && section === 'overview' && <FeedSourcePreview source={selectedSource} />}
-                    {domainView && section === 'jobs' && <SourceJobHistory sourceId={selectedSource.id} onInspect={id => {
-                      setJobActionError('');
-                      setAckJobCharge(false);
-                      setInspectJobId(id);
-                    }} />}
-                    <dl hidden={domainView && (section === 'jobs' || section === 'technical')} className="collection-source-facts">
-                      <div><dt>{t('Source state', '来源管理状态')}</dt><dd>{selectedSource.state === 'active' ? t('Active', '已启用') : selectedSource.state === 'paused' ? t('Paused', '已暂停') : t('Archived', '已归档')}</dd></div>
-                      <div><dt>{t('Last result', '最近任务结果')}</dt><dd>{selectedSource.health.lastStatus ?? t('No run yet', '尚无运行记录')}</dd></div>
-                      <div><dt>{t('Group and tier', '分类与等级')}</dt><dd>{selectedSource.sourceGroup ?? '—'} · {selectedSource.tier}{selectedSource.locale ? ' · ' + selectedSource.locale : ''}</dd></div>
-                      <div>
-                        <dt>{feedDomain ? t('Automatic updates', '自动更新') : t('Schedule', '自动采集')}</dt>
-                        <dd style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                          <span>{selectedSource.deliveryMode === 'push' ? t('External push', '外部推流') : selectedSource.schedule?.enabled ? t('Enabled', '已启用') : t('Disabled', '已停用')}</span>
-                          {canWrite && selectedSource.deliveryMode === 'pull' && (
-                            <button
-                              type="button"
-                              className="ds-btn ds-btn--ghost"
-                              style={{ height: 22, fontSize: 10.5, padding: '0 8px' }}
-                              disabled={updateSourceMut.isPending || Boolean(selectedSource.automaticCollectionBlocked && !selectedSource.schedule?.enabled)}
-                              onClick={async () => {
-                                setOpsMsg(null);
-                                try {
-                                  const nextEnabled = !selectedSource.schedule?.enabled;
-                                  await updateSourceMut.mutateAsync({
-                                    id: selectedSource.id,
-                                    input: {
-                                      schedule: { ...selectedSource.schedule, enabled: nextEnabled },
-                                      revision: selectedSource.revision,
-                                    },
-                                  });
-                                  setOpsMsg({
-                                    text: nextEnabled
-                                      ? t('Automatic scheduling enabled.', '已开启后台自动爬取调度。')
-                                      : t('Automatic scheduling paused.', '已暂停后台自动爬取调度。'),
-                                  });
-                                } catch (err) {
-                                  setOpsMsg({ text: formatApiError(err), isError: true });
-                                }
-                              }}
-                            >
-                              {selectedSource.schedule?.enabled ? t('Pause schedule', '暂停定时') : t('Enable schedule', '开启定时')}
-                            </button>
-                          )}
-                        </dd>
-                      </div>
-                      <div><dt>{t('Next run (UTC)', '下次计划（UTC）')}</dt><dd>{selectedSource.nextDueAt?.slice(0, 16).replace('T', ' ') ?? '—'}</dd></div>
-                      <div><dt>{t('Last checked (UTC)', '最近检查（UTC）')}</dt><dd>{selectedSource.lastCheckedAt?.slice(0, 16).replace('T', ' ') ?? '—'}</dd></div>
-                      <div><dt>{t('Last success (UTC)', '最近成功（UTC）')}</dt><dd>{selectedSource.lastSuccessAt?.slice(0, 16).replace('T', ' ') ?? '—'}</dd></div>
-                      <div><dt>{t('Fetched / inserted', '最近抓取 / 入库')}</dt><dd>{selectedSource.health.lastFetchedCount ?? '—'} / {selectedSource.health.lastInsertedCount ?? '—'}</dd></div>
-                    </dl>
-                    {(() => {
-                      const target = selectedSource.target;
-                      if (!feedDomain || section !== 'plan' || !['feed', 'newsnow'].includes(selectedSource.primaryProvider)) return null;
-                      return <section className="source-domain-section">
-                        <h3>{t('Parsing configuration', '解析配置')}</h3>
-                        <p>{target.type !== 'feed' ? t('NewsNow board snapshot', 'NewsNow 榜单快照')
-                          : target.list?.format === 'web_list' ? t('HTML list', 'HTML 列表')
-                            : target.list?.format === 'json_list' ? t('JSON list', 'JSON 列表') : t('RSS / Atom or feed discovery', 'RSS / Atom 或订阅发现')}</p>
-                        <button type="button" className="ds-btn ds-btn--ghost" onClick={() => setSourceEditor('preview')}>{t('Preview fetch', '预览抓取')}</button>
-                      </section>;
-                    })()}
-                    {domainFilter === 'research' && section === 'overview' && <ResearchSourceProjects sourceId={selectedSource.id} />}
-                    {(!domainView || section === 'technical' || section === 'plan') && selectedSource.target.type === 'feed' && selectedSource.target.list && (
-                      <details className="collection-disclosure"><summary>{t('List parsing fields', '列表解析字段')}</summary>
-                        {Object.entries(selectedSource.target.list).map(([name, value]) => <div key={name}>{name} · <code>{value}</code></div>)}
-                      </details>
-                    )}
-                    <div className="collection-source-links" hidden={domainView && section !== 'overview'}>
-                      <a href={'/content?sourceId=' + selectedSource.id}>{t('Stored content', '查看已入库内容')}</a>
-                      <button type="button" className="collection-text-button" onClick={() => onNavigate('/sources?tab=jobs&sourceId=' + selectedSource.id)}>{t('All jobs for this source', '查看此来源的任务')}</button>
-                      {canWrite && !domainView && <a href={'/projects?new=1&sourceId=' + selectedSource.id}>{t('Create a monitoring project', '新建此来源的监测项目')}</a>}
-                      {canWrite && isRedditArchiveSource(selectedSource) && <a href={domainView ? sourcePath(selectedSource.id, 'technical') + '#r4-archive-console' : '#r4-archive-console'}>{t('Open R4 archive console', '跳转 R4 离线归档控制台')}</a>}
-                    </div>
-                    <p className="collection-hint" hidden={domainView && section !== 'technical'}>
-                      {selectedSource.tags.length > 0 && <>{t('Tags', '标签')} · {selectedSource.tags.join(', ')} · </>}
-                      {t('Last run', '最近运行')} · {selectedSource.health.lastStatus ?? '—'} · {t('Consecutive failures', '连续失败')} {selectedSource.health.consecutiveFailures ?? '—'}
-                    </p>
-                    {selectedSource.health.lastError && <details className="collection-disclosure">
-                      <summary>{t('Recent run failed · diagnostic details', '最近一次运行失败 · 查看诊断详情')}</summary>
-                      <p className="collection-hint">{selectedSource.health.lastError}</p>
-                    </details>}
+                  {(() => {
+                    const sourceIsFeed = feedDomain || !domainView && !isResearchSource(selectedSource);
+                    const Detail = sourceIsFeed ? FeedSourceDetail : ResearchSourceDetail;
+                    const pull = selectedSource.deliveryMode === 'pull';
+                    const scheduled = selectedSource.schedule?.enabled === true;
+                    const primary = capabilities.find(item => item.provider === selectedSource.primaryProvider);
+                    const primaryBudgetDisabled = providerBudgetDisabled(selectedSource.primaryProvider);
+                    const scheduleAvailable = selectedSource.state === 'active' && !selectedSource.automaticCollectionBlocked &&
+                      !networkOff && primary?.enabled === true && !primaryBudgetDisabled;
+                    const jobsPath = '/sources?tab=jobs&sourceId=' + selectedSource.id;
+                    return <Detail key={selectedSource.id + ':' + section} source={selectedSource} section={section}
+                      onRun={pull && canDispatch ? () => selectSource(selectedSource.id, true) : undefined}
+                      onPreview={sourceIsFeed && canWrite && pull && ['feed', 'newsnow'].includes(selectedSource.primaryProvider)
+                        ? () => setSourceEditor('preview') : undefined}
+                      readiness={<>
+                        {pull && !scheduleAvailable && !selectedSource.automaticCollectionBlocked && <div className="source-next-action">
+                          <p>{selectedSource.state !== 'active' ? t('Enable this source before it can run.', '启用来源后才可执行。')
+                            : networkOff ? t('Collection networking is off.', '服务端采集联网已关闭。')
+                              : !primary?.enabled ? t('The collection service is unavailable.', '采集服务尚未就绪。')
+                                : t('No collection budget is available.', '采集服务暂无可用预算。')}</p>
+                          {canWrite && !networkOff && selectedSource.state === 'active' &&
+                            <a href={primaryBudgetDisabled ? '/sources?tab=budgets' : channelsPath}>{primaryBudgetDisabled
+                              ? t('Review service budget', '查看采集预算') : t('Check provider setup', '检查采集服务设置')}</a>}
+                        </div>}
                     {selectedSource.automaticCollectionBlocked && (
                       <div className="wb-alert wb-alert--error" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 650 }}>
@@ -806,12 +735,33 @@ export function SourcesPage({
                       setInspectJobId(opsMsg.jobId ?? null);
                     }}>{t('Job details', '任务详情')}</button>}</div>}
 
-                    {domainView && section === 'technical' && <dl className="collection-source-facts">
-                      <div><dt>{t('Primary provider', '主渠道')}</dt><dd>{selectedSource.primaryProvider}</dd></div>
-                      <div><dt>{t('Fallback provider', '备用渠道')}</dt><dd>{selectedSource.fallbackProvider ?? '—'}</dd></div>
-                      <div><dt>{t('Delivery mode', '接入方式')}</dt><dd>{selectedSource.deliveryMode}</dd></div>
-                    </dl>}
-                    {(!domainView || section === 'plan') && selectedSource.deliveryMode === 'pull' && actor.clientKind === 'browser' && (
+                      </>}
+                      update={<>
+                        {pull ? <>
+                          <div className="source-schedule-summary">
+                            <div>
+                              <strong>{scheduled
+                                ? scheduleAvailable ? t('Automatic updates enabled', '定时任务已开启') : t('Automatic updates enabled, currently blocked', '定时任务已开启，当前无法执行')
+                                : t('Automatic updates off', '定时任务未开启')}</strong>
+                              {scheduled && scheduleAvailable && selectedSource.nextDueAt && <p>{t('Next check', '下次计划')} · {sourceStatus.timestamp(selectedSource.nextDueAt)}</p>}
+                              {!scheduled && <p>{t('When enabled, this source uses its saved schedule and service budget.', '开启后按已保存的时间计划执行，并使用采集服务额度。')}</p>}
+                            </div>
+                            {canWrite && <Button type="button" variant="outline" disabled={updateSourceMut.isPending || (!scheduled && !scheduleAvailable)}
+                              onClick={async () => {
+                                try {
+                                  await updateSourceMut.mutateAsync({ id: selectedSource.id, input: {
+                                    schedule: { ...selectedSource.schedule, enabled: !scheduled }, revision: selectedSource.revision,
+                                  } });
+                                  setOpsMsg({ text: scheduled ? t('Automatic scheduling paused.', '已暂停后台自动爬取调度。')
+                                    : t('Automatic scheduling enabled.', '已开启后台自动爬取调度。') });
+                                } catch (err) { setOpsMsg({ text: formatApiError(err), isError: true }); }
+                              }}>
+                              {scheduled ? t('Pause schedule', '暂停定时') : t('Enable schedule', '开启定时')}
+                            </Button>}
+                          </div>
+                          <details className="source-detail-disclosure" open={section === 'plan' || !domainView ? true : undefined}>
+                            <summary>{feedDomain ? t('Fetch now', '运行一次抓取') : t('Collect once', '试运行采集')}</summary>
+                    {selectedSource.deliveryMode === 'pull' && actor.clientKind === 'browser' && (
                       <form ref={operationForm} tabIndex={-1} onSubmit={handleCollect} className="collection-form collection-operation">
                         <div>
                           <h3><Play size={15} />{t('Run manual collection', '手动采集')}</h3>
@@ -880,20 +830,14 @@ export function SourcesPage({
                       </form>
                     )}
 
-                    {(!domainView || section === 'technical') && actor.clientKind === 'browser' && selectedSource.deliveryMode === 'pull' && supportsRefresh && (
-                      <form onSubmit={handleRefreshIds} className="collection-form collection-operation">
-                        <h3>{t('Refresh stored posts', '刷新已入库帖子')}</h3>
-                        <p className="collection-hint">{t('Paste internal post IDs from this source, separated by commas or spaces.', '请粘贴当前来源已入库帖子的内部 ID，用逗号或空格分隔。')} {t('Max IDs', '最多 ID')} {maxRefreshIds} · {refreshCap?.provider}</p>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                          <input aria-label={t('Stored post IDs', '已入库主帖 ID')} className="wb-input" style={{ flex: 1 }} value={refreshIdsRaw} onChange={(e) => setRefreshIdsRaw(e.target.value)} placeholder="33333333-3333-4333-8333-333333333301" />
-                          <button type="submit" className="ds-btn ds-btn--ghost" disabled={!canRefresh || refreshMut.isPending}>
-                            {t('Refresh IDs', '刷新 ID')}
-                          </button>
-                        </div>
-                      </form>
-                    )}
-
-                    {(!domainView || section === 'plan') && canWrite && selectedSource.deliveryMode === 'push' && (
+                          </details>
+                        </> : <>
+                          <p>{t('Receive articles or research data from an external system using a source-scoped key or a JSON import.', '通过限定来源的密钥或 JSON 导入接收外部系统的数据。')}</p>
+                          {canWrite && <div className="collection-source-links"><a href="/settings?tab=keys">{t('Manage source keys', '管理接入密钥')}</a>
+                            <a href={jobsPath}>{t('View delivery records', '查看推送记录')}</a></div>}
+                          {canWrite && <details className="source-detail-disclosure" open={section === 'plan' || !domainView ? true : undefined}>
+                            <summary>{t('Import delivered data', '导入已接收数据')}</summary>
+                    {canWrite && selectedSource.deliveryMode === 'push' && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                         <form ref={operationForm} tabIndex={-1} onSubmit={handleIngest} className="collection-form collection-operation">
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
@@ -926,8 +870,38 @@ export function SourcesPage({
                         </form>
                       </div>
                     )}
-                  </TabsContent>
-                  </Tabs>
+                          </details>}
+                        </>}
+                      </>}
+                      onJobs={() => onNavigate(jobsPath)}
+                      jobHistory={<SourceJobHistory sourceId={selectedSource.id} onInspect={id => {
+                        setJobActionError(''); setAckJobCharge(false); setInspectJobId(id);
+                      }} />}
+                      diagnostics={<>
+                        {selectedSource.tags.length > 0 && <p>{t('Tags', '标签')} · {selectedSource.tags.join(', ')}</p>}
+                        {selectedSource.fallbackProvider && <p>{t('Backup service', '备用服务')} · {selectedSource.fallbackProvider}</p>}
+                        {selectedSource.target.type === 'feed' && selectedSource.target.list && <dl className="source-technical-details">
+                          {Object.entries(selectedSource.target.list).map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}
+                        </dl>}
+                        {sourceIsFeed && selectedSource.health.lastError && <p>{selectedSource.health.lastError}</p>}
+                        <div className="collection-source-links"><a href={'/content?sourceId=' + selectedSource.id}>{t('Stored content', '查看已入库内容')}</a>
+                          {canWrite && isRedditArchiveSource(selectedSource) && <a href={sourcePath(selectedSource.id, 'technical') + '#r4-archive-console'}>{t('Open R4 archive console', '跳转 R4 离线归档控制台')}</a>}
+                        </div>
+                    {actor.clientKind === 'browser' && selectedSource.deliveryMode === 'pull' && supportsRefresh && (
+                      <form onSubmit={handleRefreshIds} className="collection-form collection-operation">
+                        <h3>{t('Refresh stored posts', '刷新已入库帖子')}</h3>
+                        <p className="collection-hint">{t('Paste internal post IDs from this source, separated by commas or spaces.', '请粘贴当前来源已入库帖子的内部 ID，用逗号或空格分隔。')} {t('Max IDs', '最多 ID')} {maxRefreshIds} · {refreshCap?.provider}</p>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <input aria-label={t('Stored post IDs', '已入库主帖 ID')} className="wb-input" style={{ flex: 1 }} value={refreshIdsRaw} onChange={(e) => setRefreshIdsRaw(e.target.value)} placeholder="33333333-3333-4333-8333-333333333301" />
+                          <button type="submit" className="ds-btn ds-btn--ghost" disabled={!canRefresh || refreshMut.isPending}>
+                            {t('Refresh IDs', '刷新 ID')}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
+                      </>} />;
+                  })()}
                 </div>
 
                 {!domainView && <div className="ds-card collection-panel">
@@ -950,7 +924,7 @@ export function SourcesPage({
             )}
           </div>
         </div>
-        {canWrite && (!domainView || section === 'technical') && selectedSource && isRedditArchiveSource(selectedSource) && (
+        {canWrite && selectedSource && isRedditArchiveSource(selectedSource) && (
           <div id="r4-archive-console" className="ds-card collection-panel">
             <div className="ds-card-hd collection-panel-header">
               <div>
@@ -974,11 +948,14 @@ export function SourcesPage({
           previewOnly={sourceEditor === 'preview'}
           preferredChannel={sourceEditor === 'create' ? capabilities.find(capability => capability.provider === createChannel) : undefined}
           preferredPreset={sourceEditor === 'create' ? createPreset : undefined}
+          initialTarget={sourceEditor === 'create' ? requestedTarget : undefined}
           capabilities={capabilities}
           source={sourceEditor !== 'create' ? selectedSource : undefined}
           onClose={closeSourceEditor}
           onSaved={id => {
-            onNavigate(sourcePath(id, section));
+            onNavigate(openNewFromUrl && returnProjectId ? '/projects?' + new URLSearchParams({
+              view: 'collect', projectId: returnProjectId, sourceId: id,
+            }) : sourcePath(id, section));
             setSourceSearch('');
             setStateFilter('all');
             setGroupFilter('');

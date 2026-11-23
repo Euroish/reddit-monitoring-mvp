@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { X } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { REDDIT_ARCHIVE_SOURCE_TAG, SourceGroupPattern, SourceLocalePattern } from '../../../../packages/contracts/src/source-content';
@@ -6,6 +6,9 @@ import { webBoards } from '../../../../packages/contracts/src/web-boards';
 import { apiClient } from '../api/client';
 import { formatApiError, useCreateSourceMutation, useUpdateSourceMutation } from '../api/hooks';
 import { formatSourceTarget, type CollectionSource, type SourceCapability, type SourceInput, type SourcePatch, type SourceTarget } from '../contracts/api';
+import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
 import { useI18n } from '../i18n/translations';
 
 const platforms: SourceInput['platform'][] = ['web', 'reddit', 'x', 'bluesky'];
@@ -46,7 +49,7 @@ function availableFallback(
 }
 
 export function SourceEditor({
-  capabilities, source, domain, preferredChannel, preferredPreset, previewOnly = false, onClose, onSaved,
+  capabilities, source, domain, preferredChannel, preferredPreset, initialTarget, previewOnly = false, onClose, onSaved,
 }: {
   capabilities: SourceCapability[];
   source?: CollectionSource;
@@ -54,6 +57,7 @@ export function SourceEditor({
   previewOnly?: boolean;
   preferredChannel?: SourceCapability;
   preferredPreset?: 'push' | 'reddit_archive';
+  initialTarget?: { platform: SourceInput['platform']; type: SourceTarget['type']; value: string };
   onClose: () => void;
   onSaved: (id: string) => void;
 }) {
@@ -71,16 +75,14 @@ export function SourceEditor({
     setError('');
     requestAnimationFrame(() => stepHeading.current?.focus());
   }
-  const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => { dialog.current?.showModal(); }, []);
-  const initialPlatform = source?.platform ?? preferredChannel?.platform ?? (domain === 'research' || preferredPreset === 'reddit_archive' ? 'reddit' : 'web');
+  const initialPlatform = source?.platform ?? initialTarget?.platform ?? preferredChannel?.platform ?? (domain === 'research' || preferredPreset === 'reddit_archive' ? 'reddit' : 'web');
   const [platform, setPlatform] = useState<SourceInput['platform']>(initialPlatform);
   const allowedPlatforms = platforms.filter(item => domain === 'all' || (item === 'web') === (domain === 'feed'));
   const [mode, setMode] = useState<SourceInput['deliveryMode']>(source?.deliveryMode ?? (preferredPreset ? 'push' : 'pull'));
   const [provider, setProvider] = useState<string>(preferredChannel?.provider ?? '');
-  const [targetType, setTargetType] = useState<SourceTarget['type']>(preferredPreset ? 'search' : initialPlatform === 'reddit' ? 'community' : 'feed');
+  const [targetType, setTargetType] = useState<SourceTarget['type']>(initialTarget?.type ?? (preferredPreset ? 'search' : initialPlatform === 'reddit' ? 'community' : 'feed'));
   const [kind, setKind] = useState<SourceInput['contentKind']>(initialPlatform === 'web' ? 'article' : 'post');
-  const [targetValue, setTargetValue] = useState('');
+  const [targetValue, setTargetValue] = useState(initialTarget?.value ?? '');
   const [listFormat, setListFormat] = useState<'' | 'web_list' | 'json_list'>('');
   const [error, setError] = useState('');
   const preview = useMutation({ mutationFn: (input: SourceInput) => apiClient.previewSource(input) });
@@ -88,8 +90,9 @@ export function SourceEditor({
   const update = useUpdateSourceMutation();
   const busy = preview.isPending || create.isPending || update.isPending;
   const providers = capabilities.filter(cap => cap.platform === platform);
-  const cap = providers.find(item => item.provider === provider && item.enabled) ??
-    providers.find(item => item.enabled);
+  const cap = providers.find(item => item.provider === provider) ??
+    providers.find(item => item.enabled && item.targetTypes.includes(targetType)) ??
+    providers.find(item => item.enabled) ?? (initialTarget ? providers.find(item => item.targetTypes.includes(targetType)) : undefined);
   const targets = mode === 'push' ? pushTargets : cap?.targetTypes ?? [];
   const kinds = mode === 'push' ? pushKinds : cap?.contentKinds ?? [];
   const target = targets.includes(targetType) ? targetType : targets[0];
@@ -166,8 +169,21 @@ export function SourceEditor({
         const hasScheduleChange = Object.entries(metadata.schedule).some(([key, value]) =>
           value !== source.schedule?.[key as keyof typeof source.schedule]) ||
           scheduleFields.some(([key]) => source.schedule?.[key] !== undefined && readNumber(fields, key) === undefined);
+        const originalPolicy = source.fetchPolicy;
+        const nextPolicy = metadata.fetchPolicy;
+        const fetchChanged = nextPolicy && (
+          nextPolicy.maxItems !== originalPolicy.maxItems || nextPolicy.timeoutMs !== originalPolicy.timeoutMs ||
+          nextPolicy.stripTrackingParams !== (originalPolicy.stripTrackingParams !== false) ||
+          JSON.stringify(nextPolicy.excludeTitlePatterns ?? []) !== JSON.stringify(originalPolicy.excludeTitlePatterns ?? [])
+        );
         const patch: SourcePatch = {
-          ...metadata,
+          label: metadata.label === source.label ? undefined : metadata.label,
+          sourceGroup: metadata.sourceGroup === source.sourceGroup ? undefined : metadata.sourceGroup,
+          tier: metadata.tier === source.tier ? undefined : metadata.tier,
+          locale: metadata.locale === source.locale ? undefined : metadata.locale,
+          ownerEntityId: metadata.ownerEntityId === source.ownerEntityId ? undefined : metadata.ownerEntityId,
+          tags: JSON.stringify(metadata.tags) === JSON.stringify(source.tags) ? undefined : metadata.tags,
+          fetchPolicy: fetchChanged ? nextPolicy : undefined,
           schedule: mode === 'pull' && hasScheduleChange ? metadata.schedule : undefined,
           fallbackProvider: (fallbackValue ?? null) === source.fallbackProvider ? undefined : fallbackValue ?? null,
           revision: source.revision,
@@ -204,16 +220,39 @@ export function SourceEditor({
     }
   }
 
+  const providerField = mode === 'pull' && <>
+    <label className="wb-field">{t('Collection service', '采集服务')}
+      <select className="wb-select" aria-label={t('Primary provider', '主渠道')} value={cap?.provider ?? ''} onChange={event => {
+        const selected = providers.find(item => item.provider === event.target.value);
+        setProvider(event.target.value);
+        if (target && !selected?.targetTypes.includes(target)) {
+          setTargetValue('');
+          if (wizard) goToStep(0);
+        }
+      }}>
+        {!cap && <option value="">{t('No ready service', '当前无就绪渠道')}</option>}
+        {providers.map(item => <option value={item.provider} key={item.provider} disabled={!initialTarget && !item.enabled}>
+          {item.provider}{item.enabled ? '' : ' · ' + t('not ready', '未就绪')}
+        </option>)}
+      </select>
+    </label>
+    {!cap?.enabled && <p className="muted">{initialTarget
+      ? t('Collection requires an available service. Check credentials before running this source.', '采集需要已就绪的服务，执行前请检查网络与凭证。')
+      : t('Check service networking and provider credentials in Channels.', '请在渠道设置中检查服务联网与凭证。')}</p>}
+  </>;
+
   return (
-    <dialog ref={dialog} className="sr-modal source-editor collection-dialog" aria-labelledby="source-editor-title"
-      onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
+    <Dialog open modal onOpenChange={open => { if (!open && !busy) onClose(); }}>
+    <DialogContent className="sr-modal source-editor collection-dialog" showCloseButton={false}>
       <header className="source-editor-header">
-        <h3 id="source-editor-title">{previewOnly ? t('Preview fetch', '预览抓取') : source ? t('Edit source', '编辑来源') : t('Create Collection Source', '新建采集来源')}</h3>
+        <DialogTitle>{previewOnly ? t('Preview fetch', '预览抓取') : source ? t('Edit source', '编辑来源') : t('Create Collection Source', '新建采集来源')}</DialogTitle>
         <button type="button" className="sr-btn sr-btn--subtle" aria-label={t('Close', '关闭')} onClick={onClose} disabled={busy}><X size={16} /></button>
       </header>
       <p className="collection-hint">{previewOnly && source ? formatSourceTarget(source.target) : source
         ? t('Update classification, schedule or fetch settings for this source.', '可修改分类、调度和抓取设置。')
-        : t('Choose how content arrives, then provide a target and name. Preview to check the configuration before saving.', '先选择接入方式，再填写目标和名称。保存前可用预览检查配置。')}</p>
+        : domain === 'research'
+          ? t('Describe the research target, choose its collection service and save its schedule.', '先说明要研究什么，再选择采集服务和运行计划。')
+          : t('Enter a subscription to preview what it will deliver, then choose when to update.', '填写订阅后可预览内容，再设置更新方式。')}</p>
       {wizard && <ol className="source-wizard-steps" aria-label={t('Source setup steps', '来源设置步骤')}>
         {stepLabels.map((label, index) => <li key={label} aria-current={index === step ? 'step' : undefined}>{index + 1}. {label}</li>)}
       </ol>}
@@ -247,15 +286,7 @@ export function SourceEditor({
                   </select>
                 </label>
               </div>
-              {mode === 'pull' && (
-                <label className="wb-field">{t('Primary provider', '主渠道')}
-                  <select className="wb-select" aria-label={t('Primary provider', '主渠道')} value={cap?.provider ?? ''} onChange={event => { setProvider(event.target.value); setTargetValue(''); }}>
-                    {!cap && <option value="">{t('No ready provider', '当前无就绪渠道')}</option>}
-                    {providers.map(item => <option value={item.provider} key={item.provider} disabled={!item.enabled}>{item.provider}{item.enabled ? '' : ' · ' + t('not ready', '未就绪')}</option>)}
-                  </select>
-                </label>
-              )}
-              {mode === 'pull' && !cap && <p className="muted">{t('Check service networking and provider credentials in Channels.', '请在渠道设置中检查服务联网与凭证。')}</p>}
+              {domain !== 'research' && providerField}
               <div className="wb-grid-2">
                 <label className="wb-field">{t('Target type', '目标类型')}
                   <select className="wb-select" aria-label={t('Target type', '目标类型')} value={target ?? ''} onChange={event => { setTargetType(event.target.value as typeof targetType); setTargetValue(''); }}>
@@ -274,7 +305,7 @@ export function SourceEditor({
                     <select className="wb-select" name="target" required>
                       {Object.entries(webBoards).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                     </select>
-                  ) : <input className="wb-input" name="target" required type={target === 'feed' ? 'url' : 'text'}
+                  ) : <Input className="wb-input" name="target" required type={target === 'feed' ? 'url' : 'text'}
                     maxLength={{ search: 512, community: 100, account: 253, post: 100, feed: 2000 }[target]}
                     placeholder={targetExamples[target]} value={targetValue} onChange={event => setTargetValue(event.target.value)} />}
                 </label>
@@ -286,6 +317,8 @@ export function SourceEditor({
             </div>
           )}
           <div className="collection-form" data-source-step="1" hidden={wizard && step !== 1}>
+          {!source && domain === 'research' && providerField}
+
               {!source && providerName === 'feed' && target === 'feed' && (
                 <>
                   <label className="wb-field">{t('Feed format', 'Feed 解析格式')}
@@ -372,13 +405,14 @@ export function SourceEditor({
           <button className="ds-btn ds-btn--ghost" type="button" onClick={onClose} disabled={busy}>{t('Cancel', '取消')}</button>
           {wizard && step > 0 && <button className="ds-btn ds-btn--ghost" type="button" onClick={() => goToStep(step - 1)} disabled={busy}>{t('Previous', '上一步')}</button>}
           {wizard && step < stepLabels.length - 1 ? (
-            <button className="ds-btn" type="submit" value="next" disabled={busy || !providerName}>{t('Next', '下一步')}</button>
+            <Button className="intake-primary" type="submit" value="next" disabled={busy || !providerName}>{t('Next', '下一步')}</Button>
           ) : <>
             {(!source || previewOnly) && <button className={previewOnly ? 'ds-btn' : 'ds-btn ds-btn--ghost'} type="submit" value="preview" disabled={busy || !providerName}>{preview.isPending ? t('Checking…', '正在校验…') : previewOnly ? t('Run fetch preview', '执行预览抓取') : t('Preview source', '预览来源')}</button>}
-            {!previewOnly && <button className="ds-btn" type="submit" value="save" disabled={busy || !providerName}>{source ? t('Save source', '保存来源') : t('Create Source', '创建来源')}</button>}
+            {!previewOnly && <Button className="intake-primary" type="submit" value="save" disabled={busy || !providerName}>{source ? t('Save source', '保存来源') : t('Create Source', '创建来源')}</Button>}
           </>}
         </footer>
       </form>
-    </dialog>
+    </DialogContent>
+    </Dialog>
   );
 }
