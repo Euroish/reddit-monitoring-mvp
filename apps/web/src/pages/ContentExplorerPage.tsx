@@ -28,6 +28,7 @@ import {
   useHydrateMutation,
   useProjectsQuery,
   usePublicSourcesQuery,
+  useQuotasSummaryQuery,
   useSaveAnnotationMutation,
   useSourcesQuery,
   useThreadQuery,
@@ -51,6 +52,22 @@ import {
 } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
 import { safeHttpUrl, toSafeUtcIso, toUtcDatetimeLocal } from '../lib/sourceLabels';
+
+function StreamExportButton({ actor, onClick }: { actor: Actor | null; onClick: () => void }) {
+  const { t } = useI18n();
+  const viewer = actor?.clientKind === 'browser' && actor.role === 'viewer';
+  const quota = useQuotasSummaryQuery(viewer);
+  const denied = viewer && quota.data?.effectivePolicy.exportEnabled === false;
+  const notice = denied ? t('Export is disabled for your account.', '当前账号的导出权限已关闭。') : '';
+  return <>
+    <button type="button" className="ds-btn ds-btn--ghost" onClick={onClick}
+      disabled={denied} aria-describedby={notice ? 'stream-export-notice' : undefined}>
+      <Download size={14} />
+      <span>{t('Stream Export', '流式导出')}</span>
+    </button>
+    {notice && <small id="stream-export-notice" role="status">{notice}</small>}
+  </>;
+}
 
 const PAIN_RE =
   /\b(broken|bug|slow|expensive|pricing|sucks|frustrated|unusable|churn|blocked|timeout|hate|pain|issue|fail(?:ed|ing)?|refund|friction|overage)\b|崩溃|卡顿|太贵|难用|踩坑|报错|封号|吐槽|痛/i;
@@ -452,20 +469,13 @@ export function ContentExplorerPage({
             <span>{t('Save Query', '保存查询')}</span>
           </button>
 
-          <button
-            type="button"
-            className="ds-btn ds-btn--ghost"
-            onClick={() => {
-              if (!isAuthed) {
-                onOpenAuth?.('login', t('Sign in to export filtered results.', '登录后可导出筛选结果。'));
-                return;
-              }
-              setExportOpen((v) => !v);
-            }}
-          >
-            <Download size={14} />
-            <span>{t('Stream Export', '流式导出')}</span>
-          </button>
+          <StreamExportButton actor={actor} onClick={() => {
+            if (!isAuthed) {
+              onOpenAuth?.('login', t('Sign in to export filtered results.', '登录后可导出筛选结果。'));
+              return;
+            }
+            setExportOpen((v) => !v);
+          }} />
 
           {exportOpen && (
             <div className="ds-pop" style={{ top: 'calc(100% + 6px)', right: 0, width: 295, padding: 12 }}>

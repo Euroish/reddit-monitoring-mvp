@@ -269,4 +269,69 @@ test("PG16 provider credentials, Apify aggregation, dynamic Free/Pro policies, q
   const kaixUsage = await db.pool.query("SELECT resources_reserved FROM user_provider_usage WHERE user_id=$1 AND provider='kaix'", [freeUser.id]);
   assert.deepEqual(kaixUsage.rows, [{ resources_reserved: 22 }]);
   assert.equal(adminUser.role, "admin");
+
+  await t.test("export uses live plan inheritance and personal overrides while scoped machine exports remain available", async () => {
+    const status = (cookie: string, format: "json" | "csv" = "json") => app.inject({
+      url: `/v1/content/export?format=${format}`, headers: { cookie },
+    });
+    const updateOverride = (payload: object | null) => app.inject({
+      method: "PUT", url: `/v1/quotas/users/${freeUser.id}`,
+      headers: { cookie: adminCookie, origin: ORIGIN, "content-type": "application/json" }, payload: JSON.stringify(payload),
+    });
+    const effective = async () => (await app.inject({ url: "/v1/quotas/summary", headers: { cookie: freeCookie } })).json().effectivePolicy;
+    assert.equal((await status(freeCookie)).statusCode, 200);
+
+    await db.pool.query(`UPDATE plan_collection_policy SET export_enabled=false,allow_provider_choice=true WHERE plan_tier='free'`);
+    for (const format of ["json", "csv"] as const) {
+      const deniedExport = await status(freeCookie, format);
+      assert.equal(deniedExport.statusCode, 403, deniedExport.body);
+      assert.match(deniedExport.json().error.message, /Content export is disabled/);
+    }
+    assert.equal((await app.inject({ url: "/v1/content", headers: { cookie: freeCookie } })).statusCode, 200);
+    assert.equal((await status(proCookie)).statusCode, 200);
+    assert.equal((await status(ownerCookie)).statusCode, 200);
+    assert.equal((await status(adminCookie)).statusCode, 200);
+
+    const key = await app.inject({ method: "POST", url: "/v1/access/keys", headers: { cookie: ownerCookie, origin: ORIGIN },
+      payload: { label: "Export policy fixture", scopes: ["export"], allowedSourceIds: [sourceId], expiresInDays: 7 } });
+    assert.equal(key.statusCode, 200, key.body);
+    const machineExport = (token: string) => app.inject({ url: "/v1/content/export", headers: { authorization: `Bearer ${token}` } });
+    assert.equal((await machineExport(key.json().token)).statusCode, 200);
+    assert.equal((await machineExport(machineToken)).statusCode, 403);
+
+    const override = { maxCommentsPerPost: 0, maxProjects: 2, maxLookbackDays: 1, allowProviderChoice: false, exportEnabled: true };
+    const allowed = await updateOverride(override);
+    assert.equal(allowed.statusCode, 200, allowed.body);
+    const policy = await effective();
+    for (const [name, value] of Object.entries(override)) assert.equal(policy[name], value, name);
+    assert.equal((await status(freeCookie, "csv")).statusCode, 200);
+
+    const comments = await redditApp.inject({
+      method: "POST", url: `/v1/sources/${commentSrc.json().source.id}/collect`,
+      headers: { cookie: freeCookie, origin: ORIGIN, "idempotency-key": "comment-override-zero" },
+      payload: { ...collectBody, limit: 1, includeComments: true, maxCommentsPerPost: 1 },
+    });
+    assert.equal(comments.statusCode, 422, comments.body);
+    assert.match(comments.json().error.message, /Comment hydration exceeds/);
+    const createProject = (name: string) => app.inject({
+      method: "POST", url: "/v1/projects", headers: { cookie: freeCookie, origin: ORIGIN },
+      payload: { name, datasetMode: "batch", sourceIds: [], filter: {} },
+    });
+    assert.equal((await createProject("Override project one")).statusCode, 200);
+    assert.equal((await createProject("Override project two")).statusCode, 200);
+    const capped = await createProject("Override project three");
+    assert.equal(capped.statusCode, 403, capped.body);
+    assert.match(capped.json().error.message, /Project limit reached/);
+
+    await db.pool.query("UPDATE plan_collection_policy SET export_enabled=true WHERE plan_tier='free'");
+    const blocked = await updateOverride({ exportEnabled: false });
+    assert.equal(blocked.statusCode, 200, blocked.body);
+    assert.equal((await effective()).exportEnabled, false);
+    assert.equal((await status(freeCookie)).statusCode, 403);
+    const inherited = await updateOverride(null);
+    assert.equal(inherited.statusCode, 200, inherited.body);
+    assert.equal((await effective()).hasOverride, false);
+    assert.equal((await status(freeCookie)).statusCode, 200);
+    assert.equal((await createProject("Inherited project limit")).statusCode, 200);
+  });
 });

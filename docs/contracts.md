@@ -32,8 +32,8 @@
 
 1. **采集与付费熔断**：`POST /v1/sources/:id/collect` 强校验 `Idempotency-Key`（同源同键同体复用 `job`，异体返 `409`）；`POST /v1/sources/:id/ingest` 接收 `1..100` 条且解压体 `<= 1 MiB`（首次 `201`、重放同载体 `200`、异体 `409`）。仅当首次付费请求明确失败/429 且无已计费 Run 时允许单跳切备（`twitterapis -> scrapebadger`、`kaix -> red_crawler`）；`unknown` 状态立即阻断来源，须显式 `acknowledgePotentialCharge: true` 解封。
 2. **检索、分面与讨论树**：`compileContentFilter` 统一在权限交集内编译三段词、双字词 GIN、`sourceGroup`/`tier`/`language`/`hasMedia`/`signal` 与 `[from, to)`；列表使用 Keyset 游标（范围或项目 `revision` 变化返 `409 cursor_scope_changed`）；`/v1/content/facets` 强校验正区间 `<= 90` 天；`/v1/content/:id/thread?view=top|matches|op` 递归上限 32 跳、返回上限 200 节点，断链标 `contextMissing = true`。
-3. **研究采集预检**：`POST /v1/research/collection-plans/preview` 返回 `restrictions`、字段权限、可见存量与预算估算。提交与执行分别重验项目权限、套餐、配额及供应商预算。`GET /v1/batches?forProjectId=` 仅返回有项目写权限、授权、非空且尚未关联的研究批次。
-4. **流式导出**：`GET /v1/content/export?format=csv|json` 默认 1 万、上限 5 万行，`REPEATABLE READ READ ONLY` + 全局单槽锁（冲突 `429 + Retry-After: 5`）；JSON 结尾输出 `{ complete: true }`，CSV 中和 `=+-@` 公式注入。
+3. **研究采集预检**：`POST /v1/research/collection-plans/preview` 返回 `restrictions`、字段权限、可见存量与预算估算。提交与执行分别重验项目权限、套餐、配额及供应商预算。`GET /v1/batches?forProjectId=` 仅返回有项目写权限、授权、非空且尚未关联的研究批次。个人覆盖可指定每帖评论上限、项目数、回溯天数、渠道选择和导出权限，省略这些字段则继承套餐。
+4. **流式导出**：`GET /v1/content/export?format=csv|json` 默认 1 万、上限 5 万行，`REPEATABLE READ READ ONLY` + 全局单槽锁（冲突 `429 + Retry-After: 5`）。JSON 结尾输出 `{ complete: true }`，CSV 中和 `=+-@` 公式注入。普通浏览器账号须满足实际生效的 `exportEnabled`，否则返回 `403`。项目证据样本 CSV 在浏览器下载前重新读取同一策略。管理员和有 `export` scope 的 Machine Key 继续按角色、scope 和来源范围授权。
 
 ---
 

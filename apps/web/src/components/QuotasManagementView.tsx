@@ -50,14 +50,9 @@ export function QuotasManagementView({
   const [pErr, setPErr] = useState<string | null>(null);
 
   const [editUser, setEditUser] = useState<{ id: string; email: string } | null>(null);
+  const [userDraft, setUserDraft] = useState<QuotaOverrideDto>({});
   const [notice, setNotice] = useState('');
-  const [uEnabled, setUEnabled] = useState<'inherit' | 'true' | 'false'>('inherit');
-  const [uDailyReq, setUDailyReq] = useState<string>('');
-  const [uDailyRes, setUDailyRes] = useState<string>('');
   const [uErr, setUErr] = useState<string | null>(null);
-  const [uProviders, setUProviders] = useState<string[] | undefined>();
-  const [uSources, setUSources] = useState<string[] | null | undefined>();
-  const [uBatch, setUBatch] = useState('');
 
   const summary = quotasQuery.data;
 
@@ -107,13 +102,7 @@ export function QuotasManagementView({
 
   const openUserEditor = (u: { id: string; email: string; quotaOverride: QuotaOverrideDto | null }) => {
     setEditUser({ id: u.id, email: u.email });
-    const o = u.quotaOverride;
-    setUEnabled(o?.manualCollectEnabled === true ? 'true' : o?.manualCollectEnabled === false ? 'false' : 'inherit');
-    setUDailyReq(o?.dailyRequests === null ? 'unlimited' : String(o?.dailyRequests ?? ''));
-    setUDailyRes(o?.dailyResources === null ? 'unlimited' : String(o?.dailyResources ?? ''));
-    setUProviders(o?.allowedProviders ?? undefined);
-    setUSources(o?.allowedSourceIds);
-    setUBatch(String(o?.maxBatchLimit ?? ''));
+    setUserDraft(u.quotaOverride ?? {});
     setUErr(null);
   };
 
@@ -121,23 +110,7 @@ export function QuotasManagementView({
     if (!editUser) return;
     setUErr(null);
     try {
-      if (clear) {
-        await updateOverrideMut.mutateAsync({ userId: editUser.id, payload: null });
-      } else {
-        const dailyValue = (value: string) => value === 'unlimited' ? null : value === '' ? undefined : Number(value);
-        const next: QuotaOverrideDto = {
-          ...(uEnabled === 'inherit' ? {} : { manualCollectEnabled: uEnabled === 'true' }),
-          ...(uDailyReq !== '' ? { dailyRequests: dailyValue(uDailyReq) } : {}),
-          ...(uDailyRes !== '' ? { dailyResources: dailyValue(uDailyRes) } : {}),
-          ...(uProviders !== undefined ? { allowedProviders: uProviders } : {}),
-          ...(uSources !== undefined ? { allowedSourceIds: uSources } : {}),
-          ...(uBatch !== '' ? { maxBatchLimit: Number(uBatch) } : {}),
-        };
-        await updateOverrideMut.mutateAsync({
-          userId: editUser.id,
-          payload: Object.keys(next).length > 0 ? next : null,
-        });
-      }
+      await updateOverrideMut.mutateAsync({ userId: editUser.id, payload: clear ? null : userDraft });
       setEditUser(null);
       setNotice(clear ? t('Plan inheritance restored.', '已恢复继承套餐。') : t('Personal override saved.', '个人覆盖已保存。'));
     } catch (err) {
@@ -159,6 +132,11 @@ export function QuotasManagementView({
     if (override.dailyRequests !== undefined) labels.push(t('Daily requests', '日请求') + ' · ' + limitText(override.dailyRequests, 'requests', '次'));
     if (override.dailyResources !== undefined) labels.push(t('Daily resources', '日资源') + ' · ' + limitText(override.dailyResources, 'units', '单位'));
     if (override.maxBatchLimit != null) labels.push(t('Batch limit', '单批上限') + ' · ' + limitText(override.maxBatchLimit, 'items', '条'));
+    if (override.maxCommentsPerPost != null) labels.push(t('Comments per post', '每帖评论') + ' · ' + limitText(override.maxCommentsPerPost, 'comments', '条'));
+    if (override.maxProjects != null) labels.push(t('Private project limit', '私有项目上限') + ' · ' + limitText(override.maxProjects, 'projects', '个'));
+    if (override.maxLookbackDays != null) labels.push(t('Lookback limit', '历史回溯上限') + ' · ' + limitText(override.maxLookbackDays, 'days', '天'));
+    if (typeof override.allowProviderChoice === 'boolean') labels.push(override.allowProviderChoice ? t('Allow provider choice', '允许选择渠道') : t('Block provider choice', '禁止选择渠道'));
+    if (typeof override.exportEnabled === 'boolean') labels.push(override.exportEnabled ? t('Allow export', '允许导出') : t('Block export', '禁止导出'));
     if (override.allowedProviders) labels.push(override.allowedProviders.join(', ') || t('No providers', '无可用渠道'));
     if (override.allowedSourceIds !== undefined) labels.push(scopeCount(override.allowedSourceIds));
     return labels;
@@ -192,6 +170,7 @@ export function QuotasManagementView({
             <span>{t('Sources', '来源范围')} · {scopeCount(ep.allowedSourceIds)}</span>
             <span>{t('Batch limit', '单批上限')} · {limitText(ep.maxBatchLimit, 'items', '条')}</span>
             <span>{t('Comments per post', '每帖评论')} · {limitText(ep.maxCommentsPerPost, 'comments', '条')}</span>
+            <span>{ep.exportEnabled ? t('Export allowed', '允许导出') : t('Export disabled', '禁止导出')}</span>
           </div>
           {(summary.providerAvailability ?? []).map(provider => {
             const usage = my.byProvider.find(row => row.provider === provider.provider);
@@ -294,7 +273,7 @@ export function QuotasManagementView({
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
                 <input type="checkbox" checked={pExportEnabled} onChange={(e) => setPExportEnabled(e.target.checked)} />
-                <span>{t('Allow CSV/JSON data export (reserved policy toggle)', '允许 CSV / JSON 数据导出（权益预留开关）')}</span>
+                <span>{t('Allow CSV/JSON data export', '允许 CSV / JSON 数据导出')}</span>
               </label>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button type="submit" className="ds-btn" disabled={updatePlanMut.isPending || !providers.length}>
@@ -357,32 +336,7 @@ export function QuotasManagementView({
           <form className="collection-editor-section" onSubmit={event => { event.preventDefault(); void saveUserOverride(); }}>
             <div style={{ fontWeight: 600, marginBottom: 8 }}>{t(`Quota Override for ${editUser.email}`, `调整 ${editUser.email} 的个人额度覆盖`)}</div>
             {uErr && <div className="wb-alert wb-alert--error" style={{ marginBottom: 8 }}>{uErr}</div>}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
-              <div className="wb-field">
-                <label htmlFor="viewer-manual-collect">{t('Manual Collect', '手动采集开关')}</label>
-                <select className="wb-select" id="viewer-manual-collect" value={uEnabled} onChange={(e) => setUEnabled(e.target.value as 'inherit' | 'true' | 'false')}>
-                  <option value="inherit">{t('Inherit plan', '继承套餐')}</option>
-                  <option value="true">{t('Force allow', '允许')}</option>
-                  <option value="false">{t('Force deny', '禁止')}</option>
-                </select>
-              </div>
-              <DailyOverride label={t('Daily requests (count)', '日请求上限（次）')} value={uDailyReq} onChange={setUDailyReq} max={100000} />
-              <DailyOverride label={t('Daily resources (units)', '日资源上限（单位）')} value={uDailyRes} onChange={setUDailyRes} max={10000000} />
-              <label className="wb-field">{t('Batch limit (blank inherits)', '批量上限（留空继承）')}
-                <input className="wb-input" type="number" min={1} max={2000} value={uBatch} onChange={event => setUBatch(event.target.value)} />
-              </label>
-            </div>
-            <label><input type="checkbox" checked={uProviders === undefined} onChange={event => setUProviders(event.target.checked ? undefined : [])} /> {t('Inherit plan providers', '继承套餐渠道')}</label>
-            {uProviders && <QuotaChoices label={t('Allowed providers', '允许渠道')} options={providerOptions} value={uProviders} onChange={setUProviders} />}
-            <label className="wb-field">{t('Source scope override', '个人来源范围')}
-              <select className="wb-select" value={uSources === undefined ? 'inherit' : uSources === null ? 'all' : 'selected'}
-                onChange={event => setUSources(event.target.value === 'all' ? null : event.target.value === 'selected' ? [] : undefined)}>
-                <option value="inherit">{t('Inherit plan', '继承套餐')}</option>
-                <option value="all">{t('All sources', '全部来源')}</option>
-                <option value="selected">{t('Selected sources', '仅指定来源')}</option>
-              </select>
-            </label>
-            {uSources && <QuotaChoices label={t('Allowed sources', '允许来源')} options={sourceOptions} value={uSources} onChange={setUSources} />}
+            <UserQuotaOverrideFields draft={userDraft} onChange={setUserDraft} providerOptions={providerOptions} sourceOptions={sourceOptions} />
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button type="submit" className="ds-btn" disabled={updateOverrideMut.isPending}>{t('Save Override', '保存覆盖')}</button>
               <button type="button" className="ds-btn ds-btn--ghost" disabled={updateOverrideMut.isPending} onClick={() => saveUserOverride(true)}>{t('Clear Override', '清除覆盖')}</button>
@@ -395,8 +349,46 @@ export function QuotasManagementView({
   );
 }
 
+type QuotaChoice = { id: string; label: string };
+
+function UserQuotaOverrideFields({ draft, onChange, providerOptions, sourceOptions }: {
+  draft: QuotaOverrideDto;
+  onChange: (draft: QuotaOverrideDto) => void;
+  providerOptions: QuotaChoice[];
+  sourceOptions: QuotaChoice[];
+}) {
+  const { t } = useI18n();
+  function change<K extends keyof QuotaOverrideDto>(key: K, value: QuotaOverrideDto[K]) {
+    onChange({ ...draft, [key]: value });
+  }
+  return <>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
+      <BooleanOverride label={t('Manual Collect', '手动采集开关')} value={draft.manualCollectEnabled} onChange={value => change('manualCollectEnabled', value)} />
+      <DailyOverride label={t('Daily requests (count)', '日请求上限（次）')} max={100_000} value={draft.dailyRequests} onChange={value => change('dailyRequests', value)} />
+      <DailyOverride label={t('Daily resources (units)', '日资源上限（单位）')} max={10_000_000} value={draft.dailyResources} onChange={value => change('dailyResources', value)} />
+      <NumberOverride label={t('Batch limit (blank inherits)', '批量上限（留空继承）')} min={1} max={2000} value={draft.maxBatchLimit} onChange={value => change('maxBatchLimit', value)} />
+      <NumberOverride label={t('Max comments per post', '每帖评论上限')} min={0} max={50} value={draft.maxCommentsPerPost} onChange={value => change('maxCommentsPerPost', value)} />
+      <NumberOverride label={t('Max private projects', '私有项目数量上限')} min={1} max={100} value={draft.maxProjects} onChange={value => change('maxProjects', value)} />
+      <NumberOverride label={t('Max lookback (days)', '最大历史回溯天数')} min={1} max={365} value={draft.maxLookbackDays} onChange={value => change('maxLookbackDays', value)} />
+      <BooleanOverride label={t('Choosing a collection provider', '选择采集渠道')} value={draft.allowProviderChoice} onChange={value => change('allowProviderChoice', value)} />
+      <BooleanOverride label={t('CSV/JSON data export', 'CSV / JSON 数据导出')} value={draft.exportEnabled} onChange={value => change('exportEnabled', value)} />
+    </div>
+    <label><input type="checkbox" checked={draft.allowedProviders == null} onChange={event => change('allowedProviders', event.target.checked ? undefined : [])} /> {t('Inherit plan providers', '继承套餐渠道')}</label>
+    {draft.allowedProviders && <QuotaChoices label={t('Allowed providers', '允许渠道')} options={providerOptions} value={draft.allowedProviders} onChange={value => change('allowedProviders', value)} />}
+    <label className="wb-field">{t('Source scope override', '个人来源范围')}
+      <select className="wb-select" value={draft.allowedSourceIds === undefined ? 'inherit' : draft.allowedSourceIds === null ? 'all' : 'selected'}
+        onChange={event => change('allowedSourceIds', event.target.value === 'all' ? null : event.target.value === 'selected' ? [] : undefined)}>
+        <option value="inherit">{t('Inherit plan', '继承套餐')}</option>
+        <option value="all">{t('All sources', '全部来源')}</option>
+        <option value="selected">{t('Selected sources', '仅指定来源')}</option>
+      </select>
+    </label>
+    {draft.allowedSourceIds && <QuotaChoices label={t('Allowed sources', '允许来源')} options={sourceOptions} value={draft.allowedSourceIds} onChange={value => change('allowedSourceIds', value)} />}
+  </>;
+}
+
 function QuotaChoices({ label, options, value, onChange }: {
-  label: string; options: { id: string; label: string }[]; value: string[]; onChange: (next: string[]) => void;
+  label: string; options: QuotaChoice[]; value: string[]; onChange: (next: string[]) => void;
 }) {
   const labels = new Map(options.map(option => [option.id, option.label]));
   return (
@@ -413,17 +405,38 @@ function QuotaChoices({ label, options, value, onChange }: {
   );
 }
 
+function BooleanOverride({ label, value, onChange }: {
+  label: string; value?: boolean | null; onChange: (value?: boolean) => void;
+}) {
+  const { t } = useI18n();
+  return <label className="wb-field">{label}
+    <select className="wb-select" value={value == null ? '' : String(value)}
+      onChange={event => onChange(event.target.value === '' ? undefined : event.target.value === 'true')}>
+      <option value="">{t('Inherit plan', '继承套餐')}</option>
+      <option value="true">{t('Allow', '允许')}</option>
+      <option value="false">{t('Block', '禁止')}</option>
+    </select>
+  </label>;
+}
+
+function NumberOverride({ label, value, onChange, min, max }: {
+  label: string; value?: number | null; onChange: (next?: number) => void; min: number; max: number;
+}) {
+  const { t } = useI18n();
+  return <label className="wb-field">{label}
+    <input className="wb-input" type="number" min={min} max={max} placeholder={t('Inherit plan', '继承套餐')}
+      disabled={value === null} value={value ?? ''} onChange={event => onChange(event.target.value === '' ? undefined : event.target.valueAsNumber)} />
+  </label>;
+}
+
 function DailyOverride({ label, value, onChange, max }: {
-  label: string; value: string; onChange: (next: string) => void; max: number;
+  label: string; value?: number | null; onChange: (next?: number | null) => void; max: number;
 }) {
   const { t } = useI18n();
   return (
     <div className="wb-field">
-      <label className="wb-field">{label}
-        <input className="wb-input" type="number" min={0} max={max} placeholder={t('Inherit plan', '继承套餐')}
-          disabled={value === 'unlimited'} value={value === 'unlimited' ? '' : value} onChange={event => onChange(event.target.value)} />
-      </label>
-      <label><input type="checkbox" checked={value === 'unlimited'} onChange={event => onChange(event.target.checked ? 'unlimited' : '')} /> {t('Unlimited', '不限')}</label>
+      <NumberOverride label={label} min={0} max={max} value={value} onChange={onChange} />
+      <label><input type="checkbox" checked={value === null} onChange={event => onChange(event.target.checked ? null : undefined)} /> {t('Unlimited', '不限')}</label>
     </div>
   );
 }

@@ -4,7 +4,7 @@ import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool, PoolClient } from "pg";
 import { PlanTier, type Actor } from "../../../packages/contracts/src/access";
 import { ParamsId } from "../../../packages/contracts/src/common";
-import { PlanPolicyInput, UserQuotaOverrideInput } from "../../../packages/contracts/src/collection";
+import { PlanPolicyInput, UserQuotaOverrideInput, type UserQuotaOverride } from "../../../packages/contracts/src/collection";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
@@ -15,15 +15,6 @@ import {
   updateUserQuotaOverride,
   writeAuditLog,
 } from "../access/index";
-
-export interface QuotaOverride {
-  manualCollectEnabled?: boolean | null;
-  allowedProviders?: string[] | null;
-  allowedSourceIds?: string[] | null;
-  dailyRequests?: number | null;
-  dailyResources?: number | null;
-  maxBatchLimit?: number | null;
-}
 
 export interface EffectivePolicy {
   planTier: "free" | "pro";
@@ -58,7 +49,7 @@ interface PolicyRow {
   revision: number;
 }
 
-export function resolveEffectivePolicy(policy: PolicyRow, override: QuotaOverride | null): EffectivePolicy {
+export function resolveEffectivePolicy(policy: PolicyRow, override: UserQuotaOverride | null): EffectivePolicy {
   const o = override ?? {};
   return {
     planTier: policy.plan_tier,
@@ -69,11 +60,11 @@ export function resolveEffectivePolicy(policy: PolicyRow, override: QuotaOverrid
     dailyRequests: o.dailyRequests !== undefined ? o.dailyRequests : policy.daily_requests,
     dailyResources: o.dailyResources !== undefined ? o.dailyResources : policy.daily_resources,
     maxBatchLimit: typeof o.maxBatchLimit === "number" ? o.maxBatchLimit : policy.max_batch_limit,
-    maxCommentsPerPost: policy.max_comments_per_post,
-    maxProjects: policy.max_projects ?? 3,
-    maxLookbackDays: policy.max_lookback_days ?? 7,
-    allowProviderChoice: policy.allow_provider_choice ?? false,
-    exportEnabled: policy.export_enabled ?? true,
+    maxCommentsPerPost: o.maxCommentsPerPost ?? policy.max_comments_per_post,
+    maxProjects: o.maxProjects ?? policy.max_projects ?? 3,
+    maxLookbackDays: o.maxLookbackDays ?? policy.max_lookback_days ?? 7,
+    allowProviderChoice: o.allowProviderChoice ?? policy.allow_provider_choice ?? false,
+    exportEnabled: o.exportEnabled ?? policy.export_enabled ?? true,
     hasOverride: Boolean(override && Object.keys(override).length > 0),
   };
 }
@@ -89,7 +80,13 @@ export async function loadEffectivePolicyForUser(
     await client.query<PolicyRow>("SELECT * FROM plan_collection_policy WHERE plan_tier=$1", [userRow.plan_tier])
   ).rows[0];
   if (!policyRow) fail(lockForUpdate ? 403 : 500, lockForUpdate ? "Collection policy unavailable" : "Plan policy missing");
-  return resolveEffectivePolicy(policyRow, userRow.quota_override as QuotaOverride | null);
+  return resolveEffectivePolicy(policyRow, userRow.quota_override as UserQuotaOverride | null);
+}
+
+export async function assertBrowserExportAllowed(db: Pool, actor: Actor) {
+  if (actor.clientKind !== "browser" || actor.role !== "viewer") return;
+  const policy = await loadEffectivePolicyForUser(db, actor.userId);
+  if (!policy.exportEnabled) fail(403, "Content export is disabled for this account");
 }
 
 export { requestedCommentLimit, viewerCollectionDemand } from "../../../packages/contracts/src/collection-budget";
@@ -280,7 +277,7 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
       const uUsage = usageByUser.get(u.id);
       return {
         ...u,
-        quota_override: u.quota_override as QuotaOverride | null,
+        quota_override: u.quota_override as UserQuotaOverride | null,
         requests_reserved: uUsage?.requests_reserved ?? 0,
         requests_executed: uUsage?.requests_executed ?? 0,
         resources_reserved: uUsage?.resources_reserved ?? 0,

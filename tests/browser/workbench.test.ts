@@ -274,6 +274,23 @@ test("browser: source operations by domain, scheduling, paid block and role boun
   await page.getByRole("button", { name: "打开菜单" }).click();
   await page.getByRole("button", { name: "第三方采集密钥", exact: true }).click();
   await page.getByRole("heading", { name: "第三方采集密钥" }).waitFor();
+  await page.goto(origin + "/sources?tab=budgets");
+  const readerRow = page.getByRole("row").filter({ hasText: "reader@example.test" });
+  await readerRow.getByRole("button", { name: "调整", exact: true }).click();
+  await page.getByLabel("每帖评论上限").fill("0");
+  await page.getByLabel("私有项目数量上限").fill("2");
+  await page.getByLabel("最大历史回溯天数").fill("3");
+  await page.getByLabel("选择采集渠道").selectOption("true");
+  await page.getByLabel("CSV / JSON 数据导出").selectOption("false");
+  await capture("export-policy-override-390");
+  await page.getByRole("button", { name: "保存覆盖" }).press("Enter");
+  await readerRow.getByText(/禁止导出/).waitFor();
+  await readerRow.getByRole("button", { name: "调整", exact: true }).click();
+  assert.equal(await page.getByLabel("每帖评论上限").inputValue(), "0");
+  assert.equal(await page.getByLabel("私有项目数量上限").inputValue(), "2");
+  assert.equal(await page.getByLabel("最大历史回溯天数").inputValue(), "3");
+  assert.equal(await page.getByLabel("选择采集渠道").inputValue(), "true");
+  assert.equal(await page.getByLabel("CSV / JSON 数据导出").inputValue(), "false");
   assert.ok((await post("/auth/logout", {})).ok());
   await login("reader@example.test");
   await page.goto(origin + researchPath);
@@ -526,6 +543,7 @@ test("browser: project switching and guided intake with real project and role bo
     await capture(`project-analysis-${width}`);
   }
   await page.setViewportSize({ width: 1440, height: 900 });
+
   await selectProject.click();
   const defaultPanel = await switcher.evaluate(el => getComputedStyle(el).getPropertyValue("--wb-purple").trim());
   await page.keyboard.press("Escape");
@@ -545,6 +563,30 @@ test("browser: project switching and guided intake with real project and role bo
   assert.equal(drilldown.get("projectId"), secondId);
   assert.equal(drilldown.get("platform"), "x");
   assert.equal(Date.parse(drilldown.get("to")!) - Date.parse(drilldown.get("from")!), 7 * 86_400_000);
+
+  // Keep the page open while the account loses export permission. The button
+  // must use the current policy, even when its previous summary allowed CSV.
+  await page.goto(origin + `/projects?view=overview&projectId=${secondId}`);
+  const evidenceExport = page.getByRole("button", { name: "导出证据样本（CSV）" });
+  await evidenceExport.click({ trial: true });
+  let deniedDownloads = 0;
+  const countDownload = () => { deniedDownloads++; };
+  page.on("download", countDownload);
+  await db.pool.query(`UPDATE app_user SET quota_override='{"exportEnabled":false}' WHERE email='pro@example.test'`);
+  await evidenceExport.press("Enter");
+  await page.getByText("当前账号的导出权限已关闭。", { exact: true }).waitFor();
+  assert.equal(await evidenceExport.isDisabled(), true);
+  assert.equal(deniedDownloads, 0);
+  page.off("download", countDownload);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await capture("evidence-export-denied-390");
+  await page.goto(origin + `/content?projectId=${secondId}`);
+  await page.getByText("当前账号的导出权限已关闭。", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "流式导出" }).isDisabled(), true);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await capture("stream-export-denied-390");
+  await db.pool.query("UPDATE app_user SET quota_override=NULL WHERE email='pro@example.test'");
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   rejectUpstream = true;
   await page.goto(origin + intakePath(firstId));

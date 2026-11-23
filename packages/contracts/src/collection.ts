@@ -245,6 +245,9 @@ export const PlanPolicyInput = Type.Object(
 
 export const UserQuotaOverrideInput = Type.Object(
   {
+    ...Type.Partial(Type.Pick(PlanPolicyInput, [
+      "maxCommentsPerPost", "maxProjects", "maxLookbackDays", "allowProviderChoice", "exportEnabled",
+    ])).properties,
     manualCollectEnabled: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
     allowedProviders: Type.Optional(Type.Union([Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { maxItems: 20, uniqueItems: true }), Type.Null()])),
     allowedSourceIds: Type.Optional(Type.Union([Type.Array(Id, { maxItems: 1000, uniqueItems: true }), Type.Null()])),
@@ -254,6 +257,8 @@ export const UserQuotaOverrideInput = Type.Object(
   },
   { additionalProperties: false },
 );
+
+export type UserQuotaOverride = Static<typeof UserQuotaOverrideInput>;
 
 export const ProviderCredentialInput = Type.Object(
   { apiKey: Type.String({ minLength: 8, maxLength: 512 }), revision: Type.Optional(Type.Integer({ minimum: 1 })) },

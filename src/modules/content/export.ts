@@ -4,6 +4,7 @@ import QueryStream from "pg-query-stream";
 import type { Pool, PoolClient } from "pg";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
+import type { Actor } from "../../../packages/contracts/src/access";
 import { strictMerge } from "../../../packages/contracts/src/common";
 import { ResearchFilter } from "../../../packages/contracts/src/content";
 import { compileContentFilter, contentSelect, filterSignature, matchedAnchors, type ContentScopeResolver } from "./search";
@@ -16,10 +17,13 @@ export function csvCell(value: unknown) {
   return `"${text.replaceAll('"', '""')}"`;
 }
 
+export type ExportAdmission = (actor: Actor) => Promise<void>;
+
 export async function exportRoutes(
   app: FastifyInstance,
   pool: Pool,
   shutdown: AbortSignal,
+  assertExportAllowed: ExportAdmission,
   resolveProjectScope?: ContentScopeResolver,
 ) {
   // One admission slot is shared by every user of this application process.
@@ -44,6 +48,7 @@ export async function exportRoutes(
       },
     },
     async (request, reply) => {
+      await assertExportAllowed(request.actor!);
       if (exporting) {
         reply.header("Retry-After", "5");
         fail(429, "Another export is in progress; try again shortly");

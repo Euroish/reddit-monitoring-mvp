@@ -16,5 +16,5 @@ export { allSourcesExist, listSourcesByIds } from "./sql";
 export { readCollectionWorkerHealth, startWorker } from "./worker";
 
 export { batchMembership, loadAuthorizedBatches } from "./batches";
-export { loadEffectivePolicyForUser } from "./policy";
+export { assertBrowserExportAllowed, loadEffectivePolicyForUser } from "./policy";
 export { getUserRoleStatus, listStaffOwnerIds } from "../access/index";

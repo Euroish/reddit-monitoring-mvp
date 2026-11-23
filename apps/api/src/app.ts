@@ -20,6 +20,7 @@ import {
 import { registerAiModule } from "../../../src/modules/ai/index";
 import {
   allSourcesExist,
+  assertBrowserExportAllowed,
   createCredentialVault,
   credentialRoutes,
   jobRoutes,
@@ -276,7 +277,8 @@ export async function buildApp(options: {
   app.addHook("preClose", async () => {
     shutdown.abort();
   });
-  await registerContentModule(app, options.pool, shutdown.signal, resolveProjectScope);
+  await registerContentModule(app, options.pool, shutdown.signal,
+    actor => assertBrowserExportAllowed(options.pool, actor), resolveProjectScope);
   await registerDocsModule(app, options.pool);
   await registerAiModule(app, options.pool, readCollectionWorkerHealth);
   await registerProjectsModule(app, options.pool, providers);
