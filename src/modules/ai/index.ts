@@ -1,5 +1,2 @@
-/**
- * Public cross-module facade for the AI Release Intelligence domain.
- */
-export { aiRoutes } from "./ai-routes";
+export { aiRoutes, aiRoutes as registerAiModule } from "./ai-routes";
 export { startAiSyncScheduler } from "./ai-scheduler";

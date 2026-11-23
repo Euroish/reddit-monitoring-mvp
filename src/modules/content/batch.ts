@@ -4,7 +4,7 @@ import type {
   ContentReference,
 } from "../../../packages/contracts/src/source-content";
 import type { CollectedContent } from "../../connectors/shared/content-provider.interface";
-import { fail } from "../../storage/db";
+import { fail } from "../../shared/errors";
 
 type Item = CollectedContent;
 export type ContentBatchSource = {
@@ -24,17 +24,8 @@ export type PreparedContentBatch = {
   observations: { item: Item; hash: string }[];
 };
 
-export function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    return `{${Object.entries(value)
-      .filter(([, v]) => v !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
+import { canonical } from "../../shared/canonical";
+export { canonical };
 function conflict(message: string): never {
   fail(409, message);
 }

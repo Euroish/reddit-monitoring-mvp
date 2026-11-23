@@ -1,7 +1,3 @@
-/**
- * Public cross-module facade for the projects domain.
- * Other modules MUST import shared project primitives through this file only
- * (enforced by `.dependency-cruiser.cjs` `modules-public-api-only`).
- */
-export { assertProjectWritable, projectSources } from "./sql";
+export { projectRoutes, projectRoutes as registerProjectsModule } from "./routes";
+export { assertProjectWritable, listProjectBatchIds, projectSources, resolveProjectScope } from "./sql";
 export { attachBatchToProjectInTx } from "./batches";

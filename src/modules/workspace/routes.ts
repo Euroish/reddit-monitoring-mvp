@@ -2,34 +2,24 @@ import { Type } from "@sinclair/typebox";
 import type { Pool } from "pg";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
-import {
-  ResearchFilter,
-  ParamsId,
-} from "../../../packages/contracts/src/source-content";
-import {
-  listAnnotations,
-  listSavedQueries,
-  saveQuery,
-  updateAnnotation,
-} from "./sql";
-import { fail } from "../../storage/db";
+import { ParamsId } from "../../../packages/contracts/src/common";
+import { ResearchFilter } from "../../../packages/contracts/src/content";
 import { compileContentFilter } from "../content/index";
+import { listAnnotations, listSavedQueries, saveQuery, updateAnnotation } from "./sql";
 
 export async function workspaceRoutes(app: FastifyInstance, pool: Pool) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
-  api.addHook("preHandler", async (request) => {
-    if (
-      request.url.startsWith("/v1/workspace") &&
-      request.actor!.clientKind === "machine"
-    )
-      fail(403, "Personal workspace requires a browser session");
-  });
-  api.get("/v1/workspace/queries", async (request) => ({
+  const readAuth = { auth: { access: "authenticated" as const } };
+  const writeAuth = { auth: { access: "viewer_write" as const } };
+
+  api.get("/v1/workspace/queries", { config: readAuth }, async (request) => ({
     queries: await listSavedQueries(pool, request.actor!),
   }));
+
   api.post(
     "/v1/workspace/queries",
     {
+      config: writeAuth,
       schema: {
         body: Type.Object(
           {
@@ -46,23 +36,26 @@ export async function workspaceRoutes(app: FastifyInstance, pool: Pool) {
       return saveQuery(pool, request.actor!, name, filter);
     },
   );
+
   api.delete(
     "/v1/workspace/queries/:id",
-    { schema: { params: ParamsId } },
+    { config: writeAuth, schema: { params: ParamsId } },
     async (request) => {
-      await pool.query(
-        "DELETE FROM content_saved_query WHERE id=$1 AND user_id=$2",
-        [request.params.id, request.actor!.userId],
-      );
+      await pool.query("DELETE FROM content_saved_query WHERE id=$1 AND user_id=$2", [
+        request.params.id,
+        request.actor!.userId,
+      ]);
       return { deleted: true };
     },
   );
-  api.get("/v1/workspace/annotations", async (request) => ({
+
+  api.get("/v1/workspace/annotations", { config: readAuth }, async (request) => ({
     annotations: await listAnnotations(pool, request.actor!),
   }));
+
   api.get(
     "/v1/workspace/annotations/:id",
-    { schema: { params: ParamsId } },
+    { config: readAuth, schema: { params: ParamsId } },
     async (request) => ({
       annotation:
         (
@@ -73,9 +66,11 @@ export async function workspaceRoutes(app: FastifyInstance, pool: Pool) {
         ).rows[0] ?? null,
     }),
   );
+
   api.put(
     "/v1/workspace/annotations/:id",
     {
+      config: writeAuth,
       schema: {
         params: ParamsId,
         body: Type.Object(

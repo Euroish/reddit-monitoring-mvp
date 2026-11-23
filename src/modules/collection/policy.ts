@@ -1,17 +1,20 @@
-import { randomUUID } from "node:crypto";
 import { Type } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool, PoolClient } from "pg";
-import {
-  ParamsId,
-  PlanPolicyInput,
-  PlanTier,
-  UserQuotaOverrideInput,
-  type Actor,
-} from "../../../packages/contracts/src/source-content";
+import { PlanTier, type Actor } from "../../../packages/contracts/src/access";
+import { ParamsId } from "../../../packages/contracts/src/common";
+import { PlanPolicyInput, UserQuotaOverrideInput } from "../../../packages/contracts/src/collection";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
-import { fail, transaction } from "../../storage/db";
+import { fail } from "../../shared/errors";
+import { transaction } from "../../storage/db";
+import {
+  getUserQuotaRecord,
+  getUserRoleStatus,
+  listUsersForQuotaSummary,
+  updateUserQuotaOverride,
+  writeAuditLog,
+} from "../access/index";
 
 export interface QuotaOverride {
   manualCollectEnabled?: boolean | null;
@@ -80,19 +83,13 @@ export async function loadEffectivePolicyForUser(
   userId: string,
   lockForUpdate = false,
 ): Promise<EffectivePolicy> {
-  const lockClause = lockForUpdate ? " FOR UPDATE" : "";
-  const userRow = (
-    await client.query<{ status: string; plan_tier: "free" | "pro"; quota_override: QuotaOverride | null }>(
-      `SELECT status, plan_tier, quota_override FROM app_user WHERE id=$1${lockClause}`,
-      [userId],
-    )
-  ).rows[0];
+  const userRow = await getUserQuotaRecord(client, userId, lockForUpdate);
   if (!userRow || userRow.status !== "active") fail(401, "Account no longer active");
   const policyRow = (
     await client.query<PolicyRow>("SELECT * FROM plan_collection_policy WHERE plan_tier=$1", [userRow.plan_tier])
   ).rows[0];
   if (!policyRow) fail(lockForUpdate ? 403 : 500, lockForUpdate ? "Collection policy unavailable" : "Plan policy missing");
-  return resolveEffectivePolicy(policyRow, userRow.quota_override);
+  return resolveEffectivePolicy(policyRow, userRow.quota_override as QuotaOverride | null);
 }
 
 export { requestedCommentLimit, viewerCollectionDemand } from "../../../packages/contracts/src/collection-budget";
@@ -195,12 +192,7 @@ export async function isViewerJobStillAuthorized(db: Pool | PoolClient, job: {
   request_json?: { useFallback?: unknown } | null;
 }, commentLimit?: number): Promise<boolean> {
   if (!job.requested_by_user_id || job.requested_by_client_kind !== "browser") return true;
-  const user = (
-    await db.query<{ role: string; status: string }>(
-      "SELECT role, status FROM app_user WHERE id=$1",
-      [job.requested_by_user_id],
-    )
-  ).rows[0];
+  const user = await getUserRoleStatus(db, job.requested_by_user_id);
   if (!user || user.status !== "active") return false;
   if (user.role !== "viewer") return true;
   const effective = await loadEffectivePolicyForUser(db, job.requested_by_user_id);
@@ -217,7 +209,7 @@ export async function isViewerJobStillAuthorized(db: Pool | PoolClient, job: {
 export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: ContentProvider[]) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
 
-  api.get("/v1/quotas/summary", async (request) => {
+  api.get("/v1/quotas/summary", { config: { auth: { access: "authenticated" } } }, async (request) => {
     const actor = request.actor!;
     if (actor.clientKind !== "browser") fail(403, "Browser session required");
     const effective = await loadEffectivePolicyForUser(pool, actor.userId);
@@ -266,29 +258,34 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
     }
 
     const planRows = (await pool.query<PolicyRow>("SELECT * FROM plan_collection_policy ORDER BY plan_tier")).rows;
-    const usersRows = (
-      await pool.query<{
-        id: string;
-        email: string;
-        role: string;
-        status: string;
-        plan_tier: "free" | "pro";
-        quota_override: QuotaOverride | null;
+    const [usersList, usageList] = await Promise.all([
+      listUsersForQuotaSummary(pool),
+      pool.query<{
+        user_id: string;
         requests_reserved: number;
         requests_executed: number;
         resources_reserved: number;
       }>(
-        `SELECT u.id, u.email, u.role, u.status, u.plan_tier, u.quota_override,
-           COALESCE(SUM(usage.requests_reserved), 0)::int AS requests_reserved,
-           COALESCE(SUM(usage.requests_executed), 0)::int AS requests_executed,
-           COALESCE(SUM(usage.resources_reserved), 0)::int AS resources_reserved
-         FROM app_user u
-         LEFT JOIN user_provider_usage usage
-           ON usage.user_id=u.id AND usage.day=(NOW() AT TIME ZONE 'UTC')::date
-         GROUP BY u.id
-         ORDER BY CASE u.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, u.created_at ASC`,
-      )
-    ).rows;
+        `SELECT user_id,
+           COALESCE(SUM(requests_reserved), 0)::int AS requests_reserved,
+           COALESCE(SUM(requests_executed), 0)::int AS requests_executed,
+           COALESCE(SUM(resources_reserved), 0)::int AS resources_reserved
+         FROM user_provider_usage
+         WHERE day=(NOW() AT TIME ZONE 'UTC')::date
+         GROUP BY user_id`,
+      ),
+    ]);
+    const usageByUser = new Map(usageList.rows.map((u) => [u.user_id, u]));
+    const usersRows = usersList.map((u) => {
+      const uUsage = usageByUser.get(u.id);
+      return {
+        ...u,
+        quota_override: u.quota_override as QuotaOverride | null,
+        requests_reserved: uUsage?.requests_reserved ?? 0,
+        requests_executed: uUsage?.requests_executed ?? 0,
+        resources_reserved: uUsage?.resources_reserved ?? 0,
+      };
+    });
 
     return {
       scope: "admin" as const,
@@ -329,7 +326,7 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
 
   api.put(
     "/v1/quotas/plans/:tier",
-    { schema: { params: Type.Object({ tier: PlanTier }), body: PlanPolicyInput } },
+    { config: { auth: { access: "admin_mfa" } }, schema: { params: Type.Object({ tier: PlanTier }), body: PlanPolicyInput } },
     async (request) => {
       const actor = request.actor!;
       if (actor.clientKind !== "browser" || actor.role !== "owner") {
@@ -370,22 +367,19 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
         );
         if (!res.rowCount) fail(409, "Plan policy changed; reload before saving");
         const updated = res.rows[0];
-        await client.query(
-          `INSERT INTO app_audit_log(id,actor_user_id,action,resource_type,resource_id,meta_json)
-           VALUES($1,$2,'collection.plan_policy.updated','plan_collection_policy',$3,$4::jsonb)`,
-          [
-            randomUUID(),
-            actor.userId,
-            request.params.tier,
-            JSON.stringify({
-              planTier: request.params.tier,
-              manualCollectEnabled: updated.manual_collect_enabled,
-              allowedProviders: updated.allowed_providers,
-              dailyRequests: updated.daily_requests,
-              dailyResources: updated.daily_resources,
-            }),
-          ],
-        );
+        await writeAuditLog(client, {
+          actorUserId: actor.userId,
+          action: "collection.plan_policy.updated",
+          resourceType: "plan_collection_policy",
+          resourceId: request.params.tier,
+          meta: {
+            planTier: request.params.tier,
+            manualCollectEnabled: updated.manual_collect_enabled,
+            allowedProviders: updated.allowed_providers,
+            dailyRequests: updated.daily_requests,
+            dailyResources: updated.daily_resources,
+          },
+        });
         return {
           policy: {
             planTier: updated.plan_tier,
@@ -410,7 +404,7 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
 
   api.put(
     "/v1/quotas/users/:id",
-    { schema: { params: ParamsId, body: Type.Union([UserQuotaOverrideInput, Type.Null()]) } },
+    { config: { auth: { access: "admin_mfa" } }, schema: { params: ParamsId, body: Type.Union([UserQuotaOverrideInput, Type.Null()]) } },
     async (request) => {
       const actor = request.actor!;
       if (actor.clientKind !== "browser" || actor.role === "viewer") {
@@ -423,27 +417,21 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
         }
       }
       return transaction(pool, async (client) => {
-        const target = (
-          await client.query<{ id: string; role: string }>(
-            "SELECT id, role FROM app_user WHERE id=$1 FOR UPDATE",
-            [request.params.id],
-          )
-        ).rows[0];
+        const target = await getUserRoleStatus(client, request.params.id, true);
         if (!target) fail(404, "User not found");
         if (actor.role !== "owner" && target.role !== "viewer") {
           fail(403, "Admins can only manage quota overrides for viewer accounts");
         }
         const cleaned =
           request.body && Object.keys(request.body).length > 0 ? request.body : null;
-        await client.query(
-          "UPDATE app_user SET quota_override=$2, updated_at=NOW() WHERE id=$1",
-          [request.params.id, cleaned ? JSON.stringify(cleaned) : null],
-        );
-        await client.query(
-          `INSERT INTO app_audit_log(id,actor_user_id,action,resource_type,resource_id,meta_json)
-           VALUES($1,$2,'collection.user_quota.updated','app_user',$3,$4::jsonb)`,
-          [randomUUID(), actor.userId, request.params.id, JSON.stringify({ hasOverride: Boolean(cleaned) })],
-        );
+        await updateUserQuotaOverride(client, request.params.id, cleaned ? JSON.stringify(cleaned) : null);
+        await writeAuditLog(client, {
+          actorUserId: actor.userId,
+          action: "collection.user_quota.updated",
+          resourceType: "app_user",
+          resourceId: request.params.id,
+          meta: { hasOverride: Boolean(cleaned) },
+        });
         return { updated: true, quotaOverride: cleaned };
       });
     },

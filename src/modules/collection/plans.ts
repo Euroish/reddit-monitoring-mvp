@@ -1,15 +1,18 @@
 import type { Static } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
-import type { Pool, QueryResultRow } from "pg";
+import type { Pool, PoolClient, QueryResultRow } from "pg";
 import { providerResourceReservation } from "../../../packages/contracts/src/collection-budget";
 import { ResearchPlanPreviewInput, type Actor } from "../../../packages/contracts/src/source-content";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
-import { assertProjectWritable } from "../projects/index";
-import { fail } from "../../storage/db";
+import { countSourceSamples } from "../content/index";
+import { fail } from "../../shared/errors";
 import { loadEffectivePolicyForUser, viewerCollectionDemand, type EffectivePolicy } from "./policy";
+import { batchMembership } from "./batches";
 import { sourceSelect } from "./sql";
 import { collectionRequestRestriction, isCollectionBudgetDisabled } from "./config";
+
+export type RequireWritableProject = (db: Pool | PoolClient, actor: Actor, projectId: string) => Promise<unknown>;
 
 type PlanBody = Static<typeof ResearchPlanPreviewInput>;
 
@@ -142,19 +145,12 @@ async function previewMatchedSource(
   }).resources;
   if (isViewer) blockers.push(...await previewQuotaBlockers(pool, actor.userId, effective, personalResources));
 
-  const { rows: [inv] } = await pool.query<{ count: string }>(
-    `SELECT COUNT(DISTINCT d.content_id)::text AS count
-     FROM content_discovery d
-     JOIN content c ON c.id = d.content_id
-     WHERE d.collection_source_id = $1 AND c.created_at_source >= $2::timestamptz AND c.created_at_source < $3::timestamptz
-       AND (NOT $4::boolean OR EXISTS (
-         SELECT 1 FROM collection_batch_item i JOIN collection_batch b ON b.id=i.batch_id
-         WHERE i.content_id=d.content_id AND b.collection_source_id=d.collection_source_id
-           AND (b.visibility='shared' OR b.created_by_user_id=$5::uuid)
-       ))`,
-    [matched.id, body.from, body.to, isViewer, actor.userId ?? null],
-  );
-  const existingItemCount = Number(inv?.count ?? 0);
+  const visibleBatchIds = isViewer ? (await pool.query<{ id: string }>(
+    "SELECT id FROM collection_batch WHERE collection_source_id=$1 AND (visibility='shared' OR created_by_user_id=$2)",
+    [matched.id, actor.userId ?? null],
+  )).rows.map(batch => batch.id) : undefined;
+  const existingItemCount = await countSourceSamples(pool, matched.id, body.from, body.to,
+    visibleBatchIds ? batchMembership(visibleBatchIds, actor) : undefined);
   const { rows: reusableBatches } = await pool.query<{
     id: string;
     label: string;
@@ -202,16 +198,19 @@ async function previewMatchedSource(
   };
 }
 
-export async function planRoutes(app: FastifyInstance, pool: Pool, providers: ContentProvider[]) {
+export async function planRoutes(app: FastifyInstance, pool: Pool, providers: ContentProvider[], requireWritableProject?: RequireWritableProject) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   api.post(
     "/v1/research/collection-plans/preview",
-    { schema: { body: ResearchPlanPreviewInput } },
+    { config: { auth: { access: "viewer_write", browserOnly: true } }, schema: { body: ResearchPlanPreviewInput } },
     async (request) => {
       const actor = request.actor!;
       if (actor.clientKind !== "browser") fail(403, "Browser session required");
       const body = request.body;
-      if (body.projectId) await assertProjectWritable(pool, actor, body.projectId);
+      if (body.projectId) {
+        if (!requireWritableProject) fail(500, "Project scope resolver is unavailable");
+        await requireWritableProject(pool, actor, body.projectId);
+      }
       const fromMs = Date.parse(body.from);
       const toMs = Date.parse(body.to);
       if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs) fail(422, "Invalid collection window");

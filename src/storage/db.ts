@@ -12,6 +12,7 @@ export function createPool(connectionString = process.env.DATABASE_URL, max = 10
     idle_in_transaction_session_timeout: 10000,
   });
 }
+
 export async function transaction<T>(
   pool: Pool,
   action: (client: PoolClient) => Promise<T>,
@@ -28,7 +29,4 @@ export async function transaction<T>(
   } finally {
     client.release();
   }
-}
-export function fail(statusCode: number, message: string): never {
-  throw Object.assign(new Error(message), { statusCode });
 }

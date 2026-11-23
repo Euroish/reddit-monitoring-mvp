@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import { fail, transaction } from "../../storage/db";
+import { fail } from "../../shared/errors";
+import { transaction } from "../../storage/db";
 import type { AccountEmailPurpose } from "./email-provider";
 import { hashPassword } from "./password";
 import { checkNewPassword } from "./password-policy";

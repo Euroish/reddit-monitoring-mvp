@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, readdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID, createHash } from "node:crypto";
@@ -102,4 +102,25 @@ test("PG16 forward migration failure rolls back DDL/ledger, 050 drops legacy sch
   assert.equal(JSON.parse(bytes.toString())[0].name, "Private query");
   assert.equal(manifest.databaseChanged, false);
   await assert.rejects(exportLegacyAssets(db.url, destination), /EEXIST/);
+});
+
+
+test("PG16 upgrades applied 058 to the immutable batch migrations and safely reruns them", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "monitor-pr30-058-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const schema = join(process.cwd(), "src/storage/schema");
+  const baseline = (await readdir(schema)).filter(file => /^\d{3}_.+\.sql$/.test(file) && Number(file.slice(0, 3)) <= 58);
+  await Promise.all(baseline.map(file => copyFile(join(schema, file), join(directory, file))));
+  const db = await testDatabase(directory);
+  t.after(db.close);
+  const before = await db.pool.query("SELECT filename,checksum FROM schema_migration ORDER BY filename");
+  assert.match(before.rows.at(-1).filename, /^058_/);
+  assert.equal((await db.pool.query("SELECT to_regclass('collection_batch') AS table_name")).rows[0].table_name, null);
+  assert.deepEqual(await runMigrations({ pool: db.pool }), [
+    "059_project_batches_and_ownership.sql", "060_batch_visibility_and_field_policy.sql",
+  ]);
+  assert.deepEqual(await runMigrations({ pool: db.pool }), []);
+  const after = await db.pool.query("SELECT filename,checksum FROM schema_migration ORDER BY filename");
+  assert.deepEqual(after.rows.slice(0, before.rows.length), before.rows);
+  assert.equal((await db.pool.query("SELECT to_regclass('idx_monitor_project_batch_project_status') IS NOT NULL AS exists")).rows[0].exists, true);
 });

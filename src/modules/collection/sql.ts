@@ -1,15 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { Static } from "@sinclair/typebox";
 import type { Pool, PoolClient } from "pg";
+import type { Actor } from "../../../packages/contracts/src/access";
 import type {
-  Actor,
   CollectionSource,
   PublicSourceDirectory,
   SourceInput,
   SourceListQuery,
   SourceTarget,
-} from "../../../packages/contracts/src/source-content";
-import { fail } from "../../storage/db";
+} from "../../../packages/contracts/src/collection";
+import { fail } from "../../shared/errors";
+import { writeAuditLog } from "../access/index";
+import { countDiscoveriesBySourceSince } from "../content/index";
 
 export const sourceSelect =
   "SELECT cs.*,s.code AS platform FROM collection_source cs JOIN source s ON s.id=cs.platform_id";
@@ -119,38 +121,37 @@ export async function listPublicSources(
   pool: Pool,
   actor: Actor,
 ): Promise<Static<typeof PublicSourceDirectory>> {
-  const { rows } = await pool.query(
-    `SELECT cs.id, cs.label, s.code AS platform, cs.source_group, cs.tier, cs.locale, cs.state, cs.last_success_at,
-       COALESCE(d.cnt, 0)::int AS count_48h
-     FROM collection_source cs
-     JOIN source s ON s.id = cs.platform_id
-     LEFT JOIN (
-       SELECT collection_source_id, COUNT(*)::int AS cnt
-       FROM content_discovery
-       WHERE first_fetched_at >= NOW() - interval '48 hours'
-       GROUP BY collection_source_id
-     ) d ON d.collection_source_id = cs.id
-     WHERE cs.state = 'active' AND ($1::uuid[] IS NULL OR cs.id = ANY($1))
-     ORDER BY COALESCE(d.cnt, 0) DESC, cs.created_at, cs.id`,
-    [actor.allowedSourceIds],
-  );
+  const [countsMap, { rows }] = await Promise.all([
+    countDiscoveriesBySourceSince(pool, 48),
+    pool.query(
+      `SELECT cs.id, cs.label, s.code AS platform, cs.source_group, cs.tier, cs.locale, cs.state, cs.last_success_at, cs.created_at
+       FROM collection_source cs
+       JOIN source s ON s.id = cs.platform_id
+       WHERE cs.state = 'active' AND ($1::uuid[] IS NULL OR cs.id = ANY($1))`,
+      [actor.allowedSourceIds],
+    ),
+  ]);
   const groupCounts: Record<string, number> = {};
-  const sources = rows.map((row) => {
-    const sourceGroup: string | null = row.source_group ?? null;
-    const count48h = Number(row.count_48h ?? 0);
-    if (sourceGroup) groupCounts[sourceGroup] = (groupCounts[sourceGroup] ?? 0) + count48h;
-    return {
-      id: row.id,
-      label: row.label,
-      platform: row.platform,
-      sourceGroup,
-      tier: row.tier,
-      locale: row.locale ?? null,
-      state: row.state,
-      lastSuccessAt: row.last_success_at?.toISOString() ?? null,
-      count48h,
-    };
-  });
+  const sources = rows
+    .map((row) => {
+      const sourceGroup: string | null = row.source_group ?? null;
+      const count48h = countsMap.get(row.id) ?? 0;
+      if (sourceGroup) groupCounts[sourceGroup] = (groupCounts[sourceGroup] ?? 0) + count48h;
+      return {
+        id: row.id,
+        label: row.label,
+        platform: row.platform,
+        sourceGroup,
+        tier: row.tier,
+        locale: row.locale ?? null,
+        state: row.state,
+        lastSuccessAt: row.last_success_at?.toISOString() ?? null,
+        count48h,
+        _createdMs: row.created_at instanceof Date ? row.created_at.getTime() : 0,
+      };
+    })
+    .sort((a, b) => b.count48h - a.count48h || a._createdMs - b._createdMs || a.id.localeCompare(b.id))
+    .map(({ _createdMs, ...item }) => item);
   return { sources, groupCounts };
 }
 export async function audit(
@@ -159,14 +160,22 @@ export async function audit(
   action: string,
   resourceId?: string,
 ) {
-  await pool.query(
-    "INSERT INTO app_audit_log(id,actor_user_id,action,resource_id,actor_type) VALUES($1,$2,$3,$4,$5)",
-    [
-      randomUUID(),
-      actor.userId,
-      action,
-      resourceId ?? null,
-      actor.clientKind === "machine" ? "machine" : "session",
-    ],
-  );
+  await writeAuditLog(pool, {
+    actorUserId: actor.userId,
+    actorType: actor.clientKind === "machine" ? "machine" : "session",
+    action,
+    resourceId: resourceId ?? null,
+  });
+}
+
+export async function allSourcesExist(db: Pool | PoolClient, ids: string[]): Promise<boolean> {
+  const unique = [...new Set(ids)];
+  if (!unique.length) return true;
+  const row = (
+    await db.query<{ cnt: string }>(
+      "SELECT COUNT(*)::text AS cnt FROM collection_source WHERE id=ANY($1::uuid[])",
+      [unique],
+    )
+  ).rows[0];
+  return Number(row?.cnt ?? 0) === unique.length;
 }

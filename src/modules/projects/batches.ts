@@ -1,6 +1,8 @@
 import type { Pool, PoolClient } from "pg";
 import type { Actor } from "../../../packages/contracts/src/source-content";
-import { fail, transaction } from "../../storage/db";
+import { fail } from "../../shared/errors";
+import { transaction } from "../../storage/db";
+import { getUserRoleStatus, loadAuthorizedBatches } from "../collection/index";
 import { assertProjectWritable, projectSources } from "./sql";
 
 export interface ProjectBatchItem {
@@ -25,32 +27,16 @@ export async function listProjectBatches(
   projectId: string,
 ): Promise<ProjectBatchItem[]> {
   await projectSources(pool, actor, projectId);
-  const { rows } = await pool.query<ProjectBatchItem>(
-    `SELECT mpb.batch_id AS "batchId",
-            cb.job_id AS "jobId",
-            cb.collection_source_id AS "sourceId",
-            cs.label AS "sourceLabel",
-            p.code AS platform,
-            COALESCE(j.provider, cs.primary_provider) AS provider,
-            cs.delivery_mode AS "deliveryMode",
-            cb.label,
-            cb.item_count AS "itemCount",
-            cb.visibility,
-            mpb.status,
-            mpb.added_at AS "addedAt",
-            cb.created_at AS "createdAt"
-     FROM monitor_project_batch mpb
-     JOIN collection_batch cb ON cb.id = mpb.batch_id
-     JOIN collection_source cs ON cs.id = cb.collection_source_id
-     JOIN source p ON p.id = cs.platform_id
-     LEFT JOIN source_collection_job j ON j.id = cb.job_id
-     WHERE mpb.project_id = $1
-       AND mpb.status <> 'removed'
-       AND ($2::uuid[] IS NULL OR cb.collection_source_id = ANY($2::uuid[]))
-     ORDER BY mpb.added_at DESC, mpb.batch_id DESC`,
-    [projectId, actor.allowedSourceIds],
+  const { rows } = await pool.query<Pick<ProjectBatchItem, "batchId" | "status" | "addedAt">>(
+    `SELECT batch_id AS "batchId", status, added_at AS "addedAt" FROM monitor_project_batch
+       WHERE project_id=$1 AND status<>'removed' ORDER BY added_at DESC, batch_id DESC`, [projectId],
   );
-  return rows;
+  const authorized = new Map((await loadAuthorizedBatches(pool, actor, rows.map(row => row.batchId)))
+    .map(batch => [batch.batchId, batch]));
+  return rows.flatMap(row => {
+    const batch = authorized.get(row.batchId);
+    return batch ? [{ ...batch, ...row }] : [];
+  });
 }
 
 export async function attachBatchToProject(
@@ -62,24 +48,8 @@ export async function attachBatchToProject(
   return transaction(pool, async (client) => {
     await client.query("SELECT id FROM monitor_project WHERE id=$1 FOR UPDATE", [projectId]);
     await assertProjectWritable(client, actor, projectId);
-    const batch = (
-      await client.query<{
-        id: string;
-        collection_source_id: string;
-        visibility: "private" | "shared";
-        created_by_user_id: string | null;
-      }>(
-        "SELECT id, collection_source_id, visibility, created_by_user_id FROM collection_batch WHERE id=$1",
-        [batchId],
-      )
-    ).rows[0];
+    const [batch] = await loadAuthorizedBatches(client, actor, [batchId]);
     if (!batch) fail(404, "Batch not found");
-    if (actor.allowedSourceIds !== null && !actor.allowedSourceIds.includes(batch.collection_source_id)) {
-      fail(404, "Batch not found");
-    }
-    if (actor.role === "viewer" && batch.visibility !== "shared" && batch.created_by_user_id !== actor.userId) {
-      fail(404, "Batch not found");
-    }
     await client.query(
       `INSERT INTO monitor_project_batch(project_id, batch_id, status, added_by_user_id, added_at, updated_at)
        VALUES($1, $2, 'enabled', $3, NOW(), NOW())
@@ -106,6 +76,7 @@ export async function updateProjectBatchStatus(
   return transaction(pool, async (client) => {
     await client.query("SELECT id FROM monitor_project WHERE id=$1 FOR UPDATE", [projectId]);
     await assertProjectWritable(client, actor, projectId);
+    if (!(await loadAuthorizedBatches(client, actor, [batchId])).length) fail(404, "Batch not found");
     const updated = await client.query(
       `UPDATE monitor_project_batch
        SET status=$3, updated_at=NOW()
@@ -134,9 +105,8 @@ export async function attachBatchToProjectInTx(
   ).rows[0];
   if (!project) return;
   if (input.userId) {
-    const user = (
-      await client.query<{ role: string }>("SELECT role FROM app_user WHERE id=$1", [input.userId])
-    ).rows[0];
+    const user = await getUserRoleStatus(client, input.userId);
+    if (!user || user.status !== "active") return;
     if (user?.role === "viewer" && project.owner_user_id !== input.userId) return;
   }
   await client.query(

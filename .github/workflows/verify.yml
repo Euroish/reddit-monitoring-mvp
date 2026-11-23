@@ -68,8 +68,19 @@ jobs:
         run: |
           git diff --diff-filter=A --name-only --no-renames -z "$BASE" HEAD -- 'src/storage/schema/*.sql' > "$RUNNER_TEMP/new-migrations"
           mapfile -d '' -t migrations < "$RUNNER_TEMP/new-migrations"
-          if (( ${#migrations[@]} )); then
-            docker run --rm -v "$PWD:/repo:ro" -w /repo ghcr.io/sbdchd/squawk:2.9.0 "${migrations[@]}"
+          regular=()
+          for file in "${migrations[@]}"; do
+            if [[ "$file" == src/storage/schema/059_project_batches_and_ownership.sql ]] &&
+               echo "ca149dda66979d260c2d2091b11d97ffbb88ed19d8366cdab48c0052ba75c893  $file" | sha256sum --check --status; then
+              # The three indexes build on tables created in the same transaction.
+              # This exact already-applied file must retain its checksum.
+              docker run --rm -v "$PWD:/repo:ro" -w /repo ghcr.io/sbdchd/squawk:2.9.0 --exclude=require-concurrent-index-creation "$file"
+            else
+              regular+=("$file")
+            fi
+          done
+          if (( ${#regular[@]} )); then
+            docker run --rm -v "$PWD:/repo:ro" -w /repo ghcr.io/sbdchd/squawk:2.9.0 "${regular[@]}"
           fi
 
   project:

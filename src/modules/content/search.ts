@@ -1,15 +1,35 @@
 import { createHash } from "node:crypto";
-import type {
-  Actor,
-  Filter,
-} from "../../../packages/contracts/src/source-content";
-import { fail } from "../../storage/db";
+import type { Pool, PoolClient } from "pg";
+import type { Actor } from "../../../packages/contracts/src/access";
+import type { Filter } from "../../../packages/contracts/src/content";
+import { fail } from "../../shared/errors";
+
+export interface BatchMembership {
+  contains: (bind: (value: unknown) => string, column: "c.id" | "d.content_id") => string;
+}
+
+export interface ContentScope {
+  id: string;
+  revision: number;
+  source_ids: string[];
+  filter: Filter;
+  thread_aware: boolean;
+  include_push_in_trends: boolean;
+  batchMembership?: BatchMembership;
+}
+
+export type ContentScopeResolver = (
+  db: Pool | PoolClient,
+  actor: Actor,
+  projectId: string,
+) => Promise<ContentScope>;
 
 export const MAX_INDEXED_BODY_CHARS = 1500;
 
 export function normalizePublicSearchText(value: string) {
   return value.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim();
 }
+
 export function publicSearchDocument(
   title: string | null,
   text: string | null,
@@ -31,16 +51,94 @@ export function publicSearchDocument(
     indexedAt,
   };
 }
+
 export function escapeLike(value: string) {
   return value.replace(/[\\%_]/g, "\\$&");
 }
+
+function buildTextPredicate(
+  raw: string,
+  searchScope: Filter["searchScope"],
+  bind: (value: unknown) => string,
+) {
+  const term = normalizePublicSearchText(raw);
+  if (!term || /[\u0000-\u001f]/u.test(term)) {
+    fail(422, "Search terms cannot be empty or contain controls");
+  }
+  const pair = term.match(/[\p{L}\p{N}]{2}/u)?.[0];
+  if (!pair) fail(422, "Search terms need at least two consecutive letters or digits");
+  const pattern = bind(`%${escapeLike(term)}%`);
+  const phrase = `doc.search_text LIKE ${pattern}`;
+  const bigram = /[\p{L}\p{N}]{3}/u.test(term)
+    ? null
+    : `public_search_bigrams(doc.search_text) @> ARRAY[${bind(pair)}::text]`;
+  const candidate = bigram ? `(${bigram} AND ${phrase})` : phrase;
+  const selected =
+    searchScope === "title"
+      ? "substring(doc.search_text FROM 1 FOR doc.title_length)"
+      : searchScope === "text"
+        ? "substring(doc.search_text FROM doc.title_length+2)"
+        : null;
+  return selected ? `(${candidate} AND ${selected} LIKE ${pattern})` : candidate;
+}
+
+function buildSignalPredicate(signal: NonNullable<Filter["signal"]>, discoveryExpr: string) {
+  const metric = (key: string) => `(latest.metrics->>'${key}')::numeric`;
+  const qualifies =
+    signal === "discussion"
+      ? `(p.code='reddit' AND ${metric("reddit.num_comments")}>=10 OR p.code='x' AND ${metric("x.replies")}>=5)`
+      : `(p.code='reddit' AND ${metric("reddit.score")} IS NOT NULL AND ${metric("reddit.num_comments")}>=GREATEST(${metric("reddit.score")},1))`;
+  const observed = `EXISTS (SELECT 1 FROM (
+        SELECT DISTINCT ON (o.collection_source_id,o.provider) o.metrics FROM content_observation o
+        WHERE o.content_id=c.id AND EXISTS (SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id
+          WHERE ${discoveryExpr} AND d.collection_source_id=o.collection_source_id)
+        ORDER BY o.collection_source_id,o.provider,o.source_observed_at DESC NULLS LAST,o.fetched_at DESC,o.id DESC
+      ) latest WHERE ${qualifies})`;
+  return signal === "pain"
+    ? `(doc.search_text ~ '(frustrat|doesn.t work|broken|pain point|workaround|不好用|报错|卡住|痛点)' OR ${observed})`
+    : observed;
+}
+
+function applyScopeFilter(
+  filter: Filter,
+  bind: (value: unknown) => string,
+  discoveryExpr: string,
+  where: string[],
+): boolean {
+  let needsSearchDocument = false;
+  if (filter.platform) where.push(`p.code=${bind(filter.platform)}`);
+  if (filter.kind) where.push(`c.kind=${bind(filter.kind)}`);
+  if (filter.language) where.push(`c.language=${bind(filter.language)}`);
+  if (filter.hasMedia !== undefined) {
+    where.push(filter.hasMedia ? "jsonb_array_length(c.content_media)>0" : "jsonb_array_length(c.content_media)=0");
+  }
+  if (filter.from) where.push(`c.created_at_source>=${bind(filter.from)}::timestamptz`);
+  if (filter.to) where.push(`c.created_at_source<${bind(filter.to)}::timestamptz`);
+  if (filter.from && filter.to && Date.parse(filter.from) >= Date.parse(filter.to)) {
+    fail(422, "from must precede to");
+  }
+  const pred = (raw: string) => {
+    needsSearchDocument = true;
+    return buildTextPredicate(raw, filter.searchScope, bind);
+  };
+  if (filter.query) where.push(pred(filter.query));
+  if (filter.anyTerms?.length) where.push(`(${filter.anyTerms.map(pred).join(" OR ")})`);
+  for (const term of filter.allTerms ?? []) where.push(pred(term));
+  for (const term of filter.exclusions ?? []) where.push(`NOT (${pred(term)})`);
+  if (filter.signal) {
+    if (filter.signal === "pain") needsSearchDocument = true;
+    where.push(buildSignalPredicate(filter.signal, discoveryExpr));
+  }
+  return needsSearchDocument;
+}
+
 export function compileContentFilter(
   actor: Pick<Actor, "allowedSourceIds">,
   requestFilter: Filter,
   projectSourceIds?: readonly string[],
   projectFilter: Filter = {},
   pullOnly = false,
-  batchProjectId?: string,
+  batchMembership?: BatchMembership,
 ) {
   const values: unknown[] = [];
   const bind = (value: unknown) => {
@@ -48,14 +146,13 @@ export function compileContentFilter(
     return `$${values.length}`;
   };
   const discovery = ["d.content_id=c.id"];
-  if (actor.allowedSourceIds !== null)
-    discovery.push(
-      `d.collection_source_id=ANY(${bind(actor.allowedSourceIds)}::uuid[])`,
-    );
-  if (projectSourceIds && !batchProjectId)
-    discovery.push(
-      `d.collection_source_id=ANY(${bind(projectSourceIds)}::uuid[])`,
-    );
+  if (actor.allowedSourceIds !== null) {
+    discovery.push(`d.collection_source_id=ANY(${bind(actor.allowedSourceIds)}::uuid[])`);
+  }
+  if (projectSourceIds) {
+    discovery.push(`d.collection_source_id=ANY(${bind(projectSourceIds)}::uuid[])`);
+  }
+  if (batchMembership) discovery.push(batchMembership.contains(bind, "d.content_id"));
   if (pullOnly) discovery.push("cs.delivery_mode='pull'");
   for (const scope of [projectFilter, requestFilter]) {
     if (scope.deliveryMode) discovery.push(`cs.delivery_mode=${bind(scope.deliveryMode)}`);
@@ -66,84 +163,23 @@ export function compileContentFilter(
     if (scope.sourceGroup) discovery.push(`cs.source_group=${bind(scope.sourceGroup)}`);
     if (scope.tier) discovery.push(`cs.tier=${bind(scope.tier)}`);
   }
+  const discoveryExpr = discovery.join(" AND ");
   const where = [
-    `EXISTS(SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id WHERE ${discovery.join(" AND ")})`,
+    `EXISTS(SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id WHERE ${discoveryExpr})`,
   ];
-  if (batchProjectId) {
-    where.push(
-      `EXISTS(SELECT 1 FROM monitor_project_batch mpb JOIN collection_batch_item cbi ON cbi.batch_id=mpb.batch_id WHERE mpb.project_id=${bind(batchProjectId)}::uuid AND mpb.status='enabled' AND cbi.content_id=c.id)`,
-    );
-  }
   let needsSearchDocument = false;
   for (const filter of [projectFilter, requestFilter]) {
-    if (filter.platform) where.push(`p.code=${bind(filter.platform)}`);
-    if (filter.kind) where.push(`c.kind=${bind(filter.kind)}`);
-    if (filter.language) where.push(`c.language=${bind(filter.language)}`);
-    if (filter.hasMedia === true) where.push("jsonb_array_length(c.content_media)>0");
-    if (filter.hasMedia === false) where.push("jsonb_array_length(c.content_media)=0");
-    if (filter.from)
-      where.push(`c.created_at_source>=${bind(filter.from)}::timestamptz`);
-    if (filter.to)
-      where.push(`c.created_at_source<${bind(filter.to)}::timestamptz`);
-    if (
-      filter.from &&
-      filter.to &&
-      Date.parse(filter.from) >= Date.parse(filter.to)
-    )
-      fail(422, "from must precede to");
-    const predicate = (raw: string) => {
-      needsSearchDocument = true;
-      const term = normalizePublicSearchText(raw);
-      if (!term || /[\u0000-\u001f]/u.test(term))
-        fail(422, "Search terms cannot be empty or contain controls");
-      const pair = term.match(/[\p{L}\p{N}]{2}/u)?.[0];
-      if (!pair) fail(422, "Search terms need at least two consecutive letters or digits");
-      const pattern = bind(`%${escapeLike(term)}%`);
-      const phrase = `doc.search_text LIKE ${pattern}`;
-      const bigram = /[\p{L}\p{N}]{3}/u.test(term) ? null
-        : `public_search_bigrams(doc.search_text) @> ARRAY[${bind(pair)}::text]`;
-      const candidate = bigram ? `(${bigram} AND ${phrase})` : phrase;
-      const selected =
-        filter.searchScope === "title"
-          ? "substring(doc.search_text FROM 1 FOR doc.title_length)"
-          : filter.searchScope === "text"
-            ? "substring(doc.search_text FROM doc.title_length+2)"
-            : null;
-      return selected
-        ? `(${candidate} AND ${selected} LIKE ${pattern})`
-        : candidate;
-    };
-    if (filter.query) where.push(predicate(filter.query));
-    if (filter.anyTerms?.length)
-      where.push(`(${filter.anyTerms.map(predicate).join(" OR ")})`);
-    for (const term of filter.allTerms ?? []) where.push(predicate(term));
-    for (const term of filter.exclusions ?? [])
-      where.push(`NOT (${predicate(term)})`);
-    if (filter.signal) {
-      if (filter.signal === "pain") needsSearchDocument = true;
-      const metric = (key: string) => `(latest.metrics->>'${key}')::numeric`;
-      const qualifies = filter.signal === "discussion"
-        ? `(p.code='reddit' AND ${metric("reddit.num_comments")}>=10 OR p.code='x' AND ${metric("x.replies")}>=5)`
-        : `(p.code='reddit' AND ${metric("reddit.score")} IS NOT NULL AND ${metric("reddit.num_comments")}>=GREATEST(${metric("reddit.score")},1))`;
-      const observed = `EXISTS (SELECT 1 FROM (
-        SELECT DISTINCT ON (o.collection_source_id,o.provider) o.metrics FROM content_observation o
-        WHERE o.content_id=c.id AND EXISTS (SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id
-          WHERE ${discovery.join(" AND ")} AND d.collection_source_id=o.collection_source_id)
-        ORDER BY o.collection_source_id,o.provider,o.source_observed_at DESC NULLS LAST,o.fetched_at DESC,o.id DESC
-      ) latest WHERE ${qualifies})`;
-      where.push(filter.signal === "pain"
-        ? `(doc.search_text ~ '(frustrat|doesn.t work|broken|pain point|workaround|不好用|报错|卡住|痛点)' OR ${observed})`
-        : observed);
-    }
+    if (applyScopeFilter(filter, bind, discoveryExpr, where)) needsSearchDocument = true;
   }
   return {
     text: where.join(" AND "),
     values,
-    discovery: discovery.join(" AND "),
+    discovery: discoveryExpr,
     visible,
     needsSearchDocument,
   };
 }
+
 export function filterSignature(
   actor: Pick<Actor, "allowedSourceIds">,
   filter: Filter,
@@ -159,18 +195,16 @@ export function filterSignature(
     )
     .digest("hex");
 }
-export function decodeCursor(
-  cursor: string,
-  signature: string,
-): { time: string | null; id: string } {
+
+export function decodeCursor(cursor: string, signature: string): { time: string | null; id: string } {
   try {
     const data = JSON.parse(Buffer.from(cursor, "base64url").toString());
     if (
       typeof data.signature !== "string" || !/^[a-f0-9-]{36}$/.test(data.id) ||
-      (data.time !== null &&
-        !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/.test(data.time))
-    )
+      (data.time !== null && !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/.test(data.time))
+    ) {
       throw Error();
+    }
     if (data.signature !== signature) fail(409, "cursor_scope_changed");
     return data;
   } catch (error) {
@@ -193,10 +227,11 @@ function latestObservations(discovery: string, from: string) {
     ORDER BY o.content_id,o.collection_source_id,o.provider,o.source_observed_at DESC NULLS LAST,o.fetched_at DESC,o.id DESC`;
 }
 
-export function contentSelect(discovery: string, extraColumns = "") {
+export function contentSelect(discovery: string, extraColumns = "", needsSearchDocument = false) {
   const latest = latestObservations(discovery, "content_observation o WHERE o.content_id=c.id");
+  const tables = needsSearchDocument ? contentTables : contentSourceTables;
   return `SELECT ${contentColumns},COALESCE((SELECT jsonb_agg(payload) FROM (${latest}) snapshots),'[]'::jsonb) AS observations${extraColumns}
-    FROM ${contentTables}`;
+    FROM ${tables}`;
 }
 
 export function pageObservations(discovery: string) {
@@ -209,10 +244,10 @@ export function pageObservations(discovery: string) {
 }
 
 export function matchingNodes(compiled: ReturnType<typeof compileContentFilter>, threadAware: boolean) {
+  const tables = compiled.needsSearchDocument ? contentTables : contentSourceTables;
   return `SELECT c.id,c.created_at_source,c.kind,p.code AS platform,
-      ${threadAware ? "COALESCE(root.id,c.id) AS anchor_id,root.id IS NULL AND ref.value IS NOT NULL AS context_missing" :
-        "c.id AS anchor_id,FALSE AS context_missing"}
-    FROM content c JOIN source p ON p.id=c.source_id LEFT JOIN public_content_search_document doc ON doc.content_id=c.id
+      ${threadAware ? "COALESCE(root.id,c.id) AS anchor_id,root.id IS NULL AND ref.value IS NOT NULL AS context_missing" : "c.id AS anchor_id,FALSE AS context_missing"}
+    FROM ${tables}
     ${threadAware ? `LEFT JOIN LATERAL (
         SELECT value FROM jsonb_array_elements(c.content_references) r(value)
         WHERE value->>'relation'='thread_root' LIMIT 1
@@ -227,7 +262,7 @@ export function matchingNodes(compiled: ReturnType<typeof compileContentFilter>,
 export function matchedAnchors(compiled: ReturnType<typeof compileContentFilter>, threadAware: boolean) {
   if (!threadAware) return { cte: "", joins: "", where: compiled.text, columns: "" };
   return {
-    cte: `WITH anchors AS (
+    cte: `WITH anchors AS MATERIALIZED (
       SELECT anchor_id AS id, BOOL_OR(context_missing) AS context_missing
       FROM (${matchingNodes(compiled, true)}) matched GROUP BY anchor_id
     )`,

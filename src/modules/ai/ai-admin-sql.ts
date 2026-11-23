@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
-import { fail, transaction } from "../../storage/db";
+import { fail } from "../../shared/errors";
+import { transaction } from "../../storage/db";
 import { isOfficialVendorUrl } from "./ai-registry";
 
 function isSafeHttpUrl(url: string): boolean {

@@ -1,9 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type { Static } from "@sinclair/typebox";
-import type { Actor, Filter, ProjectInput } from "../../../packages/contracts/src/source-content";
-import { transaction, fail } from "../../storage/db";
-import { compileContentFilter, matchingNodes } from "../content/index";
+import type { Actor } from "../../../packages/contracts/src/access";
+import type { Filter } from "../../../packages/contracts/src/content";
+import type { ProjectInput } from "../../../packages/contracts/src/projects";
+import { fail } from "../../shared/errors";
+import { transaction } from "../../storage/db";
+import { allSourcesExist, batchMembership, listStaffOwnerIds, loadEffectivePolicyForUser } from "../collection/index";
+import { compileContentFilter, summarizeScopedContent } from "../content/index";
 
 type ProjectWrite = Static<typeof ProjectInput>;
 export interface Project {
@@ -25,16 +29,16 @@ export interface Project {
 
 export async function listProjects(pool: Pool | PoolClient, actor: Actor, id?: string) {
   const isViewer = actor.role === "viewer";
+  const staffIds = await listStaffOwnerIds(pool);
   return (await pool.query<Project>(`
     SELECT p.id, p.name, p.description, p.dataset_mode, p.owner_user_id, p.filter,
       p.revision, p.thread_aware, p.include_push_in_trends, p.created_at, p.updated_at,
       s.source_ids,
       (NOT $3::boolean OR p.owner_user_id = $4::uuid) AS can_edit,
-      (p.owner_user_id IS NULL OR COALESCE(owner_u.role, 'admin') IN ('owner', 'admin')) AS is_shared,
+      (p.owner_user_id IS NULL OR p.owner_user_id=ANY($5::uuid[])) AS is_shared,
       COALESCE(b.enabled_batch_count, 0)::int AS enabled_batch_count,
       COALESCE(b.total_batch_count, 0)::int AS total_batch_count
     FROM monitor_project p
-    LEFT JOIN app_user owner_u ON owner_u.id = p.owner_user_id
     CROSS JOIN LATERAL (
       SELECT ARRAY(SELECT collection_source_id FROM monitor_project_source WHERE project_id=p.id ORDER BY collection_source_id) AS source_ids
     ) s
@@ -50,9 +54,9 @@ export async function listProjects(pool: Pool | PoolClient, actor: Actor, id?: s
         NOT $3::boolean
         OR p.owner_user_id = $4::uuid
         OR p.owner_user_id IS NULL
-        OR COALESCE(owner_u.role, 'admin') IN ('owner', 'admin')
+        OR p.owner_user_id=ANY($5::uuid[])
       )
-    ORDER BY p.updated_at DESC`, [actor.allowedSourceIds, id ?? null, isViewer, actor.userId ?? null])).rows;
+    ORDER BY p.updated_at DESC`, [actor.allowedSourceIds, id ?? null, isViewer, actor.userId ?? null, staffIds])).rows;
 }
 
 export async function projectSources(pool: Pool | PoolClient, actor: Actor, id: string) {
@@ -74,6 +78,7 @@ export async function writeProject(pool: Pool, actor: Actor, input: ProjectWrite
   const filter = input.filter ?? {};
   compileContentFilter(actor, filter);
   return transaction(pool, async (client) => {
+    if (!(await allSourcesExist(client, sources))) fail(404, "Source not found");
     const id = update?.id ?? randomUUID();
     if (update) {
       await client.query("SELECT id FROM monitor_project WHERE id=$1 FOR UPDATE", [id]);
@@ -113,21 +118,13 @@ export async function writeProject(pool: Pool, actor: Actor, input: ProjectWrite
       }
       if (actor.role === "viewer") {
         if (!actor.userId) fail(403, "Authenticated browser session required");
-        const { rows: [planRow] } = await client.query<{ plan_tier: string; max_projects: number }>(
-          `SELECT u.plan_tier, COALESCE(p.max_projects, 3)::int AS max_projects
-           FROM app_user u
-           LEFT JOIN plan_collection_policy p ON p.plan_tier = u.plan_tier
-           WHERE u.id = $1 AND u.status = 'active'
-           FOR UPDATE OF u`,
-          [actor.userId],
-        );
-        if (!planRow) fail(401, "Account no longer active");
+        const plan = await loadEffectivePolicyForUser(client, actor.userId, true);
         const { rows: [owned] } = await client.query<{ count: string }>(
           "SELECT COUNT(*) AS count FROM monitor_project WHERE owner_user_id=$1",
           [actor.userId],
         );
-        if (Number(owned.count) >= planRow.max_projects) {
-          fail(403, `Project limit reached for ${planRow.plan_tier} tier (${planRow.max_projects})`);
+        if (Number(owned.count) >= plan.maxProjects) {
+          fail(403, `Project limit reached for ${plan.planTier} tier (${plan.maxProjects})`);
         }
       }
       await client.query(`
@@ -167,55 +164,27 @@ export async function deleteProject(pool: Pool, actor: Actor, id: string, revisi
 
 export async function projectOverview(pool: Pool, actor: Actor, id: string) {
   const project = await projectSources(pool, actor, id);
-  const batchProjectId = project.dataset_mode === "batch" ? project.id : undefined;
-  const pullOnly = batchProjectId ? false : !project.include_push_in_trends;
-  const compiled = compileContentFilter(
-    actor,
-    {},
-    batchProjectId ? undefined : project.source_ids,
-    project.filter,
-    pullOnly,
-    batchProjectId,
+  const summary = await summarizeScopedContent(pool, actor, await scopeForProject(pool, actor, project));
+  return { project, ...summary };
+}
+
+
+export async function listProjectBatchIds(db: Pool | PoolClient, actor: Actor, id: string) {
+  await projectSources(db, actor, id);
+  const { rows } = await db.query<{ batch_id: string }>(
+    "SELECT batch_id FROM monitor_project_batch WHERE project_id=$1 AND status<>'removed'", [id],
   );
-  const anchorCount = project.thread_aware ? "COUNT(DISTINCT c.anchor_id)" : "COUNT(*)";
-  const [row] = (await pool.query<{
-    facets: {
-      day_group: number; platform_group: number; kind_group: number;
-      day: string | null; platform: string | null; kind: string | null;
-      count: number; matchedContentCount: number;
-    }[];
-    dayPlatformFacets: { day: string; platform: string; count: number; matchedContentCount: number }[];
-    providers: string[];
-  }>(`
-    WITH matched AS (${matchingNodes(compiled, project.thread_aware)}), facets AS (
-      SELECT GROUPING(date_trunc('day',c.created_at_source,'UTC')) AS day_group,
-        GROUPING(c.platform) AS platform_group,GROUPING(c.kind) AS kind_group,
-        date_trunc('day',c.created_at_source,'UTC') AS day,c.platform,c.kind,
-        ${anchorCount} AS count,COUNT(*) AS "matchedContentCount"
-      FROM matched c
-      GROUP BY GROUPING SETS ((),(date_trunc('day',c.created_at_source,'UTC')),(c.platform),(c.kind),
-        (date_trunc('day',c.created_at_source,'UTC'),c.platform))
-    )
-    SELECT (SELECT jsonb_agg(facets ORDER BY day_group DESC,day,platform,kind)
-        FROM facets WHERE day_group=1 OR platform_group=1) AS facets,
-      (SELECT COALESCE(jsonb_agg(jsonb_build_object(
-        'day',day,'platform',platform,'count',count,'matchedContentCount',"matchedContentCount"
-      ) ORDER BY day,platform),'[]'::jsonb)
-        FROM facets WHERE day_group=0 AND platform_group=0 AND day IS NOT NULL) AS "dayPlatformFacets",
-      ARRAY(SELECT DISTINCT o.provider FROM matched c JOIN content_observation o ON o.content_id=c.id
-        WHERE EXISTS (SELECT 1 FROM content_discovery d JOIN collection_source cs ON cs.id=d.collection_source_id
-          WHERE ${compiled.discovery} AND d.collection_source_id=o.collection_source_id)
-        ORDER BY o.provider) AS providers`, compiled.values)).rows;
-  const totals = row.facets[0];
-  return {
-    project,
-    contentCount: totals.count,
-    matchedContentCount: totals.matchedContentCount,
-    facets: row.facets,
-    dayPlatformFacets: row.dayPlatformFacets,
-    providers: row.providers,
-    resolvedFilter: project.filter,
-    coverage: "stored_sample",
-    threadAware: project.thread_aware,
-  };
+  return rows.map(row => row.batch_id);
+}
+
+async function scopeForProject(db: Pool | PoolClient, actor: Actor, project: Project) {
+  if (project.dataset_mode !== "batch") return project;
+  const { rows } = await db.query<{ batch_id: string }>(
+    "SELECT batch_id FROM monitor_project_batch WHERE project_id=$1 AND status='enabled'", [project.id],
+  );
+  return { ...project, batchMembership: batchMembership(rows.map(row => row.batch_id), actor) };
+}
+
+export async function resolveProjectScope(db: Pool | PoolClient, actor: Actor, id: string) {
+  return scopeForProject(db, actor, await projectSources(db, actor, id));
 }

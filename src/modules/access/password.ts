@@ -1,5 +1,5 @@
 import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
-import { fail } from "../../storage/db";
+import { fail } from "../../shared/errors";
 
 const legacy = { N: 16384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 };
 const current = { N: 32768, r: 8, p: 3, maxmem: 48 * 1024 * 1024 };

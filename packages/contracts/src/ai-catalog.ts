@@ -1,5 +1,5 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { DateTime, Id, NullableText } from "./source-content";
+import { DateTime, Id, NullableText } from "./common";
 
 export const AiEventType = Type.Union([
   Type.Literal("model_release"),

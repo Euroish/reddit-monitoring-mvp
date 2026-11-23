@@ -3,8 +3,12 @@ import { Type } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool, PoolClient } from "pg";
-import { BatchVisibilityInput, Id, ParamsId } from "../../../packages/contracts/src/source-content";
-import { fail, transaction } from "../../storage/db";
+import type { Actor } from "../../../packages/contracts/src/access";
+import { BatchVisibilityInput } from "../../../packages/contracts/src/collection";
+import { Id, ParamsId } from "../../../packages/contracts/src/common";
+import { fail } from "../../shared/errors";
+import { transaction } from "../../storage/db";
+import { getUserRoleStatus } from "../access/index";
 
 const BatchesQuery = Type.Object(
   {
@@ -34,9 +38,7 @@ export async function recordCommittedBatch(
   const uniqueIds = [...new Set(input.contentIds)];
   let visibility: "private" | "shared" = input.visibility ?? "shared";
   if (!input.visibility && input.userId) {
-    const userRow = (
-      await client.query<{ role: string }>("SELECT role FROM app_user WHERE id=$1", [input.userId])
-    ).rows[0];
+    const userRow = await getUserRoleStatus(client, input.userId);
     if (userRow?.role === "viewer") visibility = "private";
   }
   const label = `${input.sourceLabel} · ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC`;
@@ -67,7 +69,7 @@ export async function recordCommittedBatch(
 
 export async function batchRoutes(app: FastifyInstance, pool: Pool) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
-  api.get("/v1/batches", { schema: { querystring: BatchesQuery } }, async (request) => {
+  api.get("/v1/batches", { config: { auth: { access: "authenticated", browserOnly: true } }, schema: { querystring: BatchesQuery } }, async (request) => {
     const actor = request.actor!;
     const isViewer = actor.role === "viewer";
     const limit = request.query.limit ?? 50;
@@ -123,7 +125,7 @@ export async function batchRoutes(app: FastifyInstance, pool: Pool) {
 
   api.patch(
     "/v1/batches/:id/visibility",
-    { schema: { params: ParamsId, body: BatchVisibilityInput } },
+    { config: { auth: { access: "admin_mfa", browserOnly: true } }, schema: { params: ParamsId, body: BatchVisibilityInput } },
     async (request) => {
       const actor = request.actor!;
       if (actor.clientKind !== "browser" || actor.role === "viewer") {
@@ -139,4 +141,36 @@ export async function batchRoutes(app: FastifyInstance, pool: Pool) {
       });
     },
   );
+}
+
+
+export function batchMembership(ids: string[], actor?: Actor): import("../content/index").BatchMembership {
+  return { contains: (bind, column) => {
+    const conditions = [`i.content_id=${column}`, `b.id=ANY(${bind(ids)}::uuid[])`];
+    if (column === "d.content_id") conditions.push("b.collection_source_id=d.collection_source_id");
+    if (actor?.role === "viewer")
+      conditions.push(`(b.visibility='shared' OR b.created_by_user_id=${bind(actor.userId ?? null)}::uuid)`);
+    if (actor?.allowedSourceIds)
+      conditions.push(`b.collection_source_id=ANY(${bind(actor.allowedSourceIds)}::uuid[])`);
+    return `EXISTS (SELECT 1 FROM collection_batch_item i JOIN collection_batch b ON b.id=i.batch_id WHERE ${conditions.join(" AND ")})`;
+  } };
+}
+
+export async function loadAuthorizedBatches(db: Pool | PoolClient, actor: Actor, ids: readonly string[]) {
+  if (!ids.length) return [];
+  const { rows } = await db.query<{
+    batchId: string; jobId: string | null; sourceId: string; sourceLabel: string; platform: string;
+    provider: string; deliveryMode: string; label: string; itemCount: number;
+    visibility: "private" | "shared"; createdAt: string;
+  }>(
+    `SELECT b.id AS "batchId", b.job_id AS "jobId", b.collection_source_id AS "sourceId",
+       cs.label AS "sourceLabel", p.code AS platform, COALESCE(j.provider,cs.primary_provider) AS provider,
+       cs.delivery_mode AS "deliveryMode", b.label, b.item_count AS "itemCount", b.visibility, b.created_at AS "createdAt"
+     FROM collection_batch b JOIN collection_source cs ON cs.id=b.collection_source_id
+     JOIN source p ON p.id=cs.platform_id LEFT JOIN source_collection_job j ON j.id=b.job_id
+     WHERE b.id=ANY($1::uuid[]) AND ($2::uuid[] IS NULL OR b.collection_source_id=ANY($2))
+       AND (NOT $3::boolean OR b.visibility='shared' OR b.created_by_user_id=$4)`,
+    [ids, actor.allowedSourceIds, actor.role === "viewer", actor.userId ?? null],
+  );
+  return rows;
 }

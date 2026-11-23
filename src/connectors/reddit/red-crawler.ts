@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import type { ContentReference, SourceTarget } from "../../../packages/contracts/src/source-content";
+import type { ContentReference } from "../../../packages/contracts/src/source-content";
+import { SourceTarget } from "../../../packages/contracts/src/collection";
 import { stableUuidFromString } from "../../shared/ids/stable-id";
-import { fail } from "../../storage/db";
+import { fail } from "../../shared/errors";
 import { ContentProviderError, type CollectedContent, type ContentProvider } from "../shared/content-provider.interface";
 import { KaixContentConnector } from "./kaix-content.connector";
 import { resolveKaixConfig } from "./kaix.config";

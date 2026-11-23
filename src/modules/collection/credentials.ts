@@ -1,16 +1,18 @@
-import { createCipheriv, createDecipheriv, hkdfSync, randomBytes, randomUUID } from "node:crypto";
+import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
 import { Type } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool } from "pg";
+import type { Actor } from "../../../packages/contracts/src/access";
 import {
   CredentialProvider,
   ProviderCredentialInput,
   ProviderCredentialTestInput,
-  type Actor,
-} from "../../../packages/contracts/src/source-content";
+} from "../../../packages/contracts/src/collection";
 import { createApifyFetch } from "../../connectors/reddit/apify-fetch";
-import { fail, transaction } from "../../storage/db";
+import { fail } from "../../shared/errors";
+import { transaction } from "../../storage/db";
+import { getUserEmailsByIds, writeAuditLog } from "../access/index";
 
 export type CredentialVendorName = "apify" | "twitterapis" | "scrapebadger";
 export type CredentialLookupName = CredentialVendorName | "kaix" | "red_crawler";
@@ -112,18 +114,23 @@ export function createCredentialVault(pool: Pool, sessionSecret: string, env = p
   }
 
   async function listStatus() {
-    const rows = (
+    const rawRows = (
       await pool.query<{
         provider: CredentialLookupName;
         key_hint: string;
         revision: number;
         updated_at: string;
-        updated_by_email: string | null;
-      }>(
-        `SELECT c.provider,c.key_hint,c.revision,c.updated_at,u.email AS updated_by_email
-         FROM source_provider_credential c LEFT JOIN app_user u ON u.id=c.updated_by`,
-      )
+        updated_by: string | null;
+      }>("SELECT provider,key_hint,revision,updated_at,updated_by FROM source_provider_credential")
     ).rows;
+    const emails = await getUserEmailsByIds(
+      pool,
+      rawRows.map((r) => r.updated_by).filter((v): v is string => Boolean(v)),
+    );
+    const rows = rawRows.map((r) => ({
+      ...r,
+      updated_by_email: r.updated_by ? (emails.get(r.updated_by) ?? null) : null,
+    }));
     const byKey = new Map(rows.map((r) => [r.provider, r]));
     return VENDORS.map((vendor) => {
       const dbRow =
@@ -181,11 +188,13 @@ export function createCredentialVault(pool: Pool, sessionSecret: string, env = p
       if (vendor === "apify") {
         await client.query("DELETE FROM source_provider_credential WHERE provider IN ('kaix','red_crawler')");
       }
-      await client.query(
-        `INSERT INTO app_audit_log(id,actor_user_id,action,resource_type,resource_id,meta_json)
-         VALUES($1,$2,'collection.credential.saved','source_provider_credential',$3,$4::jsonb)`,
-        [randomUUID(), actor.userId, vendor, JSON.stringify({ provider: vendor, keyHint })],
-      );
+      await writeAuditLog(client, {
+        actorUserId: actor.userId,
+        action: "collection.credential.saved",
+        resourceType: "source_provider_credential",
+        resourceId: vendor,
+        meta: { provider: vendor, keyHint },
+      });
     });
     await reload();
     return (await listStatus()).find((item) => item.provider === vendor)!;
@@ -200,11 +209,13 @@ export function createCredentialVault(pool: Pool, sessionSecret: string, env = p
       } else {
         await client.query("DELETE FROM source_provider_credential WHERE provider=$1", [vendor]);
       }
-      await client.query(
-        `INSERT INTO app_audit_log(id,actor_user_id,action,resource_type,resource_id,meta_json)
-         VALUES($1,$2,'collection.credential.revoked','source_provider_credential',$3,$4::jsonb)`,
-        [randomUUID(), actor.userId, vendor, JSON.stringify({ provider: vendor })],
-      );
+      await writeAuditLog(client, {
+        actorUserId: actor.userId,
+        action: "collection.credential.revoked",
+        resourceType: "source_provider_credential",
+        resourceId: vendor,
+        meta: { provider: vendor },
+      });
     });
     await reload();
     return (await listStatus()).find((item) => item.provider === vendor)!;
@@ -236,7 +247,7 @@ export async function credentialRoutes(
 ) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   const apifyFetch = createApifyFetch(vault.env, fetchPage);
-  api.get("/v1/sources/credentials", async (request) => {
+  api.get("/v1/sources/credentials", { config: { auth: { access: "admin" } } }, async (request) => {
     requireAdminBrowser(request.actor!);
     return {
       networkEnabled: vault.env.SOURCE_NETWORK_ENABLED === "true",
@@ -246,7 +257,7 @@ export async function credentialRoutes(
   });
   api.put(
     "/v1/sources/credentials/:provider",
-    { schema: { params: Type.Object({ provider: CredentialProvider }), body: ProviderCredentialInput } },
+    { config: { auth: { access: "admin_mfa" } }, schema: { params: Type.Object({ provider: CredentialProvider }), body: ProviderCredentialInput } },
     async (request) => {
       requireAdminBrowser(request.actor!);
       const credential = await vault.upsertCredential(
@@ -260,7 +271,7 @@ export async function credentialRoutes(
   );
   api.delete(
     "/v1/sources/credentials/:provider",
-    { schema: { params: Type.Object({ provider: CredentialProvider }) } },
+    { config: { auth: { access: "admin_mfa" } }, schema: { params: Type.Object({ provider: CredentialProvider }) } },
     async (request) => {
       requireAdminBrowser(request.actor!);
       const credential = await vault.revokeCredential(request.params.provider, request.actor!);
@@ -271,7 +282,7 @@ export async function credentialRoutes(
     "/v1/sources/credentials/:provider/test",
     {
       schema: { params: Type.Object({ provider: CredentialProvider }), body: ProviderCredentialTestInput },
-      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" }, auth: { access: "admin_mfa" } },
     },
     async (request) => {
       requireAdminBrowser(request.actor!);

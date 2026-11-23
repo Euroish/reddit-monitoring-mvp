@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+import { searchAiOfficialArticlesByTerm } from "../content/index";
 import { ContentProviderError } from "../../connectors/shared/content-provider.interface";
 import { httpsUrl, read } from "../../connectors/web/http";
 import {
@@ -121,20 +122,173 @@ async function matchOfficialContentIds(
 ): Promise<Array<{ id: string; title: string | null; url: string | null; published_at: string | null }>> {
   const token = displayName.split(/[/:(\s]/).find((t) => t.length >= 3) ?? "";
   if (!token) return [];
-  const res = await client.query<{ id: string; title: string | null; url: string | null; published_at: string | null }>(
-    `SELECT DISTINCT c.id, c.title, COALESCE(c.permalink, c.url) AS url, COALESCE(c.created_at_source, d.first_fetched_at)::text AS published_at
-     FROM content c
-     JOIN content_discovery d ON d.content_id = c.id
-     JOIN collection_source cs ON cs.id = d.collection_source_id
-     LEFT JOIN ai_vendor_source avs ON avs.source_id = cs.id
-     WHERE (cs.source_group = 'ai-firsthand' OR ($1::uuid IS NOT NULL AND avs.vendor_id = $1::uuid))
-       AND COALESCE(c.created_at_source, d.first_fetched_at) BETWEEN ($2::timestamptz - INTERVAL '48 hours') AND ($2::timestamptz + INTERVAL '48 hours')
-       AND (c.title ILIKE '%' || $3 || '%' OR c.body_text ILIKE '%' || $3 || '%')
-     ORDER BY published_at DESC NULLS LAST
-     LIMIT 3`,
-    [vendorId, observedAtIso, token.replace(/[%_\\]/g, "\\$&")],
+  const sourceIds = vendorId
+    ? (await client.query<{ source_id: string }>("SELECT source_id FROM ai_vendor_source WHERE vendor_id = $1", [vendorId])).rows.map((r) => r.source_id)
+    : [];
+  return searchAiOfficialArticlesByTerm(client, { sourceIds, term: token, observedAtIso, limit: 3 });
+}
+
+interface ExistingListingRow {
+  id: string;
+  external_id: string;
+  route_variant: string;
+  content_hash: string;
+  normalized_payload: Record<string, unknown>;
+  active_state: string;
+  missing_streak: number;
+}
+
+async function applyChangedListing(
+  client: PoolClient,
+  sourceId: string,
+  sourceCode: string,
+  item: NormalizedRegistryItem,
+  prev: ExistingListingRow | undefined,
+  isInitialSnapshot: boolean,
+  nowIso: string,
+): Promise<boolean> {
+  const { vendorId, modelId } = await resolveAliasAndVendor(client, item);
+  const listingRes = await client.query<{ id: string }>(
+    `INSERT INTO ai_registry_listing (
+       registry_source_id, external_id, route_variant, model_id, vendor_slug_hint,
+       display_name, active_state, missing_streak, registry_created_at,
+       first_seen_at, last_seen_at, content_hash, normalized_payload
+     ) VALUES ($1,$2,$3,$4,$5,$6,'active',0,$7,NOW(),NOW(),$8,$9::jsonb)
+     ON CONFLICT (registry_source_id, external_id, route_variant) DO UPDATE SET
+       model_id = COALESCE(ai_registry_listing.model_id, EXCLUDED.model_id),
+       vendor_slug_hint = COALESCE(EXCLUDED.vendor_slug_hint, ai_registry_listing.vendor_slug_hint),
+       display_name = EXCLUDED.display_name,
+       active_state = 'active',
+       missing_streak = 0,
+       last_seen_at = NOW(),
+       content_hash = EXCLUDED.content_hash,
+       normalized_payload = EXCLUDED.normalized_payload
+     RETURNING id`,
+    [
+      sourceId, item.externalId, item.routeVariant, modelId, item.vendorSlugHint,
+      item.displayName, item.registryCreatedAt, item.contentHash, JSON.stringify(item.normalizedPayload),
+    ],
   );
-  return res.rows;
+  const listingId = listingRes.rows[0].id;
+  const priceChanged =
+    Boolean(prev) &&
+    (prev!.normalized_payload?.inputPrice !== item.inputPrice || prev!.normalized_payload?.outputPrice !== item.outputPrice);
+  const changeType = !prev ? "new_listing" : priceChanged ? "pricing_change" : "spec_change";
+
+  const changeRes = await client.query<{ id: string }>(
+    `INSERT INTO ai_registry_change (
+       registry_source_id, listing_id, external_id, route_variant, change_type, change_hash, previous_value, current_value
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb)
+     ON CONFLICT (registry_source_id, external_id, route_variant, change_type, change_hash) DO NOTHING
+     RETURNING id`,
+    [
+      sourceId, listingId, item.externalId, item.routeVariant, changeType, item.contentHash,
+      prev ? JSON.stringify(prev.normalized_payload) : null, JSON.stringify(item.normalizedPayload),
+    ],
+  );
+  if (item.inputPrice !== null || item.outputPrice !== null || item.contextLength !== null) {
+    await client.query(
+      `INSERT INTO ai_model_spec_observation (
+         model_id, listing_id, source_kind, provider_name, context_length, max_output_tokens,
+         input_modalities, output_modalities, currency, price_unit, input_price, output_price, cache_read_price, raw_unit_note
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,$10,$11,$12,$13,$14)`,
+      [
+        modelId, listingId, item.sourceNamespace, item.providerName, item.contextLength, item.maxOutputTokens,
+        JSON.stringify(item.inputModalities), JSON.stringify(item.outputModalities),
+        item.currency, item.priceUnit, item.inputPrice, item.outputPrice, item.cacheReadPrice, item.rawUnitNote,
+      ],
+    );
+  }
+  if (isInitialSnapshot && item.sourceNamespace !== "epoch") return false;
+  return createRegistryCandidate(client, sourceCode, item, vendorId, modelId, changeRes.rows[0]?.id ?? null, changeType, nowIso);
+}
+
+async function createRegistryCandidate(
+  client: PoolClient,
+  sourceCode: string,
+  item: NormalizedRegistryItem,
+  vendorId: string | null,
+  modelId: string | null,
+  changeId: string | null,
+  changeType: "new_listing" | "pricing_change" | "spec_change",
+  nowIso: string,
+): Promise<boolean> {
+  const candidateType =
+    item.sourceNamespace === "epoch"
+      ? "historical_import"
+      : changeType === "pricing_change"
+        ? "pricing_observation"
+        : changeType === "spec_change"
+          ? "spec_change"
+          : "new_listing";
+  const dedupeKey = `${sourceCode}:${item.externalId}:${item.routeVariant}:${candidateType}:${item.contentHash.slice(0, 16)}`;
+  const matchedDocs = await matchOfficialContentIds(client, vendorId, item.displayName, nowIso);
+  const evidenceList = matchedDocs.map((d) => ({ contentId: d.id, title: d.title, url: d.url, publishedAt: d.published_at }));
+  const candRes = await client.query<{ id: string }>(
+    `INSERT INTO ai_event_candidate (
+       dedupe_key, candidate_type, status, priority, vendor_id, model_id, registry_change_id,
+       content_id, title, external_id, suggested_event_type, suggested_date, date_precision,
+       draft_payload, evidence_payload
+     ) VALUES ($1,$2,'pending',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb)
+     ON CONFLICT (dedupe_key) DO UPDATE SET last_seen_at = NOW(), updated_at = NOW()
+     RETURNING id`,
+    [
+      dedupeKey, candidateType, matchedDocs.length > 0 ? 80 : 50, vendorId, modelId, changeId,
+      matchedDocs[0]?.id ?? null, `${item.displayName} (${sourceCode})`, item.externalId,
+      candidateType === "pricing_observation" ? "pricing_change" : null,
+      item.historicalDate?.date ?? null, item.historicalDate?.precision ?? "unknown",
+      JSON.stringify({ ...item.normalizedPayload, registryCreatedAt: item.registryCreatedAt, rawUnitNote: item.rawUnitNote }),
+      JSON.stringify(evidenceList),
+    ],
+  );
+  return Boolean(candRes.rows[0]);
+}
+
+async function applyMissingListingsBatch(
+  client: PoolClient,
+  sourceId: string,
+  existingByKey: Map<string, ExistingListingRow>,
+  seenKeys: Set<string>,
+) {
+  const missingIds: string[] = [];
+  const nextStreaks: number[] = [];
+  const nextStates: string[] = [];
+  const confirmed: Array<{ row: ExistingListingRow; hash: string }> = [];
+
+  for (const [key, row] of existingByKey) {
+    if (seenKeys.has(key) || (row.active_state !== "active" && row.active_state !== "missing_once")) continue;
+    const nextStreak = row.missing_streak + 1;
+    missingIds.push(row.id);
+    nextStreaks.push(nextStreak);
+    nextStates.push(nextStreak >= 2 ? "missing_confirmed" : "missing_once");
+    if (nextStreak === 2) {
+      confirmed.push({ row, hash: stableHash({ missing: row.external_id, route: row.route_variant }) });
+    }
+  }
+  if (missingIds.length) {
+    await client.query(
+      `UPDATE ai_registry_listing l
+       SET missing_streak = v.streak, active_state = v.state
+       FROM UNNEST($1::uuid[], $2::int[], $3::text[]) AS v(id, streak, state)
+       WHERE l.id = v.id`,
+      [missingIds, nextStreaks, nextStates],
+    );
+  }
+  if (confirmed.length) {
+    await client.query(
+      `INSERT INTO ai_registry_change (registry_source_id, listing_id, external_id, route_variant, change_type, change_hash)
+       SELECT $1, v.listing_id, v.external_id, v.route_variant, 'listing_missing', v.hash
+       FROM UNNEST($2::uuid[], $3::text[], $4::text[], $5::text[]) AS v(listing_id, external_id, route_variant, hash)
+       ON CONFLICT DO NOTHING`,
+      [
+        sourceId,
+        confirmed.map((c) => c.row.id),
+        confirmed.map((c) => c.row.external_id),
+        confirmed.map((c) => c.row.route_variant),
+        confirmed.map((c) => c.hash),
+      ],
+    );
+  }
 }
 
 export async function applyRegistryItems(
@@ -147,11 +301,12 @@ export async function applyRegistryItems(
   const triggerKind = options.dryRun ? "dry_run" : (options.triggerKind ?? "scheduled");
   const client = await pool.connect();
   try {
-    const srcRes = await client.query<{ id: string; kind: string; last_blob_sha: string | null }>(
-      `SELECT id, kind, last_blob_sha FROM ai_registry_source WHERE code = $1`,
-      [sourceCode],
-    );
-    const source = srcRes.rows[0];
+    const source = (
+      await client.query<{ id: string; kind: string; last_blob_sha: string | null }>(
+        "SELECT id, kind, last_blob_sha FROM ai_registry_source WHERE code = $1",
+        [sourceCode],
+      )
+    ).rows[0];
     if (!source) throw new Error(`Unknown ai_registry_source: ${sourceCode}`);
     const runId = randomUUID();
     await client.query(
@@ -159,30 +314,31 @@ export async function applyRegistryItems(
        VALUES ($1, $2, $3, $4, 'running', $5, NOW() + INTERVAL '15 minutes')`,
       [runId, source.id, sourceCode, triggerKind, `pid-${process.pid}`],
     );
-
     if (options.blobSha && source.last_blob_sha && options.blobSha === source.last_blob_sha) {
-      await client.query(
-        `UPDATE ai_sync_run SET status = 'succeeded', duration_ms = $2, finished_at = NOW() WHERE id = $1`,
-        [runId, Date.now() - started],
-      );
+      await client.query("UPDATE ai_sync_run SET status = 'succeeded', duration_ms = $2, finished_at = NOW() WHERE id = $1", [
+        runId, Date.now() - started,
+      ]);
       return { runId, fetchedCount: 0, changedCount: 0, candidatesCreated: 0, skippedUnchanged: true };
     }
-
     if (items.length === 0) {
-      // Never mark existing models missing on an empty response
       await client.query(
-        `UPDATE ai_sync_run SET status = 'partial_failed', error_code = 'empty_payload', error_message = 'Upstream returned 0 items; existing listings preserved', duration_ms = $2, finished_at = NOW() WHERE id = $1`,
+        "UPDATE ai_sync_run SET status = 'partial_failed', error_code = 'empty_payload', error_message = 'Upstream returned 0 items; existing listings preserved', duration_ms = $2, finished_at = NOW() WHERE id = $1",
         [runId, Date.now() - started],
       );
       return { runId, fetchedCount: 0, changedCount: 0, candidatesCreated: 0, skippedUnchanged: false };
     }
 
-    const priorCountRes = await client.query<{ cnt: string }>(
-      `SELECT COUNT(*)::text AS cnt FROM ai_registry_listing WHERE registry_source_id = $1`,
-      [source.id],
-    );
-    const isInitialSnapshot = Number(priorCountRes.rows[0]?.cnt ?? "0") === 0;
+    const existingRows = (
+      await client.query<ExistingListingRow>(
+        `SELECT id, external_id, route_variant, content_hash, normalized_payload, active_state, missing_streak
+         FROM ai_registry_listing WHERE registry_source_id = $1`,
+        [source.id],
+      )
+    ).rows;
+    const existingByKey = new Map(existingRows.map((r) => [`${r.external_id}::${r.route_variant}`, r]));
+    const isInitialSnapshot = existingByKey.size === 0;
     const seenKeys = new Set<string>();
+    const unchangedIds: string[] = [];
     let changedCount = 0;
     let candidatesCreated = 0;
     const nowIso = new Date().toISOString();
@@ -193,157 +349,24 @@ export async function applyRegistryItems(
         const compositeKey = `${item.externalId}::${item.routeVariant}`;
         if (seenKeys.has(compositeKey)) continue;
         seenKeys.add(compositeKey);
-        const existing = await client.query<{ id: string; content_hash: string; normalized_payload: Record<string, unknown>; active_state: string }>(
-          `SELECT id, content_hash, normalized_payload, active_state
-           FROM ai_registry_listing
-           WHERE registry_source_id = $1 AND external_id = $2 AND route_variant = $3`,
-          [source.id, item.externalId, item.routeVariant],
-        );
-        const prev = existing.rows[0];
+        const prev = existingByKey.get(compositeKey);
         if (prev && prev.content_hash === item.contentHash && prev.active_state === "active") {
-          if (!options.dryRun) {
-            await client.query(
-              `UPDATE ai_registry_listing SET last_seen_at = NOW(), missing_streak = 0 WHERE id = $1`,
-              [prev.id],
-            );
-          }
+          unchangedIds.push(prev.id);
           continue;
         }
-
         changedCount += 1;
         if (options.dryRun) continue;
-
-        const { vendorId, modelId } = await resolveAliasAndVendor(client, item);
-        const listingRes = await client.query<{ id: string }>(
-          `INSERT INTO ai_registry_listing (
-             registry_source_id, external_id, route_variant, model_id, vendor_slug_hint,
-             display_name, active_state, missing_streak, registry_created_at,
-             first_seen_at, last_seen_at, content_hash, normalized_payload
-           ) VALUES ($1,$2,$3,$4,$5,$6,'active',0,$7,NOW(),NOW(),$8,$9::jsonb)
-           ON CONFLICT (registry_source_id, external_id, route_variant) DO UPDATE SET
-             model_id = COALESCE(ai_registry_listing.model_id, EXCLUDED.model_id),
-             vendor_slug_hint = COALESCE(EXCLUDED.vendor_slug_hint, ai_registry_listing.vendor_slug_hint),
-             display_name = EXCLUDED.display_name,
-             active_state = 'active',
-             missing_streak = 0,
-             last_seen_at = NOW(),
-             content_hash = EXCLUDED.content_hash,
-             normalized_payload = EXCLUDED.normalized_payload
-           RETURNING id`,
-          [
-            source.id, item.externalId, item.routeVariant, modelId, item.vendorSlugHint,
-            item.displayName, item.registryCreatedAt, item.contentHash, JSON.stringify(item.normalizedPayload),
-          ],
-        );
-        const listingId = listingRes.rows[0].id;
-
-        const changeType = !prev
-          ? "new_listing"
-          : (prev.normalized_payload?.inputPrice !== item.inputPrice || prev.normalized_payload?.outputPrice !== item.outputPrice)
-            ? "pricing_change"
-            : "spec_change";
-
-        const changeRes = await client.query<{ id: string }>(
-          `INSERT INTO ai_registry_change (
-             registry_source_id, listing_id, external_id, route_variant, change_type, change_hash, previous_value, current_value
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb)
-           ON CONFLICT (registry_source_id, external_id, route_variant, change_type, change_hash) DO NOTHING
-           RETURNING id`,
-          [
-            source.id, listingId, item.externalId, item.routeVariant, changeType, item.contentHash,
-            prev ? JSON.stringify(prev.normalized_payload) : null,
-            JSON.stringify(item.normalizedPayload),
-          ],
-        );
-        const changeId = changeRes.rows[0]?.id ?? null;
-
-        if (item.inputPrice !== null || item.outputPrice !== null || item.contextLength !== null) {
-          await client.query(
-            `INSERT INTO ai_model_spec_observation (
-               model_id, listing_id, source_kind, provider_name, context_length, max_output_tokens,
-               input_modalities, output_modalities, currency, price_unit, input_price, output_price, cache_read_price, raw_unit_note
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,$10,$11,$12,$13,$14)`,
-            [
-              modelId, listingId, item.sourceNamespace, item.providerName, item.contextLength, item.maxOutputTokens,
-              JSON.stringify(item.inputModalities), JSON.stringify(item.outputModalities),
-              item.currency, item.priceUnit, item.inputPrice, item.outputPrice, item.cacheReadPrice, item.rawUnitNote,
-            ],
-          );
+        if (await applyChangedListing(client, source.id, sourceCode, item, prev, isInitialSnapshot, nowIso)) {
+          candidatesCreated += 1;
         }
-
-        // Initial snapshot records baseline listings without flooding release candidates, except Epoch historical imports
-        if (isInitialSnapshot && item.sourceNamespace !== "epoch") continue;
-
-        const candidateType = item.sourceNamespace === "epoch"
-          ? "historical_import"
-          : changeType === "pricing_change"
-            ? "pricing_observation"
-            : changeType === "spec_change"
-              ? "spec_change"
-              : "new_listing";
-        const dedupeKey = `${sourceCode}:${item.externalId}:${item.routeVariant}:${candidateType}:${item.contentHash.slice(0, 16)}`;
-        const matchedDocs = await matchOfficialContentIds(client, vendorId, item.displayName, nowIso);
-        const evidenceList = matchedDocs.map((d) => ({
-          contentId: d.id,
-          title: d.title,
-          url: d.url,
-          publishedAt: d.published_at,
-        }));
-        const candRes = await client.query<{ id: string }>(
-          `INSERT INTO ai_event_candidate (
-             dedupe_key, candidate_type, status, priority, vendor_id, model_id, registry_change_id,
-             content_id, title, external_id, suggested_event_type, suggested_date, date_precision,
-             draft_payload, evidence_payload
-           ) VALUES ($1,$2,'pending',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb)
-           ON CONFLICT (dedupe_key) DO UPDATE SET last_seen_at = NOW(), updated_at = NOW()
-           RETURNING id`,
-          [
-            dedupeKey,
-            candidateType,
-            matchedDocs.length > 0 ? 80 : 50,
-            vendorId,
-            modelId,
-            changeId,
-            matchedDocs[0]?.id ?? null,
-            `${item.displayName} (${sourceCode})`,
-            item.externalId,
-            candidateType === "pricing_observation" ? "pricing_change" : null,
-            item.historicalDate?.date ?? null,
-            item.historicalDate?.precision ?? "unknown",
-            JSON.stringify({ ...item.normalizedPayload, registryCreatedAt: item.registryCreatedAt, rawUnitNote: item.rawUnitNote }),
-            JSON.stringify(evidenceList),
-          ],
-        );
-        if (candRes.rows[0]) candidatesCreated += 1;
       }
-
       if (!options.dryRun) {
-        // Track consecutive missing listings safely (only after >=2 successful snapshots)
-        if (!isInitialSnapshot) {
-          const allActive = await client.query<{ id: string; external_id: string; route_variant: string; missing_streak: number }>(
-            `SELECT id, external_id, route_variant, missing_streak
-             FROM ai_registry_listing
-             WHERE registry_source_id = $1 AND active_state IN ('active', 'missing_once')`,
-            [source.id],
-          );
-          for (const row of allActive.rows) {
-            if (seenKeys.has(`${row.external_id}::${row.route_variant}`)) continue;
-            const nextStreak = row.missing_streak + 1;
-            const nextState = nextStreak >= 2 ? "missing_confirmed" : "missing_once";
-            await client.query(
-              `UPDATE ai_registry_listing SET missing_streak = $2, active_state = $3 WHERE id = $1`,
-              [row.id, nextStreak, nextState],
-            );
-            if (nextStreak === 2) {
-              const hash = stableHash({ missing: row.external_id, route: row.route_variant });
-              await client.query(
-                `INSERT INTO ai_registry_change (registry_source_id, listing_id, external_id, route_variant, change_type, change_hash)
-                 VALUES ($1,$2,$3,$4,'listing_missing',$5) ON CONFLICT DO NOTHING`,
-                [source.id, row.id, row.external_id, row.route_variant, hash],
-              );
-            }
-          }
+        if (unchangedIds.length) {
+          await client.query("UPDATE ai_registry_listing SET last_seen_at = NOW(), missing_streak = 0 WHERE id = ANY($1::uuid[])", [
+            unchangedIds,
+          ]);
         }
+        if (!isInitialSnapshot) await applyMissingListingsBatch(client, source.id, existingByKey, seenKeys);
         await client.query(
           `UPDATE ai_registry_source
            SET etag = COALESCE($2, etag), last_blob_sha = COALESCE($3, last_blob_sha),
@@ -356,22 +379,59 @@ export async function applyRegistryItems(
     } catch (err) {
       if (!options.dryRun) await client.query("ROLLBACK");
       await client.query(
-        `UPDATE ai_sync_run SET status = 'failed', error_code = 'apply_error', error_message = $2, duration_ms = $3, finished_at = NOW() WHERE id = $1`,
+        "UPDATE ai_sync_run SET status = 'failed', error_code = 'apply_error', error_message = $2, duration_ms = $3, finished_at = NOW() WHERE id = $1",
         [runId, String(err).slice(0, 400), Date.now() - started],
       );
       throw err;
     }
 
     await client.query(
-      `UPDATE ai_sync_run
-       SET status = 'succeeded', fetched_count = $2, changed_count = $3, candidates_created = $4, duration_ms = $5, finished_at = NOW()
-       WHERE id = $1`,
+      "UPDATE ai_sync_run SET status = 'succeeded', fetched_count = $2, changed_count = $3, candidates_created = $4, duration_ms = $5, finished_at = NOW() WHERE id = $1",
       [runId, items.length, changedCount, candidatesCreated, Date.now() - started],
     );
     return { runId, fetchedCount: items.length, changedCount, candidatesCreated, skippedUnchanged: false };
   } finally {
     client.release();
   }
+}
+
+async function handleSyncFailureStatus(
+  pool: Pool,
+  src: { id: string; backoff_seconds: number },
+  sourceCode: string,
+  status: number,
+) {
+  const nextBackoff = Math.min(21600, Math.max(300, (src.backoff_seconds || 150) * 2));
+  const failRes = await pool.query<{ consecutive_failures: number }>(
+    `UPDATE ai_registry_source SET consecutive_failures = consecutive_failures + 1, backoff_seconds = $3::int,
+     next_run_at = NOW() + make_interval(secs => $3::int),
+     circuit_open_until = CASE WHEN consecutive_failures + 1 >= 3 THEN NOW() + INTERVAL '2 hours' ELSE circuit_open_until END,
+     last_error = $2, updated_at = NOW() WHERE id = $1 RETURNING consecutive_failures`,
+    [src.id, `HTTP ${status}`, nextBackoff],
+  );
+  if ((failRes.rows[0]?.consecutive_failures ?? 0) >= 3 || status === 429) {
+    await pool.query(
+      "INSERT INTO ai_ops_alert (severity, source_code, alert_key, message, details) VALUES ($1,$2,$3,$4,$5::jsonb)",
+      [
+        status === 429 ? "warning" : "critical",
+        sourceCode,
+        `sync_failure:${sourceCode}`,
+        `AI sync ${sourceCode} failed with HTTP ${status} (backoff ${nextBackoff}s)`,
+        JSON.stringify({ status, backoffSeconds: nextBackoff }),
+      ],
+    );
+  }
+  throw new Error(`Upstream ${sourceCode} returned HTTP ${status}`);
+}
+
+function parseSyncPayload(kind: string, bodyText: string, config: Record<string, unknown>): NormalizedRegistryItem[] {
+  if (kind === "openrouter") return parseOpenRouterPayload(JSON.parse(bodyText));
+  if (kind === "litellm") return parseLiteLlmPayload(JSON.parse(bodyText));
+  if (kind === "hf") {
+    const orgs = Array.isArray(config?.orgs) ? (config.orgs as string[]) : [];
+    return parseHuggingFacePayload(JSON.parse(bodyText), orgs);
+  }
+  return kind === "epoch" ? parseEpochCsv(bodyText) : [];
 }
 
 export async function syncRegistrySourceByCode(
@@ -383,17 +443,19 @@ export async function syncRegistrySourceByCode(
   const lockClient = await pool.connect();
   let locked = false;
   try {
-    const lockRes = await lockClient.query<{ ok: boolean }>(`SELECT pg_try_advisory_lock($1) AS ok`, [AI_SYNC_LOCK_KEY]);
+    const lockRes = await lockClient.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [AI_SYNC_LOCK_KEY]);
     locked = Boolean(lockRes.rows[0]?.ok);
     if (!locked) return { skippedLocked: true };
 
-    const src = (await pool.query<{
-      id: string; kind: string; endpoint_url: string; etag: string | null;
-      sync_interval_seconds: number; backoff_seconds: number; config: Record<string, unknown>;
-    }>(
-      `SELECT id, kind, endpoint_url, etag, sync_interval_seconds, backoff_seconds, config FROM ai_registry_source WHERE code = $1`,
-      [sourceCode],
-    )).rows[0];
+    const src = (
+      await pool.query<{
+        id: string; kind: string; endpoint_url: string; etag: string | null;
+        sync_interval_seconds: number; backoff_seconds: number; config: Record<string, unknown>;
+      }>(
+        "SELECT id, kind, endpoint_url, etag, sync_interval_seconds, backoff_seconds, config FROM ai_registry_source WHERE code = $1",
+        [sourceCode],
+      )
+    ).rows[0];
     if (!src) throw new Error(`Unknown ai_registry_source: ${sourceCode}`);
 
     const headers: Record<string, string> = { "user-agent": "SIFTLINE-AI-Catalog/1.0" };
@@ -405,9 +467,7 @@ export async function syncRegistrySourceByCode(
       if (!apiKey) throw new Error("ARTIFICIAL_ANALYSIS_API_KEY is not configured");
       headers["x-api-key"] = apiKey;
       aaPublicAllowed = process.env.ARTIFICIAL_ANALYSIS_PUBLIC_REDISTRIBUTION === "true";
-      if (aaPublicAllowed && typeof src.config?.commercialUrl === "string") {
-        targetUrl = src.config.commercialUrl;
-      }
+      if (aaPublicAllowed && typeof src.config?.commercialUrl === "string") targetUrl = src.config.commercialUrl;
     }
 
     const res = await fetcher(targetUrl, headers);
@@ -418,40 +478,17 @@ export async function syncRegistrySourceByCode(
          next_run_at = NOW() + make_interval(secs => sync_interval_seconds), updated_at = NOW() WHERE id = $1`,
         [src.id],
       );
-      await pool.query(`UPDATE ai_ops_alert SET resolved_at = NOW() WHERE source_code = $1 AND resolved_at IS NULL`, [sourceCode]);
+      await pool.query("UPDATE ai_ops_alert SET resolved_at = NOW() WHERE source_code = $1 AND resolved_at IS NULL", [sourceCode]);
       return { skippedUnchanged: true, fetchedCount: 0, changedCount: 0, candidatesCreated: 0 };
     }
     if (res.status >= 400 || !res.bodyText) {
-      const nextBackoff = Math.min(21600, Math.max(300, (src.backoff_seconds || 150) * 2));
-      const failRes = await pool.query<{ consecutive_failures: number }>(
-        `UPDATE ai_registry_source SET consecutive_failures = consecutive_failures + 1, backoff_seconds = $3::int,
-         next_run_at = NOW() + make_interval(secs => $3::int),
-         circuit_open_until = CASE WHEN consecutive_failures + 1 >= 3 THEN NOW() + INTERVAL '2 hours' ELSE circuit_open_until END,
-         last_error = $2, updated_at = NOW() WHERE id = $1 RETURNING consecutive_failures`,
-        [src.id, `HTTP ${res.status}`, nextBackoff],
-      );
-      if ((failRes.rows[0]?.consecutive_failures ?? 0) >= 3 || res.status === 429) {
-        await pool.query(
-          `INSERT INTO ai_ops_alert (severity, source_code, alert_key, message, details) VALUES ($1,$2,$3,$4,$5::jsonb)`,
-          [res.status === 429 ? "warning" : "critical", sourceCode, `sync_failure:${sourceCode}`, `AI sync ${sourceCode} failed with HTTP ${res.status} (backoff ${nextBackoff}s)`, JSON.stringify({ status: res.status, backoffSeconds: nextBackoff })],
-        );
-      }
-      throw new Error(`Upstream ${sourceCode} returned HTTP ${res.status}`);
+      return await handleSyncFailureStatus(pool, src, sourceCode, res.status);
     }
-
     if (src.kind === "artificial_analysis") {
       return saveArtificialAnalysisSnapshots(pool, src.id, sourceCode, res.bodyText, aaPublicAllowed, options.dryRun);
     }
 
-    let items: NormalizedRegistryItem[] = [];
-    if (src.kind === "openrouter") items = parseOpenRouterPayload(JSON.parse(res.bodyText));
-    else if (src.kind === "litellm") items = parseLiteLlmPayload(JSON.parse(res.bodyText));
-    else if (src.kind === "hf") {
-      const orgs = Array.isArray(src.config?.orgs) ? (src.config.orgs as string[]) : [];
-      items = parseHuggingFacePayload(JSON.parse(res.bodyText), orgs);
-    } else if (src.kind === "epoch") {
-      items = parseEpochCsv(res.bodyText);
-    }
+    const items = parseSyncPayload(src.kind, res.bodyText, src.config);
     const result = await applyRegistryItems(pool, sourceCode, items, {
       dryRun: options.dryRun,
       triggerKind: options.triggerKind,
@@ -464,16 +501,11 @@ export async function syncRegistrySourceByCode(
          next_run_at = NOW() + make_interval(secs => sync_interval_seconds), updated_at = NOW() WHERE id = $1`,
         [src.id],
       );
-      await pool.query(
-        `UPDATE ai_ops_alert SET resolved_at = NOW() WHERE source_code = $1 AND resolved_at IS NULL`,
-        [sourceCode],
-      );
+      await pool.query("UPDATE ai_ops_alert SET resolved_at = NOW() WHERE source_code = $1 AND resolved_at IS NULL", [sourceCode]);
     }
     return result;
   } finally {
-    if (locked) {
-      await lockClient.query(`SELECT pg_advisory_unlock($1)`, [AI_SYNC_LOCK_KEY]).catch(() => {});
-    }
+    if (locked) await lockClient.query("SELECT pg_advisory_unlock($1)", [AI_SYNC_LOCK_KEY]).catch(() => {});
     lockClient.release();
   }
 }
