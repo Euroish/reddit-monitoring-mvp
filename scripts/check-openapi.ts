@@ -60,6 +60,11 @@ async function main(): Promise<void> {
       "/v1/sources",
       "/v1/projects",
       "/v1/ai/events",
+      "/v1/feed/stream",
+      "/v1/feed/hot",
+      "/v1/intelligence/monitors",
+      "/v1/intelligence/authors",
+      "/v1/intelligence/communities",
     ]) {
       assert.ok(routeKeys.includes(requiredRoute), `Missing expected route in OpenAPI spec: ${requiredRoute}`);
     }

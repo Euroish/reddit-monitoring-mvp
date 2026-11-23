@@ -5,6 +5,8 @@ import {
   pruneAccessArtifacts,
 } from "../../../src/modules/access/index";
 import { startAiSyncScheduler } from "../../../src/modules/ai/index";
+import { pruneFeedArtifacts } from "../../../src/modules/feed/index";
+import { refreshRollupsForSource } from "../../../src/modules/intelligence/index";
 import { createCredentialVault, startWorker } from "../../../src/modules/collection/index";
 import { BlueskyAppViewContentConnector } from "../../../src/connectors/bluesky/bluesky-appview-content.connector";
 import { createApifyFetch } from "../../../src/connectors/reddit/apify-fetch";
@@ -92,13 +94,22 @@ export async function main() {
       host: process.env.HOST ?? "127.0.0.1",
       port: Number(process.env.PORT ?? 3000),
     });
-    const worker = startWorker(workerPool, providers, (error) =>
-      app.log.error({ err: error }, "Collection worker failed"),
+    const worker = startWorker(
+      workerPool,
+      providers,
+      (error) => app.log.error({ err: error }, "Collection worker failed"),
+      (sourceId) =>
+        refreshRollupsForSource(workerPool, sourceId).catch((error) =>
+          app.log.error({ err: error, sourceId }, "Intelligence rollup refresh failed"),
+        ),
     );
     const stopAiScheduler = startAiSyncScheduler(workerPool);
     const sessionCleanup = setInterval(() => {
       void pruneAccessArtifacts(workerPool).catch(() =>
         app.log.error("Access challenge and session cleanup failed"),
+      );
+      void pruneFeedArtifacts(workerPool).catch(() =>
+        app.log.error("Feed seen/event artifact cleanup failed"),
       );
     }, 60 * 60 * 1000);
     sessionCleanup.unref();

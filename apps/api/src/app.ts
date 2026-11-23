@@ -30,6 +30,8 @@ import {
 } from "../../../src/modules/collection/index";
 import { registerContentModule } from "../../../src/modules/content/index";
 import { registerDocsModule } from "../../../src/modules/docs/index";
+import { registerFeedModule } from "../../../src/modules/feed/index";
+import { registerIntelligenceModule } from "../../../src/modules/intelligence/index";
 import { registerProjectsModule, resolveProjectScope } from "../../../src/modules/projects/index";
 import { registerWorkspaceModule } from "../../../src/modules/workspace/index";
 import type { DeclarativeRouteAuth } from "../../../src/platform/route-auth";
@@ -278,6 +280,8 @@ export async function buildApp(options: {
   await registerAiModule(app, options.pool);
   await registerProjectsModule(app, options.pool, providers);
   await registerWorkspaceModule(app, options.pool);
+  await registerFeedModule(app, options.pool);
+  await registerIntelligenceModule(app, options.pool, providers);
 
   app.get(
     "/v1/openapi.json",
@@ -293,6 +297,7 @@ export async function buildApp(options: {
         "ingest", "radar", "hydrate", "refresh_by_ids", "source_preview",
         "thread", "search", "content_facets", "stories", "story_heat",
         "daily_digest", "stream_export", "saved_queries", "annotations",
+        "feed_stream", "feed_hot", "feed_events", "intel_monitors", "intel_authors", "intel_communities",
       ],
       maxIngestItems: 100,
       maxIngestBytes: 1048576,

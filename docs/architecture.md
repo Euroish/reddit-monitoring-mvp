@@ -43,7 +43,7 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 
 ---
 
-## 2. `[LIVE]` 入口地图、严格 DAG 依赖与 7 域 46 表所有权
+## 2. `[LIVE]` 入口地图、严格 DAG 依赖与 9 域 55 表所有权
 
 | 模块路径 | DAG 依赖（仅允许 `index.ts` 门面） | 独家写表所有权与跨模块读契约 |
 | :--- | :--- | :--- |
@@ -51,15 +51,17 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 | **`src/platform/ & src/shared/`** | 零 `src/modules/` 与 `apps/` 依赖 | `route-auth.ts`（声明式权限类型）、`pg-notify.ts`（通道白名单 `LISTEN/NOTIFY` 连接器）、`shared/{errors,canonical,ids,language}`（零 `pg` 依赖叶子工具）。 |
 | **`src/modules/access/`** | **严格叶子域**（零跨模块依赖） | 独家读写 8 张表：`app_user`、`app_user_password`、`app_invite`、`app_audit_log`、`app_session`、`app_auth_challenge`、`app_auth_mfa`、`app_auth_mfa_login`。通过 `writeAuditLog` 与用户查询门面服务下游。 |
 | **`src/modules/docs/`** | **严格叶子域**（零跨模块依赖） | 独家读写 1 张表：`doc_page`（产品文档中心：`markdown` / 外链 / inline PDF 单附件，乐观锁 `revision`）。 |
-| **`src/modules/content/`** | **严格叶子域**（经 `resolveProjectScope` 注入专题范围） | 独家写 4 张表：`content`、`content_discovery`、`content_observation`、`public_content_search_document`。唯一内容写入口 `commitContentBatch`（6 小时复用时间戳写放大节流）；通过 `queries.ts`/`index.ts` 暴露只读查询与 `summarizeScopedContent`。契约许可跨读 `collection` 的 `source` 与 `collection_source` 可见性边界。 |
+| **`src/modules/content/`** | **严格叶子域**（经 `resolveProjectScope` 注入专题范围） | 独家写 5 张表：`content`、`content_discovery`、`content_observation`、`content_author_profile`、`public_content_search_document`（含可插拔 `enrich.ts` 与 `feed`/`intelligence` 只读门面）。唯一内容写入口 `commitContentBatch`（6 小时复用时间戳写放大节流）；通过 `queries.ts`/`index.ts` 暴露只读查询与 `summarizeScopedContent`。契约许可跨读 `collection` 的 `source` 与 `collection_source` 可见性边界。 |
 | **`src/modules/collection/`** | `access/index`、`content/index` | 独家读写 9 张表：`source`、`collection_source`、`source_collection_job`、`source_provider_budget`、`source_provider_usage`、`source_worker_heartbeat`、`source_provider_credential`、`plan_collection_policy`、`user_provider_usage`。含预览、OPML/JSON 导入、`provider_readiness` CTE 到期扫描与 `LISTEN/NOTIFY` 协程 Worker。 |
+| **`src/modules/feed/`** | `content/index` | 独家读写 4 张表：`feed_user_seen`、`feed_user_event`、`feed_user_affinity`、`feed_user_preference`。提供防茧房 4 池混排、Plackett-Luce 采样、滑动窗口打散与跨平台热榜 `/v1/feed/*`。 |
+| **`src/modules/intelligence/`** | `content/index`、`collection/index` | 独家读写 4 张表：`intel_monitor`、`intel_monitor_source`、`intel_monitor_target`、`intel_rollup_bucket`。提供关键词 SoV/GEO、KOL 批量整合、Subreddit 矩阵分析与 20k/天预算预估 `/v1/intelligence/*`。 |
 | **`src/modules/projects/`** | `content/index`、`collection/index` | 独家读写 2 张表：`monitor_project`、`monitor_project_source`。`projectOverview` 委托 `content` 的 `summarizeScopedContent`；`POST /v1/projects/:id/hydrate` 锁定项目后委托 `enqueueHydrationForScope`。 |
 | **`src/modules/workspace/`** | `content/index` | 独家读写 2 张表：`content_saved_query`、`content_annotation`（严格浏览器会话隔离，标注经 `loadAnnotatedContentByIds` / `isContentVisibleToActor` 校验可见性）。 |
 | **`src/modules/ai/`** | `content/index` | 独家读写 19 张 `ai_*` 表（`054..056`）；经 `listAiFirsthandArticles`、`searchAiOfficialArticlesByTerm`（复用搜索索引）与 `listAiOfficialFeedUpdates` 获取官方资讯，零裸 SQL 跨表直查。 |
 | **`src/connectors/`** | 零 `pg`/`storage`/`modules` 依赖 | `web/{http,sources}`、`reddit/{kaix,red-crawler,kaix.config}`、`x/{twitterapis,scrapebadger}`、`bluesky/bluesky-appview-content.connector`、`shared/content-provider.interface`。 |
-| **`packages/contracts/src/`** | **纯叶子契约**（按域拆分） | `common`、`access`、`content`、`collection`、`projects`、`content-stories`、`product-docs`、`ai-catalog`（`source-content.ts` 仅作兼容 Barrel）。 |
+| **`packages/contracts/src/`** | **纯叶子契约**（按域拆分） | `common`、`access`、`content`、`collection`、`feed`、`intelligence`、`projects`、`content-stories`、`product-docs`、`ai-catalog`（`source-content.ts` 仅作兼容 Barrel）。 |
 
-> 注：`schema_migration` 由引导器 `src/storage/` 独家维护，合计 46 张公有表（`8+1+4+9+2+2+19+1 = 46`）。全模块写归属零白名单共享，跨模块读仅允许契约声明的 `source` 与 `collection_source`。
+> 注：`schema_migration` 由引导器 `src/storage/` 独家维护，合计 55 张公有表（`8+1+5+9+4+4+2+2+19+1 = 55`）。全模块写归属零白名单共享，跨模块读仅允许契约声明的 `source` 与 `collection_source`。
 
 | ID | 等级 | 模块边界与不可变迁移规则 | 验收出口 |
 | --- | --- | --- | --- |
@@ -79,7 +81,7 @@ Web 浏览器 / 移动 Web / 外部 Agent / [V2] L3 外部 Sidecar / R4 plugins/
 
 ### 3.2 研发容量边界与增量设计
 
-当前主干迁移到 `058` 共 **46 张表**（不再设置僵化的表数上限）。新增表须遵循三项工程纪律：① 确认独立数据所有权与生命周期（单表唯一写归属由 `scripts/check-table-ownership.ts` 自动守门，避免向 JSONB 塞异构结构，也避免无谓拆表）；② 新增 SQL 通过 `Squawk` 锁安全检查、PG16 回滚验收与 `.github/CODEOWNERS` 审查；③ 评估单机 4 GB / 60 GB 下的索引体积、写入放大与清理策略。
+当前分支迁移到 `061` 共 **55 张表**（不再设置僵化的表数上限）。新增表须遵循三项工程纪律：① 确认独立数据所有权与生命周期（单表唯一写归属由 `scripts/check-table-ownership.ts` 自动守门，避免向 JSONB 塞异构结构，也避免无谓拆表）；② 新增 SQL 通过 `Squawk` 锁安全检查、PG16 回滚验收与 `.github/CODEOWNERS` 审查；③ 评估单机 4 GB / 60 GB 下的索引体积、写入放大与清理策略。
 
 | 方向 | 实施边界 | 引入额外结构的依据 |
 | --- | --- | --- |

@@ -234,7 +234,7 @@ export async function queryFeedCandidates(
          AND NOT (c.id = ANY($4::uuid[]))
          AND NOT (cs.id = ANY($5::uuid[]))
          AND ($6::text[] = '{}' OR c.author_handle IS NULL OR NOT (c.author_handle = ANY($6::text[])))
-         AND ($7::text[] = '{}' OR NOT (LOWER(COALESCE(c.title, '') || ' ' || COALESCE(c.clean_excerpt, '')) LIKE ANY($7::text[]) ESCAPE '\\'))
+         AND ($7::text[] = '{}' OR NOT EXISTS (SELECT 1 FROM UNNEST($7::text[]) AS pat WHERE LOWER(COALESCE(c.title, '') || ' ' || COALESCE(c.clean_excerpt, '')) LIKE pat ESCAPE '\\'))
          AND ($8::text IS NULL OR cs.source_group = $8)
          AND ($9::text IS NULL OR s.code = $9)
          AND ($10::text IS NULL OR c.language = $10)

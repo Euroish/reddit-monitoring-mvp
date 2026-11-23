@@ -24,7 +24,7 @@ export function verificationScope(files, { event, full = false, forceBrowser = f
     } else if (/^(src|apps\/api|data|tests)\//.test(file) ||
                /^(eslint\.config\.mjs|eslint-suppressions\.json|\.dependency-cruiser\.cjs)$/.test(file)) {
       areas.add("api");
-      if (/^apps\/api\/|^src\/(config|platform|shared|storage)\/|^src\/modules\/(access|ai|content|docs|projects|workspace)\/|^data\/|^tests\/helpers\//.test(file)) {
+      if (/^apps\/api\/|^src\/(config|platform|shared|storage)\/|^src\/modules\/(access|ai|content|docs|feed|intelligence|projects|workspace)\/|^data\/|^tests\/helpers\//.test(file)) {
         scope.browser = true;
       }
     } else {
