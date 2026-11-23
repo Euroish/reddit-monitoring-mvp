@@ -419,13 +419,13 @@ function BooleanOverride({ label, value, onChange }: {
   </label>;
 }
 
-function NumberOverride({ label, value, onChange, min, max }: {
-  label: string; value?: number | null; onChange: (next?: number) => void; min: number; max: number;
+function NumberOverride({ label, value, onChange, min, max, disabled = false }: {
+  label: string; value?: number | null; onChange: (next?: number) => void; min: number; max: number; disabled?: boolean;
 }) {
   const { t } = useI18n();
   return <label className="wb-field">{label}
     <input className="wb-input" type="number" min={min} max={max} placeholder={t('Inherit plan', '继承套餐')}
-      disabled={value === null} value={value ?? ''} onChange={event => onChange(event.target.value === '' ? undefined : event.target.valueAsNumber)} />
+      disabled={disabled} value={value ?? ''} onChange={event => onChange(event.target.value === '' ? undefined : event.target.valueAsNumber)} />
   </label>;
 }
 
@@ -435,7 +435,7 @@ function DailyOverride({ label, value, onChange, max }: {
   const { t } = useI18n();
   return (
     <div className="wb-field">
-      <NumberOverride label={label} min={0} max={max} value={value} onChange={onChange} />
+      <NumberOverride label={label} min={0} max={max} value={value} onChange={onChange} disabled={value === null} />
       <label><input type="checkbox" checked={value === null} onChange={event => onChange(event.target.checked ? null : undefined)} /> {t('Unlimited', '不限')}</label>
     </div>
   );
