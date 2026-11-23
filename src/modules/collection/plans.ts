@@ -143,12 +143,8 @@ async function previewMatchedSource(
   }).resources;
   if (isViewer) blockers.push(...await previewQuotaBlockers(pool, actor.userId, effective, personalResources));
 
-  const visibleBatchIds = isViewer ? (await pool.query<{ id: string }>(
-    "SELECT id FROM collection_batch WHERE collection_source_id=$1 AND (visibility='shared' OR created_by_user_id=$2)",
-    [matched.id, actor.userId ?? null],
-  )).rows.map(batch => batch.id) : undefined;
   const existingItemCount = await countSourceSamples(pool, matched.id, body.from, body.to,
-    visibleBatchIds ? batchMembership(visibleBatchIds, actor) : undefined);
+    isViewer ? batchMembership(undefined, actor) : undefined);
   const { rows: reusableBatches } = await pool.query<{
     id: string;
     label: string;

@@ -25,11 +25,11 @@ import { notifyChannel } from "../../platform/pg-notify";
 import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
 import { canonical, commitContentBatch, prepareContentBatch } from "../content/index";
-import { collectionRequestRestriction, isCollectionBudgetDisabled, sourcePreviewRoute, validateFallback, validateSource } from "./config";
+import { sourcePreviewRoute, validateFallback, validateSource } from "./config";
 import { batchRoutes, recordCommittedBatch, type RequireWritableProject } from "./batches";
 import { planRoutes } from "./plans";
 import { sourceImportRoute } from "./import";
-import { admitViewerCollection, viewerCollectionDemand } from "./policy";
+import { enqueueCollectionForSource } from "./managed";
 import { assertSource, audit, insertSource, listPublicSources, listSources, lockSource, removeOrArchiveSource } from "./sql";
 
 const PatchSourceBody = Type.Object(
@@ -110,25 +110,6 @@ async function applySourcePatch(
     );
   }
   return { updated: true };
-}
-
-function validateCollectWindowAndProvider(
-  source: import("pg").QueryResultRow,
-  body: Static<typeof Collect>,
-  providers: ContentProvider[],
-) {
-  if (source.delivery_mode !== "pull") fail(409, "Push sources cannot be scheduled");
-  if (Date.parse(body.from) >= Date.parse(body.to)) fail(422, "Invalid collection window");
-  const providerName = body.useFallback ? source.fallback_provider : source.primary_provider;
-  if (!providerName) fail(422, "No fallback provider configured for this source");
-  const provider = providers.find(
-    (item) => item.capability.provider === providerName && item.capability.platform === source.platform,
-  );
-  const restriction = collectionRequestRestriction(providerName, source.platform, source.target.type, body);
-  if (restriction) fail(422, restriction);
-  if (!provider?.capability.enabled) fail(422, "Provider networking is disabled or credentials are missing");
-  if (source.automatic_collection_blocked) fail(409, "Collection is blocked pending review of an unresolved operation");
-  return providerName as string;
 }
 
 export async function collectionRoutes(app: FastifyInstance, pool: Pool, providers: ContentProvider[], requireWritableProject?: RequireWritableProject,
@@ -347,48 +328,14 @@ export async function collectionRoutes(app: FastifyInstance, pool: Pool, provide
     },
     async (request) => {
       const outcome = await transaction(pool, async (client) => {
-        const source = await lockSource(
-          client,
-          request.actor!,
-          request.params.id,
-        );
         if (request.body.projectId) {
           if (request.actor!.clientKind !== "browser") fail(403, "Browser session required");
           if (!requireWritableProject) fail(500, "Project scope resolver is unavailable");
           await requireWritableProject(client, request.actor!, request.body.projectId);
         }
-        const key = request.headers["idempotency-key"];
-        const previous = (await client.query(
-          "SELECT id,request_json,requested_by_user_id,requested_by_client_kind FROM source_collection_job WHERE collection_source_id=$1 AND request_key=$2 AND purpose='collect' AND operation='radar'",
-          [source.id, key],
-        )).rows[0];
-        if (previous) {
-          if (previous.requested_by_client_kind !== request.actor!.clientKind ||
-              previous.requested_by_user_id !== (request.actor!.userId ?? null) ||
-              canonical(previous.request_json) !== canonical(request.body))
-            fail(409, "Idempotency key already used with different request");
-          return { jobId: previous.id, created: false };
-        }
-        const providerName = validateCollectWindowAndProvider(source, request.body, providers);
-        if (request.body.projectId && await isCollectionBudgetDisabled(client, providerName))
-          fail(409, "System channel budget is disabled or zero");
-        const pageSize =
-          providerName === "twitterapis" ? Math.min(request.body.limit, 20) : request.body.limit;
-        await admitViewerCollection(client, request.actor!, {
-          sourceId: source.id,
-          from: request.body.from,
-          to: request.body.to,
-          useFallback: request.body.useFallback,
-          ...viewerCollectionDemand(providerName, source.target.type, pageSize, request.body),
+        return enqueueCollectionForSource(client, request.actor!, providers, {
+          ...request.body, sourceId: request.params.id, requestKey: request.headers["idempotency-key"],
         });
-        const id = randomUUID();
-        await client.query(
-          `INSERT INTO source_collection_job(id,collection_source_id,status,purpose,operation,provider,from_at,to_at,
-            page_size,max_pages,next_run_at,created_at,request_key,request_json,requested_by_user_id,requested_by_client_kind)
-          VALUES($1,$2,'queued','collect','radar',$3,$4,$5,$6,1,NOW(),NOW(),$7,$8,$9,$10)`,
-          [id, source.id, providerName, request.body.from, request.body.to, pageSize, key, request.body, request.actor!.userId, request.actor!.clientKind],
-        );
-        return { jobId: id, created: true };
       });
       if (outcome.created) await notifyChannel(pool, "collection_jobs_ready");
       return { jobId: outcome.jobId };

@@ -16,7 +16,7 @@ Agent 在开工、提交 PR 和合入前必须阅读 [变更准入与工程质�
 ## 1. 两份动态状态真源
 
 1. **[docs/development.md](docs/development.md)**：单主干协作流程、分层 CI 门禁、本地验证、多阶段 Docker 构建、安全加固、备份恢复与生产只读巡检 SQL。
-2. **[docs/status.md](docs/status.md)**：`生产环境实测基线`、`origin/main` 主干与 `Backend V2` 分支（PR #32）实时状态、未收口缺口与后续路线。
+2. **[docs/status.md](docs/status.md)**：生产环境最近实测基线、`origin/main` 主干与在途候选修复的实时状态、未收口缺口与后续路线。
 
 ## 2. 规范职责矩阵（唯一真源）
 
@@ -33,7 +33,7 @@ Agent 在开工、提交 PR 和合入前必须阅读 [变更准入与工程质�
 
 - **真实性红线**：`MUST NOT` 混淆“生产运行版本”、“`origin/main` 已合入代码”与“未合入 PR 分支代码”；`MUST NOT` 伪造趋势、火花线、百分比或把未实装接口写成 `[LIVE]`；用户明确指令高于历史文档。
 - **单主干与反漂移红线**：仓库唯一常驻主干为 **`main`**（不设常驻 `develop`/`prod`）；所有改动从最新 `origin/main` 切短分支（`feat/*` `<= 3` 天、`fix/*` `<= 1` 天），通过 `CI Gate` 与评审后 `Squash and Merge`；发版使用 `vX.Y.Z` 不可变 Tag；禁输出密钥、禁无授权 `git push --force`。
-- **前向迁移不可变**：主干已合入 SQL 迁移（`001..060`）严禁改写、移动或删除；新迁移顺延编号（V2 分支 `061..064`），由 `docs:check`、`Squawk`、PG16 回滚测试与 `.github/CODEOWNERS` 联合把关；`050` 退役旧表永不复活。
+- **前向迁移不可变**：主干已合入的所有 SQL 迁移严禁改写、移动或删除；新迁移按当前主干最大编号顺延，由 `docs:check`、`Squawk`、PG16 回滚测试与 `.github/CODEOWNERS` 联合把关；`050` 退役旧表永不复活。
 - **主线与外挂隔离**：主线只运行 `Fastify 5 + TypeBox + PostgreSQL 16 + React`（零 ORM、Redis、Python、DuckDB、无头浏览器）；R4 `plugins/zst-archive/` 与重型/反爬 L3 采集器 `MUST` 外置运行，只持锁死 `allowedSourceIds` 与 `ingest` scope 的 Machine Key 调 `POST /v1/sources/:id/ingest`。
 - **9 域 DAG、唯一写入口与安全底线**：严格遵守[核心不变量台账](docs/invariants.md)（`INV-001`..`INV-010`）与 `eslint`、`depcruise`、`check-table-ownership`、`check:openapi` 门禁；全库内容写唯一入口为 `commitContentBatch`；`/v1/content/*` 仅 `GET/HEAD` 映射 `read` scope；付费渠道 `unknown` 永不自动重放。
 

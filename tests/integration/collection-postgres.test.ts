@@ -373,13 +373,24 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
       assert.equal(filtered.statusCode, 200, filtered.body);
       assert.deepEqual(filtered.json().items.map((item: { externalId: string }) => item.externalId), ["t3_root123"]);
     }
-    const hydrate = () => app.inject({
+    const hydrationKey = randomUUID();
+    const hydrate = (idempotencyKey = randomUUID()) => app.inject({
       method: "POST", url: `/v1/projects/${project.json().id}/hydrate`,
-      headers: { ...headers, "idempotency-key": randomUUID() },
+      headers: { ...headers, "idempotency-key": idempotencyKey },
       payload: { contentIds: [scoped.json().items[0].id], maxCommentsPerPost: 4 },
     });
-    const response = await hydrate();
+    const response = await hydrate(hydrationKey);
     assert.equal(response.statusCode, 200, response.body);
+    const replay = await hydrate(hydrationKey);
+    assert.equal(replay.statusCode, 200, replay.body);
+    assert.deepEqual(replay.json().jobIds, response.json().jobIds);
+    const machine = await app.inject({ method: "POST", url: "/v1/access/keys", headers,
+      payload: { label: "Hydration replay", scopes: ["read", "collect"], allowedSourceIds: [first], expiresInDays: 7 } });
+    assert.equal(machine.statusCode, 200, machine.body);
+    const crossClient = await app.inject({ method: "POST", url: `/v1/projects/${project.json().id}/hydrate`,
+      headers: { authorization: `Bearer ${machine.json().token}`, "idempotency-key": hydrationKey },
+      payload: { contentIds: [scoped.json().items[0].id], maxCommentsPerPost: 4 } });
+    assert.equal(crossClient.statusCode, 409, crossClient.body);
     const second = await hydrate();
     assert.equal(second.statusCode, 200, second.body);
     mode = "success";

@@ -27,12 +27,14 @@ export async function refreshRoutes(app: FastifyInstance, pool: Pool, providers:
         const contentIds = [...request.body.contentIds].sort();
         const existing = (
           await client.query(
-            "SELECT id,request_json FROM source_collection_job WHERE collection_source_id=$1 AND operation='hydrate' AND request_key=$2",
+            "SELECT id,request_json,requested_by_user_id,requested_by_client_kind FROM source_collection_job WHERE collection_source_id=$1 AND operation='hydrate' AND request_key=$2",
             [source.id, key],
           )
         ).rows[0];
         if (existing) {
-          if (JSON.stringify(existing.request_json.contentIds) !== JSON.stringify(contentIds)) {
+          if (existing.requested_by_client_kind !== request.actor!.clientKind ||
+              existing.requested_by_user_id !== (request.actor!.userId ?? null) ||
+              JSON.stringify(existing.request_json.contentIds) !== JSON.stringify(contentIds)) {
             fail(409, "Idempotency key already used with different IDs");
           }
           return { jobId: existing.id, created: false };

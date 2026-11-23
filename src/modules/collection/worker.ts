@@ -3,6 +3,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type { Actor } from "../../../packages/contracts/src/access";
 import type { JsonValue } from "../../../packages/contracts/src/common";
+import { providerResourceReservation } from "../../../packages/contracts/src/collection-budget";
 import { ContentProviderError, type CollectedPage, type ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { createPgNotifier } from "../../platform/pg-notify";
 import { fail } from "../../shared/errors";
@@ -89,21 +90,6 @@ async function claimNextJob(pool: Pool, cooledHosts: string[], hostCooldown?: Ma
   });
 }
 
-function estimateResources(job: QueryResultRow, source: QueryResultRow, provider: ContentProvider) {
-  const hydrate = job.operation === "hydrate";
-  const refresh = Array.isArray(job.request_json.externalIds);
-  const threadRequest = hydrate || (job.provider === "kaix" && source.target.type === "post");
-  if (refresh) return job.page_size;
-  if (threadRequest) return 1 + Math.min(job.page_size, job.request_json.maxCommentsPerPost ?? 50);
-  if (["twitterapis", "scrapebadger"].includes(job.provider)) {
-    return provider.capability.requestResourceUpperBound ?? 20;
-  }
-  return Math.min(
-    2000,
-    job.page_size * (job.request_json.includeComments ? (job.request_json.maxCommentsPerPost ?? 15) + 1 : 1) + 1,
-  );
-}
-
 async function admitJobDispatch(
   pool: Pool,
   job: QueryResultRow & {
@@ -117,7 +103,12 @@ async function admitJobDispatch(
   provider: ContentProvider,
   token: string,
 ) {
-  const resources = estimateResources(job, source, provider);
+  const resources = providerResourceReservation({
+    provider: job.provider, targetType: source.target.type, pageSize: job.page_size,
+    hydration: job.operation === "hydrate", refresh: Array.isArray(job.request_json.externalIds),
+    includeComments: job.request_json.includeComments, maxCommentsPerPost: job.request_json.maxCommentsPerPost,
+    requestResourceUpperBound: provider.capability.requestResourceUpperBound,
+  });
   const refresh = Array.isArray(job.request_json.externalIds);
   const hydrate = job.operation === "hydrate";
   return transaction(pool, async (client) => {

@@ -153,7 +153,7 @@ docker stop pg16-dev-test
 
 ### PR #32 迁移兼容与 Worker 边界
 
-- 主干已合入 `059_project_batches_and_ownership.sql`、`060_batch_visibility_and_field_policy.sql`，文件名及 SHA-256 必须保持不变；PR #32 的未合入迁移顺延为 `061–064`。回归覆盖 `058 → 064`、保有项目/批次的 `060 → 064` 及幂等重跑。
+- 主干已合入 `059_project_batches_and_ownership.sql`、`060_batch_visibility_and_field_policy.sql`，文件名及 SHA-256 必须保持不变；PR #32 已合入，V2 迁移编号为 `061–064`，同样受不可变约束。回归覆盖 `058 → 064`、保有项目/批次的 `060 → 064` 及幂等重跑。
 - 曾应用旧 PR #32 `059–062` 的开发库不能直接套用新编号。可丢弃的测试库重建；需保留数据的库先备份、核实 `schema_migration` 文件名与哈希，再单独制定台账转换方案。禁止清空台账或关闭校验来绕过升级。
 - `WorkerHooks.onProjectBatchCommitted` 在内容事务内执行，关联失败回滚整页；`onSourceContentCommitted` 在提交后执行，回算/自动水合失败独立记录，不能触发已提交采集重放。
 - 批次累计数按实际新增 membership 增量维护；历史批次即使任务已清理也阻止来源物理删除，改为归档。

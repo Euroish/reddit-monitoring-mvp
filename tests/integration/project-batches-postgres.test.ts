@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { randomUUID } from "node:crypto";
+import type { Actor } from "../../packages/contracts/src/access";
+import { batchMembership } from "../../src/modules/collection/index";
+import { countSourceSamples } from "../../src/modules/content/index";
 import { buildApp } from "../../apps/api/src/app";
 import { bootstrapOwner } from "../../src/modules/access/sql";
 import { testDatabase } from "../helpers/database";
@@ -351,6 +355,29 @@ test("empty batch projects, viewer ownership isolation, and batch enable/disable
      VALUES($1, NULL, $2, $3, 'Viewer A Private Batch', 1, 'private')`,
     [privateBatchId, sourceId, viewerAId],
   );
+  // One genuinely private-only sample makes visibility predicates observable.
+  const privateContentId = randomUUID();
+  await db.pool.query(
+    `INSERT INTO content SELECT (jsonb_populate_record(NULL::content, to_jsonb(c) ||
+      jsonb_build_object('id',$1::text,'external_id','t3_privateaudit','url','https://reddit.com/privateaudit'))).*
+      FROM content c LIMIT 1`, [privateContentId],
+  );
+  await db.pool.query(
+    `INSERT INTO content_discovery SELECT (jsonb_populate_record(NULL::content_discovery, to_jsonb(d) ||
+      jsonb_build_object('content_id',$1::text))).* FROM content_discovery d WHERE collection_source_id=$2 LIMIT 1`,
+    [privateContentId, sourceId],
+  );
+  await db.pool.query("INSERT INTO collection_batch_item(batch_id,content_id) VALUES($1,$2)", [privateBatchId, privateContentId]);
+  const viewerBId = (await db.pool.query("SELECT id FROM app_user WHERE email='viewer-b@example.test'")).rows[0].id;
+  const sampleWindowEnd = new Date(Date.parse(nowIso) + 1).toISOString();
+  for (const [userId, count] of [[viewerAId, 4], [viewerBId, 3]] as const) {
+    const actor: Actor = { userId, email: "fixture@example.test", role: "viewer", clientKind: "browser",
+      sessionId: randomUUID(), scopes: [], allowedSourceIds: null };
+    assert.equal(await countSourceSamples(db.pool, sourceId, "2000-01-01T00:00:00Z", sampleWindowEnd,
+      batchMembership(undefined, actor)), count, "all authorized batches stay in SQL, with private samples isolated");
+    assert.equal(await countSourceSamples(db.pool, sourceId, "2000-01-01T00:00:00Z", sampleWindowEnd,
+      batchMembership([], actor)), 0, "an explicitly empty project never becomes all batches");
+  }
   // Viewer A sees their own private batch
   const aListBatches = (await app.inject({ method: "GET", url: "/v1/batches", headers: viewerAHeaders })).json().batches;
   assert.ok(aListBatches.some((b: { id: string }) => b.id === privateBatchId), "Viewer A must see own private batch");

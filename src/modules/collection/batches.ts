@@ -159,9 +159,10 @@ export async function batchRoutes(app: FastifyInstance, pool: Pool, project?: {
 }
 
 
-export function batchMembership(ids: string[], actor?: Actor): import("../content/index").BatchMembership {
+export function batchMembership(ids: readonly string[] | undefined, actor?: Actor): import("../content/index").BatchMembership {
   return { contains: (bind, column) => {
-    const conditions = [`i.content_id=${column}`, `b.id=ANY(${bind(ids)}::uuid[])`];
+    const conditions = [`i.content_id=${column}`];
+    if (ids !== undefined) conditions.push(`b.id=ANY(${bind(ids)}::uuid[])`);
     if (column === "d.content_id") conditions.push("b.collection_source_id=d.collection_source_id");
     if (actor?.role === "viewer")
       conditions.push(`(b.visibility='shared' OR b.created_by_user_id=${bind(actor.userId ?? null)}::uuid)`);
