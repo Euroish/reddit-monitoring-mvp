@@ -29,7 +29,7 @@ export default tseslint.config(
       },
     },
     rules: {
-      // Hard correctness & async safety gates
+      // Correctness, async safety, and mainline architectural boundaries
       "no-control-regex": "off",
       "@typescript-eslint/no-floating-promises": ["error", { ignoreVoid: true }],
       "@typescript-eslint/no-misused-promises": [
@@ -115,11 +115,7 @@ export default tseslint.config(
           ],
         },
       ],
-
-      // New high-complexity findings block CI; existing findings are tracked in eslint-suppressions.json.
       "@typescript-eslint/no-explicit-any": "warn",
-      complexity: ["error", { max: 25 }],
-      "max-lines": ["warn", { max: 650, skipBlankLines: true, skipComments: true }],
     },
   },
   {

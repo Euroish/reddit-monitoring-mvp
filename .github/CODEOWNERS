@@ -21,7 +21,6 @@
 /apps/web/package-lock.json @Euroish @HikariVerse
 /.dependency-cruiser.cjs @Euroish @HikariVerse
 /eslint.config.mjs @Euroish @HikariVerse
-/eslint-suppressions.json @Euroish @HikariVerse
 /scripts/check-*.mjs @Euroish @HikariVerse
 /scripts/check-*.ts @Euroish @HikariVerse
 /scripts/ci-scope*.mjs @Euroish @HikariVerse

@@ -38,36 +38,37 @@ export async function recordCommittedBatch(
     visibility?: "private" | "shared";
   },
 ): Promise<{ batchId: string; itemCount: number; visibility: "private" | "shared" }> {
-  const uniqueIds = [...new Set(input.contentIds)];
   let visibility: "private" | "shared" = input.visibility ?? "shared";
   if (!input.visibility && input.userId) {
     const userRow = await getUserRoleStatus(client, input.userId);
     if (userRow?.role === "viewer") visibility = "private";
   }
   const label = `${input.sourceLabel} · ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC`;
-  const { rows: [batch] } = await client.query<{ id: string; visibility: "private" | "shared" }>(
+  const { rows: [batch] } = await client.query<{ id: string; visibility: "private" | "shared"; item_count: number }>(
     `INSERT INTO collection_batch(id, job_id, collection_source_id, created_by_user_id, label, item_count, visibility)
      VALUES($1, $2, $3, $4, $5, 0, $6)
      ON CONFLICT (job_id) DO UPDATE SET label = collection_batch.label
-     RETURNING id, visibility`,
+     RETURNING id, visibility, item_count`,
     [randomUUID(), input.jobId, input.sourceId, input.userId, label, visibility],
   );
-  if (uniqueIds.length > 0) {
-    await client.query(
-      `INSERT INTO collection_batch_item(batch_id, content_id)
-       SELECT $1, UNNEST($2::uuid[])
-       ON CONFLICT (batch_id, content_id) DO NOTHING`,
-      [batch.id, uniqueIds],
+  if (input.contentIds.length > 0) {
+    // The batch upsert holds the row lock. Count only newly inserted memberships,
+    // so paginated runs and replays never rescan all previously committed pages.
+    const { rows: [updated] } = await client.query<{ item_count: number }>(
+      `WITH inserted AS (
+         INSERT INTO collection_batch_item(batch_id, content_id)
+         SELECT $1, UNNEST($2::uuid[])
+         ON CONFLICT (batch_id, content_id) DO NOTHING
+         RETURNING 1
+       ), delta AS (SELECT COUNT(*)::int AS count FROM inserted)
+       UPDATE collection_batch SET item_count = item_count + delta.count
+       FROM delta WHERE id = $1 AND delta.count > 0
+       RETURNING item_count`,
+      [batch.id, input.contentIds],
     );
+    if (updated) batch.item_count = updated.item_count;
   }
-  const { rows: [updated] } = await client.query<{ item_count: number }>(
-    `UPDATE collection_batch
-     SET item_count = (SELECT COUNT(*)::int FROM collection_batch_item WHERE batch_id = $1)
-     WHERE id = $1
-     RETURNING item_count`,
-    [batch.id],
-  );
-  return { batchId: batch.id, itemCount: updated.item_count, visibility: batch.visibility };
+  return { batchId: batch.id, itemCount: batch.item_count, visibility: batch.visibility };
 }
 
 export async function batchRoutes(app: FastifyInstance, pool: Pool, project?: {

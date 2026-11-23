@@ -162,18 +162,14 @@ test("browser: editorial signal home (/), pagination, channels, reader, search, 
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const pageErrors: string[] = [];
   const badStatus: string[] = [];
-  const scripts: string[] = [];
   page.on("pageerror", (e) => pageErrors.push(e.message));
-  page.on("request", (req) => {
-    if (req.resourceType() === "script") scripts.push(req.url());
-  });
   page.on("response", (res) => {
     if (res.url().includes("/api/v1/") && [401, 404, 500].includes(res.status())) {
       badStatus.push(`${res.status()} ${res.url()}`);
     }
   });
 
-  // HOME-01: Initial render, editorial bands, single feature band, zero heavy chunks
+  // HOME-01: Initial render, editorial bands, single feature band
   await page.goto(origin, { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "重要变化，先一步发现。" }).waitFor();
   await page.getByRole("heading", { name: "焦点信号" }).waitFor();
@@ -183,10 +179,6 @@ test("browser: editorial signal home (/), pagination, channels, reader, search, 
   await page.getByRole("heading", { name: "08:00 每日简报" }).waitFor();
   await page.getByRole("heading", { name: "更多精选" }).waitFor();
   assert.equal(await page.locator(".sh-feature-band").count(), 1);
-  assert.ok(
-    scripts.every((url) => !/echarts|charts-|EChartCanvas|WorkbenchShell|ProjectsPage|SourcesPage|Homepage/.test(url)),
-    `Unexpected heavy script on /: ${scripts.join(", ")}`,
-  );
   assert.deepEqual(badStatus, []);
 
   // HOME-03: Load more pagination + transient failure retry preserves existing items

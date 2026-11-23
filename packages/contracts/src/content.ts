@@ -4,6 +4,23 @@ import {
   SourceGroupPattern, SourceLocalePattern, SourceTier, strictMerge,
 } from "./common";
 
+export const CardLayout = Type.Union([
+  Type.Literal("hero_media"),
+  Type.Literal("quote_social"),
+  Type.Literal("discussion_thread"),
+  Type.Literal("link_preview"),
+  Type.Literal("compact_signal"),
+]);
+
+export const IntentTag = Type.Union([
+  Type.Literal("discussion"),
+  Type.Literal("question"),
+  Type.Literal("comparison"),
+  Type.Literal("pain"),
+  Type.Literal("launch"),
+  Type.Literal("news"),
+]);
+
 export const Reference = Type.Object(
   {
     kind: Kind,
@@ -15,8 +32,25 @@ export const Reference = Type.Object(
   { additionalProperties: false },
 );
 
+const OptionalNullableText = Type.Optional(NullableText);
+const OptionalNullableCount = Type.Optional(Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]));
+const OptionalNullableBool = Type.Optional(Type.Union([Type.Boolean(), Type.Null()]));
+
 export const Author = Type.Object(
-  { externalId: NullableText, handle: NullableText, displayName: NullableText, url: NullableText },
+  {
+    externalId: NullableText,
+    handle: NullableText,
+    displayName: NullableText,
+    url: NullableText,
+    avatarUrl: OptionalNullableText,
+    bio: OptionalNullableText,
+    location: OptionalNullableText,
+    verified: OptionalNullableBool,
+    followersCount: OptionalNullableCount,
+    followingCount: OptionalNullableCount,
+    statusesCount: OptionalNullableCount,
+    accountCreatedAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
+  },
   { additionalProperties: false },
 );
 
@@ -35,14 +69,35 @@ const extensions = Type.Optional(Type.Record(Type.String(), Type.Any()));
 
 export const Details = Type.Union([
   Type.Object(
-    { platform: Type.Literal("reddit"), community: Type.String(), flair: NullableText, nsfw: Type.Union([Type.Boolean(), Type.Null()]), extensions },
+    {
+      platform: Type.Literal("reddit"),
+      community: Type.String(),
+      flair: NullableText,
+      nsfw: Type.Union([Type.Boolean(), Type.Null()]),
+      domain: OptionalNullableText,
+      isSelf: OptionalNullableBool,
+      stickied: OptionalNullableBool,
+      awards: OptionalNullableCount,
+      crossposts: OptionalNullableCount,
+      authorFlair: OptionalNullableText,
+      subredditSubscribers: OptionalNullableCount,
+      extensions,
+    },
     { additionalProperties: false },
   ),
   Type.Object(
     {
-      platform: Type.Literal("x"), conversationId: NullableText,
-      isReply: Type.Union([Type.Boolean(), Type.Null()]), isRepost: Type.Union([Type.Boolean(), Type.Null()]),
-      isQuote: Type.Union([Type.Boolean(), Type.Null()]), sensitive: Type.Union([Type.Boolean(), Type.Null()]), extensions,
+      platform: Type.Literal("x"),
+      conversationId: NullableText,
+      isReply: Type.Union([Type.Boolean(), Type.Null()]),
+      isRepost: Type.Union([Type.Boolean(), Type.Null()]),
+      isQuote: Type.Union([Type.Boolean(), Type.Null()]),
+      sensitive: Type.Union([Type.Boolean(), Type.Null()]),
+      hashtags: Type.Optional(Type.Array(Type.String({ maxLength: 100 }), { maxItems: 50 })),
+      mentions: Type.Optional(Type.Array(Type.String({ maxLength: 100 }), { maxItems: 50 })),
+      cashtags: Type.Optional(Type.Array(Type.String({ maxLength: 40 }), { maxItems: 30 })),
+      externalDomain: OptionalNullableText,
+      extensions,
     },
     { additionalProperties: false },
   ),
@@ -160,3 +215,5 @@ export type PlatformDetails = Static<typeof Details>;
 export type ContentObservation = Static<typeof Observation>;
 export type PublicContent = Static<typeof Content>;
 export type Filter = Static<typeof ContentFilter>;
+export type ContentCardLayout = Static<typeof CardLayout>;
+export type ContentIntentTag = Static<typeof IntentTag>;

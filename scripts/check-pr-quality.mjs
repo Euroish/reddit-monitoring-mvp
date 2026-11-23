@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-export const REQUIRED_SECTIONS = ["价值与验收", "真实依赖", "设计与复杂度", "验证证据", "风险与回退"];
+export const REQUIRED_SECTIONS = ["价值与验收", "真实依赖", "设计与复杂度", "简化与兼容复核", "验证证据", "风险与回退"];
 
 // Evidence presence is machine-checkable. Its truth and design quality require independent review.
 function sectionsFrom(body) {

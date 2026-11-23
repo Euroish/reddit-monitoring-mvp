@@ -1,26 +1,35 @@
-# SIFTLINE — 社媒情报分析与高质量信息流
+# SIFTLINE
 
-面向研究者、产品团队与个人的多源数据工作台。围绕社媒社区、品牌与话题做可追溯分析，同时提供高质量信源聚合、个性化阅读和订阅推送。技术基线为 `Fastify 5 + TypeBox + PostgreSQL 16 + React 19`。
+面向研究者与产品团队的**高价值讨论信息流**与 **Semrush 级社媒/GEO 智能监测平台**。全仓围绕 **Fastify 5 + TypeBox + PostgreSQL 16 + React 19** 构建，在单机 **4 GB RAM / 60 GB Disk** 预算内坚持零 ORM、零 Redis/BullMQ、零 Python/Chromium 主线运行。
 
-- **社媒情报与分析**。采集帖子、评论与指标观测，以检索、专题、时间趋势、平台分布和讨论树连接判断与证据。交互借鉴 Ahrefs/Semrush 的研究工作流，度量围绕已采集社媒样本与内容表现。
-- **高质量信息流与分发**。以一手信源、跨源去重、事件排序与日报降低信息噪声，逐步加入显式兴趣、反馈驱动推荐和可控订阅推送。
-- **`[LIVE]` 主干实现**。`main` 已实现凭证加密库、动态配额、文档中心、AI 发布情报中心和账号安全功能。迁移水位与表数见[当前状态](docs/status.md)。已实现混合采集、受限 Sidecar 入库、GIN 检索、专题趋势、讨论树、观测曲线、事件信息流和日报。代码合入与生产部署分别核验。
-- **`[V2]` 规划**。可复现的跨专题对比、覆盖质量视图、阅读反馈、个性化排序、订阅投递，以及按需正文提取与 AI 辅助研究。验收边界见 [产品规范](docs/README.md) 和 [当前状态](docs/status.md)。
+## 核心能力与研发路线
 
-## 开发与验证
+- **高价值讨论流与跨平台热榜（`/v1/feed/*` · V2 后端在途）**：隔离新闻 RSS 与营销水帖，采用四池公平配额（个性化 / 全网热议 / 未知探索 / 6h 飙升）+ 14 天半衰期衰减 + Plackett-Luce 采样 + 滑动窗口打散 + 14 天已读防重，提供可解释推荐理由与跨平台百分位热度榜。
+- **Semrush 级社媒与 GEO 监测（`/v1/intelligence/*` · V2 后端在途）**：覆盖 **关键词声量与外链 GEO 引用（SoV/Domain）**、**KOL 账号批量打包（15–20 号合成查询）与作者画像**、**一揽子 Subreddit 象限矩阵与 7×24 热力图**，执行先估价（`estimate`）后采集（`collect`）预算门禁。
+- **AI 发布情报中心（`/v1/ai/*` · `[LIVE]`）**：基于官方一手证据链与 `data/ai/history/v1/` 离线可验证基线，提供厂商时间矩阵、模型演进、评测榜单与管理员审核队列。
 
-需要 Node 24+ 与 PostgreSQL 16。协作、构建、备份及部署记录见 [开发与运维手册](docs/development.md)。
+## 快速开始
+
+环境要求 **Node 24+** 与 **PostgreSQL 16**：
 
 ```sh
 npm ci --ignore-scripts && npm --prefix apps/web ci --ignore-scripts
-npm run docs:check && npm run lint && npm run typecheck && npm run test:unit
+npm run lint:policy && npm run lint:api && npm run lint:arch
+npm run typecheck && npm run check:openapi && npm run test:unit
 ```
 
-私有凭证存于仓外配置，`git push` 不触发自动部署。生产版本、迁移水位和已启用渠道以部署记录与运行库为准。
+隔离 PG16 集成测试、多阶段 Docker 构建（`--target runtime` / `--target proxy`）及生产运维规程详见[开发与运维手册](docs/development.md)。私有密钥仅存放于仓外环境文件，`git push` 不触发自动部署。
 
-## 文档入口
+## 文档导航（Single Source of Truth）
 
-- [产品边界与指标口径](docs/README.md) · [研究依据与交付验收](docs/research/product-strategy.md)
-- [当前实现与路线](docs/status.md) · [架构与容量](docs/architecture.md) · [数据与 API 契约](docs/contracts.md)
-- [交互与分析设计](docs/design.md) · [来源矩阵](docs/research/data-sources.md) · [扩源与外挂隔离](docs/plans/source-expansion.md)
-- [开发与运维手册](docs/development.md) · [Agent 协作入口](AGENTS.md)
+| 文档 | 唯一管辖范围 |
+| :--- | :--- |
+| [产品边界与指标口径](docs/README.md) | 核心产品支柱、不做什么边界、2026-11-23 决议与度量诚实性铁律 |
+| [系统架构与边界](docs/architecture.md) | 4 GB 运行拓扑、9 域无环 DAG、58 表所有权、检索核心、L1–L3/R4 隔离与安全边界 |
+| [核心不变量台账](docs/invariants.md) | `INV-001`..`INV-010` 不可破坏约束与自动化 CI 门禁映射 |
+| [数据与 API 契约](docs/contracts.md) | 领域语义、鉴权/会话/MFA 契约、幂等导出、V2 BFF 摘要与 115 路由实测清单 |
+| [前端 V2 交互与视觉规范](docs/design.md) | 已部署界面盘点与 Frontend V2 重构蓝图（B1 信息流卡片 × B2 Semrush 监测台） |
+| [当前状态与缺口台账](docs/status.md) | 生产基线、`main` 主干、Draft PR #32 后端 V2 进度、5 项待收口缺口与演进路线 |
+| [开发与运维手册](docs/development.md) | 单主干协作、CI 路径分流、本地验证、Docker/Caddy/Tunnel、备份恢复与巡检 SQL |
+| [Backend V2 演进蓝图](docs/plans/backend-v2-blueprint.md) | 已审批的 Backend V2 数据底座、推荐算法、Semrush 监测与 5 切片交付规格 |
+| [Agent 协作与工程红线](AGENTS.md) | AI 与协作者开工必读红线、真源索引与 PR 质量原则 |

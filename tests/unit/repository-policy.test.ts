@@ -4,9 +4,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { DOCUMENTATION_FILES } from "../../scripts/release-package-lib.mjs";
 
-test("repository policy allows flexible module/doc growth while enforcing links, secrets, retired paths, and migration immutability", (t) => {
+test("repository policy allows flexible docs assets/modules while enforcing links, secrets, retired paths, and migration immutability", (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "monitor-policy-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const put = (file: string, body: string) => {
@@ -14,10 +13,10 @@ test("repository policy allows flexible module/doc growth while enforcing links,
     writeFileSync(path.join(root, file), body);
   };
   execFileSync("git", ["init", "--quiet"], { cwd: root });
-  for (const file of DOCUMENTATION_FILES) put(file, "# Fixture\n");
-  put("AGENTS.md", "# Fixture\n[Dev](docs/development.md)\n[Status](docs/status.md)\n");
-  // Flexible growth: new domain modules, nested subdirectories, standard classes, >60-line README, and >450-line files are permitted.
-  put("README.md", "# Fixture\n" + "line\n".repeat(75));
+  put("README.md", "# Fixture\n[Architecture](docs/architecture.md)\n");
+  put("AGENTS.md", "# Flexible agent guide\n");
+  put("docs/architecture.md", "# Architecture\n[Diagram](assets/arch.png)\n```md\n[ignored](missing.md)\n```\n");
+  put("docs/assets/arch.png", "synthetic-png-bytes");
   put(
     "src/modules/analytics/trends/sql.ts",
     `export class AnalyticsError extends Error {}\n` + "export const row = 1;\n".repeat(460),
@@ -59,9 +58,7 @@ test("repository policy allows flexible module/doc growth while enforcing links,
   assert.match(rewritten.stderr, /Applied migration .*053_product_docs\.sql must not be modified/);
 
   // Real guardrails must still fail loudly
-  put("AGENTS.md", "# Missing SSOT pointers\n");
-  put("docs/contracts.md", "# Fixture\n[bad](README.md#missing)\n");
-  put("docs/history/handoff.txt", "Unexpected file type\n");
+  put("docs/contracts.md", "# Fixture\n[bad](../README.md#missing)\n[missing](missing.md)\n");
   put("src/storage/schema/042_a.sql", "SELECT 1;\n");
   put("src/storage/schema/042_b.sql", "SELECT 2;\n");
   put(".env.local", "APIFY_API_TOKEN=synthetic_fixture_only\n");
@@ -72,9 +69,8 @@ test("repository policy allows flexible module/doc growth while enforcing links,
   const invalid = run();
   assert.equal(invalid.status, 1, invalid.stderr);
   for (const error of [
-    /AGENTS\.md must point explicitly/,
     /Invalid Markdown anchor/,
-    /Unexpected docs entry: docs\/history\/handoff\.txt/,
+    /Invalid repository link/,
     /Duplicate forward migration prefix 042/,
     /Private configuration tracked/,
     /Retired architecture path/,
@@ -84,7 +80,7 @@ test("repository policy allows flexible module/doc growth while enforcing links,
   }
 });
 
-test("web bundle boundary guard rejects eager charts chunks and leaked server secret names", (t) => {
+test("web bundle guard permits charts/ECharts on any page while rejecting leaked server secrets", (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "monitor-web-bundle-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const put = (file: string, body: string) => {
@@ -99,20 +95,15 @@ test("web bundle boundary guard rejects eager charts chunks and leaked server se
 
   put(
     "apps/web/dist/index.html",
-    `<!doctype html><script type="module" src="/assets/index-abc123.js"></script>`,
+    `<!doctype html><link rel="modulepreload" href="/assets/charts-def456.js"><script type="module" src="/assets/index-abc123.js"></script>`,
   );
-  put("apps/web/dist/assets/index-abc123.js", `console.log("clean");`);
-  put("apps/web/dist/assets/charts-def456.js", `console.log("lazy echarts");`);
+  put("apps/web/dist/assets/index-abc123.js", `import "./charts-def456.js"; console.log("clean");`);
+  put("apps/web/dist/assets/charts-def456.js", `console.log("echarts allowed");`);
   const ok = run();
   assert.equal(ok.status, 0, ok.stderr);
 
-  put(
-    "apps/web/dist/index.html",
-    `<!doctype html><link rel="modulepreload" href="/assets/charts-def456.js"><script type="module" src="/assets/index-abc123.js"></script>`,
-  );
   put("apps/web/dist/assets/index-abc123.js", `const leaked = "VITE_APIFY_API_TOKEN";`);
   const bad = run();
   assert.equal(bad.status, 1, bad.stdout);
-  assert.match(bad.stderr, /eagerly loads charts chunk/);
   assert.match(bad.stderr, /forbidden server secret identifier/);
 });

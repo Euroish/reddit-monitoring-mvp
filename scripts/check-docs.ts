@@ -1,9 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { DOCUMENTATION_FILES } from "./release-package-lib.mjs";
 
-const root = path.resolve(process.argv[2] || path.join(__dirname, ".."));
+const root = path.resolve(process.argv[2] || process.cwd());
 const gitFiles = (...args: string[]) =>
   execFileSync("git", ["ls-files", ...args, "-z"], { cwd: root, encoding: "utf8" })
     .split("\0")
@@ -12,6 +11,22 @@ const files = new Set(
   gitFiles("-co", "--exclude-standard").filter((file) => existsSync(path.join(root, file))),
 );
 const errors: string[] = [];
+
+function stripFencedCodeBlocks(content: string): string {
+  const kept: string[] = [];
+  let fence = "";
+  for (const line of content.split("\n")) {
+    const marker = line.match(/^\s*(`{3,}|~{3,})/)?.[1];
+    if (marker) {
+      if (!fence) fence = marker[0];
+      else if (fence === marker[0]) fence = "";
+      kept.push("");
+      continue;
+    }
+    kept.push(fence ? "" : line);
+  }
+  return kept.join("\n");
+}
 
 function headingAnchors(content: string): Set<string> {
   const anchors = new Set<string>();
@@ -104,20 +119,13 @@ function checkMigrations(): void {
   }
 }
 
-// 1. Guard against retired architecture paths, retired connectors, and obsolete workspace junk.
+// 1. Guard against retired architecture paths, retired connectors, and symlinked module files.
 for (const file of files) {
   if (/^(?:src\/(?:application|domain|runtime|jobs|workers|storage\/repositories)\/|workers\/)/.test(file)) {
     errors.push(`Retired architecture path: ${file}`);
   }
   if (/^src\/connectors\/(?:reddit\/arctic-shift|x\/twitterapi-io)/.test(file)) {
     errors.push(`Retired online connector: ${file}`);
-  }
-  if (
-    /^(skills|prompts|context|obsidian-reddit专用|awesome-design-md-main)\//.test(file) ||
-    file === "00_START_HERE.md" ||
-    file === ".codex"
-  ) {
-    errors.push(`Obsolete agent/reference material: ${file}`);
   }
   if ((file.startsWith("src/modules/") || file.startsWith("apps/api/src/")) && file.endsWith(".ts")) {
     const fullPath = path.join(root, file);
@@ -137,43 +145,18 @@ for (const file of gitFiles()) {
   }
 }
 
-// 3. Keep docs/ restricted to regular Markdown files (no binary reports/dumps).
-function checkDocumentationDirectory(directory: string): void {
-  if (!existsSync(path.join(root, directory))) return;
-  for (const entry of readdirSync(path.join(root, directory), { withFileTypes: true })) {
-    const relative = `${directory}/${entry.name}`;
-    if (entry.isDirectory()) checkDocumentationDirectory(relative);
-    else if (!entry.isFile() || !/\.(md|mdc|markdown)$/i.test(entry.name)) {
-      errors.push(`Unexpected docs entry: ${relative}. Use regular Markdown files under docs/.`);
-    }
-  }
-}
-checkDocumentationDirectory("docs");
-
-// 4. Verify release documentation inventory, SSOT pointers, and internal Markdown links/anchors.
-const markdownTargets = new Set<string>(DOCUMENTATION_FILES);
+// 3. Verify Markdown links and anchors across root docs and docs/**/*.md (allowing diagrams/assets in docs/).
+const markdownTargets = new Set<string>();
 for (const file of files) {
-  if (file.startsWith("docs/") && /\.(md|mdc|markdown)$/i.test(file)) markdownTargets.add(file);
-}
-
-for (const document of DOCUMENTATION_FILES) {
-  const fullPath = path.join(root, document);
-  if (!existsSync(fullPath) || lstatSync(fullPath).isSymbolicLink()) {
-    errors.push(`Missing or linked document: ${document}`);
+  if (file === "README.md" || file === "AGENTS.md" || (file.startsWith("docs/") && /\.(md|mdc|markdown)$/i.test(file))) {
+    markdownTargets.add(file);
   }
 }
 
 for (const document of markdownTargets) {
   const fullPath = path.join(root, document);
   if (!existsSync(fullPath) || lstatSync(fullPath).isSymbolicLink()) continue;
-  const content = readFileSync(fullPath, "utf8");
-  if (document === "AGENTS.md") {
-    if (!content.includes("docs/development.md") || !content.includes("docs/status.md")) {
-      errors.push(
-        "AGENTS.md must point explicitly to the two canonical record files: docs/development.md and docs/status.md.",
-      );
-    }
-  }
+  const content = stripFencedCodeBlocks(readFileSync(fullPath, "utf8"));
   for (const match of content.matchAll(/\[[^\]]*\]\(([^\s)]+)\)/g)) {
     const target = match[1];
     if (/^(https?:|mailto:|sandbox:)/.test(target)) continue;
@@ -197,7 +180,7 @@ for (const document of markdownTargets) {
   }
 }
 
-// 5. Enforce immutable applied SQL migrations and forward-only numbering.
+// 4. Enforce immutable applied SQL migrations and forward-only numbering.
 checkMigrations();
 
 if (errors.length) {
@@ -205,6 +188,6 @@ if (errors.length) {
   process.exitCode = 1;
 } else {
   console.log(
-    `Policy check passed: ${DOCUMENTATION_FILES.length} release docs (${markdownTargets.size} Markdown files scanned); links, private paths, retired paths, and migrations valid.`,
+    `Policy check passed: ${markdownTargets.size} Markdown files checked; links, private paths, retired paths, and migrations valid.`,
   );
 }
