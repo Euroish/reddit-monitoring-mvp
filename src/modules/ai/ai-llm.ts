@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { httpsUrl } from "../../connectors/web/http";
 import { transaction } from "../../storage/db";
 import { Value } from "@sinclair/typebox/value";
@@ -48,6 +48,17 @@ const UNKNOWN_LLM_OUTCOME = "LLM request outcome unknown";
 const LLM_BUDGET_LOCK = 9042055;
 let activeLlmRequests = 0;
 
+export function llmDailyBudget(configured = process.env.AI_LLM_DAILY_BUDGET) {
+  return Math.min(1000, Math.max(1, Number(configured) || 50));
+}
+
+export async function llmRequestsReservedToday(db: Pool | PoolClient) {
+  const used = await db.query<{ count: number }>(
+    "SELECT COUNT(*)::int AS count FROM ai_llm_extraction_cache WHERE created_at >= date_trunc('day',NOW(),'UTC')",
+  );
+  return used.rows[0].count;
+}
+
 function hashContent(input: LlmExtractInput): string {
   return createHash("sha256")
     .update(`${PROMPT_VERSION}|${input.vendorName}|${input.title}|${input.publishedDate ?? ""}|${input.bodyText.slice(0, 4000)}`)
@@ -57,10 +68,7 @@ function hashContent(input: LlmExtractInput): string {
 async function reserveLlmRequest(pool: Pool, contentHash: string, model: string, dailyBudget: number) {
   return transaction(pool, async (client) => {
     await client.query("SELECT pg_advisory_xact_lock($1)", [LLM_BUDGET_LOCK]);
-    const used = await client.query<{ count: number }>(
-      "SELECT COUNT(*)::int AS count FROM ai_llm_extraction_cache WHERE created_at >= date_trunc('day',NOW(),'UTC')",
-    );
-    if (used.rows[0].count >= dailyBudget) return false;
+    if (await llmRequestsReservedToday(client) >= dailyBudget) return false;
     const reservation = await client.query(
       `INSERT INTO ai_llm_extraction_cache (content_hash,model_name,prompt_version,extracted_payload,valid,error_reason)
        VALUES ($1,$2,$3,'{}',false,$4) ON CONFLICT (content_hash) DO NOTHING`,
@@ -122,7 +130,7 @@ export async function extractWithOptionalLlm(
       : { status: "invalid", reason: cached.rows[0].error_reason ?? "Cached invalid extraction" };
   }
 
-  const dailyBudget = Math.min(1000, Math.max(1, Number(options.dailyBudget ?? process.env.AI_LLM_DAILY_BUDGET) || 50));
+  const dailyBudget = llmDailyBudget(options.dailyBudget?.toString());
 
   const systemPrompt =
     "Extract official AI model release metadata as strict JSON matching the schema. " +

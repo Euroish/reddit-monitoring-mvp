@@ -58,7 +58,7 @@ async function listContent(
   const project = projectId
     ? await (resolveProjectScope ?? (() => fail(500, "Project scope resolver is unavailable")))(pool, actor, projectId)
     : undefined;
-  const compiled = compileContentFilter(actor, filter, project?.source_ids, project?.filter, feed);
+  const compiled = compileContentFilter(actor, filter, project?.batchMembership ? undefined : project?.source_ids, project?.filter, feed, project?.batchMembership);
   const match = matchedAnchors(compiled, filter.threadAware ?? project?.thread_aware ?? false);
   const signature =
     filterSignature(actor, filter, project && { id: project.id, revision: project.revision }) + (feed ? ":feed" : "");

@@ -1,3 +1,4 @@
+import '../styles/collection.css';
 import { useMemo, useState } from 'react';
 import {
   AlertTriangle,
@@ -16,10 +17,10 @@ import {
   useAiOpsAuditQuery,
   useAiOpsSummaryQuery,
   useAiQueueQuery,
-  useAiSourcesQuery,
   useAiVendorsQuery,
 } from '../api/ai-client';
 import { formatApiError } from '../api/hooks';
+import { AiSourceOperations } from '../components/ai/AiSourceOperations';
 import type { Actor } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
 
@@ -42,13 +43,14 @@ const EVENT_TYPES = [
 
 export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps) {
   const { t } = useI18n();
-  const isAdmin = actor.role === 'owner' || actor.role === 'admin';
+  const isAdmin = actor.clientKind === 'browser' && actor.role !== 'viewer';
 
   const [tab, setTab] = useState<'ops' | 'queue' | 'published' | 'sources'>('ops');
   const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [vendorFilter, setVendorFilter] = useState<string>('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [editingRevision, setEditingRevision] = useState(1);
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   // Publish / edit form state
@@ -72,7 +74,6 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
     isAdmin && tab === 'queue',
   );
   const eventsQ = useAiEventsQuery({ limit: 60 }, isAdmin && tab === 'published');
-  const sourcesQ = useAiSourcesQuery(isAdmin && tab === 'sources');
   const mutations = useAiAdminMutations();
 
   const vendors = vendorsQ.data?.items ?? [];
@@ -84,6 +85,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
 
   const selectCandidate = (c: AiCandidateItem) => {
     setActiveId(c.id);
+    setEditingRevision(c.revision);
     setFeedback(null);
     setFormVendorId(c.vendorId ?? vendors[0]?.id ?? '');
     setFormTitle(c.title);
@@ -145,6 +147,47 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
     }
   };
 
+  async function runDiscovery(shadowMode: boolean) {
+    if (!shadowMode && !window.confirm(t('Run discovery with automatic publishing for eligible vendors?', '执行发现并为符合条件的厂商自动发布？'))) return;
+    setFeedback(null);
+    try {
+      const result = await mutations.runDiscovery.mutateAsync({ shadowMode, archiveLowValue: !shadowMode });
+      setFeedback({ kind: 'ok', text: [
+        t('Scanned', '扫描'), result.scanned, t('Non-official skipped', '跳过非官方'), result.skippedNonOfficial,
+        t('Queued', '进入审核'), result.candidatesQueued, t('Published', '已发布'), result.autoPublished,
+        t('Shadow passed', '影子通过'), result.shadowPassed, t('Archived', '已归档'), result.archived,
+      ].join(' · ') });
+    } catch (error) {
+      setFeedback({ kind: 'err', text: formatApiError(error) });
+    }
+  }
+
+  async function saveCandidateDraft() {
+    if (!activeCandidate) return;
+    setFeedback(null);
+    try {
+      const saved = await mutations.patch.mutateAsync({ id: activeCandidate.id, body: {
+        expectedRevision: editingRevision,
+        vendorId: formVendorId || null,
+        title: formTitle.trim(),
+        suggestedEventType: formEventType,
+        suggestedDate: formEventDate || null,
+        datePrecision: formEventDate ? formDatePrecision : 'unknown',
+        reviewerNote: formNote.trim() || null,
+        draftPayload: {
+          ...activeCandidate.draftPayload,
+          officialUrl: formPrimaryUrl.trim(),
+          summaryZh: formSummaryZh.trim(),
+          summaryEn: formSummaryEn.trim(),
+        },
+      } });
+      setEditingRevision(saved.revision);
+      setFeedback({ kind: 'ok', text: t('Candidate draft saved.', '候选草稿已保存。') });
+    } catch (error) {
+      setFeedback({ kind: 'err', text: formatApiError(error) });
+    }
+  }
+
   const handlePublish = async () => {
     if (!activeCandidate) return;
     setFeedback(null);
@@ -162,7 +205,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
       const res = await mutations.publish.mutateAsync({
         id: activeCandidate.id,
         body: {
-          expectedRevision: activeCandidate.revision,
+          expectedRevision: editingRevision,
           vendorId: formVendorId,
           modelId: activeCandidate.modelId ?? null,
           eventType: formEventType,
@@ -193,7 +236,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
     try {
       await mutations.reject.mutateAsync({
         id: activeCandidate.id,
-        expectedRevision: activeCandidate.revision,
+        expectedRevision: editingRevision,
         status,
         reviewerNote: formNote.trim() || undefined,
       });
@@ -218,13 +261,20 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
   };
 
   return (
-    <div style={{ padding: '20px 24px 40px', maxWidth: 1360, margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 18 }}>
+    <div className="ds-page collection-page">
+      <div className="crumb">
+        <button type="button" onClick={() => onNavigate('/sources?tab=sources&domain=research')}>
+          {t('Operations Admin', '运维管理')}
+        </button>
+        <span>/</span>
+        <b>{t('AI Release Review', 'AI 发布审核队列')}</b>
+      </div>
+      <div className="page-head">
         <div>
-          <h1 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 700 }}>
+          <h1 className="page-title">
             {t('AI Release Review Queue', 'AI 发布审核与台账队列')}
           </h1>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
+          <p className="page-desc">
             {t(
               'Verify registry diffs against official primary evidence before publishing to /ai.',
               '所有注册表变更候选必须核验官方一手链接与日期精度后，方可发布到公开 /ai 页面。',
@@ -235,6 +285,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
           <button
             type="button"
             className={`ds-btn ${tab === 'ops' ? '' : 'ds-btn--ghost'}`}
+            aria-pressed={tab === 'ops'}
             onClick={() => setTab('ops')}
           >
             {t('Automation & Ops', '自动化与运维')}
@@ -242,6 +293,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
           <button
             type="button"
             className={`ds-btn ${tab === 'queue' ? '' : 'ds-btn--ghost'}`}
+            aria-pressed={tab === 'queue'}
             onClick={() => setTab('queue')}
           >
             {t('Exception Queue', '异常审核队列')}
@@ -249,6 +301,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
           <button
             type="button"
             className={`ds-btn ${tab === 'published' ? '' : 'ds-btn--ghost'}`}
+            aria-pressed={tab === 'published'}
             onClick={() => setTab('published')}
           >
             {t('Published Events', '已发布事件')}
@@ -256,9 +309,10 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
           <button
             type="button"
             className={`ds-btn ${tab === 'sources' ? '' : 'ds-btn--ghost'}`}
+            aria-pressed={tab === 'sources'}
             onClick={() => setTab('sources')}
           >
-            {t('Registry Sources', '注册表数据源')}
+            {t('Sources & Registry', '官方来源与注册表')}
           </button>
           <button type="button" className="ds-btn ds-btn--ghost" onClick={() => onNavigate('/ai')}>
             <ExternalLink size={14} /> {t('View /ai', '查看 /ai')}
@@ -268,7 +322,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
 
       {feedback && (
         <div
-          role="status"
+          role={feedback.kind === 'err' ? 'alert' : 'status'}
           style={{
             padding: '10px 14px',
             borderRadius: 10,
@@ -293,19 +347,14 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
               <div>
                 <h2 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700 }}>{t('7-Day Automation Summary', '近 7 天自动化运行摘要')}</h2>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {t('Shadow Mode', '影子模式')}: {opsSummaryQ.data?.shadowMode ? 'ON' : 'OFF'} · LLM: {opsSummaryQ.data?.llmConfigured ? 'ON' : 'Rule-Only'} · AA Public: {opsSummaryQ.data?.aaPublicRedistribution ? 'Commercial' : 'Internal Only'}
-                </div>
+
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   className="ds-btn ds-btn--ghost"
                   disabled={mutations.runDiscovery.isPending}
-                  onClick={async () => {
-                    const r = await mutations.runDiscovery.mutateAsync({ shadowMode: true, archiveLowValue: true });
-                    setFeedback({ kind: 'ok', text: `Shadow run: scanned=${r.scanned}, shadowPassed=${r.shadowPassed}, queued=${r.candidatesQueued}, archived=${r.archived}` });
-                  }}
+                  onClick={() => { void runDiscovery(true); }}
                 >
                   {t('Run Shadow Eval', '执行影子评估')}
                 </button>
@@ -313,15 +362,25 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
                   type="button"
                   className="ds-btn"
                   disabled={mutations.runDiscovery.isPending}
-                  onClick={async () => {
-                    const r = await mutations.runDiscovery.mutateAsync({ shadowMode: false, archiveLowValue: true });
-                    setFeedback({ kind: 'ok', text: `Discovery run: scanned=${r.scanned}, autoPublished=${r.autoPublished}, shadowPassed=${r.shadowPassed}, archived=${r.archived}` });
-                  }}
+                  onClick={() => { void runDiscovery(false); }}
                 >
                   <RefreshCw size={14} /> {t('Run Auto Discovery', '立即执行官方发现')}
                 </button>
               </div>
             </div>
+
+            {opsSummaryQ.data && (
+              <dl className="collection-source-facts collection-ai-state">
+                <div><dt>{t('AI scheduler', 'AI 调度')}</dt><dd>{opsSummaryQ.data.schedulerConfigured ? t('Enabled', '已启用') : t('Disabled', '已关闭')}</dd></div>
+                <div><dt>{t('Source networking', '普通采集联网')}</dt><dd>{opsSummaryQ.data.sourceNetworkingConfigured ? t('Enabled', '已启用') : t('Disabled', '已关闭')}</dd></div>
+                <div><dt>{t('Discovery mode', '发现模式')}</dt><dd>{opsSummaryQ.data.shadowMode ? t('Shadow evaluation', '影子评估') : t('Vendor policy', '按厂商发布策略')}</dd></div>
+                <div><dt>{t('Collection worker', '采集 Worker')}</dt><dd>{opsSummaryQ.data.collectionWorker?.heartbeatFresh ? opsSummaryQ.data.collectionWorker.state : t('Heartbeat unavailable', '心跳缺失或陈旧')}</dd></div>
+                <div><dt>{t('LLM reservation (UTC day)', 'LLM 预留（UTC 日）')}</dt><dd>{opsSummaryQ.data.llmConfigured ? t('Configured', '已配置') : t('Rule-only', '仅规则匹配')} · {opsSummaryQ.data.llmBudget.reservedToday}/{opsSummaryQ.data.llmBudget.dailyLimit}</dd></div>
+                <div><dt>Artificial Analysis</dt><dd>{opsSummaryQ.data.aaKeyConfigured ? t('Key configured', '凭证已配置') : t('Key missing', '凭证未配置')} · {opsSummaryQ.data.aaPublicRedistribution ? t('Public redistribution configured', '已配置公开分发') : t('Internal only', '仅内部使用')}</dd></div>
+              </dl>
+            )}
+            {opsSummaryQ.error && <div role="alert" className="wb-alert wb-alert--error">{formatApiError(opsSummaryQ.error)}</div>}
+            <p className="collection-hint">{t('Discovery scans stored content from qualifying sources and verifies official URLs. Use Sources & Registry to check upstream collection and vendor bindings.', '发现扫描符合来源条件的入库内容并核验官方链接。可在「官方来源与注册表」检查上游采集与厂商关联。')}</p>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
               {[
@@ -357,7 +416,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16 }}>
+          <div className="collection-ai-grid">
             <div className="ds-card" style={{ padding: 16 }}>
               <h3 style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 700 }}>{t('Per-Vendor Auto-Publish Rollout', '分厂商自动发布灰度开关')}</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -434,7 +493,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
       )}
 
       {tab === 'queue' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.15fr) minmax(340px, 0.85fr)', gap: 18, alignItems: 'start' }}>
+        <div className="collection-ai-grid">
           <div className="ds-card" style={{ padding: 16 }}>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
               <select
@@ -621,6 +680,9 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
                 </label>
 
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 4 }}>
+                  <button type="button" className="ds-btn ds-btn--ghost" onClick={saveCandidateDraft} disabled={mutations.patch.isPending || !formTitle.trim()}>
+                    {t('Save draft', '保存草稿')}
+                  </button>
                   <button
                     type="button"
                     className="ds-btn"
@@ -692,52 +754,7 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
         </div>
       )}
 
-      {tab === 'sources' && (
-        <div className="ds-card" style={{ padding: 16 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {(sourcesQ.data?.items ?? []).map((s) => (
-              <div
-                key={s.id}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '10px 12px',
-                  borderRadius: 10,
-                  border: '1px solid var(--line)',
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>{s.code} <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--muted)' }}>({s.kind})</span></div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>{s.endpointUrl}</div>
-                  <div style={{ fontSize: 11.5, color: s.lastError ? '#b91c1c' : 'var(--muted)' }}>
-                    {s.lastSuccessAt ? `Last OK: ${s.lastSuccessAt}` : 'Never synced'} {s.lastError ? `· Error: ${s.lastError}` : ''}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    type="button"
-                    className="ds-btn ds-btn--ghost"
-                    onClick={() => mutations.syncSource.mutate({ code: s.code, dryRun: true })}
-                    disabled={mutations.syncSource.isPending}
-                  >
-                    {t('Dry-Run', '试跑')}
-                  </button>
-                  <button
-                    type="button"
-                    className="ds-btn"
-                    onClick={() => mutations.syncSource.mutate({ code: s.code, dryRun: false })}
-                    disabled={mutations.syncSource.isPending}
-                  >
-                    <RefreshCw size={14} /> {t('Sync Now', '立即同步')}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {tab === 'sources' && <AiSourceOperations vendors={vendors} onDiscovery={() => setTab('ops')} />}
     </div>
   );
 }

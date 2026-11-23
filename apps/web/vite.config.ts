@@ -1,17 +1,19 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:3000'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   build: {
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined
           const norm = id.replace(/\\/g, '/')
+          if (['@base-ui/', '@floating-ui/', '/clsx/', '/class-variance-authority/', '/tailwind-merge/'].some(dep => norm.includes(dep))) return 'workbench-ui'
           if (norm.includes('/echarts/') || norm.includes('/zrender/')) return 'charts'
           if (norm.includes('@tanstack/react-query')) return 'react-query'
           if (norm.includes('react-router')) return 'router'

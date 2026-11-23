@@ -378,3 +378,9 @@ export async function getUserEmailsByIds(
   ).rows;
   return new Map(rows.map((r) => [r.id, r.email]));
 }
+
+
+export async function listStaffOwnerIds(db: Pool | PoolClient) {
+  const { rows } = await db.query<{ id: string }>("SELECT id FROM app_user WHERE role IN ('owner','admin')");
+  return rows.map(row => row.id);
+}

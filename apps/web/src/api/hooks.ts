@@ -1,7 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ApiError,
-  type CollectionSource,
   type ContentFacetsQuery,
   type CredentialProviderName,
   type DocInput,
@@ -11,6 +10,8 @@ import {
   type ProjectInput,
   type PullProviderName,
   type SourceInput,
+  type SourcePatch,
+  type SourceImport,
   type StoryQuery,
 } from '../contracts/api';
 import { apiClient } from './client';
@@ -137,7 +138,7 @@ export function useSourceJobsQuery(sourceId: string | null) {
     enabled: Boolean(sourceId),
     refetchInterval: (q) => {
       const list = q.state.data?.jobs || [];
-      return list.some((j) => j.status === 'queued' || j.status === 'running') ? 3500 : false;
+      return list.some((j) => j.status === 'queued' || j.status === 'running' || j.status === 'retrying') ? 3500 : false;
     },
   });
 }
@@ -149,7 +150,7 @@ export function useBatchJobsQuery(jobIds: string[]) {
     enabled: jobIds.length > 0,
     refetchInterval: (q) => {
       const list = q.state.data?.jobs || [];
-      return list.some((j) => j.status === 'queued' || j.status === 'running') ? 3000 : false;
+      return list.some((j) => j.status === 'queued' || j.status === 'running' || j.status === 'retrying') ? 3000 : false;
     },
   });
 }
@@ -159,6 +160,7 @@ export function useJobDetailQuery(jobId: string | null) {
     queryKey: ['jobDetail', jobId],
     queryFn: () => apiClient.getJobDetail(jobId!),
     enabled: Boolean(jobId),
+    refetchInterval: query => ['queued', 'running', 'retrying'].includes(query.state.data?.job.status ?? '') ? 3500 : false,
   });
 }
 
@@ -259,11 +261,11 @@ export function useCreateProjectMutation() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: ProjectInput) => apiClient.createProject(input),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['projects'] });
-      qc.invalidateQueries({ queryKey: ['overview'] });
-      qc.invalidateQueries({ queryKey: ['content'] });
-    },
+    onSuccess: () => Promise.all([
+      qc.invalidateQueries({ queryKey: ['projects'] }),
+      qc.invalidateQueries({ queryKey: ['overview'] }),
+      qc.invalidateQueries({ queryKey: ['content'] }),
+    ]),
   });
 }
 
@@ -305,6 +307,14 @@ export function useCreateSourceMutation() {
   });
 }
 
+export function useImportSourcesMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SourceImport) => apiClient.importSources(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['sources'] }),
+  });
+}
+
 export function useUpdateSourceMutation() {
   const qc = useQueryClient();
   return useMutation({
@@ -313,14 +323,14 @@ export function useUpdateSourceMutation() {
       input,
     }: {
       id: string;
-      input: { fallbackProvider?: 'scrapebadger' | 'red_crawler' | null; state?: CollectionSource['state']; revision: number };
+      input: SourcePatch;
     }) => apiClient.updateSource(id, input),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ['sources'] });
-      qc.invalidateQueries({ queryKey: ['projects'] });
-      qc.invalidateQueries({ queryKey: ['overview'] });
-      qc.invalidateQueries({ queryKey: ['jobs', vars.id] });
-    },
+    onSuccess: (_data, vars) => Promise.all([
+      qc.invalidateQueries({ queryKey: ['sources'] }),
+      qc.invalidateQueries({ queryKey: ['projects'] }),
+      qc.invalidateQueries({ queryKey: ['overview'] }),
+      qc.invalidateQueries({ queryKey: ['jobs', vars.id] }),
+    ]),
   });
 }
 
@@ -350,11 +360,14 @@ export function useCollectSourceMutation() {
         includeComments?: boolean;
         useFallback?: boolean;
         maxCommentsPerPost?: number;
+        projectId?: string;
       };
       idempotencyKey: string;
     }) => apiClient.collectSource(args.sourceId, args.payload, args.idempotencyKey),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['jobs', vars.sourceId] });
+      qc.invalidateQueries({ queryKey: ['recentJobs'] });
+      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
       qc.invalidateQueries({ queryKey: ['budgets'] });
     },
   });
@@ -367,6 +380,8 @@ export function useRefreshSourceMutation() {
       apiClient.refreshSource(args.sourceId, { contentIds: args.contentIds }, args.idempotencyKey),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['jobs', vars.sourceId] });
+      qc.invalidateQueries({ queryKey: ['recentJobs'] });
+      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
       qc.invalidateQueries({ queryKey: ['budgets'] });
       qc.invalidateQueries({ queryKey: ['content'] });
     },
@@ -380,6 +395,8 @@ export function useIngestSourceMutation() {
       apiClient.ingestSource(args.sourceId, args.rawJson, args.idempotencyKey),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['jobs', vars.sourceId] });
+      qc.invalidateQueries({ queryKey: ['recentJobs'] });
+      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
       qc.invalidateQueries({ queryKey: ['content'] });
       qc.invalidateQueries({ queryKey: ['overview'] });
     },
@@ -418,6 +435,8 @@ export function useJobActionMutation() {
     }) => apiClient.jobAction(args.jobId, args.action, args.acknowledgePotentialCharge),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['jobs', vars.sourceId] });
+      qc.invalidateQueries({ queryKey: ['recentJobs'] });
+      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
       qc.invalidateQueries({ queryKey: ['jobDetail', vars.jobId] });
       qc.invalidateQueries({ queryKey: ['sources'] });
       qc.invalidateQueries({ queryKey: ['budgets'] });
@@ -444,6 +463,7 @@ export function useUpdateBudgetMutation() {
       qc.invalidateQueries({ queryKey: ['budgets'] });
       qc.invalidateQueries({ queryKey: ['sources'] });
       qc.invalidateQueries({ queryKey: ['capabilities'] });
+      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
     },
   });
 }
@@ -540,6 +560,7 @@ export function useSaveProviderCredentialMutation() {
       qc.invalidateQueries({ queryKey: ['providerCredentials'] });
       qc.invalidateQueries({ queryKey: ['capabilities'] });
       qc.invalidateQueries({ queryKey: ['sources'] });
+      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
     },
   });
 }
@@ -553,15 +574,77 @@ export function useRevokeProviderCredentialMutation() {
       qc.invalidateQueries({ queryKey: ['providerCredentials'] });
       qc.invalidateQueries({ queryKey: ['capabilities'] });
       qc.invalidateQueries({ queryKey: ['sources'] });
+      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
     },
   });
 }
 
-export function useRecentJobsQuery(params: { status?: string; sourceId?: string; limit?: number; offset?: number } = {}, enabled = true) {
+export function useRecentJobsQuery(params: { jobId?: string; status?: string; sourceId?: string; projectId?: string; limit?: number; offset?: number } = {}, enabled = true) {
   return useQuery({
     queryKey: ['recentJobs', params],
     queryFn: () => apiClient.getRecentJobs(params),
     enabled,
+    refetchInterval: query => query.state.data?.jobs.some(job => ['queued', 'running', 'retrying'].includes(job.status)) ? 3500 : false,
+  });
+}
+
+export function useBatchesQuery(params: { forProjectId?: string; sourceId?: string; jobId?: string; limit?: number } = {}, enabled = true) {
+  return useQuery({
+    queryKey: ['batches', params],
+    queryFn: () => apiClient.getBatches(params),
+    enabled,
+  });
+}
+
+export function useProjectBatchesQuery(projectId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['projectBatches', projectId],
+    queryFn: () => apiClient.getProjectBatches(projectId!),
+    enabled: Boolean(projectId) && enabled,
+  });
+}
+
+export function useAttachProjectBatchMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, batchId }: { projectId: string; batchId: string }) =>
+      apiClient.attachProjectBatch(projectId, batchId),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['projectBatches', vars.projectId] });
+      qc.invalidateQueries({ queryKey: ['projects'] });
+      qc.invalidateQueries({ queryKey: ['overview'] });
+      qc.invalidateQueries({ queryKey: ['content'] });
+      qc.invalidateQueries({ queryKey: ['contentFacets'] });
+    },
+  });
+}
+
+export function usePreviewResearchPlanMutation() {
+  return useMutation({
+    mutationFn: (payload: import('../contracts/api').ResearchPlanPreviewRequest) =>
+      apiClient.previewResearchPlan(payload),
+  });
+}
+
+export function useUpdateProjectBatchStatusMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      batchId,
+      status,
+    }: {
+      projectId: string;
+      batchId: string;
+      status: 'enabled' | 'disabled' | 'removed';
+    }) => apiClient.updateProjectBatchStatus(projectId, batchId, status),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['projectBatches', vars.projectId] });
+      qc.invalidateQueries({ queryKey: ['projects'] });
+      qc.invalidateQueries({ queryKey: ['overview'] });
+      qc.invalidateQueries({ queryKey: ['content'] });
+      qc.invalidateQueries({ queryKey: ['contentFacets'] });
+    },
   });
 }
 

@@ -115,7 +115,7 @@ export async function commitContentBatch(
     )
       fail(422, "Page/source identity mismatch");
   }
-  if (!batch.nodes.length) return { added: 0, updated: 0 };
+  if (!batch.nodes.length) return { added: 0, updated: 0, contentIds: [] as string[] };
   const values = batch.nodes.map(({ item, firstFetchedAt, lastFetchedAt }) =>
     JSON.stringify({
       ...item,
@@ -233,6 +233,7 @@ export async function commitContentBatch(
   return {
     added,
     updated: result.rows.filter((row) => !row.inserted && row.changed).length,
+    contentIds: [...identities.values()],
   };
 }
 

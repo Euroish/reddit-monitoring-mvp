@@ -5,13 +5,13 @@ import type { Actor } from "../../../packages/contracts/src/access";
 import type { Hydrate } from "../../../packages/contracts/src/collection";
 import type { Filter } from "../../../packages/contracts/src/content";
 import { fail } from "../../shared/errors";
-import { findHydratableRedditPosts } from "../content/index";
+import { findHydratableRedditPosts, type BatchMembership } from "../content/index";
 import { admitViewerCollection } from "./policy";
 
 export async function enqueueHydrationForScope(
   client: PoolClient,
   actor: Actor,
-  scope: { projectId: string; sourceIds: string[]; filter: Filter },
+  scope: { projectId: string; sourceIds: string[]; filter: Filter; batchMembership?: BatchMembership },
   key: string,
   input: Static<typeof Hydrate>,
 ) {
@@ -36,7 +36,7 @@ export async function enqueueHydrationForScope(
   const roots = await findHydratableRedditPosts(
     client,
     actor,
-    { sourceIds: scope.sourceIds, filter: scope.filter },
+    { sourceIds: scope.sourceIds, filter: scope.filter, batchMembership: scope.batchMembership },
     ids,
   );
   if (roots.length !== ids.length) {
@@ -53,7 +53,8 @@ export async function enqueueHydrationForScope(
       maxCommentsPerPost: input.maxCommentsPerPost,
     });
     const id = randomUUID();
-    const request = { postId: root.external_id, includeComments: true, maxCommentsPerPost: input.maxCommentsPerPost };
+    const request = { postId: root.external_id, includeComments: true, maxCommentsPerPost: input.maxCommentsPerPost,
+      ...(scope.batchMembership ? { projectId: scope.projectId } : {}) };
     await client.query(
       `INSERT INTO source_collection_job(id,collection_source_id,status,purpose,operation,provider,from_at,to_at,
         page_size,max_pages,next_run_at,created_at,request_key,payload_hash,request_json,

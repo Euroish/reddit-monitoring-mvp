@@ -26,11 +26,12 @@ import {
   policyRoutes,
   refreshRoutes,
   registerCollectionModule,
+  readCollectionWorkerHealth,
   type CredentialVault,
 } from "../../../src/modules/collection/index";
 import { registerContentModule } from "../../../src/modules/content/index";
 import { registerDocsModule } from "../../../src/modules/docs/index";
-import { registerProjectsModule, resolveProjectScope } from "../../../src/modules/projects/index";
+import { assertProjectWritable, listProjectBatchIds, registerProjectsModule, resolveProjectScope } from "../../../src/modules/projects/index";
 import { registerWorkspaceModule } from "../../../src/modules/workspace/index";
 import type { DeclarativeRouteAuth } from "../../../src/platform/route-auth";
 import { fail } from "../../../src/shared/errors";
@@ -265,9 +266,9 @@ export async function buildApp(options: {
   const vault = options.credentialVault ?? createCredentialVault(options.pool, options.sessionSecret);
   await credentialRoutes(app, vault);
   await policyRoutes(app, options.pool, providers);
-  await registerCollectionModule(app, options.pool, providers);
+  await registerCollectionModule(app, options.pool, providers, assertProjectWritable, listProjectBatchIds);
   await refreshRoutes(app, options.pool, providers);
-  await jobRoutes(app, options.pool);
+  await jobRoutes(app, options.pool, listProjectBatchIds);
 
   const shutdown = new AbortController();
   app.addHook("preClose", async () => {
@@ -275,7 +276,7 @@ export async function buildApp(options: {
   });
   await registerContentModule(app, options.pool, shutdown.signal, resolveProjectScope);
   await registerDocsModule(app, options.pool);
-  await registerAiModule(app, options.pool);
+  await registerAiModule(app, options.pool, readCollectionWorkerHealth);
   await registerProjectsModule(app, options.pool, providers);
   await registerWorkspaceModule(app, options.pool);
 

@@ -13,11 +13,11 @@ import {
 export async function findHydratableRedditPosts(
   db: Pool | PoolClient,
   actor: Actor,
-  scope: { sourceIds: string[]; filter: Filter },
+  scope: { sourceIds: string[]; filter: Filter; batchMembership?: import("./search").BatchMembership },
   contentIds: string[],
 ): Promise<Array<{ external_id: string; source_id: string }>> {
   if (!contentIds.length || !scope.sourceIds.length) return [];
-  const compiled = compileContentFilter(actor, {}, scope.sourceIds, scope.filter);
+  const compiled = compileContentFilter(actor, {}, scope.sourceIds, scope.filter, false, scope.batchMembership);
   const match = matchedAnchors(compiled, true);
   compiled.values.push(contentIds, scope.sourceIds);
   const tables = compiled.needsSearchDocument ? contentTables : contentSourceTables;
@@ -256,4 +256,25 @@ export async function listAiOfficialFeedUpdates(
       [opts.sourceIds, opts.limit, opts.offset],
     )
   ).rows;
+}
+
+
+export async function isWebArticlePullSource(db: Pool | PoolClient, id: string) {
+  const { rowCount } = await db.query(
+    "SELECT cs.id FROM collection_source cs JOIN source s ON s.id=cs.platform_id WHERE cs.id=$1 " +
+      "AND s.code='web' AND cs.delivery_mode='pull' AND cs.content_kind='article'",
+    [id],
+  );
+  return Boolean(rowCount);
+}
+
+export async function countSourceSamples(db: Pool, id: string, from: string, to: string, membership?: import("./search").BatchMembership) {
+  const values: unknown[] = [id, from, to];
+  const restricted = membership?.contains(value => "$" + values.push(value), "d.content_id");
+  const { rows: [row] } = await db.query<{ count: string }>(
+    "SELECT COUNT(DISTINCT d.content_id)::text AS count FROM content_discovery d JOIN content c ON c.id=d.content_id " +
+      "WHERE d.collection_source_id=$1 AND c.created_at_source >= $2 AND c.created_at_source < $3" +
+      (restricted ? " AND " + restricted : ""), values,
+  );
+  return Number(row?.count ?? 0);
 }

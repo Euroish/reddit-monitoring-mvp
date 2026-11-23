@@ -55,8 +55,8 @@ export async function contentFacets(
   const project = projectId
     ? await (resolveProjectScope ?? (() => fail(500, "Project scope resolver is unavailable")))(pool, actor, projectId)
     : undefined;
-  const pullOnly = !filter.deliveryMode && !project?.include_push_in_trends;
-  const compiled = compileContentFilter(actor, filter, project?.source_ids, project?.filter, pullOnly);
+  const pullOnly = !project?.batchMembership && !filter.deliveryMode && !project?.include_push_in_trends;
+  const compiled = compileContentFilter(actor, filter, project?.batchMembership ? undefined : project?.source_ids, project?.filter, pullOnly, project?.batchMembership);
   const threadAware = filter.threadAware ?? project?.thread_aware ?? false;
   const interval = compiled.values.push(bucket === "day" ? "1 day" : "6 hours");
   const { rows } = await pool.query<FacetRow>(
@@ -78,9 +78,10 @@ export async function summarizeScopedContent(pool: Pool | PoolClient, actor: Act
   const compiled = compileContentFilter(
     actor,
     {},
-    project.source_ids,
+    project.batchMembership ? undefined : project.source_ids,
     project.filter,
-    !project.include_push_in_trends,
+    !project.batchMembership && !project.include_push_in_trends,
+    project.batchMembership,
   );
   const anchorCount = project.thread_aware ? "COUNT(DISTINCT c.anchor_id)" : "COUNT(*)";
   const [row] = (

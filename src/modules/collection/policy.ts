@@ -34,6 +34,10 @@ export interface EffectivePolicy {
   dailyResources: number | null;
   maxBatchLimit: number;
   maxCommentsPerPost: number;
+  maxProjects: number;
+  maxLookbackDays: number;
+  allowProviderChoice: boolean;
+  exportEnabled: boolean;
   hasOverride: boolean;
 }
 
@@ -46,6 +50,10 @@ interface PolicyRow {
   daily_resources: number | null;
   max_batch_limit: number;
   max_comments_per_post: number;
+  max_projects: number;
+  max_lookback_days: number;
+  allow_provider_choice: boolean;
+  export_enabled: boolean;
   updated_at: string;
   revision: number;
 }
@@ -62,6 +70,10 @@ export function resolveEffectivePolicy(policy: PolicyRow, override: QuotaOverrid
     dailyResources: o.dailyResources !== undefined ? o.dailyResources : policy.daily_resources,
     maxBatchLimit: typeof o.maxBatchLimit === "number" ? o.maxBatchLimit : policy.max_batch_limit,
     maxCommentsPerPost: policy.max_comments_per_post,
+    maxProjects: policy.max_projects ?? 3,
+    maxLookbackDays: policy.max_lookback_days ?? 7,
+    allowProviderChoice: policy.allow_provider_choice ?? false,
+    exportEnabled: policy.export_enabled ?? true,
     hasOverride: Boolean(override && Object.keys(override).length > 0),
   };
 }
@@ -80,27 +92,7 @@ export async function loadEffectivePolicyForUser(
   return resolveEffectivePolicy(policyRow, userRow.quota_override as QuotaOverride | null);
 }
 
-export function requestedCommentLimit(
-  provider: string, targetType: string, pageSize: number,
-  request: { includeComments?: boolean; maxCommentsPerPost?: number },
-) {
-  if (targetType === "post") {
-    if (provider === "kaix") return Math.min(pageSize, request.maxCommentsPerPost ?? 50);
-    if (provider === "red_crawler") return pageSize;
-  }
-  return request.includeComments ? request.maxCommentsPerPost ?? 15 : undefined;
-}
-
-export function viewerCollectionDemand(
-  provider: string, targetType: string, limit: number,
-  request: { includeComments?: boolean; maxCommentsPerPost?: number },
-) {
-  const commentLimit = requestedCommentLimit(provider, targetType, limit, request);
-  const resources = provider === "kaix" && commentLimit !== undefined
-    ? (targetType === "post" ? commentLimit + 1 : limit * (commentLimit + 1))
-    : limit;
-  return { provider, limit, resources, includeComments: commentLimit !== undefined, maxCommentsPerPost: commentLimit };
-}
+export { requestedCommentLimit, viewerCollectionDemand } from "../../../packages/contracts/src/collection-budget";
 
 export async function admitViewerCollection(
   client: PoolClient,
@@ -112,10 +104,17 @@ export async function admitViewerCollection(
     resources: number;
     includeComments?: boolean;
     maxCommentsPerPost?: number;
+    useFallback?: boolean;
+    from?: string;
+    to?: string;
   },
 ) {
   if (actor.clientKind !== "browser" || actor.role !== "viewer") return;
   const effective = await loadEffectivePolicyForUser(client, actor.userId, true);
+
+  if (req.useFallback && !effective.allowProviderChoice) {
+    fail(403, "Your plan does not allow choosing a backup provider");
+  }
 
   if (!effective.manualCollectEnabled) {
     fail(403, `Manual collection is disabled for ${effective.planTier} tier`);
@@ -131,6 +130,12 @@ export async function admitViewerCollection(
   }
   if (req.includeComments && (req.maxCommentsPerPost ?? 15) > effective.maxCommentsPerPost) {
     fail(422, `Comment hydration exceeds your plan max (${effective.maxCommentsPerPost})`);
+  }
+  if (req.from && req.to) {
+    const spanDays = (Date.parse(req.to) - Date.parse(req.from)) / 86_400_000;
+    if (Number.isFinite(spanDays) && spanDays > effective.maxLookbackDays + 0.05) {
+      fail(422, `Requested window exceeds your plan max lookback (${effective.maxLookbackDays} days)`);
+    }
   }
 
   await client.query(
@@ -184,6 +189,7 @@ export async function isViewerJobStillAuthorized(db: Pool | PoolClient, job: {
   provider: string;
   collection_source_id: string;
   page_size: number;
+  request_json?: { useFallback?: unknown } | null;
 }, commentLimit?: number): Promise<boolean> {
   if (!job.requested_by_user_id || job.requested_by_client_kind !== "browser") return true;
   const user = await getUserRoleStatus(db, job.requested_by_user_id);
@@ -191,6 +197,7 @@ export async function isViewerJobStillAuthorized(db: Pool | PoolClient, job: {
   if (user.role !== "viewer") return true;
   const effective = await loadEffectivePolicyForUser(db, job.requested_by_user_id);
   if (!effective.manualCollectEnabled) return false;
+  if (job.request_json?.useFallback === true && !effective.allowProviderChoice) return false;
   if (!effective.allowedProviders.includes(job.provider)) return false;
   if (job.page_size > effective.maxBatchLimit || (commentLimit ?? 0) > effective.maxCommentsPerPost) return false;
   if (effective.allowedSourceIds !== null && !effective.allowedSourceIds.includes(job.collection_source_id)) {
@@ -230,6 +237,11 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
     const resetsAtUtc = new Date(Date.UTC(utcNow.getUTCFullYear(), utcNow.getUTCMonth(), utcNow.getUTCDate() + 1)).toISOString();
 
     if (actor.role === "viewer") {
+      const budgets = await pool.query<{ provider: string; enabled: boolean }>(
+        `SELECT provider,enabled AND LEAST(daily_requests,monthly_requests,daily_resources,monthly_resources)>0 AS enabled
+         FROM source_provider_budget`,
+      );
+      const budgetFlags = new Map(budgets.rows.map(row => [row.provider, row.enabled]));
       return {
         scope: "personal" as const,
         resetsAtUtc,
@@ -239,6 +251,7 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
           provider: p.capability.provider,
           platform: p.capability.platform,
           enabled: p.capability.enabled,
+          budgetEnabled: budgetFlags.get(p.capability.provider) === true,
           planAllowed: effective.manualCollectEnabled && effective.allowedProviders.includes(p.capability.provider),
         })),
       };
@@ -288,6 +301,10 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
         dailyResources: p.daily_resources,
         maxBatchLimit: p.max_batch_limit,
         maxCommentsPerPost: p.max_comments_per_post,
+        maxProjects: p.max_projects ?? 3,
+        maxLookbackDays: p.max_lookback_days ?? 7,
+        allowProviderChoice: p.allow_provider_choice ?? false,
+        exportEnabled: p.export_enabled ?? true,
         updatedAt: p.updated_at,
         revision: p.revision,
       })),
@@ -324,8 +341,12 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
           `UPDATE plan_collection_policy
            SET manual_collect_enabled=$2, allowed_providers=$3, allowed_source_ids=$4,
                daily_requests=$5, daily_resources=$6, max_batch_limit=$7,
-               max_comments_per_post=$8, updated_by=$9, updated_at=NOW(), revision=revision+1
-           WHERE plan_tier=$1 AND revision=$10
+               max_comments_per_post=$8, max_projects=COALESCE($9, max_projects),
+               max_lookback_days=COALESCE($10, max_lookback_days),
+               allow_provider_choice=COALESCE($11, allow_provider_choice),
+               export_enabled=COALESCE($12, export_enabled),
+               updated_by=$13, updated_at=NOW(), revision=revision+1
+           WHERE plan_tier=$1 AND revision=$14
            RETURNING *`,
           [
             request.params.tier,
@@ -336,6 +357,10 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
             request.body.dailyResources,
             request.body.maxBatchLimit,
             request.body.maxCommentsPerPost,
+            request.body.maxProjects ?? null,
+            request.body.maxLookbackDays ?? null,
+            request.body.allowProviderChoice ?? null,
+            request.body.exportEnabled ?? null,
             actor.userId,
             request.body.revision,
           ],
@@ -365,6 +390,10 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
             dailyResources: updated.daily_resources,
             maxBatchLimit: updated.max_batch_limit,
             maxCommentsPerPost: updated.max_comments_per_post,
+            maxProjects: updated.max_projects ?? 3,
+            maxLookbackDays: updated.max_lookback_days ?? 7,
+            allowProviderChoice: updated.allow_provider_choice ?? false,
+            exportEnabled: updated.export_enabled ?? true,
             updatedAt: updated.updated_at,
             revision: updated.revision,
           },

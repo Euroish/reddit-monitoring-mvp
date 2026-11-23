@@ -2,6 +2,7 @@ import { Type } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool } from "pg";
+import type { Actor } from "../../../packages/contracts/src/access";
 import { ParamsId } from "../../../packages/contracts/src/common";
 import { JobStatusQuery } from "../../../packages/contracts/src/collection";
 import { notifyChannel } from "../../platform/pg-notify";
@@ -15,19 +16,24 @@ const RecentJobsQuery = Type.Object(
   {
     status: Type.Optional(Type.String({ maxLength: 32 })),
     sourceId: Type.Optional(Type.String({ format: "uuid" })),
+    projectId: Type.Optional(Type.String({ format: "uuid" })),
+    jobId: Type.Optional(ParamsId.properties.id),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
     offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 10000 })),
   },
   { additionalProperties: false },
 );
 
-export async function jobRoutes(app: FastifyInstance, pool: Pool) {
+export async function jobRoutes(app: FastifyInstance, pool: Pool, listProjectBatches?: (db: Pool, actor: Actor, id: string) => Promise<string[]>) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   api.get("/v1/source-jobs/recent", { config: { auth: { access: "authenticated", machineScope: "read" } }, schema: { querystring: RecentJobsQuery } }, async (request) => {
     const actor = request.actor!;
     const limit = request.query.limit ?? 30;
     const offset = request.query.offset ?? 0;
     const isAdmin = actor.role === "owner" || actor.role === "admin";
+    const projectId = request.query.projectId;
+    if (projectId && (!listProjectBatches || actor.clientKind !== "browser")) fail(403, "Project job history requires a browser session");
+    const batchIds = projectId && listProjectBatches ? await listProjectBatches(pool, actor, projectId) : [];
     const { rows } = await pool.query(
       `SELECT j.id, j.collection_source_id AS "sourceId", cs.label AS "sourceLabel",
          p.code AS platform, j.status, j.purpose, j.operation, j.provider,
@@ -37,14 +43,19 @@ export async function jobRoutes(app: FastifyInstance, pool: Pool) {
          j.request_duration_ms AS "requestDurationMs", j.error,
          j.created_at AS "createdAt", j.finished_at AS "finishedAt",
          j.requested_by_user_id AS "requestedByUserId",
-         j.requested_by_client_kind AS "requestedByClientKind"
+         j.requested_by_client_kind AS "requestedByClientKind",
+         cb.id AS "batchId",
+         j.request_json->>'projectId' AS "projectId"
        FROM source_collection_job j
        JOIN collection_source cs ON cs.id = j.collection_source_id
        JOIN source p ON p.id = cs.platform_id
+       LEFT JOIN collection_batch cb ON cb.job_id = j.id
        WHERE ($1::uuid[] IS NULL OR j.collection_source_id = ANY($1::uuid[]))
          AND ($2::text IS NULL OR j.status = $2)
          AND ($3::uuid IS NULL OR j.collection_source_id = $3)
          AND ($4 OR (j.requested_by_user_id = $5 AND j.requested_by_client_kind = 'browser'))
+         AND ($8::uuid IS NULL OR j.request_json->>'projectId' = $8::text OR cb.id=ANY($9::uuid[]))
+         AND ($10::uuid IS NULL OR j.id = $10)
        ORDER BY j.created_at DESC, j.id DESC
        LIMIT $6 OFFSET $7`,
       [
@@ -55,6 +66,9 @@ export async function jobRoutes(app: FastifyInstance, pool: Pool) {
         actor.userId,
         limit,
         offset,
+        projectId ?? null,
+        batchIds,
+        request.query.jobId ?? null,
       ],
     );
     const emails = isAdmin

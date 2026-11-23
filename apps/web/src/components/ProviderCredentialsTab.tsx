@@ -41,6 +41,7 @@ export function ProviderCredentialsTab({ canManage }: { canManage: boolean }) {
   const [confirmLive, setConfirmLive] = useState<Partial<Record<CredentialProviderName, boolean>>>({});
   const [probeMsg, setProbeMsg] = useState<Partial<Record<CredentialProviderName, { ok: boolean; text: string }>>>({});
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [probing, setProbing] = useState<CredentialProviderName | null>(null);
 
   if (!canManage) {
     return (
@@ -69,7 +70,9 @@ export function ProviderCredentialsTab({ canManage }: { canManage: boolean }) {
       setInputs((prev) => ({ ...prev, [item.provider]: '' }));
       setProbeMsg((prev) => ({
         ...prev,
-        [item.provider]: { ok: true, text: t('Encrypted in DB & reloaded in memory.', '已加密落库并热生效（无需重启）。') },
+        [item.provider]: { ok: true, text: networkEnabled
+          ? t('Key saved. Verify the key if needed, then enable the provider budget and select or create a pull source.', '密钥已保存。可先验证密钥，然后启用渠道预算并选择或新建拉取来源。')
+          : t('Key saved. Collection still requires source networking on the server.', '密钥已保存。开启服务端采集联网后才能拉取。') },
       }));
     } catch (err) {
       setErrMsg(formatApiError(err));
@@ -91,15 +94,20 @@ export function ProviderCredentialsTab({ canManage }: { canManage: boolean }) {
 
   const handleTest = async (provider: CredentialProviderName) => {
     setErrMsg(null);
+    setProbing(provider);
     const paidConfirmed = Boolean(confirmLive[provider]);
     try {
       const res = await apiClient.testProviderCredential(provider, paidConfirmed);
       setProbeMsg((prev) => ({
         ...prev,
-        [provider]: { ok: res.ok, text: `[${res.mode}${res.status ? ` ${res.status}` : ''}] ${res.reason}` },
+        [provider]: { ok: res.ok, text: res.mode === 'dry' && res.ok
+          ? t('The server has loaded the key. Use a live probe to verify it with the provider.', '服务端已加载密钥。要确认服务商接受这把密钥，请使用真实探测。')
+          : `[${res.mode}${res.status ? ` ${res.status}` : ''}] ${res.reason}` },
       }));
     } catch (err) {
       setErrMsg(formatApiError(err));
+    } finally {
+      setProbing(null);
     }
   };
 
@@ -121,7 +129,8 @@ export function ProviderCredentialsTab({ canManage }: { canManage: boolean }) {
         </div>
       </div>
 
-      {errMsg && <div className="wb-alert wb-alert--error">{errMsg}</div>}
+      {credsQuery.isError && <div role="alert" className="wb-alert wb-alert--error">{formatApiError(credsQuery.error)}</div>}
+      {errMsg && <div role="alert" className="wb-alert wb-alert--error">{errMsg}</div>}
 
       <div className="ds-grid">
         {credentials.map((item) => {
@@ -130,12 +139,12 @@ export function ProviderCredentialsTab({ canManage }: { canManage: boolean }) {
           const probe = probeMsg[item.provider];
           return (
             <div key={item.provider} className="c6">
-              <div className="ds-card">
+              <section className="ds-card" aria-labelledby={`credential-${item.provider}`}>
                 <div className="ds-card-hd">
                   <div>
                     <div className="ds-card-title">
                       <KeyRound size={14} />
-                      <span>{meta.title}</span>
+                      <span id={`credential-${item.provider}`}>{meta.title}</span>
                     </div>
                     <div className="ds-card-sub">
                       {meta.platform} · env: <code>{item.envVar}</code>
@@ -170,8 +179,9 @@ export function ProviderCredentialsTab({ canManage }: { canManage: boolean }) {
                   )}
 
                   <div className="wb-field">
-                    <label>{t('Set / Rotate API Key', '设置 / 轮换密钥（只写）')}</label>
+                    <label htmlFor={`key-${item.provider}`}>{t('Set / Rotate API Key', '设置 / 轮换密钥（只写）')}</label>
                     <input
+                      id={`key-${item.provider}`}
                       type="password"
                       autoComplete="new-password"
                       className="wb-input"
@@ -203,7 +213,7 @@ export function ProviderCredentialsTab({ canManage }: { canManage: boolean }) {
                     <button
                       type="button"
                       className="ds-btn ds-btn--ghost"
-                      disabled={!item.configured}
+                      disabled={!item.configured || probing !== null || (Boolean(confirmLive[item.provider]) && !networkEnabled)}
                       onClick={() => handleTest(item.provider)}
                     >
                       <Play size={12} /> {confirmLive[item.provider] ? t('Live Probe', '真实探测') : t('Dry Check', '本地校验')}
@@ -230,12 +240,12 @@ export function ProviderCredentialsTab({ canManage }: { canManage: boolean }) {
                   </div>
 
                   {probe && (
-                    <div className={`wb-alert ${probe.ok ? 'wb-alert--success' : 'wb-alert--error'}`} style={{ fontSize: 11 }}>
+                    <div role={probe.ok ? 'status' : 'alert'} className={`wb-alert ${probe.ok ? 'wb-alert--success' : 'wb-alert--error'}`} style={{ fontSize: 11 }}>
                       {probe.text}
                     </div>
                   )}
                 </div>
-              </div>
+              </section>
             </div>
           );
         })}

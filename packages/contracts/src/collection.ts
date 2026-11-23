@@ -141,7 +141,11 @@ export const Source = strictMerge([
   ]),
   Type.Object({
     id: Id,
-    state: Type.Union([Type.Literal("active"), Type.Literal("paused"), Type.Literal("archived")]),
+    state: Type.Union([
+      Type.Literal("active"),
+      Type.Literal("paused"),
+      Type.Literal("archived"),
+    ]),
     createdAt: DateTime,
     updatedAt: DateTime,
     primaryProvider: Type.String({ minLength: 1, maxLength: 64 }),
@@ -159,6 +163,7 @@ export const Source = strictMerge([
     lastCheckedAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
     lastSuccessAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
     automaticCollectionBlocked: Type.Optional(Type.Boolean()),
+    usageDomain: Type.Optional(Type.Union([Type.Literal("research"), Type.Literal("feed")])),
     coverage: Type.Union([Type.Literal("unknown"), Type.Literal("partial")]),
   }),
 ]);
@@ -171,6 +176,10 @@ export const CredentialProvider = Type.Union([
 export const PlanPolicyInput = Type.Object(
   {
     manualCollectEnabled: Type.Boolean(),
+    maxProjects: Type.Optional(Type.Integer({minimum:1,maximum:100})),
+    maxLookbackDays: Type.Optional(Type.Integer({minimum:1,maximum:365})),
+    allowProviderChoice: Type.Optional(Type.Boolean()),
+    exportEnabled: Type.Optional(Type.Boolean()),
     allowedProviders: Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { maxItems: 20, uniqueItems: true }),
     allowedSourceIds: Type.Union([Type.Array(Id, { maxItems: 1000, uniqueItems: true }), Type.Null()]),
     dailyRequests: Type.Union([Type.Integer({ minimum: 0, maximum: 100000 }), Type.Null()]),
@@ -211,9 +220,15 @@ export const Ingest = Type.Object(
 
 export const Collect = Type.Object(
   {
-    from: DateTime, to: DateTime, limit: Type.Integer({ minimum: 1, maximum: 300 }),
-    includeComments: Type.Optional(Type.Boolean()), useFallback: Type.Optional(Type.Boolean()),
-    maxCommentsPerPost: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+    from: DateTime,
+    to: DateTime,
+    limit: Type.Integer({ minimum: 1, maximum: 300 }),
+    includeComments: Type.Optional(Type.Boolean()),
+    useFallback: Type.Optional(Type.Boolean()),
+    maxCommentsPerPost: Type.Optional(
+      Type.Integer({ minimum: 1, maximum: 50 }),
+    ),
+    projectId: Type.Optional(Id),
   },
   { additionalProperties: false },
 );
@@ -241,3 +256,51 @@ export interface SourceCapability {
   metrics: MetricDefinition[]; observationModel: "archive" | "snapshot"; limitations: string[];
   refreshByIds?: boolean; requestResourceUpperBound?: number; automaticRequestReplay?: boolean;
 }
+
+const SourcePatch = Type.Partial(Type.Pick(SourceInput, [
+  "label", "sourceGroup", "tags", "locale", "fetchPolicy", "schedule", "tier", "ownerEntityId",
+]));
+
+export const SourceUpdate = strictMerge([
+  SourcePatch,
+  Type.Object({
+    fallbackProvider: Type.Optional(Type.Union([FallbackProvider, Type.Null()])),
+    state: Type.Optional(Source.properties.state),
+    revision: Type.Integer({ minimum: 1 }),
+  }),
+]);
+
+export const ResearchPlanPreviewInput = Type.Object(
+  {
+    projectId: Type.Optional(Id),
+    sourceId: Type.Optional(Id),
+    platform: Type.Optional(Type.Union([Type.Literal("reddit"), Type.Literal("x"), Type.Literal("bluesky")])),
+    targetType: Type.Optional(Type.Union([Type.Literal("community"), Type.Literal("account"), Type.Literal("search")])),
+    targetValue: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
+    from: DateTime,
+    to: DateTime,
+    limit: Type.Integer({ minimum: 1, maximum: 300 }),
+    includeComments: Type.Optional(Type.Boolean()),
+    maxCommentsPerPost: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+    useFallback: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+
+export type ResearchPlanPreviewRequest = Static<typeof ResearchPlanPreviewInput>;
+
+export type ResearchCollectionRestriction =
+  | "target_unavailable" | "manual_disabled" | "provider_choice" | "scope_limit"
+  | "provider_unavailable" | "charge_unresolved" | "source_inactive" | "source_access"
+  | "budget_unavailable" | "quota_exhausted" | "unsupported_scope";
+
+export const BatchVisibilityInput = Type.Object(
+  { visibility: Type.Union([Type.Literal("private"), Type.Literal("shared")]) },
+  { additionalProperties: false },
+);
+
+export const REDDIT_ARCHIVE_SOURCE_TAG = "reddit-archive";
+export type CollectionSourceInput = Static<typeof SourceInput>;
+export type CollectionSourceUpdate = Static<typeof SourceUpdate>;
+export type CollectionSourcePreview = Static<typeof SourcePreview>;
+export type CollectionSourceImport = Static<typeof SourceImportInput>;

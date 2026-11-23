@@ -332,7 +332,11 @@ export async function credentialRoutes(
           reason: res.ok ? "Provider endpoint reachable" : `HTTP ${res.status}`,
         };
       } catch (error) {
-        const reason = error instanceof Error ? error.message : "Upstream probe failed";
+        const cause = error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
+        const code = cause && typeof cause === "object" && "code" in cause && typeof (cause as { code?: unknown }).code === "string"
+          ? (cause as { code: string }).code : null;
+        const base = error instanceof Error ? error.message : "Upstream probe failed";
+        const reason = code && /^[A-Z0-9_]{2,40}$/.test(code) && !base.includes(code) ? `${base} (${code})` : base;
         return { ok: false, mode: "live", reason };
       }
     },

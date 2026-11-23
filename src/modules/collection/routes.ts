@@ -1,3 +1,4 @@
+import { providerBudgetBounds } from "../../../packages/contracts/src/collection-budget";
 import { createHash, randomUUID } from "node:crypto";
 import { Type, type Static } from "@sinclair/typebox";
 import type { FastifyInstance } from "fastify";
@@ -23,7 +24,9 @@ import { notifyChannel } from "../../platform/pg-notify";
 import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
 import { canonical, commitContentBatch, prepareContentBatch } from "../content/index";
-import { sourcePreviewRoute, validateFallback, validateSource } from "./config";
+import { collectionRequestRestriction, isCollectionBudgetDisabled, sourcePreviewRoute, validateFallback, validateSource } from "./config";
+import { batchRoutes, recordCommittedBatch, type RequireWritableProject } from "./batches";
+import { planRoutes } from "./plans";
 import { sourceImportRoute } from "./import";
 import { admitViewerCollection, viewerCollectionDemand } from "./policy";
 import { assertSource, audit, insertSource, listPublicSources, listSources, lockSource } from "./sql";
@@ -104,32 +107,6 @@ async function applySourcePatch(
   return { updated: true };
 }
 
-function assertProviderCollectLimits(
-  providerName: string,
-  platform: string,
-  targetType: string,
-  limit: number,
-  includeComments: boolean,
-  maxCommentsPerPost?: number,
-) {
-  const maxComments = maxCommentsPerPost ?? 15;
-  if (providerName === "kaix" && targetType !== "post" && limit * (includeComments ? maxComments + 1 : 1) > 2000) {
-    fail(422, "Requested batch exceeds 2000 nodes");
-  }
-  if (providerName === "bluesky_appview" && (limit > 100 || includeComments)) {
-    fail(422, "Bluesky supports at most 100 authored posts per request");
-  }
-  if ((providerName === "twitterapis" && includeComments) || (providerName === "scrapebadger" && (limit > 100 || includeComments))) {
-    fail(422, "X collection exceeds the provider page limit or requests comments");
-  }
-  if (providerName === "red_crawler" && (limit > (targetType === "post" ? 50 : 100) || (includeComments && targetType !== "post"))) {
-    fail(422, "red_crawler supports one bounded search or post comment run per task");
-  }
-  if (platform === "web" && (limit > 100 || includeComments)) {
-    fail(422, "Web collection supports up to 100 articles per task");
-  }
-}
-
 function validateCollectWindowAndProvider(
   source: import("pg").QueryResultRow,
   body: Static<typeof Collect>,
@@ -142,17 +119,22 @@ function validateCollectWindowAndProvider(
   const provider = providers.find(
     (item) => item.capability.provider === providerName && item.capability.platform === source.platform,
   );
-  assertProviderCollectLimits(providerName, source.platform, source.target.type, body.limit, Boolean(body.includeComments), body.maxCommentsPerPost);
+  const restriction = collectionRequestRestriction(providerName, source.platform, source.target.type, body);
+  if (restriction) fail(422, restriction);
   if (!provider?.capability.enabled) fail(422, "Provider networking is disabled or credentials are missing");
   if (source.automatic_collection_blocked) fail(409, "Collection is blocked pending review of an unresolved operation");
   return providerName as string;
 }
 
-export async function collectionRoutes(app: FastifyInstance, pool: Pool, providers: ContentProvider[]) {
+export async function collectionRoutes(app: FastifyInstance, pool: Pool, providers: ContentProvider[], requireWritableProject?: RequireWritableProject,
+  listProjectBatchIds?: (db: Pool, actor: Actor, id: string) => Promise<string[]>,
+) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   sourcePreviewRoute(app, providers);
   await sourceImportRoute(app, pool, providers);
-
+  await batchRoutes(app, pool, requireWritableProject && listProjectBatchIds
+    ? { assertWritable: requireWritableProject, listBatchIds: listProjectBatchIds } : undefined);
+  await planRoutes(app, pool, providers, requireWritableProject);
   api.get(
     "/v1/public/sources",
     {
@@ -214,11 +196,11 @@ export async function collectionRoutes(app: FastifyInstance, pool: Pool, provide
         body: Type.Object(
           {
             enabled: Type.Boolean(),
-            dailyRequests: Type.Integer({ minimum: 0, maximum: 1000000 }),
-            monthlyRequests: Type.Integer({ minimum: 0, maximum: 10000000 }),
-            dailyResources: Type.Integer({ minimum: 0, maximum: 100000000 }),
-            monthlyResources: Type.Integer({ minimum: 0, maximum: 1000000000 }),
-            minimumIntervalMs: Type.Integer({ minimum: 0, maximum: 3600000 }),
+            dailyRequests: Type.Integer(providerBudgetBounds.dailyRequests),
+            monthlyRequests: Type.Integer(providerBudgetBounds.monthlyRequests),
+            dailyResources: Type.Integer(providerBudgetBounds.dailyResources),
+            monthlyResources: Type.Integer(providerBudgetBounds.monthlyResources),
+            minimumIntervalMs: Type.Integer(providerBudgetBounds.minimumIntervalMs),
             revision: Type.Integer({ minimum: 1 }),
           },
           { additionalProperties: false },
@@ -303,9 +285,10 @@ export async function collectionRoutes(app: FastifyInstance, pool: Pool, provide
         }
         const jobId = randomUUID();
         await client.query(
-          `INSERT INTO source_collection_job(id,collection_source_id,status,purpose,operation,provider,ingest_key,payload_hash,next_run_at,created_at)
-          VALUES($1,$2,'succeeded','ingest','ingest','external_ingest',$3,$4,NOW(),NOW())`,
-          [jobId, source.id, key, hash],
+          `INSERT INTO source_collection_job(id,collection_source_id,status,purpose,operation,provider,ingest_key,payload_hash,
+            next_run_at,created_at,requested_by_user_id,requested_by_client_kind)
+          VALUES($1,$2,'succeeded','ingest','ingest','external_ingest',$3,$4,NOW(),NOW(),$5,$6)`,
+          [jobId, source.id, key, hash, request.actor!.userId, request.actor!.clientKind],
         );
         const counts = await commitContentBatch(
           client,
@@ -314,8 +297,21 @@ export async function collectionRoutes(app: FastifyInstance, pool: Pool, provide
           batch,
           new Date().toISOString(),
         );
+        const committed = await recordCommittedBatch(client, {
+          jobId,
+          sourceId: source.id,
+          sourceLabel: source.label,
+          userId: request.actor!.userId ?? null,
+          contentIds: counts.contentIds,
+        });
         reply.code(201);
-        const result = { jobId, ...counts, accepted: request.body.items.length };
+        const result = {
+          jobId,
+          batchId: committed.batchId,
+          added: counts.added,
+          updated: counts.updated,
+          accepted: request.body.items.length,
+        };
         await client.query(
           "UPDATE source_collection_job SET result_summary=$2,records_processed=$3,records_inserted=$4,records_updated=$5,finished_at=NOW() WHERE id=$1",
           [jobId, result, result.accepted, counts.added, counts.updated],
@@ -333,24 +329,38 @@ export async function collectionRoutes(app: FastifyInstance, pool: Pool, provide
     },
     async (request) => {
       const outcome = await transaction(pool, async (client) => {
-        const source = await lockSource(client, request.actor!, request.params.id);
+        const source = await lockSource(
+          client,
+          request.actor!,
+          request.params.id,
+        );
+        if (request.body.projectId) {
+          if (request.actor!.clientKind !== "browser") fail(403, "Browser session required");
+          if (!requireWritableProject) fail(500, "Project scope resolver is unavailable");
+          await requireWritableProject(client, request.actor!, request.body.projectId);
+        }
         const key = request.headers["idempotency-key"];
-        const previous = (
-          await client.query(
-            "SELECT id,request_json FROM source_collection_job WHERE collection_source_id=$1 AND request_key=$2 AND purpose='collect' AND operation='radar'",
-            [source.id, key],
-          )
-        ).rows[0];
+        const previous = (await client.query(
+          "SELECT id,request_json,requested_by_user_id,requested_by_client_kind FROM source_collection_job WHERE collection_source_id=$1 AND request_key=$2 AND purpose='collect' AND operation='radar'",
+          [source.id, key],
+        )).rows[0];
         if (previous) {
-          if (canonical(previous.request_json) !== canonical(request.body)) {
+          if (previous.requested_by_client_kind !== request.actor!.clientKind ||
+              previous.requested_by_user_id !== (request.actor!.userId ?? null) ||
+              canonical(previous.request_json) !== canonical(request.body))
             fail(409, "Idempotency key already used with different request");
-          }
           return { jobId: previous.id, created: false };
         }
         const providerName = validateCollectWindowAndProvider(source, request.body, providers);
-        const pageSize = providerName === "twitterapis" ? Math.min(request.body.limit, 20) : request.body.limit;
+        if (request.body.projectId && await isCollectionBudgetDisabled(client, providerName))
+          fail(409, "System channel budget is disabled or zero");
+        const pageSize =
+          providerName === "twitterapis" ? Math.min(request.body.limit, 20) : request.body.limit;
         await admitViewerCollection(client, request.actor!, {
           sourceId: source.id,
+          from: request.body.from,
+          to: request.body.to,
+          useFallback: request.body.useFallback,
           ...viewerCollectionDemand(providerName, source.target.type, pageSize, request.body),
         });
         const id = randomUUID();
@@ -375,7 +385,8 @@ export async function collectionRoutes(app: FastifyInstance, pool: Pool, provide
       return {
         jobs: (
           await pool.query(
-            `SELECT id,status,operation,provider,provider_state,records_processed,error,created_at
+            `SELECT id,collection_source_id,status,purpose,operation,provider,provider_state,records_processed,
+               records_inserted,records_updated,error,created_at,finished_at,requested_by_client_kind
              FROM source_collection_job
              WHERE collection_source_id=$1
                AND ($2 OR (requested_by_user_id=$3 AND requested_by_client_kind='browser'))

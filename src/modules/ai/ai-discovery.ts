@@ -9,7 +9,7 @@ import {
   matchExistingRelease,
 } from "./ai-event-identity";
 import { isOfficialVendorUrl } from "./ai-registry";
-import { extractWithOptionalLlm } from "./ai-llm";
+import { extractWithOptionalLlm, llmDailyBudget, llmRequestsReservedToday } from "./ai-llm";
 
 export interface OfficialArticleRow {
   contentId: string;
@@ -368,9 +368,11 @@ export async function rollbackAiEvent(
   });
 }
 
-export async function getAiOpsSummary(pool: Pool, days = 7) {
+export type ReadWorkerHealth = (pool: Pool) => Promise<{ state: string; lastHeartbeatAt: Date; heartbeatFresh: boolean } | null>;
+
+export async function getAiOpsSummary(pool: Pool, days = 7, readWorkerHealth?: ReadWorkerHealth) {
   const safeDays = Math.min(30, Math.max(1, days));
-  const [auditCounts, openAlerts, recentRuns, vendorPolicy] = await Promise.all([
+  const [auditCounts, openAlerts, recentRuns, vendorPolicy, llmReserved, worker] = await Promise.all([
     pool.query<{ mode: string; count: number }>(
       `SELECT mode, COUNT(*)::int AS count FROM ai_auto_publish_audit
        WHERE created_at >= NOW() - make_interval(days => $1) GROUP BY mode`,
@@ -392,12 +394,19 @@ export async function getAiOpsSummary(pool: Pool, days = 7) {
       `SELECT id, slug, name, auto_publish_enabled AS "autoPublishEnabled", official_domains AS "officialDomains"
        FROM ai_vendor ORDER BY display_order ASC`,
     ),
+    llmRequestsReservedToday(pool),
+    readWorkerHealth?.(pool) ?? null,
   ]);
   const counts = Object.fromEntries(auditCounts.rows.map((r) => [r.mode, r.count]));
   return {
     windowDays: safeDays,
     shadowMode: process.env.AI_AUTO_PUBLISH_SHADOW === "true",
-    llmConfigured: Boolean(process.env.AI_LLM_API_URL && process.env.AI_LLM_API_KEY),
+    schedulerConfigured: process.env.AI_SYNC_ENABLED === "true",
+    collectionWorker: worker,
+    llmBudget: { dailyLimit: llmDailyBudget(), reservedToday: llmReserved },
+    sourceNetworkingConfigured: process.env.SOURCE_NETWORK_ENABLED === "true",
+    llmConfigured: Boolean(process.env.AI_LLM_API_URL?.trim() && process.env.AI_LLM_API_KEY?.trim()),
+    aaKeyConfigured: Boolean(process.env.ARTIFICIAL_ANALYSIS_API_KEY?.trim()),
     aaPublicRedistribution: process.env.ARTIFICIAL_ANALYSIS_PUBLIC_REDISTRIBUTION === "true",
     metrics: {
       autoPublished: counts.auto_publish ?? 0,

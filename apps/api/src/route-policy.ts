@@ -36,10 +36,23 @@ const VIEWER_ALLOWED_POSTS = new Set([
   "/v1/auth/mfa/recovery-codes",
   "/v1/sources/:id/collect",
   "/v1/sources/:id/refresh",
+  "/v1/research/collection-plans/preview",
+  "/v1/projects",
   "/v1/projects/:id/hydrate",
+  "/v1/projects/:id/batches",
   "/v1/source-jobs/:id/cancel",
   "/v1/source-jobs/:id/retry",
   "/v1/source-jobs/:id/continue",
+]);
+
+const VIEWER_ALLOWED_PATCHES = new Set([
+  "/v1/projects/:id",
+  "/v1/projects/:id/batches/:batchId",
+]);
+
+const VIEWER_ALLOWED_DELETES = new Set([
+  "/v1/auth/sessions/:id",
+  "/v1/projects/:id",
 ]);
 
 export interface ResolvedRoutePolicy {
@@ -62,6 +75,7 @@ export function resolveMachineScope(method: string, route: string): Scope | null
     return "collect";
   }
   if (route.startsWith("/v1/source-jobs")) return isRead ? "read" : "collect";
+  if (route.startsWith("/v1/batches")) return isRead ? "read" : null;
   if (route.endsWith("/unblock")) return "collect";
   if (route.startsWith("/v1/content") || DOC_READ_ROUTES.includes(route)) return isRead ? "read" : null;
   if (route === "/v1/public/sources") return isRead ? "read" : null;
@@ -140,7 +154,8 @@ function resolveLegacyPolicy(
   const credentialSubmission =
     accountPublicPost || (upper === "POST" && (route === "/v1/auth/login" || route === "/v1/auth/register"));
   const viewerAllowedWrite =
-    (upper === "DELETE" && route === "/v1/auth/sessions/:id") ||
+    (upper === "DELETE" && VIEWER_ALLOWED_DELETES.has(route)) ||
+    (upper === "PATCH" && VIEWER_ALLOWED_PATCHES.has(route)) ||
     (upper === "POST" && VIEWER_ALLOWED_POSTS.has(route));
   const viewerAllowed = publicRoute || isRead || route.startsWith("/v1/workspace/") || viewerAllowedWrite;
   const requiresRecentMfa = isPrivilegedWrite(upper, route);

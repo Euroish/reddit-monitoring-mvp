@@ -5,6 +5,7 @@ import {
   pruneAccessArtifacts,
 } from "../../../src/modules/access/index";
 import { startAiSyncScheduler } from "../../../src/modules/ai/index";
+import { attachBatchToProjectInTx } from "../../../src/modules/projects/index";
 import { createCredentialVault, startWorker } from "../../../src/modules/collection/index";
 import { BlueskyAppViewContentConnector } from "../../../src/connectors/bluesky/bluesky-appview-content.connector";
 import { createApifyFetch } from "../../../src/connectors/reddit/apify-fetch";
@@ -94,6 +95,7 @@ export async function main() {
     });
     const worker = startWorker(workerPool, providers, (error) =>
       app.log.error({ err: error }, "Collection worker failed"),
+      attachBatchToProjectInTx,
     );
     const stopAiScheduler = startAiSyncScheduler(workerPool);
     const sessionCleanup = setInterval(() => {
