@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { chromium } from "playwright";
@@ -181,7 +181,7 @@ test("browser: source operations by domain, scheduling, paid block and role boun
   await page.getByRole("heading", { name: "关联共享专题" }).waitFor();
   await page.reload();
   await page.getByRole("heading", { name: "关联共享专题" }).waitFor();
-  for (const width of [1280, 390, 1440]) {
+  for (const width of [1280, 768, 390, 1440]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await capture(`research-normal-${width}`);
@@ -196,7 +196,7 @@ test("browser: source operations by domain, scheduling, paid block and role boun
   assert.equal(await page.getByRole("button", { name: "确认并解除封锁" }).isDisabled(), true);
   assert.equal(await page.getByText("HTTP 502 fixture").isVisible(), false);
   await capture("research-blocked-1440");
-  await page.getByRole("button", { name: "采集计划", exact: true }).click();
+  await page.getByRole("tab", { name: "采集计划", exact: true }).click();
   assert.equal(await page.getByRole("button", { name: "提交采集任务" }).isDisabled(), true);
 
   await page.goto(origin + feedPath);
@@ -230,18 +230,18 @@ test("browser: source operations by domain, scheduling, paid block and role boun
   await scheduleDueSourcesOnce(db.pool, [feed]);
   assert.equal(await workOnce(db.pool, [feed]), false);
   assert.equal((await sources()).find((source: { id: string }) => source.id === feedId).nextDueAt, null);
-  for (const width of [1280, 1440, 1920, 390]) {
+  for (const width of [1280, 1440, 1920, 768, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await capture(`feed-normal-${width}`);
   }
-  await page.getByRole("button", { name: "抓取与更新", exact: true }).click();
+  await page.getByRole("tab", { name: "抓取与更新", exact: true }).click();
   await page.getByRole("button", { name: "预览抓取", exact: true }).click();
   await page.getByRole("button", { name: "执行预览抓取" }).click();
   await page.getByRole("dialog").getByText("Source operations article", { exact: true }).waitFor();
   await capture("feed-preview-390");
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "任务记录", exact: true }).click();
+  await page.getByRole("tab", { name: "任务记录", exact: true }).click();
   await page.getByText("已成功 · 入库 1", { exact: true }).waitFor();
 
   assert.ok((await post("/auth/logout", {})).ok());
@@ -386,6 +386,9 @@ test("browser: project switching and guided intake with real project and role bo
   await page.waitForURL(`**/projects?view=overview&projectId=${sharedId}`);
   await page.reload();
   await selectProject.filter({ hasText: "系统共享研究" }).waitFor();
+  await page.getByText("暂无趋势数据", { exact: true }).first().waitFor();
+  assert.equal(await page.locator(".kpi-strip canvas").count(), 0);
+  await capture("empty-project-analysis-1440");
   await page.setViewportSize({ width: 1280, height: 900 });
   await selectProject.click();
   await capture("switcher-1280");
@@ -405,13 +408,21 @@ test("browser: project switching and guided intake with real project and role bo
   await preflight.click();
   await page.getByText("预检通过，可确认提交", { exact: true }).waitFor();
   assert.equal(await confirm.isDisabled(), true);
+  await page.getByLabel("我已核对预计用量并确认本次采集。").check();
+  await page.clock.setFixedTime(new Date(Date.now() + 6 * 60_000));
+  await confirm.click();
+  await page.getByRole("alert").filter({ hasText: "预检估算已过期" }).waitFor();
+  assert.equal(upstreamCalls, 0);
+  await page.clock.setFixedTime(new Date());
+  await preflight.click();
+  await page.getByText("预检通过，可确认提交", { exact: true }).waitFor();
   await page.getByRole("button", { name: "修改目标与范围" }).click();
   await page.getByLabel("本次条数上限").fill("10");
   assert.equal(await confirm.count(), 0);
   await preflight.click();
   await page.getByText("预检通过，可确认提交", { exact: true }).waitFor();
   await capture("pro-preflight-1440");
-  for (const width of [1280, 390]) {
+  for (const width of [1280, 768, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await capture(`pro-preflight-${width}`);
@@ -439,6 +450,44 @@ test("browser: project switching and guided intake with real project and role bo
   await page.waitForURL(/view=batches.*batchId=/);
   assert.equal(new URL(page.url()).searchParams.get("batchId"), privateBatchId);
   assert.equal(upstreamCalls, 1);
+
+  await page.goto(origin + `/projects?view=overview&projectId=${secondId}`);
+  const analytics = page.getByRole("group", { name: "分析展示模式" });
+  await analytics.getByRole("button", { name: "合并总览" }).waitFor();
+  await page.getByRole("group", { name: "时间窗口" }).getByRole("button", { name: "7d" }).click();
+  assert.equal(await page.getByRole("button", { name: "近 7 天", exact: true }).getAttribute("aria-pressed"), "true");
+  await page.getByRole("button", { name: "6h", exact: true }).click();
+  await page.getByLabel("按 UTC 六小时分桶与平台的内容量").waitFor();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出证据样本（CSV）" }).click();
+  const csv = await readFile(await (await downloadPromise).path(), "utf8");
+  assert.match(csv, /Evidence from guided research intake/);
+
+  for (const width of [1440, 1280, 768, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await capture(`project-analysis-${width}`);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await selectProject.click();
+  const defaultPanel = await switcher.evaluate(el => getComputedStyle(el).getPropertyValue("--wb-purple").trim());
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "界面皮肤与配色方案" }).click();
+  await page.getByRole("button", { name: /冰川青灰 × 锐利钴蓝/ }).click();
+  await page.getByRole("checkbox", { name: "工作台同步跟随主辅色调" }).check();
+  await page.getByRole("button", { name: "Close palette studio" }).click();
+  await selectProject.click();
+  assert.notEqual(await switcher.evaluate(el => getComputedStyle(el).getPropertyValue("--wb-purple").trim()), defaultPanel);
+  await capture("switcher-theme-1440");
+  await page.keyboard.press("Escape");
+
+  await analytics.getByRole("button", { name: "分平台独立视图" }).click();
+  await page.getByRole("button", { name: "钻取", exact: true }).click();
+  await page.waitForURL(/\/content\?/);
+  const drilldown = new URL(page.url()).searchParams;
+  assert.equal(drilldown.get("projectId"), secondId);
+  assert.equal(drilldown.get("platform"), "x");
+  assert.equal(Date.parse(drilldown.get("to")!) - Date.parse(drilldown.get("from")!), 7 * 86_400_000);
 
   await logout();
   await login("free@example.test");

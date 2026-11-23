@@ -1,0 +1,25 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@source "../components/ui";
+
+@theme inline {
+  --color-background: var(--wb-canvas);
+  --color-foreground: var(--ink);
+  --color-card: var(--wb-card);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--wb-card);
+  --color-popover-foreground: var(--ink);
+  --color-primary: var(--ink);
+  --color-primary-foreground: var(--white);
+  --color-secondary: var(--wb-tint);
+  --color-secondary-foreground: var(--ink);
+  --color-muted: var(--wb-border-soft);
+  --color-muted-foreground: var(--muted);
+  --color-accent: var(--wb-active);
+  --color-accent-foreground: var(--wb-purple-deep);
+  --color-destructive: #a8462f;
+  --color-border: var(--wb-border);
+  --color-input: var(--line-2);
+  --color-ring: var(--wb-purple);
+}

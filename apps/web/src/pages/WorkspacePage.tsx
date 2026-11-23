@@ -1,3 +1,4 @@
+import { Card } from '../components/ui/card';
 import { useState } from 'react';
 import { ArrowUpRight, Bookmark, ChevronRight, Heart, Play, Plus, Star, Trash2, Users } from 'lucide-react';
 import {
@@ -251,7 +252,7 @@ export function WorkspacePage({
           </div>
 
           <div className="c4">
-            <div className="ds-card" style={{ height: '100%' }}>
+            <Card className="ds-card" style={{ height: '100%' }}>
               <div className="ds-card-hd">
                 <div>
                   <div className="ds-card-title">{t('Research Summary', '研究记录概览')}</div>
@@ -280,7 +281,7 @@ export function WorkspacePage({
                   {t('Continue →', '继续研判 →')}
                 </button>
               </div>
-            </div>
+            </Card>
           </div>
         </div>
       )}

@@ -7,6 +7,8 @@ import {
   formatSourceTarget, generateUuidV4, type Actor, type CollectionSource, type Project,
   type ResearchPlanPreviewRequest, type ResearchPlanPreviewResponse,
 } from '../contracts/api';
+import { Alert } from './ui/alert';
+import { Button } from './ui/button';
 import { useI18n } from '../i18n/translations';
 import { isResearchSource } from '../lib/collectionLimits';
 
@@ -101,6 +103,7 @@ export function ProjectCollectView({ actor, project, sources, onNavigate }: {
   useEffect(() => { if (phase !== 'choice') intake.current?.focus(); }, [phase]);
 
   function move(next: Phase) {
+    collect.reset();
     setError('');
     setPlan(null);
     setCostConfirmed(false);
@@ -137,6 +140,7 @@ export function ProjectCollectView({ actor, project, sources, onNavigate }: {
     setError('');
     try {
       const result = await preview.mutateAsync(request);
+      if (!mounted.current) return;
       setPlan({ request, result, expiresAt, idempotencyKey: generateUuidV4() });
       setCostConfirmed(false);
       setPhase('review');
@@ -191,7 +195,7 @@ export function ProjectCollectView({ actor, project, sources, onNavigate }: {
 
   const visibleBatches = batches.data?.batches.filter(batch => batch.usageDomain
     ? batch.usageDomain === 'research' : batch.platform !== 'web');
-  const notice = error && <p role="alert" className="wb-alert wb-alert--error">{error}</p>;
+  const notice = error && <Alert variant="destructive" className="wb-alert wb-alert--error">{error}</Alert>;
   const remaining = (cap: number | null, used: number) => cap === null ? t('Unlimited', '不设上限') : Math.max(0, cap - used);
   return <section ref={intake} tabIndex={-1} className="ds-card intake-panel" aria-label={t('Project data ingestion', '项目数据接入')}>
     {(phase === 'target' || phase === 'review') && <ol className="source-wizard-steps" aria-label={t('Collection steps', '采集步骤')}>
@@ -292,9 +296,9 @@ export function ProjectCollectView({ actor, project, sources, onNavigate }: {
         <button type="button" className="ds-btn ds-btn--ghost" disabled={collect.isPending || attach.isPending} onClick={() => move('target')}>{t('Edit target and scope', '修改目标与范围')}</button>
         {plan.result.resolutionStatus === 'needs_admin_source' && <button type="button" className="ds-btn ds-btn--ghost" onClick={chooseRegisteredSource}>{t('Choose registered source', '选择已登记研究源')}</button>}
         {isAdmin && !plan.result.executable && <a className="ds-btn ds-btn--ghost" href="/sources?tab=sources&domain=research">{t('Manage research sources', '管理研究来源')}</a>}
-        {plan.result.executable && <button type="button" className="ds-btn" disabled={!costConfirmed || collect.isPending || attach.isPending} onClick={() => void confirm()}>
+        {plan.result.executable && <Button type="button" className="ds-btn" disabled={!costConfirmed || collect.isPending || attach.isPending} onClick={() => void confirm()}>
           {collect.isPending ? t('Submitting…', '正在提交…') : t('Confirm and start collection', '确认并发起采集')}
-        </button>}
+        </Button>}
       </div>
       {plan.result.reusableBatches.length > 0 && <section className="intake-batches">
         <h3>{t('Authorized batches for this source', '该来源的授权批次')}</h3>

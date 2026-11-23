@@ -1,4 +1,6 @@
 import { formatApiError, useContentListQuery, useProjectsQuery, useSourceJobsQuery } from '../api/hooks';
+import { Card } from './ui/card';
+import { Skeleton } from './ui/skeleton';
 import type { CollectionSource } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
 import { sourceNeedsAttention } from '../lib/collectionLimits';
@@ -14,7 +16,7 @@ export function SourceDomainSummary({ sources, domain }: { sources: CollectionSo
     [research ? t('Needs attention', '需处理的来源') : t('Fetch or parse alerts', '需检查抓取或解析'), active.filter(sourceNeedsAttention).length],
   ];
   return <dl className="source-domain-summary">{stats.map(([label, count]) => (
-    <div key={label}><dt>{label}</dt><dd>{count}</dd></div>
+    <Card key={label}><dt>{label}</dt><dd>{count}</dd></Card>
   ))}</dl>;
 }
 
@@ -35,12 +37,17 @@ export function ResearchSourceProjects({ sourceId }: { sourceId: string }) {
   </section>;
 }
 
-export function FeedSourcePreview({ sourceId }: { sourceId: string }) {
+export function FeedSourcePreview({ source }: { source: CollectionSource }) {
   const { t } = useI18n();
+  const sourceId = source.id;
   const query = useContentListQuery({ sourceId, limit: 5 });
   return <section className="source-domain-section">
     <h3>{t('Recently stored stories', '最近入库资讯')}</h3>
-    {query.isPending && <p role="status">{t('Loading stories…', '正在加载资讯…')}</p>}
+    {source.health.lastNotModified && <p>{t('Last check found no changes.', '最近检查发现内容未更新。')}</p>}
+    {!source.health.lastNotModified && source.health.lastStatus === 'succeeded' && source.health.lastFetchedCount === 0 &&
+      <p>{t('Last fetch succeeded with no new items.', '最近抓取成功，暂无新内容。')}</p>}
+    {source.health.lastStatus === 'failed' && <p role="status">{t('Last fetch failed. Open diagnostics for the cause.', '最近抓取失败，可打开技术诊断查看原因。')}</p>}
+    {query.isPending && <div role="status"><span>{t('Loading stories…', '正在加载资讯…')}</span><Skeleton className="source-story-placeholder" /></div>}
     {query.isError && <p role="alert">{formatApiError(query.error)}</p>}
     {query.data?.items.length === 0 && <p>{t('No stories are stored yet. Run a fetch to populate this preview.', '此来源暂无入库资讯。可先执行一次抓取。')}</p>}
     {query.data && query.data.items.length > 0 && <ul className="source-story-list">{query.data.items.map(item => <li key={item.id}>

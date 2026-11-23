@@ -534,6 +534,7 @@ export function App() {
 
               {workbenchRoute === '/projects' && actor && (
                 <ProjectsPage
+                  key={new URLSearchParams(loc.search).get('projectId') ?? ''}
                   actor={actor}
                   selectedProjectId={selectedProjectId}
                   onSelectProjectId={setSelectedProjectId}

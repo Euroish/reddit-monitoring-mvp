@@ -4,7 +4,6 @@ import {
   ArrowUpRight,
   Calendar,
   Check,
-  ChevronRight,
   Copy,
   Database,
   Download,
@@ -15,9 +14,7 @@ import {
   MessageSquare,
   Plus,
   RefreshCw,
-  ShieldCheck,
   Sparkles,
-  Star,
   Target,
   Trash2,
   X,
@@ -34,6 +31,12 @@ import {
   useSourcesQuery,
   useUpdateProjectMutation,
 } from '../api/hooks';
+import { KpiCard } from '../components/workbench/KpiCard';
+import { Alert } from '../components/ui/alert';
+import { Card } from '../components/ui/card';
+import { Skeleton } from '../components/ui/skeleton';
+import { Badge } from '../components/ui/badge';
+import { Table } from '../components/ui/table';
 import { KpiSparkChart } from '../components/charts/KpiSparkChart';
 import { DailyTrendChart } from '../components/charts/DailyTrendChart';
 import { DistributionCards } from '../components/charts/DistributionCharts';
@@ -138,22 +141,36 @@ export function ProjectsPage({
   const overviewQuery = useProjectOverviewQuery(selectedProject?.id, selectedProject?.revision);
   const overview = overviewQuery.data;
 
-  const contentQuery = useContentListQuery(
-    { limit: 100, threadAware: selectedProject?.thread_aware ?? true },
-    selectedProject?.id,
-    Boolean(selectedProject?.id),
-  );
-  const rawItems = useMemo(() => contentQuery.data?.items ?? [], [contentQuery.data?.items]);
-
-  // DeepSeek Filter Bar Local State
   const [rangeDays, setRangeDays] = useState<7 | 30 | 90>(30);
+  const [windowEnd, setWindowEnd] = useState(() => Math.floor(Date.now() / 86_400_000) * 86_400_000 + 86_400_000);
+  const windowFrom = new Date(windowEnd - rangeDays * 86_400_000).toISOString();
+  const windowTo = new Date(windowEnd).toISOString();
+  const [threadAwareOverride, setThreadAware] = useState<boolean>();
+  const threadAware = threadAwareOverride ?? selectedProject?.thread_aware ?? true;
   const [filterPlatforms, setFilterPlatforms] = useState<Set<Platform>>(
     () => new Set<Platform>(['reddit', 'x', 'bluesky', 'web']),
   );
   const [filterSignal, setFilterSignal] = useState<'all' | 'pain' | 'discussion'>('all');
   const [filterKind, setFilterKind] = useState<'all' | ContentKind>('all');
+
+  const togglePlatform = (platform: Platform) => {
+    setFilterPlatforms(previous => {
+      const next = new Set(previous);
+      if (!next.has(platform)) next.add(platform);
+      else if (next.size > 1) next.delete(platform);
+      return next;
+    });
+  };
+
+  const contentQuery = useContentListQuery({
+    limit: 100, threadAware, from: windowFrom, to: windowTo,
+    kind: filterKind === 'all' ? undefined : filterKind,
+    deliveryMode: selectedProject?.dataset_mode === 'source_filter' && !selectedProject.include_push_in_trends
+      ? 'pull' : undefined,
+  }, selectedProject?.id, activeView === 'overview' && Boolean(selectedProject?.id));
+  const rawItems = useMemo(() => contentQuery.data?.items ?? [], [contentQuery.data?.items]);
+
   const [openFilterPop, setOpenFilterPop] = useState<'platforms' | 'signal' | 'kind' | 'share' | null>(null);
-  const [starred, setStarred] = useState(true);
   const [refreshSpin, setRefreshSpin] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
@@ -374,11 +391,10 @@ export function ProjectsPage({
   );
   const daySeriesValues = useMemo(() => dayBuckets.map((d) => d.count), [dayBuckets]);
   const utcRangeText = useMemo(() => {
-    if (dayBuckets.length === 0) return t('No UTC day buckets yet', '暂无 UTC 日分桶');
-    const first = dayBuckets[0].day!.slice(0, 10);
-    const last = dayBuckets[dayBuckets.length - 1].day!.slice(0, 10);
+    const first = windowFrom.slice(0, 10);
+    const last = new Date(windowEnd - 86_400_000).toISOString().slice(0, 10);
     return first === last ? `${first} UTC` : `${first} – ${last} UTC`;
-  }, [dayBuckets, t]);
+  }, [windowFrom, windowEnd]);
   const hasBoundPushSource = useMemo(
     () =>
       Boolean(
@@ -400,6 +416,9 @@ export function ProjectsPage({
     [filteredContent.length, painCount],
   );
 
+  const shareUrl = selectedProject ? new URL(
+    `/projects?view=overview&projectId=${encodeURIComponent(selectedProject.id)}`, window.location.origin,
+  ).href : '';
   const handleExportCsv = () => {
     const csvCell = (raw: unknown): string => {
       const str = String(raw ?? '').replace(/[\r\n]+/g, ' ');
@@ -409,7 +428,7 @@ export function ProjectsPage({
     const headers = ['id,platform,kind,title,score,publishedAt,providers'];
     const lines = filteredContent.map((c) => {
       const m = c.observations[c.observations.length - 1]?.metrics || {};
-      const sc = m['reddit.score'] ?? m['x.likes'] ?? m['bluesky.likes'] ?? 0;
+      const sc = m['reddit.score'] ?? m['x.likes'] ?? m['bluesky.likes'] ?? '';
       const provs = [...new Set(c.observations.map((o) => o.provider))].join('|');
       const title = (c.title || c.text || '').slice(0, 120);
       return [c.id, c.platform, c.kind, title, sc, c.publishedAt || 'null', provs]
@@ -470,31 +489,22 @@ export function ProjectsPage({
         <div>
           <div className="page-title-row">
             <h1 className="page-title">{selectedProject ? selectedProject.name : t('Monitoring Overview', '监测总览')}</h1>
-            <span className="state-chip">
-              <i className="dot" />
-              {t('Active', '运行中')}
-            </span>
-            <button
-              type="button"
-              className="icon-square"
-              style={{ width: 28, height: 28, border: 0, background: 'none' }}
-              onClick={() => setStarred((v) => !v)}
-              aria-label={t('Favorite project', '收藏项目')}
-            >
-              <Star size={15} fill={starred ? '#f0c75e' : 'none'} color={starred ? '#c99b1d' : '#a3aa9f'} />
-            </button>
+            {selectedProject && <Badge variant="secondary">
+              {selectedProject.dataset_mode === 'batch' ? t('Batch project', '批次型项目') : t('Source-filter project', '来源型项目')}
+            </Badge>}
           </div>
-          <p className="page-desc">
-            {selectedProject?.source_ids.length ?? 0} {t('bound sources', '个绑定来源')} · rev{' '}
-            {selectedProject?.revision ?? 1} · {t('Coverage:', '口径：')}{' '}
-            <b style={{ color: 'var(--ink-3)' }}>{overview?.coverage || 'stored_sample'}</b> ·{' '}
-            {selectedProject?.include_push_in_trends
-              ? t('Push/R4 included in trends', '趋势已计入推流/归档样本')
-              : hasBoundPushSource
-                ? t('Push/R4 excluded from trends (visible in explorer)', '推流/归档默认不计入趋势（内容库可见）')
-                : t('Resolved OR:', '固化词组：')}{' '}
-            {!hasBoundPushSource && ((overview?.resolvedFilter.anyTerms || []).join(', ') || t('All tokens', '全量词池'))}
-          </p>
+          {selectedProject && <p className="page-desc">
+            {selectedProject.dataset_mode === 'batch'
+              ? t(`${selectedProject.enabled_batch_count ?? '—'} enabled batches`, `${selectedProject.enabled_batch_count ?? '—'} 个启用批次`)
+              : t(`${selectedProject.source_ids.length} bound sources`, `${selectedProject.source_ids.length} 个绑定来源`)}
+            {' · '}{t('Revision', '版本')} {selectedProject.revision}
+            {overview && <> · {t('Coverage', '口径')} <b>{t('Stored samples', '已存样本')}</b></>}
+            {(selectedProject.dataset_mode === 'batch' || hasBoundPushSource) && <> · {
+              selectedProject.dataset_mode === 'batch' || selectedProject.include_push_in_trends
+                ? t('Trends include push samples', '趋势包含推流样本')
+                : t('Trends use pull samples', '趋势使用拉取样本')
+            }</>}
+          </p>}
         </div>
 
         <div className="page-actions" data-ov-pop>
@@ -502,7 +512,8 @@ export function ProjectsPage({
             <button
               type="button"
               className="ds-btn ds-btn--ghost"
-              onClick={() => setOpenFilterPop(openFilterPop === 'share' ? null : 'share')}
+              disabled={!selectedProject}
+              onClick={() => { setShareCopied(false); setOpenFilterPop(openFilterPop === 'share' ? null : 'share'); }}
             >
               <Link2 size={13} />
               <span>{t('Share', '分享')}</span>
@@ -511,24 +522,27 @@ export function ProjectsPage({
             {openFilterPop === 'share' && (
               <div className="ds-pop" style={{ top: 'calc(100% + 6px)', right: 0, width: 290 }}>
                 <div className="pop-hd">
-                  <span>{t('Share Read-Only View', '分享只读视图')}</span>
+                  <span>{t('Share project link', '分享项目链接')}</span>
                   <span>stored_sample</span>
                 </div>
                 <p style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.5, margin: '0 4px 10px' }}>
-                  {t('Share current filter fingerprint cleanly without exposing draft workspace annotations.', '分享当前筛选指纹与统计口径，不暴露个人批注草稿。')}
+                  {t('Recipients open the project with their existing access.', '接收者使用已有权限打开此项目。')}
                 </p>
                 <div style={{ display: 'flex', gap: 6, padding: '6px 8px', background: '#fbfcf7', border: '1px solid var(--line)', borderRadius: 5, alignItems: 'center' }}>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    siftline.app/p/{selectedProject?.id.slice(0, 8)}
+                    {shareUrl}
                   </span>
                   <button
                     type="button"
                     className="ds-btn"
                     style={{ height: 24, padding: '0 9px', fontSize: 10 }}
-                    onClick={() => {
-                      navigator.clipboard?.writeText(window.location.href).catch(() => {});
-                      setShareCopied(true);
-                      setTimeout(() => setShareCopied(false), 1800);
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(shareUrl);
+                        setShareCopied(true);
+                      } catch (err) {
+                        setPageBanner(formatApiError(err));
+                      }
                     }}
                   >
                     <Copy size={11} />
@@ -539,10 +553,11 @@ export function ProjectsPage({
             )}
           </div>
 
-          <button type="button" className="ds-btn ds-btn--ghost" onClick={handleExportCsv}>
+          {activeView === 'overview' && <button type="button" className="ds-btn ds-btn--ghost" onClick={handleExportCsv}
+            disabled={!contentQuery.isSuccess || filteredContent.length === 0}>
             <Download size={13} />
-            <span>{t('Export CSV', '导出 CSV')}</span>
-          </button>
+            <span>{t('Export evidence samples (CSV)', '导出证据样本（CSV）')}</span>
+          </button>}
 
           {canWrite && selectedProject && (
             <>
@@ -629,6 +644,15 @@ export function ProjectsPage({
               <CrossPlatformAnalyticsPanel
                 project={selectedProject}
                 items={rawItems}
+                rangeDays={rangeDays}
+                setRangeDays={setRangeDays}
+                from={windowFrom}
+                to={windowTo}
+                threadAware={threadAware}
+                setThreadAware={setThreadAware}
+                kind={filterKind === 'all' ? undefined : filterKind}
+                platforms={filterPlatforms}
+                togglePlatform={togglePlatform}
                 providers={overview?.providers ?? []}
                 onDrilldown={onDrilldown}
                 onOpenContentDetail={onOpenContentDetail}
@@ -644,6 +668,7 @@ export function ProjectsPage({
               key={r}
               type="button"
               className={rangeDays === r ? 'on' : ''}
+              aria-pressed={rangeDays === r}
               onClick={() => setRangeDays(r)}
             >
               {t(`Last ${r}d`, `近 ${r} 天`)}
@@ -670,17 +695,8 @@ export function ProjectsPage({
                   key={p}
                   type="button"
                   className={`pop-opt ${filterPlatforms.has(p) ? 'on' : ''}`}
-                  onClick={() => {
-                    setFilterPlatforms((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(p)) {
-                        if (next.size > 1) next.delete(p);
-                      } else {
-                        next.add(p);
-                      }
-                      return next;
-                    });
-                  }}
+                  aria-pressed={filterPlatforms.has(p)}
+                  onClick={() => togglePlatform(p)}
                 >
                   <span style={{ flex: 1, textTransform: p === 'x' ? 'uppercase' : 'capitalize' }}>{p}</span>
                   {filterPlatforms.has(p) && <Check size={13} color="var(--wb-purple)" />}
@@ -776,17 +792,13 @@ export function ProjectsPage({
 
         <span className="fb-spacer" />
 
-        <span className="fb-note">
-          <i className="dot" style={{ width: 6, height: 6, borderRadius: '50%', background: colors.teal, display: 'inline-block' }} />
-          {t('UTC Grouping Sets · Live Sync', 'UTC 聚合口径 · 已同步')}
-        </span>
-
         <button
           type="button"
           className="icon-square"
           style={{ width: 30, height: 30 }}
           onClick={() => {
             setRefreshSpin(true);
+            setWindowEnd(Math.floor(Date.now() / 86_400_000) * 86_400_000 + 86_400_000);
             overviewQuery.refetch();
             contentQuery.refetch();
             setTimeout(() => setRefreshSpin(false), 620);
@@ -824,127 +836,65 @@ export function ProjectsPage({
         </div>
       )}
 
+      {selectedProject && overviewQuery.isPending && (
+        <Skeleton className="project-overview-skeleton" role="status" aria-label={t('Loading project totals', '正在加载项目汇总')} />
+      )}
+      {overviewQuery.isError && (
+        <Alert variant="destructive" role="alert">
+          {formatApiError(overviewQuery.error)} <button type="button" onClick={() => void overviewQuery.refetch()}>{t('Retry', '重试')}</button>
+        </Alert>
+      )}
+      {contentQuery.isError && (
+        <Alert variant="destructive" role="alert">
+          {formatApiError(contentQuery.error)} <button type="button" onClick={() => void contentQuery.refetch()}>{t('Retry samples', '重试加载样本')}</button>
+        </Alert>
+      )}
+
       {/* Main Dashboard Bento Grid */}
       {selectedProject && overview && (
         <div className="ds-grid">
           {/* 1. Four-Cell KPI Strip with ECharts Mini Sparklines */}
           <div className="c12">
             <div className="kpi-strip">
-              <div className="kpi">
-                <div className="kpi-top">
-                  <span className="kpi-label">
-                    <MessageSquare size={12} />
-                    {overview.threadAware ? t('Deduplicated Threads', '去重讨论根数') : t('Content Anchors', '内容锚点')}
-                  </span>
-                  <span className="tag tag--lilac" style={{ height: 18, fontSize: 9, padding: '0 6px' }}>
-                    {overview.coverage}
-                  </span>
-                </div>
-                <div className="kpi-val">{overview.contentCount.toLocaleString()}</div>
-                <div className="kpi-foot">
-                  <span>
-                    <span className="kpi-sub">
-                      {overview.threadAware ? t('Root-deduplicated', '已按讨论根去重') : t('All visible rows', '全量可见记录')}
-                    </span>
-                  </span>
-                  <KpiSparkChart values={daySeriesValues} color={colors.purple} />
-                </div>
-              </div>
-
-              <div className="kpi">
-                <div className="kpi-top">
-                  <span className="kpi-label">
-                    <Target size={12} />
-                    {t('Matched Nodes', '命中内容')}
-                  </span>
-                </div>
-                <div className="kpi-val">{overview.matchedContentCount.toLocaleString()}</div>
-                <div className="kpi-foot">
-                  <span>
-                    <span className="kpi-sub">
-                      {t('Thread-aware:', '树感知：')} {String(overview.threadAware)}
-                    </span>
-                  </span>
-                  <KpiSparkChart
-                    values={daySeriesValues}
-                    color={colors.teal}
-                  />
-                </div>
-              </div>
-
-              <div className="kpi">
-                <div className="kpi-top">
-                  <span className="kpi-label">
-                    <Zap size={12} />
-                    {t('Pain Signals', '痛点讨论')}
-                  </span>
-                  {unknownRow && (
-                    <span className="tag tag--apricot" style={{ height: 18, fontSize: 9, padding: '0 6px' }}>
-                      day=null: {unknownRow.count}
-                    </span>
-                  )}
-                </div>
-                <div className="kpi-val">{painCount.toLocaleString()}</div>
-                <div className="kpi-foot">
-                  <span>
-                    <span className="kpi-sub">
-                      {painRatio}% {t('of loaded sample', '占已加载样本')}
-                    </span>
-                  </span>
-                  <KpiSparkChart
-                    values={daySeriesValues}
-                    color={colors.apricot}
-                  />
-                </div>
-              </div>
-
-              <div className="kpi">
-                <div className="kpi-top">
-                  <span className="kpi-label">
-                    <Database size={12} />
-                    {t('Active Sources', '活跃来源')}
-                  </span>
-                </div>
-                <div className="kpi-val">
-                  {selectedProject.source_ids.length}
-                  <small>/ {sources.length}</small>
-                </div>
-                <div className="kpi-foot">
-                  <span className="tag tag--mint" style={{ height: 20, fontSize: 9.5 }}>
-                    <ShieldCheck size={11} />
-                    {overview.providers.length} {t('providers', '个渠道在线')}
-                  </span>
-                  <span style={{ display: 'flex', gap: 3 }}>
-                    {[colors.reddit, colors.ink, colors.teal, colors.apricot].map((c, idx) => (
-                      <i
-                        key={idx}
-                        style={{ width: 5, height: 14, borderRadius: 1, background: c, opacity: 0.85, display: 'block' }}
-                      />
-                    ))}
-                  </span>
-                </div>
-              </div>
+              <KpiCard label={<><MessageSquare size={12} />{overview.threadAware ? t('Deduplicated threads', '去重讨论根数') : t('Content anchors', '内容锚点')}</>}
+                value={overview.contentCount.toLocaleString()}
+                badge={<Badge variant="secondary">{overview.coverage}</Badge>}
+                detail={overview.threadAware ? t('Project scope · deduplicated by root', '项目全范围 · 按讨论根去重') : t('Project scope · visible rows', '项目全范围 · 可见记录')}
+                trend={<KpiSparkChart values={daySeriesValues} color={colors.purple} />} />
+              <KpiCard label={<><Target size={12} />{t('Matched nodes', '命中内容')}</>}
+                value={overview.matchedContentCount.toLocaleString()}
+                detail={t('Project scope · nodes before root deduplication', '项目全范围 · 去重前节点')}
+                trend={<KpiSparkChart values={dayBuckets.map(day => day.matchedContentCount)} color={colors.teal} />} />
+              <KpiCard label={<><Zap size={12} />{t('Pain signals in loaded sample', '已加载样本中的痛点')}</>}
+                value={!contentQuery.isSuccess || filteredContent.length === 0 ? '—' : painCount.toLocaleString()}
+                detail={filteredContent.length > 0
+                  ? t(`${painRatio}% of ${filteredContent.length} loaded, filtered samples`, `占 ${filteredContent.length} 条已加载筛选样本的 ${painRatio}%`)
+                  : t('No visible samples for this filter', '当前筛选暂无可用样本')} />
+              <KpiCard label={<><Database size={12} />{selectedProject.dataset_mode === 'batch' ? t('Enabled batches', '启用批次') : t('Bound sources', '绑定来源')}</>}
+                value={selectedProject.dataset_mode === 'batch' ? (selectedProject.enabled_batch_count ?? '—') : selectedProject.source_ids.length}
+                detail={t(`${overview.providers.length} observed providers`, `${overview.providers.length} 个已观测渠道`)} />
             </div>
           </div>
 
           {/* 2. Real UTC Daily Trend Chart (c12) — zero fabricated composite score */}
           <div className="c12" id="card-trend">
-            <div className="ds-card" style={{ height: '100%' }}>
+            <Card className="ds-card" style={{ height: '100%' }}>
               <DailyTrendChart
-                facets={overview.facets}
-                dayPlatformFacets={overview.dayPlatformFacets}
+                facets={overview.facets.filter(facet => facet.day === null || facet.day >= windowFrom.slice(0, 10) && facet.day < windowTo.slice(0, 10))}
+                dayPlatformFacets={overview.dayPlatformFacets?.filter(facet => facet.day >= windowFrom.slice(0, 10) && facet.day < windowTo.slice(0, 10))}
                 rangeDays={rangeDays}
                 threadAware={overview.threadAware}
                 includePushInTrends={selectedProject.include_push_in_trends}
                 onSelectDayPlatform={(dayIso, platform) => {
                   const qs = new URLSearchParams();
                   qs.set('from', `${dayIso}T00:00:00Z`);
-                  qs.set('to', `${dayIso}T23:59:59Z`);
+                  qs.set('to', new Date(Date.parse(`${dayIso}T00:00:00Z`) + 86_400_000).toISOString());
+                  qs.set('threadAware', String(overview.threadAware));
                   if (platform) qs.set('platform', platform);
                   onDrilldown(selectedProject.id, qs.toString());
                 }}
               />
-            </div>
+            </Card>
           </div>
 
           {/* 3. Platform (c5) + Kind (c4) + Attribution (c3) — Real Backend Facets */}
@@ -981,7 +931,7 @@ export function ProjectsPage({
               </div>
 
               <div className="ds-card-bd" style={{ padding: '6px 12px 8px', overflowX: 'auto' }}>
-                <table className="tbl">
+                <Table className="tbl">
                   <colgroup>
                     <col style={{ width: '50%' }} />
                     <col style={{ width: '13%' }} />
@@ -1040,12 +990,12 @@ export function ProjectsPage({
                       );
                     })}
                   </tbody>
-                </table>
+                </Table>
               </div>
 
               <div className="ds-card-ft">
                 <span>
-                  {t('Showing top 6 of', '展示前 6 /')} {filteredContent.length} {t('items in stored_sample', '条命中样本')}
+                  {t('Showing up to 6 of', '最多展示 6 /')} {filteredContent.length} {t('items in stored_sample', '条命中样本')}
                 </span>
                 <button type="button" onClick={() => onDrilldown(selectedProject.id)}>
                   {t('Open Content Explorer →', '进入内容检索台 →')}
@@ -1055,92 +1005,23 @@ export function ProjectsPage({
           </div>
 
           <div className="c4 stack-gap">
-            {/* Beginner Onboarding Checklist Card (Exact DeepSeek match) */}
-            <div className="ds-card guide-card">
-              <div className="guide-hatch" />
-              <div className="ds-card-hd" style={{ paddingBottom: 6 }}>
-                <div>
-                  <div className="ds-card-title">
-                    <Target size={14} color={colors.purple} />
-                    <span>{t('Quick Start Guide', '新手引导')}</span>
-                  </div>
-                  <div className="ds-card-sub">{t('4 steps to deliverable insights', '完成 4 步，拿到第一份可交付结论')}</div>
-                </div>
-                <span className="tag" style={{ height: 20, fontSize: 9.5, background: '#fff' }}>2 / 4</span>
+            <Card className="ds-card">
+              <div className="ds-card-hd">
+                <div className="ds-card-title">{t('Explore project evidence', '探索项目证据')}</div>
               </div>
-
-              <div className="ds-card-bd" style={{ paddingTop: 6 }}>
-                <div className="guide-progress">
-                  <div style={{ position: 'relative', width: 44, height: 44, flex: 'none' }}>
-                    <svg viewBox="0 0 44 44" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}>
-                      <circle cx="22" cy="22" r="18" fill="none" stroke="#e3e6dc" strokeWidth="4" />
-                      <circle cx="22" cy="22" r="18" fill="none" stroke={colors.purple} strokeWidth="4" strokeLinecap="round" strokeDasharray="56.5 113" />
-                    </svg>
-                    <b style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', fontFamily: 'var(--font-mono)', fontSize: 10 }}>50%</b>
-                  </div>
-                  <div>
-                    <b style={{ display: 'block', fontSize: 12 }}>{t('2 Steps Completed', '已完成 2 项')}</b>
-                    <span style={{ display: 'block', fontSize: 10.5, color: 'var(--muted)', marginTop: 1 }}>
-                      {t('Run pain filter & share view next', '下一步直接运行痛点过滤')}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="steps">
-                  <button type="button" className="step done">
-                    <span className="st-num"><Check size={10} /></span>
-                    <span className="st-t">
-                      <b>{t('Connect First Pull Source', '接入首批采集来源')}</b>
-                      <span>kaix · scrapebadger · bluesky</span>
-                    </span>
+              <div className="ds-card-bd collection-toolbar">
+                <button type="button" className="ds-btn ds-btn--ghost"
+                  onClick={() => onDrilldown(selectedProject.id, 'signal=pain')}>
+                  <Zap size={13} />{t('Find pain signals', '在内容库筛选痛点')}
+                </button>
+                {selectedProject.dataset_mode === 'batch' && (
+                  <button type="button" className="ds-btn ds-btn--ghost"
+                    onClick={() => go(`/projects?view=batches&projectId=${encodeURIComponent(selectedProject.id)}`)}>
+                    <Database size={13} />{t('View data batches', '查看数据批次')}
                   </button>
-                  <button type="button" className="step done">
-                    <span className="st-num"><Check size={10} /></span>
-                    <span className="st-t">
-                      <b>{t('Lock Project Filter Rules', '配置并锁定监测项目')}</b>
-                      <span>{selectedProject.name}</span>
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="step now"
-                    onClick={() => onDrilldown(selectedProject.id, 'signal=pain')}
-                  >
-                    <span className="st-num">3</span>
-                    <span className="st-t">
-                      <b>{t('Run Pain Signal Screening', '运行痛点信号筛选')}</b>
-                      <span>{t('~1 min · Opens Content Explorer', '约 1 分钟 · 钻取痛点样本')}</span>
-                    </span>
-                    <ChevronRight size={13} color="var(--faint)" />
-                  </button>
-                  <button
-                    type="button"
-                    className="step"
-                    onClick={() => setOpenFilterPop('share')}
-                  >
-                    <span className="st-num">4</span>
-                    <span className="st-t">
-                      <b>{t('Save Query & Share Snapshot', '保存查询并分享视图')}</b>
-                      <span>{t('Sync with team workspace', '沉淀至个人与团队工作区')}</span>
-                    </span>
-                    <ChevronRight size={13} color="var(--faint)" />
-                  </button>
-                </div>
-
-                <div className="guide-cta">
-                  <span style={{ fontSize: 10, color: 'var(--faint)' }}>{t('Recommended next', '推荐从痛点开始')}</span>
-                  <button
-                    type="button"
-                    className="ds-btn"
-                    style={{ height: 28, padding: '0 12px', fontSize: 11 }}
-                    onClick={() => onDrilldown(selectedProject.id, 'signal=pain')}
-                  >
-                    <span>{t('Continue', '继续')}</span>
-                    <ArrowRight size={12} />
-                  </button>
-                </div>
+                )}
               </div>
-            </div>
+            </Card>
 
             {/* Tutorial Playbook Card */}
             <button type="button" className="tutorial-card" onClick={() => setTutorialOpen(true)}>
@@ -1165,29 +1046,29 @@ export function ProjectsPage({
                 <div className="ib-kicker">{t('Project Signal Summary', '当前项目信号摘要')}</div>
                 <h4>
                   {t(
-                    `${painCount} pain-matched discussions identified across ${overview.matchedContentCount} matched nodes`,
-                    `在 ${overview.matchedContentCount} 条命中节点中识别出 ${painCount} 条痛点表达（占比 ${painRatio}%）`,
+                    `${painCount} heuristic pain signals among ${filteredContent.length} loaded samples`,
+                    `已加载的 ${filteredContent.length} 条筛选样本中，有 ${painCount} 条命中启发式痛点规则`,
                   )}
                 </h4>
                 <p>
                   {t(
-                    `Coverage stays strictly within stored_sample across ${overview.providers.length} active providers.`,
+                    `Coverage stays strictly within stored_sample across ${overview.providers.length} observed providers.`,
                     `统计严格遵循 stored_sample 口径，覆盖 ${overview.providers.length} 个实际观测渠道；点击右侧可钻取对应痛点原文与评论树。`,
                   )}
                 </p>
               </div>
               <div className="ib-stats">
                 <div>
-                  <span>Anchors</span>
+                  <span>{t('Project anchors', '项目锚点')}</span>
                   <b>{overview.contentCount}</b>
                 </div>
                 <div>
-                  <span>Pain Rate</span>
-                  <b>{painRatio}%</b>
+                  <span>{t('Sample pain-signal rate', '样本痛点比例')}</span>
+                  <b>{filteredContent.length > 0 ? painRatio + '%' : '—'}</b>
                 </div>
                 <div>
-                  <span>Unknown UTC</span>
-                  <b>{unknownRow ? unknownRow.count : 0}</b>
+                  <span>{t('Undated anchors', '未记录发布日期的锚点')}</span>
+                  <b>{unknownRow?.count ?? '—'}</b>
                 </div>
               </div>
               <div className="ib-act">

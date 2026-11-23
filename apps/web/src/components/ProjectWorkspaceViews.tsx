@@ -15,6 +15,8 @@ import {
   useRecentJobsQuery,
   useUpdateProjectBatchStatusMutation,
 } from '../api/hooks';
+import { Badge } from './ui/badge';
+import { Table } from './ui/table';
 import type { Project } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
 
@@ -192,9 +194,9 @@ export function ProjectJobsView({
                   {job.error && <div style={{ fontSize: 11, color: '#a8462f' }}>{job.error}</div>}
                   {job.status === 'failed' && <p className="collection-hint">{t('Review the error before starting another collection. Contact an administrator if a provider charge is unresolved.', '重新采集前请先核对失败原因。渠道计费未决时，请联系管理员。')}</p>}
                 </div>
-                <span className={`chip-state ${job.status === 'succeeded' ? 'active' : job.status === 'running' ? 'paused' : 'archived'}`}>
+                <Badge className={`chip-state ${job.status === 'succeeded' ? 'active' : job.status === 'running' ? 'paused' : 'archived'}`}>
                   {statusLabels[job.status] ?? job.status}
-                </span>
+                </Badge>
                 {job.batchId && (
                   <button
                     type="button"
@@ -272,7 +274,7 @@ export function ProjectBatchesView({
             </p>
           ) : (
             <div className="collection-table-scroll">
-              <table className="collection-table">
+              <Table className="collection-table">
                 <thead>
                   <tr>
                     <th>{t('Batch / Source', '批次与来源')}</th>
@@ -415,7 +417,7 @@ export function ProjectBatchesView({
                     );
                   })}
                 </tbody>
-              </table>
+              </Table>
             </div>
           )}
         </div>

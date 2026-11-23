@@ -33,6 +33,8 @@ import { ProviderCredentialsTab } from '../components/ProviderCredentialsTab';
 import { QuotasManagementView } from '../components/QuotasManagementView';
 import { R4ArchivePanel } from '../components/R4ArchivePanel';
 import { FeedSourcePreview, ResearchSourceProjects, SourceDomainSummary, SourceJobHistory } from '../components/SourceDomainOverview';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { Input } from '../components/ui/input';
 import { SourceEditor } from '../components/SourceEditor';
 import { SourceImportDialog } from '../components/SourceImportDialog';
 import { collectionLimits, isRedditArchiveSource, isResearchSource, sourceNeedsAttention } from '../lib/collectionLimits';
@@ -517,7 +519,7 @@ export function SourcesPage({
               <div className="ds-card-bd" style={{ paddingTop: 10 }}>
                 <div className="source-directory-filters">
                   <label className="wb-field">{t('Find a source', '查找来源')}
-                    <input type="search" className="wb-input" value={sourceSearch} onChange={event => { setSourceSearch(event.target.value); resetSourceDraft(); }} placeholder={feedDomain ? t('Channel name or URL', '频道名称或地址') : t('Name or target', '来源名称或采集目标')} />
+                    <Input type="search" className="wb-input" value={sourceSearch} onChange={event => { setSourceSearch(event.target.value); resetSourceDraft(); }} placeholder={feedDomain ? t('Channel name or URL', '频道名称或地址') : t('Name or target', '来源名称或采集目标')} />
                   </label>
                   {domainView && <div className="source-directory-filter-pair">
                     {!feedDomain && <label className="wb-field">{t('Platform', '平台')}
@@ -661,16 +663,19 @@ export function SourcesPage({
                     )}
                   </div>
 
-                  {domainView && <div className="source-detail-nav" role="group" aria-label={t('Source detail sections', '来源详情分区')}>
-                    {sourceSections.map(item => <button key={item} type="button" className="ds-btn ds-btn--ghost"
-                      aria-pressed={section === item} onClick={() => onNavigate(sourcePath(selectedSource.id, item))}>
+                  <Tabs value={section} className="source-detail-tabs" onValueChange={value => {
+                    const next = sourceSections.find(item => item === value);
+                    if (next) onNavigate(sourcePath(selectedSource.id, next));
+                  }}>
+                  {domainView && <TabsList className="source-detail-nav" aria-label={t('Source detail sections', '来源详情分区')}>
+                    {sourceSections.map(item => <TabsTrigger key={item} value={item} className="ds-btn ds-btn--ghost">
                       {item === 'overview' ? (feedDomain ? t('Story preview', '内容预览') : t('Overview', '概览'))
                         : item === 'plan' ? (feedDomain ? t('Fetch & update', '抓取与更新') : t('Collection plan', '采集计划'))
                           : item === 'jobs' ? t('Job history', '任务记录') : t('Diagnostics', '技术诊断')}
-                    </button>)}
-                  </div>}
-                  <div className="ds-card-bd source-detail-body">
-                    {feedDomain && section === 'overview' && <FeedSourcePreview sourceId={selectedSource.id} />}
+                    </TabsTrigger>)}
+                  </TabsList>}
+                  <TabsContent value={section} className="ds-card-bd source-detail-body">
+                    {feedDomain && section === 'overview' && <FeedSourcePreview source={selectedSource} />}
                     {domainView && section === 'jobs' && <SourceJobHistory sourceId={selectedSource.id} onInspect={id => {
                       setJobActionError('');
                       setAckJobCharge(false);
@@ -921,7 +926,8 @@ export function SourcesPage({
                         </form>
                       </div>
                     )}
-                  </div>
+                  </TabsContent>
+                  </Tabs>
                 </div>
 
                 {!domainView && <div className="ds-card collection-panel">

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { EChartsOption } from 'echarts';
+import { useI18n } from '../../i18n/translations';
 import { EChartBox } from './EChartBox';
 
 export function KpiSparkChart({
@@ -11,10 +12,8 @@ export function KpiSparkChart({
   color: string;
   height?: number;
 }) {
-  const clean = useMemo(() => {
-    const filtered = values.filter((v): v is number => v !== null && Number.isFinite(v));
-    return filtered.length >= 2 ? filtered : [12, 18, 15, 22, 26, 24, 31];
-  }, [values]);
+  const { t } = useI18n();
+  const clean = useMemo(() => values.map(value => Number.isFinite(value) ? value : null), [values]);
 
   const option: EChartsOption = useMemo(
     () => ({
@@ -76,5 +75,8 @@ export function KpiSparkChart({
     [clean, color],
   );
 
+  if (clean.filter(value => value !== null).length < 2) {
+    return <span className="kpi-sub">{t("No trend data yet", "暂无趋势数据")}</span>;
+  }
   return <EChartBox option={option} height={height} style={{ width: 84 }} />;
 }

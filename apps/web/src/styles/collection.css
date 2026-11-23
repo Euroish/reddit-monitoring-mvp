@@ -444,8 +444,9 @@
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
 }
 
-.source-detail-nav { padding: 0 14px 10px; border-bottom: 1px solid var(--line); }
-.source-detail-nav [aria-pressed='true'] {
+.source-detail-tabs { min-width: 0; }
+.source-detail-nav { max-width: 100%; height: auto; justify-content: start; padding: 0 14px 10px; border-bottom: 1px solid var(--line); }
+.source-detail-nav [aria-selected='true'] {
   color: var(--wb-teal);
   border-color: currentColor;
   font-weight: 650;
@@ -533,3 +534,6 @@
   .intake-choices { grid-template-columns: 1fr; }
   .intake-panel .ds-btn { min-height: 44px; }
 }
+
+
+.source-story-placeholder { height: 2rem; margin-top: 6px; }

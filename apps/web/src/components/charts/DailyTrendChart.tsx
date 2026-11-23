@@ -9,6 +9,7 @@ interface DailyTrendChartProps {
   facets: OverviewFacet[];
   dayPlatformFacets?: DayPlatformFacet[];
   rangeDays: 7 | 30 | 90;
+  bucket?: 'day' | '6h';
   threadAware: boolean;
   includePushInTrends: boolean;
   onSelectDayPlatform?: (dayIso: string, platform?: Platform) => void;
@@ -28,6 +29,7 @@ export function DailyTrendChart({
   facets,
   dayPlatformFacets,
   rangeDays,
+  bucket = 'day',
   threadAware,
   includePushInTrends,
   onSelectDayPlatform,
@@ -36,7 +38,8 @@ export function DailyTrendChart({
   const colors = useChartColors();
   const [chartType, setChartType] = useState<TrendChartType>('bar');
   const [metricMode, setMetricMode] = useState<MetricMode>('discussions');
-  const [granularity, setGranularity] = useState<Granularity>('day');
+  const [grouping, setGrouping] = useState<Granularity>('day');
+  const granularity = bucket === '6h' ? 'day' : grouping;
 
   const {
     dayLabels,
@@ -60,9 +63,14 @@ export function DailyTrendChart({
     );
     const usePlatformSplit = validPlatFacets.length > 0;
 
+    const isHourly = bucket === '6h';
+    const keyOf = (value: string) => value.slice(0, isHourly ? 13 : 10);
+    const parseKey = (key: string) => Date.parse(key + (isHourly ? ':00:00Z' : 'T00:00:00Z'));
+    const bucketMs = (isHourly ? 6 : 24) * 3_600_000;
+
     const byDayPlatform = new Map<string, Record<Platform, number>>();
     for (const row of validPlatFacets) {
-      const dayKey = row.day.slice(0, 10);
+      const dayKey = keyOf(row.day);
       if (!byDayPlatform.has(dayKey)) {
         byDayPlatform.set(dayKey, { reddit: 0, x: 0, bluesky: 0, web: 0 });
       }
@@ -70,7 +78,7 @@ export function DailyTrendChart({
       byDayPlatform.get(dayKey)![row.platform as Platform] += val;
     }
 
-    const byDayTotal = new Map(dated.map((d) => [d.day.slice(0, 10), d]));
+    const byDayTotal = new Map(dated.map((d) => [keyOf(d.day), d]));
     const allDays = [...new Set([...byDayTotal.keys(), ...byDayPlatform.keys()])].sort();
 
     if (allDays.length === 0) {
@@ -87,8 +95,8 @@ export function DailyTrendChart({
       };
     }
 
-    const startTs = Date.parse(`${allDays[0]}T00:00:00Z`);
-    const endTs = Date.parse(`${allDays[allDays.length - 1]}T00:00:00Z`);
+    const startTs = parseKey(allDays[0]);
+    const endTs = parseKey(allDays[allDays.length - 1]);
     if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) {
       return {
         dayLabels: [] as string[],
@@ -103,7 +111,7 @@ export function DailyTrendChart({
       };
     }
 
-    const minWindowStart = endTs - (rangeDays - 1) * 86_400_000;
+    const minWindowStart = endTs - rangeDays * 86_400_000 + bucketMs;
     const effectiveStart = Math.max(startTs, minWindowStart);
 
     const rawBuckets: Array<{
@@ -114,9 +122,10 @@ export function DailyTrendChart({
       platforms: Record<Platform, number | null>;
     }> = [];
 
-    for (let ts = effectiveStart; ts <= endTs; ts += 86_400_000) {
-      const iso = new Date(ts).toISOString().slice(0, 10);
-      const label = `${iso.slice(5, 7).replace(/^0/, '')}/${iso.slice(8, 10)}`;
+    for (let ts = effectiveStart; ts <= endTs; ts += bucketMs) {
+      const iso = keyOf(new Date(ts).toISOString());
+      const date = `${iso.slice(5, 7).replace(/^0/, '')}/${iso.slice(8, 10)}`;
+      const label = isHourly ? `${date} ${iso.slice(11, 13)}:00` : date;
 
       if (usePlatformSplit) {
         const platRow = byDayPlatform.get(iso);
@@ -161,31 +170,26 @@ export function DailyTrendChart({
       }
     }
 
-    const aggregated =
-      granularity === 'day'
-        ? rawBuckets
-        : rawBuckets.reduce<typeof rawBuckets>((acc, cur, idx) => {
-            const step = granularity === 'week' ? 7 : 30;
-            const groupIdx = Math.floor(idx / step);
-            if (!acc[groupIdx]) {
-              acc[groupIdx] = {
-                label: granularity === 'week' ? `W${groupIdx + 1}` : cur.iso.slice(0, 7),
-                iso: cur.iso,
-                isGap: cur.isGap,
-                total: cur.total,
-                platforms: { ...cur.platforms },
-              };
-            } else if (!cur.isGap) {
-              acc[groupIdx].isGap = false;
-              acc[groupIdx].total = (acc[groupIdx].total ?? 0) + (cur.total ?? 0);
-              if (usePlatformSplit) {
-                PLATFORMS.forEach((p) => {
-                  acc[groupIdx].platforms[p] = (acc[groupIdx].platforms[p] ?? 0) + (cur.platforms[p] ?? 0);
-                });
-              }
+    let aggregated = rawBuckets;
+    if (granularity !== 'day') {
+      const groups = new Map<string, (typeof rawBuckets)[number]>();
+      for (const [idx, current] of rawBuckets.entries()) {
+        const label = granularity === 'week' ? `W${Math.floor(idx / 7) + 1}` : current.iso.slice(0, 7);
+        const group = groups.get(label);
+        if (!group) {
+          groups.set(label, { ...current, label, platforms: { ...current.platforms } });
+        } else if (!current.isGap) {
+          group.isGap = false;
+          group.total = (group.total ?? 0) + (current.total ?? 0);
+          if (usePlatformSplit) {
+            for (const platform of PLATFORMS) {
+              group.platforms[platform] = (group.platforms[platform] ?? 0) + (current.platforms[platform] ?? 0);
             }
-            return acc;
-          }, []);
+          }
+        }
+      }
+      aggregated = [...groups.values()];
+    }
 
     const labels = aggregated.map((b) => b.label);
     const isos = aggregated.map((b) => b.iso);
@@ -222,7 +226,7 @@ export function DailyTrendChart({
       peakInfo: best,
       gapCount: gapsCount,
     };
-  }, [facets, dayPlatformFacets, rangeDays, metricMode, granularity]);
+  }, [facets, dayPlatformFacets, rangeDays, metricMode, granularity, bucket]);
 
   const hatchImg = useMemo(() => createHatchPattern('#f6f7f1', '#d8ddd0'), []);
 
@@ -244,7 +248,7 @@ export function DailyTrendChart({
           label: {
             show: endIdx - startIdx >= 1,
             position: 'insideTop' as const,
-            formatter: t('Uncollected', '未采集'),
+            formatter: t('No samples', '暂无样本'),
             color: '#9c7838',
             fontSize: 9.5,
           },
@@ -392,9 +396,9 @@ export function DailyTrendChart({
             </span>
           </div>
           <div className="ds-card-sub">
-            {includePushInTrends
-              ? t('UTC daily buckets · Gaps not zero-filled · Includes push ingest', 'UTC 日零点分桶 · 缺口日期不补零 · 统计含推流样本')
-              : t('UTC daily buckets · Gaps not zero-filled · Pull samples only', 'UTC 日零点分桶 · 缺口日期不补零 · 不含推流样本')}
+            {bucket === '6h' ? t('Six-hour UTC buckets', 'UTC 六小时分桶') : t('Daily UTC buckets', 'UTC 日分桶')}
+            {' · '}{t('Gaps indicate missing samples', '空档表示缺少样本')}
+            {' · '}{includePushInTrends ? t('Includes push ingest', '含推流样本') : t('Pull samples only', '仅拉取样本')}
           </div>
         </div>
 
@@ -417,17 +421,17 @@ export function DailyTrendChart({
             </button>
           </div>
 
-          <div className="seg">
-            <button type="button" className={granularity === 'day' ? 'on' : ''} onClick={() => setGranularity('day')}>
+          {bucket === 'day' && <div className="seg">
+            <button type="button" className={granularity === 'day' ? 'on' : ''} onClick={() => setGrouping('day')}>
               {t('D', '日')}
             </button>
-            <button type="button" className={granularity === 'week' ? 'on' : ''} onClick={() => setGranularity('week')}>
+            <button type="button" className={granularity === 'week' ? 'on' : ''} onClick={() => setGrouping('week')}>
               {t('W', '周')}
             </button>
-            <button type="button" className={granularity === 'month' ? 'on' : ''} onClick={() => setGranularity('month')}>
+            <button type="button" className={granularity === 'month' ? 'on' : ''} onClick={() => setGrouping('month')}>
               {t('M', '月')}
             </button>
-          </div>
+          </div>}
         </div>
       </div>
 
@@ -440,7 +444,9 @@ export function DailyTrendChart({
           <EChartBox
             option={option}
             height={246}
-            ariaLabel={t('Content volume by day and platform', '按日与平台的内容量')}
+            ariaLabel={bucket === '6h'
+              ? t('Content volume by six-hour UTC bucket and platform', '按 UTC 六小时分桶与平台的内容量')
+              : t('Content volume by day and platform', '按日与平台的内容量')}
             onEvents={
               onSelectDayPlatform && granularity === 'day'
                 ? {
@@ -472,7 +478,7 @@ export function DailyTrendChart({
           )}
           {gapCount > 0 && (
             <span style={{ color: '#a8762c', fontWeight: 600 }}>
-              ▨ {t(`${gapCount} uncollected gap day(s)`, `未采集缺口 ${gapCount} 天`)}
+              ▨ {t(`${gapCount} buckets with no dated samples`, `${gapCount} 个分桶暂无带发布日期的样本`)}
             </span>
           )}
           {unknownRow && (

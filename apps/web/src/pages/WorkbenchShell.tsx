@@ -1,3 +1,4 @@
+import '../styles/workbench-ui.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
@@ -818,15 +819,16 @@ export function WorkbenchShell({
           </form>
 
           {quickErr && (
-            <span style={{ fontSize: 11, color: '#a8462f', whiteSpace: 'nowrap' }}>{quickErr}</span>
+            <span className="global-search-error" role="status">{quickErr}</span>
           )}
 
           <div className="top-actions" data-pop-root>
             {/* Color Skin Switcher Button (Requested Feature!) */}
             <button
               type="button"
-              className="top-pill-btn"
+              className="top-pill-btn top-theme-button"
               onClick={() => setStudioOpen(true)}
+              aria-label={t('Change UI Skin & Color Palette', '切换工作台界面皮肤色调')}
               title={t('Change UI Skin & Color Palette', '切换工作台界面皮肤色调')}
             >
               <span
@@ -837,7 +839,7 @@ export function WorkbenchShell({
                     : palette.accent,
                 }}
               />
-              <span>{lang === 'zh' ? palette.nameZh.split(' × ')[0] : palette.nameEn.split(' & ')[0]}</span>
+              <span className="top-theme-name">{lang === 'zh' ? palette.nameZh.split(' × ')[0] : palette.nameEn.split(' & ')[0]}</span>
               <Palette size={12} color="var(--faint)" />
             </button>
 
@@ -855,7 +857,7 @@ export function WorkbenchShell({
             {/* Product Intro Link */}
             <button
               type="button"
-              className="top-pill-btn"
+              className="top-pill-btn top-desktop-button"
               onClick={() => navigateAndClose('/product')}
               title={t('Product Overview', '查看产品介绍')}
             >
@@ -867,7 +869,7 @@ export function WorkbenchShell({
                 {/* Live Session Status Pill */}
                 <button
                   type="button"
-                  className="top-pill-btn"
+                  className="top-pill-btn top-desktop-button"
                   onClick={() => navigateAndClose('/settings')}
                   title={t('Live /api/v1 Cookie Session & RBAC Role', '当前在线 /api/v1 同源会话与权限角色')}
                 >

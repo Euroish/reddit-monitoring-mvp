@@ -1,11 +1,15 @@
 import { useMemo, useState } from 'react';
-import { ArrowRight, Layers, LayoutGrid, RefreshCw, X } from 'lucide-react';
-import { useContentFacetsQuery } from '../api/hooks';
+import { ArrowRight, Layers, LayoutGrid, RefreshCw } from 'lucide-react';
+import { formatApiError, useContentFacetsQuery } from '../api/hooks';
 import { DailyTrendChart } from './charts/DailyTrendChart';
 import { DistributionCards } from './charts/DistributionCharts';
 import { KpiSparkChart } from './charts/KpiSparkChart';
 import { useChartColors } from './charts/chartUtils';
-import { type OverviewFacet, type Platform, type Project, type PublicContent, formatContentAuthor } from '../contracts/api';
+import { type ContentKind, type OverviewFacet, type Platform, type Project, type PublicContent, formatContentAuthor } from '../contracts/api';
+import { Alert } from './ui/alert';
+import { Button } from './ui/button';
+import { Card } from './ui/card';
+import { Skeleton } from './ui/skeleton';
 import { useI18n } from '../i18n/translations';
 
 const PLATFORM_LABELS: Record<Platform, string> = {
@@ -37,12 +41,30 @@ function platformMetricBadge(item: PublicContent): string {
 export function CrossPlatformAnalyticsPanel({
   project,
   items,
+  rangeDays,
+  setRangeDays,
+  from,
+  to,
+  threadAware,
+  setThreadAware,
+  kind,
+  platforms,
+  togglePlatform,
   providers,
   onDrilldown,
   onOpenContentDetail,
 }: {
   project: Project;
   items: PublicContent[];
+  rangeDays: 7 | 30 | 90;
+  setRangeDays: (days: 7 | 30 | 90) => void;
+  from: string;
+  to: string;
+  threadAware: boolean;
+  setThreadAware: (enabled: boolean) => void;
+  kind?: ContentKind;
+  platforms: ReadonlySet<Platform>;
+  togglePlatform: (platform: Platform) => void;
   providers: string[];
   onDrilldown: (projectId: string, extraQs?: string) => void;
   onOpenContentDetail: (contentId: string) => void;
@@ -50,23 +72,13 @@ export function CrossPlatformAnalyticsPanel({
   const { t } = useI18n();
   const colors = useChartColors();
   const [viewMode, setViewMode] = useState<'combined' | 'split'>('combined');
-  const [rangeDays, setRangeDays] = useState<7 | 30 | 90>(30);
   const [bucket, setBucket] = useState<'day' | '6h'>('day');
-  const [threadAware, setThreadAware] = useState<boolean>(project.thread_aware);
-  const [excludedPlatforms, setExcludedPlatforms] = useState<Set<Platform>>(() => new Set());
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
-
-  const [anchorMs, setAnchorMs] = useState<number>(() => Math.floor(Date.now() / 60_000) * 60_000);
-  const { fromIso, toIso } = useMemo(() => ({
-    fromIso: new Date(anchorMs - rangeDays * 86_400_000).toISOString(),
-    toIso: new Date(anchorMs).toISOString(),
-  }), [anchorMs, rangeDays]);
-
   const effectiveBucket = rangeDays === 7 ? bucket : 'day';
   const facetsQuery = useContentFacetsQuery({
     projectId: project.id,
-    from: fromIso,
-    to: toIso,
+    from,
+    to,
+    kind,
     bucket: effectiveBucket,
     threadAware,
   });
@@ -77,17 +89,23 @@ export function CrossPlatformAnalyticsPanel({
     [facets?.distributions.platforms],
   );
   const activePlatforms = useMemo(
-    () => availablePlatforms.filter((p) => !excludedPlatforms.has(p)),
-    [availablePlatforms, excludedPlatforms],
+    () => availablePlatforms.filter(platform => platforms.has(platform)),
+    [availablePlatforms, platforms],
   );
 
-  const togglePlatform = (p: Platform) => {
-    setExcludedPlatforms((prev) => {
-      const next = new Set(prev);
-      if (next.has(p)) next.delete(p);
-      else if (availablePlatforms.length - next.size > 1) next.add(p);
-      return next;
-    });
+  const drilldown = (platform?: Platform, start?: string) => {
+    const startMs = start && Date.parse(start.length === 10 ? start + 'T00:00:00Z' : start + ':00:00Z');
+    const interval = (effectiveBucket === '6h' ? 6 : 24) * 3_600_000;
+    const params = new URLSearchParams({ from, to, threadAware: String(threadAware) });
+    if (typeof startMs === 'number' && Number.isFinite(startMs)) {
+      params.set('from', new Date(Math.max(startMs, Date.parse(from))).toISOString());
+      params.set('to', new Date(Math.min(startMs + interval, Date.parse(to))).toISOString());
+    }
+    if (platform) params.set('platform', platform);
+    else if (activePlatforms.length === 1) params.set('platform', activePlatforms[0]);
+    if (kind) params.set('kind', kind);
+    if (project.dataset_mode !== 'batch' && !project.include_push_in_trends) params.set('deliveryMode', 'pull');
+    onDrilldown(project.id, params.toString());
   };
 
   // Build DailyTrendChart compatible buckets filtered by activePlatforms
@@ -134,14 +152,10 @@ export function CrossPlatformAnalyticsPanel({
     [filteredPlatformDist],
   );
 
-  const visibleItems = useMemo(() => {
-    const activeSet = new Set(activePlatforms);
-    return items.filter((item) => {
-      if (availablePlatforms.length > 0 && !activeSet.has(item.platform)) return false;
-      if (selectedDay && !(item.publishedAt || item.firstFetchedAt).startsWith(selectedDay.slice(0, 10))) return false;
-      return true;
-    });
-  }, [items, activePlatforms, availablePlatforms.length, selectedDay]);
+  const visibleItems = useMemo(
+    () => items.filter(item => platforms.has(item.platform)),
+    [items, platforms],
+  );
 
   const overviewFacets = useMemo<OverviewFacet[]>(() => {
     const out: OverviewFacet[] = [
@@ -153,24 +167,26 @@ export function CrossPlatformAnalyticsPanel({
     for (const pf of filteredPlatformDist) {
       out.push({ day_group: 1, platform_group: 0, kind_group: 1, day: null, platform: pf.platform, kind: null, count: pf.count, matchedContentCount: pf.matchedContentCount });
     }
-    for (const kd of facets?.distributions.kinds ?? []) {
+    // The server kind facets span all platforms in the query.
+    const kinds = activePlatforms.length === availablePlatforms.length ? facets?.distributions.kinds : [];
+    for (const kd of kinds ?? []) {
       out.push({ day_group: 1, platform_group: 1, kind_group: 0, day: null, platform: null, kind: kd.kind, count: kd.count, matchedContentCount: kd.matchedContentCount });
     }
     return out;
-  }, [totalCount, totalMatched, trendBuckets, filteredPlatformDist, facets?.distributions.kinds]);
+  }, [totalCount, totalMatched, trendBuckets, filteredPlatformDist, facets?.distributions.kinds, activePlatforms.length, availablePlatforms.length]);
 
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       {/* Interactive Control Bar */}
-      <div className="ds-card" style={{ padding: '12px 16px' }}>
+      <Card className="ds-card" style={{ padding: '12px 16px' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
             <div className="seg" role="group" aria-label={t('Analytics view mode', '分析展示模式')}>
-              <button type="button" className={viewMode === 'combined' ? 'on' : ''} onClick={() => setViewMode('combined')}>
+              <button type="button" className={viewMode === 'combined' ? 'on' : ''} aria-pressed={viewMode === 'combined'} onClick={() => setViewMode('combined')}>
                 <Layers size={12} style={{ marginRight: 4 }} />
                 {t('Combined Overview', '合并总览')}
               </button>
-              <button type="button" className={viewMode === 'split' ? 'on' : ''} onClick={() => setViewMode('split')}>
+              <button type="button" className={viewMode === 'split' ? 'on' : ''} aria-pressed={viewMode === 'split'} onClick={() => setViewMode('split')}>
                 <LayoutGrid size={12} style={{ marginRight: 4 }} />
                 {t('Split by Platform', '分平台独立视图')}
               </button>
@@ -178,7 +194,7 @@ export function CrossPlatformAnalyticsPanel({
 
             <div className="seg" role="group" aria-label={t('Time range', '时间窗口')}>
               {([7, 30, 90] as const).map((d) => (
-                <button key={d} type="button" className={rangeDays === d ? 'on' : ''} onClick={() => { setRangeDays(d); setSelectedDay(null); }}>
+                <button key={d} type="button" className={rangeDays === d ? 'on' : ''} aria-pressed={rangeDays === d} onClick={() => setRangeDays(d)}>
                   {d}d
                 </button>
               ))}
@@ -186,8 +202,8 @@ export function CrossPlatformAnalyticsPanel({
 
             {rangeDays === 7 && (
               <div className="seg" role="group" aria-label={t('Bucket granularity', '时间粒度')}>
-                <button type="button" className={bucket === 'day' ? 'on' : ''} onClick={() => setBucket('day')}>{t('Daily', '按天')}</button>
-                <button type="button" className={bucket === '6h' ? 'on' : ''} onClick={() => setBucket('6h')}>6h</button>
+                <button type="button" className={bucket === 'day' ? 'on' : ''} aria-pressed={bucket === 'day'} onClick={() => setBucket('day')}>{t('Daily', '按天')}</button>
+                <button type="button" className={bucket === '6h' ? 'on' : ''} aria-pressed={bucket === '6h'} onClick={() => setBucket('6h')}>6h</button>
               </div>
             )}
 
@@ -199,11 +215,12 @@ export function CrossPlatformAnalyticsPanel({
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--muted)' }}>
             <span className="tag" style={{ fontSize: 10 }}>stored_sample</span>
-            <span>{t('Count / Matched', '主题 / 节点')}: <b>{totalCount}</b> / {totalMatched}</span>
-            {providers.length > 0 && <span>· {providers.join(', ')}</span>}
-            <button type="button" className="ds-btn ds-btn--ghost" style={{ height: 26, fontSize: 11 }} onClick={() => { setAnchorMs(Math.floor(Date.now() / 60_000) * 60_000); void facetsQuery.refetch(); }}>
+            <span>{t('Count / Matched', '主题 / 节点')}: <b>{facets ? totalCount : '—'}</b> / {facets ? totalMatched : '—'}</span>
+            {providers.length > 0 && <span>· {t('Project providers', '项目渠道')}: {providers.join(', ')}</span>}
+            <Button type="button" variant="ghost" size="icon-sm"
+              aria-label={t('Refresh analytics', '刷新分析')} onClick={() => void facetsQuery.refetch()}>
               <RefreshCw size={12} />
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -212,7 +229,7 @@ export function CrossPlatformAnalyticsPanel({
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10, alignItems: 'center' }}>
             <span style={{ fontSize: 11, color: 'var(--muted)' }}>{t('Platforms', '包含平台')}:</span>
             {facets?.distributions.platforms.map((p) => {
-              const checked = !excludedPlatforms.has(p.platform);
+              const checked = platforms.has(p.platform);
               return (
                 <button
                   key={p.platform}
@@ -226,26 +243,19 @@ export function CrossPlatformAnalyticsPanel({
                 </button>
               );
             })}
-            {selectedDay && (
-              <button
-                type="button"
-                className="ds-btn ds-btn--ghost"
-                style={{ height: 24, fontSize: 11, padding: '0 8px' }}
-                onClick={() => setSelectedDay(null)}
-              >
-                <span>{t('Date', '日期')}: {selectedDay}</span>
-                <X size={11} />
-              </button>
-            )}
           </div>
         )}
-      </div>
+      </Card>
 
       {/* Charts Area: Combined vs Split by Platform */}
       {facetsQuery.isPending ? (
-        <div className="ds-card" style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>
-          {t('Loading real-time faceted analytics…', '正在加载服务端分面聚合统计…')}
-        </div>
+        <Skeleton className="project-overview-skeleton" role="status"
+          aria-label={t('Loading analytics', '正在加载服务端分面聚合统计')} />
+      ) : facetsQuery.isError ? (
+        <Alert variant="destructive" role="alert">
+          {formatApiError(facetsQuery.error)}
+          <Button type="button" variant="outline" size="sm" onClick={() => void facetsQuery.refetch()}>{t('Retry', '重试')}</Button>
+        </Alert>
       ) : totalCount === 0 ? (
         <div className="ds-card" style={{ padding: 24 }}>
           <b>{t('No matching samples in this window', '当前时间窗口内无匹配样本')}</b>
@@ -268,12 +278,10 @@ export function CrossPlatformAnalyticsPanel({
                   facets={overviewFacets}
                   dayPlatformFacets={trendByPlatform}
                   rangeDays={rangeDays}
+                  bucket={effectiveBucket}
                   threadAware={threadAware}
                   includePushInTrends={project.dataset_mode === 'batch' || project.include_push_in_trends}
-                  onSelectDayPlatform={(dayIso, platform) => {
-                    setSelectedDay(dayIso.slice(0, 10));
-                    if (platform) onDrilldown(project.id, `platform=${platform}`);
-                  }}
+                  onSelectDayPlatform={(start, platform) => drilldown(platform, start)}
                 />
               </div>
             </div>
@@ -283,16 +291,16 @@ export function CrossPlatformAnalyticsPanel({
               facets={overviewFacets}
               providers={providers}
               contentItems={visibleItems}
-              onDrillPlatform={(platform) => onDrilldown(project.id, `platform=${platform}`)}
+              onDrillPlatform={drilldown}
             />
           </div>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))', gap: 14 }}>
           {filteredPlatformDist.map((pf) => {
             const series = (facets?.timeline ?? []).map((pt) => {
               const found = pt.byPlatform.find((bp) => bp.platform === pf.platform);
-              return found?.count ?? 0;
+              return found?.count ?? null;
             });
             const pfItems = visibleItems.filter((item) => item.platform === pf.platform).slice(0, 5);
             return (
@@ -308,7 +316,7 @@ export function CrossPlatformAnalyticsPanel({
                     type="button"
                     className="ds-btn ds-btn--ghost"
                     style={{ height: 26, fontSize: 11 }}
-                    onClick={() => onDrilldown(project.id, `platform=${pf.platform}`)}
+                    onClick={() => drilldown(pf.platform)}
                   >
                     <span>{t('Explore', '钻取')}</span>
                     <ArrowRight size={12} />
@@ -316,7 +324,7 @@ export function CrossPlatformAnalyticsPanel({
                 </div>
                 <div className="ds-card-bd" style={{ display: 'grid', gap: 10 }}>
                   <div style={{ height: 72 }}>
-                    <KpiSparkChart values={series.length ? series : [0]} color={colors.purple} />
+                    <KpiSparkChart values={series} color={colors.purple} />
                   </div>
                   <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>
                     {t('Chart totals use full server facets; preview list shows up to 5 items from the latest 100 loaded.', '趋势与计数基于服务端全量分面聚合；下方仅预览当前已加载片段（最多 100 条）中的前 5 条。')}

@@ -1,5 +1,8 @@
-import { useId, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Check, ChevronDown, X } from 'lucide-react';
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from './ui/dialog';
+import { Input } from './ui/input';
+import { Button } from './ui/button';
 import type { Project } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
 
@@ -10,8 +13,6 @@ export function ProjectSwitcher({ projects, selected, onSelect, onCreate }: {
   onCreate: () => void;
 }) {
   const { t } = useI18n();
-  const titleId = useId();
-  const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
@@ -35,56 +36,38 @@ export function ProjectSwitcher({ projects, selected, onSelect, onCreate }: {
     { id: 'shared', title: t('System shared', '系统共享'), items: matching.filter(project => project.is_shared) },
   ].filter(group => (filter === 'all' || group.id === filter) && group.items.length > 0);
 
-  function openSwitcher() {
-    setQuery('');
-    setFilter('all');
-    dialog.current?.showModal();
-    setOpen(true);
-    search.current?.focus();
-  }
-
   function closeSwitcher() {
-    dialog.current?.close();
     setOpen(false);
-    trigger.current?.focus();
   }
 
-  return <>
-    <button ref={trigger} type="button" className="proj-switch" aria-haspopup="dialog" aria-expanded={open}
-      aria-label={selected ? t(`Switch project · ${selected.name}`, `切换项目 · ${selected.name}`) : t('Select research project', '选择研究项目')}
-      onClick={openSwitcher}>
+  return <Dialog open={open} onOpenChange={next => {
+    if (next) { setQuery(''); setFilter('all'); }
+    setOpen(next);
+  }}>
+    <DialogTrigger ref={trigger} type="button" className="proj-switch"
+      aria-label={selected ? t(`Switch project · ${selected.name}`, `切换项目 · ${selected.name}`) : t('Select research project', '选择研究项目')}>
       <span className="ps-avatar" aria-hidden="true">{initials(selected?.name ?? 'SL')}</span>
       <span className="ps-txt">
         <b>{selected?.name ?? t('Select research project', '选择研究项目')}</b>
         <small>{selected ? summary(selected) : t('Create or select a project', '新建或选择一个项目')}</small>
       </span>
       <ChevronDown size={14} aria-hidden="true" />
-    </button>
-    <dialog ref={dialog} className="project-switcher" aria-labelledby={titleId}
-      onCancel={event => { event.preventDefault(); event.stopPropagation(); closeSwitcher(); }}
+    </DialogTrigger>
+    <DialogContent className="project-switcher" showCloseButton={false} initialFocus={search} finalFocus={trigger}
       onKeyDown={event => {
         if (event.key === 'Escape') {
           event.preventDefault();
           event.stopPropagation();
           closeSwitcher();
-          return;
         }
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') event.stopPropagation();
-        if (event.key !== 'Tab') return;
-        const controls = event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)');
-        const first = controls[0];
-        const last = controls[controls.length - 1];
-        if ((event.shiftKey ? first : last) === document.activeElement) {
-          event.preventDefault();
-          (event.shiftKey ? last : first)?.focus();
-        }
       }}>
       <header className="project-switcher-header">
-        <h2 id={titleId}>{t('Switch research project', '切换研究项目')}</h2>
+        <DialogTitle className="project-switcher-title">{t('Switch research project', '切换研究项目')}</DialogTitle>
         <button type="button" className="icon-square" aria-label={t('Close project switcher', '关闭项目选择器')} onClick={closeSwitcher}><X size={19} /></button>
       </header>
       <label className="wb-field">{t('Search by project name or description', '搜索项目名称或说明')}
-        <input ref={search} className="wb-input" type="search" value={query} onChange={event => setQuery(event.target.value)} />
+        <Input ref={search} className="wb-input" type="search" value={query} onChange={event => setQuery(event.target.value)} />
       </label>
       <div className="project-switcher-filters" role="group" aria-label={t('Filter projects', '筛选项目')}>
         {(['all', 'mine', 'shared'] as const).map(item => <button key={item} type="button" className="ds-btn ds-btn--ghost"
@@ -116,9 +99,9 @@ export function ProjectSwitcher({ projects, selected, onSelect, onCreate }: {
             onClick={() => { setQuery(''); setFilter('all'); search.current?.focus(); }}>{t('Clear filters', '清除筛选')}</button>}
         </div>}
       </div>
-      <footer><button type="button" className="ds-btn" onClick={() => { closeSwitcher(); onCreate(); }}>
+      <footer><Button type="button" className="ds-btn" onClick={() => { closeSwitcher(); onCreate(); }}>
         {t('Create research project', '新建研究项目')}
-      </button></footer>
-    </dialog>
-  </>;
+      </Button></footer>
+    </DialogContent>
+  </Dialog>;
 }

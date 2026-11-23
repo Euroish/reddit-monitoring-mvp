@@ -569,6 +569,7 @@
   background: #f4f6f0;
   border: 1px solid transparent;
   flex: 1;
+  min-width: 0;
   max-width: 440px;
   transition: background var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast);
 }
@@ -605,6 +606,8 @@
   display: flex;
   gap: 3px;
 }
+
+.global-search-error { color: #a8462f; font-size: 11px; }
 
 .top-actions {
   display: flex;
@@ -2812,8 +2815,23 @@
     padding: 0 10px;
     gap: 8px;
   }
-  .global-search .gs-hint {
+  .global-search .gs-hint,
+  .topbar .top-desktop-button,
+  .topbar .top-theme-name {
     display: none;
+  }
+  .topbar .top-actions { gap: 5px; }
+  .topbar .top-pill-btn { padding-inline: 7px; }
+  .global-search-error {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 12px;
+    right: 12px;
+    width: fit-content;
+    padding: 5px 8px;
+    border-radius: 5px;
+    background: var(--white);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
   }
   .story-card {
     padding: 12px 13px;
@@ -2866,6 +2884,9 @@
   width: min(900px, calc(100vw - 32px));
   max-width: none;
   max-height: 80dvh;
+  height: fit-content;
+  translate: none;
+  overflow: hidden;
   padding: 22px;
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -2873,13 +2894,13 @@
   color: var(--ink);
 }
 
-.project-switcher[open] { display: flex; flex-direction: column; gap: 14px; }
+.project-switcher { display: flex; flex-direction: column; gap: 14px; }
 .project-switcher::backdrop { background: rgb(23 33 28 / 45%); }
 .project-switcher-header,
 .project-switcher-filters,
 .project-switcher footer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .project-switcher-header { justify-content: space-between; }
-.project-switcher-header h2,
+.project-switcher-title,
 .project-switcher-results h3 { margin: 0; }
 .project-switcher-filters [aria-pressed='true'] { border-color: var(--wb-teal); color: var(--wb-teal); }
 .project-switcher-results { display: grid; gap: 18px; overflow: auto; padding: 3px; }
@@ -2913,3 +2934,7 @@
   .project-switcher-cards { grid-template-columns: 1fr; }
   .project-switcher .ds-btn, .project-switcher .icon-square { min-height: 44px; }
 }
+
+.project-overview-skeleton { min-height: 4rem; margin-block: 0.75rem; }
+
+.ds-card[data-slot="card"] { gap: 0; padding-block: 0; box-shadow: none; }

@@ -1,4 +1,7 @@
-﻿import React, { useMemo, useRef, useState } from 'react';
+import { Alert } from '../components/ui/alert';
+import { Card } from '../components/ui/card';
+import { Input } from '../components/ui/input';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   BarChart3,
@@ -507,7 +510,7 @@ export function ContentExplorerPage({
       </div>
 
       {facetsOpen && (
-        <div className="ds-card" style={{ marginBottom: 14 }}>
+        <Card className="ds-card" style={{ marginBottom: 14 }}>
           <div className="ds-card-hd">
             <div>
               <div className="ds-card-title">
@@ -539,7 +542,7 @@ export function ContentExplorerPage({
                 {filterValidationMsg || t('Select a positive date range of at most 90 days for analysis.', '分析需要大于零且不超过 90 天的日期范围。')}
               </div>
             ) : facetsQuery.error ? (
-              <div className="wb-alert wb-alert--error">{formatApiError(facetsQuery.error)}</div>
+              <Alert variant="destructive" className="wb-alert wb-alert--error">{formatApiError(facetsQuery.error)}</Alert>
             ) : (facetsQuery.data?.timeline.length ?? 0) === 0 ? (
               <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--muted)' }}>
                 {facetsQuery.isLoading
@@ -554,7 +557,7 @@ export function ContentExplorerPage({
               />
             )}
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Inline Save Query Box */}
@@ -775,9 +778,9 @@ export function ContentExplorerPage({
             <div className="adv-field">
               <label>{t('Boolean Terms (anyTerms / allTerms / exclusions)', '布尔词组（逗号分隔）')}</label>
               <div style={{ display: 'grid', gap: 6 }}>
-                <input className="wb-input" value={anyTermsText} onChange={(e) => { setAnyTermsText(e.target.value); setCursor(undefined); }} placeholder="OR: pricing, billing" />
-                <input className="wb-input" value={allTermsText} onChange={(e) => { setAllTermsText(e.target.value); setCursor(undefined); }} placeholder="AND: latency" />
-                <input className="wb-input" value={exclusionsText} onChange={(e) => { setExclusionsText(e.target.value); setCursor(undefined); }} placeholder="NOT: hiring" />
+                <Input className="wb-input" value={anyTermsText} onChange={(e) => { setAnyTermsText(e.target.value); setCursor(undefined); }} placeholder="OR: pricing, billing" />
+                <Input className="wb-input" value={allTermsText} onChange={(e) => { setAllTermsText(e.target.value); setCursor(undefined); }} placeholder="AND: latency" />
+                <Input className="wb-input" value={exclusionsText} onChange={(e) => { setExclusionsText(e.target.value); setCursor(undefined); }} placeholder="NOT: hiring" />
               </div>
             </div>
 
@@ -886,7 +889,9 @@ export function ContentExplorerPage({
           <span></span>
         </div>
 
-        {items.length === 0 ? (
+        {contentQuery.isError ? (
+          <Alert variant="destructive" className="wb-alert wb-alert--error">{formatApiError(contentQuery.error)}</Alert>
+        ) : items.length === 0 ? (
           <div style={{ padding: '42px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>
             {contentQuery.isLoading
               ? t('Loading stored content stream...', '正在检索已存内容流...')
