@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Check, ChevronDown, X } from 'lucide-react';
-import { Dialog, DialogContent, DialogTitle, DialogTrigger } from './ui/dialog';
+import { Dialog, DialogClose, DialogContent, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import type { Project } from '../contracts/api';
@@ -40,7 +40,7 @@ export function ProjectSwitcher({ projects, selected, onSelect, onCreate }: {
     setOpen(false);
   }
 
-  return <Dialog open={open} onOpenChange={next => {
+  return <Dialog modal open={open} onOpenChange={next => {
     if (next) { setQuery(''); setFilter('all'); }
     setOpen(next);
   }}>
@@ -55,19 +55,14 @@ export function ProjectSwitcher({ projects, selected, onSelect, onCreate }: {
     </DialogTrigger>
     <DialogContent className="project-switcher" showCloseButton={false} initialFocus={search} finalFocus={trigger}
       onKeyDown={event => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          event.stopPropagation();
-          closeSwitcher();
-        }
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') event.stopPropagation();
       }}>
       <header className="project-switcher-header">
         <DialogTitle className="project-switcher-title">{t('Switch research project', '切换研究项目')}</DialogTitle>
-        <button type="button" className="icon-square" aria-label={t('Close project switcher', '关闭项目选择器')} onClick={closeSwitcher}><X size={19} /></button>
+        <DialogClose type="button" className="icon-square" aria-label={t('Close project switcher', '关闭项目选择器')}><X size={19} /></DialogClose>
       </header>
       <label className="wb-field">{t('Search by project name or description', '搜索项目名称或说明')}
-        <Input ref={search} className="wb-input" type="search" value={query} onChange={event => setQuery(event.target.value)} />
+        <Input ref={search} className="wb-input" type="text" role="searchbox" value={query} onChange={event => setQuery(event.target.value)} />
       </label>
       <div className="project-switcher-filters" role="group" aria-label={t('Filter projects', '筛选项目')}>
         {(['all', 'mine', 'shared'] as const).map(item => <button key={item} type="button" className="ds-btn ds-btn--ghost"

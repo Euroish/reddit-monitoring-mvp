@@ -2850,9 +2850,7 @@
   color: var(--ink);
 }
 
-.source-editor::backdrop {
-  background: rgb(0 0 0 / 46%);
-}
+
 
 .source-editor-fields {
   display: grid;
@@ -2895,7 +2893,7 @@
 }
 
 .project-switcher { display: flex; flex-direction: column; gap: 14px; }
-.project-switcher::backdrop { background: rgb(23 33 28 / 45%); }
+
 .project-switcher-header,
 .project-switcher-filters,
 .project-switcher footer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
@@ -2938,3 +2936,14 @@
 .project-overview-skeleton { min-height: 4rem; margin-block: 0.75rem; }
 
 .ds-card[data-slot="card"] { gap: 0; padding-block: 0; box-shadow: none; }
+
+
+
+.project-switcher .icon-square { min-width: 44px; min-height: 44px; }
+.project-evidence-link { padding: 0; border: 0; background: none; text-align: start; cursor: pointer; }
+.project-evidence-link:hover { text-decoration: underline; }
+
+.project-summary { margin-bottom: 18px; }
+.project-summary h2 { margin: 0 0 8px; font-size: 1rem; }
+.project-summary .kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 768px) { .project-summary .kpi-strip { grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr)); } }

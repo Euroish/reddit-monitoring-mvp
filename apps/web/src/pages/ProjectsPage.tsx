@@ -38,8 +38,6 @@ import { Skeleton } from '../components/ui/skeleton';
 import { Badge } from '../components/ui/badge';
 import { Table } from '../components/ui/table';
 import { KpiSparkChart } from '../components/charts/KpiSparkChart';
-import { DailyTrendChart } from '../components/charts/DailyTrendChart';
-import { DistributionCards } from '../components/charts/DistributionCharts';
 import { useChartColors } from '../components/charts/chartUtils';
 import { CrossPlatformAnalyticsPanel } from '../components/CrossPlatformAnalyticsPanel';
 import { ProjectCollectView } from '../components/ProjectCollectView';
@@ -485,7 +483,7 @@ export function ProjectsPage({
       </div>
 
       {/* DeepSeek Page Header */}
-      <div className="page-head">
+      {activeView !== 'collect' && <div className="page-head">
         <div>
           <div className="page-title-row">
             <h1 className="page-title">{selectedProject ? selectedProject.name : t('Monitoring Overview', '监测总览')}</h1>
@@ -582,9 +580,9 @@ export function ProjectsPage({
             </button>
           )}
         </div>
-      </div>
+      </div>}
 
-      {selectedProject && !canWrite && (
+      {activeView !== 'collect' && selectedProject && !canWrite && (
         <div className="wb-alert wb-alert--info" style={{ marginBottom: 14 }}>
           <span>
             {t(
@@ -631,6 +629,7 @@ export function ProjectsPage({
           actor={actor}
           project={selectedProject}
           sources={sources}
+          initialSearch={initialSearchString}
           onNavigate={go}
         />
       ) : activeView === 'jobs' && selectedProject ? (
@@ -639,6 +638,23 @@ export function ProjectsPage({
         <ProjectBatchesView key={selectedProject.id} project={selectedProject} batchId={searchParams.get('batchId') ?? undefined} allProjects={projects} onNavigate={go} />
       ) : (
         <>
+          {selectedProject && overview && <section className="project-summary" aria-label={t('Project totals', '项目全范围数据')}>
+            <h2>{t('Project totals', '项目全范围数据')}</h2>
+            <div className="kpi-strip">
+              <KpiCard label={<><MessageSquare size={12} />{overview.threadAware ? t('Deduplicated threads', '去重讨论根数') : t('Content anchors', '内容锚点')}</>}
+                value={overview.contentCount.toLocaleString()}
+                badge={<Badge variant="secondary">{t('Stored samples', '已存样本')}</Badge>}
+                detail={overview.threadAware ? t('Project scope · deduplicated by root', '项目全范围 · 按讨论根去重') : t('Project scope · visible rows', '项目全范围 · 可见记录')}
+                trend={<KpiSparkChart values={daySeriesValues} color={colors.purple} />} />
+              <KpiCard label={<><Target size={12} />{t('Matched nodes', '命中内容')}</>}
+                value={overview.matchedContentCount.toLocaleString()}
+                detail={t('Project scope · nodes before root deduplication', '项目全范围 · 去重前节点')}
+                trend={<KpiSparkChart values={dayBuckets.map(day => day.matchedContentCount)} color={colors.teal} />} />
+              <KpiCard label={<><Database size={12} />{selectedProject.dataset_mode === 'batch' ? t('Enabled batches', '启用批次') : t('Bound sources', '绑定来源')}</>}
+                value={selectedProject.dataset_mode === 'batch' ? (selectedProject.enabled_batch_count ?? '—') : selectedProject.source_ids.length}
+                detail={t(`${overview.providers.length} observed providers`, `${overview.providers.length} 个已观测渠道`)} />
+            </div>
+          </section>}
           {selectedProject && (
             <div style={{ marginBottom: 16 }}>
               <CrossPlatformAnalyticsPanel
@@ -660,22 +676,8 @@ export function ProjectsPage({
             </div>
           )}
 
-          {/* Legacy Overview Details & Evidence */}
+          {/* Evidence filters */}
           <div className="filterbar" data-ov-pop>
-        <div className="seg ink">
-          {([7, 30, 90] as const).map((r) => (
-            <button
-              key={r}
-              type="button"
-              className={rangeDays === r ? 'on' : ''}
-              aria-pressed={rangeDays === r}
-              onClick={() => setRangeDays(r)}
-            >
-              {t(`Last ${r}d`, `近 ${r} 天`)}
-            </button>
-          ))}
-        </div>
-
         {/* Platform Filter Popover */}
         <div style={{ position: 'relative' }}>
           <button
@@ -853,58 +855,6 @@ export function ProjectsPage({
       {/* Main Dashboard Bento Grid */}
       {selectedProject && overview && (
         <div className="ds-grid">
-          {/* 1. Four-Cell KPI Strip with ECharts Mini Sparklines */}
-          <div className="c12">
-            <div className="kpi-strip">
-              <KpiCard label={<><MessageSquare size={12} />{overview.threadAware ? t('Deduplicated threads', '去重讨论根数') : t('Content anchors', '内容锚点')}</>}
-                value={overview.contentCount.toLocaleString()}
-                badge={<Badge variant="secondary">{overview.coverage}</Badge>}
-                detail={overview.threadAware ? t('Project scope · deduplicated by root', '项目全范围 · 按讨论根去重') : t('Project scope · visible rows', '项目全范围 · 可见记录')}
-                trend={<KpiSparkChart values={daySeriesValues} color={colors.purple} />} />
-              <KpiCard label={<><Target size={12} />{t('Matched nodes', '命中内容')}</>}
-                value={overview.matchedContentCount.toLocaleString()}
-                detail={t('Project scope · nodes before root deduplication', '项目全范围 · 去重前节点')}
-                trend={<KpiSparkChart values={dayBuckets.map(day => day.matchedContentCount)} color={colors.teal} />} />
-              <KpiCard label={<><Zap size={12} />{t('Pain signals in loaded sample', '已加载样本中的痛点')}</>}
-                value={!contentQuery.isSuccess || filteredContent.length === 0 ? '—' : painCount.toLocaleString()}
-                detail={filteredContent.length > 0
-                  ? t(`${painRatio}% of ${filteredContent.length} loaded, filtered samples`, `占 ${filteredContent.length} 条已加载筛选样本的 ${painRatio}%`)
-                  : t('No visible samples for this filter', '当前筛选暂无可用样本')} />
-              <KpiCard label={<><Database size={12} />{selectedProject.dataset_mode === 'batch' ? t('Enabled batches', '启用批次') : t('Bound sources', '绑定来源')}</>}
-                value={selectedProject.dataset_mode === 'batch' ? (selectedProject.enabled_batch_count ?? '—') : selectedProject.source_ids.length}
-                detail={t(`${overview.providers.length} observed providers`, `${overview.providers.length} 个已观测渠道`)} />
-            </div>
-          </div>
-
-          {/* 2. Real UTC Daily Trend Chart (c12) — zero fabricated composite score */}
-          <div className="c12" id="card-trend">
-            <Card className="ds-card" style={{ height: '100%' }}>
-              <DailyTrendChart
-                facets={overview.facets.filter(facet => facet.day === null || facet.day >= windowFrom.slice(0, 10) && facet.day < windowTo.slice(0, 10))}
-                dayPlatformFacets={overview.dayPlatformFacets?.filter(facet => facet.day >= windowFrom.slice(0, 10) && facet.day < windowTo.slice(0, 10))}
-                rangeDays={rangeDays}
-                threadAware={overview.threadAware}
-                includePushInTrends={selectedProject.include_push_in_trends}
-                onSelectDayPlatform={(dayIso, platform) => {
-                  const qs = new URLSearchParams();
-                  qs.set('from', `${dayIso}T00:00:00Z`);
-                  qs.set('to', new Date(Date.parse(`${dayIso}T00:00:00Z`) + 86_400_000).toISOString());
-                  qs.set('threadAware', String(overview.threadAware));
-                  if (platform) qs.set('platform', platform);
-                  onDrilldown(selectedProject.id, qs.toString());
-                }}
-              />
-            </Card>
-          </div>
-
-          {/* 3. Platform (c5) + Kind (c4) + Attribution (c3) — Real Backend Facets */}
-          <DistributionCards
-            facets={overview.facets}
-            providers={overview.providers}
-            contentItems={filteredContent}
-            onDrillPlatform={(plat) => onDrilldown(selectedProject.id, `platform=${plat}`)}
-          />
-
           {/* 5. High-Signal Discussions Table (c8) + Onboarding Guide & Tutorial Card (c4) */}
           <div className="c8" id="card-table">
             <div className="ds-card">
@@ -952,15 +902,15 @@ export function ProjectsPage({
                     {filteredContent.slice(0, 6).map((item) => {
                       const latest = item.observations[item.observations.length - 1];
                       const m = latest?.metrics || {};
-                      const score = Number(m['reddit.score'] ?? m['x.likes'] ?? m['bluesky.likes'] ?? 0);
-                      const comments = Number(m['reddit.num_comments'] ?? m['x.replies'] ?? m['bluesky.replies'] ?? 0);
+                      const score = m['reddit.score'] ?? m['x.likes'] ?? m['bluesky.likes'];
+                      const comments = m['reddit.num_comments'] ?? m['x.replies'] ?? m['bluesky.replies'];
                       const isPain = PAIN_RE.test(`${item.title || ''} ${item.text || ''}`);
-                      const isDisc = comments >= 10;
+                      const isDisc = typeof comments === 'number' && comments >= 10;
 
                       return (
-                        <tr key={item.id} onClick={() => onOpenContentDetail(item.id)}>
+                        <tr key={item.id}>
                           <td>
-                            <span className="t-title">{item.title || item.text?.slice(0, 72) || item.externalId}</span>
+                            <button type="button" className="t-title project-evidence-link" onClick={() => onOpenContentDetail(item.id)}>{item.title || item.text?.slice(0, 72) || item.externalId}</button>
                             <span className="t-meta">
                               {formatContentAuthor(item.author)} · {[...new Set(item.observations.map((o) => o.provider))].join(', ')}
                             </span>
@@ -977,13 +927,13 @@ export function ProjectsPage({
                           </td>
                           <td className="num">
                             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600 }}>
-                              {score.toLocaleString()}
+                              {score?.toLocaleString() ?? '—'}
                             </span>
-                            <span className="t-meta">{comments} {t('replies', '评论')}</span>
+                            <span className="t-meta">{comments ?? '—'} {t('replies', '评论')}</span>
                           </td>
                           <td className="num">
                             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: item.publishedAt ? 'var(--faint)' : '#a8762c' }}>
-                              {item.publishedAt ? item.publishedAt.slice(5, 10) : 'null'}
+                              {item.publishedAt ? item.publishedAt.slice(5, 10) : '—'}
                             </span>
                           </td>
                         </tr>
