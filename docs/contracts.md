@@ -40,15 +40,15 @@
 ### 4.1 信息流与热榜（`/v1/feed/*` · 5 路径 / 6 操作）
 
 - **`GET /v1/feed/stream`（`public_read` + `read`）**：Query 支持 `mode=foryou|hot|following|explore`、`topic`、`platform`、`language`、`includeNews`、`limit`（`1..40`）、`excludeIds`、`seed`。直出标准化 `FeedCard`（含 `cardLayout`、`headline`、`clean_excerpt`/`tldr`、`media`、`discussion`、`author`、`source`、`topCommentsPreview`、`intentTag`、`reason`、`viewerState`），匿名用户自动切入非个性化高价值混排。
-- **`GET /v1/feed/hot`（`public_read` + `read`）**：跨平台 `unifiedHeat`（0..100 百分位归一化）排行榜，支持 `window=6h|24h|48h|7d`、`platform`、`topic`、`limit`（`1..60`）、`offset`。
-- **`POST /v1/feed/events`（`authenticated` 浏览器）**：批量上报最多 50 条曝光与行为事件（`impression|dwell|open|bookmark|useful|dismiss|mute_*`），事务更新已读防重与 14 天半衰期兴趣权重（`[-2.0, +2.0]` 钳位）。
+- **`GET /v1/feed/hot`（`public_read` + `read`）**：跨平台 `unifiedHeat`（0..100 百分位归一化）排行榜，支持 `window=6h|24h|48h|7d`、`platform`、`topic`、`limit`（`1..60`）、`offset`。`sparkline` 取过去 48 小时每 6 小时段内最新的真实互动快照，以时间升序返回互动分，允许空数组或单点。`corroborationCount` 为当前候选集内同一故事聚簇的独立信源数。
+- **`POST /v1/feed/events`（`authenticated` 浏览器）**：批量上报最多 50 条曝光与行为事件（`impression|dwell|open|bookmark|useful|dismiss|mute_*`），事务更新已读防重与 14 天半衰期兴趣权重（`[-2.0, +2.0]` 钳位）。同一用户对同一内容的 `bookmark` 和 `useful` 各生效一次，`accepted` 返回实际新入库的事件数。
 - **`GET` / `PATCH /v1/feed/preferences` & `POST /v1/feed/preferences/reset`（`authenticated` 浏览器）**：管理破茧探索滑块（`exploreRatio: 0..0.5`）、关注主题与屏蔽列表及一键重置。
 
 ### 4.2 Semrush 级社媒与 GEO 智能监测（`/v1/intelligence/*` · 10 路径 / 13 操作）
 
 - **监测生命周期**：`GET/POST /v1/intelligence/monitors`、`GET/PATCH/DELETE /v1/intelligence/monitors/:id`（`revision` 乐观锁），统一支撑 `keyword`、`author_list`（15–20 个 X 账号自动拼批）与 `community_bundle`，单日单项上限 `20,000`。
-- **预算门控采集**：`POST /v1/intelligence/monitors/:id/estimate`（Pre-flight 预估请求数与条目预算）与 `POST /v1/intelligence/monitors/:id/collect`（强制 `Idempotency-Key`）。
-- **单请求仪表盘与下钻**：`GET /v1/intelligence/monitors/:id/overview`（`days <= 90`、`bucket=6h|1d` 返回趋势、SoV、意图占比、GEO 高频外链域名榜、高频词与诚实样本覆盖声明）、`.../posts`（多维排序下钻）、`GET /v1/intelligence/authors` / `.../authors/:platform/:handle`（KOL 聚合与单人画像）、`GET /v1/intelligence/communities` / `.../communities/:subreddit`（多板块象限对比与单板块 7×24 热力图/Flair/精华流）。
+- **预算门控采集**：`POST /v1/intelligence/monitors/:id/estimate`（Pre-flight 预估请求数与条目预算）与 `POST /v1/intelligence/monitors/:id/collect`（强制 `Idempotency-Key`）。已启用的 `community_bundle` 在社区拉取成功后，以近 7 日已观测主帖评论量计算 P80。每次最多入队一条超过阈值的主帖，补采最多 15 条 Top 评论，受监测器 UTC 日预算、账户配额、系统日上限与供应商预算约束。
+- **单请求仪表盘与下钻**：`GET /v1/intelligence/monitors/:id/overview`（`days <= 90`、`bucket=6h|1d` 返回趋势、SoV、意图占比、GEO 高频外链域名榜（含获正向评分的评论，每个域名在同一条评论中计一次）、高频词与诚实样本覆盖声明）、`.../posts`（多维排序下钻）、`GET /v1/intelligence/authors` / `.../authors/:platform/:handle`（KOL 聚合与单人画像，个人互动率基于可见历史样本，计入点赞或分数、评论、转发、收藏）、`GET /v1/intelligence/communities` / `.../communities/:subreddit`（多板块象限对比与单板块 7×24 热力图/Flair/精华流）。
 
 ---
 

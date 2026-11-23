@@ -143,25 +143,31 @@ function pickCardLayout(
   return "compact_signal";
 }
 
+export function scoreObservation(m: Record<string, number | null>) {
+  const metricScore = numMetric(m, "reddit.score");
+  const metricComments = numMetric(m, "reddit.num_comments") ?? numMetric(m, "x.replies") ?? numMetric(m, "bluesky.replies");
+  const metricViews = numMetric(m, "x.views");
+  const metricLikes = numMetric(m, "x.likes") ?? numMetric(m, "bluesky.likes");
+  const metricReposts = numMetric(m, "x.reposts") ?? numMetric(m, "bluesky.reposts") ?? numMetric(m, "bsky.reposts");
+  const metricBookmarks = numMetric(m, "x.bookmarks");
+  const upvoteRatio = floatMetric(m, "reddit.upvote_ratio");
+
+  const primarySignal = Math.max(0, metricScore ?? metricLikes ?? 0);
+  const commentSignal = Math.max(0, metricComments ?? 0);
+  const repostSignal = Math.max(0, metricReposts ?? 0);
+  const engagementScore = Number(
+    (Math.log1p(primarySignal) + 1.6 * Math.log1p(commentSignal) + 0.8 * Math.log1p(repostSignal)).toFixed(4),
+  );
+  return { metricScore, metricComments, metricViews, metricLikes, metricReposts,
+    metricBookmarks, upvoteRatio, primarySignal, commentSignal, engagementScore };
+}
+
 export const heuristicV1Enricher: ContentEnricher = {
   version: 1,
   source: "heuristic_v1",
   enrich(item: CollectedContent): EnrichedContentFields {
-    const m = item.observation.metrics;
-    const metricScore = numMetric(m, "reddit.score");
-    const metricComments = numMetric(m, "reddit.num_comments") ?? numMetric(m, "x.replies");
-    const metricViews = numMetric(m, "x.views");
-    const metricLikes = numMetric(m, "x.likes");
-    const metricReposts = numMetric(m, "x.reposts") ?? numMetric(m, "bsky.reposts");
-    const metricBookmarks = numMetric(m, "x.bookmarks");
-    const upvoteRatio = floatMetric(m, "reddit.upvote_ratio");
-
-    const primarySignal = Math.max(0, metricScore ?? metricLikes ?? 0);
-    const commentSignal = Math.max(0, metricComments ?? 0);
-    const repostSignal = Math.max(0, metricReposts ?? 0);
-    const engagementScore = Number(
-      (Math.log1p(primarySignal) + 1.6 * Math.log1p(commentSignal) + 0.8 * Math.log1p(repostSignal)).toFixed(4),
-    );
+    const { metricScore, metricComments, metricViews, metricLikes, metricReposts,
+      metricBookmarks, upvoteRatio, primarySignal, commentSignal, engagementScore } = scoreObservation(item.observation.metrics);
     const discussionRatio = primarySignal > 0
       ? Number((commentSignal / Math.max(1, primarySignal)).toFixed(4))
       : 0;

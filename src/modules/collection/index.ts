@@ -1,3 +1,4 @@
+export { DAILY_SOCIAL_ITEM_CEILING, cancelUnstartedMonitorHydrations, enqueueAutomaticCommunityHydration } from "./automatic-hydration";
 export { createCredentialVault, credentialRoutes, type CredentialVault } from "./credentials";
 export { enqueueHydrationForScope } from "./hydrate";
 export { jobRoutes } from "./jobs";

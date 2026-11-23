@@ -15,6 +15,7 @@ export { summarizeScopedContent } from "./facets";
 export {
   loadContentDimensionsByIds,
   loadPlatformEngagementBaselines,
+  loadFeedObservationHistory,
   loadTopCommentsForPosts,
   queryFeedCandidates,
   type ContentDimensionSummary,
@@ -37,6 +38,7 @@ export {
 export {
   countDiscoveriesBySourceSince,
   findHydratableRedditPosts,
+  findCommunityHydrationCandidates,
   findRefreshablePostsForSource,
   hasSourceDiscoveries,
   isContentVisibleToActor,

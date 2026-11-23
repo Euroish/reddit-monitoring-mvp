@@ -13,6 +13,7 @@ import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
 import {
   loadContentDimensionsByIds,
+  loadFeedObservationHistory,
   loadPlatformEngagementBaselines,
   loadTopCommentsForPosts,
   queryFeedCandidates,
@@ -160,9 +161,10 @@ export async function readFeedHotBoard(pool: Pool, actor: Actor, query: Static<t
     .map((row) => ({ row, ...computeUnifiedHeat(row, baselines, nowMs) }))
     .sort((a, b) => b.unifiedHeat - a.unifiedHeat || a.row.id.localeCompare(b.row.id));
   const slice = ranked.slice(offset, offset + limit);
-  const [commentsMap, viewerMap] = await Promise.all([
+  const [commentsMap, viewerMap, histories] = await Promise.all([
     loadTopCommentsForPosts(pool, slice.map((s) => ({ id: s.row.id, platformId: s.row.platformId, kind: s.row.kind, externalId: s.row.externalId })), 2),
     loadViewerBookmarkState(pool, actor, slice.map((s) => s.row.id)),
+    loadFeedObservationHistory(pool, actor, slice.map((s) => s.row.id), new Date(nowMs)),
   ]);
   return {
     window: windowName,
@@ -173,12 +175,7 @@ export async function readFeedHotBoard(pool: Pool, actor: Actor, query: Static<t
     items: slice.map((entry, idx) => ({
       rank: offset + idx + 1,
       card: formatFeedCard({ ...entry, channel: "hot" }, commentsMap.get(entry.row.id) ?? [], viewerMap.get(entry.row.id) ?? { bookmarked: false, useful: false }),
-      sparkline: [
-        Number((entry.unifiedHeat * 0.45).toFixed(1)),
-        Number((entry.unifiedHeat * 0.72).toFixed(1)),
-        Number((entry.unifiedHeat * 0.88).toFixed(1)),
-        entry.unifiedHeat,
-      ],
+      sparkline: histories.get(entry.row.id) ?? [],
       corroborationCount: entry.row.corroborationCount,
     })),
   };
@@ -237,20 +234,26 @@ export async function recordFeedEvents(pool: Pool, actor: Actor, body: Static<ty
   const uniqueContentIds = [...new Set(body.events.map((e) => e.contentId))];
   const dimsMap = await loadContentDimensionsByIds(pool, actor, uniqueContentIds);
   if (dimsMap.size !== uniqueContentIds.length) fail(404, "Content not found");
-  const agg = accumulateAffinityUpdates(body.events, dimsMap);
-  await transaction(pool, async (client: PoolClient) => {
+  return transaction(pool, async (client: PoolClient) => {
     await client.query(
       `INSERT INTO feed_user_seen(user_id, content_id, seen_at)
-       SELECT $1, UNNEST($2::uuid[]), NOW()
+       SELECT $1, id, NOW() FROM UNNEST($2::uuid[]) AS seen(id) ORDER BY id
        ON CONFLICT (user_id, content_id) DO UPDATE SET seen_at = NOW()`,
       [actor.userId, uniqueContentIds],
     );
-    await client.query(
+    const { rows: inserted } = await client.query<{
+      contentId: string;
+      eventType: Static<typeof FeedEventBatchBody>["events"][number]["eventType"];
+      dwellMs: number | null;
+    }>(
       `INSERT INTO feed_user_event(user_id, content_id, event_type, dwell_ms, meta, created_at)
        SELECT $1, (v->>'contentId')::uuid, v->>'eventType', (v->>'dwellMs')::int, COALESCE(v->'meta', '{}'::jsonb), NOW()
-       FROM UNNEST($2::jsonb[]) AS input(v)`,
+       FROM UNNEST($2::jsonb[]) AS input(v)
+       ON CONFLICT (user_id, content_id, event_type) WHERE event_type IN ('bookmark', 'useful') DO NOTHING
+       RETURNING content_id AS "contentId", event_type AS "eventType", dwell_ms AS "dwellMs"`,
       [actor.userId, body.events.map((e) => JSON.stringify(e))],
     );
+    const agg = accumulateAffinityUpdates(inserted.map((event) => ({ ...event, dwellMs: event.dwellMs ?? undefined })), dimsMap);
     if (agg.affinities.length) {
       await client.query(
         `INSERT INTO feed_user_affinity(user_id, dim_type, dim_key, weight, exposure_count, positive_count, negative_count, updated_at)
@@ -280,8 +283,8 @@ export async function recordFeedEvents(pool: Pool, actor: Actor, body: Static<ty
         [actor.userId, agg.muteSources, agg.muteAuthors, agg.muteTopics],
       );
     }
+    return { accepted: inserted.length };
   });
-  return { accepted: body.events.length };
 }
 
 export async function getFeedPreferences(pool: Pool, actor: Actor): Promise<Static<typeof FeedPreferences>> {
@@ -332,5 +335,5 @@ export async function resetFeedProfile(pool: Pool, actor: Actor): Promise<{ rese
 
 export async function pruneFeedArtifacts(pool: Pool): Promise<void> {
   await pool.query("DELETE FROM feed_user_seen WHERE seen_at < NOW() - interval '14 days'");
-  await pool.query("DELETE FROM feed_user_event WHERE created_at < NOW() - interval '30 days'");
+  await pool.query("DELETE FROM feed_user_event WHERE event_type NOT IN ('bookmark', 'useful') AND created_at < NOW() - interval '30 days'");
 }

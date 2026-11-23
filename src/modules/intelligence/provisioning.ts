@@ -5,10 +5,10 @@ import type { SourceInput } from "../../../packages/contracts/src/collection";
 import type { MonitorConfigValue, MonitorKindValue } from "../../../packages/contracts/src/intelligence";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { fail } from "../../shared/errors";
-import { ensureManagedSource, getProviderDailyUsage } from "../collection/index";
+import { DAILY_SOCIAL_ITEM_CEILING, ensureManagedSource, getProviderDailyUsage } from "../collection/index";
 import { packXAccountBatches } from "./metrics";
 
-export const DAILY_SOCIAL_ITEM_CEILING = 20_000;
+
 
 interface ProvisionSpec {
   role: "primary" | "competitor" | "bundle_member";

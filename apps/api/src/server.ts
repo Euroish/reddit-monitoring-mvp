@@ -6,7 +6,7 @@ import {
 } from "../../../src/modules/access/index";
 import { startAiSyncScheduler } from "../../../src/modules/ai/index";
 import { pruneFeedArtifacts } from "../../../src/modules/feed/index";
-import { refreshRollupsForSource } from "../../../src/modules/intelligence/index";
+import { hydrateHotCommunityPost, refreshRollupsForSource } from "../../../src/modules/intelligence/index";
 import { createCredentialVault, startWorker } from "../../../src/modules/collection/index";
 import { BlueskyAppViewContentConnector } from "../../../src/connectors/bluesky/bluesky-appview-content.connector";
 import { createApifyFetch } from "../../../src/connectors/reddit/apify-fetch";
@@ -98,10 +98,14 @@ export async function main() {
       workerPool,
       providers,
       (error) => app.log.error({ err: error }, "Collection worker failed"),
-      (sourceId) =>
-        refreshRollupsForSource(workerPool, sourceId).catch((error) =>
-          app.log.error({ err: error, sourceId }, "Intelligence rollup refresh failed"),
-        ),
+      async (sourceId, { changed, hydration }) => {
+        await Promise.all([
+          changed && refreshRollupsForSource(workerPool, sourceId).catch((error) =>
+            app.log.error({ err: error, sourceId }, "Intelligence rollup refresh failed")),
+          !hydration && hydrateHotCommunityPost(workerPool, providers, sourceId).catch((error) =>
+            app.log.error({ err: error, sourceId }, "Automatic community hydration failed")),
+        ]);
+      },
     );
     const stopAiScheduler = startAiSyncScheduler(workerPool);
     const sessionCleanup = setInterval(() => {

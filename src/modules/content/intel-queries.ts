@@ -68,6 +68,9 @@ export interface AuthorDirectoryRow {
   avgEngagement: number;
   avgComments: number;
   totalLikesOrScore: number;
+  totalComments: number;
+  totalReposts: number;
+  totalBookmarks: number;
   totalViews: number;
   topCommunities: string[];
   lastSeenAt: string;
@@ -116,6 +119,7 @@ export async function queryScopedBucketStats(
     bucketSize: "6h" | "1d";
     keywordFilter?: string;
     authorFilter?: string;
+    platform?: ContentPlatform;
     subredditFilter?: string;
   },
 ): Promise<RawBucketStats[]> {
@@ -152,6 +156,7 @@ export async function queryScopedBucketStats(
          c.author_handle,
          c.community_name,
          c.external_domain,
+         CASE WHEN c.kind = 'comment' AND c.metric_score > 0 THEN c.body_text END AS citation_text,
          c.intent_tag,
          COALESCE(c.metric_score, 0) AS metric_score,
          COALESCE(c.metric_comments, 0) AS metric_comments,
@@ -173,6 +178,7 @@ export async function queryScopedBucketStats(
          AND ($4::text IS NULL OR LOWER(COALESCE(c.title, '') || ' ' || COALESCE(c.body_text, '')) LIKE $4 ESCAPE '\\')
          AND ($5::text IS NULL OR c.author_handle = $5)
          AND ($6::text IS NULL OR c.community_name = $6)
+         AND ($8::text IS NULL OR s.code = $8)
        ORDER BY c.id
      ),
      bucketed AS (
@@ -188,13 +194,25 @@ export async function queryScopedBucketStats(
        ) t
        GROUP BY 1, 2
      ),
+     citations AS (
+       SELECT bucket_at, platform, lower(regexp_replace(external_domain, '^www\\.', '', 'i')) AS domain, engagement_score
+       FROM bucketed WHERE kind <> 'comment' AND external_domain IS NOT NULL
+       UNION ALL
+       SELECT b.bucket_at, b.platform, link.domain, b.engagement_score
+       FROM bucketed b
+       CROSS JOIN LATERAL (
+         SELECT DISTINCT lower(regexp_replace(match[1], '^www\\.', '', 'i')) AS domain
+         FROM regexp_matches(b.citation_text, 'https?://([a-z0-9][a-z0-9.-]*\\.[a-z]{2,63})(?![a-z0-9.@-])', 'gi') AS match
+       ) link
+       WHERE link.domain !~ '(^|\\.)(reddit\\.com|redd\\.it|x\\.com|twitter\\.com|t\\.co)$'
+     ),
      domains AS (
-       SELECT bucket_at, platform, jsonb_agg(jsonb_build_object('domain', external_domain, 'count', cnt, 'totalEngagement', total_eng) ORDER BY total_eng DESC, cnt DESC) AS top_domains
+       SELECT bucket_at, platform, jsonb_agg(jsonb_build_object('domain', domain, 'count', cnt, 'totalEngagement', total_eng)
+         ORDER BY total_eng DESC, cnt DESC, domain) AS top_domains
        FROM (
-         SELECT bucket_at, platform, external_domain, COUNT(*)::int AS cnt, ROUND(SUM(engagement_score)::numeric, 2)::float8 AS total_eng,
-           ROW_NUMBER() OVER (PARTITION BY bucket_at, platform ORDER BY SUM(engagement_score) DESC, COUNT(*) DESC) AS rn
-         FROM bucketed
-         WHERE external_domain IS NOT NULL AND kind <> 'comment'
+         SELECT bucket_at, platform, domain, COUNT(*)::int AS cnt, ROUND(SUM(engagement_score)::numeric, 2)::float8 AS total_eng,
+           ROW_NUMBER() OVER (PARTITION BY bucket_at, platform ORDER BY SUM(engagement_score) DESC, COUNT(*) DESC, domain) AS rn
+         FROM citations
          GROUP BY 1, 2, 3
        ) d
        WHERE rn <= 10
@@ -235,6 +253,7 @@ export async function queryScopedBucketStats(
       input.authorFilter?.toLowerCase() ?? null,
       input.subredditFilter?.toLowerCase() ?? null,
       input.allowedSourceIds ?? null,
+      input.platform ?? null,
     ],
   );
 
@@ -409,6 +428,9 @@ function mapAuthorDirectoryRow(r: import("pg").QueryResultRow): AuthorDirectoryR
     avgComments: Number(r.avg_comments ?? 0),
     totalLikesOrScore: Number(r.total_primary ?? 0),
     totalViews: Number(r.total_views ?? 0),
+    totalComments: Number(r.total_comments ?? 0),
+    totalReposts: Number(r.total_reposts ?? 0),
+    totalBookmarks: Number(r.total_bookmarks ?? 0),
     topCommunities: Array.isArray(r.communities) ? r.communities.slice(0, 8) : [],
     lastSeenAt: r.last_seen_at.toISOString(),
   };
@@ -421,6 +443,7 @@ export async function queryAuthorDirectory(
     platform?: "reddit" | "x";
     sourceIds?: readonly string[];
     search?: string;
+    handle?: string;
     sort?: "followers" | "engagement" | "posts";
     limit: number;
   },
@@ -442,12 +465,15 @@ export async function queryAuthorDirectory(
          c.engagement_score,
          COALESCE(c.metric_comments, 0) AS metric_comments,
          COALESCE(c.metric_score, c.metric_likes, 0) AS primary_metric,
-         COALESCE(c.metric_views, 0) AS metric_views
+         COALESCE(c.metric_views, 0) AS metric_views,
+         COALESCE(c.metric_reposts, 0) AS metric_reposts,
+         COALESCE(c.metric_bookmarks, 0) AS metric_bookmarks
        FROM content c
        JOIN content_discovery d ON d.content_id = c.id
        WHERE c.availability = 'available'
          AND c.kind <> 'comment'
          AND c.author_handle IS NOT NULL
+         AND ($6::text IS NULL OR c.author_handle = $6)
          AND ($1::uuid[] IS NULL OR d.collection_source_id = ANY($1))
          AND ($2::uuid[] IS NULL OR d.collection_source_id = ANY($2))
        ORDER BY c.id
@@ -461,6 +487,9 @@ export async function queryAuthorDirectory(
          ROUND(AVG(metric_comments)::numeric, 2)::float8 AS avg_comments,
          SUM(primary_metric)::bigint AS total_primary,
          SUM(metric_views)::bigint AS total_views,
+         SUM(metric_comments)::bigint AS total_comments,
+         SUM(metric_reposts)::bigint AS total_reposts,
+         SUM(metric_bookmarks)::bigint AS total_bookmarks,
          ARRAY_REMOVE(ARRAY_AGG(DISTINCT community_name), NULL) AS communities
        FROM visible_posts
        GROUP BY 1, 2
@@ -482,6 +511,9 @@ export async function queryAuthorDirectory(
        agg.avg_comments,
        agg.total_primary,
        agg.total_views,
+       agg.total_comments,
+       agg.total_reposts,
+       agg.total_bookmarks,
        agg.communities
      FROM content_author_profile ap
      JOIN source s ON s.id = ap.platform_id
@@ -496,6 +528,7 @@ export async function queryAuthorDirectory(
       input.platform ?? null,
       searchPattern,
       input.limit,
+      input.handle ?? null,
     ],
   );
 

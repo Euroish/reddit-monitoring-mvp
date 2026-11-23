@@ -53,7 +53,7 @@ flowchart TD
   AI --> CONTENT
 ```
 
-| 模块域 | 允许依赖（仅经 `index.ts` 门面） | 独家写表所有权（V2 · `001..061` 合计 **55 表**） |
+| 模块域 | 允许依赖（仅经 `index.ts` 门面） | 独家写表所有权（V2 · `001..062` 合计 **55 表**） |
 | :--- | :--- | :--- |
 | **`access`** | 严格叶子域 | **8 表**：`app_user`、`app_user_password`、`app_invite`、`app_audit_log`、`app_session`、`app_auth_challenge`、`app_auth_mfa`、`app_auth_mfa_login`。 |
 | **`docs`** | 严格叶子域 | **1 表**：`doc_page`（产品文档中心，支持 `markdown` / `https` 外链 / 8 MiB 内联 PDF）。 |

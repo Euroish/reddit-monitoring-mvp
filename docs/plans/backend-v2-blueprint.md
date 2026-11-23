@@ -245,5 +245,4 @@ interface FeedCard {
 
 ## 8. 实施对齐与当前收口状态
 
-- **已落地部分（Draft PR #32 · `feat/backend-v2-feed-intelligence`）**：迁移 `059`–`061`、9 域无环 DAG 与 55 表唯一写归属、连接器富化字段与高赞参数、标量底座与作者画像、`feed` 域 6 个与 `intelligence` 域 13 个 BFF 接口及 OpenAPI/PG16 测试基线均已入枝。
-- **待收口缺口**：真实观测 `sparkline`、跨源 `corroborationCount`、`community_bundle` 自动 P80 评论水合触发、事件防重与 KOL/GEO 指标精细化等 5 项已核实缺口，统一在[当前状态与路线](../status.md)跟踪验收。
+Backend V2 的开发分支、接口收口和待办事项由[当前状态与路线](../status.md#2-pr-32-后端收口交付)跟踪。迁移 `062` 为 Feed 收藏与有用反馈增加了数据库去重约束。

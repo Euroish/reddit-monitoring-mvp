@@ -8,3 +8,4 @@ export {
 } from "./metrics";
 export { refreshMonitorRollups, refreshRollupsForSource } from "./rollups";
 export { intelligenceRoutes, intelligenceRoutes as registerIntelligenceModule } from "./routes";
+export { hydrateHotCommunityPost } from "./community-hydration";

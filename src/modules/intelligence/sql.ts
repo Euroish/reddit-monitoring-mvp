@@ -13,11 +13,12 @@ import { notifyChannel } from "../../platform/pg-notify";
 import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
 import {
+  DAILY_SOCIAL_ITEM_CEILING,
+  cancelUnstartedMonitorHydrations,
   enqueueCollectionForSource,
   listSourcesByIds,
 } from "../collection/index";
 import {
-  DAILY_SOCIAL_ITEM_CEILING,
   estimateMonitorCollection,
   provisionMonitorSources,
 } from "./provisioning";
@@ -167,6 +168,9 @@ export async function updateMonitor(
     if (patch.config || patch.scheduleIntervalHours !== undefined) {
       await provisionMonitorSources(client, providers, id, row.kind, nextConfig, nextInterval);
     }
+    if (!nextEnabled || patch.config || nextBudget < row.daily_item_budget) {
+      await cancelUnstartedMonitorHydrations(client, id);
+    }
   });
   return (await loadMonitor(pool, actor, id)).monitor;
 }
@@ -180,6 +184,7 @@ export async function deleteMonitor(pool: Pool, actor: Actor, id: string, revisi
     ).rows.map((r) => r.collection_source_id);
     assertActorAllowed(actor, srcs);
     if (row.revision !== revision) fail(409, "Monitor changed; reload before deleting");
+    await cancelUnstartedMonitorHydrations(client, id);
     await client.query("DELETE FROM intel_monitor WHERE id=$1", [id]);
     return { deleted: true };
   });

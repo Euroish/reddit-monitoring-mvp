@@ -252,20 +252,22 @@ export async function getTrackedAuthorProfile(
   handle: string,
   days = 30,
 ) {
-  const cleanHandle = handle.replace(/^[@u/]+/i, "").toLowerCase();
-  const authors = await queryAuthorDirectory(pool, actor, { platform, search: cleanHandle, limit: 25 });
-  const profile = authors.find((a) => a.handle === cleanHandle);
+  const cleanHandle = handle.replace(/^(?:@|u\/)/i, "").toLowerCase();
+  const [profile] = await queryAuthorDirectory(pool, actor, { platform, handle: cleanHandle, limit: 1 });
   if (!profile) fail(404, "Author profile not found");
   const to = new Date();
   const from = new Date(to.getTime() - days * 86_400_000);
   const [timeline, posts] = await Promise.all([
-    queryScopedBucketStats(pool, { allowedSourceIds: actor.allowedSourceIds, from, to, bucketSize: "1d", authorFilter: cleanHandle }),
+    queryScopedBucketStats(pool, { allowedSourceIds: actor.allowedSourceIds, from, to, bucketSize: "1d", authorFilter: cleanHandle, platform }),
     queryMonitorPosts(pool, actor, { platform, author: cleanHandle, from, to, sort: "heat", limit: 30, offset: 0 }),
   ]);
   return {
     profile,
     er: computeEngagementRate({
       likes: profile.totalLikesOrScore,
+      comments: profile.totalComments,
+      reposts: profile.totalReposts,
+      bookmarks: profile.totalBookmarks,
       views: profile.totalViews,
       followers: profile.followersCount,
     }),

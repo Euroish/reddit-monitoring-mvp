@@ -1,3 +1,5 @@
+import { scoreObservation } from "./enrich";
+import { groupStories } from "./story-groups";
 import type { Pool, PoolClient } from "pg";
 import type { Actor } from "../../../packages/contracts/src/access";
 import type { ContentPlatform } from "../../../packages/contracts/src/common";
@@ -95,7 +97,6 @@ function mapMetrics(row: import("pg").QueryResultRow) {
     engagementScore: Number(row.engagement_score ?? 0),
     discussionRatio: Number(row.discussion_ratio ?? 0),
     velocityScore: Number(row.velocity_score ?? 0),
-    corroborationCount: Number(row.corroboration_count ?? 1),
   };
 }
 
@@ -137,6 +138,7 @@ function mapCandidateRow(row: import("pg").QueryResultRow): FeedCandidateRow {
     media: mapMedia(row.content_media),
     author: mapAuthor(row),
     ...mapMetrics(row),
+    corroborationCount: 1,
   };
 }
 
@@ -244,15 +246,63 @@ export async function queryFeedCandidates(
        ap.display_name AS author_display_name,
        ap.avatar_url AS author_avatar_url,
        COALESCE(ap.verified, FALSE) AS author_verified,
-       ap.followers_count AS author_followers_count,
-       1 AS corroboration_count
+       ap.followers_count AS author_followers_count
      FROM visible v
      LEFT JOIN content_author_profile ap ON ap.platform_id = v.platform_id AND ap.author_handle = v.author_handle
-     ORDER BY (v.engagement_score + v.velocity_score) DESC, COALESCE(v.created_at_source, v.first_seen_at) DESC
+     ORDER BY (v.engagement_score + v.velocity_score) DESC, COALESCE(v.created_at_source, v.first_seen_at) DESC, v.id
      LIMIT $11`,
     values,
   );
-  return rows.map(mapCandidateRow);
+  const candidates = rows.map(mapCandidateRow);
+  const stories = rows.map((row, index) => ({
+    id: row.id as string,
+    title: row.title ?? row.clean_excerpt ?? "",
+    url: row.url as string | null,
+    links: Array.isArray(row.content_media)
+      ? (row.content_media as FeedCandidateRow["media"]).filter((media) => media.type === "link" && typeof media.url === "string").map((media) => media.url)
+      : [],
+    publishedAt: (row.created_at_source ?? row.first_seen_at).getTime() as number,
+    candidate: candidates[index],
+  })).sort((a, b) => a.publishedAt - b.publishedAt || a.id.localeCompare(b.id));
+  for (const group of groupStories(stories)) {
+    const distinctSources = new Set(group.map(({ candidate }) => candidate.sourceId)).size;
+    for (const { candidate } of group) candidate.corroborationCount = distinctSources;
+  }
+  return candidates;
+}
+
+export async function loadFeedObservationHistory(
+  db: Pool, actor: Actor, contentIds: readonly string[], asOf: Date,
+): Promise<Map<string, number[]>> {
+  const histories = new Map<string, number[]>();
+  if (!contentIds.length) return histories;
+  const { rows } = await db.query<{ content_id: string; metrics: Record<string, number | null> }>(
+    `SELECT content_id, metrics
+     FROM (
+       SELECT DISTINCT ON (o.content_id, date_bin('6 hours', observed.at, TIMESTAMPTZ '2000-01-01 UTC'))
+         o.content_id, observed.at, o.metrics
+       FROM content_observation o
+       JOIN collection_source cs ON cs.id=o.collection_source_id
+       CROSS JOIN LATERAL (SELECT COALESCE(o.source_observed_at, o.fetched_at) AS at) observed
+       WHERE o.content_id = ANY($1::uuid[])
+         AND cs.state = 'active' AND cs.feed_lane IN ('discussion', 'release')
+         AND ($2::uuid[] IS NULL OR o.collection_source_id = ANY($2))
+         AND observed.at BETWEEN $3::timestamptz - interval '48 hours' AND $3
+         AND o.fetched_at <= $3
+         AND EXISTS (SELECT 1 FROM jsonb_each(o.metrics) m WHERE jsonb_typeof(m.value) = 'number'
+           AND m.key IN ('reddit.score', 'reddit.num_comments', 'x.likes', 'x.replies', 'x.reposts', 'bluesky.likes', 'bluesky.replies', 'bluesky.reposts', 'bsky.reposts'))
+       ORDER BY o.content_id, date_bin('6 hours', observed.at, TIMESTAMPTZ '2000-01-01 UTC'),
+         observed.at DESC, o.fetched_at DESC, o.collection_source_id, o.provider, o.evidence_key
+     ) snapshots
+     ORDER BY content_id, at`,
+    [contentIds, actor.allowedSourceIds, asOf],
+  );
+  for (const row of rows) {
+    let points = histories.get(row.content_id);
+    if (!points) histories.set(row.content_id, points = []);
+    points.push(scoreObservation(row.metrics).engagementScore);
+  }
+  return histories;
 }
 
 export async function loadPlatformEngagementBaselines(
