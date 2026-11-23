@@ -3,7 +3,7 @@ name: Core verification
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, edited, synchronize, reopened, ready_for_review, converted_to_draft, labeled, unlabeled]
   merge_group:
   push:
     branches: [main]
@@ -39,6 +39,13 @@ jobs:
       - name: Verify CI scope rules
         if: fromJSON(steps.scope.outputs.scope).workflow
         run: node --test scripts/ci-scope.test.mjs
+      - name: Test PR admission policy
+        run: node --test scripts/check-pr-quality.test.mjs
+      - name: Require PR evidence and no quality hold
+        if: github.event_name == 'pull_request'
+        run: node scripts/check-pr-quality.mjs
+        env:
+          MIGRATION_BASE_SHA: ${{ steps.scope.outputs.base }}
       - name: Gitleaks secret scan
         env:
           BASE: ${{ steps.scope.outputs.base }}

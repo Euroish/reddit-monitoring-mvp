@@ -1,4 +1,8 @@
 # Either maintainer can review these paths. Authors need the other maintainer.
+# Admission instructions and templates are governance, not author-controlled exemptions.
+/AGENTS.md @Euroish @HikariVerse
+/docs/development.md @Euroish @HikariVerse
+/.github/pull_request_template.md @Euroish @HikariVerse
 /src/storage/schema/ @Euroish @HikariVerse
 /src/modules/access/ @Euroish @HikariVerse
 /apps/api/src/app.ts @Euroish @HikariVerse
