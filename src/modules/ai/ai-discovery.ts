@@ -10,6 +10,7 @@ import {
 } from "./ai-event-identity";
 import { isOfficialVendorUrl } from "./ai-registry";
 import { extractWithOptionalLlm, llmDailyBudget, llmRequestsReservedToday } from "./ai-llm";
+import type { AiCredentialVault } from "./ai-credentials";
 
 export interface OfficialArticleRow {
   contentId: string;
@@ -96,10 +97,17 @@ interface VendorRow {
   auto_publish_enabled: boolean;
 }
 
-async function classifyArticleCandidate(pool: Pool, vendor: VendorRow, row: AiFirsthandArticleRow, url: string) {
+async function classifyArticleCandidate(
+  pool: Pool,
+  vendor: VendorRow,
+  row: AiFirsthandArticleRow,
+  url: string,
+  aiVault?: AiCredentialVault,
+) {
   let classified = classifyOfficialAnnouncement(row.title, row.bodyText);
   const officialDate = row.publishedAt ? row.publishedAt.slice(0, 10) : null;
   if (!classified) {
+    const resolvedLlm = aiVault?.resolve("ai_llm");
     const llm = await extractWithOptionalLlm(pool, {
       referenceId: row.contentId,
       vendorName: vendor.name,
@@ -107,7 +115,11 @@ async function classifyArticleCandidate(pool: Pool, vendor: VendorRow, row: AiFi
       bodyText: row.bodyText ?? "",
       publishedDate: officialDate,
       url,
-    });
+    }, resolvedLlm ? {
+      apiUrl: resolvedLlm.config.apiUrl,
+      apiKey: resolvedLlm.apiKey,
+      model: resolvedLlm.config.model,
+    } : {});
     if ((llm.status === "ok" || llm.status === "cached") && !llm.data.insufficient_evidence && llm.data.official_model_name) {
       const mappedType =
         llm.data.event_type === "unknown" || llm.data.event_type === "other" ? "model_update" : llm.data.event_type;
@@ -191,6 +203,7 @@ async function evaluateDiscoveryArticle(
   vendorBySourceId: Map<string, string>,
   shadowMode: boolean,
   row: AiFirsthandArticleRow,
+  aiVault?: AiCredentialVault,
 ): Promise<"skipped" | "queued" | "published" | "shadow" | "noop"> {
   const url = (row.url ?? "").trim();
   const mappedVendorId = vendorBySourceId.get(row.collectionSourceId);
@@ -199,7 +212,7 @@ async function evaluateDiscoveryArticle(
     vendors.find((v) => url && isOfficialVendorUrl(url, v.official_domains));
   if (!vendor || !url || !isOfficialVendorUrl(url, vendor.official_domains)) return "skipped";
 
-  const { classified, officialDate } = await classifyArticleCandidate(pool, vendor, row, url);
+  const { classified, officialDate } = await classifyArticleCandidate(pool, vendor, row, url, aiVault);
   if (!classified) return "noop";
 
   const eventKey = canonicalEventKey({
@@ -283,8 +296,9 @@ async function evaluateDiscoveryArticle(
 
 export async function runOfficialEventDiscovery(
   pool: Pool,
-  options: { shadowMode?: boolean; lookbackHours?: number; limit?: number } = {},
+  options: { shadowMode?: boolean; lookbackHours?: number; limit?: number; aiVault?: AiCredentialVault } = {},
 ) {
+  await options.aiVault?.ensureLoaded();
   const shadowMode = options.shadowMode ?? (process.env.AI_AUTO_PUBLISH_SHADOW === "true");
   const lookbackHours = Math.min(24 * 365, Math.max(1, options.lookbackHours ?? 72));
   const limit = Math.min(200, Math.max(1, options.limit ?? 80));
@@ -305,7 +319,7 @@ export async function runOfficialEventDiscovery(
   let candidatesQueued = 0;
   let skippedNonOfficial = 0;
   for (const row of articles) {
-    const outcome = await evaluateDiscoveryArticle(pool, vendorsRes.rows, vendorBySourceId, shadowMode, row);
+    const outcome = await evaluateDiscoveryArticle(pool, vendorsRes.rows, vendorBySourceId, shadowMode, row, options.aiVault);
     if (outcome === "published") autoPublished += 1;
     else if (outcome === "shadow") shadowPassed += 1;
     else if (outcome === "queued") candidatesQueued += 1;
@@ -370,7 +384,13 @@ export async function rollbackAiEvent(
 
 export type ReadWorkerHealth = (pool: Pool) => Promise<{ state: string; lastHeartbeatAt: Date; heartbeatFresh: boolean } | null>;
 
-export async function getAiOpsSummary(pool: Pool, days = 7, readWorkerHealth?: ReadWorkerHealth) {
+export async function getAiOpsSummary(
+  pool: Pool,
+  days = 7,
+  readWorkerHealth?: ReadWorkerHealth,
+  aiVault?: AiCredentialVault,
+) {
+  await aiVault?.ensureLoaded();
   const safeDays = Math.min(30, Math.max(1, days));
   const [auditCounts, openAlerts, recentRuns, vendorPolicy, llmReserved, worker] = await Promise.all([
     pool.query<{ mode: string; count: number }>(
@@ -398,6 +418,8 @@ export async function getAiOpsSummary(pool: Pool, days = 7, readWorkerHealth?: R
     readWorkerHealth?.(pool) ?? null,
   ]);
   const counts = Object.fromEntries(auditCounts.rows.map((r) => [r.mode, r.count]));
+  const llmStatus = aiVault?.resolve("ai_llm");
+  const aaStatus = aiVault?.resolve("artificial_analysis");
   return {
     windowDays: safeDays,
     shadowMode: process.env.AI_AUTO_PUBLISH_SHADOW === "true",
@@ -405,9 +427,9 @@ export async function getAiOpsSummary(pool: Pool, days = 7, readWorkerHealth?: R
     collectionWorker: worker,
     llmBudget: { dailyLimit: llmDailyBudget(), reservedToday: llmReserved },
     sourceNetworkingConfigured: process.env.SOURCE_NETWORK_ENABLED === "true",
-    llmConfigured: Boolean(process.env.AI_LLM_API_URL?.trim() && process.env.AI_LLM_API_KEY?.trim()),
-    aaKeyConfigured: Boolean(process.env.ARTIFICIAL_ANALYSIS_API_KEY?.trim()),
-    aaPublicRedistribution: process.env.ARTIFICIAL_ANALYSIS_PUBLIC_REDISTRIBUTION === "true",
+    llmConfigured: llmStatus ? llmStatus.configured : Boolean(process.env.AI_LLM_API_URL?.trim() && process.env.AI_LLM_API_KEY?.trim()),
+    aaKeyConfigured: aaStatus ? aaStatus.configured : Boolean(process.env.ARTIFICIAL_ANALYSIS_API_KEY?.trim()),
+    aaPublicRedistribution: aaStatus ? Boolean(aaStatus.config.publicRedistribution) : process.env.ARTIFICIAL_ANALYSIS_PUBLIC_REDISTRIBUTION === "true",
     metrics: {
       autoPublished: counts.auto_publish ?? 0,
       shadowPassed: counts.shadow_pass ?? 0,

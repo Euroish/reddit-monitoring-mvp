@@ -262,7 +262,7 @@ export function ProjectCollectView({ actor, project, sources, initialSearch = ''
           setDraft(value); setRestriction(undefined); setError('');
         }} selected={sourceId} pending={preview.isPending} onSelect={target => void checkTarget(target)} />}
         {flow.step === 'scope' && !restriction && <IntakeScopeStep result={flow.target} source={sources.find(source => source.id === sourceId)}
-          range={range} setRange={setRange} isAdmin={isAdmin} pending={preview.isPending}
+          range={range} setRange={setRange} pending={preview.isPending}
           onContinue={estimate} onBack={() => move('target')} />}
         {restriction && <IntakeRestriction result={restriction} registrationPath={registrationPath} isAdmin={isAdmin}
           onBack={() => { setRestriction(undefined); setError(''); }} />}

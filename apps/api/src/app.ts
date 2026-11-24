@@ -17,7 +17,11 @@ import {
   requireRecentMfa,
   type AccountEmailProvider,
 } from "../../../src/modules/access/index";
-import { registerAiModule } from "../../../src/modules/ai/index";
+import {
+  createAiCredentialVault,
+  registerAiModule,
+  type AiCredentialVault,
+} from "../../../src/modules/ai/index";
 import {
   allSourcesExist,
   assertBrowserExportAllowed,
@@ -116,6 +120,7 @@ export async function buildApp(options: {
   secureCookies?: boolean;
   providers?: ContentProvider[];
   credentialVault?: CredentialVault;
+  aiCredentialVault?: AiCredentialVault;
   logger?: boolean;
   rateLimitMax?: number;
   trustedProxyAddress?: string;
@@ -304,7 +309,8 @@ export async function buildApp(options: {
   await registerContentModule(app, options.pool, shutdown.signal,
     actor => assertBrowserExportAllowed(options.pool, actor), resolveProjectScope, contentVisibility);
   await registerDocsModule(app, options.pool);
-  await registerAiModule(app, options.pool, readCollectionWorkerHealth);
+  const aiVault = options.aiCredentialVault ?? createAiCredentialVault(options.pool, options.sessionSecret);
+  await registerAiModule(app, options.pool, readCollectionWorkerHealth, aiVault);
   await registerProjectsModule(app, options.pool, providers);
   await registerWorkspaceModule(app, options.pool, contentVisibility);
   await registerFeedModule(app, options.pool, contentVisibility);

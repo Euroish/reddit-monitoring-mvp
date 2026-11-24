@@ -82,20 +82,22 @@ export function LegacySourcesPanel({ canManage }: { canManage: boolean }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <b style={{ fontSize: 12 }}>[{item.platform.toUpperCase()}] {item.label}</b>
                   <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                    {item.classification} · {item.primaryProvider} · {t('Refs', '引用监测器')}: {item.totalMonitorRefs} · {t('Today resources', '今日消耗')}: {item.resourcesToday}
+                    {item.classification} · {item.primaryProvider} · {item.scheduleEnabled ? t('Scheduled', '自动调度中') : t('Manual/monitor_only', '未开调度 (monitor_only)')} · {t('Refs', '引用监测器')}: {item.totalMonitorRefs} · {t('Today resources', '今日消耗')}: {item.resourcesToday}
                     {item.unresolvedCharges > 0 && ` · ${t('Unresolved charges', '未决扣费')}: ${item.unresolvedCharges}`}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="ds-btn ds-btn--ghost"
-                  disabled={reconcileMut.isPending}
-                  onClick={() => void runAction({ sourceId: item.id, action: 'pause_schedule', revision: item.revision })}
-                >
-                  <PauseCircle size={12} />
-                  <span>{t('Pause Schedule', '停用自动调度')}</span>
-                </button>
-                {item.totalMonitorRefs > 0 && (
+                {item.scheduleEnabled && (
+                  <button
+                    type="button"
+                    className="ds-btn ds-btn--ghost"
+                    disabled={reconcileMut.isPending}
+                    onClick={() => void runAction({ sourceId: item.id, action: 'pause_schedule', revision: item.revision })}
+                  >
+                    <PauseCircle size={12} />
+                    <span>{t('Pause Schedule', '停用自动调度')}</span>
+                  </button>
+                )}
+                {(item.totalMonitorRefs > 0 || item.classification === 'unclassified') && (
                   <button
                     type="button"
                     className="ds-btn ds-btn--ghost"

@@ -426,6 +426,96 @@ test(
         headers: { cookie: ownerCookie },
       });
       assert.equal(opsSummary.statusCode, 200);
+
+      // AUD-19: Admin event CRUD (list all visibilities + search + create + update + delete)
+      const createdEv = await app.inject({
+        method: "POST",
+        url: "/v1/admin/ai/events",
+        headers: { cookie: ownerCookie, origin: ORIGIN },
+        payload: {
+          vendorId: anthropicVendor!.id,
+          eventType: "model_release",
+          eventStatus: "released",
+          publicationStatus: "unpublished",
+          title: "Stage 1 Draft Release",
+          eventDate: "2026-11-24",
+          datePrecision: "day",
+          summaryZh: "中文摘要测试",
+        },
+      });
+      assert.equal(createdEv.statusCode, 200, createdEv.body);
+      const evId = (createdEv.json() as { id: string }).id;
+
+      const listAdminEv = await app.inject({
+        method: "GET",
+        url: "/v1/admin/ai/events?visibility=unpublished&q=Stage%201%20Draft",
+        headers: { cookie: ownerCookie },
+      });
+      assert.equal(listAdminEv.statusCode, 200, listAdminEv.body);
+      const listAdminBody = listAdminEv.json() as { items: Array<{ id: string; visibility: string }>; totalCount: number };
+      assert.equal(listAdminBody.totalCount, 1);
+      assert.equal(listAdminBody.items[0].id, evId);
+
+      const patchedEv = await app.inject({
+        method: "PATCH",
+        url: `/v1/admin/ai/events/${evId}`,
+        headers: { cookie: ownerCookie, origin: ORIGIN },
+        payload: { title: "Stage 1 Published Release", visibility: "published" },
+      });
+      assert.equal(patchedEv.statusCode, 200, patchedEv.body);
+      assert.equal((patchedEv.json() as { visibility: string }).visibility, "published");
+
+      const deletedEv = await app.inject({
+        method: "DELETE",
+        url: `/v1/admin/ai/events/${evId}`,
+        headers: { cookie: ownerCookie, origin: ORIGIN },
+      });
+      assert.equal(deletedEv.statusCode, 200, deletedEv.body);
+      assert.equal((deletedEv.json() as { deleted: boolean }).deleted, true);
+
+      // AUD-20: Registry source PATCH (enable/cadence/clearCircuit) & encrypted AI credentials
+      const patchReg = await app.inject({
+        method: "PATCH",
+        url: "/v1/admin/ai/sources/openrouter",
+        headers: { cookie: ownerCookie, origin: ORIGIN },
+        payload: { enabled: false, cadenceSeconds: 7200, clearCircuit: true },
+      });
+      assert.equal(patchReg.statusCode, 200, patchReg.body);
+      assert.equal((patchReg.json() as { enabled: boolean; cadenceSeconds: number }).enabled, false);
+      assert.equal((patchReg.json() as { cadenceSeconds: number }).cadenceSeconds, 7200);
+
+      const badLlmUrl = await app.inject({
+        method: "PUT",
+        url: "/v1/admin/ai/credentials/ai_llm",
+        headers: { cookie: ownerCookie, origin: ORIGIN },
+        payload: { apiKey: "sk-test-secret-1234", config: { apiUrl: "http://127.0.0.1:8080/v1/chat/completions" } },
+      });
+      assert.equal(badLlmUrl.statusCode, 422);
+
+      const saveAaCred = await app.inject({
+        method: "PUT",
+        url: "/v1/admin/ai/credentials/artificial_analysis",
+        headers: { cookie: ownerCookie, origin: ORIGIN },
+        payload: { apiKey: "aa-secret-key-9876", config: { publicRedistribution: true } },
+      });
+      assert.equal(saveAaCred.statusCode, 200, saveAaCred.body);
+      assert.equal((saveAaCred.json() as { configured: boolean; keyHint: string }).configured, true);
+      assert.equal((saveAaCred.json() as { keyHint: string }).keyHint, "••••9876");
+
+      const opsWithCred = await app.inject({
+        method: "GET",
+        url: "/v1/admin/ai/ops/summary",
+        headers: { cookie: ownerCookie },
+      });
+      assert.equal((opsWithCred.json() as { aaKeyConfigured: boolean; aaPublicRedistribution: boolean }).aaKeyConfigured, true);
+      assert.equal((opsWithCred.json() as { aaPublicRedistribution: boolean }).aaPublicRedistribution, true);
+
+      const delAaCred = await app.inject({
+        method: "DELETE",
+        url: "/v1/admin/ai/credentials/artificial_analysis",
+        headers: { cookie: ownerCookie, origin: ORIGIN },
+      });
+      assert.equal(delAaCred.statusCode, 200);
     } finally {
       await app.close();
       await privateApp.close();

@@ -14,6 +14,8 @@ import {
 } from 'lucide-react';
 import {
   formatApiError,
+  isMfaRequiredError,
+  useBatchUpdateSourcesMutation,
   useBudgetsQuery,
   useCollectSourceMutation,
   useIngestSourceMutation,
@@ -26,6 +28,7 @@ import {
   useUnblockSourceMutation,
   useUpdateSourceMutation,
 } from '../api/hooks';
+import { InlineMfaStepUp } from '../components/InlineMfaStepUp';
 import { ProviderBudgetEditor } from '../components/ProviderBudgetEditor';
 import { CollectionJobsView } from '../components/CollectionJobsView';
 import { LegacySourcesPanel } from '../components/LegacySourcesPanel';
@@ -135,7 +138,16 @@ export function SourcesPage({
   const [platformFilter, setPlatformFilter] = useState('');
   const [groupFilter, setGroupFilter] = useState('');
   const [providerFilter, setProviderFilter] = useState('');
+  const [laneFilter, setLaneFilter] = useState<'' | 'discussion' | 'release' | 'monitor_only' | 'news'>('');
+  const [gradeFilter, setGradeFilter] = useState<'' | 'S' | 'A' | 'B' | 'C' | 'ungraded'>('');
   const [sourceSearch, setSourceSearch] = useState('');
+  const [selectedBatchIds, setSelectedBatchIds] = useState<Set<string>>(new Set());
+  const [batchLane, setBatchLane] = useState<'' | 'discussion' | 'release' | 'monitor_only' | 'news'>('');
+  const [batchGrade, setBatchGrade] = useState<string>('__keep__');
+  const [batchState, setBatchState] = useState<'' | 'active' | 'paused' | 'archived'>('');
+  const [batchMfaNeeded, setBatchMfaNeeded] = useState(false);
+  const [batchMsg, setBatchMsg] = useState<{ text: string; isError?: boolean } | null>(null);
+  const batchUpdateMut = useBatchUpdateSourcesMutation();
   const [createChannel, setCreateChannel] = useState<string>();
   const [createPreset, setCreatePreset] = useState<'push' | 'reddit_archive'>();
   const [launchSourceId, setLaunchSourceId] = useState<string>();
@@ -152,6 +164,8 @@ export function SourcesPage({
     (!effectivePlatform || source.platform === effectivePlatform) &&
     (healthFilter !== 'scheduled' || (source.state === 'active' && source.schedule?.enabled && !source.automaticCollectionBlocked)) &&
     (healthFilter !== 'attention' || sourceNeedsAttention(source)) &&
+    (!laneFilter || source.feedLane === laneFilter) &&
+    (!gradeFilter || (gradeFilter === 'ungraded' ? !source.qualityGrade : source.qualityGrade === gradeFilter)) &&
     (!groupFilter || source.sourceGroup === groupFilter) && (!providerFilter || source.primaryProvider === providerFilter || source.fallbackProvider === providerFilter) &&
     (!sourceSearch.trim() || `${source.label} ${formatSourceTarget(source.target)} ${source.platform} ${source.sourceGroup ?? ''}`.toLocaleLowerCase().includes(sourceSearch.trim().toLocaleLowerCase())));
   const selectedSource = domainSources.find(source => source.id === routeSourceId) ?? visibleSources[0];
@@ -486,7 +500,7 @@ export function SourcesPage({
             onNavigate('/sources?tab=sources&domain=' + domain + '&sourceId=' + id);
           }} onInspect={id => { setJobActionError(''); setAckJobCharge(false); setInspectJobId(id); }} />
       ) : tab === 'budgets' ? (
-        <QuotasManagementView actor={actor} budgets={budgets} budgetError={budgetsQuery.error} budgetsPending={budgetsQuery.isPending} providers={capabilities} sources={sources} onEditBudget={setEditBudget} onNavigate={onNavigate} />
+        <QuotasManagementView actor={actor} budgets={budgets} budgetError={budgetsQuery.error} budgetsPending={budgetsQuery.isPending} providers={capabilities} sources={sources} onEditBudget={setEditBudget} initialUserId={sp.get('userId') || undefined} onNavigate={onNavigate} />
       ) : tab === 'providers' ? (
         <div className="collection-stack">
           {networkOff && <div role="status" className="wb-alert wb-alert--warn collection-panel-notice">
@@ -586,11 +600,135 @@ export function SourcesPage({
                       {[...new Set(domainSources.map(source => source.sourceGroup).filter(Boolean))].sort().map(group => <option key={group}>{group}</option>)}
                     </select>
                   </label>
+                  <div className="wb-grid-2">
+                    <label className="wb-field">{t('Feed lane', '分发通道')}
+                      <select className="wb-select" value={laneFilter} onChange={event => { setLaneFilter(event.target.value as typeof laneFilter); resetSourceDraft(); }}>
+                        <option value="">{t('All lanes', '全部通道')}</option>
+                        <option value="release">release</option>
+                        <option value="discussion">discussion</option>
+                        <option value="monitor_only">monitor_only</option>
+                        <option value="news">news</option>
+                      </select>
+                    </label>
+                    <label className="wb-field">{t('Quality grade', '质量评级')}
+                      <select className="wb-select" value={gradeFilter} onChange={event => { setGradeFilter(event.target.value as typeof gradeFilter); resetSourceDraft(); }}>
+                        <option value="">{t('All grades', '全部评级')}</option>
+                        <option value="S">S</option>
+                        <option value="A">A</option>
+                        <option value="B">B</option>
+                        <option value="C">C</option>
+                        <option value="ungraded">{t('Ungraded', '未评级')}</option>
+                      </select>
+                    </label>
+                  </div>
                   </details>
-                  {(stateFilter !== 'all' || healthFilter || effectivePlatform || groupFilter || providerFilter || sourceSearch) &&
+                  {canWrite && domainSources.some(s => s.state === 'archived' && s.feedLane === 'news') && (
+                    <button
+                      type="button"
+                      className="ds-btn ds-btn--ghost"
+                      style={{ fontSize: 11 }}
+                      onClick={() => {
+                        setStateFilter('archived');
+                        setHealthFilter('');
+                        setLaneFilter('news');
+                        setBatchState('active');
+                        setBatchLane('release');
+                      }}
+                    >
+                      {t('Filter archived 061 news sources for recovery', '筛选 061 已归档新闻源以便批量恢复')}
+                    </button>
+                  )}
+                  {(stateFilter !== 'all' || healthFilter || effectivePlatform || groupFilter || providerFilter || laneFilter || gradeFilter || sourceSearch) &&
                     <button className="collection-text-button source-clear-filters" type="button" onClick={() => {
-                      setStateFilter('all'); setHealthFilter(''); setPlatformFilter(''); setGroupFilter(''); setProviderFilter(''); setSourceSearch('');
+                      setStateFilter('all'); setHealthFilter(''); setPlatformFilter(''); setGroupFilter(''); setProviderFilter(''); setLaneFilter(''); setGradeFilter(''); setSourceSearch('');
                     }}>{t('Clear filters', '清除筛选')}</button>}
+                  {canWrite && visibleSources.length > 0 && (
+                    <div style={{ display: 'grid', gap: 6, padding: 10, border: '1px solid var(--line)', borderRadius: 6, background: 'var(--paper)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5 }}>
+                        <span>{t(`Batch selected: ${selectedBatchIds.size}`, `已勾选批量治理：${selectedBatchIds.size} 个来源`)}</span>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button type="button" className="collection-text-button" onClick={() => setSelectedBatchIds(new Set(visibleSources.map(s => s.id)))}>
+                            {t('Select visible', '全选当前列表')}
+                          </button>
+                          {selectedBatchIds.size > 0 && (
+                            <button type="button" className="collection-text-button" onClick={() => setSelectedBatchIds(new Set())}>
+                              {t('Clear selection', '清空勾选')}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {selectedBatchIds.size > 0 && (
+                        <>
+                          <div className="wb-grid-2">
+                            <select className="wb-select" aria-label={t('Batch lane', '批量分发通道')} value={batchLane} onChange={e => setBatchLane(e.target.value as typeof batchLane)}>
+                              <option value="">{t('Keep lane', '保持通道不变')}</option>
+                              <option value="release">release</option>
+                              <option value="discussion">discussion</option>
+                              <option value="monitor_only">monitor_only</option>
+                              <option value="news">news</option>
+                            </select>
+                            <select className="wb-select" aria-label={t('Batch quality grade', '批量质量评级')} value={batchGrade} onChange={e => setBatchGrade(e.target.value)}>
+                              <option value="__keep__">{t('Keep grade', '保持评级不变')}</option>
+                              <option value="S">S</option>
+                              <option value="A">A</option>
+                              <option value="B">B</option>
+                              <option value="C">C</option>
+                              <option value="">{t('Clear grade', '清空评级')}</option>
+                            </select>
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                            <select className="wb-select" aria-label={t('Batch state', '批量状态')} value={batchState} onChange={e => setBatchState(e.target.value as typeof batchState)} style={{ flex: 1 }}>
+                              <option value="">{t('Keep state', '保持状态不变')}</option>
+                              <option value="active">{t('Activate', '启用')}</option>
+                              <option value="paused">{t('Pause', '暂停')}</option>
+                              <option value="archived">{t('Archive', '归档')}</option>
+                            </select>
+                            <button
+                              type="button"
+                              className="ds-btn"
+                              disabled={batchUpdateMut.isPending || (!batchLane && batchGrade === '__keep__' && !batchState)}
+                              onClick={async () => {
+                                setBatchMsg(null);
+                                try {
+                                  const res = await batchUpdateMut.mutateAsync({
+                                    ids: [...selectedBatchIds],
+                                    ...(batchLane ? { feedLane: batchLane } : {}),
+                                    ...(batchGrade !== '__keep__' ? { qualityGrade: batchGrade || null } : {}),
+                                    ...(batchState ? { state: batchState } : {}),
+                                  });
+                                  setBatchMfaNeeded(false);
+                                  setSelectedBatchIds(new Set());
+                                  setBatchMsg({ text: t(`Updated ${res.updatedCount} sources.`, `已批量更新 ${res.updatedCount} 个来源。`) });
+                                } catch (err) {
+                                  if (isMfaRequiredError(err)) setBatchMfaNeeded(true);
+                                  else setBatchMsg({ text: formatApiError(err), isError: true });
+                                }
+                              }}
+                            >
+                              {t('Apply Batch', '批量执行')}
+                            </button>
+                          </div>
+                          {batchMfaNeeded && (
+                            <InlineMfaStepUp
+                              onVerified={async () => {
+                                const res = await batchUpdateMut.mutateAsync({
+                                  ids: [...selectedBatchIds],
+                                  ...(batchLane ? { feedLane: batchLane } : {}),
+                                  ...(batchGrade !== '__keep__' ? { qualityGrade: batchGrade || null } : {}),
+                                  ...(batchState ? { state: batchState } : {}),
+                                });
+                                setBatchMfaNeeded(false);
+                                setSelectedBatchIds(new Set());
+                                setBatchMsg({ text: t(`Updated ${res.updatedCount} sources.`, `已批量更新 ${res.updatedCount} 个来源。`) });
+                              }}
+                              onCancel={() => setBatchMfaNeeded(false)}
+                            />
+                          )}
+                        </>
+                      )}
+                      {batchMsg && <small role={batchMsg.isError ? 'alert' : 'status'} style={{ color: batchMsg.isError ? '#a8462f' : 'var(--muted)' }}>{batchMsg.text}</small>}
+                    </div>
+                  )}
                   {sourcesQuery.isError && <div role="alert" className="wb-alert wb-alert--error">{formatApiError(sourcesQuery.error)}</div>}
                   {sourcesQuery.isPending && <div role="status">{t('Loading sources…', '正在加载来源…')}</div>}
                   {sourcesQuery.isSuccess && visibleSources.length === 0 && <p className="collection-hint">{providerFilter && !domainSources.some(source => source.primaryProvider === providerFilter || source.fallbackProvider === providerFilter)
@@ -599,15 +737,35 @@ export function SourcesPage({
                   <div className="source-directory-results">
                   {visibleSources.map((s) => {
                     const active = s.id === selectedSource?.id;
+                    const checked = selectedBatchIds.has(s.id);
                     return (
-                      <div key={s.id} className={'collection-source-row' + (active ? ' is-selected' : '')}>
+                      <div key={s.id} className={'collection-source-row' + (active ? ' is-selected' : '')} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {canWrite && (
+                        <input
+                          type="checkbox"
+                          aria-label={t(`Select ${s.label}`, `勾选 ${s.label}`)}
+                          checked={checked}
+                          onChange={() => {
+                            setSelectedBatchIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(s.id)) next.delete(s.id);
+                              else next.add(s.id);
+                              return next;
+                            });
+                          }}
+                        />
+                      )}
                       <button
                         type="button"
                         onClick={() => selectSource(s.id)}
                         className="collection-source-select"
+                        style={{ flex: 1 }}
                         aria-pressed={active}
                       >
-                        <span className="source-directory-row-title"><strong>{s.label}</strong><small>{sourceStatus.status(s)}</small></span>
+                        <span className="source-directory-row-title">
+                          <strong>{s.label}</strong>
+                          <small>{sourceStatus.status(s)} · {s.feedLane}{s.qualityGrade ? ` · ${s.qualityGrade}` : ''}</small>
+                        </span>
                         <small>{feedDomain ? (s.deliveryMode === 'pull' ? t('Subscription', '订阅抓取') : t('External delivery', '外部推送')) : s.platform} · {formatSourceTarget(s.target)}</small>
                         {s.lastSuccessAt && <small><time dateTime={s.lastSuccessAt}>{sourceStatus.timestamp(s.lastSuccessAt)}</time></small>}
                       </button>

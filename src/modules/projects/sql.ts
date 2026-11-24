@@ -196,19 +196,6 @@ export async function writeProject(pool: Pool, actor: Actor, input: ProjectWrite
   });
 }
 
-async function assertViewerProjectCapacity(client: PoolClient, actor: Actor) {
-  if (actor.role !== "viewer") return;
-  if (!actor.userId) fail(403, "Authenticated browser session required");
-  const plan = await loadEffectivePolicyForUser(client, actor.userId, true);
-  const { rows: [owned] } = await client.query<{ count: string }>(
-    "SELECT COUNT(*) AS count FROM monitor_project WHERE owner_user_id=$1",
-    [actor.userId],
-  );
-  if (Number(owned.count) >= plan.maxProjects) {
-    fail(403, `Project limit reached for ${plan.planTier} tier (${plan.maxProjects})`);
-  }
-}
-
 export async function publishProject(
   pool: Pool,
   actor: Actor,
@@ -306,7 +293,7 @@ export async function forkProject(
   if (actor.clientKind !== "browser") fail(403, "Browser session required");
   return transaction(pool, async (client) => {
     const sourceProj = await projectSources(client, actor, sourceProjectId);
-    await assertViewerProjectCapacity(client, actor);
+    await assertViewerProjectQuota(client, actor);
     const id = randomUUID();
     const forkName = (input.name?.trim() || `${sourceProj.name} (Copy)`).slice(0, 100);
     const forkDesc = input.description !== undefined ? input.description : sourceProj.description;

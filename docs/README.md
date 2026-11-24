@@ -23,7 +23,7 @@
 1. **信源清洗**：迁入 `059` 归档现有被动媒体新闻与 V2EX/营销榜单源（完整保留 `ai_vendor_source` 官方发布源）；后续高讨论 L1/L2 信源由维护者精选补充。
 2. **摘要与意图识别**：采用可插拔 `heuristic_v1` + 版本化升级钩子（`upgradeContentEnrichment`）低复杂度起步，保证结构化卡片立即可用且便于后期平滑替换为分类器/LLM。
 3. **采集预算额度**：X + Reddit 直调 API 总上限校准为 `<= 20,000` 条/天，采集前通过 `estimate` 预估配额。
-4. **分期交付顺序**：Backend V2 优先完成数据库、模块边界与前端 BFF 接口收口（暂不修改现有前端），待后端合入并稳态运行后再全面重做前端 UI/UX；匿名访客在信息流自动使用非个性化高价值混排。
+4. **分期交付顺序**：2026-11-23 原定先完成 Backend V2（当前 `/v1/feed/*` 与 `/v1/intelligence/*` 已合入 `main` 为 `[LIVE]`），匿名访客在信息流自动使用非个性化高价值混排，前端由运维闭环（Stage 1）与 V2 产品融合（Stage 2）分批落地。
 
 ## 3. 度量诚实性与核心产品规则
 
@@ -44,9 +44,9 @@
 | [README.md](../README.md) | 仓库总入口、核心能力概览与开发启动 |
 | [AGENTS.md](../AGENTS.md) | Agent 与协作者红线约束 |
 | [README.md](README.md)（本文） | 产品支柱、业务边界、2026-11-23 定案与度量诚实性 |
-| [architecture.md](architecture.md) | 4 GB 运行拓扑、模块化领域边界、58 表写归属、检索、L1–L3/R4 隔离与安全底线 |
+| [architecture.md](architecture.md) | 4 GB 运行拓扑、模块化领域边界、单写表与凭证表隔离、检索、L1–L3/R4 隔离与安全底线 |
 | [invariants.md](invariants.md) | `INV-001`..`INV-010` 核心工程不变量与门禁索引 |
-| [contracts.md](contracts.md) | Domain 对象、认证授权、采集/查询/导出规则与 OpenAPI 115 路由实测清单 |
+| [contracts.md](contracts.md) | Domain 对象、认证授权、采集/查询/导出规则与 `check:openapi` 全量路由清册 |
 | [design.md](design.md) | 现有 UI 基线与 Frontend V2 信息架构/交互视觉规范 |
 | [status.md](status.md) | 生产最近已知基线、主干已合入代码、在途质量修复与未收口事项 |
 | [development.md](development.md) | 分支协作、CI 门禁、本地验证、Docker 部署与生产运维手册 |

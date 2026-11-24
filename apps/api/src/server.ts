@@ -4,7 +4,7 @@ import {
   mfaConfig,
   pruneAccessArtifacts,
 } from "../../../src/modules/access/index";
-import { startAiSyncScheduler } from "../../../src/modules/ai/index";
+import { createAiCredentialVault, startAiSyncScheduler } from "../../../src/modules/ai/index";
 import { pruneFeedArtifacts } from "../../../src/modules/feed/index";
 import {
   authorizeScheduledSourceDispatch,
@@ -45,6 +45,8 @@ export async function main() {
     }
     const vault = createCredentialVault(pool, sessionSecret);
     await vault.reload();
+    const aiVault = createAiCredentialVault(pool, sessionSecret);
+    await aiVault.reload();
     const apifyFetch = createApifyFetch(process.env);
     const providers = [
       twitterApis(process.env, fetch, () => vault.getSecret("twitterapis")),
@@ -76,6 +78,7 @@ export async function main() {
       pool,
       providers,
       credentialVault: vault,
+      aiCredentialVault: aiVault,
       sessionSecret,
       strongerPasswords,
       authThrottleKey,
@@ -116,7 +119,7 @@ export async function main() {
         },
       },
     );
-    const stopAiScheduler = startAiSyncScheduler(workerPool);
+    const stopAiScheduler = startAiSyncScheduler(workerPool, aiVault);
     const sessionCleanup = setInterval(() => {
       void pruneAccessArtifacts(workerPool).catch(() =>
         app.log.error("Access challenge and session cleanup failed"),

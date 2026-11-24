@@ -184,6 +184,48 @@ export interface AiRegistrySourceItem {
   lastError: string | null;
 }
 
+export interface AiCredentialStatusItem {
+  provider: 'artificial_analysis' | 'ai_llm' | 'openrouter';
+  configured: boolean;
+  source: 'database' | 'env' | 'none';
+  keyHint: string;
+  config: {
+    apiUrl?: string;
+    model?: string;
+    publicRedistribution?: boolean;
+  };
+  revision: number;
+  updatedByEmail: string | null;
+  updatedAt: string | null;
+}
+
+export interface AiAdminEventItem {
+  id: string;
+  vendorId: string;
+  vendorSlug: string;
+  vendorName: string;
+  modelId: string | null;
+  modelSlug: string | null;
+  modelName: string | null;
+  eventType: string;
+  eventStatus: 'released' | 'announced_future' | 'deprecated' | 'retired';
+  visibility: 'published' | 'unpublished' | 'corrected';
+  title: string;
+  eventDate: string;
+  datePrecision: 'day' | 'month';
+  officialAnnouncedOn: string | null;
+  availableFrom: string | null;
+  effectiveOn: string | null;
+  summaryZh: string | null;
+  summaryEn: string | null;
+  keyChanges: string[];
+  sourceTier: string;
+  verifiedAt: string;
+  revision: number;
+  primaryReferenceUrl: string | null;
+  updatedAt: string;
+}
+
 function aiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return liveFetch<T>('/api' + path, { ...init, rawBase: true });
 }
@@ -298,7 +340,56 @@ export const aiApi = {
       method: 'POST',
       body: JSON.stringify({ reason }),
     }),
+  listAdminEvents: (q: {
+    vendor?: string;
+    eventType?: string;
+    eventStatus?: string;
+    visibility?: 'all' | 'published' | 'unpublished' | 'corrected';
+    q?: string;
+    limit?: number;
+    offset?: number;
+  }) => aiFetch<{ items: AiAdminEventItem[]; totalCount: number }>(`/v1/admin/ai/events${toQs(q)}`),
+  createEvent: (body: Record<string, unknown>) =>
+    aiFetch<{ id: string; visibility: string }>('/v1/admin/ai/events', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateEvent: (id: string, body: Record<string, unknown>) =>
+    aiFetch<{ id: string; title: string; visibility: string }>(`/v1/admin/ai/events/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  deleteEvent: (id: string) =>
+    aiFetch<{ id: string; deleted: boolean }>(`/v1/admin/ai/events/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
   listSources: () => aiFetch<{ items: AiRegistrySourceItem[] }>('/v1/admin/ai/sources'),
+  patchSource: (code: string, body: { enabled?: boolean; cadenceSeconds?: number; clearCircuit?: boolean }) =>
+    aiFetch<AiRegistrySourceItem>(`/v1/admin/ai/sources/${encodeURIComponent(code)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  listCredentials: () => aiFetch<{ items: AiCredentialStatusItem[] }>('/v1/admin/ai/credentials'),
+  saveCredential: (
+    provider: 'artificial_analysis' | 'ai_llm' | 'openrouter',
+    body: { apiKey?: string; config?: { apiUrl?: string; model?: string; publicRedistribution?: boolean } },
+  ) =>
+    aiFetch<AiCredentialStatusItem>(`/v1/admin/ai/credentials/${encodeURIComponent(provider)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteCredential: (provider: 'artificial_analysis' | 'ai_llm' | 'openrouter') =>
+    aiFetch<{ deleted: boolean }>(`/v1/admin/ai/credentials/${encodeURIComponent(provider)}`, {
+      method: 'DELETE',
+    }),
+  testCredential: (
+    provider: 'artificial_analysis' | 'ai_llm' | 'openrouter',
+    body: { apiKey?: string; apiUrl?: string } = {},
+  ) =>
+    aiFetch<{ ok: boolean; status: number; message: string }>(`/v1/admin/ai/credentials/${encodeURIComponent(provider)}/test`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   listSyncRuns: () => aiFetch<{ items: AiSyncRun[] }>('/v1/admin/ai/sync-runs'),
   listSourceBindings: () => aiFetch<{ items: AiSourceBinding[] }>('/v1/admin/ai/vendor-sources'),
   saveSourceBinding: (body: AiSourceBinding) =>
@@ -371,6 +462,33 @@ export function useAiSourcesQuery(enabled = true) {
   });
 }
 
+export function useAiCredentialsQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['ai', 'admin', 'credentials'],
+    queryFn: aiApi.listCredentials,
+    enabled,
+  });
+}
+
+export function useAiAdminEventsQuery(
+  params: {
+    vendor?: string;
+    eventType?: string;
+    eventStatus?: string;
+    visibility?: 'all' | 'published' | 'unpublished' | 'corrected';
+    q?: string;
+    limit?: number;
+    offset?: number;
+  },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['ai', 'admin', 'events', params],
+    queryFn: () => aiApi.listAdminEvents(params),
+    enabled,
+  });
+}
+
 export function useAiOpsSummaryQuery(days = 7, enabled = true) {
   return useQuery({
     queryKey: ['ai', 'admin', 'ops-summary', days],
@@ -421,6 +539,46 @@ export function useAiAdminMutations() {
     unpublish: useMutation({
       mutationFn: ({ id, reason }: { id: string; reason?: string }) => aiApi.unpublishEvent(id, reason),
       onSuccess: invalidate,
+    }),
+    createEvent: useMutation({
+      mutationFn: (body: Record<string, unknown>) => aiApi.createEvent(body),
+      onSuccess: invalidate,
+    }),
+    updateEvent: useMutation({
+      mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => aiApi.updateEvent(id, body),
+      onSuccess: invalidate,
+    }),
+    deleteEvent: useMutation({
+      mutationFn: (id: string) => aiApi.deleteEvent(id),
+      onSuccess: invalidate,
+    }),
+    patchSource: useMutation({
+      mutationFn: ({ code, body }: { code: string; body: { enabled?: boolean; cadenceSeconds?: number; clearCircuit?: boolean } }) =>
+        aiApi.patchSource(code, body),
+      onSuccess: invalidate,
+    }),
+    saveCredential: useMutation({
+      mutationFn: ({
+        provider,
+        body,
+      }: {
+        provider: 'artificial_analysis' | 'ai_llm' | 'openrouter';
+        body: { apiKey?: string; config?: { apiUrl?: string; model?: string; publicRedistribution?: boolean } };
+      }) => aiApi.saveCredential(provider, body),
+      onSuccess: invalidate,
+    }),
+    deleteCredential: useMutation({
+      mutationFn: (provider: 'artificial_analysis' | 'ai_llm' | 'openrouter') => aiApi.deleteCredential(provider),
+      onSuccess: invalidate,
+    }),
+    testCredential: useMutation({
+      mutationFn: ({
+        provider,
+        body,
+      }: {
+        provider: 'artificial_analysis' | 'ai_llm' | 'openrouter';
+        body?: { apiKey?: string; apiUrl?: string };
+      }) => aiApi.testCredential(provider, body),
     }),
     rollback: useMutation({
       mutationFn: ({ id, reason }: { id: string; reason?: string }) => aiApi.rollbackEvent(id, reason),

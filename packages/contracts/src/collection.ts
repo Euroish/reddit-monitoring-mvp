@@ -161,7 +161,16 @@ export const SourceListQuery = Type.Object({
   tier: Type.Optional(SourceTier),
   state: Type.Optional(Type.Union([Type.Literal("active"), Type.Literal("paused"), Type.Literal("archived")])),
   feedLane: Type.Optional(FeedLane),
+  qualityGrade: Type.Optional(NullableText),
   truncatedOnly: Type.Optional(Type.Boolean()),
+}, { additionalProperties: false });
+
+export const SourceBatchUpdateBody = Type.Object({
+  ids: Type.Array(Id, { minItems: 1, maxItems: 100, uniqueItems: true }),
+  feedLane: Type.Optional(FeedLane),
+  qualityGrade: Type.Optional(NullableText),
+  state: Type.Optional(Type.Union([Type.Literal("active"), Type.Literal("paused"), Type.Literal("archived")])),
+  tier: Type.Optional(SourceTier),
 }, { additionalProperties: false });
 
 export const SourcePreview = Type.Object({
@@ -324,7 +333,7 @@ export interface SourceCapability {
 }
 
 const SourcePatch = Type.Partial(Type.Pick(SourceInput, [
-  "label", "sourceGroup", "tags", "locale", "fetchPolicy", "schedule", "tier", "ownerEntityId",
+  "label", "sourceGroup", "tags", "locale", "fetchPolicy", "schedule", "tier", "ownerEntityId", "feedLane", "qualityGrade",
 ]));
 
 export const SourceUpdate = strictMerge([

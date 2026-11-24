@@ -26,7 +26,7 @@ Web 浏览器 / 移动 Web / 外部 Agent / L3 外部 Sidecar / R4 plugins/zst-a
 
 ---
 
-## 2. 模块化领域边界与 58 表写归属
+## 2. 模块化领域边界与单写表归属（59 写表 + 7 凭证隔离表）
 
 由 `.dependency-cruiser.cjs` 与 `scripts/check-table-ownership.ts` 在 CI (`npm run lint:arch`) 双重强制：**全仓零循环依赖、跨模块只经目标域 `index.ts` 公开门面（禁引内部文件与 `routes.ts`）、每张数据库表有且仅有一个写主模块。**
 
@@ -38,8 +38,8 @@ flowchart TD
   APP --> DOCS["docs (Product Docs)"]
   APP --> CONTENT["content (Leaf: Canonical Content / Scalar Metrics / Thread / Search)"]
   APP --> COLLECTION["collection (Sources / Connectors / Budgets / Worker)"]
-  APP --> FEED["feed [V2] (Anti-Filter-Bubble Stream / Hot Board / Events)"]
-  APP --> INTEL["intelligence [V2] (Keyword / KOL / Subreddit Monitors + Rollups)"]
+  APP --> FEED["feed [LIVE] (Anti-Filter-Bubble Stream / Hot Board / Events)"]
+  APP --> INTEL["intelligence [LIVE] (Keyword / KOL / Subreddit Monitors + Rollups)"]
   APP --> PROJECTS["projects (Legacy Monitor Compatibility)"]
   APP --> WORKSPACE["workspace (Personal Bookmarks & Annotations)"]
   APP --> AI["ai (AI Release Intelligence)"]
@@ -49,28 +49,30 @@ flowchart TD
   FEED --> CONTENT
   INTEL --> CONTENT
   INTEL --> COLLECTION
+  INTEL --> ACCESS
   PROJECTS --> CONTENT
   PROJECTS --> COLLECTION
   WORKSPACE --> CONTENT
+  AI --> ACCESS
   AI --> CONTENT
 ```
 
-| 模块域 | 当前跨模块依赖（仅经 `index.ts` 门面，禁成环） | 独家写表所有权（V2 · `001..064` 合计 **58 表**） |
+| 模块域 | 当前跨模块依赖（仅经 `index.ts` 门面，禁成环） | 独家写表所有权（`001..067` 受监管写表 **59 张**） |
 | :--- | :--- | :--- |
 | **`access`** | 严格叶子域（`modules-access-leaf` 强制） | **8 表**：`app_user`、`app_user_password`、`app_invite`、`app_audit_log`、`app_session`、`app_auth_challenge`、`app_auth_mfa`、`app_auth_mfa_login`。 |
 | **`docs`** | 当前无跨域依赖 | **1 表**：`doc_page`（产品文档中心，支持 `markdown` / `https` 外链 / 8 MiB 内联 PDF）。 |
 | **`content`** | 严格叶子域（`modules-content-leaf` 强制）；范围由 `resolveProjectScope` 注入 | **5 表**：`content`、`content_discovery`、`content_observation`、`content_author_profile`、`public_content_search_document`。全库唯一写入入口 `commitContentBatch`；读取 `collection` 的 `source` 与 `collection_source` 属常规业务读。 |
-| **`collection`** | `access`、`content` | **11 表**：`collection_batch`、`collection_batch_item`、`source`、`collection_source`、`source_collection_job`、`source_provider_budget`、`source_provider_usage`、`source_worker_heartbeat`、`source_provider_credential`、`plan_collection_policy`、`user_provider_usage`。 |
+| **`collection`** | `access`、`content` | **13 表**：`collection_batch`、`collection_batch_item`、`source`、`collection_source`、`source_collection_job`、`source_provider_budget`、`source_provider_usage`、`source_worker_heartbeat`、`source_provider_credential`、`source_global_budget`、`plan_collection_policy`、`user_provider_usage`、`user_quota_override`（含 `066` 预算控制表）。 |
 | **`feed`** | `content` | **4 表**（`062`）：`feed_user_seen`、`feed_user_event`、`feed_user_affinity`、`feed_user_preference`。与 `intelligence`/`projects`/`workspace`/`ai` 物理隔离。 |
-| **`intelligence`** | `content`、`collection` | **4 表**（`063`）：`intel_monitor`、`intel_monitor_source`、`intel_monitor_target`、`intel_rollup_bucket`。通过 `collection` 门面创/停源与预估额度。 |
+| **`intelligence`** | `content`、`collection`、`access` | **5 表**（`063`/`066`）：`intel_monitor`、`intel_monitor_source`、`intel_monitor_target`、`intel_rollup_bucket`、`intel_monitor_usage`。通过 `collection` 门面创/停源与预估额度。 |
 | **`projects`** | `content`、`collection` | **3 表**：`monitor_project`、`monitor_project_source`、`monitor_project_batch`（现有专题兼容层，概览/水合分别委托 `content` 与 `collection`）。 |
 | **`workspace`** | `content` | **2 表**：`content_saved_query`、`content_annotation`（严格浏览器会话隔离）。 |
-| **`ai`** | `content` | **19 表**（`054..056`）：全量 `ai_*` 发布、榜单、同步运行与历史导入/回填表。 |
+| **`ai`** | `access`、`content` | **17 表**（`054..056` + `067`）：全量 `ai_*` 发布、榜单、同步运行、历史导入/回填表及加密凭证表 `ai_provider_credential`。 |
 | **`src/storage/`** | 无业务依赖 | **1 表**：`schema_migration` 迁移引导与 SHA-256 不可变校验台账。 |
 
-**读侧只隔离凭证与会话**：`app_user_password`、`app_session`、`app_auth_challenge`、`app_auth_mfa`、`app_auth_mfa_login` 仅 `access` 可读，`source_provider_credential` 仅 `collection` 可读；其余业务表允许跨模块 `SELECT/JOIN`。写侧仍是全表单写主模块，跨模块 `INSERT/UPDATE/DELETE` 一律拒绝，例外仅 `SHARED_WRITE_ALLOWLIST`（当前为空）。
+**读侧只隔离凭证与会话**：`app_user_password`、`app_session`、`app_auth_challenge`、`app_auth_mfa`、`app_auth_mfa_login` 仅 `access` 可读，`source_provider_credential` 仅 `collection` 可读，`ai_provider_credential` 仅 `ai` 可读；其余业务表允许跨模块 `SELECT/JOIN`。写侧仍是全表单写主模块，跨模块 `INSERT/UPDATE/DELETE` 一律拒绝，例外仅 `SHARED_WRITE_ALLOWLIST`（当前为空）。
 
-`src/platform/`（声明式鉴权 `route-auth.ts`、通道白名单 `pg-notify.ts`）与 `src/shared/`（`errors`/`canonical`/`ids`/`language`）保持领域无关；`src/connectors/` 严禁导入 `pg`、`src/storage/` 或业务模块；`apps/web/src/` 严禁导入后端源码。
+`src/platform/`（声明式鉴权 `route-auth.ts`、通道白名单 `pg-notify.ts`）与 `src/shared/`（`errors`/`canonical`/`ids`/`language`/`credentials-crypto`）保持领域无关；`src/connectors/` 严禁导入 `pg`、`src/storage/` 或业务模块；`apps/web/src/` 严禁导入后端源码。
 
 ---
 
@@ -90,7 +92,7 @@ flowchart TD
 
 ### 3.3 迁移前向不可变纪律
 
-已合入 `main` 的迁移 `001..064` 严禁改写、移动或删除；候选分支新增迁移 `065+`（`065` 扩展策略与私有可见性、`066` 可配置全站社媒预算与监测器连续调度/批次丢弃契约）必须通过 `npm run lint:policy`、`Squawk` 防锁表扫描、PG16 事务失败完整回滚测试与 `.github/CODEOWNERS` 审查，永不恢复 `050` 已退役的 27 张旧表。
+已合入 `main` 的迁移 `001..066` 严禁改写、移动或删除；新增迁移 `067+`（如 `067` `ai_provider_credential` AI 在线加密凭证表）必须通过 `npm run lint:policy`、`Squawk` 防锁表扫描、PG16 事务失败完整回滚测试与 `.github/CODEOWNERS` 审查，永不恢复 `050` 已退役的 27 张旧表。
 
 ---
 

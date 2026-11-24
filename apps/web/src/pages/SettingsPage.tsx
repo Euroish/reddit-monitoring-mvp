@@ -625,7 +625,19 @@ export function SettingsPage({
                               type="button"
                               className={`ds-btn ${u.status === 'active' ? 'ds-btn--danger' : 'ds-btn--ghost'}`}
                               style={{ height: 26, padding: '0 8px', fontSize: 10.5 }}
-                              onClick={() => updateUserMut.mutate({ id: u.id, payload: { status: u.status === 'active' ? 'disabled' : 'active' } })}
+                              disabled={updateUserMut.isPending}
+                              onClick={async () => {
+                                const payload = { status: u.status === 'active' ? 'disabled' as const : 'active' as const };
+                                setPendingUserMutation({ id: u.id, payload });
+                                try {
+                                  await updateUserMut.mutateAsync({ id: u.id, payload });
+                                  setMemberMfaNeeded(false);
+                                  setPendingUserMutation(null);
+                                } catch (err) {
+                                  if (isMfaRequiredError(err)) setMemberMfaNeeded(true);
+                                  else setPendingUserMutation(null);
+                                }
+                              }}
                             >
                               {u.status === 'active' ? t('Disable', '停用') : t('Enable', '启用')}
                             </button>
@@ -644,6 +656,11 @@ export function SettingsPage({
                       </div>
                     </div>
                     <span className={`tag ${actor.role === 'owner' ? 'tag--lilac' : actor.role === 'admin' ? 'tag--mint' : 'tag--line'}`}>{actor.role}</span>
+                  </div>
+                )}
+                {canManage && !memberMfaNeeded && updateUserMut.isError && (
+                  <div role="alert" className="wb-alert wb-alert--error" style={{ marginTop: 10 }}>
+                    {formatApiError(updateUserMut.error)}
                   </div>
                 )}
                 {canManage && <MemberMfaControl

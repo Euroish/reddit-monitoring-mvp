@@ -293,4 +293,69 @@ test("Stage 3 auto-schedule: 168h cadence, viewer entitlements, pre-dispatch rev
   assert.equal(revMonRow.paused_reason, "policy_revoked");
   const revJobRow = (await db.pool.query("SELECT status FROM source_collection_job WHERE id=$1", [revJobId])).rows[0];
   assert.equal(revJobRow.status, "cancelled");
+
+  // 4. AUD-03 cumulative daily budget across manual /collect + estimate + scheduled dispatch
+  const capMonRes = await app.inject({
+    method: "POST", url: "/v1/intelligence/monitors", headers: ownerHeaders,
+    payload: {
+      kind: "keyword",
+      name: "Cumulative Budget Monitor",
+      config: { platforms: ["reddit"], keywords: ["budget cumulative check"] },
+      scheduleIntervalHours: 24,
+      dailyItemBudget: 35,
+    },
+  });
+  assert.equal(capMonRes.statusCode, 200, capMonRes.body);
+  const capMonId = capMonRes.json().monitor.id as string;
+
+  const firstEst = await app.inject({
+    method: "POST", url: `/v1/intelligence/monitors/${capMonId}/estimate`, headers: ownerHeaders,
+    payload: { limitPerSource: 20, includeComments: false },
+  });
+  assert.equal(firstEst.statusCode, 200, firstEst.body);
+  assert.equal(firstEst.json().monitorResourcesToday, 0);
+  assert.equal(firstEst.json().exceedsMonitorBudget, false);
+
+  const firstKey = randomUUID();
+  const firstCollect = await app.inject({
+    method: "POST", url: `/v1/intelligence/monitors/${capMonId}/collect`,
+    headers: { ...ownerHeaders, "idempotency-key": firstKey },
+    payload: { limitPerSource: 20, includeComments: false },
+  });
+  assert.equal(firstCollect.statusCode, 200, firstCollect.body);
+
+  // Idempotent replay with same key must succeed and not double-charge
+  const replayCollect = await app.inject({
+    method: "POST", url: `/v1/intelligence/monitors/${capMonId}/collect`,
+    headers: { ...ownerHeaders, "idempotency-key": firstKey },
+    payload: { limitPerSource: 20, includeComments: false },
+  });
+  assert.equal(replayCollect.statusCode, 200, replayCollect.body);
+
+  const capUsage = (await db.pool.query(
+    "SELECT requests, resources_reserved FROM intel_monitor_usage WHERE monitor_id=$1",
+    [capMonId],
+  )).rows[0];
+  assert.deepEqual(capUsage, { requests: 1, resources_reserved: 20 });
+
+  // Finish first queued collect job so source is eligible for another collect job
+  await db.pool.query(
+    "UPDATE source_collection_job SET status='succeeded', finished_at=NOW() WHERE id=$1",
+    [firstCollect.json().jobIds[0]],
+  );
+
+  const secondEst = await app.inject({
+    method: "POST", url: `/v1/intelligence/monitors/${capMonId}/estimate`, headers: ownerHeaders,
+    payload: { limitPerSource: 20, includeComments: false },
+  });
+  assert.equal(secondEst.statusCode, 200);
+  assert.equal(secondEst.json().monitorResourcesToday, 20);
+  assert.equal(secondEst.json().exceedsMonitorBudget, true);
+
+  const secondCollect = await app.inject({
+    method: "POST", url: `/v1/intelligence/monitors/${capMonId}/collect`,
+    headers: { ...ownerHeaders, "idempotency-key": randomUUID() },
+    payload: { limitPerSource: 20, includeComments: false },
+  });
+  assert.equal(secondCollect.statusCode, 422, secondCollect.body);
 });

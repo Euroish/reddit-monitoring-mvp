@@ -61,6 +61,13 @@ export async function listSources(
   if (query.tier) where.push(`cs.tier=$${values.push(query.tier)}`);
   if (query.state) where.push(`cs.state=$${values.push(query.state)}`);
   if (query.feedLane) where.push(`cs.feed_lane=$${values.push(query.feedLane)}`);
+  if (query.qualityGrade) {
+    if (query.qualityGrade === "ungraded") {
+      where.push("cs.quality_grade IS NULL");
+    } else {
+      where.push(`cs.quality_grade=$${values.push(query.qualityGrade)}`);
+    }
+  }
   if (query.truncatedOnly) where.push("COALESCE((cs.health->>'lastTruncated')::boolean,false)");
   const { rows } = await pool.query(
     `${sourceSelect} WHERE ${where.join(" AND ")} ORDER BY cs.created_at,cs.id`,
