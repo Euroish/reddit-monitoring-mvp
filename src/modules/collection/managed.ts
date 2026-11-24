@@ -86,9 +86,14 @@ export async function enqueueCollectionForSource(
   client: PoolClient,
   actor: Actor,
   providers: ContentProvider[],
-  input: Static<typeof Collect> & { sourceId: string; requestKey: string; requestHash?: string },
+  input: Static<typeof Collect> & {
+    sourceId: string;
+    requestKey: string;
+    requestHash?: string;
+    rejectCreate?: { statusCode: number; message: string };
+  },
 ): Promise<{ jobId: string; created: boolean }> {
-  const { sourceId, requestKey, requestHash, ...body } = input;
+  const { sourceId, requestKey, requestHash, rejectCreate, ...body } = input;
   const source = await lockSource(client, actor, sourceId);
   const previous = (
     await client.query(
@@ -104,6 +109,7 @@ export async function enqueueCollectionForSource(
     }
     return { jobId: previous.id, created: false };
   }
+  if (rejectCreate) fail(rejectCreate.statusCode, rejectCreate.message);
   const providerName = collectionProvider(source, body, providers);
   if (body.projectId && await isCollectionBudgetDisabled(client, providerName))
     fail(409, "System channel budget is disabled or zero");

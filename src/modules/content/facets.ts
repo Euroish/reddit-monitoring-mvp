@@ -6,8 +6,10 @@ import { fail } from "../../shared/errors";
 import {
   compileContentFilter,
   matchingNodes,
+  type BatchMembership,
   type ContentScope,
   type ContentScopeResolver,
+  type ContentVisibilityResolver,
 } from "./search";
 
 type Facets = Static<typeof ContentFacets>;
@@ -46,6 +48,7 @@ export async function contentFacets(
   actor: Actor,
   query: Static<typeof ContentFacetsQuery>,
   resolveProjectScope?: ContentScopeResolver,
+  resolveContentVisibility?: ContentVisibilityResolver,
 ): Promise<Facets> {
   const { projectId, bucket = "day", ...filter } = query;
   const span = Date.parse(filter.to) - Date.parse(filter.from);
@@ -56,7 +59,14 @@ export async function contentFacets(
     ? await (resolveProjectScope ?? (() => fail(500, "Project scope resolver is unavailable")))(pool, actor, projectId)
     : undefined;
   const pullOnly = !project?.batchMembership && !filter.deliveryMode && !project?.include_push_in_trends;
-  const compiled = compileContentFilter(actor, filter, project?.batchMembership ? undefined : project?.source_ids, project?.filter, pullOnly, project?.batchMembership);
+  const compiled = compileContentFilter(
+    actor,
+    filter,
+    project?.batchMembership ? undefined : project?.source_ids,
+    project?.filter,
+    pullOnly,
+    project?.batchMembership ?? resolveContentVisibility?.(actor),
+  );
   const threadAware = filter.threadAware ?? project?.thread_aware ?? false;
   const interval = compiled.values.push(bucket === "day" ? "1 day" : "6 hours");
   const { rows } = await pool.query<FacetRow>(
@@ -74,14 +84,19 @@ export async function contentFacets(
   return reduceFacetRows(rows);
 }
 
-export async function summarizeScopedContent(pool: Pool | PoolClient, actor: Actor, project: ContentScope) {
+export async function summarizeScopedContent(
+  pool: Pool | PoolClient,
+  actor: Actor,
+  project: ContentScope,
+  visibility?: BatchMembership,
+) {
   const compiled = compileContentFilter(
     actor,
     {},
     project.batchMembership ? undefined : project.source_ids,
     project.filter,
     !project.batchMembership && !project.include_push_in_trends,
-    project.batchMembership,
+    project.batchMembership ?? visibility,
   );
   const anchorCount = project.thread_aware ? "COUNT(DISTINCT c.anchor_id)" : "COUNT(*)";
   const [row] = (

@@ -102,6 +102,11 @@ export const AuthorProfileParams = Type.Object({
   handle: Type.String({ minLength: 1, maxLength: 64 }),
 }, { additionalProperties: false });
 
+export const AuthorProfileQuery = Type.Object({
+  days: Type.Optional(Type.Integer({ minimum: 1, maximum: 90 })),
+  monitorId: Type.Optional(Id),
+}, { additionalProperties: false });
+
 export const CommunityListQuery = Type.Object({
   monitorId: Type.Optional(Id),
   days: Type.Optional(Type.Integer({ minimum: 1, maximum: 90 })),
@@ -111,6 +116,11 @@ export const CommunityListQuery = Type.Object({
 
 export const CommunityParams = Type.Object({
   subreddit: Type.String({ minLength: 2, maxLength: 40 }),
+}, { additionalProperties: false });
+
+export const CommunityDeepDiveQuery = Type.Object({
+  days: Type.Optional(Type.Integer({ minimum: 1, maximum: 90 })),
+  monitorId: Type.Optional(Id),
 }, { additionalProperties: false });
 
 export type IntelMonitorDto = Static<typeof IntelMonitor>;

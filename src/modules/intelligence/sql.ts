@@ -256,6 +256,9 @@ export async function triggerMonitorCollect(
   const outcome = await transaction(pool, async (client) => {
     const current = await selectMonitor(client, actor, id, true);
     if (current.revision !== monitor.revision) fail(409, "Monitor changed; reload before collecting");
+    const rejectCreate = !current.enabled
+      ? { statusCode: 409, message: "Monitor is disabled; enable it before collecting" }
+      : undefined;
     const jobIds: string[] = [];
     let anyCreated = false;
     for (const sourceId of sourceIds) {
@@ -268,6 +271,7 @@ export async function triggerMonitorCollect(
         maxCommentsPerPost,
         requestKey: `${idempotencyKey}:${sourceId}`,
         requestHash,
+        rejectCreate,
       });
       jobIds.push(res.jobId);
       if (res.created) anyCreated = true;

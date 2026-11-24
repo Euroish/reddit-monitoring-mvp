@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import type { Actor } from "../../../packages/contracts/src/access";
 import type { ContentPlatform } from "../../../packages/contracts/src/common";
+import type { BatchMembership } from "./search";
 
 export interface RawBucketStats {
   bucketAt: string;
@@ -121,6 +122,7 @@ export async function queryScopedBucketStats(
     authorFilter?: string;
     platform?: ContentPlatform;
     subredditFilter?: string;
+    visibility?: BatchMembership;
   },
 ): Promise<RawBucketStats[]> {
   if (input.sourceIds && !input.sourceIds.length) return [];
@@ -128,6 +130,19 @@ export async function queryScopedBucketStats(
     ? "date_trunc('day', ts) + floor(extract(hour from ts)::int / 6) * interval '6 hours'"
     : "date_trunc('day', ts)";
   const kwPattern = input.keywordFilter ? `%${escapeLike(input.keywordFilter.toLowerCase())}%` : null;
+  const values: unknown[] = [
+    input.sourceIds ?? null,
+    input.from.toISOString(),
+    input.to.toISOString(),
+    kwPattern,
+    input.authorFilter?.toLowerCase() ?? null,
+    input.subredditFilter?.toLowerCase() ?? null,
+    input.allowedSourceIds ?? null,
+    input.platform ?? null,
+  ];
+  const visSql = input.visibility
+    ? ` AND ${input.visibility.contains((v) => `$${values.push(v)}`, "d.content_id")}`
+    : "";
 
   const { rows } = await db.query<{
     bucket_at: Date;
@@ -178,7 +193,7 @@ export async function queryScopedBucketStats(
          AND ($4::text IS NULL OR LOWER(COALESCE(c.title, '') || ' ' || COALESCE(c.body_text, '')) LIKE $4 ESCAPE '\\')
          AND ($5::text IS NULL OR c.author_handle = $5)
          AND ($6::text IS NULL OR c.community_name = $6)
-         AND ($8::text IS NULL OR s.code = $8)
+         AND ($8::text IS NULL OR s.code = $8)${visSql}
        ORDER BY c.id
      ),
      bucketed AS (
@@ -245,16 +260,7 @@ export async function queryScopedBucketStats(
      LEFT JOIN domains dm ON dm.bucket_at = b.bucket_at AND dm.platform = b.platform
      GROUP BY b.bucket_at, b.platform, i.intent_counts, dm.top_domains
      ORDER BY b.bucket_at ASC, b.platform ASC`,
-    [
-      input.sourceIds ?? null,
-      input.from.toISOString(),
-      input.to.toISOString(),
-      kwPattern,
-      input.authorFilter?.toLowerCase() ?? null,
-      input.subredditFilter?.toLowerCase() ?? null,
-      input.allowedSourceIds ?? null,
-      input.platform ?? null,
-    ],
+    values,
   );
 
   return rows.map((r) => ({
@@ -282,8 +288,13 @@ export async function queryScopedTextSamples(
   from: Date,
   to: Date,
   limit = 250,
+  visibility?: BatchMembership,
 ): Promise<Array<{ title: string | null; excerpt: string | null; hashtags: string[] }>> {
   if (!sourceIds.length) return [];
+  const values: unknown[] = [sourceIds, from.toISOString(), to.toISOString(), limit];
+  const visSql = visibility
+    ? ` AND ${visibility.contains((v) => `$${values.push(v)}`, "d.content_id")}`
+    : "";
   const { rows } = await db.query<{ title: string | null; clean_excerpt: string | null; hashtags: string[] }>(
     `SELECT DISTINCT ON (c.id) c.title, c.clean_excerpt, c.hashtags
      FROM content c
@@ -292,10 +303,10 @@ export async function queryScopedTextSamples(
        AND c.availability = 'available'
        AND c.kind <> 'comment'
        AND COALESCE(c.created_at_source, c.first_seen_at) >= $2
-       AND COALESCE(c.created_at_source, c.first_seen_at) < $3
+       AND COALESCE(c.created_at_source, c.first_seen_at) < $3${visSql}
      ORDER BY c.id, c.engagement_score DESC
      LIMIT $4`,
-    [sourceIds, from.toISOString(), to.toISOString(), limit],
+    values,
   );
   return rows.map((r) => ({ title: r.title, excerpt: r.clean_excerpt, hashtags: r.hashtags ?? [] }));
 }
@@ -356,10 +367,27 @@ export async function queryMonitorPosts(
     sort?: string;
     limit: number;
     offset: number;
+    visibility?: BatchMembership;
   },
 ): Promise<{ items: MonitorPostRow[]; totalCount: number }> {
   if (input.sourceIds && !input.sourceIds.length) return { items: [], totalCount: 0 };
   const orderSql = buildOrderSql(input.sort);
+  const values: unknown[] = [
+    input.sourceIds ?? null,
+    actor.allowedSourceIds,
+    input.from.toISOString(),
+    input.to.toISOString(),
+    input.platform ?? null,
+    input.intent ?? null,
+    input.community?.toLowerCase() ?? null,
+    input.author?.toLowerCase() ?? null,
+    input.domain?.toLowerCase() ?? null,
+    input.limit,
+    input.offset,
+  ];
+  const visSql = input.visibility
+    ? ` AND ${input.visibility.contains((v) => `$${values.push(v)}`, "d.content_id")}`
+    : "";
   const { rows } = await db.query(
     `WITH scoped AS (
        SELECT DISTINCT ON (c.id)
@@ -383,26 +411,14 @@ export async function queryMonitorPosts(
          AND ($6::text IS NULL OR c.intent_tag = $6)
          AND ($7::text IS NULL OR c.community_name = $7)
          AND ($8::text IS NULL OR c.author_handle = $8)
-         AND ($9::text IS NULL OR c.external_domain = $9)
+         AND ($9::text IS NULL OR c.external_domain = $9)${visSql}
        ORDER BY c.id
      )
      SELECT *, COUNT(*) OVER()::int AS full_count
      FROM scoped c
      ORDER BY ${orderSql}, c.id
      LIMIT $10 OFFSET $11`,
-    [
-      input.sourceIds ?? null,
-      actor.allowedSourceIds,
-      input.from.toISOString(),
-      input.to.toISOString(),
-      input.platform ?? null,
-      input.intent ?? null,
-      input.community?.toLowerCase() ?? null,
-      input.author?.toLowerCase() ?? null,
-      input.domain?.toLowerCase() ?? null,
-      input.limit,
-      input.offset,
-    ],
+    values,
   );
   const totalCount = Number(rows[0]?.full_count ?? 0);
   const items: MonitorPostRow[] = rows.map(mapMonitorPostRow);
@@ -446,6 +462,7 @@ export async function queryAuthorDirectory(
     handle?: string;
     sort?: "followers" | "engagement" | "posts";
     limit: number;
+    visibility?: BatchMembership;
   },
 ): Promise<AuthorDirectoryRow[]> {
   if (input.sourceIds && !input.sourceIds.length) return [];
@@ -455,6 +472,17 @@ export async function queryAuthorDirectory(
     : input.sort === "engagement"
       ? "avg_eng DESC, ap.followers_count DESC NULLS LAST"
       : "ap.followers_count DESC NULLS LAST, avg_eng DESC";
+  const values: unknown[] = [
+    actor.allowedSourceIds,
+    input.sourceIds ?? null,
+    input.platform ?? null,
+    searchPattern,
+    input.limit,
+    input.handle ?? null,
+  ];
+  const visSql = input.visibility
+    ? ` AND ${input.visibility.contains((v) => `$${values.push(v)}`, "d.content_id")}`
+    : "";
 
   const { rows } = await db.query(
     `WITH visible_posts AS (
@@ -475,7 +503,7 @@ export async function queryAuthorDirectory(
          AND c.author_handle IS NOT NULL
          AND ($6::text IS NULL OR c.author_handle = $6)
          AND ($1::uuid[] IS NULL OR d.collection_source_id = ANY($1))
-         AND ($2::uuid[] IS NULL OR d.collection_source_id = ANY($2))
+         AND ($2::uuid[] IS NULL OR d.collection_source_id = ANY($2))${visSql}
        ORDER BY c.id
      ),
      agg AS (
@@ -522,14 +550,7 @@ export async function queryAuthorDirectory(
        AND ($4::text IS NULL OR ap.author_handle LIKE $4 ESCAPE '\\' OR LOWER(COALESCE(ap.display_name, '')) LIKE $4 ESCAPE '\\')
      ORDER BY ${orderSql}, ap.author_handle ASC
      LIMIT $5`,
-    [
-      actor.allowedSourceIds,
-      input.sourceIds ?? null,
-      input.platform ?? null,
-      searchPattern,
-      input.limit,
-      input.handle ?? null,
-    ],
+    values,
   );
 
   return rows.map(mapAuthorDirectoryRow);
@@ -544,6 +565,7 @@ export async function queryCommunityMatrix(
     to: Date;
     sort?: "heat" | "posts" | "comments";
     limit: number;
+    visibility?: BatchMembership;
   },
 ): Promise<CommunityMatrixRow[]> {
   if (input.sourceIds && !input.sourceIds.length) return [];
@@ -552,6 +574,16 @@ export async function queryCommunityMatrix(
     : input.sort === "comments"
       ? "total_comments DESC, p90_eng DESC"
       : "p90_eng DESC, total_comments DESC";
+  const values: unknown[] = [
+    actor.allowedSourceIds,
+    input.sourceIds ?? null,
+    input.from.toISOString(),
+    input.to.toISOString(),
+    input.limit,
+  ];
+  const visSql = input.visibility
+    ? ` AND ${input.visibility.contains((v) => `$${values.push(v)}`, "d.content_id")}`
+    : "";
 
   const { rows } = await db.query(
     `WITH scoped AS (
@@ -574,7 +606,7 @@ export async function queryCommunityMatrix(
          AND COALESCE(c.created_at_source, c.first_seen_at) >= $3
          AND COALESCE(c.created_at_source, c.first_seen_at) < $4
          AND ($1::uuid[] IS NULL OR d.collection_source_id = ANY($1))
-         AND ($2::uuid[] IS NULL OR d.collection_source_id = ANY($2))
+         AND ($2::uuid[] IS NULL OR d.collection_source_id = ANY($2))${visSql}
        ORDER BY c.id
      )
      SELECT
@@ -593,7 +625,7 @@ export async function queryCommunityMatrix(
      GROUP BY community_name
      ORDER BY ${orderSql}, community_name ASC
      LIMIT $5`,
-    [actor.allowedSourceIds, input.sourceIds ?? null, input.from.toISOString(), input.to.toISOString(), input.limit],
+    values,
   );
 
   return rows.map((r) => ({
@@ -617,11 +649,25 @@ export async function queryCommunityBreakdowns(
   subreddit: string,
   from: Date,
   to: Date,
+  options?: { sourceIds?: readonly string[]; visibility?: BatchMembership },
 ): Promise<{
   flairs: Array<{ flair: string; count: number; avgScore: number }>;
   postingHeatmap: Array<{ dow: number; hour: number; count: number; avgEngagement: number }>;
 }> {
+  if (options?.sourceIds && !options.sourceIds.length) {
+    return { flairs: [], postingHeatmap: [] };
+  }
   const cleanSub = subreddit.replace(/^r\//i, "").toLowerCase();
+  const values: unknown[] = [
+    cleanSub,
+    from.toISOString(),
+    to.toISOString(),
+    actor.allowedSourceIds,
+    options?.sourceIds ?? null,
+  ];
+  const visSql = options?.visibility
+    ? ` AND ${options.visibility.contains((v) => `$${values.push(v)}`, "d.content_id")}`
+    : "";
   const baseFilter = `
     SELECT DISTINCT ON (c.id)
       COALESCE(NULLIF(c.platform_details->>'flair', ''), 'Unflaired') AS flair,
@@ -639,6 +685,7 @@ export async function queryCommunityBreakdowns(
       AND COALESCE(c.created_at_source, c.first_seen_at) >= $2
       AND COALESCE(c.created_at_source, c.first_seen_at) < $3
       AND ($4::uuid[] IS NULL OR d.collection_source_id = ANY($4))
+      AND ($5::uuid[] IS NULL OR d.collection_source_id = ANY($5))${visSql}
     ORDER BY c.id
   `;
   const [flairRes, heatRes] = await Promise.all([
@@ -646,13 +693,13 @@ export async function queryCommunityBreakdowns(
       `WITH posts AS (${baseFilter})
        SELECT flair, COUNT(*)::int AS count, ROUND(AVG(score)::numeric, 1)::float8 AS avg_score
        FROM posts GROUP BY flair ORDER BY count DESC, avg_score DESC LIMIT 12`,
-      [cleanSub, from.toISOString(), to.toISOString(), actor.allowedSourceIds],
+      values,
     ),
     db.query<{ dow: number; hour: number; count: number; avg_eng: number }>(
       `WITH posts AS (${baseFilter})
        SELECT dow, hour, COUNT(*)::int AS count, ROUND(AVG(engagement_score)::numeric, 2)::float8 AS avg_eng
        FROM posts GROUP BY dow, hour ORDER BY dow, hour`,
-      [cleanSub, from.toISOString(), to.toISOString(), actor.allowedSourceIds],
+      values,
     ),
   ]);
   return {

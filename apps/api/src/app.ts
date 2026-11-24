@@ -21,6 +21,7 @@ import { registerAiModule } from "../../../src/modules/ai/index";
 import {
   allSourcesExist,
   assertBrowserExportAllowed,
+  contentVisibility,
   createCredentialVault,
   credentialRoutes,
   jobRoutes,
@@ -278,12 +279,12 @@ export async function buildApp(options: {
     shutdown.abort();
   });
   await registerContentModule(app, options.pool, shutdown.signal,
-    actor => assertBrowserExportAllowed(options.pool, actor), resolveProjectScope);
+    actor => assertBrowserExportAllowed(options.pool, actor), resolveProjectScope, contentVisibility);
   await registerDocsModule(app, options.pool);
   await registerAiModule(app, options.pool, readCollectionWorkerHealth);
   await registerProjectsModule(app, options.pool, providers);
-  await registerWorkspaceModule(app, options.pool);
-  await registerFeedModule(app, options.pool);
+  await registerWorkspaceModule(app, options.pool, contentVisibility);
+  await registerFeedModule(app, options.pool, contentVisibility);
   await registerIntelligenceModule(app, options.pool, providers);
 
   app.get(

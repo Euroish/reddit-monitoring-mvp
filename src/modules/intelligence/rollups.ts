@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from "pg";
+import { contentVisibility, getUserRoleStatus } from "../collection/index";
 import { queryScopedBucketStats, queryScopedTextSamples, type RawBucketStats } from "../content/index";
 import { extractCooccurringTerms } from "./metrics";
 
@@ -77,7 +78,11 @@ export async function refreshMonitorRollups(
   monitorId: string,
   lookbackDays = 30,
 ): Promise<number> {
-  const [srcRes, tgtRes] = await Promise.all([
+  const [monRes, srcRes, tgtRes] = await Promise.all([
+    pool.query<{ owner_user_id: string | null }>(
+      "SELECT owner_user_id FROM intel_monitor WHERE id=$1",
+      [monitorId],
+    ),
     pool.query<{ collection_source_id: string }>(
       "SELECT collection_source_id FROM intel_monitor_source WHERE monitor_id=$1",
       [monitorId],
@@ -87,16 +92,31 @@ export async function refreshMonitorRollups(
       [monitorId],
     ),
   ]);
+  const monitorRow = monRes.rows[0];
+  if (!monitorRow) return 0;
   const sourceIds = srcRes.rows.map((r) => r.collection_source_id);
   if (!sourceIds.length) return 0;
+
+  const owner = monitorRow.owner_user_id ? await getUserRoleStatus(pool, monitorRow.owner_user_id) : undefined;
+  const ownerRole: "owner" | "admin" | "viewer" =
+    owner?.role === "owner" || owner?.role === "admin" ? owner.role : "viewer";
+  const visibility = monitorRow.owner_user_id
+    ? contentVisibility({ role: ownerRole, userId: monitorRow.owner_user_id })
+    : contentVisibility(undefined, { publicOnly: true });
 
   const to = new Date();
   const from = new Date(to.getTime() - lookbackDays * 86_400_000);
   const seedTerms = tgtRes.rows.map((t) => t.target_value);
   const [dailyBuckets, h6Buckets, samples] = await Promise.all([
-    queryScopedBucketStats(pool, { sourceIds, from, to, bucketSize: "1d" }),
-    queryScopedBucketStats(pool, { sourceIds, from: new Date(to.getTime() - Math.min(lookbackDays, 14) * 86_400_000), to, bucketSize: "6h" }),
-    queryScopedTextSamples(pool, sourceIds, from, to, 200),
+    queryScopedBucketStats(pool, { sourceIds, from, to, bucketSize: "1d", visibility }),
+    queryScopedBucketStats(pool, {
+      sourceIds,
+      from: new Date(to.getTime() - Math.min(lookbackDays, 14) * 86_400_000),
+      to,
+      bucketSize: "6h",
+      visibility,
+    }),
+    queryScopedTextSamples(pool, sourceIds, from, to, 200, visibility),
   ]);
   const topTerms = extractCooccurringTerms(samples, seedTerms, 15);
   const rows: UpsertBucketRow[] = [

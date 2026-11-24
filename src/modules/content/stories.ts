@@ -4,7 +4,7 @@ import type { StoryEvidence, StoryFeed, StoryQuery } from "../../../packages/con
 import type { Actor } from "../../../packages/contracts/src/access";
 import type { ContentAuthor } from "../../../packages/contracts/src/content";
 import { fail } from "../../shared/errors";
-import { compileContentFilter, contentSourceTables } from "./search";
+import { compileContentFilter, contentSourceTables, type ContentVisibilityResolver } from "./search";
 import { groupStories, type StoryTitle } from "./story-groups";
 
 const hour = 3_600_000;
@@ -224,7 +224,13 @@ export function diversifyStories(
   return result;
 }
 
-export async function readStoryWindow(pool: Pool | PoolClient, actor: Actor, query: Query, now = Date.now()) {
+export async function readStoryWindow(
+  pool: Pool | PoolClient,
+  actor: Actor,
+  query: Query,
+  now = Date.now(),
+  resolveContentVisibility?: ContentVisibilityResolver,
+) {
   const { view, from, lookback, to } = dateWindow(query, now);
   const toDate = new Date(to);
   const { discovery, values } = compileContentFilter(
@@ -233,6 +239,7 @@ export async function readStoryWindow(pool: Pool | PoolClient, actor: Actor, que
     undefined,
     {},
     true,
+    resolveContentVisibility?.(actor, { publicOnly: true }),
   );
   const start = `$${values.push(new Date(lookback))}`;
   const end = `$${values.push(toDate)}`;

@@ -5,8 +5,13 @@ import type { Filter } from "../../../packages/contracts/src/content";
 import { fail } from "../../shared/errors";
 
 export interface BatchMembership {
-  contains: (bind: (value: unknown) => string, column: "c.id" | "d.content_id") => string;
+  contains: (bind: (value: unknown) => string, column: "c.id" | "d.content_id" | "o.content_id") => string;
 }
+
+export type ContentVisibilityResolver = (
+  actor: Actor,
+  options?: { publicOnly?: boolean },
+) => BatchMembership;
 
 export interface ContentScope {
   id: string;
@@ -181,7 +186,7 @@ export function compileContentFilter(
 }
 
 export function filterSignature(
-  actor: Pick<Actor, "allowedSourceIds">,
+  actor: Pick<Actor, "allowedSourceIds" | "role" | "userId">,
   filter: Filter,
   project?: { id: string; revision: number },
 ) {
@@ -189,6 +194,7 @@ export function filterSignature(
     .update(
       JSON.stringify([
         actor.allowedSourceIds,
+        actor.role === "viewer" ? actor.userId : "staff",
         project,
         Object.entries(filter).sort(([a], [b]) => a.localeCompare(b)),
       ]),

@@ -26,6 +26,7 @@ import {
   matchedAnchors,
   pageObservations,
   type ContentScopeResolver,
+  type ContentVisibilityResolver,
 } from "./search";
 import { contentFromRow } from "./sql";
 import { readStoryWindow, selectStoryFeed } from "./stories";
@@ -45,6 +46,25 @@ const ListResponse = {
   }),
 };
 
+function buildContentSeekClause(
+  cursor: string | undefined,
+  signature: string,
+  feed: boolean,
+  values: unknown[],
+): string {
+  const base = feed ? " AND c.created_at_source IS NOT NULL" : "";
+  if (!cursor) return base;
+  const after = decodeCursor(cursor, signature);
+  values.push(after.id);
+  const id = `$${values.length}`;
+  if (after.time === null) {
+    return `${base} AND c.created_at_source IS NULL AND c.id<${id}::uuid`;
+  }
+  values.push(after.time);
+  const time = `$${values.length}`;
+  return `${base} AND ((c.created_at_source,c.id)<(${time}::timestamptz,${id}::uuid) OR c.created_at_source IS NULL)`;
+}
+
 async function listContent(
   pool: Pool,
   actor: Actor,
@@ -52,29 +72,25 @@ async function listContent(
   pathProjectId?: string,
   feed = false,
   resolveProjectScope?: ContentScopeResolver,
+  resolveContentVisibility?: ContentVisibilityResolver,
 ) {
   const { limit = 50, cursor, projectId: queryProjectId, ...filter } = query;
   const projectId = pathProjectId ?? queryProjectId;
   const project = projectId
     ? await (resolveProjectScope ?? (() => fail(500, "Project scope resolver is unavailable")))(pool, actor, projectId)
     : undefined;
-  const compiled = compileContentFilter(actor, filter, project?.batchMembership ? undefined : project?.source_ids, project?.filter, feed, project?.batchMembership);
+  const compiled = compileContentFilter(
+    actor,
+    filter,
+    project?.batchMembership ? undefined : project?.source_ids,
+    project?.filter,
+    feed,
+    project?.batchMembership ?? resolveContentVisibility?.(actor),
+  );
   const match = matchedAnchors(compiled, filter.threadAware ?? project?.thread_aware ?? false);
   const signature =
     filterSignature(actor, filter, project && { id: project.id, revision: project.revision }) + (feed ? ":feed" : "");
-  let seek = feed ? " AND c.created_at_source IS NOT NULL" : "";
-  if (cursor) {
-    const after = decodeCursor(cursor, signature);
-    compiled.values.push(after.id);
-    const id = `$${compiled.values.length}`;
-    if (after.time === null) {
-      seek += ` AND c.created_at_source IS NULL AND c.id<${id}::uuid`;
-    } else {
-      compiled.values.push(after.time);
-      const time = `$${compiled.values.length}`;
-      seek += ` AND ((c.created_at_source,c.id)<(${time}::timestamptz,${id}::uuid) OR c.created_at_source IS NULL)`;
-    }
-  }
+  const seek = buildContentSeekClause(cursor, signature, feed, compiled.values);
   compiled.values.push(limit + 1);
   const tables = compiled.needsSearchDocument ? contentTables : contentSourceTables;
   const rows = (
@@ -118,6 +134,7 @@ export async function contentRoutes(
   shutdown: AbortSignal,
   assertExportAllowed: ExportAdmission,
   resolveProjectScope?: ContentScopeResolver,
+  resolveContentVisibility?: ContentVisibilityResolver,
 ) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   const storyWindows = new Map<string, { slot: number; result: ReturnType<typeof readStoryWindow> }>();
@@ -139,12 +156,12 @@ export async function contentRoutes(
   api.get(
     "/v1/content",
     { config: publicReadAuth, schema: { querystring: ListQuery, response: ListResponse } },
-    (request) => listContent(pool, request.actor!, request.query, undefined, false, resolveProjectScope),
+    (request) => listContent(pool, request.actor!, request.query, undefined, false, resolveProjectScope, resolveContentVisibility),
   );
   api.get(
     "/v1/content/facets",
     { config: publicReadAuth, schema: { querystring: ContentFacetsQuery, response: { 200: ContentFacets } } },
-    (request) => contentFacets(pool, request.actor!, request.query, resolveProjectScope),
+    (request) => contentFacets(pool, request.actor!, request.query, resolveProjectScope, resolveContentVisibility),
   );
   api.get(
     "/v1/content/stories",
@@ -154,7 +171,13 @@ export async function contentRoutes(
       const { view = "latest", limit = 30, offset = 0, sourceId, diverse } = request.query;
       const mix = diverse !== false && !sourceId;
       if (actor.allowedSourceIds !== null || sourceId) {
-        return selectStoryFeed(await loadStoryWindow(pool, actor, request.query), view, limit, offset, mix);
+        return selectStoryFeed(
+          await loadStoryWindow(pool, actor, request.query, undefined, resolveContentVisibility),
+          view,
+          limit,
+          offset,
+          mix,
+        );
       }
       const now = Date.now();
       const slot = Math.floor(now / 30_000);
@@ -165,7 +188,7 @@ export async function contentRoutes(
         storyWindows.set(cacheKey, saved);
       }
       if (saved?.slot !== slot) {
-        const result = loadStoryWindow(pool, actor, request.query, now).catch((error) => {
+        const result = loadStoryWindow(pool, actor, request.query, now, resolveContentVisibility).catch((error) => {
           if (storyWindows.get(cacheKey)?.result === result) storyWindows.delete(cacheKey);
           throw error;
         });
@@ -185,7 +208,7 @@ export async function contentRoutes(
       config: publicReadAuth,
       schema: { querystring: Type.Omit(ListQuery, ["projectId", "threadAware"]), response: ListResponse },
     },
-    (request) => listContent(pool, request.actor!, request.query, undefined, true, resolveProjectScope),
+    (request) => listContent(pool, request.actor!, request.query, undefined, true, resolveProjectScope, resolveContentVisibility),
   );
   api.get(
     "/v1/projects/:id/content",
@@ -193,13 +216,20 @@ export async function contentRoutes(
       config: projectReadAuth,
       schema: { params: ParamsId, querystring: Type.Omit(ListQuery, ["projectId"]), response: ListResponse },
     },
-    (request) => listContent(pool, request.actor!, request.query, request.params.id, false, resolveProjectScope),
+    (request) => listContent(pool, request.actor!, request.query, request.params.id, false, resolveProjectScope, resolveContentVisibility),
   );
   api.get(
     "/v1/content/:id",
     { config: publicReadAuth, schema: { params: ParamsId } },
     async (request) => {
-      const compiled = compileContentFilter(request.actor!, {});
+      const compiled = compileContentFilter(
+        request.actor!,
+        {},
+        undefined,
+        {},
+        false,
+        resolveContentVisibility?.(request.actor!),
+      );
       compiled.values.push(request.params.id);
       const row = (
         await pool.query(
@@ -227,8 +257,17 @@ export async function contentRoutes(
     },
     (request) => {
       const { projectId, view = "top", ...filter } = request.query;
-      return readThread(pool, request.actor!, request.params.id, projectId, filter, view, resolveProjectScope);
+      return readThread(
+        pool,
+        request.actor!,
+        request.params.id,
+        projectId,
+        filter,
+        view,
+        resolveProjectScope,
+        resolveContentVisibility,
+      );
     },
   );
-  await exportRoutes(app, pool, shutdown, assertExportAllowed, resolveProjectScope);
+  await exportRoutes(app, pool, shutdown, assertExportAllowed, resolveProjectScope, resolveContentVisibility);
 }

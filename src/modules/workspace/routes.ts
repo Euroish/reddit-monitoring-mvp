@@ -4,10 +4,14 @@ import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import { ParamsId } from "../../../packages/contracts/src/common";
 import { ResearchFilter } from "../../../packages/contracts/src/content";
-import { compileContentFilter } from "../content/index";
+import { compileContentFilter, type ContentVisibilityResolver } from "../content/index";
 import { listAnnotations, listSavedQueries, saveQuery, updateAnnotation } from "./sql";
 
-export async function workspaceRoutes(app: FastifyInstance, pool: Pool) {
+export async function workspaceRoutes(
+  app: FastifyInstance,
+  pool: Pool,
+  resolveContentVisibility?: ContentVisibilityResolver,
+) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   const readAuth = { auth: { access: "authenticated" as const } };
   const writeAuth = { auth: { access: "viewer_write" as const } };
@@ -50,7 +54,7 @@ export async function workspaceRoutes(app: FastifyInstance, pool: Pool) {
   );
 
   api.get("/v1/workspace/annotations", { config: readAuth }, async (request) => ({
-    annotations: await listAnnotations(pool, request.actor!),
+    annotations: await listAnnotations(pool, request.actor!, resolveContentVisibility),
   }));
 
   api.get(
@@ -91,6 +95,7 @@ export async function workspaceRoutes(app: FastifyInstance, pool: Pool) {
         request.body.favorite,
         request.body.note,
         request.body.revision,
+        resolveContentVisibility,
       ),
   );
 }
