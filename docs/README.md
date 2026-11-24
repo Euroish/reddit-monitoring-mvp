@@ -34,7 +34,7 @@
 | **MET-01** | MUST NOT | 将库内样本量或样本内品牌提及占比夸大为“全网声量/全网触达”；`overview` 强制附带 `{ coverage, sampleSize, windowFrom, windowTo, jobSuccessCount, jobFailedCount }` 样本声明。 | 契约响应与前端覆盖条审查 |
 | **MET-02** | MUST | **零伪造曲线与零假零值**：趋势/火花线 `sparkline` 必须源于真实 `content_observation` 或分桶快照（缺测则如实返回空/现有节点，禁拼造假斜率）；X 互动率（ER）明确标注分母口径（`by_views` \| `by_followers`），分母均缺时返回 `null` 而非 `0`；Velocity 前窗无覆盖返回 `deltaPct = null`。 | `intelligence-metrics` 与火花线真实性测试 |
 | **MET-03** | MUST | 严格分离 `publishedAt`、`sourceObservedAt`、`fetchedAt` 三轴时间（未知存 `null`）；跨平台热度仅通过平台内 7 天基线百分位归一化（`unifiedHeat 0..100`）横向比较，原始指标禁止跨平台混加。 | 时间边界与归一化单测 |
-| **ENG-01** | MUST | 保持 9 域单向无环 DAG（`lint:arch`）与每表唯一写归属（`check-table-ownership.ts`），新增 SQL 迁移通过 `Squawk`、`PG16` 回滚与 `CODEOWNERS` 审查，禁止为 UI 卡片私建旁路表。 | CI 架构与 SQL 门禁 |
+| **ENG-01** | MUST | 保持零循环依赖与公开门面（`lint:arch`）、每表唯一写归属与凭证表读隔离（`check-table-ownership.ts`），新增 SQL 迁移通过 `Squawk`、`PG16` 回滚与 `CODEOWNERS` 审查，禁止为 UI 卡片私建旁路表。 | CI 架构与 SQL 门禁 |
 | **ENG-02** | MUST | 付费渠道 `unknown` 永不自动重放（须 `acknowledgePotentialCharge` 人工解封）；上线前必须隔离 PG16 备份演练与版本回退核验。 | 停发闸门与恢复演练 |
 
 ## 4. 文档维护职责矩阵
@@ -44,7 +44,7 @@
 | [README.md](../README.md) | 仓库总入口、核心能力概览与开发启动 |
 | [AGENTS.md](../AGENTS.md) | Agent 与协作者红线约束 |
 | [README.md](README.md)（本文） | 产品支柱、业务边界、2026-11-23 定案与度量诚实性 |
-| [architecture.md](architecture.md) | 4 GB 运行拓扑、9 域 DAG、58 表所有权、检索、L1–L3/R4 隔离与安全底线 |
+| [architecture.md](architecture.md) | 4 GB 运行拓扑、模块化领域边界、58 表写归属、检索、L1–L3/R4 隔离与安全底线 |
 | [invariants.md](invariants.md) | `INV-001`..`INV-010` 核心工程不变量与门禁索引 |
 | [contracts.md](contracts.md) | Domain 对象、认证授权、采集/查询/导出规则与 OpenAPI 115 路由实测清单 |
 | [design.md](design.md) | 现有 UI 基线与 Frontend V2 信息架构/交互视觉规范 |

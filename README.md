@@ -25,7 +25,7 @@ npm run typecheck && npm run check:openapi && npm run test:unit
 | 文档 | 唯一管辖范围 |
 | :--- | :--- |
 | [产品边界与指标口径](docs/README.md) | 核心产品支柱、不做什么边界、2026-11-23 决议与度量诚实性铁律 |
-| [系统架构与边界](docs/architecture.md) | 4 GB 运行拓扑、9 域无环 DAG、58 表所有权、检索核心、L1–L3/R4 隔离与安全边界 |
+| [系统架构与边界](docs/architecture.md) | 4 GB 运行拓扑、模块化领域边界、58 表写归属、检索核心、L1–L3/R4 隔离与安全边界 |
 | [核心不变量台账](docs/invariants.md) | `INV-001`..`INV-010` 不可破坏约束与自动化 CI 门禁映射 |
 | [数据与 API 契约](docs/contracts.md) | 领域语义、鉴权/会话/MFA 契约、幂等导出、V2 BFF 摘要与 115 路由实测清单 |
 | [前端 V2 交互与视觉规范](docs/design.md) | 已部署界面盘点与 Frontend V2 重构蓝图（B1 信息流卡片 × B2 Semrush 监测台） |
