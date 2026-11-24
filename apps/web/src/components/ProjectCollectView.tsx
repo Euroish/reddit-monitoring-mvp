@@ -325,7 +325,7 @@ export function ProjectCollectView({ actor, project, sources, initialSearch = ''
           setDraft(value); setRestriction(undefined); setError('');
         }} selected={selectedSourceIds} pending={preview.isPending} onSelect={targets => void checkTargets(targets)} />}
         {flow.step === 'scope' && !restriction && <IntakeScopeStep targets={flow.targets} sources={sources}
-          range={range} setRange={setRange} isAdmin={isAdmin} pending={preview.isPending}
+          range={range} setRange={setRange} pending={preview.isPending}
           onContinue={estimate} onBack={() => move('target')} />}
         {restriction && <IntakeRestriction result={restriction} registrationPath={registrationPath} isAdmin={isAdmin}
           onBack={() => { setRestriction(undefined); setError(''); }} />}

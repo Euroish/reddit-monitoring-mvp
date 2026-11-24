@@ -324,7 +324,10 @@ export async function listLegacySources(db: Pool | PoolClient): Promise<LegacySo
          AND request_count > 0
      ) td ON true
      WHERE cs.usage_domain = 'research' AND NOT cs.monitor_managed
-       AND cs.schedule @> '{"enabled":true}'
+       AND (
+         cs.schedule @> '{"enabled":true}'
+         OR (cs.feed_lane = 'monitor_only' AND cs.state = 'active')
+       )
      ORDER BY cs.created_at, cs.id`,
   );
   return rows.map((r) => ({

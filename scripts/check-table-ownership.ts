@@ -20,6 +20,7 @@ const SENSITIVE_READ_OWNERS: Record<string, string> = {
   app_auth_mfa: "access",
   app_auth_mfa_login: "access",
   source_provider_credential: "collection",
+  ai_provider_credential: "ai",
 };
 
 const EXPLICIT_OWNERS: Array<{ match: RegExp; owner: string }> = [

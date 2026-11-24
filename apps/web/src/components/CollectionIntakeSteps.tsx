@@ -113,7 +113,7 @@ function ChannelFilterHintsDetails({
   setHint: <K extends keyof QueryHintsValue>(k: K, val: QueryHintsValue[K]) => void;
 }) {
   const { t } = useI18n();
-  if (!sf || !(sf.sortOptions.length > 0 || sf.supportsMinLikes || sf.supportsTimeRange || sf.supportsLanguage)) {
+  if (!sf || !(sf.sortOptions.length > 0 || sf.supportsMinLikes || sf.supportsMinComments || sf.supportsExcludeReposts || sf.supportsTimeRange || sf.supportsLanguage)) {
     return null;
   }
   return (
@@ -167,7 +167,6 @@ export function IntakeScopeStep({ targets, sources, range, setRange, pending, on
   sources: CollectionSource[];
   range: CollectionRange;
   setRange: (range: CollectionRange) => void;
-  isAdmin?: boolean;
   pending: boolean;
   onContinue: (event: FormEvent<HTMLFormElement>) => void;
   onBack: () => void;

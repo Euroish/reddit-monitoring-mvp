@@ -129,20 +129,28 @@ export async function enqueueAutomaticCommunityHydration(
   if (!candidates.length) return false;
 
   await lockSocialDispatchBudget(client);
-  const { rows: [budget] } = await client.query<{ monitor_items: number; queued_items: number }>(
-    `SELECT
-       COALESCE(SUM(page_size + 1) FILTER (
-         WHERE request_json->>'autoMonitorId'=$1
-           AND created_at >= date_trunc('day', now(), 'UTC')
-           AND (status<>'cancelled' OR request_count>0)
-       ),0)::int AS monitor_items,
-       COALESCE(SUM(page_size + 1) FILTER (
-         WHERE status IN ('queued','retrying','running') AND request_count=0
-       ),0)::int AS queued_items
-     FROM source_collection_job WHERE operation='hydrate' AND request_json ? 'autoMonitorId'`,
-    [input.monitorId],
-  );
-  if (budget.monitor_items + reservedItems > input.dailyItemBudget ||
+  const [{ rows: [budget] }, { rows: [monitorUsage] }] = await Promise.all([
+    client.query<{ monitor_items: number; queued_items: number }>(
+      `SELECT
+         COALESCE(SUM(page_size + 1) FILTER (
+           WHERE request_json->>'autoMonitorId'=$1
+             AND created_at >= date_trunc('day', now(), 'UTC')
+             AND (status<>'cancelled' OR request_count>0)
+         ),0)::int AS monitor_items,
+         COALESCE(SUM(page_size + 1) FILTER (
+           WHERE status IN ('queued','retrying','running') AND request_count=0
+         ),0)::int AS queued_items
+       FROM source_collection_job WHERE operation='hydrate' AND request_json ? 'autoMonitorId'`,
+      [input.monitorId],
+    ),
+    client.query<{ used: number }>(
+      `SELECT COALESCE(resources_reserved, 0)::int AS used FROM intel_monitor_usage
+       WHERE monitor_id=$1 AND day=(NOW() AT TIME ZONE 'UTC')::date`,
+      [input.monitorId],
+    ),
+  ]);
+  const usedMonitorBudget = Math.max(monitorUsage?.used ?? 0, budget.monitor_items);
+  if (usedMonitorBudget + reservedItems > input.dailyItemBudget ||
       await socialResourcesReservedToday(client) + budget.queued_items + reservedItems > globalBudget.dailySocialItemCeiling) return false;
 
   const { rows: choices } = await client.query<{ post_id: string; name: string; ready_at: Date }>(

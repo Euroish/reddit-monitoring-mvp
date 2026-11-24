@@ -112,6 +112,8 @@ export function SourceEditor({
       label: readText(fields, 'label'),
       sourceGroup: readText(fields, 'sourceGroup') || null,
       tier: readText(fields, 'tier') as SourceInput['tier'],
+      feedLane: (readText(fields, 'feedLane') || undefined) as SourceInput['feedLane'],
+      qualityGrade: readText(fields, 'qualityGrade') || null,
       locale: readText(fields, 'locale') || null,
       ownerEntityId: readText(fields, 'ownerEntityId') || null,
       tags: [...new Set(tags)],
@@ -180,6 +182,8 @@ export function SourceEditor({
           label: metadata.label === source.label ? undefined : metadata.label,
           sourceGroup: metadata.sourceGroup === source.sourceGroup ? undefined : metadata.sourceGroup,
           tier: metadata.tier === source.tier ? undefined : metadata.tier,
+          feedLane: metadata.feedLane === source.feedLane ? undefined : metadata.feedLane,
+          qualityGrade: metadata.qualityGrade === (source.qualityGrade ?? null) ? undefined : metadata.qualityGrade,
           locale: metadata.locale === source.locale ? undefined : metadata.locale,
           ownerEntityId: metadata.ownerEntityId === source.ownerEntityId ? undefined : metadata.ownerEntityId,
           tags: JSON.stringify(metadata.tags) === JSON.stringify(source.tags) ? undefined : metadata.tags,
@@ -341,6 +345,32 @@ export function SourceEditor({
           <div className="wb-grid-2">
             <label className="wb-field">{t('Source group', '来源分类')}<input name="sourceGroup" className="wb-input" pattern={SourceGroupPattern.replaceAll('_-', '_\\-')} defaultValue={source?.sourceGroup ?? ''} /></label>
             <label className="wb-field">{t('Source tier', '来源等级')}<select name="tier" className="wb-select" defaultValue={source?.tier ?? 'T2'}><option>T1</option><option>T1_5</option><option>T2</option></select></label>
+            <label className="wb-field">{t('Feed lane', '分发通道')}
+              <select name="feedLane" className="wb-select" defaultValue={source?.feedLane ?? (platform === 'web' ? 'discussion' : 'monitor_only')}>
+                {platform === 'web' ? (
+                  <>
+                    <option value="release">release</option>
+                    <option value="discussion">discussion</option>
+                    <option value="news">news</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="monitor_only">monitor_only</option>
+                    <option value="discussion">discussion</option>
+                    <option value="release">release</option>
+                  </>
+                )}
+              </select>
+            </label>
+            <label className="wb-field">{t('Quality grade', '质量评级')}
+              <select name="qualityGrade" className="wb-select" defaultValue={source?.qualityGrade ?? ''}>
+                <option value="">{t('Ungraded', '未评级')}</option>
+                <option value="S">S</option>
+                <option value="A">A</option>
+                <option value="B">B</option>
+                <option value="C">C</option>
+              </select>
+            </label>
             <label className="wb-field">{t('Locale (e.g. zh-CN)', '语言区域（如 zh-CN）')}<input name="locale" className="wb-input" pattern={SourceLocalePattern} defaultValue={source?.locale ?? ''} /></label>
             <label className="wb-field">{t('Owner entity slug', '归属实体标识')}<input name="ownerEntityId" className="wb-input" defaultValue={source?.ownerEntityId ?? ''} /></label>
           </div>

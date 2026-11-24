@@ -12,6 +12,7 @@ import {
   stableHash,
   type NormalizedRegistryItem,
 } from "./ai-registry";
+import type { AiCredentialVault } from "./ai-credentials";
 export { validateLlmExtraction } from "./ai-llm";
 
 export async function saveArtificialAnalysisSnapshots(
@@ -437,7 +438,7 @@ function parseSyncPayload(kind: string, bodyText: string, config: Record<string,
 export async function syncRegistrySourceByCode(
   pool: Pool,
   sourceCode: string,
-  options: { dryRun?: boolean; triggerKind?: "scheduled" | "manual" | "dry_run"; fetcher?: SyncFetcher } = {},
+  options: { dryRun?: boolean; triggerKind?: "scheduled" | "manual" | "dry_run"; fetcher?: SyncFetcher; aiVault?: AiCredentialVault } = {},
 ) {
   const fetcher = options.fetcher ?? defaultFetcher;
   const lockClient = await pool.connect();
@@ -463,11 +464,18 @@ export async function syncRegistrySourceByCode(
     let targetUrl = src.endpoint_url;
     let aaPublicAllowed = false;
     if (src.kind === "artificial_analysis") {
-      const apiKey = process.env.ARTIFICIAL_ANALYSIS_API_KEY?.trim();
+      await options.aiVault?.ensureLoaded();
+      const resolvedAa = options.aiVault?.resolve("artificial_analysis");
+      const apiKey = resolvedAa?.apiKey ?? process.env.ARTIFICIAL_ANALYSIS_API_KEY?.trim();
       if (!apiKey) throw new Error("ARTIFICIAL_ANALYSIS_API_KEY is not configured");
       headers["x-api-key"] = apiKey;
-      aaPublicAllowed = process.env.ARTIFICIAL_ANALYSIS_PUBLIC_REDISTRIBUTION === "true";
+      aaPublicAllowed = resolvedAa
+        ? Boolean(resolvedAa.config.publicRedistribution)
+        : process.env.ARTIFICIAL_ANALYSIS_PUBLIC_REDISTRIBUTION === "true";
       if (aaPublicAllowed && typeof src.config?.commercialUrl === "string") targetUrl = src.config.commercialUrl;
+    } else if (src.kind === "openrouter") {
+      const openrouterKey = options.aiVault?.resolve("openrouter").apiKey ?? process.env.OPENROUTER_API_KEY?.trim();
+      if (openrouterKey) headers.authorization = `Bearer ${openrouterKey}`;
     }
 
     const res = await fetcher(targetUrl, headers);

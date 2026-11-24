@@ -1,4 +1,4 @@
--- 067_collection_limits_and_tiers.sql
+-- 068_collection_limits_and_tiers.sql
 -- Raise single-run collection/comment/page limits (admin up to 10000 posts & 500 comments/post,
 -- X multi-page up to 500 pages) and update tier batch defaults (free=2000, pro=5000).
 

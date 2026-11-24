@@ -192,6 +192,7 @@ export async function exportRoutes(
       }
       reply
         .header("X-Accel-Buffering", "no")
+        .header("X-Export-Max-Rows", String(maxRows))
         .header(
           "Content-Disposition",
           `attachment; filename="content.${format}"`,

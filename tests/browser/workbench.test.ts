@@ -506,7 +506,7 @@ test("browser: project switching and guided intake with real project and role bo
   await page.reload();
   await selectProject.filter({ hasText: "系统共享研究" }).waitFor();
   await page.getByRole("button", { name: "复制到我的私有项目" }).waitFor();
-  await page.getByRole("button", { name: "完整项目导出 (CSV)" }).waitFor();
+  await page.getByRole("button", { name: "按筛选导出 (CSV)" }).waitFor();
   await page.getByText("暂无趋势数据", { exact: true }).first().waitFor();
   assert.equal(await page.locator(".kpi-strip canvas").count(), 0);
   await capture("empty-project-analysis-1440");
@@ -1057,7 +1057,7 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await page.locator(".collection-panel-header").getByText("example", { exact: true }).waitFor();
   await page.getByLabel("查找来源", { exact: true }).fill("X UI fixture");
   await page.getByRole("heading", { name: "手动采集" }).waitFor();
-  assert.equal(await page.getByLabel("采集上限").getAttribute("max"), "20");
+  assert.equal(await page.getByLabel("采集上限").getAttribute("max"), "10000");
   assert.equal(await page.getByLabel("同时采集评论").count(), 0);
   await page.getByText(/首次渠道执行 · 1 次请求 \/ 20 单位预留资源/).waitFor();
   const submitCollection = page.getByRole("button", { name: "提交采集任务" });
@@ -1582,6 +1582,11 @@ test("AI Release Intelligence Center (/ai timeline, drawer, /admin/queue) and pu
   await page.getByRole("heading", { name: "AI 发布审核与台账队列" }).waitFor();
   await page.getByRole("button", { name: "已发布事件" }).click();
   await page.getByText("Claude 4 Official E2E Release").waitFor();
+  await page.getByRole("button", { name: "新建发布事件" }).click();
+  await page.getByRole("button", { name: "取消" }).click();
+  await page.getByRole("button", { name: "官方来源与注册表" }).click();
+  await page.getByText("AI 外部服务密钥与端点配置（加密存储）").waitFor();
+  await page.getByText("Artificial Analysis").waitFor();
 
   assert.deepEqual(errors, []);
 });
