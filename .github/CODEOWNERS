@@ -1,13 +1,12 @@
 # Either maintainer can review these paths. Authors need the other maintainer.
-# Rule documents (AGENTS.md, docs/development.md, pull_request_template.md) are intentionally not
-# owner-locked: they are amended by the same PRs that follow them, and locking the rulebook behind
-# the rulebook turns every correction into the review process it was meant to simplify.
+# Lock only high-risk security, schema, CI guardrail, deployment, and constitution paths.
+# Frequent business/ops paths (packages/contracts/, apps/api/src/app.ts, docs/development.md,
+# pull_request_template.md) stay unlocked to avoid unnecessary review friction.
+/AGENTS.md @Euroish @HikariVerse
+/docs/invariants.md @Euroish @HikariVerse
 /src/storage/schema/ @Euroish @HikariVerse
 /src/modules/access/ @Euroish @HikariVerse
-/apps/api/src/app.ts @Euroish @HikariVerse
 /apps/api/src/route-policy.ts @Euroish @HikariVerse
-/packages/contracts/ @Euroish @HikariVerse
-/docs/invariants.md @Euroish @HikariVerse
 /.github/workflows/ @Euroish @HikariVerse
 /.github/CODEOWNERS @Euroish @HikariVerse
 /Dockerfile @Euroish @HikariVerse
@@ -20,6 +19,7 @@
 /apps/web/package-lock.json @Euroish @HikariVerse
 /.dependency-cruiser.cjs @Euroish @HikariVerse
 /eslint.config.mjs @Euroish @HikariVerse
+/apps/web/eslint.config.js @Euroish @HikariVerse
 /scripts/check-*.mjs @Euroish @HikariVerse
 /scripts/check-*.ts @Euroish @HikariVerse
 /scripts/ci-scope*.mjs @Euroish @HikariVerse

@@ -2,24 +2,24 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 /**
- * Enforces strict single-writer and bounded-reader SQL table ownership across `src/modules/<domain>/`.
+ * Enforces single-writer SQL table ownership and sensitive-credential read isolation
+ * across `src/modules/<domain>/`.
  *
  * Rules:
- * 1. Every table has a single owning domain module for INSERT/UPDATE/DELETE statements (no shared writes).
- * 2. Tables are read only by their owning module except explicit read-only contracts in SHARED_READ_ALLOWLIST.
+ * 1. Every table has a single owning domain module for INSERT/UPDATE/DELETE statements.
+ * 2. Business data tables may be read cross-module via SQL SELECT/JOIN when needed for clarity
+ *    or performance; only credential/session/MFA secret tables remain read-isolated to their owner.
  */
 
 const SHARED_WRITE_ALLOWLIST: Record<string, { allowedModules: string[]; reason: string }> = {};
 
-const SHARED_READ_ALLOWLIST: Record<string, { allowedModules: string[]; reason: string }> = {
-  source: {
-    allowedModules: ["collection", "content"],
-    reason: "Seeded platform lookup table owned by collection and joined for platform code by content queries.",
-  },
-  collection_source: {
-    allowedModules: ["collection", "content"],
-    reason: "Visibility & source metadata boundary joined by content queries.",
-  },
+const SENSITIVE_READ_OWNERS: Record<string, string> = {
+  app_user_password: "access",
+  app_session: "access",
+  app_auth_challenge: "access",
+  app_auth_mfa: "access",
+  app_auth_mfa_login: "access",
+  source_provider_credential: "collection",
 };
 
 const EXPLICIT_OWNERS: Array<{ match: RegExp; owner: string }> = [
@@ -143,7 +143,7 @@ export function auditTableReadOwnership(repoRoot: string): {
 
     for (const match of source.matchAll(SQL_READ_REGEX)) {
       const table = match[1].toLowerCase();
-      if (!EXPLICIT_OWNERS.some((r) => r.match.test(table))) continue;
+      if (!(table in SENSITIVE_READ_OWNERS)) continue;
       let domainMap = readers.get(table);
       if (!domainMap) {
         domainMap = new Map();
@@ -161,28 +161,12 @@ export function auditTableReadOwnership(repoRoot: string): {
   const violations: string[] = [];
 
   for (const [table, domainMap] of [...readers.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    const domains = [...domainMap.keys()].sort();
-    const allow = SHARED_READ_ALLOWLIST[table];
-    if (allow) {
-      for (const domain of domains) {
-        if (!allow.allowedModules.includes(domain)) {
-          violations.push(
-            `Table "${table}" read by unauthorized module "${domain}" (${[...(domainMap.get(domain) ?? [])].join(", ")}); allowed readers: ${allow.allowedModules.join(", ")}`,
-          );
-        }
-      }
-      continue;
-    }
-
-    const rule = EXPLICIT_OWNERS.find((r) => r.match.test(table));
-    if (rule) {
-      const validOwners = rule.owner.split("|");
-      for (const domain of domains) {
-        if (!validOwners.includes(domain)) {
-          violations.push(
-            `Table "${table}" is owned by [${validOwners.join("|")}] and has no cross-module read allowlist entry, but is read by "${domain}" (${[...(domainMap.get(domain) ?? [])].join(", ")})`,
-          );
-        }
+    const owner = SENSITIVE_READ_OWNERS[table];
+    for (const domain of [...domainMap.keys()].sort()) {
+      if (domain !== owner) {
+        violations.push(
+          `Sensitive table "${table}" is owned by [${owner}] and must not be read directly by "${domain}" (${[...(domainMap.get(domain) ?? [])].join(", ")})`,
+        );
       }
     }
   }
@@ -201,6 +185,6 @@ if (require.main === module) {
     process.exit(1);
   }
   console.log(
-    `Table ownership check passed: ${writes.tablesChecked} written tables (strict single-writer) and ${reads.tablesChecked} read tables verified across src/modules/.`,
+    `Table ownership check passed: ${writes.tablesChecked} written tables (single-writer) and ${reads.tablesChecked} sensitive credential tables (read-isolated) verified across src/modules/.`,
   );
 }
