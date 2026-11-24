@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { GitCompare, Search, TrendingUp } from 'lucide-react';
+import { GitCompare } from 'lucide-react';
 import type { L2ComparisonResponse, L2TermItem } from '@/contracts/research';
 import { useI18n } from '@/i18n/translations';
 import { useChartColors } from '../charts/chartUtils';
@@ -11,11 +11,16 @@ import { Empty } from '../ui/empty';
 import { Select } from '../ui/select';
 import { Skeleton } from '../ui/skeleton';
 import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group';
+import { AdaptiveLayerLayout } from './AdaptivePanelLayout';
 import { AnalysisChartCard } from './AnalysisChartCard';
+import { buildL2PanelRules, resolvePanelGroup, usePanelPreferences, type EvaluatedPanel } from './panelRegistry';
 
 const SERIES_PALETTE = ['#2563eb', '#7c3aed', '#0d9488', '#ea580c', '#db2777', '#65a30d', '#0284c7', '#9333ea'];
+const ALL_L2_RULES = buildL2PanelRules();
+const ALL_L2_PANEL_IDS = ALL_L2_RULES.map((r) => r.id);
 
 export function L2ComparisonTab({
+  projectId,
   data,
   isLoading,
   error,
@@ -30,6 +35,7 @@ export function L2ComparisonTab({
   exportDisabled,
   onTraceToSearch,
 }: {
+  projectId?: string;
   data?: L2ComparisonResponse;
   isLoading: boolean;
   error?: string | null;
@@ -49,6 +55,8 @@ export function L2ComparisonTab({
   const [section, setSection] = useState<'all' | 'text' | 'compare' | 'change'>('all');
   const [objTrendMode, setObjTrendMode] = useState<'count' | 'share'>('count');
   const [matrixMetric, setMatrixMetric] = useState<'count' | 'share'>('count');
+  const resolvedProjectId = projectId ?? data?.projectId ?? '';
+  const { overrides, setOverride, clearOverride, resetLayer } = usePanelPreferences(resolvedProjectId, ALL_L2_PANEL_IDS);
 
   const projectName = data?.projectName ?? t('Research Project', '研究项目');
   const a = data?.analyses;
@@ -380,6 +388,12 @@ export function L2ComparisonTab({
     };
   }, [a?.windowTermShifts.data]);
 
+  const resolvedGroup = useMemo(() => {
+    if (!data || !a || data.scope.emptySelection) return null;
+    const activeRules = section === 'all' ? ALL_L2_RULES : ALL_L2_RULES.filter((r) => r.section === section);
+    return resolvePanelGroup(activeRules, data, overrides, t);
+  }, [data, a, section, overrides, t]);
+
   if (isLoading && !data) {
     return (
       <div className="space-y-4">
@@ -418,6 +432,429 @@ export function L2ComparisonTab({
     );
   }
 
+  const renderFullL2Panel = (panel: EvaluatedPanel, headerExtras: React.ReactNode) => {
+    switch (panel.id) {
+      case 'l2.unigrams':
+        return (
+          <AnalysisChartCard
+            title={t('High-Frequency Terms (Unigrams)', '高频词（Unigram）')}
+            subtitle={t('Click bar to inspect matching posts in Content Explorer', '点击词条下钻查看含该词的原帖')}
+            block={a.unigrams}
+            projectName={projectName}
+            keywordLabels={keywordLabels}
+            option={unigramOpt}
+            height={270}
+            headerExtras={headerExtras}
+            columns={[
+              { key: 'term', label: t('Term', '词条') },
+              { key: 'docCount', label: t('Docs', '命中内容数') },
+              { key: 'termCount', label: t('Mentions', '总出现次数') },
+              { key: 'sharePct', label: t('Share %', '覆盖率%') },
+            ]}
+            rows={a.unigrams.data.items.map((r) => ({ ...r }))}
+            exportDisabled={exportDisabled}
+            onChartEvents={{
+              click: (params) => {
+                const name = (params as { name?: string })?.name;
+                if (name) onTraceToSearch({ query: name }, `${t('Term', '高频词')}: ${name}`);
+              },
+            }}
+          />
+        );
+      case 'l2.tfidf':
+        return (
+          <AnalysisChartCard
+            title={t('TF-IDF Distinctive Keywords', 'TF-IDF 特征词排行')}
+            subtitle={t('Surfaces domain-specific terms over ubiquitous filler words', '抑制泛滥常用词，突出高信息量主题词')}
+            block={a.tfidf}
+            projectName={projectName}
+            keywordLabels={keywordLabels}
+            option={tfidfOpt}
+            height={270}
+            headerExtras={headerExtras}
+            columns={[
+              { key: 'term', label: t('Term', '特征词') },
+              { key: 'avgScore', label: t('Avg TF-IDF', '平均 TF-IDF') },
+              { key: 'docCount', label: t('Docs', '命中条数') },
+              { key: 'sharePct', label: t('Share %', '占比%') },
+            ]}
+            rows={a.tfidf.data.items.map((r) => ({ ...r }))}
+            exportDisabled={exportDisabled}
+            onChartEvents={{
+              click: (params) => {
+                const name = (params as { name?: string })?.name;
+                if (name) onTraceToSearch({ query: name }, `TF-IDF: ${name}`);
+              },
+            }}
+          />
+        );
+      case 'l2.bigrams':
+        return (
+          <AnalysisChartCard
+            title={t('Two-Word Phrases (Bigrams)', '高频二元短语（Bigram）')}
+            subtitle={t('Adjacent word pairs across English & Chinese phrases', '相邻双词短语频率统计')}
+            block={a.bigrams}
+            projectName={projectName}
+            keywordLabels={keywordLabels}
+            option={bigramOpt}
+            height={250}
+            headerExtras={headerExtras}
+            columns={[
+              { key: 'term', label: t('Bigram', '二元词组') },
+              { key: 'docCount', label: t('Docs', '命中内容数') },
+              { key: 'termCount', label: t('Mentions', '出现次数') },
+              { key: 'sharePct', label: t('Share %', '覆盖率%') },
+            ]}
+            rows={a.bigrams.data.items.map((r) => ({ ...r }))}
+            exportDisabled={exportDisabled}
+          />
+        );
+      case 'l2.trigrams':
+        return (
+          <AnalysisChartCard
+            title={t('Three-Word Expressions (Trigrams)', '高频三元短语（Trigram）')}
+            subtitle={t('Recurring 3-token collocations', '连续三词共现短语排行')}
+            block={a.trigrams}
+            projectName={projectName}
+            keywordLabels={keywordLabels}
+            option={trigramOpt}
+            height={250}
+            headerExtras={headerExtras}
+            columns={[
+              { key: 'term', label: t('Trigram', '三元表达') },
+              { key: 'docCount', label: t('Docs', '命中内容数') },
+              { key: 'termCount', label: t('Mentions', '出现次数') },
+              { key: 'sharePct', label: t('Share %', '覆盖率%') },
+            ]}
+            rows={a.trigrams.data.items.map((r) => ({ ...r }))}
+            exportDisabled={exportDisabled}
+          />
+        );
+      case 'l2.cooccurrence':
+        return (
+          <AnalysisChartCard
+            title={t('Term Co-occurrence Heatmap', '关键词共现矩阵与强度')}
+            subtitle={t('Pairs appearing together in the same post/comment', '统计同文档共现频次及 Lift 关联提升度')}
+            block={a.cooccurrence}
+            projectName={projectName}
+            keywordLabels={keywordLabels}
+            option={coocOpt}
+            height={330}
+            headerExtras={headerExtras}
+            columns={[
+              { key: 'termA', label: t('Term A', '词 A') },
+              { key: 'termB', label: t('Term B', '词 B') },
+              { key: 'coCount', label: t('Co-occurrences', '共现条数') },
+              { key: 'lift', label: 'Lift' },
+            ]}
+            rows={a.cooccurrence.data.topPairs.map((r) => ({ ...r }))}
+            exportDisabled={exportDisabled}
+          />
+        );
+      case 'l2.objectCounts':
+        return (
+          <AnalysisChartCard
+            title={t('Object Volume & Exclusivity Comparison', '对比对象声量与独占对比')}
+            subtitle={t('Exclusive vs shared content counts across targets or batches', '区分各研究对象的独占条数与跨对象重叠条数')}
+            block={a.objectCounts}
+            projectName={projectName}
+            keywordLabels={keywordLabels}
+            option={objCountOpt}
+            height={270}
+            headerExtras={headerExtras}
+            columns={[
+              { key: 'label', label: t('Object', '对比对象') },
+              { key: 'contentCount', label: t('Total Items', '总内容数') },
+              { key: 'exclusiveCount', label: t('Exclusive', '独占条数') },
+              { key: 'overlapCount', label: t('Overlap', '重叠条数') },
+              { key: 'avgEngagementScore', label: t('Avg Eng', '篇均互动分') },
+            ]}
+            rows={a.objectCounts.data.rows.map((r) => ({ ...r }))}
+            exportDisabled={exportDisabled}
+          />
+        );
+      case 'l2.objectTrends':
+        return (
+          <AnalysisChartCard
+            title={t('Multi-Series Trend Over Time', '多对象时间趋势对比')}
+            subtitle={t('Daily discussion trajectory across selected objects', '对比多个研究对象的每日声量走势与占比变化')}
+            block={a.objectTrends}
+            projectName={projectName}
+            keywordLabels={keywordLabels}
+            option={objTrendOpt}
+            height={270}
+            headerExtras={headerExtras}
+            controls={
+              <ToggleGroup value={[objTrendMode]} onValueChange={(vals) => vals[0] && setObjTrendMode(vals[0] as 'count' | 'share')}>
+                <ToggleGroupItem value="count">{t('Count', '绝对数量')}</ToggleGroupItem>
+                <ToggleGroupItem value="share">{t('Share %', '占比 %')}</ToggleGroupItem>
+              </ToggleGroup>
+            }
+            columns={[
+              { key: 'bucket', label: t('Date', '日期') },
+              { key: 'totalCount', label: t('Total', '当日总计') },
+            ]}
+            rows={a.objectTrends.data.points.map((r) => ({ bucket: r.bucket, totalCount: r.totalCount }))}
+            exportDisabled={exportDisabled}
+          />
+        );
+      case 'l2.objectPlatformMatrix':
+        return (
+          <AnalysisChartCard
+            title={t('Object × Platform Matrix', '对比对象 × 平台交叉分布')}
+            subtitle={t('Platform mix across each keyword or batch', '对比不同对象在各社媒平台的来源重心')}
+            block={a.objectPlatformMatrix}
+            projectName={projectName}
+            keywordLabels={keywordLabels}
+            option={platMatrixOpt}
+            height={260}
+            headerExtras={headerExtras}
+            controls={
+              <ToggleGroup value={[matrixMetric]} onValueChange={(vals) => vals[0] && setMatrixMetric(vals[0] as 'count' | 'share')}>
+                <ToggleGroupItem value="count">{t('Matrix: Count', '数量')}</ToggleGroupItem>
+                <ToggleGroupItem value="share">{t('Matrix: Row %', '占比%')}</ToggleGroupItem>
+              </ToggleGroup>
+            }
+            columns={[
+              { key: 'objectLabel', label: t('Object', '对象') },
+              { key: 'colLabel', label: t('Platform', '平台') },
+              { key: 'count', label: t('Count', '条数') },
+              { key: 'sharePct', label: t('Row Share %', '对象内占比%') },
+            ]}
+            rows={a.objectPlatformMatrix.data.cells.map((r) => ({ ...r }))}
+            exportDisabled={exportDisabled}
+          />
+        );
+      case 'l2.objectCommunityMatrix':
+        return (
+          <AnalysisChartCard
+            title={t('Object × Community Matrix', '对比对象 × 社区分布矩阵')}
+            subtitle={t('Top communities by object overlap', '展示各对比对象在前排核心社区的覆盖密度')}
+            block={a.objectCommunityMatrix}
+            projectName={projectName}
+            keywordLabels={keywordLabels}
+            option={commMatrixOpt}
+            height={260}
+            headerExtras={headerExtras}
+            controls={
+              <ToggleGroup value={[matrixMetric]} onValueChange={(vals) => vals[0] && setMatrixMetric(vals[0] as 'count' | 'share')}>
+                <ToggleGroupItem value="count">{t('Matrix: Count', '数量')}</ToggleGroupItem>
+                <ToggleGroupItem value="share">{t('Matrix: Row %', '占比%')}</ToggleGroupItem>
+              </ToggleGroup>
+            }
+            columns={[
+              { key: 'objectLabel', label: t('Object', '对象') },
+              { key: 'colLabel', label: t('Community', '社区') },
+              { key: 'count', label: t('Count', '条数') },
+              { key: 'sharePct', label: t('Share %', '占比%') },
+            ]}
+            rows={a.objectCommunityMatrix.data.cells.map((r) => ({ ...r }))}
+            exportDisabled={exportDisabled}
+          />
+        );
+      case 'l2.overlapMatrix':
+        return (
+          <AnalysisChartCard
+            title={t('Overlap & Jaccard Similarity Matrix', '内容重叠度与 Jaccard 矩阵')}
+            subtitle={t('J(A, B) = |A ∩ B| / |A ∪ B| — measure target/batch redundancy', '按交并比 J(A,B)=|A∩B|/|A∪B| 衡量重合程度')}
+            block={a.overlapMatrix}
+            projectName={projectName}
+            keywordLabels={keywordLabels}
+            option={overlapOpt}
+            height={280}
+            headerExtras={headerExtras}
+            columns={[
+              { key: 'rowLabel', label: t('Object A', '对象 A') },
+              { key: 'colLabel', label: t('Object B', '对象 B') },
+              { key: 'intersectionCount', label: t('|A ∩ B|', '交集条数') },
+              { key: 'unionCount', label: t('|A ∪ B|', '并集条数') },
+              { key: 'jaccardPct', label: 'Jaccard %' },
+            ]}
+            rows={a.overlapMatrix.data.cells.filter((c) => c.rowKey <= c.colKey).map((r) => ({ ...r }))}
+            exportDisabled={exportDisabled}
+          />
+        );
+      case 'l2.windowComparison':
+        return (
+          <AnalysisChartCard
+            title={t('Time-Window Before vs After Comparison', '前后时间窗口指标对比')}
+            subtitle={t('Compares sample volume and avg engagement across a split date', '对比选定分界日前后两个时段的内容与互动表现')}
+            block={a.windowComparison}
+            projectName={projectName}
+            keywordLabels={keywordLabels}
+            option={windowCompareOpt}
+            height={280}
+            headerExtras={headerExtras}
+            controls={
+              <div className="flex items-center gap-1.5 text-[11px]">
+                <span className="text-muted-foreground">{t('Split:', '分界日:')}</span>
+                <input
+                  type="date"
+                  value={windowSplitAt}
+                  onChange={(e) => onWindowSplitAtChange(e.target.value)}
+                  className="h-6 rounded border border-input bg-background px-1.5 text-[11px]"
+                />
+              </div>
+            }
+            columns={[
+              { key: 'label', label: t('Metric', '指标') },
+              { key: 'previousValue', label: t('Before', '前半段') },
+              { key: 'currentValue', label: t('After', '后半段') },
+              { key: 'delta', label: t('Delta', '绝对变化') },
+              { key: 'status', label: t('Trend', '方向') },
+            ]}
+            rows={a.windowComparison.data.metrics.map((r) => ({ ...r }))}
+            exportDisabled={exportDisabled}
+          />
+        );
+      case 'l2.objectDistinctiveTerms':
+        return (
+          <div className="space-y-3">
+            <AnalysisChartCard
+              title={t('Distinctive Terms per Object (Log-Odds Diff)', '多对象差异特征词对照')}
+              subtitle={t('Terms disproportionately associated with each keyword or batch vs the rest', '按 Dirichlet Log-Odds 突出各对象独有关注点')}
+              block={a.objectDistinctiveTerms}
+              projectName={projectName}
+              keywordLabels={keywordLabels}
+              option={null}
+              defaultView="table"
+              headerExtras={headerExtras}
+              columns={[
+                { key: 'label', label: t('Object', '对象') },
+                { key: 'term', label: t('Distinctive Term', '差异词') },
+                { key: 'docCount', label: t('Docs', '组内命中') },
+                { key: 'inGroupPct', label: t('Group %', '组内占比%') },
+                { key: 'restPct', label: t('Rest %', '其余占比%') },
+                { key: 'score', label: 'Log-Odds' },
+              ]}
+              rows={a.objectDistinctiveTerms.data.groups.flatMap((g) =>
+                g.distinctiveTerms.map((dt) => ({ label: g.label, ...dt })),
+              )}
+              exportDisabled={exportDisabled}
+            />
+            {a.objectDistinctiveTerms.data.groups.length > 0 && (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {a.objectDistinctiveTerms.data.groups.map((grp) => (
+                  <Card key={grp.objectKey} className="p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="truncate text-xs font-semibold text-foreground">{grp.label}</span>
+                      <Badge variant="outline" className="font-mono text-[10px]">{grp.contentCount}</Badge>
+                    </div>
+                    {grp.distinctiveTerms.length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground">{t('No distinctive terms yet.', '暂无显著差异特征词。')}</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {grp.distinctiveTerms.map((dt) => (
+                          <button
+                            key={dt.term}
+                            type="button"
+                            onClick={() => onTraceToSearch({ query: dt.term }, `${grp.label}: ${dt.term}`)}
+                            className="inline-flex items-center gap-1 rounded border border-border bg-card px-1.5 py-0.5 text-[11px] hover:border-primary/60 hover:text-primary"
+                            title={`${t('In group', '组内')}: ${dt.inGroupPct}% vs ${t('Rest', '其余')}: ${dt.restPct}%`}
+                          >
+                            <span>{dt.term}</span>
+                            <span className="font-mono text-[9.5px] text-muted-foreground">+{dt.score.toFixed(1)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      case 'l2.hotTermTrends':
+        return (
+          <AnalysisChartCard
+            title={t('Top Hot Terms Over Time', '高频热词逐日趋势')}
+            subtitle={t('Daily frequency curves of top scope keywords', '追踪核心热词在各时间桶的提及走势')}
+            block={a.hotTermTrends}
+            projectName={projectName}
+            keywordLabels={keywordLabels}
+            option={hotTermsOpt}
+            height={270}
+            headerExtras={headerExtras}
+            columns={[
+              { key: 'term', label: t('Term', '热词') },
+              { key: 'totalDocCount', label: t('Total Docs', '总命中数') },
+              { key: 'growthPct', label: t('Period Growth %', '首尾增幅%') },
+            ]}
+            rows={a.hotTermTrends.data.series.map((s) => ({ term: s.term, totalDocCount: s.totalDocCount, growthPct: s.growthPct }))}
+            exportDisabled={exportDisabled}
+          />
+        );
+      case 'l2.anomalyDetection':
+        return (
+          <AnalysisChartCard
+            title={t('Volume Spike & Anomaly Detection', '内容爆发点与异常探测')}
+            subtitle={t('Z-score spikes mark days above baseline; click point to view evidence', '标记显著偏离基线均值的时间峰值，点击钻取当天证据')}
+            block={a.anomalyDetection}
+            projectName={projectName}
+            keywordLabels={keywordLabels}
+            option={anomalyOpt}
+            height={270}
+            headerExtras={headerExtras}
+            controls={
+              <Select
+                value={sensitivity}
+                onChange={(e) => onSensitivityChange(e.target.value as 'low' | 'medium' | 'high')}
+                className="h-7 w-28 text-[11px]"
+              >
+                <option value="high">{t('High (Z≥1.5)', '高敏感 Z≥1.5')}</option>
+                <option value="medium">{t('Medium (Z≥2.0)', '中敏感 Z≥2.0')}</option>
+                <option value="low">{t('Low (Z≥2.5)', '低敏感 Z≥2.5')}</option>
+              </Select>
+            }
+            columns={[
+              { key: 'bucket', label: t('Date', '日期') },
+              { key: 'count', label: t('Count', '内容数') },
+              { key: 'baselineAvg', label: t('Baseline', '基线均值') },
+              { key: 'zScore', label: 'Z-Score' },
+              { key: 'direction', label: t('Status', '状态') },
+            ]}
+            rows={a.anomalyDetection.data.points.map((r) => ({ ...r }))}
+            exportDisabled={exportDisabled}
+            onChartEvents={{
+              click: (params) => {
+                const name = (params as { name?: string })?.name;
+                if (!name) return;
+                const dayMs = Date.parse(`${name}T00:00:00.000Z`);
+                if (!Number.isFinite(dayMs)) return;
+                onTraceToSearch(
+                  { from: `${name}T00:00:00.000Z`, to: new Date(dayMs + 86_400_000).toISOString() },
+                  `${t('Spike Date', '爆发日期')}: ${name}`,
+                );
+              },
+            }}
+          />
+        );
+      case 'l2.windowTermShifts':
+      default:
+        return (
+          <AnalysisChartCard
+            title={t('Time-Window Lexical Shift (Rising vs Falling Terms)', '时间窗词频跃升 / 回落对比')}
+            subtitle={t('Percentage-point share change before vs after the split date', '对比时间分界前后的讨论占比变化（百分点）')}
+            block={a.windowTermShifts}
+            projectName={projectName}
+            keywordLabels={keywordLabels}
+            option={shiftOpt}
+            height={290}
+            headerExtras={headerExtras}
+            columns={[
+              { key: 'term', label: t('Term', '词条') },
+              { key: 'direction', label: t('Direction', '变化方向') },
+              { key: 'beforeSharePct', label: t('Before %', '前期占比%') },
+              { key: 'afterSharePct', label: t('After %', '后期占比%') },
+              { key: 'deltaPctPoints', label: t('Delta (pp)', '变化百分点') },
+            ]}
+            rows={[...a.windowTermShifts.data.rising, ...a.windowTermShifts.data.falling].map((r) => ({ ...r }))}
+            exportDisabled={exportDisabled}
+          />
+        );
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* L2 Section & Comparison Bar */}
@@ -448,405 +885,14 @@ export function L2ComparisonTab({
         </div>
       </div>
 
-      {/* SECTION A: TEXT FEATURES L2-01..05 */}
-      {(section === 'all' || section === 'text') && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-            <Search size={13} className="text-primary" />
-            <span>{t('Text Features (EN + ZH Bilingual Preprocessing)', '文本特征分析（中英文混合轻量分词）')}</span>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <AnalysisChartCard
-              title={t('High-Frequency Terms (Unigrams)', '高频词（Unigram）')}
-              subtitle={t('Click bar to inspect matching posts in Content Explorer', '点击词条下钻查看含该词的原帖')}
-              block={a.unigrams}
-              projectName={projectName}
-              keywordLabels={keywordLabels}
-              option={unigramOpt}
-              height={270}
-              columns={[
-                { key: 'term', label: t('Term', '词条') },
-                { key: 'docCount', label: t('Docs', '命中内容数') },
-                { key: 'termCount', label: t('Mentions', '总出现次数') },
-                { key: 'sharePct', label: t('Share %', '覆盖率%') },
-              ]}
-              rows={a.unigrams.data.items.map((r) => ({ ...r }))}
-              exportDisabled={exportDisabled}
-              onChartEvents={{
-                click: (params) => {
-                  const name = (params as { name?: string })?.name;
-                  if (name) onTraceToSearch({ query: name }, `${t('Term', '高频词')}: ${name}`);
-                },
-              }}
-            />
-
-            <AnalysisChartCard
-              title={t('TF-IDF Distinctive Keywords', 'TF-IDF 特征词排行')}
-              subtitle={t('Surfaces domain-specific terms over ubiquitous filler words', '抑制泛滥常用词，突出高信息量主题词')}
-              block={a.tfidf}
-              projectName={projectName}
-              keywordLabels={keywordLabels}
-              option={tfidfOpt}
-              height={270}
-              columns={[
-                { key: 'term', label: t('Term', '特征词') },
-                { key: 'avgScore', label: t('Avg TF-IDF', '平均 TF-IDF') },
-                { key: 'docCount', label: t('Docs', '命中条数') },
-                { key: 'sharePct', label: t('Share %', '占比%') },
-              ]}
-              rows={a.tfidf.data.items.map((r) => ({ ...r }))}
-              exportDisabled={exportDisabled}
-              onChartEvents={{
-                click: (params) => {
-                  const name = (params as { name?: string })?.name;
-                  if (name) onTraceToSearch({ query: name }, `TF-IDF: ${name}`);
-                },
-              }}
-            />
-
-            <AnalysisChartCard
-              title={t('Two-Word Phrases (Bigrams)', '高频二元短语（Bigram）')}
-              subtitle={t('Adjacent word pairs across English & Chinese phrases', '相邻双词短语频率统计')}
-              block={a.bigrams}
-              projectName={projectName}
-              keywordLabels={keywordLabels}
-              option={bigramOpt}
-              height={250}
-              columns={[
-                { key: 'term', label: t('Bigram', '二元词组') },
-                { key: 'docCount', label: t('Docs', '命中内容数') },
-                { key: 'termCount', label: t('Mentions', '出现次数') },
-                { key: 'sharePct', label: t('Share %', '覆盖率%') },
-              ]}
-              rows={a.bigrams.data.items.map((r) => ({ ...r }))}
-              exportDisabled={exportDisabled}
-            />
-
-            <AnalysisChartCard
-              title={t('Three-Word Expressions (Trigrams)', '高频三元短语（Trigram）')}
-              subtitle={t('Recurring 3-token collocations', '连续三词共现短语排行')}
-              block={a.trigrams}
-              projectName={projectName}
-              keywordLabels={keywordLabels}
-              option={trigramOpt}
-              height={250}
-              columns={[
-                { key: 'term', label: t('Trigram', '三元表达') },
-                { key: 'docCount', label: t('Docs', '命中内容数') },
-                { key: 'termCount', label: t('Mentions', '出现次数') },
-                { key: 'sharePct', label: t('Share %', '覆盖率%') },
-              ]}
-              rows={a.trigrams.data.items.map((r) => ({ ...r }))}
-              exportDisabled={exportDisabled}
-            />
-          </div>
-
-          <AnalysisChartCard
-            title={t('Term Co-occurrence Heatmap', '关键词共现矩阵与强度')}
-            subtitle={t('Pairs appearing together in the same post/comment', '统计同文档共现频次及 Lift 关联提升度')}
-            block={a.cooccurrence}
-            projectName={projectName}
-            keywordLabels={keywordLabels}
-            option={coocOpt}
-            height={330}
-            columns={[
-              { key: 'termA', label: t('Term A', '词 A') },
-              { key: 'termB', label: t('Term B', '词 B') },
-              { key: 'coCount', label: t('Co-occurrences', '共现条数') },
-              { key: 'lift', label: 'Lift' },
-            ]}
-            rows={a.cooccurrence.data.topPairs.map((r) => ({ ...r }))}
-            exportDisabled={exportDisabled}
-          />
-        </div>
-      )}
-
-      {/* SECTION B: MULTI-OBJECT COMPARISON L2-06..12 */}
-      {(section === 'all' || section === 'compare') && (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-              <GitCompare size={13} className="text-primary" />
-              <span>{t('Multi-Keyword & Multi-Batch Comparison', '多关键词 / 多批次交叉对比')}</span>
-            </div>
-            <ToggleGroup value={[matrixMetric]} onValueChange={(vals) => vals[0] && setMatrixMetric(vals[0] as 'count' | 'share')}>
-              <ToggleGroupItem value="count">{t('Matrix: Count', '矩阵: 数量')}</ToggleGroupItem>
-              <ToggleGroupItem value="share">{t('Matrix: Row %', '矩阵: 占比%')}</ToggleGroupItem>
-            </ToggleGroup>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <AnalysisChartCard
-              title={t('Object Volume & Exclusivity Comparison', '对比对象声量与独占对比')}
-              subtitle={t('Exclusive vs shared content counts across targets or batches', '区分各研究对象的独占条数与跨对象重叠条数')}
-              block={a.objectCounts}
-              projectName={projectName}
-              keywordLabels={keywordLabels}
-              option={objCountOpt}
-              height={270}
-              columns={[
-                { key: 'label', label: t('Object', '对比对象') },
-                { key: 'contentCount', label: t('Total Items', '总内容数') },
-                { key: 'exclusiveCount', label: t('Exclusive', '独占条数') },
-                { key: 'overlapCount', label: t('Overlap', '重叠条数') },
-                { key: 'avgEngagementScore', label: t('Avg Eng', '篇均互动分') },
-              ]}
-              rows={a.objectCounts.data.rows.map((r) => ({ ...r }))}
-              exportDisabled={exportDisabled}
-            />
-
-            <AnalysisChartCard
-              title={t('Multi-Series Trend Over Time', '多对象时间趋势对比')}
-              subtitle={t('Daily discussion trajectory across selected objects', '对比多个研究对象的每日声量走势与占比变化')}
-              block={a.objectTrends}
-              projectName={projectName}
-              keywordLabels={keywordLabels}
-              option={objTrendOpt}
-              height={270}
-              controls={
-                <ToggleGroup value={[objTrendMode]} onValueChange={(vals) => vals[0] && setObjTrendMode(vals[0] as 'count' | 'share')}>
-                  <ToggleGroupItem value="count">{t('Count', '绝对数量')}</ToggleGroupItem>
-                  <ToggleGroupItem value="share">{t('Share %', '占比 %')}</ToggleGroupItem>
-                </ToggleGroup>
-              }
-              columns={[
-                { key: 'bucket', label: t('Date', '日期') },
-                { key: 'totalCount', label: t('Total', '当日总计') },
-              ]}
-              rows={a.objectTrends.data.points.map((r) => ({ bucket: r.bucket, totalCount: r.totalCount }))}
-              exportDisabled={exportDisabled}
-            />
-
-            <AnalysisChartCard
-              title={t('Object × Platform Matrix', '对比对象 × 平台交叉分布')}
-              subtitle={t('Platform mix across each keyword or batch', '对比不同对象在各社媒平台的来源重心')}
-              block={a.objectPlatformMatrix}
-              projectName={projectName}
-              keywordLabels={keywordLabels}
-              option={platMatrixOpt}
-              height={260}
-              columns={[
-                { key: 'objectLabel', label: t('Object', '对象') },
-                { key: 'colLabel', label: t('Platform', '平台') },
-                { key: 'count', label: t('Count', '条数') },
-                { key: 'sharePct', label: t('Row Share %', '对象内占比%') },
-              ]}
-              rows={a.objectPlatformMatrix.data.cells.map((r) => ({ ...r }))}
-              exportDisabled={exportDisabled}
-            />
-
-            <AnalysisChartCard
-              title={t('Object × Community Matrix', '对比对象 × 社区分布矩阵')}
-              subtitle={t('Top communities by object overlap', '展示各对比对象在前排核心社区的覆盖密度')}
-              block={a.objectCommunityMatrix}
-              projectName={projectName}
-              keywordLabels={keywordLabels}
-              option={commMatrixOpt}
-              height={260}
-              columns={[
-                { key: 'objectLabel', label: t('Object', '对象') },
-                { key: 'colLabel', label: t('Community', '社区') },
-                { key: 'count', label: t('Count', '条数') },
-                { key: 'sharePct', label: t('Share %', '占比%') },
-              ]}
-              rows={a.objectCommunityMatrix.data.cells.map((r) => ({ ...r }))}
-              exportDisabled={exportDisabled}
-            />
-
-            <AnalysisChartCard
-              title={t('Overlap & Jaccard Similarity Matrix', '内容重叠度与 Jaccard 矩阵')}
-              subtitle={t('J(A, B) = |A ∩ B| / |A ∪ B| — measure target/batch redundancy', '按交并比 J(A,B)=|A∩B|/|A∪B| 衡量重合程度')}
-              block={a.overlapMatrix}
-              projectName={projectName}
-              keywordLabels={keywordLabels}
-              option={overlapOpt}
-              height={280}
-              columns={[
-                { key: 'rowLabel', label: t('Object A', '对象 A') },
-                { key: 'colLabel', label: t('Object B', '对象 B') },
-                { key: 'intersectionCount', label: t('|A ∩ B|', '交集条数') },
-                { key: 'unionCount', label: t('|A ∪ B|', '并集条数') },
-                { key: 'jaccardPct', label: 'Jaccard %' },
-              ]}
-              rows={a.overlapMatrix.data.cells.filter((c) => c.rowKey <= c.colKey).map((r) => ({ ...r }))}
-              exportDisabled={exportDisabled}
-            />
-
-            <AnalysisChartCard
-              title={t('Time-Window Before vs After Comparison', '前后时间窗口指标对比')}
-              subtitle={t('Compares sample volume and avg engagement across a split date', '对比选定分界日前后两个时段的内容与互动表现')}
-              block={a.windowComparison}
-              projectName={projectName}
-              keywordLabels={keywordLabels}
-              option={windowCompareOpt}
-              height={280}
-              controls={
-                <div className="flex items-center gap-1.5 text-[11px]">
-                  <span className="text-muted-foreground">{t('Split:', '分界日:')}</span>
-                  <input
-                    type="date"
-                    value={windowSplitAt}
-                    onChange={(e) => onWindowSplitAtChange(e.target.value)}
-                    className="h-6 rounded border border-input bg-background px-1.5 text-[11px]"
-                  />
-                </div>
-              }
-              columns={[
-                { key: 'label', label: t('Metric', '指标') },
-                { key: 'previousValue', label: t('Before', '前半段') },
-                { key: 'currentValue', label: t('After', '后半段') },
-                { key: 'delta', label: t('Delta', '绝对变化') },
-                { key: 'status', label: t('Trend', '方向') },
-              ]}
-              rows={a.windowComparison.data.metrics.map((r) => ({ ...r }))}
-              exportDisabled={exportDisabled}
-            />
-          </div>
-
-          <AnalysisChartCard
-            title={t('Distinctive Terms per Object (Log-Odds Diff)', '多对象差异特征词对照')}
-            subtitle={t('Terms disproportionately associated with each keyword or batch vs the rest', '按 Dirichlet Log-Odds 突出各对象独有关注点')}
-            block={a.objectDistinctiveTerms}
-            projectName={projectName}
-            keywordLabels={keywordLabels}
-            option={null}
-            defaultView="table"
-            columns={[
-              { key: 'label', label: t('Object', '对象') },
-              { key: 'term', label: t('Distinctive Term', '差异词') },
-              { key: 'docCount', label: t('Docs', '组内命中') },
-              { key: 'inGroupPct', label: t('Group %', '组内占比%') },
-              { key: 'restPct', label: t('Rest %', '其余占比%') },
-              { key: 'score', label: 'Log-Odds' },
-            ]}
-            rows={a.objectDistinctiveTerms.data.groups.flatMap((g) =>
-              g.distinctiveTerms.map((dt) => ({ label: g.label, ...dt })),
-            )}
-            exportDisabled={exportDisabled}
-          />
-
-          {a.objectDistinctiveTerms.data.groups.length > 0 && (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {a.objectDistinctiveTerms.data.groups.map((grp) => (
-                <Card key={grp.objectKey} className="p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="truncate text-xs font-semibold text-foreground">{grp.label}</span>
-                    <Badge variant="outline" className="font-mono text-[10px]">{grp.contentCount}</Badge>
-                  </div>
-                  {grp.distinctiveTerms.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground">{t('No distinctive terms yet.', '暂无显著差异特征词。')}</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-1">
-                      {grp.distinctiveTerms.map((dt) => (
-                        <button
-                          key={dt.term}
-                          type="button"
-                          onClick={() => onTraceToSearch({ query: dt.term }, `${grp.label}: ${dt.term}`)}
-                          className="inline-flex items-center gap-1 rounded border border-border bg-card px-1.5 py-0.5 text-[11px] hover:border-primary/60 hover:text-primary"
-                          title={`${t('In group', '组内')}: ${dt.inGroupPct}% vs ${t('Rest', '其余')}: ${dt.restPct}%`}
-                        >
-                          <span>{dt.term}</span>
-                          <span className="font-mono text-[9.5px] text-muted-foreground">+{dt.score.toFixed(1)}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </Card>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* SECTION C: CHANGE & ANOMALY EXPLORATION L2-13..15 */}
-      {(section === 'all' || section === 'change') && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-            <TrendingUp size={13} className="text-primary" />
-            <span>{t('Change Exploration & Volume Anomaly Spikes', '热点变化探索与爆发异常识别')}</span>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <AnalysisChartCard
-              title={t('Top Hot Terms Over Time', '高频热词逐日趋势')}
-              subtitle={t('Daily frequency curves of top scope keywords', '追踪核心热词在各时间桶的提及走势')}
-              block={a.hotTermTrends}
-              projectName={projectName}
-              keywordLabels={keywordLabels}
-              option={hotTermsOpt}
-              height={270}
-              columns={[
-                { key: 'term', label: t('Term', '热词') },
-                { key: 'totalDocCount', label: t('Total Docs', '总命中数') },
-                { key: 'growthPct', label: t('Period Growth %', '首尾增幅%') },
-              ]}
-              rows={a.hotTermTrends.data.series.map((s) => ({ term: s.term, totalDocCount: s.totalDocCount, growthPct: s.growthPct }))}
-              exportDisabled={exportDisabled}
-            />
-
-            <AnalysisChartCard
-              title={t('Volume Spike & Anomaly Detection', '内容爆发点与异常探测')}
-              subtitle={t('Z-score spikes mark days above baseline; click point to view evidence', '标记显著偏离基线均值的时间峰值，点击钻取当天证据')}
-              block={a.anomalyDetection}
-              projectName={projectName}
-              keywordLabels={keywordLabels}
-              option={anomalyOpt}
-              height={270}
-              controls={
-                <Select
-                  value={sensitivity}
-                  onChange={(e) => onSensitivityChange(e.target.value as 'low' | 'medium' | 'high')}
-                  className="h-7 w-28 text-[11px]"
-                >
-                  <option value="high">{t('High (Z≥1.5)', '高敏感 Z≥1.5')}</option>
-                  <option value="medium">{t('Medium (Z≥2.0)', '中敏感 Z≥2.0')}</option>
-                  <option value="low">{t('Low (Z≥2.5)', '低敏感 Z≥2.5')}</option>
-                </Select>
-              }
-              columns={[
-                { key: 'bucket', label: t('Date', '日期') },
-                { key: 'count', label: t('Count', '内容数') },
-                { key: 'baselineAvg', label: t('Baseline', '基线均值') },
-                { key: 'zScore', label: 'Z-Score' },
-                { key: 'direction', label: t('Status', '状态') },
-              ]}
-              rows={a.anomalyDetection.data.points.map((r) => ({ ...r }))}
-              exportDisabled={exportDisabled}
-              onChartEvents={{
-                click: (params) => {
-                  const name = (params as { name?: string })?.name;
-                  if (!name) return;
-                  const dayMs = Date.parse(`${name}T00:00:00.000Z`);
-                  if (!Number.isFinite(dayMs)) return;
-                  onTraceToSearch(
-                    { from: `${name}T00:00:00.000Z`, to: new Date(dayMs + 86_400_000).toISOString() },
-                    `${t('Spike Date', '爆发日期')}: ${name}`,
-                  );
-                },
-              }}
-            />
-          </div>
-
-          <AnalysisChartCard
-            title={t('Time-Window Lexical Shift (Rising vs Falling Terms)', '时间窗词频跃升 / 回落对比')}
-            subtitle={t('Percentage-point share change before vs after the split date', '对比时间分界前后的讨论占比变化（百分点）')}
-            block={a.windowTermShifts}
-            projectName={projectName}
-            keywordLabels={keywordLabels}
-            option={shiftOpt}
-            height={290}
-            columns={[
-              { key: 'term', label: t('Term', '词条') },
-              { key: 'direction', label: t('Direction', '变化方向') },
-              { key: 'beforeSharePct', label: t('Before %', '前期占比%') },
-              { key: 'afterSharePct', label: t('After %', '后期占比%') },
-              { key: 'deltaPctPoints', label: t('Delta (pp)', '变化百分点') },
-            ]}
-            rows={[...a.windowTermShifts.data.rising, ...a.windowTermShifts.data.falling].map((r) => ({ ...r }))}
-            exportDisabled={exportDisabled}
-          />
-        </div>
+      {resolvedGroup && (
+        <AdaptiveLayerLayout
+          group={resolvedGroup}
+          onSetOverride={setOverride}
+          onClearOverride={clearOverride}
+          onResetAll={resetLayer}
+          renderFullPanel={renderFullL2Panel}
+        />
       )}
     </div>
   );

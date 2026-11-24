@@ -4,6 +4,8 @@ import type { StoryEvidence, StoryFeed, StoryQuery } from "../../../packages/con
 import type { Actor } from "../../../packages/contracts/src/access";
 import type { ContentAuthor } from "../../../packages/contracts/src/content";
 import { fail } from "../../shared/errors";
+import { cleanTextForAnalysis, tokenizeText } from "../../shared/text/analysis";
+import { detectLanguage } from "../../shared/text/language";
 import { compileContentFilter, contentSourceTables, type ContentVisibilityResolver } from "./search";
 import { groupStories, type StoryTitle } from "./story-groups";
 
@@ -16,12 +18,35 @@ type Row = {
   id: string; platform: StoryEvidence["platform"]; title: string; url: string | null;
   excerpt: string | null; author: ContentAuthor | null; language: string | null; links: string[];
   thumbnail: string | null; published_at: Date | null; event_at: Date; first_fetched_at: Date;
-  source_id: string; label: string; tier: StoryEvidence["tier"]; participant: string; comparable: boolean;
+  source_id: string; label: string; source_group: string; tier: StoryEvidence["tier"]; participant: string; comparable: boolean;
 };
+export interface StoryInsightMeta {
+  storyKey: string;
+  sourceGroup: string;
+  language: string;
+  eventTimeMs: number;
+  participatingSourceIds: string[];
+  textForAnalysis: string;
+  tokenSet: Set<string>;
+  hasComparableSource: boolean;
+}
+export interface StoryDrilldownFilter {
+  term?: string;
+  topicId?: string;
+  topicStoryKeys?: Set<string>;
+  bucketFrom?: number;
+  bucketTo?: number;
+  insightTier?: StoryEvidence["tier"];
+  insightSourceGroup?: string;
+  insightLanguage?: string;
+  insightSourceId?: string;
+}
 type Entry = StoryTitle & {
   time: number;
   excerpt: string | null;
   english: boolean;
+  sourceGroup: string;
+  normalizedLang: string;
   evidence: StoryEvidence;
   discoveries: Row[];
 };
@@ -261,7 +286,7 @@ export async function readStoryWindow(
       ARRAY(SELECT m->>'url' FROM jsonb_array_elements(c.content_media) m WHERE m->>'type'='link' LIMIT 3) AS links,
       (SELECT m->>'url' FROM jsonb_array_elements(c.content_media) m WHERE m->>'type'='image' LIMIT 1) AS thumbnail,
       c.created_at_source AS published_at,COALESCE(c.created_at_source,d.first_fetched_at) AS event_at,d.first_fetched_at,
-      cs.id AS source_id,cs.label,cs.tier,
+      cs.id AS source_id,cs.label,COALESCE(cs.source_group, '') AS source_group,cs.tier,
       COALESCE('owner:'||cs.owner_entity_id,
         CASE
           WHEN p.code='web' AND c.platform_details->>'publisher' IN ('www.youtube.com','youtube.com') AND cs.target->>'url' IS NOT NULL
@@ -286,16 +311,24 @@ export async function readStoryWindow(
     const entry = entries.get(row.id);
     if (entry) {
       entry.discoveries.push(row);
-      if (tierWeight[row.tier] > tierWeight[entry.evidence.tier]) entry.evidence = evidence(row);
+      if (tierWeight[row.tier] > tierWeight[entry.evidence.tier]) {
+        entry.evidence = evidence(row);
+        entry.sourceGroup = row.source_group;
+      }
     } else {
+      const detected = row.language?.toLowerCase().split("-")[0]
+        || detectLanguage(row.title, row.excerpt)
+        || ( !/\p{Script=Han}/u.test(row.title) && /[a-z]/i.test(row.title) ? "en" : "other");
       entries.set(row.id, {
         id: row.id, title: row.title, url: row.url, links: row.links, time: row.event_at.getTime(),
-        excerpt: row.excerpt, evidence: evidence(row), discoveries: [row],
-        english: row.language ? /^en(?:-|$)/i.test(row.language) : !/\p{Script=Han}/u.test(row.title) && /[a-z]/i.test(row.title),
+        excerpt: row.excerpt, sourceGroup: row.source_group, normalizedLang: detected,
+        evidence: evidence(row), discoveries: [row],
+        english: detected === "en",
       });
     }
   }
   const activeFrom = Math.min(from, to - 48 * hour);
+  const metaByStoryKey = new Map<string, StoryInsightMeta>();
   const ranked = groupStories([...entries.values()]).flatMap(group => {
     const active = group.filter(item => item.discoveries.some(row => row.event_at.getTime() >= activeFrom));
     const recent = active.filter(item => item.time >= from);
@@ -312,7 +345,8 @@ export async function readStoryWindow(
     const badge = trend === "new" ? "new" : trend === "up" ? change! >= 0.5 && comparable.count >= 2 ? "surge" : "rising" : null;
     const related = active.filter(item => item !== representative && (view !== "digest" || item.time >= from))
       .sort((a, b) => b.time - a.time || a.id.localeCompare(b.id));
-    const updatedAt = new Date(recent.reduce((latest, item) => Math.max(latest, item.time), from)).toISOString();
+    const latestRecentMs = recent.reduce((latest, item) => Math.max(latest, item.time), from);
+    const updatedAt = new Date(latestRecentMs).toISOString();
     const activeSources = current.count || new Set(
       active.flatMap(item => item.discoveries
         .filter(row => row.event_at.getTime() >= activeFrom && row.event_at.getTime() < to)
@@ -324,13 +358,39 @@ export async function readStoryWindow(
       ...storyMicrocharts(active, to, activeFrom),
       sourceCount: activeSources, heat48h: current.heat, change6h: change, trend, badges: badge ? [badge] : [], updatedAt,
     };
+    const combinedRaw = [representative.title, representative.excerpt ?? ""]
+      .filter(Boolean)
+      .join(" ");
+    const cleanText = cleanTextForAnalysis(combinedRaw, true);
+    const tokens = tokenizeText(cleanText, { preserveTechPhrases: true, maxTokensPerDoc: 120 });
+    metaByStoryKey.set(story.storyKey, {
+      storyKey: story.storyKey,
+      sourceGroup: representative.sourceGroup,
+      language: representative.normalizedLang,
+      eventTimeMs: latestRecentMs,
+      participatingSourceIds: [...new Set(active.flatMap((it) => it.discoveries.map((d) => d.source_id)))],
+      textForAnalysis: cleanText,
+      tokenSet: new Set(tokens),
+      hasComparableSource: active.some((it) => it.discoveries.some((d) => d.comparable)),
+    });
     return [story];
   });
+  const totalRankedCount = ranked.length;
   const latestFirst = (a: StoryFeed["items"][number], b: StoryFeed["items"][number]) =>
     b.updatedAt.localeCompare(a.updatedAt) || a.storyKey.localeCompare(b.storyKey);
   const latest = view === "digest" ? [] : [...ranked].sort(latestFirst).slice(0, MAX_STORED_STORIES);
   const hottest = ranked.sort((a, b) => b.heat48h - a.heat48h || latestFirst(a, b)).slice(0, MAX_STORED_STORIES);
-  return { from: new Date(from).toISOString(), to: toDate.toISOString(), latest, hottest };
+  return {
+    view,
+    from: new Date(from).toISOString(),
+    to: toDate.toISOString(),
+    fromMs: from,
+    toMs: to,
+    latest,
+    hottest,
+    totalRankedCount,
+    metaByStoryKey,
+  };
 }
 
 export function selectStoryFeed(
@@ -339,9 +399,43 @@ export function selectStoryFeed(
   limit: number,
   offset = 0,
   diverse = true,
+  drilldown?: StoryDrilldownFilter,
 ): StoryFeed {
   const list = view === "latest" ? window.latest : window.hottest;
-  const ordered = diverse ? diversifyStories(list) : list;
+  const filtered = !drilldown
+    ? list
+    : list.filter((story) => {
+        const meta = window.metaByStoryKey?.get(story.storyKey);
+        if (drilldown.insightTier && story.representative.tier !== drilldown.insightTier) return false;
+        if (drilldown.insightSourceId && story.representative.sourceId !== drilldown.insightSourceId) return false;
+        if (drilldown.insightSourceGroup !== undefined && meta?.sourceGroup !== drilldown.insightSourceGroup) return false;
+        if (drilldown.insightLanguage && meta?.language !== drilldown.insightLanguage) return false;
+        if (drilldown.bucketFrom !== undefined && drilldown.bucketTo !== undefined) {
+          const ts = meta?.eventTimeMs ?? Date.parse(story.updatedAt);
+          if (ts < drilldown.bucketFrom || ts >= drilldown.bucketTo) return false;
+        }
+        if (drilldown.topicId && drilldown.topicStoryKeys && !drilldown.topicStoryKeys.has(story.storyKey)) {
+          return false;
+        }
+        if (drilldown.term) {
+          const needle = drilldown.term.trim().toLowerCase();
+          const needleAlias = needle.replace(/[\s-]+/g, "_");
+          if (meta) {
+            if (
+              !meta.tokenSet.has(needle) &&
+              !meta.tokenSet.has(needleAlias) &&
+              !meta.textForAnalysis.toLowerCase().includes(needle)
+            ) {
+              return false;
+            }
+          } else {
+            const hay = `${story.representative.title} ${story.excerpt ?? ""}`.toLowerCase();
+            if (!hay.includes(needle)) return false;
+          }
+        }
+        return true;
+      });
+  const ordered = diverse ? diversifyStories(filtered) : filtered;
   const items = ordered.slice(offset, offset + limit);
   const totalCount = ordered.length;
   return {

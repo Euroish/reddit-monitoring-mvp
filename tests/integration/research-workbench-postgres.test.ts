@@ -43,15 +43,15 @@ test("PG16 research workbench: scope, L1 deduplication, L2 Jaccard + cache, and 
     `SELECT id, code FROM source WHERE code IN ('reddit', 'x')`,
   );
   const redditPlat = platRows.find((r) => r.code === "reddit")!.id;
-  const xPlat = platRows.find((r) => r.code === "x")!.id;
+  const _xPlat = platRows.find((r) => r.code === "x")!.id;
 
   const srcA = randomUUID();
   const srcB = randomUUID();
   await db.pool.query(
-    `INSERT INTO collection_source(id, platform_id, primary_provider, delivery_mode, label, target, content_kind, state)
-     VALUES ($1, $2, 'external_ingest', 'external_push', 'Keyword A', '{"type":"search","query":"Keyword A"}'::jsonb, 'post', 'enabled'),
-            ($3, $4, 'external_ingest', 'external_push', 'Keyword B', '{"type":"search","query":"Keyword B"}'::jsonb, 'post', 'enabled')`,
-    [srcA, redditPlat, srcB, xPlat],
+    `INSERT INTO collection_source(id, platform_id, primary_provider, delivery_mode, label, target, content_kind, state, created_at, updated_at)
+     VALUES ($1, $2, 'external_ingest', 'push', 'Keyword A', '{"type":"search","query":"Keyword A"}'::jsonb, 'post', 'active', now(), now()),
+            ($3, $4, 'external_ingest', 'push', 'Keyword B', '{"type":"search","query":"Keyword B"}'::jsonb, 'post', 'active', now(), now())`,
+    [srcA, redditPlat, srcB, redditPlat],
   );
 
   const mkItem = (
@@ -70,7 +70,12 @@ test("PG16 research workbench: scope, L1 deduplication, L2 Jaccard + cache, and 
     text,
     url: `https://${platform === "reddit" ? "reddit.com/r/LocalLLaMA" : "x.com"}/${externalId}`,
     language: "en",
-    author: { handle: `user_${externalId}` },
+    author: {
+      externalId: `uid_${externalId}`,
+      handle: `user_${externalId}`,
+      displayName: `User ${externalId}`,
+      url: null,
+    },
     publishedAt,
     fetchedAt: publishedAt,
     availability: "available" as const,
@@ -79,7 +84,7 @@ test("PG16 research workbench: scope, L1 deduplication, L2 Jaccard + cache, and 
     platformDetails:
       platform === "reddit"
         ? { platform: "reddit" as const, community: "LocalLLaMA", flair: null, nsfw: false }
-        : { platform: "x" as const },
+        : { platform: "x" as const, conversationId: null, isReply: false, isRepost: false, isQuote: false, sensitive: false },
     observation: {
       provider: "external_ingest",
       sourceId,
@@ -105,7 +110,7 @@ test("PG16 research workbench: scope, L1 deduplication, L2 Jaccard + cache, and 
       ],
     },
   });
-  assert.equal(ingA1.statusCode, 200, ingA1.body);
+  assert.equal(ingA1.statusCode, 201, ingA1.body);
   const bA1 = (ingA1.json() as { batchId: string }).batchId;
 
   const ingA2 = await app.inject({
@@ -118,7 +123,7 @@ test("PG16 research workbench: scope, L1 deduplication, L2 Jaccard + cache, and 
       ],
     },
   });
-  assert.equal(ingA2.statusCode, 200, ingA2.body);
+  assert.equal(ingA2.statusCode, 201, ingA2.body);
   const bA2 = (ingA2.json() as { batchId: string }).batchId;
 
   const ingB1 = await app.inject({
@@ -128,11 +133,11 @@ test("PG16 research workbench: scope, L1 deduplication, L2 Jaccard + cache, and 
     payload: {
       items: [
         mkItem(srcB, "reddit", "post", "t3_res1", "Cursor agent fast workflow", "Cursor agent works super well despite minor bug", "2026-11-20T10:00:00.000Z"),
-        mkItem(srcB, "x", "comment", "x_res5", null, "Terrible crash and outage today", "2026-11-23T08:00:00.000Z"),
+        mkItem(srcB, "reddit", "comment", "t1_res5", null, "Terrible crash and outage today", "2026-11-23T08:00:00.000Z"),
       ],
     },
   });
-  assert.equal(ingB1.statusCode, 200, ingB1.body);
+  assert.equal(ingB1.statusCode, 201, ingB1.body);
   const bB1 = (ingB1.json() as { batchId: string }).batchId;
 
   const projRes = await app.inject({
@@ -142,7 +147,7 @@ test("PG16 research workbench: scope, L1 deduplication, L2 Jaccard + cache, and 
     payload: { name: "PG Research Project", sourceIds: [srcA, srcB], datasetMode: "batch", visibility: "shared" },
   });
   assert.equal(projRes.statusCode, 200, projRes.body);
-  const projectId = (projRes.json() as { project: { id: string } }).project.id;
+  const projectId = (projRes.json() as { id: string }).id;
 
   for (const batchId of [bA1, bA2, bB1]) {
     const att = await app.inject({

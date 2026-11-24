@@ -152,7 +152,7 @@ function buildTargetGroups(
       itemCount: b.itemCount,
       visibility: b.visibility,
       status: b.status,
-      createdAt: b.createdAt,
+      createdAt: (b.createdAt as unknown) instanceof Date ? (b.createdAt as unknown as Date).toISOString() : String(b.createdAt ?? ""),
     });
   }
 
@@ -379,7 +379,10 @@ export function buildScopedSql(
     ...(scope.signal ? { signal: scope.signal } : {}),
   };
 
-  const pullOnly = !useBatchMappings && !project.include_push_in_trends && !project.filter.deliveryMode;
+  const pullOnly =
+    project.dataset_mode === "source_filter" &&
+    !project.include_push_in_trends &&
+    !project.filter.deliveryMode;
   const vis = useBatchMappings ? undefined : contentVisibility(actor);
   const compiled = compileContentFilter(
     actor,

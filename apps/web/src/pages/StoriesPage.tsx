@@ -15,7 +15,13 @@ import {
   useInfiniteStoriesQuery,
   usePublicSourcesQuery,
   useSaveAnnotationMutation,
+  useStoryInsightsQuery,
 } from '../api/hooks';
+import {
+  ChannelInsightsPanel,
+  type ActiveInsightsDrilldown,
+} from '../components/stories/ChannelInsightsPanel';
+import type { CompositionDimension } from '../components/stories/insightChartOptions';
 import { ReaderDrawer } from '../components/stories/ReaderDrawer';
 import type { ReaderPreview } from '../components/stories/readerTypes';
 import { StoryMicrocharts } from '../components/stories/StoryMicrocharts';
@@ -103,6 +109,30 @@ export function StoriesPage({
   const language = sp.get('language') ?? '';
   const sourceId = sp.get('sourceId') ?? '';
 
+  const drillTerm = sp.get('storyTerm') ?? '';
+  const drillTermLabel = sp.get('storyTermLabel') ?? '';
+  const drillTopicId = sp.get('storyTopic') ?? '';
+  const drillTopicLabel = sp.get('storyTopicLabel') ?? '';
+  const drillFrom = sp.get('storyFrom') ?? '';
+  const drillTo = sp.get('storyTo') ?? '';
+  const drillBucketLabel = sp.get('storyBucketLabel') ?? '';
+  const drillTier = (sp.get('drillTier') as SourceTier | '') ?? '';
+  const drillGroup = sp.get('drillGroup') ?? '';
+  const drillLang = sp.get('drillLang') ?? '';
+  const drillSourceId = sp.get('drillSourceId') ?? '';
+  const drillDimLabel = sp.get('drillDimLabel') ?? '';
+
+  const hasDrilldown = Boolean(
+    drillTerm ||
+      drillTopicId ||
+      drillFrom ||
+      drillTo ||
+      drillTier ||
+      drillGroup ||
+      drillLang ||
+      drillSourceId,
+  );
+
   const [density, setDensity] = useState<'comfortable' | 'compact'>(loadDensity);
   const [reader, setReader] = useState<ReaderPreview | null>(null);
   const annotations = useAnnotationsListQuery(Boolean(actor)).data?.annotations;
@@ -127,6 +157,21 @@ export function StoriesPage({
     [publicSources, sourceId],
   );
 
+  const baseInsightsQuery = useMemo(
+    () => ({
+      view,
+      ...(date ? { date } : {}),
+      ...(sourceGroup ? { sourceGroup } : {}),
+      ...(tier ? { tier } : {}),
+      ...(language ? { language } : {}),
+      ...(sourceId ? { sourceId } : {}),
+      lang,
+    }),
+    [date, lang, language, sourceGroup, sourceId, tier, view],
+  );
+
+  const insightsQuery = useStoryInsightsQuery(baseInsightsQuery, !v2Mode);
+
   const storiesQuery = useInfiniteStoriesQuery(
     {
       view,
@@ -137,6 +182,14 @@ export function StoriesPage({
       ...(tier ? { tier } : {}),
       ...(language ? { language } : {}),
       ...(sourceId ? { sourceId } : {}),
+      ...(drillTerm ? { term: drillTerm } : {}),
+      ...(drillTopicId ? { topicId: drillTopicId } : {}),
+      ...(drillFrom ? { bucketFrom: drillFrom } : {}),
+      ...(drillTo ? { bucketTo: drillTo } : {}),
+      ...(drillTier ? { insightTier: drillTier } : {}),
+      ...(drillGroup ? { insightSourceGroup: drillGroup } : {}),
+      ...(drillLang ? { insightLanguage: drillLang } : {}),
+      ...(drillSourceId ? { insightSourceId: drillSourceId } : {}),
     },
     !v2Mode,
   );
@@ -178,12 +231,32 @@ export function StoriesPage({
     [basePath, initialSearchString, onNavigate],
   );
 
+  const stripDrilldownParams = useCallback((next: URLSearchParams) => {
+    for (const key of [
+      'storyTerm',
+      'storyTermLabel',
+      'storyTopic',
+      'storyTopicLabel',
+      'storyFrom',
+      'storyTo',
+      'storyBucketLabel',
+      'drillTier',
+      'drillGroup',
+      'drillLang',
+      'drillSourceId',
+      'drillDimLabel',
+    ]) {
+      next.delete(key);
+    }
+  }, []);
+
   const setView = (nextView: StoryView | 'stream' | 'hot-v2', nextDate?: string | null) => {
     pushSearch((next) => {
       if (nextView === 'latest') next.delete('view');
       else next.set('view', nextView);
       if (nextView === 'digest' && nextDate) next.set('date', nextDate);
       else next.delete('date');
+      stripDrilldownParams(next);
     });
   };
 
@@ -191,8 +264,109 @@ export function StoriesPage({
     pushSearch((next) => {
       if (val) next.set(key, val);
       else next.delete(key);
+      stripDrilldownParams(next);
     });
   };
+
+  const activeDrilldown: ActiveInsightsDrilldown = useMemo(
+    () => ({
+      ...(drillTerm ? { term: drillTerm } : {}),
+      ...(drillTopicId ? { topicId: drillTopicId, topicLabel: drillTopicLabel || drillTopicId } : {}),
+      ...(drillFrom ? { bucketFrom: drillFrom, bucketTo: drillTo, bucketLabel: drillBucketLabel } : {}),
+      ...(drillTier ? { insightTier: drillTier } : {}),
+      ...(drillGroup ? { insightSourceGroup: drillGroup } : {}),
+      ...(drillLang ? { insightLanguage: drillLang } : {}),
+      ...(drillSourceId ? { insightSourceId: drillSourceId } : {}),
+      ...(drillDimLabel ? { dimensionLabel: drillDimLabel } : {}),
+    }),
+    [
+      drillBucketLabel,
+      drillDimLabel,
+      drillFrom,
+      drillGroup,
+      drillLang,
+      drillSourceId,
+      drillTerm,
+      drillTier,
+      drillTo,
+      drillTopicId,
+      drillTopicLabel,
+    ],
+  );
+
+  const toggleTermDrilldown = useCallback(
+    (term: string, label: string) => {
+      pushSearch((next) => {
+        const curr = next.get('storyTerm') ?? '';
+        if (curr.toLowerCase() === term.toLowerCase()) {
+          next.delete('storyTerm');
+          next.delete('storyTermLabel');
+        } else {
+          next.set('storyTerm', term);
+          next.set('storyTermLabel', label);
+        }
+      });
+    },
+    [pushSearch],
+  );
+
+  const toggleTopicDrilldown = useCallback(
+    (topicId: string, label: string) => {
+      pushSearch((next) => {
+        if (next.get('storyTopic') === topicId) {
+          next.delete('storyTopic');
+          next.delete('storyTopicLabel');
+        } else {
+          next.set('storyTopic', topicId);
+          next.set('storyTopicLabel', label);
+        }
+      });
+    },
+    [pushSearch],
+  );
+
+  const toggleBucketDrilldown = useCallback(
+    (fromIso: string, toIso: string, label: string) => {
+      pushSearch((next) => {
+        if (next.get('storyFrom') === fromIso && next.get('storyTo') === toIso) {
+          next.delete('storyFrom');
+          next.delete('storyTo');
+          next.delete('storyBucketLabel');
+        } else {
+          next.set('storyFrom', fromIso);
+          next.set('storyTo', toIso);
+          next.set('storyBucketLabel', label);
+        }
+      });
+    },
+    [pushSearch],
+  );
+
+  const toggleCompositionDrilldown = useCallback(
+    (dim: CompositionDimension, key: string, label: string) => {
+      pushSearch((next) => {
+        const paramKey =
+          dim === 'channel'
+            ? 'drillGroup'
+            : dim === 'tier'
+              ? 'drillTier'
+              : dim === 'language'
+                ? 'drillLang'
+                : 'drillSourceId';
+        const prev = next.get(paramKey);
+        next.delete('drillGroup');
+        next.delete('drillTier');
+        next.delete('drillLang');
+        next.delete('drillSourceId');
+        next.delete('drillDimLabel');
+        if (prev !== key) {
+          next.set(paramKey, key);
+          next.set('drillDimLabel', label);
+        }
+      });
+    },
+    [pushSearch],
+  );
 
   const setDensityMode = (next: 'comfortable' | 'compact') => {
     setDensity(next);
@@ -318,7 +492,10 @@ export function StoriesPage({
             type="button"
             className="icon-square"
             style={{ width: 32, height: 32 }}
-            onClick={() => storiesQuery.refetch()}
+            onClick={() => {
+              void storiesQuery.refetch();
+              void insightsQuery.refetch();
+            }}
             title={t('Refresh feed', '刷新信息流')}
           >
             <RefreshCw size={13} />
@@ -439,7 +616,7 @@ export function StoriesPage({
           ))}
         </div>
 
-        {(sourceGroup || tier || language || sourceId) && (
+        {(sourceGroup || tier || language || sourceId || hasDrilldown) && (
           <button
             type="button"
             className="auth-link"
@@ -449,6 +626,7 @@ export function StoriesPage({
                 next.delete('tier');
                 next.delete('language');
                 next.delete('sourceId');
+                stripDrilldownParams(next);
               })
             }
           >
@@ -493,6 +671,55 @@ export function StoriesPage({
           );
         })}
       </nav>
+
+      <ChannelInsightsPanel
+        insights={insightsQuery.data}
+        isLoading={insightsQuery.isPending}
+        isFetching={insightsQuery.isFetching}
+        error={insightsQuery.error}
+        sourceGroup={sourceGroup}
+        scopeLabel={activeGroupLabel ?? t('All Channels', '全部频道')}
+        density={density}
+        activeDrilldown={activeDrilldown}
+        onSelectTerm={toggleTermDrilldown}
+        onSelectTopic={toggleTopicDrilldown}
+        onSelectBucket={toggleBucketDrilldown}
+        onSelectComposition={toggleCompositionDrilldown}
+        onRetry={() => void insightsQuery.refetch()}
+      />
+
+      {hasDrilldown && (
+        <div className="ci-drilldown-bar" role="status">
+          <div style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+            <strong>{t('Insights Filter:', '洞察联动筛选：')}</strong>
+            {drillTerm && (
+              <span className="tag tag--lilac">{t('Term:', '关键词：')}{drillTermLabel || drillTerm}</span>
+            )}
+            {drillTopicId && (
+              <span className="tag tag--lilac">{t('Topic:', '话题：')}{drillTopicLabel || drillTopicId}</span>
+            )}
+            {drillFrom && (
+              <span className="tag tag--lilac">{t('Window:', '时段：')}{drillBucketLabel || drillFrom.slice(5, 16)}</span>
+            )}
+            {(drillGroup || drillTier || drillLang || drillSourceId) && (
+              <span className="tag tag--lilac">
+                {drillDimLabel || drillGroup || drillTier || drillLang || drillSourceId}
+              </span>
+            )}
+            <span className="ci-sample-note tabular-nums">
+              {t(`${totalCount} matching stories`, `匹配 ${totalCount} 条去重事件`)}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="ci-head-btn"
+            onClick={() => pushSearch((next) => stripDrilldownParams(next))}
+          >
+            <X size={11} />
+            <span>{t('Clear insight filter', '清除此筛选')}</span>
+          </button>
+        </div>
+      )}
 
       {statusNotice && (
         <div role="status" className="wb-alert wb-alert--info" style={{ marginBottom: 12 }}>

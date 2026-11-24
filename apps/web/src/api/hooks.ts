@@ -45,6 +45,14 @@ export function useStoriesQuery(query: StoryQuery, enabled = true) {
   });
 }
 
+export function useStoryInsightsQuery(query: import('../contracts/api').StoryInsightsQuery, enabled = true) {
+  return useQuery({
+    queryKey: ['storyInsights', query],
+    queryFn: () => apiClient.getStoryInsights(query),
+    enabled,
+  });
+}
+
 export function useInfiniteStoriesQuery(query: Omit<StoryQuery, 'offset'>, enabled = true) {
   return useInfiniteQuery({
     queryKey: ['storiesInfinite', query],
@@ -282,6 +290,9 @@ export function useUpdateProjectMutation() {
       qc.invalidateQueries({ queryKey: ['projects'] });
       qc.invalidateQueries({ queryKey: ['overview'] });
       qc.invalidateQueries({ queryKey: ['content'] });
+      qc.invalidateQueries({ queryKey: ['researchScope'] });
+      qc.invalidateQueries({ queryKey: ['researchL1'] });
+      qc.invalidateQueries({ queryKey: ['researchL2'] });
     },
   });
 }
@@ -295,6 +306,9 @@ export function useDeleteProjectMutation() {
       qc.invalidateQueries({ queryKey: ['projects'] });
       qc.invalidateQueries({ queryKey: ['overview'] });
       qc.invalidateQueries({ queryKey: ['content'] });
+      qc.invalidateQueries({ queryKey: ['researchScope'] });
+      qc.invalidateQueries({ queryKey: ['researchL1'] });
+      qc.invalidateQueries({ queryKey: ['researchL2'] });
     },
   });
 }
@@ -624,8 +638,10 @@ export function useAttachProjectBatchMutation() {
     mutationFn: ({ projectId, batchId }: { projectId: string; batchId: string }) =>
       apiClient.attachProjectBatch(projectId, batchId),
     onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['batches'] });
       qc.invalidateQueries({ queryKey: ['projectBatches', vars.projectId] });
       qc.invalidateQueries({ queryKey: ['projects'] });
+      qc.invalidateQueries({ queryKey: ['researchScope'] });
       qc.invalidateQueries({ queryKey: ['overview'] });
       qc.invalidateQueries({ queryKey: ['content'] });
       qc.invalidateQueries({ queryKey: ['contentFacets'] });
@@ -707,9 +723,11 @@ export function useMoveProjectBatchMutation() {
       targetProjectId: string;
     }) => apiClient.moveProjectBatch(sourceProjectId, batchId, targetProjectId),
     onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['batches'] });
       qc.invalidateQueries({ queryKey: ['projectBatches', vars.sourceProjectId] });
       qc.invalidateQueries({ queryKey: ['projectBatches', vars.targetProjectId] });
       qc.invalidateQueries({ queryKey: ['projects'] });
+      qc.invalidateQueries({ queryKey: ['researchScope'] });
       qc.invalidateQueries({ queryKey: ['overview'] });
       qc.invalidateQueries({ queryKey: ['content'] });
     },
@@ -837,8 +855,10 @@ export function useUpdateProjectBatchStatusMutation() {
       status: 'enabled' | 'disabled' | 'removed';
     }) => apiClient.updateProjectBatchStatus(projectId, batchId, status),
     onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['batches'] });
       qc.invalidateQueries({ queryKey: ['projectBatches', vars.projectId] });
       qc.invalidateQueries({ queryKey: ['projects'] });
+      qc.invalidateQueries({ queryKey: ['researchScope'] });
       qc.invalidateQueries({ queryKey: ['overview'] });
       qc.invalidateQueries({ queryKey: ['content'] });
       qc.invalidateQueries({ queryKey: ['contentFacets'] });

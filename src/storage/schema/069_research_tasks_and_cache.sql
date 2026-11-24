@@ -1,4 +1,4 @@
--- Migration 068: Research L2 cache & L3 on-demand task orchestration tables
+-- Migration 069: Research L2 cache & L3 on-demand task orchestration tables
 
 CREATE TABLE IF NOT EXISTS intel_research_task (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

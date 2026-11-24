@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowRight, History, Layers } from 'lucide-react';
+import { History, Layers } from 'lucide-react';
 import {
   useCollectResearchPlanMutation,
   useCollectSourceMutation,

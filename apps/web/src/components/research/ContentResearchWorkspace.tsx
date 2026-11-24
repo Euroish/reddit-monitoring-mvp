@@ -233,6 +233,7 @@ export function ContentResearchWorkspace({
 
         <TabsContent value="l1">
           <L1OverviewTab
+            projectId={project.id}
             data={l1Query.data}
             isLoading={scopeQuery.isPending || l1Query.isPending}
             error={
@@ -255,6 +256,7 @@ export function ContentResearchWorkspace({
 
         <TabsContent value="l2">
           <L2ComparisonTab
+            projectId={project.id}
             data={l2Query.data}
             isLoading={scopeQuery.isPending || l2Query.isPending}
             error={

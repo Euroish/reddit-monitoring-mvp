@@ -79,6 +79,7 @@ export function ProjectListView({
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
                 {mine.map((p) => {
                   const boundMon = monitors.find((m) => m.projectId === p.id || p.linked_monitor_id === m.id);
+                  const ds = p.data_summary;
                   return (
                   <button
                     key={p.id}
@@ -92,9 +93,9 @@ export function ProjectListView({
                     }}
                     onClick={() => onSelect(p)}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <b style={{ fontSize: 13 }}>{p.name}</b>
-                      <div style={{ display: 'inline-flex', gap: 4 }}>
+                      <div style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
                         <span className="tag" style={{ fontSize: 10 }}>{t('Private', '私有')}</span>
                         {boundMon && (
                           <span className={`tag ${boundMon.enabled ? 'tag--mint' : 'tag--line'}`} style={{ fontSize: 10 }}>
@@ -102,11 +103,26 @@ export function ProjectListView({
                           </span>
                         )}
                         <span className="tag tag--lilac" style={{ fontSize: 10 }}>
-                          {p.dataset_mode === 'batch' ? `${p.enabled_batch_count ?? 0} ${t('batches', '批次')}` : `${p.source_ids.length} ${t('sources', '来源')}`}
+                          {p.dataset_mode === 'batch'
+                            ? `${ds?.item_count ?? 0} ${t('items', '条')} · ${p.enabled_batch_count ?? 0} ${t('batches', '批次')}`
+                            : `${p.source_ids.length} ${t('sources', '来源')}`}
                         </span>
                       </div>
                     </div>
                     {p.description && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>{p.description}</p>}
+                    {(ds?.platforms.length || ds?.source_labels.length) ? (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
+                        {ds.platforms.map((plat) => (
+                          <span key={plat} className="tag tag--mint" style={{ fontSize: 10 }}>{plat.toUpperCase()}</span>
+                        ))}
+                        {ds.source_labels.slice(0, 3).map((label) => (
+                          <span key={label} className="tag" style={{ fontSize: 10 }}>{label}</span>
+                        ))}
+                        {ds.source_labels.length > 3 && (
+                          <span className="tag" style={{ fontSize: 10 }}>+{ds.source_labels.length - 3}</span>
+                        )}
+                      </div>
+                    ) : null}
                   </button>
                   );
                 })}
@@ -117,7 +133,9 @@ export function ProjectListView({
             <section style={{ display: 'grid', gap: 8 }}>
               <h4 style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>{t('Shared Team Projects', '共享研究项目')}</h4>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
-                {shared.map((p) => (
+                {shared.map((p) => {
+                  const ds = p.data_summary;
+                  return (
                   <button
                     key={p.id}
                     type="button"
@@ -130,15 +148,33 @@ export function ProjectListView({
                     }}
                     onClick={() => onSelect(p)}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <b style={{ fontSize: 13 }}>{p.name}</b>
-                      <span className="tag" style={{ fontSize: 10 }}>
-                        {p.can_edit ? t('Shared', '共享') : t('Read-only', '只读')}
-                      </span>
+                      <div style={{ display: 'inline-flex', gap: 4 }}>
+                        <span className="tag" style={{ fontSize: 10 }}>
+                          {p.can_edit ? t('Shared', '共享') : t('Read-only', '只读')}
+                        </span>
+                        <span className="tag tag--lilac" style={{ fontSize: 10 }}>
+                          {p.dataset_mode === 'batch'
+                            ? `${ds?.item_count ?? 0} ${t('items', '条')} · ${p.enabled_batch_count ?? 0} ${t('batches', '批次')}`
+                            : `${p.source_ids.length} ${t('sources', '来源')}`}
+                        </span>
+                      </div>
                     </div>
                     {p.description && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>{p.description}</p>}
+                    {(ds?.platforms.length || ds?.source_labels.length) ? (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
+                        {ds.platforms.map((plat) => (
+                          <span key={plat} className="tag tag--mint" style={{ fontSize: 10 }}>{plat.toUpperCase()}</span>
+                        ))}
+                        {ds.source_labels.slice(0, 3).map((label) => (
+                          <span key={label} className="tag" style={{ fontSize: 10 }}>{label}</span>
+                        ))}
+                      </div>
+                    ) : null}
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </section>
           )}

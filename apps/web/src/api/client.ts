@@ -235,6 +235,11 @@ export const apiClient = {
     return liveFetch(`/content/stories${qs}`);
   },
 
+  async getStoryInsights(query: import('../contracts/api').StoryInsightsQuery = {}): Promise<import('../contracts/api').StoryInsights> {
+    const qs = buildQueryParams({ ...query });
+    return liveFetch(`/content/stories/insights${qs}`);
+  },
+
   async getContentFacets(query: ContentFacetsQuery): Promise<ContentFacets> {
     const qs = buildQueryParams({ ...query });
     return liveFetch(`/content/facets${qs}`);

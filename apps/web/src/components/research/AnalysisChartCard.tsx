@@ -49,6 +49,7 @@ export interface AnalysisChartCardProps {
   columns: ExportTableColumn[];
   rows: Array<Record<string, unknown>>;
   controls?: React.ReactNode;
+  headerExtras?: React.ReactNode;
   summaryOverride?: string;
   isLoading?: boolean;
   error?: string | null;
@@ -83,6 +84,7 @@ export function AnalysisChartCard({
   columns,
   rows,
   controls,
+  headerExtras,
   summaryOverride,
   isLoading = false,
   error = null,
@@ -186,7 +188,8 @@ export function AnalysisChartCard({
             <CardDescription className="mt-0.5 text-xs">{subtitle}</CardDescription>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {headerExtras}
             {block && (
               <Popover>
                 <PopoverTrigger

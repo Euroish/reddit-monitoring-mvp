@@ -39,7 +39,20 @@ import { Empty } from '../ui/empty';
 import { Progress } from '../ui/progress';
 import { Select } from '../ui/select';
 import { Skeleton } from '../ui/skeleton';
+import { AdaptiveLayerLayout } from './AdaptivePanelLayout';
 import { AnalysisChartCard } from './AnalysisChartCard';
+import {
+  L3_SENTIMENT_PANEL_RULES,
+  L3_TOPIC_PANEL_RULES,
+  resolvePanelGroup,
+  usePanelPreferences,
+  type EvaluatedPanel,
+} from './panelRegistry';
+
+const L3_PANEL_IDS = [
+  ...L3_SENTIMENT_PANEL_RULES.map((r) => r.id),
+  ...L3_TOPIC_PANEL_RULES.map((r) => r.id),
+];
 
 const SENTIMENT_COLORS: Record<'positive' | 'neutral' | 'negative' | 'unclassified', string> = {
   positive: '#16a34a',
@@ -73,6 +86,7 @@ export function L3DeepResearchTab({
   const [numTopics, setNumTopics] = useState<number>(5);
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
   const [actionError, setActionError] = useState<string | null>(null);
+  const { overrides, setOverride, clearOverride, resetLayer } = usePanelPreferences(projectId, L3_PANEL_IDS);
 
   const tasksQuery = useResearchTasksQuery(projectId, Boolean(projectId));
   const createMut = useCreateResearchTaskMutation(projectId);
@@ -241,6 +255,237 @@ export function L3DeepResearchTab({
     if (st === 'queued') return <Badge variant="outline" className="gap-1"><Clock size={11} />{t('Queued', '排队中')}</Badge>;
     if (st === 'cancelled') return <Badge variant="outline" className="gap-1 text-muted-foreground"><XCircle size={11} />{t('Cancelled', '已取消')}</Badge>;
     return <Badge variant="destructive" className="gap-1"><AlertTriangle size={11} />{t('Failed', '失败')}</Badge>;
+  };
+
+  const sentimentGroup = useMemo(() => {
+    if (!sentimentSummary) return null;
+    return resolvePanelGroup(L3_SENTIMENT_PANEL_RULES, sentimentSummary, overrides, t);
+  }, [sentimentSummary, overrides, t]);
+
+  const topicGroup = useMemo(() => {
+    if (!topicSummary) return null;
+    return resolvePanelGroup(L3_TOPIC_PANEL_RULES, topicSummary, overrides, t);
+  }, [topicSummary, overrides, t]);
+
+  const renderSentimentPanel = (panel: EvaluatedPanel, headerExtras: React.ReactNode) => {
+    if (!sentimentSummary || !activeTask) return null;
+    if (panel.id === 'l3.sentimentDist') {
+      return (
+        <AnalysisChartCard
+          title={t('Sentiment Polarity Distribution', '情感极性分布（含未判样本）')}
+          subtitle={t('Click a slice to inspect evidence in Content Explorer', '点击扇区下钻查看对应情感倾向的原文证据')}
+          block={mkL3Block(
+            'L3-SENTIMENT-01',
+            'sentiment',
+            sentimentSummary.sampleCount,
+            sentimentSummary.counts,
+            sentimentSummary.summaryText,
+            sentimentSummary.summaryBullets,
+            [
+              t('Honest unclassified reporting: items with zero lexicon matches are never forced to neutral.', '未命中词典的客观或无态度文本保持为 unclassified（未判），不强行归入中性。'),
+            ],
+          )}
+          projectName={projectName}
+          keywordLabels={keywordLabels}
+          option={sentimentDistOption}
+          height={270}
+          headerExtras={headerExtras}
+          columns={[
+            { key: 'label', label: t('Polarity', '极性') },
+            { key: 'count', label: t('Count', '条数') },
+            { key: 'sharePct', label: t('Share %', '占比%') },
+          ]}
+          rows={sentimentSummary.counts.map((c) => ({ ...c }))}
+          exportDisabled={exportDisabled}
+          onChartEvents={{
+            click: (params) => {
+              const p = params as { name?: string; data?: { rawKey?: string } };
+              const rawKey = p?.data?.rawKey;
+              if (!rawKey) return;
+              onTraceToSearch(
+                { analysisTaskId: activeTask.id, sentiment: rawKey },
+                `${t('Sentiment', '情感倾向')}: ${p.name ?? rawKey}`,
+              );
+            },
+          }}
+        />
+      );
+    }
+    if (panel.id === 'l3.sentimentTrend') {
+      return (
+        <AnalysisChartCard
+          title={t('Sentiment Over Time', '情感倾向时间演变趋势')}
+          subtitle={t('Daily sentiment polarity shift across analyzed samples', '按日追踪正面、负面与未判讨论的此消彼长')}
+          block={mkL3Block(
+            'L3-SENTIMENT-02',
+            'sentiment',
+            sentimentSummary.sampleCount,
+            sentimentSummary.trend,
+            t('Tracks daily shifts across positive, neutral, negative, and unclassified buckets.', '按日追踪正面、负面与未判讨论的此消彼长。'),
+            [],
+            [],
+          )}
+          projectName={projectName}
+          keywordLabels={keywordLabels}
+          option={sentimentTrendOption}
+          height={270}
+          headerExtras={headerExtras}
+          columns={[
+            { key: 'bucket', label: t('Date', '日期') },
+            { key: 'positive', label: t('Positive', '正面') },
+            { key: 'neutral', label: t('Neutral', '中性') },
+            { key: 'negative', label: t('Negative', '负面') },
+            { key: 'unclassified', label: t('Unclassified', '未判') },
+          ]}
+          rows={sentimentSummary.trend.map((r) => ({ ...r }))}
+          exportDisabled={exportDisabled}
+        />
+      );
+    }
+    return (
+      <Card>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
+          <CardTitle className="text-xs font-semibold">{t('Strongest Sentiment Exemplars', '高分正面 / 负面代表性样本')}</CardTitle>
+          <div className="flex items-center gap-1.5">{headerExtras}</div>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          {sentimentSummary.exemplars.map((ex) => (
+            <button
+              key={ex.contentId}
+              type="button"
+              onClick={() => onOpenContentDetail(ex.contentId)}
+              className="flex flex-col gap-1 rounded-lg border border-border/80 bg-muted/15 p-2.5 text-left transition hover:border-primary/60"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <Badge
+                  variant="outline"
+                  className={ex.label === 'positive' ? 'border-emerald-400 text-emerald-700' : 'border-red-400 text-red-700'}
+                >
+                  {ex.label === 'positive' ? t('Positive', '正面') : t('Negative', '负面')} ({ex.score.toFixed(2)})
+                </Badge>
+                <span className="font-mono text-[10px] uppercase text-muted-foreground">{ex.platform}</span>
+              </div>
+              {ex.title && <div className="line-clamp-1 text-xs font-semibold text-foreground">{ex.title}</div>}
+              <p className="line-clamp-2 text-[11px] text-muted-foreground">{ex.excerpt}</p>
+            </button>
+          ))}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const renderTopicPanel = (panel: EvaluatedPanel, headerExtras: React.ReactNode) => {
+    if (!topicSummary || !activeTask) return null;
+    if (panel.id === 'l3.topicsChart') {
+      return (
+        <AnalysisChartCard
+          title={t('NMF Topic Share Distribution', 'NMF 主题分布与核心词簇')}
+          subtitle={t('Click any topic bar to view matching content in Content Explorer', '点击主题柱条在内容检索中查看该主题下全部证据样本')}
+          block={mkL3Block(
+            'L3-TOPICS-01',
+            'topic',
+            topicSummary.sampleCount,
+            topicSummary.topics,
+            topicSummary.summaryText,
+            topicSummary.summaryBullets,
+            [
+              t(`Deterministic NMF over normalized TF-IDF matrix (${topicSummary.vocabularySize} vocab terms).`, `基于归一化 TF-IDF 词袋矩阵的确定性非负矩阵分解（词表 ${topicSummary.vocabularySize} 词）。`),
+            ],
+          )}
+          projectName={projectName}
+          keywordLabels={keywordLabels}
+          option={topicBarOption}
+          height={Math.max(240, topicSummary.topics.length * 42)}
+          headerExtras={headerExtras}
+          columns={[
+            { key: 'topicIndex', label: '#' },
+            { key: 'label', label: t('Topic', '主题名称') },
+            { key: 'docCount', label: t('Docs', '命中条数') },
+            { key: 'sharePct', label: t('Share %', '占比%') },
+            { key: 'avgScore', label: t('Avg Cohesion', '平均归属分') },
+          ]}
+          rows={topicSummary.topics.map((tp) => ({
+            topicIndex: tp.topicIndex,
+            label: tp.label,
+            docCount: tp.docCount,
+            sharePct: tp.sharePct,
+            avgScore: tp.avgScore,
+          }))}
+          exportDisabled={exportDisabled}
+          onChartEvents={{
+            click: (params) => {
+              const p = params as { name?: string; data?: { topicIndex?: number } };
+              const topicIdx = p?.data?.topicIndex;
+              if (topicIdx === undefined) return;
+              onTraceToSearch(
+                { analysisTaskId: activeTask.id, topicIndex: String(topicIdx) },
+                p?.name ?? `${t('Topic', '主题')} ${topicIdx + 1}`,
+              );
+            },
+          }}
+        />
+      );
+    }
+    return (
+      <Card>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
+          <CardTitle className="text-xs font-semibold">{t('Topic Keyword Weights & Representative Excerpts', '主题关键词权重与代表样本明细')}</CardTitle>
+          <div className="flex items-center gap-1.5">{headerExtras}</div>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {topicSummary.topics.map((tp) => (
+            <Card key={tp.topicIndex} className="flex flex-col justify-between">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2">
+                  <CardTitle className="text-xs font-semibold text-foreground">{tp.label}</CardTitle>
+                  <Badge variant="secondary" className="font-mono text-[10.5px]">
+                    {tp.docCount} ({tp.sharePct}%)
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-2.5 text-xs">
+                <div className="flex flex-wrap gap-1">
+                  {tp.topTerms.map((term) => (
+                    <Badge key={term.term} variant="outline" className="text-[10.5px] font-normal">
+                      {term.term} <span className="ml-1 font-mono text-[9.5px] text-muted-foreground">{(term.weight * 100).toFixed(1)}%</span>
+                    </Badge>
+                  ))}
+                </div>
+                <div className="space-y-1.5">
+                  {tp.representativeExcerpts.slice(0, 2).map((ex) => (
+                    <button
+                      key={ex.contentId}
+                      type="button"
+                      onClick={() => onOpenContentDetail(ex.contentId)}
+                      className="block w-full rounded border border-border/60 bg-muted/20 p-2 text-left hover:border-primary/60"
+                    >
+                      {ex.title && <div className="line-clamp-1 text-[11px] font-medium text-foreground">{ex.title}</div>}
+                      <div className="line-clamp-2 text-[10.5px] text-muted-foreground">{ex.excerpt}</div>
+                    </button>
+                  ))}
+                </div>
+                <div className="flex justify-end pt-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    onClick={() =>
+                      onTraceToSearch(
+                        { analysisTaskId: activeTask.id, topicIndex: String(tp.topicIndex) },
+                        tp.label,
+                      )
+                    }
+                  >
+                    <span>{t('Inspect topic items in Search', '在内容检索中查看该主题')}</span>
+                    <ArrowRight size={11} />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </CardContent>
+      </Card>
+    );
   };
 
   return (
@@ -498,208 +743,24 @@ export function L3DeepResearchTab({
         </div>
       )}
 
-      {sentimentSummary && activeTask && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <AnalysisChartCard
-              title={t('Sentiment Polarity Distribution', '情感极性分布（含未判样本）')}
-              subtitle={t('Click a slice to inspect evidence in Content Explorer', '点击扇区下钻查看对应情感倾向的原文证据')}
-              block={mkL3Block(
-                'L3-SENTIMENT-01',
-                'sentiment',
-                sentimentSummary.sampleCount,
-                sentimentSummary.counts,
-                sentimentSummary.summaryText,
-                sentimentSummary.summaryBullets,
-                [
-                  t('Honest unclassified reporting: items with zero lexicon matches are never forced to neutral.', '未命中词典的客观或无态度文本保持为 unclassified（未判），不强行归入中性。'),
-                ],
-              )}
-              projectName={projectName}
-              keywordLabels={keywordLabels}
-              option={sentimentDistOption}
-              height={270}
-              columns={[
-                { key: 'label', label: t('Polarity', '极性') },
-                { key: 'count', label: t('Count', '条数') },
-                { key: 'sharePct', label: t('Share %', '占比%') },
-              ]}
-              rows={sentimentSummary.counts.map((c) => ({ ...c }))}
-              exportDisabled={exportDisabled}
-              onChartEvents={{
-                click: (params) => {
-                  const p = params as { name?: string; data?: { rawKey?: string } };
-                  const rawKey = p?.data?.rawKey;
-                  if (!rawKey) return;
-                  onTraceToSearch(
-                    { analysisTaskId: activeTask.id, sentiment: rawKey },
-                    `${t('Sentiment', '情感倾向')}: ${p.name ?? rawKey}`,
-                  );
-                },
-              }}
-            />
-
-            <AnalysisChartCard
-              title={t('Sentiment Over Time', '情感倾向时间演变趋势')}
-              subtitle={t('Daily sentiment polarity shift across analyzed samples', '按日追踪正面、负面与未判讨论的此消彼长')}
-              block={mkL3Block(
-                'L3-SENTIMENT-02',
-                'sentiment',
-                sentimentSummary.sampleCount,
-                sentimentSummary.trend,
-                t('Tracks daily shifts across positive, neutral, negative, and unclassified buckets.', '按日追踪正面、负面与未判讨论的此消彼长。'),
-                [],
-                [],
-              )}
-              projectName={projectName}
-              keywordLabels={keywordLabels}
-              option={sentimentTrendOption}
-              height={270}
-              columns={[
-                { key: 'bucket', label: t('Date', '日期') },
-                { key: 'positive', label: t('Positive', '正面') },
-                { key: 'neutral', label: t('Neutral', '中性') },
-                { key: 'negative', label: t('Negative', '负面') },
-                { key: 'unclassified', label: t('Unclassified', '未判') },
-              ]}
-              rows={sentimentSummary.trend.map((r) => ({ ...r }))}
-              exportDisabled={exportDisabled}
-            />
-          </div>
-
-          {sentimentSummary.exemplars.length > 0 && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-semibold">{t('Strongest Sentiment Exemplars', '高分正面 / 负面代表性样本')}</CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                {sentimentSummary.exemplars.map((ex) => (
-                  <button
-                    key={ex.contentId}
-                    type="button"
-                    onClick={() => onOpenContentDetail(ex.contentId)}
-                    className="flex flex-col gap-1 rounded-lg border border-border/80 bg-muted/15 p-2.5 text-left transition hover:border-primary/60"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <Badge
-                        variant="outline"
-                        className={ex.label === 'positive' ? 'border-emerald-400 text-emerald-700' : 'border-red-400 text-red-700'}
-                      >
-                        {ex.label === 'positive' ? t('Positive', '正面') : t('Negative', '负面')} ({ex.score.toFixed(2)})
-                      </Badge>
-                      <span className="font-mono text-[10px] uppercase text-muted-foreground">{ex.platform}</span>
-                    </div>
-                    {ex.title && <div className="line-clamp-1 text-xs font-semibold text-foreground">{ex.title}</div>}
-                    <p className="line-clamp-2 text-[11px] text-muted-foreground">{ex.excerpt}</p>
-                  </button>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-        </div>
+      {sentimentGroup && activeTask && (
+        <AdaptiveLayerLayout
+          group={sentimentGroup}
+          onSetOverride={setOverride}
+          onClearOverride={clearOverride}
+          onResetAll={resetLayer}
+          renderFullPanel={renderSentimentPanel}
+        />
       )}
 
-      {topicSummary && activeTask && (
-        <div className="space-y-4">
-          <AnalysisChartCard
-            title={t('NMF Topic Share Distribution', 'NMF 主题分布与核心词簇')}
-            subtitle={t('Click any topic bar to view matching content in Content Explorer', '点击主题柱条在内容检索中查看该主题下全部证据样本')}
-            block={mkL3Block(
-              'L3-TOPICS-01',
-              'topic',
-              topicSummary.sampleCount,
-              topicSummary.topics,
-              topicSummary.summaryText,
-              topicSummary.summaryBullets,
-              [
-                t(`Deterministic NMF over normalized TF-IDF matrix (${topicSummary.vocabularySize} vocab terms).`, `基于归一化 TF-IDF 词袋矩阵的确定性非负矩阵分解（词表 ${topicSummary.vocabularySize} 词）。`),
-              ],
-            )}
-            projectName={projectName}
-            keywordLabels={keywordLabels}
-            option={topicBarOption}
-            height={Math.max(240, topicSummary.topics.length * 42)}
-            columns={[
-              { key: 'topicIndex', label: '#' },
-              { key: 'label', label: t('Topic', '主题名称') },
-              { key: 'docCount', label: t('Docs', '命中条数') },
-              { key: 'sharePct', label: t('Share %', '占比%') },
-              { key: 'avgScore', label: t('Avg Cohesion', '平均归属分') },
-            ]}
-            rows={topicSummary.topics.map((tp) => ({
-              topicIndex: tp.topicIndex,
-              label: tp.label,
-              docCount: tp.docCount,
-              sharePct: tp.sharePct,
-              avgScore: tp.avgScore,
-            }))}
-            exportDisabled={exportDisabled}
-            onChartEvents={{
-              click: (params) => {
-                const p = params as { name?: string; data?: { topicIndex?: number } };
-                const topicIdx = p?.data?.topicIndex;
-                if (topicIdx === undefined) return;
-                onTraceToSearch(
-                  { analysisTaskId: activeTask.id, topicIndex: String(topicIdx) },
-                  p?.name ?? `${t('Topic', '主题')} ${topicIdx + 1}`,
-                );
-              },
-            }}
-          />
-
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {topicSummary.topics.map((tp) => (
-              <Card key={tp.topicIndex} className="flex flex-col justify-between">
-                <CardHeader className="pb-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <CardTitle className="text-xs font-semibold text-foreground">{tp.label}</CardTitle>
-                    <Badge variant="secondary" className="font-mono text-[10.5px]">
-                      {tp.docCount} ({tp.sharePct}%)
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-2.5 text-xs">
-                  <div className="flex flex-wrap gap-1">
-                    {tp.topTerms.map((term) => (
-                      <Badge key={term.term} variant="outline" className="text-[10.5px] font-normal">
-                        {term.term} <span className="ml-1 font-mono text-[9.5px] text-muted-foreground">{(term.weight * 100).toFixed(1)}%</span>
-                      </Badge>
-                    ))}
-                  </div>
-                  <div className="space-y-1.5">
-                    {tp.representativeExcerpts.slice(0, 2).map((ex) => (
-                      <button
-                        key={ex.contentId}
-                        type="button"
-                        onClick={() => onOpenContentDetail(ex.contentId)}
-                        className="block w-full rounded border border-border/60 bg-muted/20 p-2 text-left hover:border-primary/60"
-                      >
-                        {ex.title && <div className="line-clamp-1 text-[11px] font-medium text-foreground">{ex.title}</div>}
-                        <div className="line-clamp-2 text-[10.5px] text-muted-foreground">{ex.excerpt}</div>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex justify-end pt-1">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="xs"
-                      onClick={() =>
-                        onTraceToSearch(
-                          { analysisTaskId: activeTask.id, topicIndex: String(tp.topicIndex) },
-                          tp.label,
-                        )
-                      }
-                    >
-                      <span>{t('Inspect topic items in Search', '在内容检索中查看该主题')}</span>
-                      <ArrowRight size={11} />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
+      {topicGroup && activeTask && (
+        <AdaptiveLayerLayout
+          group={topicGroup}
+          onSetOverride={setOverride}
+          onClearOverride={clearOverride}
+          onResetAll={resetLayer}
+          renderFullPanel={renderTopicPanel}
+        />
       )}
     </div>
   );

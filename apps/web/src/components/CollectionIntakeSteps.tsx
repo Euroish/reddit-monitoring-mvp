@@ -133,7 +133,7 @@ function getTargetGuide(platform: PlatformKey, targetType: TargetTypeKey): Targe
       validate: (raw) => {
         const cleaned = raw.trim().replace(/^r\//i, '');
         if (!cleaned) return { valid: false };
-        if (/^https?:\/\//i.test(raw) || raw.includes('/')) {
+        if (/^https?:\/\//i.test(raw) || cleaned.includes('/')) {
           return {
             valid: false,
             reasonZh: '请勿输入完整链接或多余斜杠，直接填写版块名即可（如 LocalLLaMA 或 r/LocalLLaMA）。',
@@ -163,7 +163,7 @@ function getTargetGuide(platform: PlatformKey, targetType: TargetTypeKey): Targe
       validate: (raw) => {
         const cleaned = raw.trim().replace(/^u\//i, '');
         if (!cleaned) return { valid: false };
-        if (/^https?:\/\//i.test(raw) || raw.includes('/') || raw.startsWith('@')) {
+        if (/^https?:\/\//i.test(raw) || cleaned.includes('/') || raw.startsWith('@')) {
           return {
             valid: false,
             reasonZh: '请仅输入 Reddit 用户名（如 spez 或 u/spez），不要包含链接或 @。',

@@ -77,6 +77,8 @@ export type SourceTier = 'T1' | 'T1_5' | 'T2';
 export type StoryView = 'latest' | 'hot' | 'digest';
 export type CredentialProviderName = 'apify' | 'twitterapis' | 'scrapebadger';
 
+export type { StoryInsights, StoryInsightsQuery } from '../../../../packages/contracts/src/content-stories.js';
+
 export interface StoryQuery {
   view?: StoryView;
   date?: string;
@@ -89,6 +91,14 @@ export interface StoryQuery {
   language?: string;
   includeTrends?: boolean;
   diverse?: boolean;
+  term?: string;
+  topicId?: string;
+  bucketFrom?: string;
+  bucketTo?: string;
+  insightTier?: SourceTier;
+  insightSourceGroup?: string;
+  insightLanguage?: string;
+  insightSourceId?: string;
 }
 
 export interface StoryEvidence {

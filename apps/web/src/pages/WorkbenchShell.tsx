@@ -482,6 +482,21 @@ export function WorkbenchShell({
 
       {/* ================= 2. Collapsible Context Sidebar ================= */}
       <aside className="side">
+        {/* Cmd+K Search Trigger placed above Project Switcher */}
+        <button
+          type="button"
+          className="cmd-trigger"
+          onClick={() => {
+            setPaletteOpen(true);
+            setPaletteQuery('');
+          }}
+        >
+          <Search size={13} />
+          <span>{t('Search or jump...', '搜索或跳转…')}</span>
+          <span className="kbd">Ctrl</span>
+          <span className="kbd">K</span>
+        </button>
+
         {/* Domain Context Header: Project Switcher ONLY in Research Domain */}
         {activeDomain === 'research' && actor ? (
           <div className="proj-switch-wrap" data-pop-root>
@@ -547,21 +562,6 @@ export function WorkbenchShell({
             </div>
           </div>
         )}
-
-        {/* Cmd+K Search Trigger */}
-        <button
-          type="button"
-          className="cmd-trigger"
-          onClick={() => {
-            setPaletteOpen(true);
-            setPaletteQuery('');
-          }}
-        >
-          <Search size={13} />
-          <span>{t('Search or jump...', '搜索或跳转…')}</span>
-          <span className="kbd">Ctrl</span>
-          <span className="kbd">K</span>
-        </button>
 
         {/* Domain-Scoped Secondary Navigation */}
         <nav className="side-nav" aria-label={t('Primary navigation', '工作台导航')}>

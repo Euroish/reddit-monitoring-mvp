@@ -747,7 +747,10 @@ export function ProjectsPage({
           </div>
           {selectedProject && <p className="page-desc">
             {selectedProject.dataset_mode === 'batch'
-              ? t(`${selectedProject.enabled_batch_count ?? '—'} enabled batches`, `${selectedProject.enabled_batch_count ?? '—'} 个启用批次`)
+              ? t(
+                  `${selectedProject.enabled_batch_count ?? '—'} enabled batches · ${selectedProject.data_summary?.item_count ?? 0} samples`,
+                  `${selectedProject.enabled_batch_count ?? '—'} 个启用批次 · ${selectedProject.data_summary?.item_count ?? 0} 条样本`,
+                )
               : t(`${selectedProject.source_ids.length} bound sources`, `${selectedProject.source_ids.length} 个绑定来源`)}
             {' · '}{t('Revision', '版本')} {selectedProject.revision}
             {overview && <> · {t('Coverage', '口径')} <b>{t('Stored samples', '已存样本')}</b></>}
