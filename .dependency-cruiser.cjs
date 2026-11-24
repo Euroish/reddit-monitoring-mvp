@@ -90,6 +90,16 @@ module.exports = {
       },
     },
     {
+      name: "modules-content-leaf",
+      severity: "error",
+      comment: "content is a strict leaf domain (project scope is injected from composition root) and must not depend on sibling domains.",
+      from: { path: "^src/modules/content/" },
+      to: {
+        path: "^src/modules/",
+        pathNot: "^src/modules/content/",
+      },
+    },
+    {
       name: "mainline-no-heavy-runtime-deps",
       severity: "error",
       comment: "Keep single-node 4 GB mainline free of ORMs, Redis/BullMQ, and headless browsers.",
