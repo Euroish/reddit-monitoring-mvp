@@ -137,6 +137,24 @@ async function admitJobDispatch(
       );
       return false;
     }
+    const socialProvider = budgetedSocialProviders.includes(job.provider);
+    if (socialProvider) await lockSocialDispatchBudget(client);
+    await client.query("SELECT 1 FROM source_provider_budget WHERE provider=$1 FOR UPDATE", [job.provider]);
+    if (job.request_json.autoMonitorId) {
+      if (await cancelHydrationOutsideBudget(client, job.id, token, resources)) return false;
+    } else if (socialProvider && await deferSocialCollectionOutsideBudget(client, job.id, token, resources)) {
+      return false;
+    }
+    const deferred = await client.query(
+      `UPDATE source_collection_job SET status='queued',next_run_at=ready.at,lease_token=NULL,lease_until=NULL,
+        attempts=attempts-1,error='Waiting for provider budget'
+       FROM (SELECT provider_ready_at($3,$4) AS at) ready
+       WHERE id=$1 AND lease_token=$2 AND ready.at>now()`,
+      [job.id, token, job.provider, resources],
+    );
+    if (deferred.rowCount) return false;
+    // This hook debits monitor/viewer usage and advances due times. Run it only
+    // after system/provider budgets admit dispatch, in the same transaction.
     if (job.purpose === "scheduled" && hooks.authorizeScheduledSourceDispatch) {
       const auth = await hooks.authorizeScheduledSourceDispatch(client, {
         sourceId: source.id,
@@ -162,22 +180,6 @@ async function admitJobDispatch(
         return false;
       }
     }
-    const socialProvider = budgetedSocialProviders.includes(job.provider);
-    if (socialProvider) await lockSocialDispatchBudget(client);
-    await client.query("SELECT 1 FROM source_provider_budget WHERE provider=$1 FOR UPDATE", [job.provider]);
-    if (job.request_json.autoMonitorId) {
-      if (await cancelHydrationOutsideBudget(client, job.id, token, resources)) return false;
-    } else if (socialProvider && await deferSocialCollectionOutsideBudget(client, job.id, token, resources)) {
-      return false;
-    }
-    const deferred = await client.query(
-      `UPDATE source_collection_job SET status='queued',next_run_at=ready.at,lease_token=NULL,lease_until=NULL,
-        attempts=attempts-1,error='Waiting for provider budget'
-       FROM (SELECT provider_ready_at($3,$4) AS at) ready
-       WHERE id=$1 AND lease_token=$2 AND ready.at>now()`,
-      [job.id, token, job.provider, resources],
-    );
-    if (deferred.rowCount) return false;
     const updated = await client.query(
       `UPDATE source_collection_job SET provider_state='{"phase":"starting"}',error=NULL,
         request_count=request_count+1,page_request_attempts=page_request_attempts+1,lease_until=NOW()+make_interval(secs=>$3)

@@ -241,6 +241,24 @@ test("Stage 3 auto-schedule: 168h cadence, viewer entitlements, pre-dispatch rev
 
   const sched = await scheduleDueSourcesOnce(db.pool, [kaix]);
   assert.equal(sched.enqueuedCount, 1);
+  for (const blockedBy of ["global", "provider"]) {
+    await t.test(`${blockedBy} budget deferral never charges a monitor or its owner`, async () => {
+      await db.pool.query("UPDATE source_global_budget SET daily_social_item_ceiling=$1", [blockedBy === "global" ? 0 : 20000]);
+      await db.pool.query("UPDATE source_provider_budget SET enabled=$1 WHERE provider='kaix'", [blockedBy !== "provider"]);
+      assert.equal(await workOnce(db.pool, [kaix], undefined, undefined, { authorizeScheduledSourceDispatch }), true);
+      assert.equal(upstreamCalls, 0);
+      const { rows: [usage] } = await db.pool.query(
+        `SELECT (SELECT COUNT(*)::int FROM intel_monitor_usage WHERE monitor_id=$1) AS monitor,
+                (SELECT COUNT(*)::int FROM user_provider_usage WHERE user_id=$2) AS viewer,
+                (SELECT next_due_at <= NOW() FROM intel_monitor WHERE id=$1) AS due`,
+        [vMon.id, viewerId],
+      );
+      assert.deepEqual(usage, { monitor: 0, viewer: 0, due: true });
+    });
+    await db.pool.query("UPDATE source_global_budget SET daily_social_item_ceiling=20000");
+    await db.pool.query("UPDATE source_provider_budget SET enabled=true WHERE provider='kaix'");
+    await db.pool.query("UPDATE source_collection_job SET next_run_at=now() WHERE collection_source_id=$1 AND status='queued'", [sharedSourceId]);
+  }
   assert.equal(await workOnce(db.pool, [kaix], undefined, undefined, { authorizeScheduledSourceDispatch }), true);
   assert.equal(upstreamCalls, 1);
 
