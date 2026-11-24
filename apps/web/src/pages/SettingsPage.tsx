@@ -20,6 +20,7 @@ import {
 import { apiClient } from '../api/client';
 import {
   formatApiError,
+  isMfaRequiredError,
   useAccessAuditQuery,
   useCreateMachineKeyMutation,
   useLogoutMutation,
@@ -34,6 +35,8 @@ import { BrowserSessionsCard } from '../components/BrowserSessionsCard';
 import { AccountEmailStart, AccountPasswordForm } from '../components/AccountEmail';
 import { MfaSecurityCard } from '../components/AdministratorMfa';
 import { SiftlineLogo } from '../components/BrandMark';
+import { InlineMfaStepUp, ViewerForbiddenCard } from '../components/InlineMfaStepUp';
+import { QuotasManagementView } from '../components/QuotasManagementView';
 import { useLogo } from '../components/brandContext';
 import { useTheme } from '../components/themeContext';
 import { type Actor, type MachineScope } from '../contracts/api';
@@ -56,27 +59,34 @@ export function SettingsPage({
   const { palette, setStudioOpen } = useTheme();
   const canManage = actor.clientKind === 'browser' && actor.role !== 'viewer';
 
-  type SettingsTab = 'account' | 'members' | 'keys' | 'brand';
+  type SettingsTab = 'account' | 'quota' | 'members' | 'keys' | 'brand';
   const sp = new URLSearchParams(initialQueryString);
   const rawTab = sp.get('tab');
   const tab: SettingsTab =
-    rawTab === 'keys' || rawTab === 'members' || rawTab === 'brand' || rawTab === 'account'
+    rawTab === 'quota' || rawTab === 'keys' || rawTab === 'members' || rawTab === 'brand' || rawTab === 'account'
       ? rawTab
       : 'account';
   const tabLabel =
-    tab === 'members'
-      ? t('Members & Invites', '成员与权限')
-      : tab === 'keys'
-        ? t('Machine API Keys', '机器 API 密钥')
-        : tab === 'brand'
-          ? t('Brand Mark & Skin', '品牌标识与皮肤')
-          : t('Account & RBAC', '当前账户与角色');
+    tab === 'quota'
+      ? t('My Quotas & Capabilities', '我的配额与可用能力')
+      : tab === 'members'
+        ? t('Members & Invites', '成员与权限')
+        : tab === 'keys'
+          ? t('Machine API Keys', '机器 API 密钥')
+          : tab === 'brand'
+            ? t('Brand Mark & Skin', '品牌标识与皮肤')
+            : t('Account & RBAC', '当前账户与角色');
 
-  const keysQuery = useMachineKeysQuery(true);
-  const sourcesQuery = useSourcesQuery(true);
-  const usersQuery = useUsersQuery(canManage);
-  const auditQuery = useAccessAuditQuery(canManage);
+  const keysQuery = useMachineKeysQuery(canManage && tab === 'keys');
+  const sourcesQuery = useSourcesQuery(canManage && tab === 'keys');
+  const usersQuery = useUsersQuery(canManage && tab === 'members');
+  const auditQuery = useAccessAuditQuery(canManage && tab === 'members');
   const updateUserMut = useUpdateUserAccessMutation();
+  const [pendingUserMutation, setPendingUserMutation] = useState<{
+    id: string;
+    payload: { role?: 'admin' | 'viewer'; status?: 'active' | 'disabled'; planTier?: 'free' | 'pro' };
+  } | null>(null);
+  const [memberMfaNeeded, setMemberMfaNeeded] = useState(false);
   const createKeyMut = useCreateMachineKeyMutation();
   const revokeKeyMut = useRevokeMachineKeyMutation();
   const logoutMut = useLogoutMutation();
@@ -173,21 +183,23 @@ export function SettingsPage({
           </p>
         </div>
         <div className="page-actions">
-          <button
-            type="button"
-            className="ds-btn ds-btn--ghost"
-            onClick={async () => {
-              try {
-                const [h, r] = await Promise.all([apiClient.healthz(), apiClient.readyz()]);
-                setDiagOutput(`/healthz: ${JSON.stringify(h)} · /readyz: ${JSON.stringify(r)}`);
-              } catch (err) {
-                setDiagOutput(formatApiError(err));
-              }
-            }}
-          >
-            <Activity size={13} />
-            <span>{t('Probe Health', '健康探针')}</span>
-          </button>
+          {canManage && (
+            <button
+              type="button"
+              className="ds-btn ds-btn--ghost"
+              onClick={async () => {
+                try {
+                  const [h, r] = await Promise.all([apiClient.healthz(), apiClient.readyz()]);
+                  setDiagOutput(`/healthz: ${JSON.stringify(h)} · /readyz: ${JSON.stringify(r)}`);
+                } catch (err) {
+                  setDiagOutput(formatApiError(err));
+                }
+              }}
+            >
+              <Activity size={13} />
+              <span>{t('Probe Health', '健康探针')}</span>
+            </button>
+          )}
           <button type="button" className="ds-btn ds-btn--danger" onClick={() => logoutMut.mutate()}>
             <LogOut size={13} />
             <span>{t('Sign Out', '退出登录')}</span>
@@ -226,7 +238,7 @@ export function SettingsPage({
                 <div style={{ display: 'grid', gap: 2 }}>
                   {[
                     [t('Client Kind', '客户端类型'), actor.clientKind],
-                    [t('Product Plan Tier', '产品权益层级'), `${actor.planTier ?? 'free'} (reserved)`],
+                    [t('Product Plan Tier', '产品权益层级'), actor.planTier ?? 'free'],
                     [t('Session ID', '会话 ID'), actor.sessionId],
                     [t('Allowed Sources', '受限来源'), actor.allowedSourceIds ? actor.allowedSourceIds.join(', ') : 'null (all)'],
                   ].map(([k, v]) => (
@@ -237,21 +249,23 @@ export function SettingsPage({
                   ))}
                 </div>
               </div>
-              <div className="ds-card-ft">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      const spec = await apiClient.getOpenApiSummary();
-                      setDiagOutput(`OpenAPI ${String(spec.openapi || '3.0')}: ${JSON.stringify(spec.info || {})}`);
-                    } catch (err) {
-                      setDiagOutput(formatApiError(err));
-                    }
-                  }}
-                >
-                  {t('Inspect OpenAPI 3.0 Spec →', '核对 /v1/openapi.json →')}
-                </button>
-              </div>
+              {canManage && (
+                <div className="ds-card-ft">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const spec = await apiClient.getOpenApiSummary();
+                        setDiagOutput(`OpenAPI ${String(spec.openapi || '3.0')}: ${JSON.stringify(spec.info || {})}`);
+                      } catch (err) {
+                        setDiagOutput(formatApiError(err));
+                      }
+                    }}
+                  >
+                    {t('Inspect OpenAPI 3.0 Spec →', '核对 /v1/openapi.json →')}
+                  </button>
+                </div>
+              )}
             </div>
             <BrowserSessionsCard userId={actor.userId} />
             {session?.mfaActive && <MfaSecurityCard />}
@@ -296,7 +310,24 @@ export function SettingsPage({
         </div>
       )}
 
-      {tab === 'members' && (
+      {tab === 'quota' && (
+        <QuotasManagementView
+          actor={actor}
+          budgets={[]}
+          budgetError={null}
+          budgetsPending={false}
+          providers={[]}
+          sources={[]}
+          onEditBudget={() => {}}
+          forcePersonalView={!canManage}
+        />
+      )}
+
+      {!canManage && (tab === 'members' || tab === 'keys') && (
+        <ViewerForbiddenCard onNavigate={(path) => onNavigate?.(path)} />
+      )}
+
+      {canManage && tab === 'members' && (
         <div className="ds-grid">
           <div className="c7">
             <div className="ds-card">
@@ -320,14 +351,24 @@ export function SettingsPage({
                         </div>
                         <span className={`tag ${u.role === 'owner' ? 'tag--lilac' : u.role === 'admin' ? 'tag--mint' : 'tag--line'}`}>{u.role}</span>
                         {u.role !== 'owner' && (actor.role === 'owner' || u.role === 'viewer') && (
-                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                             {actor.role === 'owner' && (
                               <>
                                 <select
                                   className="wb-select"
                                   style={{ height: 26, fontSize: 11 }}
                                   value={u.role}
-                                  onChange={(e) => updateUserMut.mutate({ id: u.id, payload: { role: e.target.value as 'admin' | 'viewer' } })}
+                                  onChange={async (e) => {
+                                    const payload = { role: e.target.value as 'admin' | 'viewer' };
+                                    setPendingUserMutation({ id: u.id, payload });
+                                    try {
+                                      await updateUserMut.mutateAsync({ id: u.id, payload });
+                                      setMemberMfaNeeded(false);
+                                      setPendingUserMutation(null);
+                                    } catch (err) {
+                                      if (isMfaRequiredError(err)) setMemberMfaNeeded(true);
+                                    }
+                                  }}
                                 >
                                   <option value="viewer">viewer</option>
                                   <option value="admin">admin</option>
@@ -336,13 +377,31 @@ export function SettingsPage({
                                   className="wb-select"
                                   style={{ height: 26, fontSize: 11 }}
                                   value={u.planTier}
-                                  onChange={(e) => updateUserMut.mutate({ id: u.id, payload: { planTier: e.target.value as 'free' | 'pro' } })}
+                                  onChange={async (e) => {
+                                    const payload = { planTier: e.target.value as 'free' | 'pro' };
+                                    setPendingUserMutation({ id: u.id, payload });
+                                    try {
+                                      await updateUserMut.mutateAsync({ id: u.id, payload });
+                                      setMemberMfaNeeded(false);
+                                      setPendingUserMutation(null);
+                                    } catch (err) {
+                                      if (isMfaRequiredError(err)) setMemberMfaNeeded(true);
+                                    }
+                                  }}
                                 >
                                   <option value="free">free</option>
                                   <option value="pro">pro</option>
                                 </select>
                               </>
                             )}
+                            <button
+                              type="button"
+                              className="ds-btn ds-btn--ghost"
+                              style={{ height: 26, padding: '0 8px', fontSize: 10.5 }}
+                              onClick={() => onNavigate?.(`/sources?tab=budgets&userId=${encodeURIComponent(u.id)}`)}
+                            >
+                              {t('Quotas / Override', '配额覆盖')}
+                            </button>
                             <button
                               type="button"
                               className={`ds-btn ${u.status === 'active' ? 'ds-btn--danger' : 'ds-btn--ghost'}`}
@@ -367,6 +426,19 @@ export function SettingsPage({
                     </div>
                     <span className={`tag ${actor.role === 'owner' ? 'tag--lilac' : actor.role === 'admin' ? 'tag--mint' : 'tag--line'}`}>{actor.role}</span>
                   </div>
+                )}
+                {canManage && memberMfaNeeded && pendingUserMutation && (
+                  <InlineMfaStepUp
+                    onVerified={async () => {
+                      await updateUserMut.mutateAsync(pendingUserMutation);
+                      setMemberMfaNeeded(false);
+                      setPendingUserMutation(null);
+                    }}
+                    onCancel={() => {
+                      setMemberMfaNeeded(false);
+                      setPendingUserMutation(null);
+                    }}
+                  />
                 )}
                 {canManage && auditQuery.data?.events && auditQuery.data.events.length > 0 && (
                   <div style={{ marginTop: 14 }}>
@@ -448,7 +520,7 @@ export function SettingsPage({
         </div>
       )}
 
-      {tab === 'keys' && (
+      {canManage && tab === 'keys' && (
         <div className="ds-grid">
           <div className="c8">
             <div className="ds-card">

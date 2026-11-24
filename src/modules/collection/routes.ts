@@ -114,15 +114,34 @@ async function applySourcePatch(
   return { updated: true };
 }
 
-export async function collectionRoutes(app: FastifyInstance, pool: Pool, providers: ContentProvider[], requireWritableProject?: RequireWritableProject,
+export async function collectionRoutes(
+  app: FastifyInstance,
+  pool: Pool,
+  providers: ContentProvider[],
+  requireWritableProject?: RequireWritableProject,
   listProjectBatchIds?: (db: Pool, actor: Actor, id: string) => Promise<string[]>,
+  options?: {
+    onBatchDiscarded?: (client: PoolClient, batchId: string) => Promise<string[]>;
+    getCredentialState?: (provider: string) => "ok" | "missing" | "network_disabled";
+  },
 ) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   sourcePreviewRoute(app, providers);
   await sourceImportRoute(app, pool, providers);
   await batchRoutes(app, pool, requireWritableProject && listProjectBatchIds
-    ? { assertWritable: requireWritableProject, listBatchIds: listProjectBatchIds } : undefined);
-  await planRoutes(app, pool, providers, requireWritableProject);
+    ? {
+        assertWritable: requireWritableProject,
+        listBatchIds: listProjectBatchIds,
+        onBatchDiscarded: options?.onBatchDiscarded,
+      }
+    : options?.onBatchDiscarded
+      ? {
+          assertWritable: async () => undefined,
+          listBatchIds: async () => [],
+          onBatchDiscarded: options.onBatchDiscarded,
+        }
+      : undefined);
+  await planRoutes(app, pool, providers, requireWritableProject, options?.getCredentialState);
   api.get(
     "/v1/public/sources",
     {
@@ -370,13 +389,20 @@ export async function collectionRoutes(app: FastifyInstance, pool: Pool, provide
     },
     async (request) => {
       const outcome = await transaction(pool, async (client) => {
+        let projectVisibility: "private" | "shared" | undefined;
         if (request.body.projectId) {
           if (request.actor!.clientKind !== "browser") fail(403, "Browser session required");
           if (!requireWritableProject) fail(500, "Project scope resolver is unavailable");
-          await requireWritableProject(client, request.actor!, request.body.projectId);
+          const proj = await requireWritableProject(client, request.actor!, request.body.projectId) as
+            | { visibility?: "private" | "shared" }
+            | undefined;
+          projectVisibility = proj?.visibility ?? (request.actor!.role === "viewer" ? "private" : undefined);
         }
         return enqueueCollectionForSource(client, request.actor!, providers, {
-          ...request.body, sourceId: request.params.id, requestKey: request.headers["idempotency-key"],
+          ...request.body,
+          sourceId: request.params.id,
+          projectVisibility,
+          requestKey: request.headers["idempotency-key"],
         });
       });
       if (outcome.created) await notifyChannel(pool, "collection_jobs_ready");

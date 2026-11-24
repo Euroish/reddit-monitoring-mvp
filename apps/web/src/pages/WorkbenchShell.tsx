@@ -40,6 +40,7 @@ import {
   useLogoutMutation,
   useProjectsQuery,
   useQuotasSummaryQuery,
+  useRecentJobsQuery,
   useSavedQueriesQuery,
   useSourcesQuery,
 } from '../api/hooks';
@@ -85,11 +86,12 @@ export function WorkbenchShell({
   const isAuthed = Boolean(actor);
   const canWrite = actor?.role === 'owner' || actor?.role === 'admin';
   const projectsQuery = useProjectsQuery(isAuthed);
-  const sourcesQuery = useSourcesQuery(isAuthed);
+  const sourcesQuery = useSourcesQuery(canWrite);
   const queriesQuery = useSavedQueriesQuery(isAuthed);
   const annotationsQuery = useAnnotationsListQuery(isAuthed);
   const budgetsQuery = useBudgetsQuery(canWrite);
   const quotasSummaryQuery = useQuotasSummaryQuery(isAuthed);
+  const viewerJobsQuery = useRecentJobsQuery({ limit: 5 }, isAuthed && !canWrite);
 
   const projects = useMemo(() => projectsQuery.data?.projects ?? [], [projectsQuery.data?.projects]);
   const sources = useMemo(() => sourcesQuery.data?.sources ?? [], [sourcesQuery.data?.sources]);
@@ -109,14 +111,21 @@ export function WorkbenchShell({
   const [alertsDismissed, setAlertsDismissed] = useState(false);
 
   const blockedSources = useMemo(
-    () => sources.filter((s) => s.automaticCollectionBlocked),
-    [sources],
+    () => (canWrite ? sources.filter((s) => s.automaticCollectionBlocked) : []),
+    [canWrite, sources],
   );
   const zeroQuotaProviders = useMemo(
-    () => budgets.filter((b) => b.enabled && Math.min(b.daily_requests, b.monthly_requests, b.daily_resources, b.monthly_resources) === 0),
-    [budgets],
+    () =>
+      canWrite
+        ? budgets.filter((b) => b.enabled && Math.min(b.daily_requests, b.monthly_requests, b.daily_resources, b.monthly_resources) === 0)
+        : [],
+    [canWrite, budgets],
   );
-  const unreadNotifs = alertsDismissed ? 0 : blockedSources.length + zeroQuotaProviders.length;
+  const viewerFailedJobs = useMemo(
+    () => (!canWrite ? (viewerJobsQuery.data?.jobs ?? []).filter((j) => j.status === 'failed') : []),
+    [canWrite, viewerJobsQuery.data?.jobs],
+  );
+  const unreadNotifs = alertsDismissed ? 0 : blockedSources.length + zeroQuotaProviders.length + viewerFailedJobs.length;
 
   const searchParams = new URLSearchParams(currentSearch);
   const currentTab = searchParams.get('tab') || '';
@@ -249,11 +258,17 @@ export function WorkbenchShell({
       { group: t('Feed', '信息流'), label: t('Product Docs', '产品文档'), kbd: 'G ?', run: () => navigateAndClose('/docs') },
       { group: t('Feed', '信息流'), label: t('Product Guide', '产品使用说明'), kbd: 'G U', run: () => navigateAndClose('/guide') },
       { group: t('Navigate', '页面跳转'), label: t('Project Overview', '项目总览'), kbd: 'G O', run: () => navigateAndClose('/projects') },
-      { group: t('Navigate', '页面跳转'), label: t('Signal Radar Analytics', '趋势雷达多维图谱'), kbd: 'G R', run: () => navigateAndClose('/projects?section=radar') },
       { group: t('Navigate', '页面跳转'), label: t('Content Explorer', '内容检索与过滤'), kbd: 'G E', run: () => navigateAndClose('/content') },
-      { group: t('Navigate', '页面跳转'), label: t('Sources & Collection Jobs', '来源与采集任务'), kbd: 'G S', run: () => navigateAndClose('/sources') },
+      ...(canWrite
+        ? [{ group: t('Navigate', '页面跳转'), label: t('Sources & Collection Jobs', '来源与采集任务'), kbd: 'G S', run: () => navigateAndClose('/sources') }]
+        : [{ group: t('Navigate', '页面跳转'), label: t('My Collection Jobs', '我的采集任务'), kbd: 'G J', run: () => navigateAndClose('/projects?view=my-jobs') }]),
       { group: t('Navigate', '页面跳转'), label: t('Saved Queries & Annotations', '个人工作区'), kbd: 'G W', run: () => navigateAndClose('/workspace') },
-      { group: t('Navigate', '页面跳转'), label: t('Account, Invites & Keys', '账户与机器密钥'), kbd: 'G A', run: () => navigateAndClose('/settings') },
+      {
+        group: t('Navigate', '页面跳转'),
+        label: canWrite ? t('Account, Invites & Keys', '账户与机器密钥') : t('Account & Quota Policy', '账户与个人配额'),
+        kbd: 'G A',
+        run: () => navigateAndClose(canWrite ? '/settings' : '/settings?tab=quota'),
+      },
       ...(canWrite
         ? [{ group: t('Navigate', '页面跳转'), label: t('AI Release Review Queue', 'AI 发布审核队列'), kbd: 'G Q', run: () => navigateAndClose('/admin/queue') }]
         : []),
@@ -692,22 +707,35 @@ export function WorkbenchShell({
                 </button>
                 <button
                   type="button"
-                  className={`nav-item ${currentTab === 'members' ? 'is-active' : ''}`}
-                  aria-current={currentTab === 'members' ? 'page' : undefined}
-                  onClick={() => navigateAndClose('/settings?tab=members')}
+                  className={`nav-item ${currentTab === 'quota' ? 'is-active' : ''}`}
+                  aria-current={currentTab === 'quota' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/settings?tab=quota')}
                 >
-                  <Users size={14} className="nav-ic" />
-                  <span>{t('Members & Invites', '成员与权限')}</span>
+                  <Sliders size={14} className="nav-ic" />
+                  <span>{t('My Quotas & Capabilities', '我的配额与可用能力')}</span>
                 </button>
-                <button
-                  type="button"
-                  className={`nav-item ${currentTab === 'keys' ? 'is-active' : ''}`}
-                  aria-current={currentTab === 'keys' ? 'page' : undefined}
-                  onClick={() => navigateAndClose('/settings?tab=keys')}
-                >
-                  <Key size={14} className="nav-ic" />
-                  <span>{t('Machine API Keys', '机器 API 密钥')}</span>
-                </button>
+                {canWrite && (
+                  <>
+                    <button
+                      type="button"
+                      className={`nav-item ${currentTab === 'members' ? 'is-active' : ''}`}
+                      aria-current={currentTab === 'members' ? 'page' : undefined}
+                      onClick={() => navigateAndClose('/settings?tab=members')}
+                    >
+                      <Users size={14} className="nav-ic" />
+                      <span>{t('Members & Invites', '成员与权限')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`nav-item ${currentTab === 'keys' ? 'is-active' : ''}`}
+                      aria-current={currentTab === 'keys' ? 'page' : undefined}
+                      onClick={() => navigateAndClose('/settings?tab=keys')}
+                    >
+                      <Key size={14} className="nav-ic" />
+                      <span>{t('Machine API Keys', '机器 API 密钥')}</span>
+                    </button>
+                  </>
+                )}
               </div>
 
               <div className="nav-group">
@@ -742,8 +770,11 @@ export function WorkbenchShell({
                   <span>
                     {quotaStats.used} / {quotaStats.cap} {t('requests', '次请求')}
                   </span>
-                  <button type="button" onClick={() => navigateAndClose('/sources?tab=budgets')}>
-                    {t('Manage', '治理')}
+                  <button
+                    type="button"
+                    onClick={() => navigateAndClose(canWrite ? '/sources?tab=budgets' : '/settings?tab=quota')}
+                  >
+                    {canWrite ? t('Manage', '治理') : t('View quota', '查看额度')}
                   </button>
                 </div>
               </div>
@@ -904,11 +935,13 @@ export function WorkbenchShell({
                         <span style={{ flex: 1 }}>{t('Monitoring Project', '监测项目')}</span>
                         <span className="kbd">P</span>
                       </button>
-                      <button type="button" className="pop-opt" onClick={() => navigateAndClose('/sources?new=1')}>
-                        <Database size={13} />
-                        <span style={{ flex: 1 }}>{t('Collection Source', '采集来源')}</span>
-                        <span className="kbd">S</span>
-                      </button>
+                      {canWrite && (
+                        <button type="button" className="pop-opt" onClick={() => navigateAndClose('/sources?new=1')}>
+                          <Database size={13} />
+                          <span style={{ flex: 1 }}>{t('Collection Source', '采集来源')}</span>
+                          <span className="kbd">S</span>
+                        </button>
+                      )}
                       <button type="button" className="pop-opt" onClick={() => navigateAndClose('/content')}>
                         <Bookmark size={13} />
                         <span style={{ flex: 1 }}>{t('Run & Save Query', '检索并保存查询')}</span>
@@ -933,7 +966,7 @@ export function WorkbenchShell({
                   {openPop === 'notif' && (
                     <div className="ds-pop" style={{ top: 'calc(100% + 6px)', right: 0, width: 310, padding: 0, overflow: 'hidden' }}>
                       <div style={{ padding: '11px 14px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                        <b>{t('System Alerts', '运行与采集告警')}</b>
+                        <b>{canWrite ? t('System Alerts', '运行与采集告警') : t('Personal Alerts', '个人采集与额度提醒')}</b>
                         <span style={{ fontSize: 10.5, color: 'var(--faint)' }}>
                           {unreadNotifs} {t('active', '条提示')}
                         </span>
@@ -954,12 +987,22 @@ export function WorkbenchShell({
                           </div>
                         </div>
                       ))}
-                      {blockedSources.length === 0 && zeroQuotaProviders.length === 0 && (
+                      {viewerFailedJobs.map((j) => (
+                        <div key={j.id} style={{ padding: '10px 14px', borderBottom: '1px solid #f3f5ee', display: 'flex', gap: 9 }}>
+                          <AlertTriangle size={15} color="#d4821c" style={{ flexShrink: 0, marginTop: 2 }} />
+                          <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                            <b>{j.sourceLabel}</b> · {t('Personal collection job failed', '个人采集任务未成功完成')}
+                          </div>
+                        </div>
+                      ))}
+                      {blockedSources.length === 0 && zeroQuotaProviders.length === 0 && viewerFailedJobs.length === 0 && (
                         <div style={{ padding: '16px 14px', textAlign: 'center', fontSize: 11.5, color: 'var(--faint)' }}>
-                          {t('No active collection or quota alerts.', '当前无阻断来源或配额告警。')}
+                          {canWrite
+                            ? t('No active collection or quota alerts.', '当前无阻断来源或配额告警。')
+                            : t('No failed personal jobs.', '当前无异常个人采集任务。')}
                         </div>
                       )}
-                      {(blockedSources.length > 0 || zeroQuotaProviders.length > 0) && (
+                      {unreadNotifs > 0 && (
                         <div style={{ padding: 6, textAlign: 'center' }}>
                           <button
                             type="button"
@@ -1007,10 +1050,16 @@ export function WorkbenchShell({
                         <User size={13} />
                         <span>{t('Account & Access', '账户与权限')}</span>
                       </button>
-                      <button type="button" className="pop-opt" onClick={() => navigateAndClose('/settings?tab=keys')}>
-                        <Key size={13} />
-                        <span>{t('Machine API Keys', '机器 API 密钥')}</span>
+                      <button type="button" className="pop-opt" onClick={() => navigateAndClose('/settings?tab=quota')}>
+                        <Sliders size={13} />
+                        <span>{t('Quotas & Limits', '个人配额与额度')}</span>
                       </button>
+                      {canWrite && (
+                        <button type="button" className="pop-opt" onClick={() => navigateAndClose('/settings?tab=keys')}>
+                          <Key size={13} />
+                          <span>{t('Machine API Keys', '机器 API 密钥')}</span>
+                        </button>
+                      )}
                       <button type="button" className="pop-opt" onClick={() => { setOpenPop(null); setStudioOpen(true); }}>
                         <Palette size={13} />
                         <span>{t('Skin & Color Studio', '切换皮肤配色 (17套)')}</span>

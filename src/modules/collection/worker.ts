@@ -213,9 +213,19 @@ async function commitCollectedPage(
     batch,
     new Date().toISOString(),
   );
+  const rawProjectVis = job.request_json?.projectVisibility;
   const committed = await recordCommittedBatch(client, {
-    jobId: job.id, sourceId: source.id, sourceLabel: source.label,
-    userId: job.requested_by_user_id ?? null, contentIds: counts.contentIds,
+    jobId: job.id,
+    sourceId: source.id,
+    sourceLabel: source.label,
+    userId: job.requested_by_user_id ?? null,
+    contentIds: counts.contentIds,
+    visibility:
+      rawProjectVis === "private" || rawProjectVis === "shared"
+        ? rawProjectVis
+        : typeof job.request_json?.projectId === "string"
+          ? "private"
+          : undefined,
   });
   const projectId = job.request_json?.projectId;
   if (typeof projectId === "string" && onBatchCommitted) {
@@ -401,6 +411,10 @@ async function fetchProviderPage(
     primaryProvider: job.provider,
     fetchPolicy: source.fetch_policy ?? {},
   };
+  const hints = job.request_json?.queryHints;
+  if (hints && typeof hints === "object" && !Array.isArray(hints) && collectionSource.target.type !== "post" && collectionSource.target.type !== "feed") {
+    collectionSource.target = { ...collectionSource.target, ...hints };
+  }
   const externalIds = job.request_json.externalIds;
   if (job.operation === "hydrate" && !externalIds) {
     collectionSource.target = { type: "post", postId: job.request_json.postId };

@@ -109,7 +109,7 @@ export const SourceHealth = Type.Object({
 
 export const SourceSchedule = Type.Object({
   enabled: Type.Boolean(),
-  cadenceSeconds: Type.Optional(Type.Integer({ minimum: 120, maximum: 43200 })),
+  cadenceSeconds: Type.Optional(Type.Integer({ minimum: 120, maximum: 604800 })),
   intervalSeconds: Type.Optional(Type.Integer({ minimum: 60, maximum: 86400 })),
   overlapSeconds: Type.Optional(Type.Integer({ minimum: 0, maximum: 3600 })),
   initialLookbackHours: Type.Optional(Type.Integer({ minimum: 1, maximum: 48 })),
@@ -232,6 +232,9 @@ export const PlanPolicyInput = Type.Object(
     maxLookbackDays: Type.Optional(Type.Integer({minimum:1,maximum:365})),
     allowProviderChoice: Type.Optional(Type.Boolean()),
     exportEnabled: Type.Optional(Type.Boolean()),
+    allowAutoSchedule: Type.Optional(Type.Boolean()),
+    maxScheduledTasks: Type.Optional(Type.Integer({ minimum: 0, maximum: 100 })),
+    minScheduleIntervalHours: Type.Optional(Type.Integer({ minimum: 1, maximum: 168 })),
     allowedProviders: Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { maxItems: 20, uniqueItems: true }),
     allowedSourceIds: Type.Union([Type.Array(Id, { maxItems: 1000, uniqueItems: true }), Type.Null()]),
     dailyRequests: Type.Union([Type.Integer({ minimum: 0, maximum: 100000 }), Type.Null()]),
@@ -247,6 +250,7 @@ export const UserQuotaOverrideInput = Type.Object(
   {
     ...Type.Partial(Type.Pick(PlanPolicyInput, [
       "maxCommentsPerPost", "maxProjects", "maxLookbackDays", "allowProviderChoice", "exportEnabled",
+      "allowAutoSchedule", "maxScheduledTasks", "minScheduleIntervalHours",
     ])).properties,
     manualCollectEnabled: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
     allowedProviders: Type.Optional(Type.Union([Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { maxItems: 20, uniqueItems: true }), Type.Null()])),
@@ -259,6 +263,9 @@ export const UserQuotaOverrideInput = Type.Object(
 );
 
 export type UserQuotaOverride = Static<typeof UserQuotaOverrideInput>;
+
+export const QueryHints = Type.Object(optionalQueryHints, { additionalProperties: false });
+export type QueryHintsValue = Static<typeof QueryHints>;
 
 export const ProviderCredentialInput = Type.Object(
   { apiKey: Type.String({ minLength: 8, maxLength: 512 }), revision: Type.Optional(Type.Integer({ minimum: 1 })) },
@@ -286,6 +293,7 @@ export const Collect = Type.Object(
       Type.Integer({ minimum: 1, maximum: 50 }),
     ),
     projectId: Type.Optional(Id),
+    queryHints: Type.Optional(QueryHints),
   },
   { additionalProperties: false },
 );
@@ -341,15 +349,24 @@ export const ResearchPlanPreviewInput = Type.Object(
     includeComments: Type.Optional(Type.Boolean()),
     maxCommentsPerPost: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
     useFallback: Type.Optional(Type.Boolean()),
+    queryHints: Type.Optional(QueryHints),
   },
   { additionalProperties: false },
 );
 
 export type ResearchPlanPreviewRequest = Static<typeof ResearchPlanPreviewInput>;
 
+export const ResearchPlanCollectInput = strictMerge([
+  ResearchPlanPreviewInput,
+  Type.Object({ projectId: Id }),
+]);
+
+export type ResearchPlanCollectRequest = Static<typeof ResearchPlanCollectInput>;
+
 export type ResearchCollectionRestriction =
   | "target_unavailable" | "manual_disabled" | "provider_choice" | "scope_limit"
-  | "provider_unavailable" | "charge_unresolved" | "source_inactive" | "source_access"
+  | "provider_unavailable" | "network_disabled" | "credential_missing" | "credential_invalid"
+  | "charge_unresolved" | "source_inactive" | "source_access"
   | "budget_unavailable" | "quota_exhausted" | "unsupported_scope";
 
 export const BatchVisibilityInput = Type.Object(

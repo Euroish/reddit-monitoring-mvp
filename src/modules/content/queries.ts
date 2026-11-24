@@ -317,3 +317,27 @@ export async function countSourceSamples(db: Pool, id: string, from: string, to:
   );
   return Number(row?.count ?? 0);
 }
+
+export async function listScopedContentIds(
+  db: Pool | PoolClient,
+  actor: Actor,
+  scope: { sourceIds: string[]; filter: Filter; batchMembership?: import("./search").BatchMembership },
+  visibility?: import("./search").BatchMembership,
+  maxItems = 50000,
+): Promise<Array<{ id: string; sourceId: string }>> {
+  const compiled = compileContentFilter(actor, {}, scope.sourceIds, scope.filter, false, scope.batchMembership);
+  const vis = visibility?.contains(v => "$" + compiled.values.push(v), "c.id");
+  const tables = compiled.needsSearchDocument ? contentTables : contentSourceTables;
+  compiled.values.push(maxItems);
+  const limitParam = `$${compiled.values.length}`;
+  const { rows } = await db.query<{ id: string; source_id: string }>(
+    `SELECT DISTINCT ON (c.id) c.id, d.collection_source_id AS source_id
+     FROM ${tables}
+     JOIN content_discovery d ON d.content_id = c.id AND d.collection_source_id = ANY($1::uuid[])
+     WHERE ${compiled.text}${vis ? ` AND ${vis}` : ""}
+     ORDER BY c.id, d.first_fetched_at ASC
+     LIMIT ${limitParam}`,
+    [scope.sourceIds.length ? compiled.values[0] : [], ...compiled.values.slice(1)],
+  );
+  return rows.map((r) => ({ id: r.id, sourceId: r.source_id }));
+}

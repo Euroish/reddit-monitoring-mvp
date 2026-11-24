@@ -6,8 +6,8 @@ import type { Collect, CollectionSource, SourceInput } from "../../../packages/c
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { fail } from "../../shared/errors";
 import { canonical } from "../content/index";
-import { collectionRequestRestriction, isCollectionBudgetDisabled, validateSource } from "./config";
-import { admitViewerCollection, viewerCollectionDemand } from "./policy";
+import { collectionRequestRestriction, isCollectionBudgetDisabled, queryHintsRestriction, validateSource } from "./config";
+import { admitViewerCollection, loadEffectivePolicyForUser, viewerCollectionDemand } from "./policy";
 import { audit, insertSource, lockSource, sourceFromRow } from "./sql";
 
 export async function ensureManagedSource(
@@ -75,11 +75,18 @@ function collectionProvider(source: QueryResultRow, body: Static<typeof Collect>
   const provider = providers.find(
     item => item.capability.provider === providerName && item.capability.platform === source.platform,
   );
-  const restriction = collectionRequestRestriction(providerName, source.platform, source.target.type, body);
+  const restriction = collectionRequestRestriction(providerName, source.platform, source.target.type, body)
+    ?? queryHintsRestriction(providerName, source.target.type, body.queryHints);
   if (restriction) fail(422, restriction);
   if (!provider?.capability.enabled) fail(422, "Provider networking is disabled or credentials are missing");
   if (source.automatic_collection_blocked) fail(409, "Collection is blocked pending review of an unresolved operation");
   return providerName as string;
+}
+
+function omitProjectVisibility(obj: Record<string, unknown> | null | undefined) {
+  if (!obj) return {};
+  const { projectVisibility: _, ...rest } = obj;
+  return rest;
 }
 
 export async function enqueueCollectionForSource(
@@ -90,10 +97,11 @@ export async function enqueueCollectionForSource(
     sourceId: string;
     requestKey: string;
     requestHash?: string;
+    projectVisibility?: "private" | "shared";
     rejectCreate?: { statusCode: number; message: string };
   },
 ): Promise<{ jobId: string; created: boolean }> {
-  const { sourceId, requestKey, requestHash, rejectCreate, ...body } = input;
+  const { sourceId, requestKey, requestHash, rejectCreate, projectVisibility, ...body } = input;
   const source = await lockSource(client, actor, sourceId);
   const previous = (
     await client.query(
@@ -104,7 +112,9 @@ export async function enqueueCollectionForSource(
   if (previous) {
     if (previous.requested_by_client_kind !== actor.clientKind ||
         previous.requested_by_user_id !== (actor.userId ?? null) ||
-        (requestHash ? previous.payload_hash !== requestHash : canonical(previous.request_json) !== canonical(body))) {
+        (requestHash
+          ? previous.payload_hash !== requestHash
+          : canonical(omitProjectVisibility(previous.request_json)) !== canonical(body))) {
       fail(409, "Idempotency key already used with different request");
     }
     return { jobId: previous.id, created: false };
@@ -118,6 +128,7 @@ export async function enqueueCollectionForSource(
     sourceId: source.id, from: body.from, to: body.to, useFallback: body.useFallback,
     ...viewerCollectionDemand(providerName, source.target.type, pageSize, body),
   });
+  const storedRequest = projectVisibility ? { ...body, projectVisibility } : body;
   const id = randomUUID();
   await client.query(
     `INSERT INTO source_collection_job(
@@ -125,9 +136,106 @@ export async function enqueueCollectionForSource(
        page_size,max_pages,next_run_at,created_at,request_key,request_json,requested_by_user_id,requested_by_client_kind,payload_hash
      )
      VALUES($1,$2,'queued','collect','radar',$3,$4,$5,$6,1,NOW(),NOW(),$7,$8,$9,$10,$11)`,
-    [id, source.id, providerName, body.from, body.to, pageSize, requestKey, body, actor.userId, actor.clientKind, requestHash ?? null],
+    [id, source.id, providerName, body.from, body.to, pageSize, requestKey, storedRequest, actor.userId, actor.clientKind, requestHash ?? null],
   );
   return { jobId: id, created: true };
+}
+
+const ON_DEMAND_PROVIDER: Record<"reddit" | "x" | "bluesky", string> = {
+  reddit: "kaix",
+  x: "twitterapis",
+  bluesky: "bluesky_appview",
+};
+
+function buildOnDemandSourceInput(
+  platform: "reddit" | "x" | "bluesky",
+  targetType: "community" | "account" | "search",
+  targetValue: string,
+): Static<typeof SourceInput> {
+  const primaryProvider = ON_DEMAND_PROVIDER[platform] as Static<typeof SourceInput>["primaryProvider"];
+  const trimmed = targetValue.trim();
+  const target: Static<typeof SourceInput>["target"] =
+    targetType === "community"
+      ? { type: "community", community: trimmed }
+      : targetType === "account"
+        ? { type: "account", account: trimmed }
+        : { type: "search", query: trimmed };
+  const label =
+    targetType === "community"
+      ? `r/${trimmed.replace(/^r\//i, "")}`
+      : targetType === "account"
+        ? `@${trimmed.replace(/^@/, "")}`
+        : `${platform.toUpperCase()}: ${trimmed}`;
+  return {
+    platform,
+    primaryProvider,
+    deliveryMode: "pull",
+    contentKind: "post",
+    feedLane: "monitor_only",
+    label: label.slice(0, 100),
+    target,
+    schedule: { enabled: false },
+  };
+}
+
+export async function enqueueOnDemandCollection(
+  client: PoolClient,
+  actor: Actor,
+  providers: ContentProvider[],
+  input: Static<typeof Collect> & {
+    sourceId?: string;
+    platform?: "reddit" | "x" | "bluesky";
+    targetType?: "community" | "account" | "search";
+    targetValue?: string;
+    projectVisibility?: "private" | "shared";
+    requestKey: string;
+    requestHash?: string;
+  },
+): Promise<{ jobId: string; sourceId: string; created: boolean }> {
+  if (input.sourceId) {
+    const res = await enqueueCollectionForSource(client, actor, providers, { ...input, sourceId: input.sourceId });
+    return { ...res, sourceId: input.sourceId };
+  }
+  if (!input.platform || !input.targetType || !input.targetValue) {
+    fail(422, "Provide either sourceId or platform, targetType, and targetValue");
+  }
+  if (actor.allowedSourceIds !== null) {
+    fail(403, "Your API scope restricts collection to pre-assigned sources");
+  }
+  if (actor.role === "viewer") {
+    const policy = await loadEffectivePolicyForUser(client, actor.userId, true);
+    if (policy.allowedSourceIds !== null) {
+      fail(403, "Your account policy restricts collection to pre-approved sources");
+    }
+  }
+  const sourceInput = buildOnDemandSourceInput(input.platform, input.targetType, input.targetValue);
+  const { target } = validateSource(providers, sourceInput);
+  const targetKey = JSON.stringify({ platform: sourceInput.platform, provider: sourceInput.primaryProvider, target });
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`ondemand:${targetKey}`]);
+
+  const existing = (
+    await client.query(
+      `SELECT cs.id, cs.state, cs.delivery_mode
+       FROM collection_source cs
+       JOIN source s ON s.id = cs.platform_id
+       WHERE s.code = $1 AND cs.primary_provider = $2 AND cs.content_kind = $3 AND cs.target = $4::jsonb
+       FOR UPDATE OF cs`,
+      [sourceInput.platform, sourceInput.primaryProvider, sourceInput.contentKind, target],
+    )
+  ).rows[0];
+  let sourceId: string;
+  if (existing) {
+    if (existing.state !== "active" || existing.delivery_mode !== "pull") {
+      fail(409, "Matching source is paused or archived; ask an administrator to review it in Source Management");
+    }
+    sourceId = existing.id;
+  } else {
+    const createdSource = await insertSource(client, sourceInput, target, "admin");
+    sourceId = createdSource.id;
+  }
+  const { platform: _p, targetType: _tt, targetValue: _tv, sourceId: _sid, ...collectFields } = input;
+  const res = await enqueueCollectionForSource(client, actor, providers, { ...collectFields, sourceId });
+  return { ...res, sourceId };
 }
 
 export interface ProviderDailyUsageSummary {
@@ -211,7 +319,7 @@ export async function listLegacySources(db: Pool | PoolClient): Promise<LegacySo
          AND request_count > 0
      ) td ON true
      WHERE cs.usage_domain = 'research' AND NOT cs.monitor_managed
-       AND (cs.feed_lane = 'monitor_only' OR cs.schedule @> '{"enabled":true}')
+       AND cs.schedule @> '{"enabled":true}'
      ORDER BY cs.created_at, cs.id`,
   );
   return rows.map((r) => ({

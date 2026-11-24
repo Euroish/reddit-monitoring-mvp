@@ -485,7 +485,7 @@ export function SourcesPage({
             onNavigate('/sources?tab=sources&domain=' + domain + '&sourceId=' + id);
           }} onInspect={id => { setJobActionError(''); setAckJobCharge(false); setInspectJobId(id); }} />
       ) : tab === 'budgets' ? (
-        <QuotasManagementView actor={actor} budgets={budgets} budgetError={budgetsQuery.error} budgetsPending={budgetsQuery.isPending} providers={capabilities} sources={sources} onEditBudget={setEditBudget} />
+        <QuotasManagementView actor={actor} budgets={budgets} budgetError={budgetsQuery.error} budgetsPending={budgetsQuery.isPending} providers={capabilities} sources={sources} onEditBudget={setEditBudget} onNavigate={onNavigate} />
       ) : tab === 'providers' ? (
         <div className="collection-stack">
           {networkOff && <div role="status" className="wb-alert wb-alert--warn collection-panel-notice">

@@ -6,11 +6,17 @@ export {
   socialResourcesReservedToday,
   updateGlobalSocialBudget,
 } from "./automatic-hydration";
-export { createCredentialVault, credentialRoutes, type CredentialVault } from "./credentials";
+export {
+  collectionRequestRestriction,
+  providerFilterCapabilities,
+  queryHintsRestriction,
+} from "./config";
+export { createCredentialVault, credentialRoutes, type CredentialLookupName, type CredentialVault } from "./credentials";
 export { enqueueHydrationForScope } from "./hydrate";
 export { jobRoutes } from "./jobs";
 export {
   enqueueCollectionForSource,
+  enqueueOnDemandCollection,
   ensureManagedSource,
   getProviderDailyUsage,
   listLegacySources,
@@ -25,6 +31,6 @@ export { collectionRoutes, collectionRoutes as registerCollectionModule } from "
 export { allSourcesExist, listSourcesByIds } from "./sql";
 export { readCollectionWorkerHealth, startWorker } from "./worker";
 
-export { batchMembership, contentVisibility, loadAuthorizedBatches } from "./batches";
+export { batchMembership, contentVisibility, createSnapshotBatch, loadAuthorizedBatches } from "./batches";
 export { assertBrowserExportAllowed, loadEffectivePolicyForUser } from "./policy";
 export { getUserRoleStatus, listStaffOwnerIds } from "../access/index";

@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Alert } from './ui/alert';
 import { Checkbox } from './ui/checkbox';
-import { formatSourceTarget, type CollectionBatchDto, type CollectionSource, type ResearchCollectionRestriction, type ResearchPlanPreviewRequest, type ResearchPlanPreviewResponse } from '../contracts/api';
+import { formatSourceTarget, type CollectionBatchDto, type CollectionSource, type QueryHintsValue, type ResearchCollectionRestriction, type ResearchPlanPreviewRequest, type ResearchPlanPreviewResponse } from '../contracts/api';
 import { getRangeLimits } from '../lib/researchIntake';
 import { useI18n } from '../i18n/translations';
 
@@ -14,7 +14,14 @@ export type ManualTarget = {
   targetValue: string;
 };
 export type IntakeTarget = { sourceId: string } | ManualTarget;
-export type CollectionRange = { days: number; limit: number; comments: boolean; commentLimit: number; fallback: boolean };
+export type CollectionRange = {
+  days: number;
+  limit: number;
+  comments: boolean;
+  commentLimit: number;
+  fallback: boolean;
+  queryHints: QueryHintsValue;
+};
 export type CollectionEstimate = { request: ResearchPlanPreviewRequest; result: ResearchPlanPreviewResponse; key: string; expiresAt: number };
 
 const kinds = { reddit: ['community', 'account', 'search'], x: ['account', 'search'], bluesky: ['account'] } as const;
@@ -86,12 +93,12 @@ export function IntakeTargetStep({ sources, draft, setDraft, selected, pending, 
   </>;
 }
 
-export function IntakeScopeStep({ result, source, range, setRange, isAdmin, pending, onContinue, onBack }: {
+export function IntakeScopeStep({ result, source, range, setRange, pending, onContinue, onBack }: {
   result: ResearchPlanPreviewResponse;
   source?: CollectionSource;
   range: CollectionRange;
   setRange: (range: CollectionRange) => void;
-  isAdmin: boolean;
+  isAdmin?: boolean;
   pending: boolean;
   onContinue: (event: FormEvent<HTMLFormElement>) => void;
   onBack: () => void;
@@ -100,9 +107,17 @@ export function IntakeScopeStep({ result, source, range, setRange, isAdmin, pend
   const limits = getRangeLimits(result, range.fallback ? source?.fallbackProvider ?? undefined : undefined);
   const maximum = Math.min(limits.maxItems, range.comments ? Math.floor(2000 / (range.commentLimit + 1)) : limits.maxItems);
   const choices = [...new Set([7, 30, 90, limits.maxDays].filter(n => n > 0 && n <= limits.maxDays))];
+  const targetDisplay = result.matchedSource?.label ?? (result.resolvedTarget ? `${platformNames[result.resolvedTarget.platform as ManualTarget['platform']] ?? result.resolvedTarget.platform}: ${result.resolvedTarget.value}` : '');
+  const sf = result.fieldPolicy.supportedFilters;
+  const setHint = <K extends keyof QueryHintsValue>(k: K, val: QueryHintsValue[K]) => {
+    const next = { ...range.queryHints, [k]: val };
+    if (val === undefined || val === '' || val === false) delete next[k];
+    setRange({ ...range, queryHints: next });
+  };
   return <>
     <h2>{t('Set the collection scope', '设置采集范围')}</h2>
-    <p>{t('Collect from', '本次采集对象')}{' ' }<strong>{result.matchedSource?.label}</strong></p>
+    <p>{t('Collect from', '本次采集对象')}{' ' }<strong>{targetDisplay}</strong>
+      {result.resolutionStatus === 'on_demand_available' && <small className="collection-hint"> · {t('On-demand research target', '按需实时研究对象')}</small>}</p>
     <form onSubmit={onContinue} className="intake-step-form">
       <fieldset className="intake-fields" disabled={pending}>
         <label className="wb-field">{t('Time range', '时间范围')}<select value={range.days} className="wb-select"
@@ -123,12 +138,56 @@ export function IntakeScopeStep({ result, source, range, setRange, isAdmin, pend
                 setRange({ ...range, commentLimit, limit: Math.min(range.limit, Math.floor(2000 / (commentLimit + 1))) });
               }} /></label>}
         </>}
-        {isAdmin && result.fieldPolicy.canUseFallback && source?.fallbackProvider && <details>
+        {sf && (sf.sortOptions.length > 0 || sf.supportsMinLikes || sf.supportsTimeRange || sf.supportsLanguage) && (
+          <details open={Object.keys(range.queryHints).length > 0}>
+            <summary>{t('Channel filter options', '平台筛选与排序提示')} ({sf.engagementFilterMode === 'native' ? t('Native upstream query', '上游原生支持') : t('Best-effort / post-filter', '回传后过滤 / 尽力支持')})</summary>
+            <div className="wb-grid-2" style={{ marginTop: 8 }}>
+              {sf.sortOptions.length > 0 && (
+                <label className="wb-field">{t('Sort mode', '排序方式')}
+                  <select className="wb-select" value={range.queryHints.sort ?? ''} onChange={e => setHint('sort', (e.target.value || undefined) as QueryHintsValue['sort'])}>
+                    <option value="">{t('Provider default', '渠道默认')}</option>
+                    {sf.sortOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
+                </label>
+              )}
+              {sf.supportsTimeRange && (
+                <label className="wb-field">{t('Upstream period hint', '上游时段窗口')}
+                  <select className="wb-select" value={range.queryHints.timeRange ?? ''} onChange={e => setHint('timeRange', (e.target.value || undefined) as QueryHintsValue['timeRange'])}>
+                    <option value="">{t('Match date window', '按采集起止日')}</option>
+                    {(['day', 'week', 'month', 'year'] as const).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
+                </label>
+              )}
+              {sf.supportsMinLikes && (
+                <label className="wb-field">{t('Min likes / score', '最低点赞 / 分数')}
+                  <Input type="number" min={0} max={1000000} value={range.queryHints.minLikes ?? ''} onChange={e => setHint('minLikes', e.target.value === '' ? undefined : Number(e.target.value))} />
+                </label>
+              )}
+              {sf.supportsMinComments && (
+                <label className="wb-field">{t('Min replies / comments', '最低回复 / 评论数')}
+                  <Input type="number" min={0} max={1000000} value={range.queryHints.minComments ?? ''} onChange={e => setHint('minComments', e.target.value === '' ? undefined : Number(e.target.value))} />
+                </label>
+              )}
+              {sf.supportsLanguage && (
+                <label className="wb-field">{t('Language code (e.g. en)', '语言代码（如 en / ja）')}
+                  <Input maxLength={16} value={range.queryHints.language ?? ''} onChange={e => setHint('language', e.target.value.trim() || undefined)} />
+                </label>
+              )}
+            </div>
+            {sf.supportsExcludeReposts && (
+              <label className="intake-check" style={{ marginTop: 6 }}>
+                <Checkbox checked={Boolean(range.queryHints.excludeReposts)} onCheckedChange={v => setHint('excludeReposts', v ? true : undefined)} />
+                {t('Exclude reposts / retweets', '排除转发 / 转推内容')}
+              </label>
+            )}
+          </details>
+        )}
+        {result.fieldPolicy.canUseFallback && source?.fallbackProvider && <details>
           <summary>{t('Advanced collection settings', '高级采集设置')}</summary>
           <label className="intake-check"><Checkbox checked={range.fallback} onCheckedChange={fallback => {
             const next = getRangeLimits(result, fallback ? source.fallbackProvider ?? undefined : undefined);
             setRange({ ...range, fallback, comments: false, limit: Math.min(range.limit, next.maxItems) });
-          }} />{t('Use the backup service', '使用备用采集服务')}</label>
+          }} />{t('Use the backup service', '使用备用采集服务')} ({source.fallbackProvider})</label>
         </details>}
       </fieldset>
       <div className="intake-actions">
@@ -154,10 +213,11 @@ export function IntakeReviewStep({ estimate, confirmed, setConfirmed, pending, i
   const { t } = useI18n();
   const { request, result } = estimate;
   const units = isAdmin ? result.estimate.systemResources : result.estimate.personalResources;
+  const targetLabel = result.matchedSource?.label ?? (result.resolvedTarget ? `${result.resolvedTarget.platform}: ${result.resolvedTarget.value}` : '');
   return <>
     <h2>{t('Confirm what to collect and the estimated usage', '确认采集内容与预计消耗')}</h2>
     <dl className="intake-facts">
-      <div><dt>{t('Research target', '研究对象')}</dt><dd>{result.matchedSource?.label}</dd></div>
+      <div><dt>{t('Research target', '研究对象')}</dt><dd>{targetLabel}</dd></div>
       <div><dt>{t('Collection scope', '采集范围')}</dt><dd>{request.from.slice(0, 10)} – {request.to.slice(0, 10)} UTC · {t(`up to ${request.limit} items`, `最多 ${request.limit} 条`)} · {request.includeComments ? t('with comments', '包含评论') : t('without comments', '不含评论')}</dd></div>
       <div><dt>{t('Estimated usage', '预计消耗')}</dt><dd>{t(`${result.estimate.requests} external request(s) · ${units} collection units`, `${result.estimate.requests} 次外部请求 · ${units} 采集额度`)}</dd></div>
     </dl>
@@ -178,6 +238,9 @@ const restrictionText: Record<ResearchCollectionRestriction, [string, string]> =
   provider_choice: ['The backup collection service is unavailable for this target.', '该目标目前不能使用备用采集服务。'],
   scope_limit: ['Reduce the date range or number of requested items.', '请缩小时间范围或减少采集条数。'],
   provider_unavailable: ['The collection service is not ready. Choose another target or contact an administrator.', '采集服务尚未就绪。请换个对象，或联系管理员。'],
+  network_disabled: ['External network collection is currently disabled on this server (SOURCE_NETWORK_ENABLED is off).', '当前服务端未开启外部网络采集开关（SOURCE_NETWORK_ENABLED=false）。'],
+  credential_missing: ['The provider API key is not configured yet. Ask an administrator to add it.', '对应采集渠道的 API 密钥尚未配置，请联系管理员在后台添加后重试。'],
+  credential_invalid: ['The provider API key was rejected upstream and needs rotation by an administrator.', '采集渠道 API 密钥被上游拒绝或失效，请联系管理员测试并轮换密钥。'],
   charge_unresolved: ['A previous request may have used quota. Ask an administrator to review it.', '上次采集可能已消耗额度，请联系管理员核对。'],
   source_inactive: ['Collection is paused for this target.', '该对象已暂停采集。'],
   source_access: ['Collection is unavailable for this target under your current permissions.', '当前账号无法采集该对象。'],
@@ -195,16 +258,17 @@ export function IntakeRestriction({ result, registrationPath, isAdmin, onBack }:
   const { t } = useI18n();
   const codes = result.restrictions ?? (result.resolutionStatus === 'needs_admin_source' ? ['target_unavailable'] : []);
   const channel = result.matchedSource?.provider;
-  const providerBlocked = isAdmin && codes.includes('provider_unavailable');
+  const providerCredBlocked =
+    isAdmin && (codes.includes('provider_unavailable') || codes.includes('credential_missing') || codes.includes('credential_invalid'));
   const budgetBlocked = isAdmin && codes.includes('budget_unavailable');
   return <Alert role="status" className="intake-restriction">
     <h3>{t('Collection cannot start yet', '暂时无法开始采集')}</h3>
     {codes.length ? <ul>{codes.map(code => <li key={code}>{restrictionText[code] ? t(...restrictionText[code]) : t('Collection is currently restricted.', '当前采集受限。')}</li>)}</ul>
       : <p>{t('Try another target or contact an administrator.', '请更换研究对象，或联系管理员检查采集设置。')}</p>}
-    {providerBlocked && channel && <p>{t(`Check the saved credential and network status for ${channel}.`, `请检查 ${channel} 的渠道凭证和联网状态。`)}</p>}
+    {providerCredBlocked && channel && <p>{t(`Check the saved credential and network status for ${channel}.`, `请检查 ${channel} 的渠道凭证和联网状态。`)}</p>}
     <div className="intake-actions">
-      {registrationPath && <a href={registrationPath}>{t('Add this research source', '添加此研究来源')}</a>}
-      {providerBlocked && <a href="/sources?tab=providers">{t('Check provider credentials', '检查渠道凭证')}</a>}
+      {isAdmin && registrationPath && <a href={registrationPath}>{t('Add this research source', '添加此研究来源')}</a>}
+      {providerCredBlocked && <a href="/sources?tab=providers">{t('Check provider credentials', '检查渠道凭证')}</a>}
       {budgetBlocked && <a href="/sources?tab=budgets">{t('Check provider budgets', '检查渠道预算')}</a>}
       <Button type="button" variant="outline" onClick={onBack}>{t('Try another target', '更换研究对象')}</Button>
     </div>

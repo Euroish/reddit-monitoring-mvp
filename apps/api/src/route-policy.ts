@@ -39,9 +39,12 @@ const VIEWER_ALLOWED_POSTS = new Set([
   "/v1/sources/:id/collect",
   "/v1/sources/:id/refresh",
   "/v1/research/collection-plans/preview",
+  "/v1/research/collection-plans/collect",
   "/v1/projects",
+  "/v1/projects/:id/fork",
   "/v1/projects/:id/hydrate",
   "/v1/projects/:id/batches",
+  "/v1/projects/:id/batches/:batchId/move",
   "/v1/source-jobs/:id/cancel",
   "/v1/source-jobs/:id/retry",
   "/v1/source-jobs/:id/continue",
@@ -55,6 +58,7 @@ const VIEWER_ALLOWED_PATCHES = new Set([
 const VIEWER_ALLOWED_DELETES = new Set([
   "/v1/auth/sessions/:id",
   "/v1/projects/:id",
+  "/v1/batches/:id",
 ]);
 
 export interface ResolvedRoutePolicy {

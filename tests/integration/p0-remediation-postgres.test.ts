@@ -38,13 +38,7 @@ test("P0 foundations: domain/lane consistency, MFA on budget writes, configurabl
   let providerCalls = 0;
   const kaix = new KaixContentConnector({ networkEnabled: true, apiToken: "fixture-token" }, async () => {
     providerCalls++;
-    return {
-      items: [],
-      nextCheckpoint: null,
-      exhausted: true,
-      coverage: "partial",
-      warning: null,
-    };
+    return new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } });
   });
   const app = await buildApp({
     pool: db.pool,

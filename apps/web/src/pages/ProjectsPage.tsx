@@ -22,15 +22,20 @@ import {
 } from 'lucide-react';
 import {
   formatApiError,
+  isMfaRequiredError,
   useContentListQuery,
   useCreateProjectMutation,
   useDeleteProjectMutation,
+  useForkProjectMutation,
   useProjectOverviewQuery,
   useProjectsQuery,
+  usePublishProjectMutation,
   useQuotasSummaryQuery,
   useSourcesQuery,
   useUpdateProjectMutation,
 } from '../api/hooks';
+import { apiClient } from '../api/client';
+import { InlineMfaStepUp } from '../components/InlineMfaStepUp';
 import { KpiCard } from '../components/workbench/KpiCard';
 import { Alert } from '../components/ui/alert';
 import { Card } from '../components/ui/card';
@@ -46,6 +51,7 @@ import {
   ProjectBatchesView,
   ProjectJobsView,
   ProjectListView,
+  ViewerPersonalJobsView,
 } from '../components/ProjectWorkspaceViews';
 import { isResearchSource } from '../lib/collectionLimits';
 import {
@@ -98,6 +104,18 @@ function downloadEvidenceCsv(content: PublicContent[], projectId?: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function downloadTextFile(filename: string, text: string, mime: string) {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function ProjectEvidenceExport({ isAdmin, quota, ready, content, projectId }: {
   isAdmin: boolean;
   quota: ReturnType<typeof useQuotasSummaryQuery>;
@@ -107,35 +125,142 @@ function ProjectEvidenceExport({ isAdmin, quota, ready, content, projectId }: {
 }) {
   const { t } = useI18n();
   const [checking, setChecking] = useState(false);
+  const [exportErr, setExportErr] = useState('');
   const allowed = isAdmin || (quota.isSuccess && quota.data.effectivePolicy.exportEnabled === true);
   const notice = allowed ? '' : quota.isError
     ? t('Could not verify export permission.', '暂时无法核实导出权限。')
     : quota.isPending ? t('Checking export permission…', '正在检查导出权限…')
     : t('Export is disabled for your account.', '当前账号的导出权限已关闭。');
 
-  async function download() {
-    if (!allowed || checking) return;
-    if (isAdmin) {
-      downloadEvidenceCsv(content, projectId);
-      return;
-    }
+  async function ensureAllowed(): Promise<boolean> {
+    if (!allowed || checking) return false;
+    if (isAdmin) return true;
     setChecking(true);
     try {
       const latest = await quota.refetch();
-      if (latest.isSuccess && latest.data.effectivePolicy.exportEnabled === true) downloadEvidenceCsv(content, projectId);
+      return Boolean(latest.isSuccess && latest.data.effectivePolicy.exportEnabled === true);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function downloadSample() {
+    setExportErr('');
+    if (await ensureAllowed()) downloadEvidenceCsv(content, projectId);
+  }
+
+  async function downloadFull(format: 'csv' | 'json') {
+    if (!projectId) return;
+    setExportErr('');
+    if (!(await ensureAllowed())) return;
+    setChecking(true);
+    try {
+      const res = await apiClient.exportContent({ projectId, format, maxRows: 10000 });
+      downloadTextFile(
+        `siftline-${projectId.slice(0, 8)}-full.${format}`,
+        res.text,
+        format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8',
+      );
+    } catch (err) {
+      setExportErr(formatApiError(err));
     } finally {
       setChecking(false);
     }
   }
 
   return <>
-    <button type="button" className="ds-btn ds-btn--ghost" onClick={() => void download()}
+    <button type="button" className="ds-btn ds-btn--ghost" onClick={() => void downloadSample()}
       disabled={!ready || content.length === 0 || !allowed || checking} aria-describedby={notice ? 'project-export-notice' : undefined}>
       <Download size={13} />
       <span>{t('Export evidence samples (CSV)', '导出证据样本（CSV）')}</span>
     </button>
+    {projectId && (
+      <>
+        <button type="button" className="ds-btn ds-btn--ghost" onClick={() => void downloadFull('csv')}
+          disabled={!ready || !allowed || checking}>
+          <Download size={13} />
+          <span>{t('Full Export (CSV)', '完整项目导出 (CSV)')}</span>
+        </button>
+        <button type="button" className="ds-btn ds-btn--ghost" onClick={() => void downloadFull('json')}
+          disabled={!ready || !allowed || checking}>
+          <Download size={13} />
+          <span>{t('Full Export (JSON)', '完整项目导出 (JSON)')}</span>
+        </button>
+      </>
+    )}
     {notice && <small id="project-export-notice" role="status">{notice}</small>}
+    {exportErr && <small role="alert" style={{ color: '#a8462f' }}>{exportErr}</small>}
   </>;
+}
+
+function ProjectForkPublishActions({
+  project,
+  isAdmin,
+  onForked,
+  onBanner,
+}: {
+  project: Project;
+  isAdmin: boolean;
+  onForked: (forkedId: string) => void;
+  onBanner: (msg: string | null) => void;
+}) {
+  const { t } = useI18n();
+  const forkMut = useForkProjectMutation();
+  const publishMut = usePublishProjectMutation();
+  const [mfaNeeded, setMfaNeeded] = useState(false);
+
+  const nextVis = project.visibility === 'shared' ? 'private' : 'shared';
+
+  const runPublish = async () => {
+    onBanner(null);
+    try {
+      await publishMut.mutateAsync({
+        projectId: project.id,
+        visibility: nextVis,
+        revision: project.revision,
+      });
+      setMfaNeeded(false);
+    } catch (err) {
+      if (isMfaRequiredError(err)) setMfaNeeded(true);
+      else onBanner(formatApiError(err));
+    }
+  };
+
+  return (
+    <>
+      {project.is_shared && (
+        <button
+          type="button"
+          className="ds-btn ds-btn--ghost"
+          disabled={forkMut.isPending}
+          onClick={async () => {
+            onBanner(null);
+            try {
+              const copy = await forkMut.mutateAsync({ projectId: project.id });
+              onForked(copy.id);
+            } catch (err) {
+              onBanner(formatApiError(err));
+            }
+          }}
+        >
+          <Copy size={13} />
+          <span>{forkMut.isPending ? t('Forking…', '正在复制…') : t('Fork to My Project', '复制到我的私有项目')}</span>
+        </button>
+      )}
+      {isAdmin && project.can_edit && (
+        <button
+          type="button"
+          className="ds-btn ds-btn--ghost"
+          disabled={publishMut.isPending}
+          onClick={() => void runPublish()}
+        >
+          <Globe size={13} />
+          <span>{project.visibility === 'shared' ? t('Make Private', '设为私有') : t('Publish Shared', '发布为共享主题')}</span>
+        </button>
+      )}
+      {mfaNeeded && <InlineMfaStepUp onVerified={runPublish} onCancel={() => setMfaNeeded(false)} />}
+    </>
+  );
 }
 
 const PAIN_RE =
@@ -190,8 +315,8 @@ export function ProjectsPage({
     ? undefined
     : projects.find((p) => p.id === (urlProjectId || selectedProjectId)) || projects[0];
   const canWrite = Boolean(selectedProject?.can_edit ?? isAdmin);
-  const activeView: 'list' | 'collect' | 'jobs' | 'batches' | 'overview' =
-    urlView === 'list' || urlView === 'collect' || urlView === 'jobs' || urlView === 'batches' || urlView === 'overview'
+  const activeView: 'list' | 'collect' | 'jobs' | 'my-jobs' | 'batches' | 'overview' =
+    urlView === 'list' || urlView === 'collect' || urlView === 'jobs' || urlView === 'my-jobs' || urlView === 'batches' || urlView === 'overview'
       ? urlView
       : canWrite && selectedProject && selectedProject.dataset_mode === 'batch' && (selectedProject.enabled_batch_count ?? 0) === 0
         ? 'collect'
@@ -288,7 +413,6 @@ export function ProjectsPage({
   useEffect(() => {
     if (!activeSection) return;
     const idMap: Record<string, string> = {
-      radar: 'card-scatter-radar',
       platform: 'card-platform',
       attribution: 'card-attribution',
     };
@@ -491,7 +615,9 @@ export function ProjectsPage({
           {t('Research Workspace', '研究工作区')}
         </button>
         <span>/</span>
-        {activeView === 'list' ? (
+        {activeView === 'my-jobs' ? (
+          <b>{t('My Collection Jobs', '我的采集任务记录')}</b>
+        ) : activeView === 'list' ? (
           <b>{t('All Projects', '全部项目')}</b>
         ) : (
           <>
@@ -526,9 +652,16 @@ export function ProjectsPage({
         <div>
           <div className="page-title-row">
             <h1 className="page-title">{selectedProject ? selectedProject.name : t('Monitoring Overview', '监测总览')}</h1>
-            {selectedProject && <Badge variant="secondary">
-              {selectedProject.dataset_mode === 'batch' ? t('Batch project', '批次型项目') : t('Source-filter project', '来源型项目')}
-            </Badge>}
+            {selectedProject && (
+              <>
+                <Badge variant="secondary">
+                  {selectedProject.dataset_mode === 'batch' ? t('Batch project', '批次型项目') : t('Source-filter project', '来源型项目')}
+                </Badge>
+                <Badge variant="secondary">
+                  {selectedProject.visibility === 'shared' || selectedProject.is_shared ? t('Shared', '共享') : t('Private', '私有')}
+                </Badge>
+              </>
+            )}
           </div>
           {selectedProject && <p className="page-desc">
             {selectedProject.dataset_mode === 'batch'
@@ -598,6 +731,18 @@ export function ProjectsPage({
             projectId={selectedProject?.id}
           />}
 
+          {selectedProject && (
+            <ProjectForkPublishActions
+              project={selectedProject}
+              isAdmin={isAdmin}
+              onForked={(forkedId) => {
+                onSelectProjectId(forkedId);
+                go(`/projects?view=overview&projectId=${encodeURIComponent(forkedId)}`);
+              }}
+              onBanner={setPageBanner}
+            />
+          )}
+
           {canWrite && selectedProject && (
             <>
               <button type="button" className="ds-btn ds-btn--ghost" onClick={() => openEdit(selectedProject)}>
@@ -636,7 +781,9 @@ export function ProjectsPage({
 
       {pageBanner && <div className="wb-alert wb-alert--error" style={{ marginBottom: 14 }}>{pageBanner}</div>}
 
-      {activeView === 'list' ? (
+      {activeView === 'my-jobs' ? (
+        <ViewerPersonalJobsView onNavigate={go} />
+      ) : activeView === 'list' ? (
         <ProjectListView
           projects={projects}
           activeProjectId={selectedProject?.id}

@@ -29,6 +29,9 @@ export interface EffectivePolicy {
   maxLookbackDays: number;
   allowProviderChoice: boolean;
   exportEnabled: boolean;
+  allowAutoSchedule: boolean;
+  maxScheduledTasks: number;
+  minScheduleIntervalHours: number;
   hasOverride: boolean;
 }
 
@@ -45,6 +48,9 @@ interface PolicyRow {
   max_lookback_days: number;
   allow_provider_choice: boolean;
   export_enabled: boolean;
+  allow_auto_schedule: boolean;
+  max_scheduled_tasks: number;
+  min_schedule_interval_hours: number;
   updated_at: string;
   revision: number;
 }
@@ -65,6 +71,9 @@ export function resolveEffectivePolicy(policy: PolicyRow, override: UserQuotaOve
     maxLookbackDays: o.maxLookbackDays ?? policy.max_lookback_days ?? 7,
     allowProviderChoice: o.allowProviderChoice ?? policy.allow_provider_choice ?? false,
     exportEnabled: o.exportEnabled ?? policy.export_enabled ?? true,
+    allowAutoSchedule: o.allowAutoSchedule ?? policy.allow_auto_schedule ?? false,
+    maxScheduledTasks: o.maxScheduledTasks ?? policy.max_scheduled_tasks ?? 0,
+    minScheduleIntervalHours: o.minScheduleIntervalHours ?? policy.min_schedule_interval_hours ?? 24,
     hasOverride: Boolean(override && Object.keys(override).length > 0),
   };
 }
@@ -241,6 +250,17 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
       const budgetFlags = new Map(budgets.rows.map(row => [row.provider, row.enabled]));
       return {
         scope: "personal" as const,
+        bypassPlanLimits: false,
+        effectiveCapabilities: {
+          bypassPlanLimits: false,
+          canManageSources: false,
+          canManageBudgets: false,
+          canManageUserOverrides: false,
+          canManagePlanPolicies: false,
+          canManageMembers: false,
+          canInviteAdmins: false,
+          canChangeUserPlans: false,
+        },
         resetsAtUtc,
         effectivePolicy: effective,
         myUsage: { ...myTotals, byProvider: myRows },
@@ -284,8 +304,20 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
       };
     });
 
+    const isOwner = actor.role === "owner";
     return {
       scope: "admin" as const,
+      bypassPlanLimits: true,
+      effectiveCapabilities: {
+        bypassPlanLimits: true,
+        canManageSources: true,
+        canManageBudgets: true,
+        canManageUserOverrides: true,
+        canManagePlanPolicies: isOwner,
+        canManageMembers: true,
+        canInviteAdmins: isOwner,
+        canChangeUserPlans: isOwner,
+      },
       resetsAtUtc,
       effectivePolicy: effective,
       myUsage: { ...myTotals, byProvider: myRows },
@@ -302,6 +334,9 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
         maxLookbackDays: p.max_lookback_days ?? 7,
         allowProviderChoice: p.allow_provider_choice ?? false,
         exportEnabled: p.export_enabled ?? true,
+        allowAutoSchedule: p.allow_auto_schedule ?? false,
+        maxScheduledTasks: p.max_scheduled_tasks ?? 0,
+        minScheduleIntervalHours: p.min_schedule_interval_hours ?? 24,
         updatedAt: p.updated_at,
         revision: p.revision,
       })),
@@ -342,6 +377,9 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
                max_lookback_days=COALESCE($10, max_lookback_days),
                allow_provider_choice=COALESCE($11, allow_provider_choice),
                export_enabled=COALESCE($12, export_enabled),
+               allow_auto_schedule=COALESCE($15, allow_auto_schedule),
+               max_scheduled_tasks=COALESCE($16, max_scheduled_tasks),
+               min_schedule_interval_hours=COALESCE($17, min_schedule_interval_hours),
                updated_by=$13, updated_at=NOW(), revision=revision+1
            WHERE plan_tier=$1 AND revision=$14
            RETURNING *`,
@@ -360,6 +398,9 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
             request.body.exportEnabled ?? null,
             actor.userId,
             request.body.revision,
+            request.body.allowAutoSchedule ?? null,
+            request.body.maxScheduledTasks ?? null,
+            request.body.minScheduleIntervalHours ?? null,
           ],
         );
         if (!res.rowCount) fail(409, "Plan policy changed; reload before saving");
@@ -375,6 +416,9 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
             allowedProviders: updated.allowed_providers,
             dailyRequests: updated.daily_requests,
             dailyResources: updated.daily_resources,
+            allowAutoSchedule: updated.allow_auto_schedule,
+            maxScheduledTasks: updated.max_scheduled_tasks,
+            minScheduleIntervalHours: updated.min_schedule_interval_hours,
           },
         });
         return {
@@ -391,6 +435,9 @@ export async function policyRoutes(app: FastifyInstance, pool: Pool, providers: 
             maxLookbackDays: updated.max_lookback_days ?? 7,
             allowProviderChoice: updated.allow_provider_choice ?? false,
             exportEnabled: updated.export_enabled ?? true,
+            allowAutoSchedule: updated.allow_auto_schedule ?? false,
+            maxScheduledTasks: updated.max_scheduled_tasks ?? 0,
+            minScheduleIntervalHours: updated.min_schedule_interval_hours ?? 24,
             updatedAt: updated.updated_at,
             revision: updated.revision,
           },
