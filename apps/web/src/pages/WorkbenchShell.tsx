@@ -332,9 +332,9 @@ export function WorkbenchShell({
       { group: t('Feed', '信息流'), label: t('Product Overview', '产品介绍'), kbd: 'G P', run: () => navigateAndClose('/product') },
       { group: t('Feed', '信息流'), label: t('Product Docs', '产品文档'), kbd: 'G ?', run: () => navigateAndClose('/docs') },
       { group: t('Feed', '信息流'), label: t('Product Guide', '产品使用说明'), kbd: 'G U', run: () => navigateAndClose('/guide') },
-      { group: t('Navigate', '页面跳转'), label: t('Project Overview', '项目总览'), kbd: 'G O', run: () => navigateAndClose('/projects') },
+      { group: t('Navigate', '页面跳转'), label: t('Content Research', '内容研究'), kbd: 'G O', run: () => navigateAndClose('/projects') },
       { group: t('Navigate', '页面跳转'), label: t('Intelligence Insights (V2)', '智能监测洞察 (V2)'), kbd: 'G V', run: () => navigateAndClose('/projects?view=intelligence') },
-      { group: t('Navigate', '页面跳转'), label: t('Content Explorer', '内容检索与过滤'), kbd: 'G E', run: () => navigateAndClose('/content') },
+      { group: t('Navigate', '页面跳转'), label: t('Content Search', '内容检索'), kbd: 'G E', run: () => navigateAndClose('/content') },
       ...(canWrite
         ? [
             { group: t('Navigate', '页面跳转'), label: t('Sources & Collection Jobs', '来源与采集任务'), kbd: 'G S', run: () => navigateAndClose('/sources') },
@@ -685,16 +685,7 @@ export function WorkbenchShell({
                   onClick={() => navigateAndClose(`/projects?view=overview${pidQs}`)}
                 >
                   <Grid size={14} className="nav-ic" />
-                  <span>{t('Project Overview', '项目总览')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`nav-item ${route === '/projects' && currentView === 'intelligence' ? 'is-active' : ''}`}
-                  aria-current={route === '/projects' && currentView === 'intelligence' ? 'page' : undefined}
-                  onClick={() => navigateAndClose(`/projects?view=intelligence${pidQs}`)}
-                >
-                  <Sparkles size={14} className="nav-ic" />
-                  <span>{t('Intelligence Insights', '智能监测洞察 (V2)')}</span>
+                  <span>{t('Content Research', '内容研究')}</span>
                 </button>
                 <button
                   type="button"
@@ -703,7 +694,7 @@ export function WorkbenchShell({
                   onClick={() => navigateAndClose(`/content${pidQueryOnly}`)}
                 >
                   <Search size={14} className="nav-ic" />
-                  <span>{t('Content Explorer', '内容研究')}</span>
+                  <span>{t('Content Search', '内容检索')}</span>
                 </button>
                 <button
                   type="button"

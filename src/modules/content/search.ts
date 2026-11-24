@@ -104,6 +104,10 @@ function buildSignalPredicate(signal: NonNullable<Filter["signal"]>, discoveryEx
     : observed;
 }
 
+function normalizeCommunityName(raw: string) {
+  return raw.trim().replace(/^r\//i, "").toLowerCase();
+}
+
 function applyScopeFilter(
   filter: Filter,
   bind: (value: unknown) => string,
@@ -112,13 +116,21 @@ function applyScopeFilter(
 ): boolean {
   let needsSearchDocument = false;
   if (filter.platform) where.push(`p.code=${bind(filter.platform)}`);
+  if (filter.platforms?.length) where.push(`p.code=ANY(${bind(filter.platforms)}::text[])`);
   if (filter.kind) where.push(`c.kind=${bind(filter.kind)}`);
+  if (filter.kinds?.length) where.push(`c.kind=ANY(${bind(filter.kinds)}::text[])`);
+  if (filter.community) where.push(`c.community_name=${bind(normalizeCommunityName(filter.community))}`);
+  if (filter.communities?.length) {
+    where.push(`c.community_name=ANY(${bind(filter.communities.map(normalizeCommunityName))}::text[])`);
+  }
   if (filter.language) where.push(`c.language=${bind(filter.language)}`);
+  if (filter.languages?.length) where.push(`c.language=ANY(${bind(filter.languages)}::text[])`);
   if (filter.hasMedia !== undefined) {
     where.push(filter.hasMedia ? "jsonb_array_length(c.content_media)>0" : "jsonb_array_length(c.content_media)=0");
   }
-  if (filter.from) where.push(`c.created_at_source>=${bind(filter.from)}::timestamptz`);
-  if (filter.to) where.push(`c.created_at_source<${bind(filter.to)}::timestamptz`);
+  const tsCol = filter.timeBasis === "collected" ? "c.first_seen_at" : "c.created_at_source";
+  if (filter.from) where.push(`${tsCol}>=${bind(filter.from)}::timestamptz`);
+  if (filter.to) where.push(`${tsCol}<${bind(filter.to)}::timestamptz`);
   if (filter.from && filter.to && Date.parse(filter.from) >= Date.parse(filter.to)) {
     fail(422, "from must precede to");
   }
@@ -138,7 +150,7 @@ function applyScopeFilter(
 }
 
 export function compileContentFilter(
-  actor: Pick<Actor, "allowedSourceIds">,
+  actor: Pick<Actor, "allowedSourceIds"> & Partial<Pick<Actor, "role" | "userId">>,
   requestFilter: Filter,
   projectSourceIds?: readonly string[],
   projectFilter: Filter = {},
@@ -165,6 +177,20 @@ export function compileContentFilter(
   const visible = discovery.join(" AND ");
   for (const scope of [projectFilter, requestFilter]) {
     if (scope.sourceId) discovery.push(`d.collection_source_id=${bind(scope.sourceId)}::uuid`);
+    if (scope.sourceIds) discovery.push(`d.collection_source_id=ANY(${bind(scope.sourceIds)}::uuid[])`);
+    if (scope.batchIds) {
+      const batchConds = [
+        `b.id=ANY(${bind(scope.batchIds)}::uuid[])`,
+        "b.discarded_at IS NULL",
+        "b.collection_source_id=d.collection_source_id",
+      ];
+      if (!actor.role || actor.role === "viewer") {
+        batchConds.push(`(b.visibility='shared' OR b.created_by_user_id=${bind(actor.userId ?? null)}::uuid)`);
+      }
+      discovery.push(
+        `d.content_id IN (SELECT i.content_id FROM collection_batch_item i JOIN collection_batch b ON b.id=i.batch_id WHERE ${batchConds.join(" AND ")})`,
+      );
+    }
     if (scope.sourceGroup) discovery.push(`cs.source_group=${bind(scope.sourceGroup)}`);
     if (scope.tier) discovery.push(`cs.tier=${bind(scope.tier)}`);
   }

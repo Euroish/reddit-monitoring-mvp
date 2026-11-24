@@ -1148,6 +1148,109 @@ export function useReconcileAdminMonitorMutation() {
   });
 }
 
+export function useResearchScopeQuery(projectId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['researchScope', projectId],
+    queryFn: () => apiClient.getProjectResearchScope(projectId!),
+    enabled: Boolean(projectId) && enabled,
+  });
+}
+
+export function useL1ResearchQuery(
+  projectId: string | undefined,
+  scope: import('../contracts/research').AnalysisScopeRequest,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['researchL1', projectId, scope],
+    queryFn: () => apiClient.runL1ResearchOverview(projectId!, scope),
+    enabled: Boolean(projectId) && enabled,
+  });
+}
+
+export function useL2ResearchQuery(
+  projectId: string | undefined,
+  request: import('../contracts/research').L2ComparisonRequest,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['researchL2', projectId, request],
+    queryFn: () => apiClient.runL2ResearchComparison(projectId!, request),
+    enabled: Boolean(projectId) && enabled,
+  });
+}
+
+export function useResearchTasksQuery(projectId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['researchTasks', projectId],
+    queryFn: () => apiClient.listResearchTasks(projectId!),
+    enabled: Boolean(projectId) && enabled,
+    refetchInterval: (query) => {
+      const tasks = query.state.data?.tasks ?? [];
+      return tasks.some((t) => t.status === 'queued' || t.status === 'running') ? 1800 : false;
+    },
+  });
+}
+
+export function useCreateResearchTaskMutation(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: import('../contracts/research').CreateResearchTaskRequest) =>
+      apiClient.createResearchTask(projectId!, payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['researchTasks', projectId] });
+    },
+  });
+}
+
+export function useCancelResearchTaskMutation(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (taskId: string) => apiClient.cancelResearchTask(projectId!, taskId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['researchTasks', projectId] });
+    },
+  });
+}
+
+export function useRetryResearchTaskMutation(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (taskId: string) => apiClient.retryResearchTask(projectId!, taskId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['researchTasks', projectId] });
+    },
+  });
+}
+
+export function useDeleteResearchTaskMutation(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (taskId: string) => apiClient.deleteResearchTask(projectId!, taskId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['researchTasks', projectId] });
+    },
+  });
+}
+
+export function useResearchTaskEvidenceQuery(
+  projectId: string | undefined,
+  taskId: string | undefined,
+  params: {
+    sentiment?: 'positive' | 'neutral' | 'negative' | 'unclassified';
+    topicIndex?: number;
+    limit?: number;
+    offset?: number;
+  },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['researchTaskEvidence', projectId, taskId, params],
+    queryFn: () => apiClient.getResearchTaskEvidence(projectId!, taskId!, params),
+    enabled: Boolean(projectId) && Boolean(taskId) && enabled,
+  });
+}
+
 export function isMfaRequiredError(err: unknown): boolean {
   return (
     err instanceof ApiError &&

@@ -5,6 +5,7 @@ import {
   BarChart,
   FunnelChart,
   GaugeChart,
+  HeatmapChart,
   LineChart,
   PieChart,
   RadarChart,
@@ -17,9 +18,12 @@ import {
   GridComponent,
   LegendComponent,
   MarkAreaComponent,
+  MarkLineComponent,
+  MarkPointComponent,
   RadarComponent,
   TitleComponent,
   TooltipComponent,
+  VisualMapComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 
@@ -34,11 +38,15 @@ echarts.use([
   TreemapChart,
   SankeyChart,
   FunnelChart,
+  HeatmapChart,
   GridComponent,
   RadarComponent,
   TooltipComponent,
   LegendComponent,
   MarkAreaComponent,
+  MarkLineComponent,
+  MarkPointComponent,
+  VisualMapComponent,
   DataZoomComponent,
   TitleComponent,
 ]);
@@ -50,6 +58,7 @@ export interface EChartCanvasProps {
   style?: React.CSSProperties;
   ariaLabel?: string;
   onEvents?: Record<string, (params: unknown) => void>;
+  onChartReady?: (chart: ECharts | null) => void;
 }
 
 export default function EChartCanvas({
@@ -59,14 +68,20 @@ export default function EChartCanvas({
   style,
   ariaLabel,
   onEvents,
+  onChartReady,
 }: EChartCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<ECharts | null>(null);
   const eventsRef = useRef(onEvents);
+  const readyRef = useRef(onChartReady);
 
   useEffect(() => {
     eventsRef.current = onEvents;
   }, [onEvents]);
+
+  useEffect(() => {
+    readyRef.current = onChartReady;
+  }, [onChartReady]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -74,6 +89,7 @@ export default function EChartCanvas({
 
     const chart = echarts.init(el, undefined, { renderer: 'canvas' });
     instanceRef.current = chart;
+    readyRef.current?.(chart);
 
     const handleResize = () => {
       if (instanceRef.current && !instanceRef.current.isDisposed()) {
@@ -90,6 +106,7 @@ export default function EChartCanvas({
     return () => {
       window.removeEventListener('resize', handleResize);
       ro.disconnect();
+      readyRef.current?.(null);
       chart.dispose();
       instanceRef.current = null;
     };

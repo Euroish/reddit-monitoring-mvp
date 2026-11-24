@@ -7,6 +7,12 @@ import {
   AuthorListQuery, AuthorProfileParams, AuthorProfileQuery, CommunityDeepDiveQuery, CommunityListQuery, CommunityParams,
   MonitorCollectBody, MonitorCreateBody, MonitorKind, MonitorOverviewQuery, MonitorPatchBody, MonitorPostsQuery,
 } from "../../../packages/contracts/src/intelligence";
+import {
+  CreateResearchTaskInput,
+  L2ComparisonInput,
+  ResearchTaskEvidenceQuery,
+  ResearchTaskParams,
+} from "../../../packages/contracts/src/research";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import {
   getCommunityDeepDive, getMonitorOverview, getTrackedAuthorProfile,
@@ -16,6 +22,16 @@ import {
   getIntelligenceOpsSummary,
   reconcileAdminMonitor,
 } from "./admin-ops";
+import { runL2ResearchComparison } from "./research-l2";
+import {
+  cancelResearchTask,
+  createResearchTask,
+  deleteResearchTask,
+  getResearchTask,
+  getResearchTaskEvidence,
+  listResearchTasks,
+  retryResearchTask,
+} from "./research-tasks";
 import {
   createMonitor, deleteMonitor, estimateMonitorRun, listLegacyMonitorSources, listMonitors,
   loadMonitor, reconcileLegacyMonitorSource, triggerMonitorCollect, updateMonitor, type AssertWritableProjectFn,
@@ -101,4 +117,42 @@ export async function intelligenceRoutes(
       },
     },
     (request) => reconcileAdminMonitor(pool, request.actor!, request.params.id, request.body));
+
+  // Phase 2: L2 Comparison / Text Intelligence & L3 On-Demand Async Research Tasks
+  const browserAuth = { auth: { access: "authenticated" as const, browserOnly: true as const } };
+
+  api.post("/v1/projects/:id/research/l2",
+    { config: browserAuth, schema: { params: ParamsId, body: L2ComparisonInput } },
+    (request) => runL2ResearchComparison(pool, request.actor!, request.params.id, request.body));
+
+  api.get("/v1/projects/:id/research/tasks",
+    { config: readAuth, schema: { params: ParamsId } },
+    (request) => listResearchTasks(pool, request.actor!, request.params.id));
+
+  api.post("/v1/projects/:id/research/tasks",
+    { config: browserAuth, schema: { params: ParamsId, body: CreateResearchTaskInput } },
+    async (request, reply) => {
+      const task = await createResearchTask(pool, request.actor!, request.params.id, request.body);
+      return reply.code(202).send({ task });
+    });
+
+  api.get("/v1/projects/:id/research/tasks/:taskId",
+    { config: readAuth, schema: { params: ResearchTaskParams } },
+    async (request) => ({ task: await getResearchTask(pool, request.actor!, request.params.id, request.params.taskId) }));
+
+  api.post("/v1/projects/:id/research/tasks/:taskId/cancel",
+    { config: browserAuth, schema: { params: ResearchTaskParams } },
+    async (request) => ({ task: await cancelResearchTask(pool, request.actor!, request.params.id, request.params.taskId) }));
+
+  api.post("/v1/projects/:id/research/tasks/:taskId/retry",
+    { config: browserAuth, schema: { params: ResearchTaskParams } },
+    async (request) => ({ task: await retryResearchTask(pool, request.actor!, request.params.id, request.params.taskId) }));
+
+  api.delete("/v1/projects/:id/research/tasks/:taskId",
+    { config: browserAuth, schema: { params: ResearchTaskParams } },
+    (request) => deleteResearchTask(pool, request.actor!, request.params.id, request.params.taskId));
+
+  api.get("/v1/projects/:id/research/tasks/:taskId/evidence",
+    { config: readAuth, schema: { params: ResearchTaskParams, querystring: ResearchTaskEvidenceQuery } },
+    (request) => getResearchTaskEvidence(pool, request.actor!, request.params.id, request.params.taskId, request.query));
 }

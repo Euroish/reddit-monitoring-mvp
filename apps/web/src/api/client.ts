@@ -21,6 +21,7 @@ import {
   type MonitorOverviewResponseDto,
   type MonitorPostsResponseDto,
   type Platform,
+  type ContentKind,
   type CollectionSource,
   type ContentFacets,
   type ContentFacetsQuery,
@@ -1032,6 +1033,123 @@ export const apiClient = {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+  },
+  async getProjectResearchScope(
+    projectId: string,
+  ): Promise<import('../contracts/research').ResearchScopeTreeResponse> {
+    return liveFetch(`/projects/${encodeURIComponent(projectId)}/research/scope`);
+  },
+
+  async runL1ResearchOverview(
+    projectId: string,
+    scope: import('../contracts/research').AnalysisScopeRequest = {},
+  ): Promise<import('../contracts/research').L1OverviewResponse> {
+    return liveFetch(`/projects/${encodeURIComponent(projectId)}/research/l1`, {
+      method: 'POST',
+      body: JSON.stringify(scope),
+    });
+  },
+
+  async runL2ResearchComparison(
+    projectId: string,
+    request: import('../contracts/research').L2ComparisonRequest = {},
+  ): Promise<import('../contracts/research').L2ComparisonResponse> {
+    return liveFetch(`/projects/${encodeURIComponent(projectId)}/research/l2`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  async listResearchTasks(
+    projectId: string,
+  ): Promise<{ dataVersion: string; tasks: import('../contracts/research').L3ResearchTaskRecord[] }> {
+    return liveFetch(`/projects/${encodeURIComponent(projectId)}/research/tasks`);
+  },
+
+  async createResearchTask(
+    projectId: string,
+    payload: import('../contracts/research').CreateResearchTaskRequest,
+  ): Promise<{ task: import('../contracts/research').L3ResearchTaskRecord }> {
+    return liveFetch(`/projects/${encodeURIComponent(projectId)}/research/tasks`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async cancelResearchTask(
+    projectId: string,
+    taskId: string,
+  ): Promise<{ task: import('../contracts/research').L3ResearchTaskRecord }> {
+    return liveFetch(
+      `/projects/${encodeURIComponent(projectId)}/research/tasks/${encodeURIComponent(taskId)}/cancel`,
+      { method: 'POST', body: '{}' },
+    );
+  },
+
+  async retryResearchTask(
+    projectId: string,
+    taskId: string,
+  ): Promise<{ task: import('../contracts/research').L3ResearchTaskRecord }> {
+    return liveFetch(
+      `/projects/${encodeURIComponent(projectId)}/research/tasks/${encodeURIComponent(taskId)}/retry`,
+      { method: 'POST', body: '{}' },
+    );
+  },
+
+  async deleteResearchTask(
+    projectId: string,
+    taskId: string,
+  ): Promise<{ deleted: true; taskId: string }> {
+    return liveFetch(
+      `/projects/${encodeURIComponent(projectId)}/research/tasks/${encodeURIComponent(taskId)}`,
+      { method: 'DELETE' },
+    );
+  },
+
+  async getResearchTaskEvidence(
+    projectId: string,
+    taskId: string,
+    params?: {
+      sentiment?: 'positive' | 'neutral' | 'negative' | 'unclassified';
+      topicIndex?: number;
+      limit?: number;
+      offset?: number;
+    },
+  ): Promise<{
+    task: { id: string; taskType: 'sentiment' | 'topic_modeling'; status: string; isStale: boolean; sampleCount: number };
+    total: number;
+    limit: number;
+    offset: number;
+    items: Array<{
+      id: string;
+      platform: Platform;
+      kind: ContentKind;
+      externalId: string;
+      title: string | null;
+      text: string | null;
+      url: string | null;
+      authorHandle: string | null;
+      communityName: string | null;
+      publishedAt: string | null;
+      metricScore: number | null;
+      metricLikes: number | null;
+      metricComments: number | null;
+      engagementScore: number;
+      sentimentLabel: string | null;
+      sentimentScore: number | null;
+      topicIndex: number | null;
+      topicScore: number | null;
+    }>;
+  }> {
+    const qs = new URLSearchParams();
+    if (params?.sentiment) qs.set('sentiment', params.sentiment);
+    if (params?.topicIndex !== undefined) qs.set('topicIndex', String(params.topicIndex));
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.offset) qs.set('offset', String(params.offset));
+    const q = qs.toString();
+    return liveFetch(
+      `/projects/${encodeURIComponent(projectId)}/research/tasks/${encodeURIComponent(taskId)}/evidence${q ? `?${q}` : ''}`,
+    );
   },
 };
 

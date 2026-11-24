@@ -579,12 +579,10 @@ test("browser: project switching and guided intake with real project and role bo
   assert.equal(upstreamCalls, 1);
 
   await page.goto(origin + `/projects?view=overview&projectId=${secondId}`);
-  const analytics = page.getByRole("group", { name: "分析展示模式" });
-  await analytics.getByRole("button", { name: "合并总览" }).waitFor();
-  await page.getByRole("group", { name: "时间窗口" }).getByRole("button", { name: "7d" }).click();
-  assert.equal(await page.getByRole("group", { name: "时间窗口" }).getByRole("button", { name: "7d" }).getAttribute("aria-pressed"), "true");
-  await page.getByRole("button", { name: "6h", exact: true }).click();
-  await page.getByLabel("按 UTC 六小时分桶与平台的内容量").waitFor();
+  await page.getByText("全平台总规模").waitFor();
+  await page.getByRole("button", { name: "近 7 天" }).click();
+  await page.getByRole("button", { name: "应用到分析" }).click();
+  await page.getByText("内容趋势与爆发").waitFor();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出证据样本（CSV）" }).click();
   const csv = await readFile(await (await downloadPromise).path(), "utf8");
@@ -609,13 +607,10 @@ test("browser: project switching and guided intake with real project and role bo
   await capture("switcher-theme-1440");
   await page.keyboard.press("Escape");
 
-  await analytics.getByRole("button", { name: "分平台独立视图" }).click();
-  await page.getByRole("button", { name: "钻取", exact: true }).click();
+  await page.getByRole("button", { name: "全部检索" }).click();
   await page.waitForURL(/\/content\?/);
   const drilldown = new URL(page.url()).searchParams;
   assert.equal(drilldown.get("projectId"), secondId);
-  assert.equal(drilldown.get("platform"), "x");
-  assert.equal(Date.parse(drilldown.get("to")!) - Date.parse(drilldown.get("from")!), 7 * 86_400_000);
 
   // Keep the page open while the account loses export permission. The button
   // must use the current policy, even when its previous summary allowed CSV.
@@ -635,7 +630,7 @@ test("browser: project switching and guided intake with real project and role bo
   await capture("evidence-export-denied-390");
   await page.goto(origin + `/content?projectId=${secondId}`);
   await page.getByText("当前账号的导出权限已关闭。", { exact: true }).waitFor();
-  assert.equal(await page.getByRole("button", { name: "流式导出" }).isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: "导出检索结果" }).isDisabled(), true);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await capture("stream-export-denied-390");
   await db.pool.query("UPDATE app_user SET quota_override=NULL WHERE email='pro@example.test'");
@@ -888,15 +883,10 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await page.goto(`${origin}/content`);
   await page.getByText(storyTitle).first().waitFor();
   assert.deepEqual(guestUnauthorized, []);
-  const facetsResponse = page.waitForResponse(
-    (res) => res.url().includes("/api/v1/content/facets") && res.status() === 200,
-  );
-  await page.getByRole("button", { name: "分析内容" }).click();
-  await facetsResponse;
-
-  await page.goto(`${origin}/content?from=2025-01-01T00%3A00%3A00Z&to=2025-05-01T00%3A00%3A00Z`);
-  await page.getByRole("button", { name: "分析内容" }).click();
-  await page.getByText("分析需要大于零且不超过 90 天的日期范围。").waitFor();
+  const facetsOk = await page.request.get(`${origin}/api/v1/content/facets?from=2025-01-01T00%3A00%3A00Z&to=2025-02-01T00%3A00%3A00Z`);
+  assert.equal(facetsOk.status(), 200);
+  const facetsOverSpan = await page.request.get(`${origin}/api/v1/content/facets?from=2025-01-01T00%3A00%3A00Z&to=2025-05-01T00%3A00%3A00Z`);
+  assert.equal(facetsOverSpan.status(), 422);
 
   // 6. Protected route gate -> Sign in -> Redirect preserves target path & query
   await page.goto(`${origin}/projects?section=platform`);
@@ -1228,7 +1218,7 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await drawer.getByText("内部讨论的补充评论。").waitFor();
   await drawer.locator("header button").first().click();
 
-  await page.getByRole("button", { name: "流式导出" }).click();
+  await page.getByRole("button", { name: "导出检索结果" }).click();
   await page.getByRole("button", { name: "JSON", exact: true }).click();
   const downloadEvent = page.waitForEvent("download");
   await page.getByRole("button", { name: "下载当前结果" }).click();

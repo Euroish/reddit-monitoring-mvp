@@ -1,24 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
-  ArrowUpRight,
-  Calendar,
-  Check,
   Copy,
-  Database,
   Download,
   Edit3,
   Globe,
-  Layers,
   Link2,
-  MessageSquare,
   Plus,
   RefreshCw,
   Sparkles,
-  Target,
   Trash2,
   X,
-  Zap,
 } from 'lucide-react';
 import {
   formatApiError,
@@ -37,17 +29,9 @@ import {
 } from '../api/hooks';
 import { apiClient } from '../api/client';
 import { InlineMfaStepUp } from '../components/InlineMfaStepUp';
-import { MonitorSchedulePanel } from '../components/MonitorSchedulePanel';
-import { KpiCard } from '../components/workbench/KpiCard';
-import { Alert } from '../components/ui/alert';
-import { Card } from '../components/ui/card';
-import { Skeleton } from '../components/ui/skeleton';
 import { Badge } from '../components/ui/badge';
-import { Table } from '../components/ui/table';
-import { KpiSparkChart } from '../components/charts/KpiSparkChart';
-import { useChartColors } from '../components/charts/chartUtils';
-import { CrossPlatformAnalyticsPanel } from '../components/CrossPlatformAnalyticsPanel';
 import { IntelligenceAnalyticsView } from '../components/projects/IntelligenceAnalyticsView';
+import { ContentResearchWorkspace } from '../components/research/ContentResearchWorkspace';
 import { ProjectCollectView } from '../components/ProjectCollectView';
 import '../styles/collection.css';
 import {
@@ -68,7 +52,6 @@ import {
   type PublicContent,
   type SearchScope,
   type SignalType,
-  formatContentAuthor,
   validateFilterInput,
 } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
@@ -315,9 +298,6 @@ function ProjectForkPublishActions({
   );
 }
 
-const PAIN_RE =
-  /\b(broken|bug|slow|expensive|pricing|sucks|frustrated|unusable|churn|blocked|timeout|hate|pain|issue|fail(?:ed|ing)?|refund|friction|overage)\b|崩溃|卡顿|太贵|难用|踩坑|报错|封号|吐槽|痛/i;
-
 function resolveProjectActiveView(
   urlView: string,
   canWrite: boolean,
@@ -454,7 +434,6 @@ export function ProjectsPage({
   onOpenContentDetail,
 }: ProjectsPageProps) {
   const { t } = useI18n();
-  const colors = useChartColors();
   const isAdmin = actor.role === 'owner' || actor.role === 'admin';
   const canCreateProject = actor.clientKind === 'browser';
 
@@ -504,38 +483,19 @@ export function ProjectsPage({
   const overviewQuery = useProjectOverviewQuery(selectedProject?.id, selectedProject?.revision);
   const overview = overviewQuery.data;
 
-  const [rangeDays, setRangeDays] = useState<7 | 30 | 90>(30);
-  const [windowEnd, setWindowEnd] = useState(() => Math.floor(Date.now() / 86_400_000) * 86_400_000 + 86_400_000);
-  const windowFrom = new Date(windowEnd - rangeDays * 86_400_000).toISOString();
+  const [windowEnd] = useState(() => Math.floor(Date.now() / 86_400_000) * 86_400_000 + 86_400_000);
+  const windowFrom = new Date(windowEnd - 30 * 86_400_000).toISOString();
   const windowTo = new Date(windowEnd).toISOString();
-  const [threadAwareOverride, setThreadAware] = useState<boolean>();
-  const threadAware = threadAwareOverride ?? selectedProject?.thread_aware ?? true;
-  const [filterPlatforms, setFilterPlatforms] = useState<Set<Platform>>(
-    () => new Set<Platform>(['reddit', 'x', 'bluesky', 'web']),
-  );
-  const [filterSignal, setFilterSignal] = useState<'all' | 'pain' | 'discussion'>('all');
-  const [filterKind, setFilterKind] = useState<'all' | ContentKind>('all');
-
-  const togglePlatform = (platform: Platform) => {
-    setFilterPlatforms(previous => {
-      const next = new Set(previous);
-      if (!next.has(platform)) next.add(platform);
-      else if (next.size > 1) next.delete(platform);
-      return next;
-    });
-  };
+  const threadAware = selectedProject?.thread_aware ?? true;
 
   const contentQuery = useContentListQuery({
     limit: 100, threadAware, from: windowFrom, to: windowTo,
-    kind: filterKind === 'all' ? undefined : filterKind,
     deliveryMode: selectedProject?.dataset_mode === 'source_filter' && !selectedProject.include_push_in_trends
       ? 'pull' : undefined,
   }, selectedProject?.id, activeView === 'overview' && Boolean(selectedProject?.id));
   const rawItems = useMemo(() => contentQuery.data?.items ?? [], [contentQuery.data?.items]);
 
   const [openFilterPop, setOpenFilterPop] = useState<'platforms' | 'signal' | 'kind' | 'share' | null>(null);
-  const [refreshSpin, setRefreshSpin] = useState(false);
-  const [tutorialOpen, setTutorialOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [pageBanner, setPageBanner] = useState<string | null>(null);
 
@@ -717,50 +677,12 @@ export function ProjectsPage({
     }
   };
 
-  // Filtered view of scoped content for High-Signal table & Radar scatter
-  const filteredContent = useMemo(() => {
-    return rawItems.filter((item) => {
-      if (!filterPlatforms.has(item.platform)) return false;
-      if (filterKind !== 'all' && item.kind !== filterKind) return false;
-      if (filterSignal === 'pain' && !PAIN_RE.test(`${item.title || ''} ${item.text || ''}`)) return false;
-      if (filterSignal === 'discussion') {
-        const m = item.observations[item.observations.length - 1]?.metrics || {};
-        const c = Number(m['reddit.num_comments'] ?? m['x.replies'] ?? m['bluesky.replies'] ?? 0);
-        if (c < 10) return false;
-      }
-      return true;
-    });
-  }, [rawItems, filterPlatforms, filterKind, filterSignal]);
-
-  const dayBuckets = useMemo(
-    () =>
-      (overview?.facets || [])
-        .filter((f) => f.day_group === 0 && f.day !== null)
-        .sort((a, b) => (a.day || '').localeCompare(b.day || '')),
-    [overview?.facets],
-  );
-  const daySeriesValues = useMemo(() => dayBuckets.map((d) => d.count), [dayBuckets]);
-  const utcRangeText = useMemo(() => {
-    const first = windowFrom.slice(0, 10);
-    const last = new Date(windowEnd - 86_400_000).toISOString().slice(0, 10);
-    return first === last ? `${first} UTC` : `${first} – ${last} UTC`;
-  }, [windowFrom, windowEnd]);
   const hasBoundPushSource = Boolean(
     selectedProject?.source_ids.some(
       (sid) => sources.find((s) => s.id === sid)?.deliveryMode === 'push',
     ),
   );
-
-  const unknownRow = overview?.facets.find((f) => f.day_group === 0 && f.day === null);
-  const painCount = useMemo(
-    () => filteredContent.filter((i) => PAIN_RE.test(`${i.title || ''} ${i.text || ''}`)).length,
-    [filteredContent],
-  );
-
-  const painRatio = useMemo(
-    () => (filteredContent.length > 0 ? Math.round((painCount / filteredContent.length) * 100) : 0),
-    [filteredContent.length, painCount],
-  );
+  const exportDisabled = !isAdmin && quotasSummaryQuery.data?.effectivePolicy.exportEnabled === false;
 
   const shareUrl = selectedProject ? new URL(
     `/projects?view=overview&projectId=${encodeURIComponent(selectedProject.id)}`, window.location.origin,
@@ -801,7 +723,7 @@ export function ProjectsPage({
                     ? t('Data Batches', '数据批次')
                     : activeView === 'intelligence'
                       ? t('Intelligence Insights (V2)', '智能监测洞察 (V2)')
-                      : t('Project Overview', '项目总览')}
+                      : t('Content Research', '内容研究')}
             </b>
           </>
         )}
@@ -883,6 +805,17 @@ export function ProjectsPage({
             )}
           </div>
 
+          {activeView === 'overview' && selectedProject && (
+            <button
+              type="button"
+              className="ds-btn ds-btn--ghost"
+              onClick={() => onDrilldown(selectedProject.id)}
+            >
+              <span>{t('Explore All', '全部检索')}</span>
+              <ArrowRight size={13} />
+            </button>
+          )}
+
           {activeView === 'overview' && monitors.length > 0 && selectedProject && (
             <button
               type="button"
@@ -898,14 +831,12 @@ export function ProjectsPage({
             isAdmin={isAdmin}
             quota={quotasSummaryQuery}
             ready={contentQuery.isSuccess}
-            content={filteredContent}
+            content={rawItems}
             projectId={selectedProject?.id}
             activeFilter={{
               from: windowFrom,
               to: windowTo,
               threadAware,
-              kind: filterKind === 'all' ? undefined : filterKind,
-              platform: filterPlatforms.size === 1 ? [...filterPlatforms][0] : undefined,
               deliveryMode: selectedProject?.dataset_mode === 'source_filter' && !selectedProject.include_push_in_trends
                 ? 'pull' : undefined,
             }}
@@ -1002,7 +933,18 @@ export function ProjectsPage({
           onNavigate={go}
         />
       ) : activeView === 'jobs' && selectedProject ? (
-        <ProjectJobsView key={selectedProject.id} project={selectedProject} jobId={searchParams.get('jobId') ?? undefined} onNavigate={go} />
+        <ProjectJobsView
+          key={selectedProject.id}
+          actor={actor}
+          project={selectedProject}
+          quota={quotasSummaryQuery.data}
+          monitors={monitors}
+          jobId={searchParams.get('jobId') ?? undefined}
+          onNavigate={go}
+          onOpenAnalytics={(monitorId) =>
+            go(`/projects?view=intelligence&projectId=${encodeURIComponent(selectedProject.id)}&monitorId=${encodeURIComponent(monitorId)}`)
+          }
+        />
       ) : activeView === 'batches' && selectedProject ? (
         <ProjectBatchesView key={selectedProject.id} project={selectedProject} batchId={searchParams.get('batchId') ?? undefined} allProjects={projects} onNavigate={go} />
       ) : activeView === 'intelligence' ? (
@@ -1015,461 +957,43 @@ export function ProjectsPage({
         />
       ) : (
         <>
-          {selectedProject && overview && <section className="project-summary" aria-label={t('Project totals', '项目全范围数据')}>
-            <h2>{t('Project totals', '项目全范围数据')}</h2>
-            <div className="kpi-strip">
-              <KpiCard label={<><MessageSquare size={12} />{overview.threadAware ? t('Deduplicated threads', '去重讨论根数') : t('Content anchors', '内容锚点')}</>}
-                value={overview.contentCount.toLocaleString()}
-                badge={<Badge variant="secondary">{t('Stored samples', '已存样本')}</Badge>}
-                detail={overview.threadAware ? t('Project scope · deduplicated by root', '项目全范围 · 按讨论根去重') : t('Project scope · visible rows', '项目全范围 · 可见记录')}
-                trend={<KpiSparkChart values={daySeriesValues} color={colors.purple} />} />
-              <KpiCard label={<><Target size={12} />{t('Matched nodes', '命中内容')}</>}
-                value={overview.matchedContentCount.toLocaleString()}
-                detail={t('Project scope · nodes before root deduplication', '项目全范围 · 去重前节点')}
-                trend={<KpiSparkChart values={dayBuckets.map(day => day.matchedContentCount)} color={colors.teal} />} />
-              <KpiCard label={<><Database size={12} />{selectedProject.dataset_mode === 'batch' ? t('Enabled batches', '启用批次') : t('Bound sources', '绑定来源')}</>}
-                value={selectedProject.dataset_mode === 'batch' ? (selectedProject.enabled_batch_count ?? '—') : selectedProject.source_ids.length}
-                detail={t(`${overview.providers.length} observed providers`, `${overview.providers.length} 个已观测渠道`)} />
-            </div>
-          </section>}
-          {selectedProject && (
-            <div style={{ marginBottom: 16 }}>
-              <CrossPlatformAnalyticsPanel
-                project={selectedProject}
-                items={rawItems}
-                rangeDays={rangeDays}
-                setRangeDays={setRangeDays}
-                from={windowFrom}
-                to={windowTo}
-                threadAware={threadAware}
-                setThreadAware={setThreadAware}
-                kind={filterKind === 'all' ? undefined : filterKind}
-                platforms={filterPlatforms}
-                togglePlatform={togglePlatform}
-                providers={overview?.providers ?? []}
-                onDrilldown={onDrilldown}
-                onOpenContentDetail={onOpenContentDetail}
-              />
+          {/* Empty State when no project exists yet */}
+          {!projectsQuery.isLoading && !selectedProject && (
+            <div className="ds-card" style={{ padding: 28, textAlign: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 650, marginBottom: 6 }}>
+                {t('No Monitoring Projects Yet', '尚未创建监测项目')}
+              </h3>
+              <p style={{ fontSize: 12.5, color: 'var(--muted)', maxWidth: 520, margin: '0 auto 14px' }}>
+                {t(
+                  'Bind one or more sources with a fixed keyword lens to track daily trend anchors and pain-point cohorts.',
+                  '绑定一个或多个数据来源与固化检索词组，即可开启每日趋势锚点与痛点人群分析。',
+                )}
+              </p>
+              {canWrite && (
+                <button type="button" className="ds-btn" onClick={() => openCreate()}>
+                  <Plus size={14} />
+                  <span>{t('Create First Project', '创建首个监测项目')}</span>
+                </button>
+              )}
             </div>
           )}
+
           {selectedProject && (
-            <MonitorSchedulePanel
-              actor={actor}
+            <ContentResearchWorkspace
               project={selectedProject}
-              quota={quotasSummaryQuery.data}
-              monitors={monitors}
-              onOpenAnalytics={(monitorId) => go(`/projects?view=intelligence&projectId=${encodeURIComponent(selectedProject.id)}&monitorId=${encodeURIComponent(monitorId)}`)}
+              initialLayer={
+                searchParams.get('layer') === 'l2'
+                  ? 'l2'
+                  : searchParams.get('layer') === 'l3'
+                    ? 'l3'
+                    : 'l1'
+              }
+              exportDisabled={exportDisabled}
+              onOpenContentDetail={onOpenContentDetail}
+              onNavigate={go}
             />
           )}
-
-          {/* Evidence filters */}
-          <div className="filterbar" data-ov-pop>
-        {/* Platform Filter Popover */}
-        <div style={{ position: 'relative' }}>
-          <button
-            type="button"
-            className="fb-item"
-            onClick={() => setOpenFilterPop(openFilterPop === 'platforms' ? null : 'platforms')}
-          >
-            <Globe size={12} color="var(--faint)" />
-            <span>{t('Platform', '平台')}</span>
-            <b>{filterPlatforms.size === 4 ? t('All 4', '全部 4') : `${filterPlatforms.size}`}</b>
-          </button>
-          {openFilterPop === 'platforms' && (
-            <div className="ds-pop" style={{ top: 'calc(100% + 6px)', left: 0, width: 220 }}>
-              <div className="pop-hd"><span>{t('Platforms', '选择平台')}</span><span>{t('Multi', '多选')}</span></div>
-              {(['reddit', 'x', 'bluesky', 'web'] as Platform[]).map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  className={`pop-opt ${filterPlatforms.has(p) ? 'on' : ''}`}
-                  aria-pressed={filterPlatforms.has(p)}
-                  onClick={() => togglePlatform(p)}
-                >
-                  <span style={{ flex: 1, textTransform: p === 'x' ? 'uppercase' : 'capitalize' }}>{p}</span>
-                  {filterPlatforms.has(p) && <Check size={13} color="var(--wb-purple)" />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Signal Filter Popover */}
-        <div style={{ position: 'relative' }}>
-          <button
-            type="button"
-            className="fb-item"
-            onClick={() => setOpenFilterPop(openFilterPop === 'signal' ? null : 'signal')}
-          >
-            <Zap size={12} color="var(--faint)" />
-            <span>{t('Signal', '信号')}</span>
-            <b>
-              {filterSignal === 'all'
-                ? t('All', '全部')
-                : filterSignal === 'pain'
-                  ? t('Pain', '痛点')
-                  : t('Discussion', '高讨论')}
-            </b>
-          </button>
-          {openFilterPop === 'signal' && (
-            <div className="ds-pop" style={{ top: 'calc(100% + 6px)', left: 0, width: 210 }}>
-              <div className="pop-hd"><span>{t('Signal Type', '信号类型')}</span></div>
-              {([
-                ['all', t('All Signals', '全部信号')],
-                ['pain', t('Pain Signals', '痛点信号')],
-                ['discussion', t('High-Reply Discussions', '高互动讨论')],
-              ] as const).map(([val, lab]) => (
-                <button
-                  key={val}
-                  type="button"
-                  className={`pop-opt ${filterSignal === val ? 'on' : ''}`}
-                  onClick={() => {
-                    setFilterSignal(val);
-                    setOpenFilterPop(null);
-                  }}
-                >
-                  <span style={{ flex: 1 }}>{lab}</span>
-                  {filterSignal === val && <Check size={13} color="var(--wb-purple)" />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Content Kind Filter Popover */}
-        <div style={{ position: 'relative' }}>
-          <button
-            type="button"
-            className="fb-item"
-            onClick={() => setOpenFilterPop(openFilterPop === 'kind' ? null : 'kind')}
-          >
-            <Layers size={12} color="var(--faint)" />
-            <span>{t('Kind', '内容')}</span>
-            <b>{filterKind === 'all' ? t('All', '全部类型') : filterKind}</b>
-          </button>
-          {openFilterPop === 'kind' && (
-            <div className="ds-pop" style={{ top: 'calc(100% + 6px)', left: 0, width: 190 }}>
-              <div className="pop-hd"><span>{t('Content Kind', '内容形态')}</span></div>
-              {([
-                ['all', t('All Kinds', '全部类型')],
-                ['post', t('Posts', '帖文')],
-                ['comment', t('Comments', '评论')],
-                ['article', t('Articles', '文章')],
-              ] as const).map(([val, lab]) => (
-                <button
-                  key={val}
-                  type="button"
-                  className={`pop-opt ${filterKind === val ? 'on' : ''}`}
-                  onClick={() => {
-                    setFilterKind(val);
-                    setOpenFilterPop(null);
-                  }}
-                >
-                  <span style={{ flex: 1 }}>{lab}</span>
-                  {filterKind === val && <Check size={13} color="var(--wb-purple)" />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <span className="fb-item">
-          <Calendar size={12} color="var(--faint)" />
-          <span>{utcRangeText}</span>
-        </span>
-
-        <span className="fb-spacer" />
-
-        <button
-          type="button"
-          className="icon-square"
-          style={{ width: 30, height: 30 }}
-          onClick={() => {
-            setRefreshSpin(true);
-            setWindowEnd(Math.floor(Date.now() / 86_400_000) * 86_400_000 + 86_400_000);
-            overviewQuery.refetch();
-            contentQuery.refetch();
-            setTimeout(() => setRefreshSpin(false), 620);
-          }}
-          title={t('Refresh overview', '重新加载聚合数据')}
-        >
-          <RefreshCw
-            size={13}
-            style={{
-              transition: 'transform 0.6s ease',
-              transform: refreshSpin ? 'rotate(360deg)' : 'none',
-            }}
-          />
-        </button>
-      </div>
-
-      {/* Empty State when no project exists yet */}
-      {!projectsQuery.isLoading && !selectedProject && (
-        <div className="ds-card" style={{ padding: 28, textAlign: 'center', marginBottom: 16 }}>
-          <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 650, marginBottom: 6 }}>
-            {t('No Monitoring Projects Yet', '尚未创建监测项目')}
-          </h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', maxWidth: 520, margin: '0 auto 14px' }}>
-            {t(
-              'Bind one or more sources with a fixed keyword lens to track daily trend anchors and pain-point cohorts.',
-              '绑定一个或多个数据来源与固化检索词组，即可开启每日趋势锚点与痛点人群分析。',
-            )}
-          </p>
-          {canWrite && (
-            <button type="button" className="ds-btn" onClick={() => openCreate()}>
-              <Plus size={14} />
-              <span>{t('Create First Project', '创建首个监测项目')}</span>
-            </button>
-          )}
-        </div>
-      )}
-
-      {selectedProject && overviewQuery.isPending && (
-        <Skeleton className="project-overview-skeleton" role="status" aria-label={t('Loading project totals', '正在加载项目汇总')} />
-      )}
-      {overviewQuery.isError && (
-        <Alert variant="destructive" role="alert">
-          {formatApiError(overviewQuery.error)} <button type="button" onClick={() => void overviewQuery.refetch()}>{t('Retry', '重试')}</button>
-        </Alert>
-      )}
-      {contentQuery.isError && (
-        <Alert variant="destructive" role="alert">
-          {formatApiError(contentQuery.error)} <button type="button" onClick={() => void contentQuery.refetch()}>{t('Retry samples', '重试加载样本')}</button>
-        </Alert>
-      )}
-
-      {/* Main Dashboard Bento Grid */}
-      {selectedProject && overview && (
-        <div className="ds-grid">
-          {/* 5. High-Signal Discussions Table (c8) + Onboarding Guide & Tutorial Card (c4) */}
-          <div className="c8" id="card-table">
-            <div className="ds-card">
-              <div className="ds-card-hd">
-                <div>
-                  <div className="ds-card-title">
-                    <MessageSquare size={14} color="var(--faint)" />
-                    <span>{t('High-Signal Discussions', '高信号讨论')}</span>
-                  </div>
-                  <div className="ds-card-sub">
-                    {t('Sorted by interaction & pain signal density; click any row to inspect threads', '按互动热度与痛点信号排序 · 点击行直接在抽屉中查看观测快照与评论树')}
-                  </div>
-                </div>
-                <div className="ds-card-tools">
-                  <button
-                    type="button"
-                    className="ds-btn ds-btn--quiet"
-                    onClick={() => onDrilldown(selectedProject.id)}
-                  >
-                    <span>{t('Explore All', '全部检索')}</span>
-                    <ArrowRight size={13} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="ds-card-bd" style={{ padding: '6px 12px 8px', overflowX: 'auto' }}>
-                <Table className="tbl">
-                  <colgroup>
-                    <col style={{ width: '50%' }} />
-                    <col style={{ width: '13%' }} />
-                    <col style={{ width: '13%' }} />
-                    <col style={{ width: '14%' }} />
-                    <col style={{ width: '10%' }} />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th>{t('Discussion', '讨论主题')}</th>
-                      <th>{t('Platform', '平台')}</th>
-                      <th>{t('Signal', '信号')}</th>
-                      <th className="num">{t('Score / Replies', '互动 / 评论')}</th>
-                      <th className="num">{t('UTC Day', '日期')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredContent.slice(0, 6).map((item) => {
-                      const latest = item.observations[item.observations.length - 1];
-                      const m = latest?.metrics || {};
-                      const score = m['reddit.score'] ?? m['x.likes'] ?? m['bluesky.likes'];
-                      const comments = m['reddit.num_comments'] ?? m['x.replies'] ?? m['bluesky.replies'];
-                      const isPain = PAIN_RE.test(`${item.title || ''} ${item.text || ''}`);
-                      const isDisc = typeof comments === 'number' && comments >= 10;
-
-                      return (
-                        <tr key={item.id}>
-                          <td>
-                            <button type="button" className="t-title project-evidence-link" onClick={() => onOpenContentDetail(item.id)}>{item.title || item.text?.slice(0, 72) || item.externalId}</button>
-                            <span className="t-meta">
-                              {formatContentAuthor(item.author)} · {[...new Set(item.observations.map((o) => o.provider))].join(', ')}
-                            </span>
-                          </td>
-                          <td>
-                            <span className="tag tag--line" style={{ height: 20, fontSize: 10, textTransform: item.platform === 'x' ? 'uppercase' : 'capitalize' }}>
-                              {item.platform}
-                            </span>
-                          </td>
-                          <td>
-                            <span className={`sig ${isPain ? 'pain' : isDisc ? 'disc' : 'neutral'}`}>
-                              {isPain ? t('Pain', '痛点') : isDisc ? t('Thread', '讨论') : t('Neutral', '中性')}
-                            </span>
-                          </td>
-                          <td className="num">
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600 }}>
-                              {score?.toLocaleString() ?? '—'}
-                            </span>
-                            <span className="t-meta">{comments ?? '—'} {t('replies', '评论')}</span>
-                          </td>
-                          <td className="num">
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: item.publishedAt ? 'var(--faint)' : '#a8762c' }}>
-                              {item.publishedAt ? item.publishedAt.slice(5, 10) : '—'}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </Table>
-              </div>
-
-              <div className="ds-card-ft">
-                <span>
-                  {t('Showing up to 6 of', '最多展示 6 /')} {filteredContent.length} {t('items in stored_sample', '条命中样本')}
-                </span>
-                <button type="button" onClick={() => onDrilldown(selectedProject.id)}>
-                  {t('Open Content Explorer →', '进入内容检索台 →')}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="c4 stack-gap">
-            <Card className="ds-card">
-              <div className="ds-card-hd">
-                <div className="ds-card-title">{t('Explore project evidence', '探索项目证据')}</div>
-              </div>
-              <div className="ds-card-bd collection-toolbar">
-                <button type="button" className="ds-btn ds-btn--ghost"
-                  onClick={() => onDrilldown(selectedProject.id, 'signal=pain')}>
-                  <Zap size={13} />{t('Find pain signals', '在内容库筛选痛点')}
-                </button>
-                {selectedProject.dataset_mode === 'batch' && (
-                  <button type="button" className="ds-btn ds-btn--ghost"
-                    onClick={() => go(`/projects?view=batches&projectId=${encodeURIComponent(selectedProject.id)}`)}>
-                    <Database size={13} />{t('View data batches', '查看数据批次')}
-                  </button>
-                )}
-              </div>
-            </Card>
-
-            {/* Tutorial Playbook Card */}
-            <button type="button" className="tutorial-card" onClick={() => setTutorialOpen(true)}>
-              <span className="tut-thumb">
-                <img src="/assets/img/cover-field.jpg" alt="" />
-              </span>
-              <span className="tut-txt">
-                <b>{t('Reading Multi-Level Thread Trees', '用三视图讨论树读完一段争论')}</b>
-                <span>{t('Playbook · 8 min guide · 3 examples', '教程 · 8 分钟 · 含孤儿节点识别')}</span>
-              </span>
-              <ArrowUpRight size={15} color="var(--faint)" />
-            </button>
-          </div>
-
-          {/* 6. Signal of the Week Insight Banner (Exact DeepSeek match) */}
-          <div className="c12">
-            <div className="insight-banner">
-              <span className="ib-icon">
-                <Sparkles size={18} />
-              </span>
-              <div className="ib-txt">
-                <div className="ib-kicker">{t('Project Signal Summary', '当前项目信号摘要')}</div>
-                <h4>
-                  {t(
-                    `${painCount} heuristic pain signals among ${filteredContent.length} loaded samples`,
-                    `已加载的 ${filteredContent.length} 条筛选样本中，有 ${painCount} 条命中启发式痛点规则`,
-                  )}
-                </h4>
-                <p>
-                  {t(
-                    `Coverage stays strictly within stored_sample across ${overview.providers.length} observed providers.`,
-                    `统计严格遵循 stored_sample 口径，覆盖 ${overview.providers.length} 个实际观测渠道；点击右侧可钻取对应痛点原文与评论树。`,
-                  )}
-                </p>
-              </div>
-              <div className="ib-stats">
-                <div>
-                  <span>{t('Project anchors', '项目锚点')}</span>
-                  <b>{overview.contentCount}</b>
-                </div>
-                <div>
-                  <span>{t('Sample pain-signal rate', '样本痛点比例')}</span>
-                  <b>{filteredContent.length > 0 ? painRatio + '%' : '—'}</b>
-                </div>
-                <div>
-                  <span>{t('Undated anchors', '未记录发布日期的锚点')}</span>
-                  <b>{unknownRow?.count ?? '—'}</b>
-                </div>
-              </div>
-              <div className="ib-act">
-                <button
-                  type="button"
-                  className="ds-btn"
-                  onClick={() => onDrilldown(selectedProject.id, 'signal=pain')}
-                >
-                  <span>{t('Inspect Cohort', '查看这组讨论')}</span>
-                  <ArrowRight size={13} />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Statistical Guardrail Footnote */}
-      <p style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 14, lineHeight: 1.65 }}>
-        {t(
-          'Methodology (§4): Trend charts cover stored_sample online pull nodes unless include_push_in_trends=true; items with publishedAt=null stay out of UTC day buckets; daily deduplicated thread_aware anchor counts are non-additive across days.',
-          '口径说明（§4）：本页趋势基于 stored_sample 口径；day=null 的发布时间未知内容（如部分推流导入或孤儿评论）不计入 UTC 日时间轴；thread_aware=true 模式下各日去重锚点数不可直接相加作为期间去重总和。',
-        )}
-      </p>
         </>
-      )}
-
-      {/* Tutorial Modal */}
-      {tutorialOpen && (
-        <div className="sr-modal-backdrop" onClick={() => setTutorialOpen(false)}>
-          <div className="sr-modal" style={{ width: 'min(520px, 100%)', padding: '22px 24px' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <div>
-                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 650 }}>
-                  {t('Reading Multi-Level Thread Trees', '用讨论树读完一段争论')}
-                </h3>
-                <p style={{ fontSize: 11.5, color: 'var(--faint)' }}>{t('Playbook · top / matches / op views', '实战指南 · 3 视图与父链缺失标注')}</p>
-              </div>
-              <button type="button" className="sr-btn sr-btn--subtle sr-btn--xs" onClick={() => setTutorialOpen(false)}>
-                <X size={15} />
-              </button>
-            </div>
-            <div style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid var(--line)', marginBottom: 12 }}>
-              <img src="/assets/img/cover-field.jpg" alt="" style={{ width: '100%', height: 180, objectFit: 'cover' }} />
-            </div>
-            <p style={{ fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.7 }}>
-              {t(
-                'Start with Top view to grasp consensus replies, toggle Matches view to isolate nodes hitting project rules, and check OP replies for follow-up clarifications. Missing parent chains (>32 hops or deleted roots) stay flagged explicitly instead of silently flattening.',
-                '先从「热评 top」看清主干争论结构，再切换到「仅命中 matches」聚焦痛点词命中节点，最后用「楼主 OP」确认原帖补充说明。遇到父链超过 32 跳或孤儿评论时，系统会显式标记「父链缺失」，绝不静默丢弃或错配。',
-              )}
-            </p>
-            <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button
-                type="button"
-                className="ds-btn"
-                onClick={() => {
-                  setTutorialOpen(false);
-                  if (selectedProject) onDrilldown(selectedProject.id, 'view=threads');
-                }}
-              >
-                {t('Open Live Thread Tree', '去内容检索试看讨论树')}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Create / Edit Project Modal (Real API + 409 Conflict Guard) */}

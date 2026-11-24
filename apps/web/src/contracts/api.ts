@@ -506,9 +506,14 @@ export interface CapabilitiesResponse {
 
 export interface ContentFilter {
   sourceIds?: string[];
+  batchIds?: string[];
   deliveryMode?: DeliveryMode;
   platform?: Platform;
+  platforms?: Platform[];
   kind?: ContentKind;
+  kinds?: ContentKind[];
+  community?: string;
+  communities?: string[];
   query?: string;
   anyTerms?: string[];
   allTerms?: string[];
@@ -518,9 +523,11 @@ export interface ContentFilter {
   sourceGroup?: string;
   tier?: SourceTier;
   language?: string;
+  languages?: string[];
   hasMedia?: boolean;
   from?: string;
   to?: string;
+  timeBasis?: 'published' | 'collected';
 }
 
 export interface ListQuery extends ContentFilter {
@@ -529,6 +536,15 @@ export interface ListQuery extends ContentFilter {
   threadAware?: boolean;
   limit?: number;
   cursor?: string;
+}
+
+export interface ProjectDataSummary {
+  platforms: string[];
+  source_labels: string[];
+  item_count: number;
+  shared_batch_count: number;
+  private_batch_count: number;
+  latest_batch_at: string | null;
 }
 
 export interface Project {
@@ -549,6 +565,7 @@ export interface Project {
   is_shared?: boolean;
   enabled_batch_count?: number;
   total_batch_count?: number;
+  data_summary?: ProjectDataSummary;
   hydration?: Record<string, unknown>;
   created_at?: string;
   updated_at?: string;
