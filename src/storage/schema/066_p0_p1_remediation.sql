@@ -19,7 +19,6 @@ ALTER TABLE collection_source DROP CONSTRAINT IF EXISTS ck_collection_source_dom
 ALTER TABLE collection_source
   ADD CONSTRAINT ck_collection_source_domain_lane
   CHECK (NOT (usage_domain = 'feed' AND feed_lane = 'monitor_only')) NOT VALID;
-ALTER TABLE collection_source VALIDATE CONSTRAINT ck_collection_source_domain_lane;
 
 -- 2. AUD-14: Configurable global daily social resource ceiling & automatic hydration switch.
 CREATE TABLE IF NOT EXISTS source_global_budget (
@@ -45,18 +44,21 @@ ALTER TABLE plan_collection_policy DROP CONSTRAINT IF EXISTS ck_plan_collection_
 ALTER TABLE plan_collection_policy
   ADD CONSTRAINT ck_plan_collection_policy_max_scheduled_tasks
   CHECK (max_scheduled_tasks BETWEEN 0 AND 100) NOT VALID;
-ALTER TABLE plan_collection_policy VALIDATE CONSTRAINT ck_plan_collection_policy_max_scheduled_tasks;
 
 ALTER TABLE plan_collection_policy DROP CONSTRAINT IF EXISTS ck_plan_collection_policy_min_interval;
 ALTER TABLE plan_collection_policy
   ADD CONSTRAINT ck_plan_collection_policy_min_interval
   CHECK (min_schedule_interval_hours BETWEEN 1 AND 168) NOT VALID;
-ALTER TABLE plan_collection_policy VALIDATE CONSTRAINT ck_plan_collection_policy_min_interval;
 
 -- 4. AUD-11: Private batch soft-discard support without deleting canonical content.
 ALTER TABLE collection_batch
   ADD COLUMN IF NOT EXISTS discarded_at TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS discarded_by_user_id UUID REFERENCES app_user(id) ON DELETE SET NULL;
+  ADD COLUMN IF NOT EXISTS discarded_by_user_id UUID;
+
+ALTER TABLE collection_batch DROP CONSTRAINT IF EXISTS fk_collection_batch_discarded_by;
+ALTER TABLE collection_batch
+  ADD CONSTRAINT fk_collection_batch_discarded_by
+  FOREIGN KEY (discarded_by_user_id) REFERENCES app_user(id) ON DELETE SET NULL NOT VALID;
 
 -- squawk-ignore require-concurrent-index-creation
 CREATE INDEX IF NOT EXISTS idx_collection_batch_active_created
@@ -66,14 +68,23 @@ CREATE INDEX IF NOT EXISTS idx_collection_batch_active_created
 -- 5. AUD-06 / AUD-08 / AUD-09: Explicit project visibility, fork source, and light monitor link.
 ALTER TABLE monitor_project
   ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private',
-  ADD COLUMN IF NOT EXISTS forked_from_project_id UUID REFERENCES monitor_project(id) ON DELETE SET NULL,
-  ADD COLUMN IF NOT EXISTS linked_monitor_id UUID REFERENCES intel_monitor(id) ON DELETE SET NULL;
+  ADD COLUMN IF NOT EXISTS forked_from_project_id UUID,
+  ADD COLUMN IF NOT EXISTS linked_monitor_id UUID;
 
 ALTER TABLE monitor_project DROP CONSTRAINT IF EXISTS ck_monitor_project_visibility;
 ALTER TABLE monitor_project
   ADD CONSTRAINT ck_monitor_project_visibility
   CHECK (visibility IN ('private', 'shared')) NOT VALID;
-ALTER TABLE monitor_project VALIDATE CONSTRAINT ck_monitor_project_visibility;
+
+ALTER TABLE monitor_project DROP CONSTRAINT IF EXISTS fk_monitor_project_forked_from;
+ALTER TABLE monitor_project
+  ADD CONSTRAINT fk_monitor_project_forked_from
+  FOREIGN KEY (forked_from_project_id) REFERENCES monitor_project(id) ON DELETE SET NULL NOT VALID;
+
+ALTER TABLE monitor_project DROP CONSTRAINT IF EXISTS fk_monitor_project_linked_monitor;
+ALTER TABLE monitor_project
+  ADD CONSTRAINT fk_monitor_project_linked_monitor
+  FOREIGN KEY (linked_monitor_id) REFERENCES intel_monitor(id) ON DELETE SET NULL NOT VALID;
 
 -- Preserve historical pre-066 staff-owned / system projects as shared so existing workspaces do not break on upgrade.
 UPDATE monitor_project mp
@@ -89,10 +100,15 @@ WHERE mp.visibility = 'private'
 
 -- 6. AUD-06 / AUD-10 / AUD-14: Monitor project link, pause reason, schedule tracking, and daily usage ledger.
 ALTER TABLE intel_monitor
-  ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES monitor_project(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS project_id UUID,
   ADD COLUMN IF NOT EXISTS paused_reason TEXT,
   ADD COLUMN IF NOT EXISTS last_dispatched_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS next_due_at TIMESTAMPTZ;
+
+ALTER TABLE intel_monitor DROP CONSTRAINT IF EXISTS fk_intel_monitor_project;
+ALTER TABLE intel_monitor
+  ADD CONSTRAINT fk_intel_monitor_project
+  FOREIGN KEY (project_id) REFERENCES monitor_project(id) ON DELETE SET NULL NOT VALID;
 
 CREATE TABLE IF NOT EXISTS intel_monitor_usage (
   monitor_id UUID NOT NULL REFERENCES intel_monitor(id) ON DELETE CASCADE,
