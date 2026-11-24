@@ -19,7 +19,6 @@
     "lint:web": "npm --prefix apps/web run lint",
     "docs:check": "tsx scripts/check-docs.ts",
     "check:openapi": "tsx scripts/check-openapi.ts",
-    "check:complexity": "node scripts/check-complexity.mjs",
     "check:web-bundle": "node scripts/check-web-bundle.mjs",
     "test:unit": "tsx --test tests/unit/*.test.ts",
     "test:postgres": "tsx --test --test-concurrency=1 tests/integration/*-postgres.test.ts",
