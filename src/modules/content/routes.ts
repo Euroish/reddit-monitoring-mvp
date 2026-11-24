@@ -13,7 +13,7 @@ import {
 } from "../../../packages/contracts/src/content";
 import { StoryFeed, StoryQuery } from "../../../packages/contracts/src/content-stories";
 import { fail } from "../../shared/errors";
-import { exportRoutes } from "./export";
+import { exportRoutes, type ExportAdmission } from "./export";
 import { contentFacets } from "./facets";
 import {
   compileContentFilter,
@@ -116,6 +116,7 @@ export async function contentRoutes(
   app: FastifyInstance,
   pool: Pool,
   shutdown: AbortSignal,
+  assertExportAllowed: ExportAdmission,
   resolveProjectScope?: ContentScopeResolver,
 ) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
@@ -229,5 +230,5 @@ export async function contentRoutes(
       return readThread(pool, request.actor!, request.params.id, projectId, filter, view, resolveProjectScope);
     },
   );
-  await exportRoutes(app, pool, shutdown, resolveProjectScope);
+  await exportRoutes(app, pool, shutdown, assertExportAllowed, resolveProjectScope);
 }

@@ -55,6 +55,7 @@ import {
   type Platform,
   type Project,
   type ProjectInput,
+  type PublicContent,
   type SearchScope,
   type SignalType,
   formatContentAuthor,
@@ -70,6 +71,71 @@ interface ProjectsPageProps {
   onNavigate?: (path: string) => void;
   onDrilldown: (projectId: string, extraQs?: string) => void;
   onOpenContentDetail: (contentId: string) => void;
+}
+
+function downloadEvidenceCsv(content: PublicContent[], projectId?: string) {
+  function csvCell(raw: unknown) {
+    const str = String(raw ?? '').replace(/[\r\n]+/g, ' ');
+    const safe = /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
+    return `"${safe.replace(/"/g, '""')}"`;
+  }
+  const headers = ['id,platform,kind,title,score,publishedAt,providers'];
+  const lines = content.map(item => {
+    const metrics = item.observations[item.observations.length - 1]?.metrics || {};
+    const score = metrics['reddit.score'] ?? metrics['x.likes'] ?? metrics['bluesky.likes'] ?? '';
+    const providers = [...new Set(item.observations.map(observation => observation.provider))].join('|');
+    const title = (item.title || item.text || '').slice(0, 120);
+    return [item.id, item.platform, item.kind, title, score, item.publishedAt || 'null', providers].map(csvCell).join(',');
+  });
+  const blob = new Blob([headers.concat(lines).join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `siftline-${projectId?.slice(0, 8) || 'overview'}.csv`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function ProjectEvidenceExport({ isAdmin, quota, ready, content, projectId }: {
+  isAdmin: boolean;
+  quota: ReturnType<typeof useQuotasSummaryQuery>;
+  ready: boolean;
+  content: PublicContent[];
+  projectId?: string;
+}) {
+  const { t } = useI18n();
+  const [checking, setChecking] = useState(false);
+  const allowed = isAdmin || (quota.isSuccess && quota.data.effectivePolicy.exportEnabled === true);
+  const notice = allowed ? '' : quota.isError
+    ? t('Could not verify export permission.', '暂时无法核实导出权限。')
+    : quota.isPending ? t('Checking export permission…', '正在检查导出权限…')
+    : t('Export is disabled for your account.', '当前账号的导出权限已关闭。');
+
+  async function download() {
+    if (!allowed || checking) return;
+    if (isAdmin) {
+      downloadEvidenceCsv(content, projectId);
+      return;
+    }
+    setChecking(true);
+    try {
+      const latest = await quota.refetch();
+      if (latest.isSuccess && latest.data.effectivePolicy.exportEnabled === true) downloadEvidenceCsv(content, projectId);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return <>
+    <button type="button" className="ds-btn ds-btn--ghost" onClick={() => void download()}
+      disabled={!ready || content.length === 0 || !allowed || checking} aria-describedby={notice ? 'project-export-notice' : undefined}>
+      <Download size={13} />
+      <span>{t('Export evidence samples (CSV)', '导出证据样本（CSV）')}</span>
+    </button>
+    {notice && <small id="project-export-notice" role="status">{notice}</small>}
+  </>;
 }
 
 const PAIN_RE =
@@ -417,33 +483,6 @@ export function ProjectsPage({
   const shareUrl = selectedProject ? new URL(
     `/projects?view=overview&projectId=${encodeURIComponent(selectedProject.id)}`, window.location.origin,
   ).href : '';
-  const handleExportCsv = () => {
-    const csvCell = (raw: unknown): string => {
-      const str = String(raw ?? '').replace(/[\r\n]+/g, ' ');
-      const safe = /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
-      return `"${safe.replace(/"/g, '""')}"`;
-    };
-    const headers = ['id,platform,kind,title,score,publishedAt,providers'];
-    const lines = filteredContent.map((c) => {
-      const m = c.observations[c.observations.length - 1]?.metrics || {};
-      const sc = m['reddit.score'] ?? m['x.likes'] ?? m['bluesky.likes'] ?? '';
-      const provs = [...new Set(c.observations.map((o) => o.provider))].join('|');
-      const title = (c.title || c.text || '').slice(0, 120);
-      return [c.id, c.platform, c.kind, title, sc, c.publishedAt || 'null', provs]
-        .map(csvCell)
-        .join(',');
-    });
-    const blob = new Blob([headers.concat(lines).join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `siftline-${selectedProject?.id.slice(0, 8) || 'overview'}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-
   return (
     <div className="ds-page">
       {/* Breadcrumb */}
@@ -551,11 +590,13 @@ export function ProjectsPage({
             )}
           </div>
 
-          {activeView === 'overview' && <button type="button" className="ds-btn ds-btn--ghost" onClick={handleExportCsv}
-            disabled={!contentQuery.isSuccess || filteredContent.length === 0}>
-            <Download size={13} />
-            <span>{t('Export evidence samples (CSV)', '导出证据样本（CSV）')}</span>
-          </button>}
+          {activeView === 'overview' && <ProjectEvidenceExport
+            isAdmin={isAdmin}
+            quota={quotasSummaryQuery}
+            ready={contentQuery.isSuccess}
+            content={filteredContent}
+            projectId={selectedProject?.id}
+          />}
 
           {canWrite && selectedProject && (
             <>

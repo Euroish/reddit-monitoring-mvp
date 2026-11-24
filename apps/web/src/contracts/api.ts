@@ -1,5 +1,5 @@
-import type { ResearchCollectionRestriction } from '../../../../packages/contracts/src/collection.js';
-export type { ResearchPlanPreviewRequest, ResearchCollectionRestriction } from '../../../../packages/contracts/src/collection.js';
+import type { ResearchCollectionRestriction, UserQuotaOverride as QuotaOverrideDto } from '../../../../packages/contracts/src/collection.js';
+export type { ResearchPlanPreviewRequest, ResearchCollectionRestriction, UserQuotaOverride as QuotaOverrideDto } from '../../../../packages/contracts/src/collection.js';
 import type { SourceCapability, SourceTarget } from '../../../../packages/contracts/src/source-content.js';
 export type { CollectionSource, SourceCapability, SourceTarget } from '../../../../packages/contracts/src/source-content.js';
 export type {
@@ -244,15 +244,6 @@ export interface EffectivePolicyDto {
   allowProviderChoice?: boolean;
   exportEnabled?: boolean;
   hasOverride: boolean;
-}
-
-export interface QuotaOverrideDto {
-  manualCollectEnabled?: boolean | null;
-  allowedProviders?: string[] | null;
-  allowedSourceIds?: string[] | null;
-  dailyRequests?: number | null;
-  dailyResources?: number | null;
-  maxBatchLimit?: number | null;
 }
 
 export interface QuotasSummaryResponse {
