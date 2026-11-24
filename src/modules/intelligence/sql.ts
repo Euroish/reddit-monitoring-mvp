@@ -14,10 +14,11 @@ import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
 import { canonical } from "../content/index";
 import {
-  DAILY_SOCIAL_ITEM_CEILING,
   cancelUnstartedMonitorHydrations,
   enqueueCollectionForSource,
+  listLegacySources,
   listSourcesByIds,
+  reconcileLegacySource,
 } from "../collection/index";
 import {
   estimateMonitorCollection,
@@ -282,10 +283,69 @@ export async function triggerMonitorCollect(
       fail(422, `Estimated collection (${estimate.estimatedMaxItems}) exceeds monitor daily budget (${monitor.dailyItemBudget})`);
     }
     if (anyCreated && estimate.exceedsSystemCeiling) {
-      fail(429, `Estimated collection would exceed ${DAILY_SOCIAL_ITEM_CEILING}/day system social ceiling`);
+      fail(429, `Estimated collection would exceed ${estimate.systemDailyCeiling}/day system social ceiling`);
     }
     return { jobIds, anyCreated };
   });
   if (outcome.anyCreated) await notifyChannel(pool, "collection_jobs_ready");
   return { monitorId: id, jobIds: outcome.jobIds, estimatedMaxItems: estimate.estimatedMaxItems };
+}
+
+export async function listLegacyMonitorSources(pool: Pool, actor: Actor) {
+  if (!isStaffBrowser(actor)) fail(403, "Administrator browser session required");
+  const candidates = await listLegacySources(pool);
+  if (!candidates.length) return { items: [] };
+  const { rows: refs } = await pool.query<{
+    collection_source_id: string;
+    total_refs: number;
+    enabled_refs: number;
+    monitor_ids: string[];
+  }>(
+    `SELECT ms.collection_source_id,
+       COUNT(*)::int AS total_refs,
+       COUNT(*) FILTER (WHERE m.enabled)::int AS enabled_refs,
+       ARRAY_AGG(m.id ORDER BY m.created_at) AS monitor_ids
+     FROM intel_monitor_source ms
+     JOIN intel_monitor m ON m.id = ms.monitor_id
+     WHERE ms.collection_source_id = ANY($1::uuid[])
+     GROUP BY ms.collection_source_id`,
+    [candidates.map((c) => c.id)],
+  );
+  const refMap = new Map(refs.map((r) => [r.collection_source_id, r]));
+  return {
+    items: candidates.map((c) => {
+      const ref = refMap.get(c.id);
+      const totalRefs = ref?.total_refs ?? 0;
+      const enabledRefs = ref?.enabled_refs ?? 0;
+      const classification = totalRefs > 0
+        ? "monitor_derived" as const
+        : c.feedLane === "monitor_only"
+          ? "unclassified" as const
+          : "operator_owned" as const;
+      return {
+        ...c,
+        classification,
+        totalMonitorRefs: totalRefs,
+        enabledMonitorRefs: enabledRefs,
+        monitorIds: ref?.monitor_ids ?? [],
+      };
+    }),
+  };
+}
+
+export async function reconcileLegacyMonitorSource(
+  pool: Pool,
+  actor: Actor,
+  sourceId: string,
+  body: { action: "pause_schedule" | "claim_monitor_managed"; revision: number },
+) {
+  if (!isStaffBrowser(actor)) fail(403, "Administrator browser session required");
+  await transaction(pool, async (client) => {
+    await lockMonitorLifecycle(client);
+    await reconcileLegacySource(client, actor, sourceId, body.action, body.revision);
+    if (body.action === "claim_monitor_managed") {
+      await reconcileMonitorSources(client, [sourceId]);
+    }
+  });
+  return { reconciled: true, sourceId, action: body.action };
 }

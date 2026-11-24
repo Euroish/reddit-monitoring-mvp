@@ -8,7 +8,7 @@ import { fail } from "../../shared/errors";
 import { canonical } from "../content/index";
 import { collectionRequestRestriction, isCollectionBudgetDisabled, validateSource } from "./config";
 import { admitViewerCollection, viewerCollectionDemand } from "./policy";
-import { insertSource, lockSource, sourceFromRow } from "./sql";
+import { audit, insertSource, lockSource, sourceFromRow } from "./sql";
 
 export async function ensureManagedSource(
   client: PoolClient,
@@ -162,4 +162,111 @@ export async function getProviderDailyUsage(
     requestsToday: Number(r.requests_today),
     resourcesToday: Number(r.resources_today),
   }));
+}
+
+export interface LegacySourceCandidate {
+  id: string;
+  label: string;
+  platform: string;
+  primaryProvider: string;
+  state: string;
+  feedLane: string;
+  usageDomain: string;
+  monitorManaged: boolean;
+  scheduleEnabled: boolean;
+  schedule: Record<string, unknown>;
+  nextDueAt: string | null;
+  revision: number;
+  automaticCollectionBlocked: boolean;
+  recentJobStatus: string | null;
+  recentJobAt: string | null;
+  unresolvedCharges: number;
+  resourcesToday: number;
+}
+
+export async function listLegacySources(db: Pool | PoolClient): Promise<LegacySourceCandidate[]> {
+  const { rows } = await db.query(
+    `SELECT cs.id, cs.label, s.code AS platform, cs.primary_provider, cs.state,
+       cs.feed_lane, cs.usage_domain, cs.monitor_managed, cs.schedule, cs.next_due_at,
+       cs.revision, cs.automatic_collection_blocked,
+       rj.status AS recent_job_status, rj.created_at AS recent_job_at,
+       COALESCE(uc.cnt, 0)::int AS unresolved_charges,
+       COALESCE(td.resources_today, 0)::int AS resources_today
+     FROM collection_source cs
+     JOIN source s ON s.id = cs.platform_id
+     LEFT JOIN LATERAL (
+       SELECT status, created_at FROM source_collection_job
+       WHERE collection_source_id = cs.id
+       ORDER BY created_at DESC LIMIT 1
+     ) rj ON true
+     LEFT JOIN LATERAL (
+       SELECT COUNT(*) AS cnt FROM source_collection_job
+       WHERE collection_source_id = cs.id
+         AND (provider_state->>'phase' IN ('unknown', 'starting') AND status <> 'succeeded')
+     ) uc ON true
+     LEFT JOIN LATERAL (
+       SELECT SUM(page_size + 1) AS resources_today FROM source_collection_job
+       WHERE collection_source_id = cs.id
+         AND created_at >= date_trunc('day', now(), 'UTC')
+         AND request_count > 0
+     ) td ON true
+     WHERE cs.usage_domain = 'research' AND NOT cs.monitor_managed
+       AND (cs.feed_lane = 'monitor_only' OR cs.schedule @> '{"enabled":true}')
+     ORDER BY cs.created_at, cs.id`,
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    label: r.label,
+    platform: r.platform,
+    primaryProvider: r.primary_provider,
+    state: r.state,
+    feedLane: r.feed_lane,
+    usageDomain: r.usage_domain,
+    monitorManaged: Boolean(r.monitor_managed),
+    scheduleEnabled: Boolean(r.schedule?.enabled),
+    schedule: r.schedule ?? {},
+    nextDueAt: r.next_due_at?.toISOString() ?? null,
+    revision: Number(r.revision),
+    automaticCollectionBlocked: Boolean(r.automatic_collection_blocked),
+    recentJobStatus: r.recent_job_status ?? null,
+    recentJobAt: r.recent_job_at?.toISOString() ?? null,
+    unresolvedCharges: Number(r.unresolved_charges ?? 0),
+    resourcesToday: Number(r.resources_today ?? 0),
+  }));
+}
+
+export async function reconcileLegacySource(
+  client: PoolClient,
+  actor: Actor,
+  sourceId: string,
+  action: "pause_schedule" | "claim_monitor_managed",
+  revision: number,
+) {
+  const source = await lockSource(client, actor, sourceId, false);
+  if (source.revision !== revision) fail(409, "Source changed; reload before reconciling");
+  if (action === "pause_schedule") {
+    await client.query(
+      `UPDATE collection_source
+       SET schedule = jsonb_set(COALESCE(schedule, '{}'::jsonb), '{enabled}', 'false'::jsonb, true),
+           next_due_at = NULL, revision = revision + 1, updated_at = NOW()
+       WHERE id = $1`,
+      [sourceId],
+    );
+    await client.query(
+      `UPDATE source_collection_job
+       SET status = 'cancelled', finished_at = NOW(), lease_token = NULL, lease_until = NULL
+       WHERE collection_source_id = $1 AND purpose = 'scheduled'
+         AND status IN ('queued', 'retrying') AND provider_state = '{}'`,
+      [sourceId],
+    );
+    await audit(client, actor, "source.legacy.pause_schedule", sourceId);
+  } else {
+    await client.query(
+      `UPDATE collection_source
+       SET monitor_managed = TRUE, revision = revision + 1, updated_at = NOW()
+       WHERE id = $1`,
+      [sourceId],
+    );
+    await audit(client, actor, "source.legacy.claim_monitor_managed", sourceId);
+  }
 }

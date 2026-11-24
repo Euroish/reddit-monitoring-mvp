@@ -1,4 +1,11 @@
-export { DAILY_SOCIAL_ITEM_CEILING, cancelUnstartedMonitorHydrations, enqueueAutomaticCommunityHydration } from "./automatic-hydration";
+export {
+  DAILY_SOCIAL_ITEM_CEILING,
+  cancelUnstartedMonitorHydrations,
+  enqueueAutomaticCommunityHydration,
+  getGlobalSocialBudget,
+  socialResourcesReservedToday,
+  updateGlobalSocialBudget,
+} from "./automatic-hydration";
 export { createCredentialVault, credentialRoutes, type CredentialVault } from "./credentials";
 export { enqueueHydrationForScope } from "./hydrate";
 export { jobRoutes } from "./jobs";
@@ -6,7 +13,10 @@ export {
   enqueueCollectionForSource,
   ensureManagedSource,
   getProviderDailyUsage,
+  listLegacySources,
+  reconcileLegacySource,
   syncManagedMonitorSchedules,
+  type LegacySourceCandidate,
   type ProviderDailyUsageSummary,
 } from "./managed";
 export { policyRoutes } from "./policy";

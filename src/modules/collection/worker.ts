@@ -112,12 +112,15 @@ async function admitJobDispatch(
   const refresh = Array.isArray(job.request_json.externalIds);
   const hydrate = job.operation === "hydrate";
   return transaction(pool, async (client) => {
-    const currentSource = await lockSource(client, workerActor, source.id);
-    if (job.purpose === "scheduled" && !currentSource.schedule.enabled) {
+    const currentSource = await lockSource(client, workerActor, source.id, false);
+    if (currentSource.state !== "active" || currentSource.automatic_collection_blocked ||
+        (job.purpose === "scheduled" && !currentSource.schedule.enabled)) {
       await client.query(
         `UPDATE source_collection_job SET status='cancelled',finished_at=now(),
-          lease_token=NULL,lease_until=NULL,attempts=attempts-1 WHERE id=$1 AND lease_token=$2`,
-        [job.id, token],
+          lease_token=NULL,lease_until=NULL,attempts=GREATEST(0, attempts-1),
+          error=CASE WHEN $3 THEN 'Source paused or blocked before dispatch' ELSE error END
+        WHERE id=$1 AND lease_token=$2`,
+        [job.id, token, currentSource.state !== "active" || Boolean(currentSource.automatic_collection_blocked)],
       );
       return false;
     }
@@ -179,7 +182,9 @@ function computeNextScheduleInterval(
   const previous = schedule.intervalSeconds ?? cadence;
   if (page.warning || job.provider === "newsnow") return cadence;
   if (!page.exhausted) return job.provider === "feed" ? cadence : Math.max(120, Math.floor(previous / 2));
-  if (page.notModified || job.records_inserted + addedCount === 0) return Math.min(14400, Math.ceil(previous * 1.25));
+  if (page.notModified || job.records_inserted + addedCount === 0) {
+    return Math.min(Math.max(cadence, 14400), Math.ceil(previous * 1.25));
+  }
   return cadence;
 }
 

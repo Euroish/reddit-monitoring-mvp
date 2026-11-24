@@ -25,7 +25,8 @@ import { notifyChannel } from "../../platform/pg-notify";
 import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
 import { canonical, commitContentBatch, prepareContentBatch } from "../content/index";
-import { sourcePreviewRoute, validateFallback, validateSource } from "./config";
+import { getGlobalSocialBudget, socialResourcesReservedToday, updateGlobalSocialBudget } from "./automatic-hydration";
+import { sourcePreviewRoute, validateDomainLane, validateFallback, validateSource } from "./config";
 import { batchRoutes, recordCommittedBatch, type RequireWritableProject } from "./batches";
 import { planRoutes } from "./plans";
 import { sourceImportRoute } from "./import";
@@ -72,6 +73,7 @@ async function applySourcePatch(
   if (body.schedule?.enabled && source.delivery_mode !== "pull") {
     fail(422, "Automatic scheduling requires a pull source");
   }
+  validateDomainLane(source.platform, body.feedLane ?? source.feed_lane);
   if (body.fallbackProvider) {
     validateFallback(providers, {
       primary: source.primary_provider,
@@ -145,7 +147,7 @@ export async function collectionRoutes(app: FastifyInstance, pool: Pool, provide
   );
   api.get(
     "/v1/sources/budgets",
-    { config: { auth: { access: "authenticated", machineScope: "read" } } },
+    { config: { auth: { access: "admin", browserOnly: true } } },
     async (request) => {
       if (request.actor!.clientKind !== "browser" || request.actor!.role === "viewer") {
         fail(403, "Administrator browser session required");
@@ -173,10 +175,50 @@ export async function collectionRoutes(app: FastifyInstance, pool: Pool, provide
       };
     },
   );
+  api.get(
+    "/v1/sources/budgets/global",
+    { config: { auth: { access: "admin", browserOnly: true } } },
+    async (request) => {
+      if (request.actor!.clientKind !== "browser" || request.actor!.role === "viewer") {
+        fail(403, "Administrator browser session required");
+      }
+      const [config, socialResourcesToday] = await Promise.all([
+        getGlobalSocialBudget(pool),
+        socialResourcesReservedToday(pool),
+      ]);
+      return { ...config, socialResourcesToday };
+    },
+  );
+  api.put(
+    "/v1/sources/budgets/global",
+    {
+      config: { auth: { access: "admin_mfa", browserOnly: true } },
+      schema: {
+        body: Type.Object(
+          {
+            dailySocialItemCeiling: Type.Integer({ minimum: 0, maximum: 1_000_000 }),
+            autoHydrationEnabled: Type.Boolean(),
+            revision: Type.Integer({ minimum: 1 }),
+          },
+          { additionalProperties: false },
+        ),
+      },
+    },
+    async (request) => {
+      if (request.actor!.clientKind !== "browser" || request.actor!.role === "viewer") {
+        fail(403, "Administrator browser session required");
+      }
+      const out = await transaction(pool, (client) =>
+        updateGlobalSocialBudget(client, request.actor!, request.body),
+      );
+      await notifyChannel(pool, "collection_jobs_ready");
+      return out;
+    },
+  );
   api.put(
     "/v1/sources/budgets/:provider",
     {
-      config: { auth: { access: "admin", machineScope: "sources:write" } },
+      config: { auth: { access: "admin_mfa", browserOnly: true } },
       schema: {
         params: Type.Object({ provider: Type.String({ maxLength: 64 }) }),
         body: Type.Object(

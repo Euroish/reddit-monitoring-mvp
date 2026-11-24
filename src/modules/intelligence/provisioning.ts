@@ -5,7 +5,7 @@ import type { SourceInput } from "../../../packages/contracts/src/collection";
 import type { MonitorConfigValue, MonitorKindValue } from "../../../packages/contracts/src/intelligence";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { fail } from "../../shared/errors";
-import { DAILY_SOCIAL_ITEM_CEILING, ensureManagedSource, getProviderDailyUsage, syncManagedMonitorSchedules } from "../collection/index";
+import { ensureManagedSource, getGlobalSocialBudget, getProviderDailyUsage, syncManagedMonitorSchedules } from "../collection/index";
 import { packXAccountBatches } from "./metrics";
 
 
@@ -208,7 +208,10 @@ export async function estimateMonitorCollection(
     maxCommentsPerPost: number;
   },
 ) {
-  const usage = await getProviderDailyUsage(pool, ["kaix", "red_crawler", "twitterapis", "scrapebadger"]);
+  const [usage, globalBudget] = await Promise.all([
+    getProviderDailyUsage(pool, ["kaix", "red_crawler", "twitterapis", "scrapebadger"]),
+    getGlobalSocialBudget(pool),
+  ]);
   const resourcesToday = usage.reduce((sum, u) => sum + u.resourcesToday, 0);
   const perSourceMultiplier = input.includeComments ? 1 + input.maxCommentsPerPost : 1;
   const estimatedRequests = input.sourceCount;
@@ -218,11 +221,11 @@ export async function estimateMonitorCollection(
     estimatedRequests,
     estimatedMaxItems,
     monitorDailyBudget: input.dailyItemBudget,
-    systemDailyCeiling: DAILY_SOCIAL_ITEM_CEILING,
+    systemDailyCeiling: globalBudget.dailySocialItemCeiling,
     systemResourcesToday: resourcesToday,
-    remainingSystemDailyBudget: Math.max(0, DAILY_SOCIAL_ITEM_CEILING - resourcesToday),
+    remainingSystemDailyBudget: Math.max(0, globalBudget.dailySocialItemCeiling - resourcesToday),
     exceedsMonitorBudget: estimatedMaxItems > input.dailyItemBudget,
-    exceedsSystemCeiling: resourcesToday + estimatedMaxItems > DAILY_SOCIAL_ITEM_CEILING,
+    exceedsSystemCeiling: resourcesToday + estimatedMaxItems > globalBudget.dailySocialItemCeiling,
     providers: usage,
   };
 }

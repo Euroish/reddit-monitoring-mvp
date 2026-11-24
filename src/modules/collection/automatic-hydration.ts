@@ -1,24 +1,89 @@
 import { randomUUID } from "node:crypto";
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { Actor } from "../../../packages/contracts/src/access";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
-import { AppError } from "../../shared/errors";
+import { AppError, fail } from "../../shared/errors";
 import { getUserRoleStatus } from "../access/index";
 import { findCommunityHydrationCandidates } from "../content/index";
 import { admitViewerCollection } from "./policy";
-import { lockSource } from "./sql";
+import { audit, lockSource } from "./sql";
 
 export const budgetedSocialProviders = ["kaix", "red_crawler", "twitterapis", "scrapebadger"];
 export const DAILY_SOCIAL_ITEM_CEILING = 20_000;
 const commentLimit = 15;
 const reservedItems = commentLimit + 1;
 
+export interface GlobalSocialBudget {
+  dailySocialItemCeiling: number;
+  autoHydrationEnabled: boolean;
+  revision: number;
+  updatedAt: string | null;
+}
+
+export async function getGlobalSocialBudget(db: Pool | PoolClient): Promise<GlobalSocialBudget> {
+  const { rows: [row] } = await db.query<{
+    daily_social_item_ceiling: number;
+    auto_hydration_enabled: boolean;
+    revision: number;
+    updated_at: Date;
+  }>(
+    "SELECT daily_social_item_ceiling, auto_hydration_enabled, revision, updated_at FROM source_global_budget WHERE id='default'",
+  );
+  if (!row) {
+    return {
+      dailySocialItemCeiling: DAILY_SOCIAL_ITEM_CEILING,
+      autoHydrationEnabled: true,
+      revision: 1,
+      updatedAt: null,
+    };
+  }
+  return {
+    dailySocialItemCeiling: Number(row.daily_social_item_ceiling),
+    autoHydrationEnabled: Boolean(row.auto_hydration_enabled),
+    revision: Number(row.revision),
+    updatedAt: row.updated_at?.toISOString() ?? null,
+  };
+}
+
+export async function updateGlobalSocialBudget(
+  client: PoolClient,
+  actor: Actor,
+  input: { dailySocialItemCeiling: number; autoHydrationEnabled: boolean; revision: number },
+): Promise<GlobalSocialBudget> {
+  const { rows: [updated] } = await client.query<{
+    daily_social_item_ceiling: number;
+    auto_hydration_enabled: boolean;
+    revision: number;
+    updated_at: Date;
+  }>(
+    `UPDATE source_global_budget
+     SET daily_social_item_ceiling=$1, auto_hydration_enabled=$2,
+         revision=revision+1, updated_by=$3, updated_at=NOW()
+     WHERE id='default' AND revision=$4
+     RETURNING daily_social_item_ceiling, auto_hydration_enabled, revision, updated_at`,
+    [input.dailySocialItemCeiling, input.autoHydrationEnabled, actor.userId, input.revision],
+  );
+  if (!updated) fail(409, "Global budget changed; reload before saving");
+  await client.query(
+    `UPDATE source_collection_job
+     SET next_run_at=NOW()
+     WHERE status='queued' AND error='Waiting for system social budget'`,
+  );
+  await audit(client, actor, "provider.global_budget", "default");
+  return {
+    dailySocialItemCeiling: Number(updated.daily_social_item_ceiling),
+    autoHydrationEnabled: Boolean(updated.auto_hydration_enabled),
+    revision: Number(updated.revision),
+    updatedAt: updated.updated_at.toISOString(),
+  };
+}
+
 export async function lockSocialDispatchBudget(client: PoolClient) {
   await client.query("SELECT pg_advisory_xact_lock(728419, 3)");
 }
 
-export async function socialResourcesReservedToday(client: PoolClient): Promise<number> {
-  const { rows: [row] } = await client.query<{ reserved: number }>(
+export async function socialResourcesReservedToday(db: Pool | PoolClient): Promise<number> {
+  const { rows: [row] } = await db.query<{ reserved: number }>(
     `SELECT COALESCE(SUM(resources_reserved), 0)::float8 AS reserved FROM source_provider_usage
      WHERE provider=ANY($1::text[]) AND day=(now() AT TIME ZONE 'UTC')::date`,
     [budgetedSocialProviders],
@@ -27,7 +92,8 @@ export async function socialResourcesReservedToday(client: PoolClient): Promise<
 }
 
 export async function deferSocialCollectionOutsideBudget(client: PoolClient, jobId: string, token: string, resources: number) {
-  if (await socialResourcesReservedToday(client) + resources <= DAILY_SOCIAL_ITEM_CEILING) return false;
+  const { dailySocialItemCeiling } = await getGlobalSocialBudget(client);
+  if (await socialResourcesReservedToday(client) + resources <= dailySocialItemCeiling) return false;
   await client.query(
     `UPDATE source_collection_job SET status='queued',next_run_at=date_trunc('day',now(),'UTC')+interval '24 hours',
        lease_token=NULL,lease_until=NULL,attempts=attempts-1,error='Waiting for system social budget'
@@ -42,6 +108,8 @@ export async function enqueueAutomaticCommunityHydration(
   providers: ContentProvider[],
   input: { sourceId: string; monitorId: string; dailyItemBudget: number; ownerUserId: string },
 ): Promise<boolean> {
+  const globalBudget = await getGlobalSocialBudget(client);
+  if (!globalBudget.autoHydrationEnabled) return false;
   const source = await lockSource(client, { allowedSourceIds: null } as Actor, input.sourceId, false);
   if (source.state !== "active" || source.platform !== "reddit" || source.target.type !== "community" ||
       source.delivery_mode !== "pull" || source.automatic_collection_blocked) return false;
@@ -75,7 +143,7 @@ export async function enqueueAutomaticCommunityHydration(
     [input.monitorId],
   );
   if (budget.monitor_items + reservedItems > input.dailyItemBudget ||
-      await socialResourcesReservedToday(client) + budget.queued_items + reservedItems > DAILY_SOCIAL_ITEM_CEILING) return false;
+      await socialResourcesReservedToday(client) + budget.queued_items + reservedItems > globalBudget.dailySocialItemCeiling) return false;
 
   const { rows: choices } = await client.query<{ post_id: string; name: string; ready_at: Date }>(
     `WITH candidate AS (
@@ -131,15 +199,18 @@ export async function cancelUnstartedMonitorHydrations(client: PoolClient, monit
 }
 
 export async function cancelHydrationOutsideBudget(client: PoolClient, jobId: string, token: string, resources: number) {
-  const reserved = await socialResourcesReservedToday(client);
+  const [reserved, globalBudget] = await Promise.all([
+    socialResourcesReservedToday(client),
+    getGlobalSocialBudget(client),
+  ]);
   const { rowCount } = await client.query(
     `UPDATE source_collection_job SET status='cancelled',finished_at=now(),lease_token=NULL,lease_until=NULL,
        error='Automatic hydration reservation is unavailable'
      WHERE id=$1 AND lease_token=$2 AND request_json ? 'autoMonitorId'
-       AND (request_count > 0 OR created_at < date_trunc('day', now(), 'UTC')
+       AND (request_count > 0 OR NOT $6::boolean OR created_at < date_trunc('day', now(), 'UTC')
          OR $3::float8 > $4::float8
          OR provider_ready_at(provider, $5) >= date_trunc('day', now(), 'UTC') + interval '24 hours')`,
-    [jobId, token, reserved + resources, DAILY_SOCIAL_ITEM_CEILING, resources],
+    [jobId, token, reserved + resources, globalBudget.dailySocialItemCeiling, resources, globalBudget.autoHydrationEnabled],
   );
   return Boolean(rowCount);
 }

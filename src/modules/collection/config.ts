@@ -46,8 +46,19 @@ export function validateFallback(providers: ContentProvider[], input: {
   provider.normalizeTarget(input.target, input.kind);
 }
 
+export function validateDomainLane(platform: string, feedLane?: string) {
+  if (!feedLane) return;
+  if (platform === "web" && feedLane === "monitor_only") {
+    fail(422, "Feed sources cannot use monitor_only lane");
+  }
+  if (platform !== "web" && feedLane === "release") {
+    fail(422, "Research sources cannot use official release lane");
+  }
+}
+
 export function validateSource(providers: ContentProvider[], input: Static<typeof SourceInput>) {
   if (!input.label.trim()) fail(422, "Source label cannot be blank");
+  validateDomainLane(input.platform, input.feedLane);
   const provider = providers.find(({ capability }) =>
     capability.provider === input.primaryProvider && capability.platform === input.platform);
   if ((input.deliveryMode === "push") !== (input.primaryProvider === "external_ingest"))

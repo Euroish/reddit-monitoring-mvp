@@ -11,7 +11,8 @@ export const mfaLoginPath = "/v1/auth/mfa/complete";
 export function isPrivilegedWrite(method: string, route: string) {
   if (!["POST", "PATCH", "PUT", "DELETE"].includes(method)) return false;
   return route.startsWith("/v1/admin/") || route.startsWith("/v1/access/") ||
-    route.startsWith("/v1/sources/credentials") || route.startsWith("/v1/quotas");
+    route.startsWith("/v1/sources/credentials") || route.startsWith("/v1/sources/budgets") ||
+    route.startsWith("/v1/quotas");
 }
 
 export async function mfaRoutes(app: FastifyInstance, pool: Pool, key: Buffer, cookie: (token: string) => string) {

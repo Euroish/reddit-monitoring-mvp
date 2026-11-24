@@ -13,8 +13,8 @@ import {
   listMonitoredCommunities, listMonitorPosts, listTrackedAuthors,
 } from "./analytics";
 import {
-  createMonitor, deleteMonitor, estimateMonitorRun, listMonitors,
-  loadMonitor, triggerMonitorCollect, updateMonitor,
+  createMonitor, deleteMonitor, estimateMonitorRun, listLegacyMonitorSources, listMonitors,
+  loadMonitor, reconcileLegacyMonitorSource, triggerMonitorCollect, updateMonitor,
 } from "./sql";
 
 export async function intelligenceRoutes(app: FastifyInstance, pool: Pool, providers: ContentProvider[]) {
@@ -62,4 +62,19 @@ export async function intelligenceRoutes(app: FastifyInstance, pool: Pool, provi
   api.get("/v1/intelligence/communities/:subreddit",
     { config: readAuth, schema: { params: CommunityParams, querystring: CommunityDeepDiveQuery } },
     (request) => getCommunityDeepDive(pool, request.actor!, request.params.subreddit, request.query));
+  api.get("/v1/intelligence/admin/legacy-sources",
+    { config: { auth: { access: "admin", browserOnly: true } } },
+    (request) => listLegacyMonitorSources(pool, request.actor!));
+  api.post("/v1/intelligence/admin/legacy-sources/:id/reconcile",
+    {
+      config: { auth: { access: "admin_mfa", browserOnly: true } },
+      schema: {
+        params: ParamsId,
+        body: Type.Object({
+          action: Type.Union([Type.Literal("pause_schedule"), Type.Literal("claim_monitor_managed")]),
+          revision: Type.Integer({ minimum: 1 }),
+        }, { additionalProperties: false }),
+      },
+    },
+    (request) => reconcileLegacyMonitorSource(pool, request.actor!, request.params.id, request.body));
 }
