@@ -13,11 +13,16 @@ import {
   listMonitoredCommunities, listMonitorPosts, listTrackedAuthors,
 } from "./analytics";
 import {
-  createMonitor, deleteMonitor, estimateMonitorRun, listMonitors,
-  loadMonitor, triggerMonitorCollect, updateMonitor,
+  createMonitor, deleteMonitor, estimateMonitorRun, listLegacyMonitorSources, listMonitors,
+  loadMonitor, reconcileLegacyMonitorSource, triggerMonitorCollect, updateMonitor, type AssertWritableProjectFn,
 } from "./sql";
 
-export async function intelligenceRoutes(app: FastifyInstance, pool: Pool, providers: ContentProvider[]) {
+export async function intelligenceRoutes(
+  app: FastifyInstance,
+  pool: Pool,
+  providers: ContentProvider[],
+  assertWritableProject?: AssertWritableProjectFn,
+) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   const readAuth = { auth: { access: "authenticated" as const, machineScope: "read" as const } };
   const writeAuth = { auth: { access: "viewer_write" as const, machineScope: "projects:write" as const } };
@@ -27,14 +32,14 @@ export async function intelligenceRoutes(app: FastifyInstance, pool: Pool, provi
     { config: readAuth, schema: { querystring: Type.Object({ kind: Type.Optional(MonitorKind) }, { additionalProperties: false }) } },
     async (request) => ({ monitors: await listMonitors(pool, request.actor!, request.query.kind) }));
   api.post("/v1/intelligence/monitors",
-    { config: { auth: { access: "admin", browserOnly: true } }, schema: { body: MonitorCreateBody } },
-    async (request) => ({ monitor: await createMonitor(pool, request.actor!, providers, request.body) }));
+    { config: { auth: { access: "viewer_write", browserOnly: true } }, schema: { body: MonitorCreateBody } },
+    async (request) => ({ monitor: await createMonitor(pool, request.actor!, providers, request.body, assertWritableProject) }));
   api.get("/v1/intelligence/monitors/:id",
     { config: readAuth, schema: { params: ParamsId } },
     async (request) => loadMonitor(pool, request.actor!, request.params.id));
   api.patch("/v1/intelligence/monitors/:id",
     { config: writeAuth, schema: { params: ParamsId, body: MonitorPatchBody } },
-    async (request) => ({ monitor: await updateMonitor(pool, request.actor!, providers, request.params.id, request.body) }));
+    async (request) => ({ monitor: await updateMonitor(pool, request.actor!, providers, request.params.id, request.body, assertWritableProject) }));
   api.delete("/v1/intelligence/monitors/:id",
     { config: writeAuth, schema: { params: ParamsId, body: Type.Object({ revision: Type.Integer({ minimum: 1 }) }, { additionalProperties: false }) } },
     (request) => deleteMonitor(pool, request.actor!, request.params.id, request.body.revision));
@@ -62,4 +67,19 @@ export async function intelligenceRoutes(app: FastifyInstance, pool: Pool, provi
   api.get("/v1/intelligence/communities/:subreddit",
     { config: readAuth, schema: { params: CommunityParams, querystring: CommunityDeepDiveQuery } },
     (request) => getCommunityDeepDive(pool, request.actor!, request.params.subreddit, request.query));
+  api.get("/v1/intelligence/admin/legacy-sources",
+    { config: { auth: { access: "admin", browserOnly: true } } },
+    (request) => listLegacyMonitorSources(pool, request.actor!));
+  api.post("/v1/intelligence/admin/legacy-sources/:id/reconcile",
+    {
+      config: { auth: { access: "admin_mfa", browserOnly: true } },
+      schema: {
+        params: ParamsId,
+        body: Type.Object({
+          action: Type.Union([Type.Literal("pause_schedule"), Type.Literal("claim_monitor_managed")]),
+          revision: Type.Integer({ minimum: 1 }),
+        }, { additionalProperties: false }),
+      },
+    },
+    (request) => reconcileLegacyMonitorSource(pool, request.actor!, request.params.id, request.body));
 }

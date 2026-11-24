@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { providerBudgetBounds } from '../../../../packages/contracts/src/collection-budget';
-import { formatApiError, useUpdateBudgetMutation } from '../api/hooks';
+import { formatApiError, isMfaRequiredError, useUpdateBudgetMutation } from '../api/hooks';
 import type { ProviderBudget } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
+import { InlineMfaStepUp } from './InlineMfaStepUp';
 
 const fields = [
   ['dailyRequests', 'daily_requests', 'Daily requests (count)', '日请求上限（次）'],
@@ -15,13 +16,15 @@ const fields = [
 export function ProviderBudgetEditor({ budget, onClose }: { budget: ProviderBudget; onClose: () => void }) {
   const { t } = useI18n();
   const dialog = useRef<HTMLDialogElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const [error, setError] = useState('');
+  const [needsMfa, setNeedsMfa] = useState(false);
   const update = useUpdateBudgetMutation();
   useEffect(() => { dialog.current?.showModal(); }, []);
 
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
+  async function submitFormElement(formEl: HTMLFormElement | null) {
+    if (!formEl) return;
+    const data = new FormData(formEl);
     const value = (name: keyof typeof providerBudgetBounds) => Number(data.get(name));
     setError('');
     try {
@@ -37,10 +40,20 @@ export function ProviderBudgetEditor({ budget, onClose }: { budget: ProviderBudg
           revision: budget.revision,
         },
       });
+      setNeedsMfa(false);
       onClose();
     } catch (err) {
-      setError(formatApiError(err));
+      if (isMfaRequiredError(err)) {
+        setNeedsMfa(true);
+      } else {
+        setError(formatApiError(err));
+      }
     }
+  }
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await submitFormElement(event.currentTarget);
   }
 
   return (
@@ -48,7 +61,7 @@ export function ProviderBudgetEditor({ budget, onClose }: { budget: ProviderBudg
       onCancel={event => { event.preventDefault(); if (!update.isPending) onClose(); }}>
       <h2 id="provider-budget-title">{t('Edit provider budget', '调整渠道预算')} · {budget.provider}</h2>
       <p className="collection-hint">{t('Enter whole numbers. Zero in any request or resource limit prevents execution. 1,000 ms = 1 second.', '请输入整数。任一请求或资源上限为 0 会阻止执行。1,000 毫秒 = 1 秒。')}</p>
-      <form onSubmit={save} className="collection-form">
+      <form ref={formRef} onSubmit={save} className="collection-form">
         <fieldset className="source-editor-fields" disabled={update.isPending}>
           <label className="collection-checkbox"><input type="checkbox" name="enabled" defaultChecked={budget.enabled} /> {t('Enable provider budget', '启用渠道预算')}</label>
           <div className="wb-grid-2 collection-form-grid">
@@ -61,6 +74,12 @@ export function ProviderBudgetEditor({ budget, onClose }: { budget: ProviderBudg
           </div>
         </fieldset>
         {error && <p className="wb-alert wb-alert--error" role="alert">{error}</p>}
+        {needsMfa && (
+          <InlineMfaStepUp
+            onVerified={() => submitFormElement(formRef.current)}
+            onCancel={() => setNeedsMfa(false)}
+          />
+        )}
         <footer className="collection-toolbar collection-toolbar--end">
           <button type="button" className="ds-btn ds-btn--ghost" disabled={update.isPending} onClick={onClose}>{t('Cancel', '取消')}</button>
           <button type="submit" className="ds-btn" disabled={update.isPending}>{update.isPending ? t('Saving…', '正在保存…') : t('Save budget', '更新配额')}</button>

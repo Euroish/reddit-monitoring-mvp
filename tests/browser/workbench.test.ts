@@ -389,8 +389,8 @@ test("browser: project switching and guided intake with real project and role bo
   });
   const login = async (email: string) => assert.equal((await post("/auth/login", { email, password })).status(), 200);
   const logout = async () => assert.ok((await post("/auth/logout", {})).ok());
-  const project = async (name: string, description = "") => {
-    const response = await post("/projects", { name, description, datasetMode: "batch", sourceIds: [], filter: {} });
+  const project = async (name: string, description = "", visibility: "private" | "shared" = "private") => {
+    const response = await post("/projects", { name, description, datasetMode: "batch", visibility, sourceIds: [], filter: {} });
     assert.equal(response.status(), 200, await response.text());
     return (await response.json()).id as string;
   };
@@ -413,7 +413,7 @@ test("browser: project switching and guided intake with real project and role bo
   };
 
   await login("owner@localhost");
-  const sharedId = await project("系统共享研究");
+  const sharedId = await project("系统共享研究", "", "shared");
   const sourceResponse = await post("/sources", {
     platform: "x", primaryProvider: "twitterapis", deliveryMode: "pull", contentKind: "post",
     label: "Registered X source", target: { type: "account", account: "example" },
@@ -439,15 +439,30 @@ test("browser: project switching and guided intake with real project and role bo
   await page.getByLabel("目标平台").selectOption("x");
   await page.getByLabel("目标内容").fill("@newtarget");
   await page.getByRole("button", { name: "检查这个目标" }).click();
+  // Active X provider now resolves unregistered legal @newtarget directly as on_demand_available
+  await page.getByRole("heading", { name: "设置采集范围" }).waitFor();
+  await page.getByRole("button", { name: "更换研究对象" }).click();
+  await page.getByLabel("目标平台").selectOption("reddit");
+  await page.getByLabel("目标内容").fill("r/NotRegistered");
+  await page.getByRole("button", { name: "检查这个目标" }).click();
   await page.getByRole("link", { name: "添加此研究来源" }).click();
   const sourceWizard = page.getByRole("dialog", { name: "新建采集来源" });
-  assert.equal(await sourceWizard.getByLabel("账号名称").inputValue(), "@newtarget");
+  assert.equal(await sourceWizard.getByLabel("平台").inputValue(), "reddit");
   await sourceWizard.getByRole("button", { name: "取消" }).click();
   await page.getByLabel("目标内容").waitFor();
-  assert.equal(await page.getByLabel("目标内容").inputValue(), "@newtarget");
+  assert.equal(await page.getByLabel("目标内容").inputValue(), "r/NotRegistered");
 
   await logout();
   await login("pro@example.test");
+  // Stage 2 (T02): Viewer isolation on /sources and /admin/queue + redirects
+  await page.goto(origin + "/sources?tab=budgets");
+  await page.waitForURL("**/settings?tab=quota");
+  await page.getByText(/私有项目上限/).waitFor();
+  await page.goto(origin + "/sources?tab=jobs");
+  await page.waitForURL("**/projects?view=my-jobs");
+  await page.getByRole("heading", { name: "我的采集任务记录" }).waitFor();
+  await page.goto(origin + "/sources");
+  await page.getByRole("heading", { name: "需要管理员权限（403）" }).waitFor();
   const firstId = await project("私人研究一");
   const secondId = await project("私人研究二", "用于验证说明搜索");
   await page.goto(origin + intakePath(firstId));
@@ -490,6 +505,8 @@ test("browser: project switching and guided intake with real project and role bo
   await page.waitForURL(`**/projects?view=overview&projectId=${sharedId}`);
   await page.reload();
   await selectProject.filter({ hasText: "系统共享研究" }).waitFor();
+  await page.getByRole("button", { name: "复制到我的私有项目" }).waitFor();
+  await page.getByRole("button", { name: "完整项目导出 (CSV)" }).waitFor();
   await page.getByText("暂无趋势数据", { exact: true }).first().waitFor();
   assert.equal(await page.locator(".kpi-strip canvas").count(), 0);
   await capture("empty-project-analysis-1440");

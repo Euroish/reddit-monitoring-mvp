@@ -122,3 +122,64 @@ export async function attachBatchToProjectInTx(
     [input.projectId],
   );
 }
+
+export async function moveBatchBetweenProjects(
+  pool: Pool,
+  actor: Actor,
+  sourceProjectId: string,
+  batchId: string,
+  targetProjectId: string,
+) {
+  if (sourceProjectId === targetProjectId) fail(422, "Select a different destination project");
+  return transaction(pool, async (client) => {
+    const orderedIds = [sourceProjectId, targetProjectId].sort();
+    await client.query("SELECT id FROM monitor_project WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE", [orderedIds]);
+    const sourceProj = await assertProjectWritable(client, actor, sourceProjectId);
+    const targetProj = await assertProjectWritable(client, actor, targetProjectId);
+    if (sourceProj.dataset_mode !== "batch" || targetProj.dataset_mode !== "batch") {
+      fail(409, "Moving batches is only supported between batch-mode projects");
+    }
+    if (!(await loadAuthorizedBatches(client, actor, [batchId])).length) fail(404, "Batch not found");
+    const { rows: [membership] } = await client.query<{ status: "enabled" | "disabled" }>(
+      "SELECT status FROM monitor_project_batch WHERE project_id=$1 AND batch_id=$2 AND status<>'removed'",
+      [sourceProjectId, batchId],
+    );
+    if (!membership) fail(404, "Batch is not linked to the source project");
+    // Reuse the local candidate's move semantics: preserve the source status
+    // for new/restored links and an existing destination's explicit decision.
+    await client.query(
+      `INSERT INTO monitor_project_batch(project_id, batch_id, status, added_by_user_id, added_at, updated_at)
+       VALUES($1, $2, $3, $4, NOW(), NOW())
+       ON CONFLICT (project_id, batch_id) DO UPDATE
+       SET status=CASE WHEN monitor_project_batch.status='removed' THEN EXCLUDED.status ELSE monitor_project_batch.status END,
+           updated_at=NOW()`,
+      [targetProjectId, batchId, membership.status, actor.userId ?? null],
+    );
+    await client.query(
+      "UPDATE monitor_project_batch SET status='removed', updated_at=NOW() WHERE project_id=$1 AND batch_id=$2",
+      [sourceProjectId, batchId],
+    );
+    await client.query(
+      "UPDATE monitor_project SET revision=revision+1, updated_at=NOW() WHERE id = ANY($1::uuid[])",
+      [orderedIds],
+    );
+    return { moved: true, batchId, sourceProjectId, targetProjectId };
+  });
+}
+
+export async function removeBatchFromAllProjectsInTx(client: PoolClient, batchId: string): Promise<string[]> {
+  const { rows } = await client.query<{ project_id: string }>(
+    `UPDATE monitor_project_batch SET status='removed', updated_at=NOW()
+     WHERE batch_id=$1 AND status<>'removed'
+     RETURNING project_id`,
+    [batchId],
+  );
+  const projectIds = [...new Set(rows.map((r) => r.project_id))];
+  if (projectIds.length > 0) {
+    await client.query(
+      "UPDATE monitor_project SET revision=revision+1, updated_at=NOW() WHERE id = ANY($1::uuid[])",
+      [projectIds],
+    );
+  }
+  return projectIds;
+}

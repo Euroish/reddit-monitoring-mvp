@@ -74,6 +74,7 @@ export async function recordCommittedBatch(
 export async function batchRoutes(app: FastifyInstance, pool: Pool, project?: {
   assertWritable: RequireWritableProject;
   listBatchIds: (db: Pool, actor: Actor, id: string) => Promise<string[]>;
+  onBatchDiscarded?: (client: PoolClient, batchId: string) => Promise<string[]>;
 }) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   api.get("/v1/batches", { config: { auth: { access: "authenticated", browserOnly: true } }, schema: { querystring: BatchesQuery } }, async (request) => {
@@ -118,7 +119,8 @@ export async function batchRoutes(app: FastifyInstance, pool: Pool, project?: {
        JOIN collection_source cs ON cs.id = cb.collection_source_id
        JOIN source p ON p.id = cs.platform_id
        LEFT JOIN source_collection_job j ON j.id = cb.job_id
-       WHERE ($1::uuid[] IS NULL OR cb.collection_source_id = ANY($1::uuid[]))
+       WHERE cb.discarded_at IS NULL
+         AND ($1::uuid[] IS NULL OR cb.collection_source_id = ANY($1::uuid[]))
          AND ($2::uuid IS NULL OR cb.collection_source_id = $2)
          AND ($3::uuid IS NULL OR cb.job_id = $3)
          AND (NOT $4::boolean OR cb.visibility = 'shared' OR cb.created_by_user_id = $5::uuid)
@@ -148,7 +150,7 @@ export async function batchRoutes(app: FastifyInstance, pool: Pool, project?: {
       }
       return transaction(pool, async (client) => {
         const res = await client.query<{ id: string; visibility: "private" | "shared" }>(
-          "UPDATE collection_batch SET visibility=$2 WHERE id=$1 RETURNING id, visibility",
+          "UPDATE collection_batch SET visibility=$2 WHERE id=$1 AND discarded_at IS NULL RETURNING id, visibility",
           [request.params.id, request.body.visibility],
         );
         if (!res.rowCount) fail(404, "Batch not found");
@@ -156,12 +158,79 @@ export async function batchRoutes(app: FastifyInstance, pool: Pool, project?: {
       });
     },
   );
+
+  api.delete(
+    "/v1/batches/:id",
+    { config: { auth: { access: "viewer_write", browserOnly: true } }, schema: { params: ParamsId } },
+    async (request) => {
+      const actor = request.actor!;
+      if (actor.clientKind !== "browser") fail(403, "Browser session required");
+      return transaction(pool, async (client) => {
+        const { rows: [batch] } = await client.query<{
+          id: string;
+          visibility: "private" | "shared";
+          created_by_user_id: string | null;
+        }>(
+          "SELECT id, visibility, created_by_user_id FROM collection_batch WHERE id=$1 AND discarded_at IS NULL FOR UPDATE",
+          [request.params.id],
+        );
+        if (!batch) fail(404, "Batch not found");
+        if (batch.visibility === "shared") fail(403, "Shared batches cannot be discarded");
+        if (actor.role === "viewer" && batch.created_by_user_id !== actor.userId) {
+          fail(403, "You can only discard your own private batches");
+        }
+        await client.query(
+          "UPDATE collection_batch SET discarded_at=NOW(), discarded_by_user_id=$2 WHERE id=$1",
+          [batch.id, actor.userId],
+        );
+        const affectedProjectIds = project?.onBatchDiscarded
+          ? await project.onBatchDiscarded(client, batch.id)
+          : [];
+        return { discarded: true, batchId: batch.id, affectedProjectIds };
+      });
+    },
+  );
+}
+
+export async function createSnapshotBatch(
+  client: PoolClient,
+  input: {
+    sourceId: string;
+    userId: string;
+    label: string;
+    contentIds: readonly string[];
+    visibility?: "private" | "shared";
+  },
+): Promise<{ batchId: string; itemCount: number; visibility: "private" | "shared" }> {
+  const batchId = randomUUID();
+  const visibility = input.visibility ?? "private";
+  await client.query(
+    `INSERT INTO collection_batch(id, job_id, collection_source_id, created_by_user_id, label, item_count, visibility)
+     VALUES($1, NULL, $2, $3, $4, 0, $5)`,
+    [batchId, input.sourceId, input.userId, input.label.slice(0, 140), visibility],
+  );
+  if (input.contentIds.length > 0) {
+    const { rows: [updated] } = await client.query<{ item_count: number }>(
+      `WITH inserted AS (
+         INSERT INTO collection_batch_item(batch_id, content_id)
+         SELECT $1, UNNEST($2::uuid[])
+         ON CONFLICT (batch_id, content_id) DO NOTHING
+         RETURNING 1
+       ), delta AS (SELECT COUNT(*)::int AS count FROM inserted)
+       UPDATE collection_batch SET item_count = item_count + delta.count
+       FROM delta WHERE id = $1 AND delta.count > 0
+       RETURNING item_count`,
+      [batchId, input.contentIds],
+    );
+    return { batchId, itemCount: updated?.item_count ?? 0, visibility };
+  }
+  return { batchId, itemCount: 0, visibility };
 }
 
 
 export function batchMembership(ids: readonly string[] | undefined, actor?: Actor): import("../content/index").BatchMembership {
   return { contains: (bind, column) => {
-    const conditions = [`i.content_id=${column}`];
+    const conditions = [`i.content_id=${column}`, "b.discarded_at IS NULL"];
     if (ids !== undefined) conditions.push(`b.id=ANY(${bind(ids)}::uuid[])`);
     if (column === "d.content_id") conditions.push("b.collection_source_id=d.collection_source_id");
     if (actor?.role === "viewer")
@@ -184,12 +253,14 @@ export function contentVisibility(
           : column === "o.content_id"
             ? " AND cb.collection_source_id=o.collection_source_id"
             : "";
+      // Discard removes an asset, not its privacy provenance. Only an active
+      // shared/owned membership may override another private membership.
       if (options?.publicOnly) {
-        return `(NOT EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.visibility='private') OR EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.visibility='shared'))`;
+        return `(NOT EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.visibility='private') OR EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.discarded_at IS NULL AND cb.visibility='shared'))`;
       }
       if (actor && actor.role !== "viewer") return "TRUE";
       const userId = bind(actor?.userId ?? null);
-      return `(NOT EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.visibility='private' AND cb.created_by_user_id IS DISTINCT FROM ${userId}::uuid) OR EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND (cb.visibility='shared' OR cb.created_by_user_id=${userId}::uuid)))`;
+      return `(NOT EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.visibility='private' AND cb.created_by_user_id IS DISTINCT FROM ${userId}::uuid) OR EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.discarded_at IS NULL AND (cb.visibility='shared' OR cb.created_by_user_id=${userId}::uuid)))`;
     },
   };
 }
@@ -206,7 +277,8 @@ export async function loadAuthorizedBatches(db: Pool | PoolClient, actor: Actor,
        cs.delivery_mode AS "deliveryMode", b.label, b.item_count AS "itemCount", b.visibility, b.created_at AS "createdAt"
      FROM collection_batch b JOIN collection_source cs ON cs.id=b.collection_source_id
      JOIN source p ON p.id=cs.platform_id LEFT JOIN source_collection_job j ON j.id=b.job_id
-     WHERE b.id=ANY($1::uuid[]) AND ($2::uuid[] IS NULL OR b.collection_source_id=ANY($2))
+     WHERE b.id=ANY($1::uuid[]) AND b.discarded_at IS NULL
+       AND ($2::uuid[] IS NULL OR b.collection_source_id=ANY($2))
        AND (NOT $3::boolean OR b.visibility='shared' OR b.created_by_user_id=$4)`,
     [ids, actor.allowedSourceIds, actor.role === "viewer", actor.userId ?? null],
   );

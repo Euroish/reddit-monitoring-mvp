@@ -35,6 +35,7 @@ export const MonitorCreateBody = Type.Object({
   scheduleIntervalHours: Type.Optional(Type.Integer({ minimum: 1, maximum: 168 })),
   dailyItemBudget: Type.Optional(Type.Integer({ minimum: 20, maximum: 20000 })),
   enabled: Type.Optional(Type.Boolean()),
+  projectId: Type.Optional(Id),
 }, { additionalProperties: false });
 
 export const MonitorPatchBody = Type.Object({
@@ -44,6 +45,7 @@ export const MonitorPatchBody = Type.Object({
   scheduleIntervalHours: Type.Optional(Type.Integer({ minimum: 1, maximum: 168 })),
   dailyItemBudget: Type.Optional(Type.Integer({ minimum: 20, maximum: 20000 })),
   enabled: Type.Optional(Type.Boolean()),
+  projectId: Type.Optional(Type.Union([Id, Type.Null()])),
 }, { additionalProperties: false });
 
 export const IntelMonitor = Type.Object({
@@ -54,6 +56,10 @@ export const IntelMonitor = Type.Object({
   scheduleIntervalHours: Type.Integer(),
   dailyItemBudget: Type.Integer(),
   enabled: Type.Boolean(),
+  projectId: Type.Optional(Type.Union([Id, Type.Null()])),
+  pausedReason: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  lastDispatchedAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
+  nextDueAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
   revision: Type.Integer(),
   sourceCount: Type.Integer({ minimum: 0 }),
   targetCount: Type.Integer({ minimum: 0 }),

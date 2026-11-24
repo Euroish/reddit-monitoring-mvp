@@ -3,18 +3,18 @@ import type { Pool, PoolClient } from "pg";
 import type { Static } from "@sinclair/typebox";
 import type { Actor } from "../../../packages/contracts/src/access";
 import type { Filter } from "../../../packages/contracts/src/content";
-import type { ProjectInput } from "../../../packages/contracts/src/projects";
+import type { ProjectForkInput, ProjectInput, ProjectPublishInput } from "../../../packages/contracts/src/projects";
 import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
 import {
   allSourcesExist,
   batchMembership,
   contentVisibility,
-  listStaffOwnerIds,
+  createSnapshotBatch,
   loadAuthorizedBatches,
   loadEffectivePolicyForUser,
 } from "../collection/index";
-import { compileContentFilter, summarizeScopedContent } from "../content/index";
+import { compileContentFilter, listScopedContentIds, summarizeScopedContent } from "../content/index";
 
 type ProjectWrite = Static<typeof ProjectInput>;
 export interface Project {
@@ -22,7 +22,10 @@ export interface Project {
   name: string;
   description: string | null;
   dataset_mode: "source_filter" | "batch";
+  visibility: "private" | "shared";
   owner_user_id: string | null;
+  forked_from_project_id: string | null;
+  linked_monitor_id: string | null;
   filter: Filter;
   revision: number;
   thread_aware: boolean;
@@ -36,14 +39,14 @@ export interface Project {
 
 export async function listProjects(pool: Pool | PoolClient, actor: Actor, id?: string) {
   const isViewer = actor.role === "viewer";
-  const staffIds = await listStaffOwnerIds(pool);
   const restrictBatches = isViewer || actor.allowedSourceIds !== null;
   const { rows } = await pool.query<Project & { batch_ids: string[]; enabled_batch_ids: string[] }>(`
-    SELECT p.id, p.name, p.description, p.dataset_mode, p.owner_user_id, p.filter,
+    SELECT p.id, p.name, p.description, p.dataset_mode, p.visibility, p.owner_user_id,
+      p.forked_from_project_id, p.linked_monitor_id, p.filter,
       p.revision, p.thread_aware, p.include_push_in_trends, p.created_at, p.updated_at,
       s.source_ids,
       (NOT $3::boolean OR p.owner_user_id = $4::uuid) AS can_edit,
-      (p.owner_user_id IS NULL OR p.owner_user_id=ANY($5::uuid[])) AS is_shared,
+      (p.visibility = 'shared') AS is_shared,
       COALESCE(b.enabled_batch_count, 0)::int AS enabled_batch_count,
       COALESCE(b.total_batch_count, 0)::int AS total_batch_count,
       COALESCE(b.batch_ids, ARRAY[]::uuid[]) AS batch_ids,
@@ -55,22 +58,21 @@ export async function listProjects(pool: Pool | PoolClient, actor: Actor, id?: s
     LEFT JOIN LATERAL (
       SELECT COUNT(*) FILTER (WHERE status = 'enabled') AS enabled_batch_count,
              COUNT(*) FILTER (WHERE status <> 'removed') AS total_batch_count,
-             ARRAY_AGG(batch_id) FILTER (WHERE $7::boolean AND status <> 'removed') AS batch_ids,
-             ARRAY_AGG(batch_id) FILTER (WHERE $7::boolean AND status = 'enabled') AS enabled_batch_ids
+             ARRAY_AGG(batch_id) FILTER (WHERE $6::boolean AND status <> 'removed') AS batch_ids,
+             ARRAY_AGG(batch_id) FILTER (WHERE $6::boolean AND status = 'enabled') AS enabled_batch_ids
       FROM monitor_project_batch
       WHERE project_id = p.id
     ) b ON true
     WHERE ($1::uuid[] IS NULL OR s.source_ids <@ $1)
       AND ($2::uuid IS NULL OR p.id=$2)
-      AND ($6::boolean OR p.dataset_mode <> 'batch')
+      AND ($5::boolean OR p.dataset_mode <> 'batch')
       AND (
         NOT $3::boolean
         OR p.owner_user_id = $4::uuid
-        OR p.owner_user_id IS NULL
-        OR p.owner_user_id=ANY($5::uuid[])
+        OR p.visibility = 'shared'
       )
     ORDER BY p.updated_at DESC`, [
-    actor.allowedSourceIds, id ?? null, isViewer, actor.userId ?? null, staffIds,
+    actor.allowedSourceIds, id ?? null, isViewer, actor.userId ?? null,
     actor.clientKind === "browser", restrictBatches,
   ]);
   const visibleIds = new Set((await loadAuthorizedBatches(pool, actor, [...new Set(rows.flatMap(row => row.batch_ids))]))
@@ -95,6 +97,34 @@ export async function assertProjectWritable(pool: Pool | PoolClient, actor: Acto
   const project = await projectSources(pool, actor, id);
   if (!project.can_edit) fail(403, "You do not have permission to modify this project");
   return project;
+}
+
+async function assertViewerProjectQuota(client: PoolClient, actor: Actor) {
+  if (actor.role !== "viewer") return;
+  if (!actor.userId) fail(403, "Authenticated browser session required");
+  const plan = await loadEffectivePolicyForUser(client, actor.userId, true);
+  const { rows: [owned] } = await client.query<{ count: string }>(
+    "SELECT COUNT(*) AS count FROM monitor_project WHERE owner_user_id=$1",
+    [actor.userId],
+  );
+  if (Number(owned.count) >= plan.maxProjects) {
+    fail(403, `Project limit reached for ${plan.planTier} tier (${plan.maxProjects})`);
+  }
+}
+
+function resolveNewProjectParams(actor: Actor, input: ProjectWrite, sources: string[]) {
+  const mode = input.datasetMode ?? (sources.length > 0 ? "source_filter" : "batch");
+  if (mode === "source_filter" && sources.length < 1) {
+    fail(422, "Select at least one collection source");
+  }
+  if (actor.role === "viewer" && input.visibility === "shared") {
+    fail(403, "Only administrators can publish shared projects");
+  }
+  const visibility =
+    (actor.role === "admin" || actor.role === "owner") && input.visibility === "shared"
+      ? "shared"
+      : "private";
+  return { mode, visibility };
 }
 
 export async function writeProject(pool: Pool, actor: Actor, input: ProjectWrite, update?: { id: string; revision: number }) {
@@ -138,29 +168,17 @@ export async function writeProject(pool: Pool, actor: Actor, input: ProjectWrite
       if (!result.rowCount) fail(409, "Project changed; reload before saving");
       await client.query("DELETE FROM monitor_project_source WHERE project_id=$1", [id]);
     } else {
-      const mode = input.datasetMode ?? (sources.length > 0 ? "source_filter" : "batch");
-      if (mode === "source_filter" && sources.length < 1) {
-        fail(422, "Select at least one collection source");
-      }
-      if (actor.role === "viewer") {
-        if (!actor.userId) fail(403, "Authenticated browser session required");
-        const plan = await loadEffectivePolicyForUser(client, actor.userId, true);
-        const { rows: [owned] } = await client.query<{ count: string }>(
-          "SELECT COUNT(*) AS count FROM monitor_project WHERE owner_user_id=$1",
-          [actor.userId],
-        );
-        if (Number(owned.count) >= plan.maxProjects) {
-          fail(403, `Project limit reached for ${plan.planTier} tier (${plan.maxProjects})`);
-        }
-      }
+      const { mode, visibility } = resolveNewProjectParams(actor, input, sources);
+      await assertViewerProjectQuota(client, actor);
       await client.query(`
-        INSERT INTO monitor_project(id,name,description,dataset_mode,filter,thread_aware,include_push_in_trends,owner_user_id)
-        VALUES($1,$2,$3,$4,$5,COALESCE($6,TRUE),COALESCE($7,FALSE),$8)`,
+        INSERT INTO monitor_project(id,name,description,dataset_mode,visibility,filter,thread_aware,include_push_in_trends,owner_user_id)
+        VALUES($1,$2,$3,$4,$5,$6,COALESCE($7,TRUE),COALESCE($8,FALSE),$9)`,
         [
           id,
           input.name,
           input.description ?? null,
           mode,
+          visibility,
           filter,
           input.threadAware ?? null,
           input.includePushInTrends ?? null,
@@ -174,6 +192,133 @@ export async function writeProject(pool: Pool, actor: Actor, input: ProjectWrite
         [id, sources],
       );
     }
+    return projectSources(client, actor, id);
+  });
+}
+
+async function assertViewerProjectCapacity(client: PoolClient, actor: Actor) {
+  if (actor.role !== "viewer") return;
+  if (!actor.userId) fail(403, "Authenticated browser session required");
+  const plan = await loadEffectivePolicyForUser(client, actor.userId, true);
+  const { rows: [owned] } = await client.query<{ count: string }>(
+    "SELECT COUNT(*) AS count FROM monitor_project WHERE owner_user_id=$1",
+    [actor.userId],
+  );
+  if (Number(owned.count) >= plan.maxProjects) {
+    fail(403, `Project limit reached for ${plan.planTier} tier (${plan.maxProjects})`);
+  }
+}
+
+export async function publishProject(
+  pool: Pool,
+  actor: Actor,
+  id: string,
+  input: Static<typeof ProjectPublishInput>,
+) {
+  if (actor.clientKind !== "browser" || actor.role === "viewer") {
+    fail(403, "Administrator browser session required");
+  }
+  return transaction(pool, async (client) => {
+    await client.query("SELECT id FROM monitor_project WHERE id=$1 FOR UPDATE", [id]);
+    const existing = await assertProjectWritable(client, actor, id);
+    if (existing.revision !== input.revision) fail(409, "Project changed; reload before publishing");
+    if (input.visibility === "shared" && existing.dataset_mode === "batch") {
+      const { rows } = await client.query<{ batch_id: string }>(
+        "SELECT batch_id FROM monitor_project_batch WHERE project_id=$1 AND status<>'removed'",
+        [id],
+      );
+      if (rows.length > 0) {
+        const batches = await loadAuthorizedBatches(client, actor, rows.map((r) => r.batch_id));
+        if (batches.some((b) => b.visibility !== "shared")) {
+          fail(409, "Remove or mark private batches as shared before publishing this project");
+        }
+      }
+    }
+    await client.query(
+      "UPDATE monitor_project SET visibility=$2, revision=revision+1, updated_at=NOW() WHERE id=$1",
+      [id, input.visibility],
+    );
+    return projectSources(client, actor, id);
+  });
+}
+
+async function copyBatchesForFork(
+  client: PoolClient,
+  actor: Actor,
+  sourceProject: Project,
+  targetProjectId: string,
+) {
+  if (sourceProject.dataset_mode === "batch") {
+    const { rows } = await client.query<{ batch_id: string }>(
+      "SELECT batch_id FROM monitor_project_batch WHERE project_id=$1 AND status='enabled' ORDER BY added_at, batch_id",
+      [sourceProject.id],
+    );
+    if (!rows.length) return;
+    const authorized = await loadAuthorizedBatches(client, actor, rows.map((r) => r.batch_id));
+    if (!authorized.length) return;
+    await client.query(
+      `INSERT INTO monitor_project_batch(project_id, batch_id, status, added_by_user_id, added_at, updated_at)
+       SELECT $1, UNNEST($2::uuid[]), 'enabled', $3, NOW(), NOW()
+       ON CONFLICT (project_id, batch_id) DO NOTHING`,
+      [targetProjectId, authorized.map((b) => b.batchId), actor.userId ?? null],
+    );
+    return;
+  }
+  const items = await listScopedContentIds(
+    client,
+    actor,
+    { sourceIds: sourceProject.source_ids, filter: sourceProject.filter },
+    contentVisibility(actor),
+    20000,
+  );
+  if (!items.length) return;
+  const bySource = new Map<string, string[]>();
+  for (const row of items) {
+    const bucket = bySource.get(row.sourceId) ?? [];
+    bucket.push(row.id);
+    bySource.set(row.sourceId, bucket);
+  }
+  const batchIds: string[] = [];
+  for (const [sourceId, contentIds] of bySource) {
+    const batch = await createSnapshotBatch(client, {
+      sourceId,
+      label: `${sourceProject.name} fork snapshot`,
+      userId: actor.userId ?? null,
+      visibility: "private",
+      contentIds,
+    });
+    batchIds.push(batch.batchId);
+  }
+  await client.query(
+    `INSERT INTO monitor_project_batch(project_id, batch_id, status, added_by_user_id, added_at, updated_at)
+     SELECT $1, UNNEST($2::uuid[]), 'enabled', $3, NOW(), NOW()
+     ON CONFLICT (project_id, batch_id) DO NOTHING`,
+    [targetProjectId, batchIds, actor.userId ?? null],
+  );
+}
+
+export async function forkProject(
+  pool: Pool,
+  actor: Actor,
+  sourceProjectId: string,
+  input: Static<typeof ProjectForkInput>,
+) {
+  if (actor.clientKind !== "browser") fail(403, "Browser session required");
+  return transaction(pool, async (client) => {
+    const sourceProj = await projectSources(client, actor, sourceProjectId);
+    await assertViewerProjectCapacity(client, actor);
+    const id = randomUUID();
+    const forkName = (input.name?.trim() || `${sourceProj.name} (Copy)`).slice(0, 100);
+    const forkDesc = input.description !== undefined ? input.description : sourceProj.description;
+    await client.query(
+      `INSERT INTO monitor_project(id,name,description,dataset_mode,visibility,forked_from_project_id,filter,thread_aware,include_push_in_trends,owner_user_id)
+       VALUES($1,$2,$3,'batch','private',$4,$5,$6,$7,$8)`,
+      [
+        id, forkName, forkDesc, sourceProj.id, sourceProj.filter,
+        sourceProj.thread_aware, sourceProj.include_push_in_trends, actor.userId ?? null,
+      ],
+    );
+    await copyBatchesForFork(client, actor, sourceProj, id);
     return projectSources(client, actor, id);
   });
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowRight, Database, History } from 'lucide-react';
-import { useAttachProjectBatchMutation, useBatchesQuery, useCollectSourceMutation, usePreviewResearchPlanMutation, useQuotasSummaryQuery, useRecentJobsQuery } from '../api/hooks';
+import { useAttachProjectBatchMutation, useBatchesQuery, useCollectResearchPlanMutation, useCollectSourceMutation, usePreviewResearchPlanMutation, useQuotasSummaryQuery, useRecentJobsQuery } from '../api/hooks';
 import { generateUuidV4, type Actor, type CollectionSource, type Project, type ResearchPlanPreviewRequest, type ResearchPlanPreviewResponse } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
 import { getRangeLimits, useIntakeError } from '../lib/researchIntake';
@@ -14,7 +14,7 @@ import { ExistingIntakeData, IntakeRestriction, IntakeReviewStep, IntakeScopeSte
 const planLifetimeMs = 5 * 60_000;
 const dayMs = 86_400_000;
 const activeJobStates = ['queued', 'running', 'retrying'];
-const initialRange: CollectionRange = { days: 7, limit: 20, comments: false, commentLimit: 15, fallback: false };
+const initialRange: CollectionRange = { days: 7, limit: 20, comments: false, commentLimit: 15, fallback: false, queryHints: {} };
 
 type Flow =
   | { step: 'landing' | 'target' | 'existing' }
@@ -28,6 +28,43 @@ function readDraft(params: string): ManualTarget {
   const type = sp.get('resumeType');
   const targetType = type === 'search' || type === 'account' || type === 'community' ? type : 'community';
   return { platform, targetType, targetValue: sp.get('resumeTarget')?.slice(0, 512) ?? '' };
+}
+
+function buildAdminRegistrationPath(
+  isAdmin: boolean,
+  restriction: ResearchPlanPreviewResponse | undefined,
+  projectId: string,
+  draft: ReturnType<typeof readDraft>,
+): string | undefined {
+  if (!isAdmin || restriction?.resolutionStatus !== 'needs_admin_source') return undefined;
+  const val = draft.targetValue.trim();
+  if (!val) return undefined;
+  return '/sources?' + new URLSearchParams({
+    tab: 'sources', domain: 'research', new: '1', returnProjectId: projectId,
+    targetPlatform: draft.platform, targetType: draft.targetType, targetValue: val,
+  });
+}
+
+function buildScopePreviewRequest(
+  projectId: string,
+  target: ResearchPlanPreviewResponse,
+  draft: ReturnType<typeof readDraft>,
+  range: CollectionRange,
+  now: number,
+): ResearchPlanPreviewRequest {
+  const hints = Object.keys(range.queryHints).length ? range.queryHints : undefined;
+  const common = {
+    projectId,
+    from: new Date(now - range.days * dayMs).toISOString(),
+    to: new Date(now).toISOString(),
+    limit: range.limit,
+    includeComments: range.comments,
+    maxCommentsPerPost: range.comments ? range.commentLimit : undefined,
+    queryHints: hints,
+  };
+  return target.matchedSource
+    ? { ...common, sourceId: target.matchedSource.id, useFallback: range.fallback }
+    : { ...common, platform: draft.platform, targetType: draft.targetType, targetValue: draft.targetValue.trim() };
 }
 
 export function ProjectCollectView({ actor, project, sources, initialSearch = '', onNavigate }: {
@@ -58,6 +95,7 @@ export function ProjectCollectView({ actor, project, sources, initialSearch = ''
   const quotas = useQuotasSummaryQuery(canModify);
   const preview = usePreviewResearchPlanMutation();
   const collect = useCollectSourceMutation();
+  const collectPlan = useCollectResearchPlanMutation();
   const attach = useAttachProjectBatchMutation();
   const existing = useBatchesQuery({ forProjectId: project.id, limit: 100 }, canModify);
   const jobs = useRecentJobsQuery({ projectId: project.id, limit: 20 }, canModify && flow.step === 'landing');
@@ -100,8 +138,11 @@ export function ProjectCollectView({ actor, project, sources, initialSearch = ''
       const result = await preview.mutateAsync({ projectId: project.id, ...target,
         from: new Date(now - dayMs).toISOString(), to: new Date(now).toISOString(), limit: 1 });
       if (!mounted.current) return;
-      if (!result.executable || !result.matchedSource) { setRestriction(result); return; }
-      setSourceId(result.matchedSource.id);
+      if (!result.executable || (!result.matchedSource && result.resolutionStatus !== 'on_demand_available')) {
+        setRestriction(result);
+        return;
+      }
+      setSourceId(result.matchedSource?.id);
       const limits = getRangeLimits(result);
       setRange(current => ({ ...current, days: Math.min(current.days, limits.maxDays),
         limit: Math.min(current.limit, limits.maxItems), comments: current.comments && limits.maxComments > 0,
@@ -112,21 +153,21 @@ export function ProjectCollectView({ actor, project, sources, initialSearch = ''
 
   async function estimate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canModify || flow.step !== 'scope' || !flow.target.matchedSource || preview.isPending) return;
+    if (!canModify || flow.step !== 'scope' || preview.isPending) return;
+    if (!flow.target.matchedSource && flow.target.resolutionStatus !== 'on_demand_available') return;
     setError('');
     setRestriction(undefined);
     const now = Date.now();
-    const request: ResearchPlanPreviewRequest = {
-      projectId: project.id, sourceId: flow.target.matchedSource.id,
-      from: new Date(now - range.days * dayMs).toISOString(), to: new Date(now).toISOString(),
-      limit: range.limit, includeComments: range.comments,
-      maxCommentsPerPost: range.comments ? range.commentLimit : undefined, useFallback: range.fallback,
-    };
+    const request = buildScopePreviewRequest(project.id, flow.target, draft, range, now);
     try {
       const result = await preview.mutateAsync(request);
       if (!mounted.current) return;
-      if (!result.executable || !result.matchedSource) { setRestriction(result); return; }
+      if (!result.executable || (!result.matchedSource && result.resolutionStatus !== 'on_demand_available')) {
+        setRestriction(result);
+        return;
+      }
       collect.reset();
+      collectPlan.reset();
       setConfirmed(false);
       setFlow({ step: 'review', target: flow.target,
         estimate: { request, result, key: generateUuidV4(), expiresAt: now + planLifetimeMs } });
@@ -136,20 +177,26 @@ export function ProjectCollectView({ actor, project, sources, initialSearch = ''
   async function confirm() {
     if (!canModify || flow.step !== 'review' || !confirmed || submitting.current) return;
     const { estimate: prepared, target } = flow;
-    if (Date.now() >= prepared.expiresAt && !collect.isError) {
+    if (Date.now() >= prepared.expiresAt && !collect.isError && !collectPlan.isError) {
       setFlow({ step: 'scope', target });
       setError(t('The estimate expired. Check the estimated usage again.', '估算已过期，请重新查看预计消耗。'));
       setConfirmed(false);
       return;
     }
-    const { from, to, limit, includeComments, maxCommentsPerPost, useFallback, projectId } = prepared.request;
+    const { from, to, limit, includeComments, maxCommentsPerPost, useFallback, projectId, queryHints } = prepared.request;
     submitting.current = true;
     setError('');
     try {
-      const result = await collect.mutateAsync({
-        sourceId: prepared.request.sourceId!, idempotencyKey: prepared.key,
-        payload: { from, to, limit, includeComments, maxCommentsPerPost, useFallback, projectId },
-      });
+      const result = prepared.request.sourceId
+        ? await collect.mutateAsync({
+            sourceId: prepared.request.sourceId,
+            idempotencyKey: prepared.key,
+            payload: { from, to, limit, includeComments, maxCommentsPerPost, useFallback, projectId, queryHints },
+          })
+        : await collectPlan.mutateAsync({
+            payload: { ...prepared.request, projectId: project.id },
+            idempotencyKey: prepared.key,
+          });
       if (mounted.current) onNavigate(path('jobs') + '&jobId=' + encodeURIComponent(result.jobId));
     } catch (err) { setError(readableError(err, true)); }
     finally { submitting.current = false; }
@@ -166,10 +213,7 @@ export function ProjectCollectView({ actor, project, sources, initialSearch = ''
     finally { submitting.current = false; }
   }
 
-  const registrationPath = isAdmin && restriction?.resolutionStatus === 'needs_admin_source' && draft.targetValue.trim()
-    ? '/sources?' + new URLSearchParams({ tab: 'sources', domain: 'research', new: '1', returnProjectId: project.id,
-      targetPlatform: draft.platform, targetType: draft.targetType, targetValue: draft.targetValue.trim() })
-    : undefined;
+  const registrationPath = buildAdminRegistrationPath(isAdmin, restriction, project.id, draft);
 
   return <div className="research-intake">
     <header className="research-intake-heading">
@@ -223,8 +267,8 @@ export function ProjectCollectView({ actor, project, sources, initialSearch = ''
         {restriction && <IntakeRestriction result={restriction} registrationPath={registrationPath} isAdmin={isAdmin}
           onBack={() => { setRestriction(undefined); setError(''); }} />}
         {flow.step === 'review' && <IntakeReviewStep estimate={flow.estimate} isAdmin={isAdmin} confirmed={confirmed} setConfirmed={setConfirmed}
-          pending={collect.isPending} onConfirm={() => void confirm()} onBack={() => {
-            if (collect.isPending) return;
+          pending={collect.isPending || collectPlan.isPending} onConfirm={() => void confirm()} onBack={() => {
+            if (collect.isPending || collectPlan.isPending) return;
             setError(''); setConfirmed(false); setFlow({ step: 'scope', target: flow.target });
           }} onReuse={batches.length ? () => move('existing') : undefined} />}
         {flow.step === 'existing' && <>

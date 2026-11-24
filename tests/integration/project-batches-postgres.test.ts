@@ -241,7 +241,7 @@ test("empty batch projects, viewer ownership isolation, and batch enable/disable
     method: "POST",
     url: "/v1/projects",
     headers: ownerHeaders,
-    payload: { name: "Admin Shared Project", datasetMode: "batch", sourceIds: [] },
+    payload: { name: "Admin Shared Project", datasetMode: "batch", visibility: "shared", sourceIds: [] },
   });
   assert.equal(sharedRes.statusCode, 200, sharedRes.body);
   const sharedProj = sharedRes.json();

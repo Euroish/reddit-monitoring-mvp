@@ -353,15 +353,7 @@ export function useCollectSourceMutation() {
   return useMutation({
     mutationFn: (args: {
       sourceId: string;
-      payload: {
-        from: string;
-        to: string;
-        limit: number;
-        includeComments?: boolean;
-        useFallback?: boolean;
-        maxCommentsPerPost?: number;
-        projectId?: string;
-      };
+      payload: Parameters<typeof apiClient.collectSource>[1];
       idempotencyKey: string;
     }) => apiClient.collectSource(args.sourceId, args.payload, args.idempotencyKey),
     onSuccess: (_data, vars) => {
@@ -626,6 +618,190 @@ export function usePreviewResearchPlanMutation() {
   });
 }
 
+export function useCollectResearchPlanMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      payload,
+      idempotencyKey,
+    }: {
+      payload: import('../contracts/api').ResearchPlanCollectRequest;
+      idempotencyKey: string;
+    }) => apiClient.collectResearchPlan(payload, idempotencyKey),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['recentJobs'] });
+      qc.invalidateQueries({ queryKey: ['quotasSummary'] });
+    },
+  });
+}
+
+export function usePublishProjectMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      visibility,
+      revision,
+    }: {
+      projectId: string;
+      visibility: 'private' | 'shared';
+      revision: number;
+    }) => apiClient.publishProject(projectId, { visibility, revision }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] });
+      qc.invalidateQueries({ queryKey: ['overview'] });
+    },
+  });
+}
+
+export function useForkProjectMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      name,
+      description,
+    }: {
+      projectId: string;
+      name?: string;
+      description?: string;
+    }) => apiClient.forkProject(projectId, { name, description }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+}
+
+export function useMoveProjectBatchMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      sourceProjectId,
+      batchId,
+      targetProjectId,
+    }: {
+      sourceProjectId: string;
+      batchId: string;
+      targetProjectId: string;
+    }) => apiClient.moveProjectBatch(sourceProjectId, batchId, targetProjectId),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['projectBatches', vars.sourceProjectId] });
+      qc.invalidateQueries({ queryKey: ['projectBatches', vars.targetProjectId] });
+      qc.invalidateQueries({ queryKey: ['projects'] });
+      qc.invalidateQueries({ queryKey: ['overview'] });
+      qc.invalidateQueries({ queryKey: ['content'] });
+    },
+  });
+}
+
+export function useDiscardBatchMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (batchId: string) => apiClient.discardBatch(batchId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['batches'] });
+      qc.invalidateQueries({ queryKey: ['projectBatches'] });
+      qc.invalidateQueries({ queryKey: ['projects'] });
+      qc.invalidateQueries({ queryKey: ['overview'] });
+      qc.invalidateQueries({ queryKey: ['content'] });
+    },
+  });
+}
+
+export function useGlobalBudgetQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['globalBudget'],
+    queryFn: () => apiClient.getGlobalBudget(),
+    enabled,
+  });
+}
+
+export function useUpdateGlobalBudgetMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { dailySocialItemCeiling: number; autoHydrationEnabled?: boolean; revision: number }) =>
+      apiClient.updateGlobalBudget(payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['globalBudget'] });
+      qc.invalidateQueries({ queryKey: ['budgets'] });
+    },
+  });
+}
+
+export function useLegacySourcesQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['legacySources'],
+    queryFn: () => apiClient.getLegacySources(),
+    enabled,
+  });
+}
+
+export function useReconcileLegacySourceMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      sourceId,
+      action,
+      revision,
+    }: {
+      sourceId: string;
+      action: 'pause_schedule' | 'claim_monitor_managed';
+      revision: number;
+    }) => apiClient.reconcileLegacySource(sourceId, { action, revision }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['legacySources'] });
+      qc.invalidateQueries({ queryKey: ['sources'] });
+    },
+  });
+}
+
+export function useMonitorsQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['intelMonitors'],
+    queryFn: () => apiClient.getMonitors(),
+    enabled,
+  });
+}
+
+export function useCreateMonitorMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Parameters<typeof apiClient.createMonitor>[0]) => apiClient.createMonitor(payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['intelMonitors'] });
+      qc.invalidateQueries({ queryKey: ['sources'] });
+    },
+  });
+}
+
+export function useUpdateMonitorMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: Parameters<typeof apiClient.updateMonitor>[1];
+    }) => apiClient.updateMonitor(id, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['intelMonitors'] });
+      qc.invalidateQueries({ queryKey: ['sources'] });
+    },
+  });
+}
+
+export function useDeleteMonitorMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, revision }: { id: string; revision: number }) => apiClient.deleteMonitor(id, revision),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['intelMonitors'] });
+      qc.invalidateQueries({ queryKey: ['sources'] });
+    },
+  });
+}
+
 export function useUpdateProjectBatchStatusMutation() {
   const qc = useQueryClient();
   return useMutation({
@@ -775,6 +951,14 @@ export function useDeleteDocMutation() {
       void qc.invalidateQueries({ queryKey: ['doc'] });
     },
   });
+}
+
+export function isMfaRequiredError(err: unknown): boolean {
+  return (
+    err instanceof ApiError &&
+    err.status === 403 &&
+    /mfa|authenticator|verification|step.?up/i.test(err.message)
+  );
 }
 
 export function formatApiError(err: unknown): string {

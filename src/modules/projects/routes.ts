@@ -4,15 +4,32 @@ import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import { Id, IdempotencyHeaders, ParamsId, strictMerge } from "../../../packages/contracts/src/common";
 import { Hydrate } from "../../../packages/contracts/src/collection";
-import { ProjectBatchAttachInput, ProjectBatchStatusInput, ProjectInput } from "../../../packages/contracts/src/projects";
+import {
+  ProjectBatchAttachInput,
+  ProjectBatchMoveInput,
+  ProjectBatchStatusInput,
+  ProjectForkInput,
+  ProjectInput,
+  ProjectPublishInput,
+} from "../../../packages/contracts/src/projects";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { notifyChannel } from "../../platform/pg-notify";
 import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
 import { enqueueHydrationForScope, loadAuthorizedBatches } from "../collection/index";
-import { deleteProject, listProjectBatchIds, listProjects, projectOverview, projectSources, resolveProjectScope, writeProject } from "./sql";
+import {
+  deleteProject,
+  forkProject,
+  listProjectBatchIds,
+  listProjects,
+  projectOverview,
+  projectSources,
+  publishProject,
+  resolveProjectScope,
+  writeProject,
+} from "./sql";
 
-import { attachBatchToProject, listProjectBatches, updateProjectBatchStatus } from "./batches";
+import { attachBatchToProject, listProjectBatches, moveBatchBetweenProjects, updateProjectBatchStatus } from "./batches";
 
 const Revision = Type.Object({ revision: Type.Integer({ minimum: 1 }) }, { additionalProperties: false });
 
@@ -100,5 +117,24 @@ export async function projectRoutes(app: FastifyInstance, pool: Pool, providers:
     },
     (request) =>
       updateProjectBatchStatus(pool, request.actor!, request.params.id, request.params.batchId, request.body.status),
+  );
+  api.post(
+    "/v1/projects/:id/publish",
+    { config: { auth: { access: "admin_mfa", browserOnly: true } }, schema: { params: ParamsId, body: ProjectPublishInput } },
+    (request) => publishProject(pool, request.actor!, request.params.id, request.body),
+  );
+  api.post(
+    "/v1/projects/:id/fork",
+    { config: { auth: { access: "viewer_write", browserOnly: true } }, schema: { params: ParamsId, body: ProjectForkInput } },
+    (request) => forkProject(pool, request.actor!, request.params.id, request.body),
+  );
+  api.post(
+    "/v1/projects/:id/batches/:batchId/move",
+    {
+      config: { auth: { access: "viewer_write", browserOnly: true } },
+      schema: { params: Type.Object({ id: Id, batchId: Id }), body: ProjectBatchMoveInput },
+    },
+    (request) =>
+      moveBatchBetweenProjects(pool, request.actor!, request.params.id, request.params.batchId, request.body.targetProjectId),
   );
 }

@@ -1,9 +1,11 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Lock, RefreshCw } from 'lucide-react';
 import { formatApiError, useCapabilitiesQuery, useLogoutMutation, useSessionQuery } from './api/hooks';
 import { AuthModal } from './components/AuthModal';
 import { AccountEmailConfirm } from './components/AccountEmail';
 import { LogoProvider } from './components/BrandMark';
+import { ViewerForbiddenCard } from './components/InlineMfaStepUp';
 import { type PublicRoute, PublicSiteShell } from './components/PublicSiteShell';
 import { ThemeProvider } from './components/ThemeStudio';
 import { type Lang, LangContext } from './i18n/translations';
@@ -110,14 +112,32 @@ function PageFallback({ label }: { label: string }) {
   );
 }
 
+function readStoredLang(): Lang {
+  try {
+    return localStorage.getItem('siftline.lang') === 'en' ? 'en' : 'zh';
+  } catch {
+    return 'zh';
+  }
+}
+
+function useViewerSourcesRedirect(
+  actor: { role: string } | null,
+  rawPathname: string,
+  search: string,
+  navigate: (path: string) => void,
+) {
+  useEffect(() => {
+    if (!actor || actor.role !== 'viewer' || rawPathname !== '/sources') return;
+    const tParam = new URLSearchParams(search).get('tab');
+    const target = tParam === 'budgets' ? '/settings?tab=quota' : tParam === 'jobs' ? '/projects?view=my-jobs' : null;
+    if (!target) return;
+    const timer = window.setTimeout(() => navigate(target), 0);
+    return () => window.clearTimeout(timer);
+  }, [actor, rawPathname, search, navigate]);
+}
+
 export function App() {
-  const [lang, setLangState] = useState<Lang>(() => {
-    try {
-      return localStorage.getItem('siftline.lang') === 'en' ? 'en' : 'zh';
-    } catch {
-      return 'zh';
-    }
-  });
+  const [lang, setLangState] = useState<Lang>(readStoredLang);
 
   const setLang = (l: Lang) => {
     setLangState(l);
@@ -162,9 +182,21 @@ export function App() {
     [],
   );
 
+  const queryClient = useQueryClient();
+  const prevUserIdRef = useRef<string | null>(null);
   const sessionQuery = useSessionQuery();
   const logoutMut = useLogoutMutation();
   const actor = sessionQuery.data?.user ?? null;
+
+  useEffect(() => {
+    const nextUid = actor?.userId ?? null;
+    if (prevUserIdRef.current !== nextUid) {
+      prevUserIdRef.current = nextUid;
+      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'session' });
+    }
+  }, [actor?.userId, queryClient]);
+
+  useViewerSourcesRedirect(actor, loc.rawPathname, loc.search, navigate);
   const publicRead = sessionQuery.data?.publicRead ?? false;
   const publicRegistration = sessionQuery.data?.publicRegistration ?? false;
   const turnstileSiteKey = sessionQuery.data?.turnstileSiteKey;
@@ -353,14 +385,13 @@ export function App() {
     );
   }
 
-  const isPublicSiteRoute =
-    loc.pathname === '/' ||
-    loc.pathname === '/product' ||
-    loc.pathname === '/ai' ||
-    loc.pathname === '/docs' ||
-    loc.pathname === '__not_found__';
+const PUBLIC_SITE_ROUTES = new Set(['/', '/product', '/ai', '/docs', '__not_found__']);
 
-  if (isPublicSiteRoute) {
+function isPublicSitePath(pathname: string): boolean {
+  return PUBLIC_SITE_ROUTES.has(pathname);
+}
+
+  if (isPublicSitePath(loc.pathname)) {
     return (
       <LangContext.Provider value={{ lang, setLang, t }}>
         <ThemeProvider>
@@ -554,7 +585,9 @@ export function App() {
               )}
 
               {workbenchRoute === '/sources' && actor && (
-                <SourcesPage key={new URLSearchParams(loc.search).get('domain') ?? 'all'} actor={actor} initialQueryString={loc.search} onNavigate={navigate} />
+                actor.role === 'viewer'
+                  ? <ViewerForbiddenCard onNavigate={navigate} />
+                  : <SourcesPage key={new URLSearchParams(loc.search).get('domain') ?? 'all'} actor={actor} initialQueryString={loc.search} onNavigate={navigate} />
               )}
 
               {workbenchRoute === '/workspace' && actor && (
@@ -574,7 +607,9 @@ export function App() {
               )}
 
               {workbenchRoute === '/admin/queue' && actor && (
-                <AiReviewQueuePage actor={actor} onNavigate={navigate} />
+                actor.role === 'viewer'
+                  ? <ViewerForbiddenCard onNavigate={navigate} />
+                  : <AiReviewQueuePage actor={actor} onNavigate={navigate} />
               )}
             </WorkbenchShell>
           </Suspense>

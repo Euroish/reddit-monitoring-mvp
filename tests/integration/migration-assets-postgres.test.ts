@@ -120,7 +120,7 @@ test("PG16 upgrades applied 058 to the immutable batch migrations and safely rer
     "059_project_batches_and_ownership.sql", "060_batch_visibility_and_field_policy.sql",
     "061_content_enrichment_and_source_lanes.sql", "062_feed_personalization_and_seen.sql",
     "063_social_intelligence_monitors_and_rollups.sql", "064_feed_positive_event_idempotency.sql",
-    "065_monitor_managed_sources.sql",
+    "065_monitor_managed_sources.sql", "066_p0_p1_remediation.sql",
   ]);
   assert.deepEqual(await runMigrations({ pool: db.pool }), []);
   const after = await db.pool.query("SELECT filename,checksum FROM schema_migration ORDER BY filename");
@@ -161,7 +161,9 @@ test("PG16 upgrades main 060 to V2 without changing historical checksums or batc
   await db.pool.query("INSERT INTO ai_vendor_source(vendor_id,source_id) SELECT id,$1 FROM ai_vendor WHERE slug='openai'", [officialId]);
   await db.pool.query("UPDATE source_provider_budget SET daily_resources=1000,enabled=false WHERE provider='kaix'");
   const snapshot = async () => (await db.pool.query(
-    `SELECT row_to_json(b) AS batch, row_to_json(p) AS project, row_to_json(pb) AS membership
+    `SELECT b.id AS batch_id, b.collection_source_id, b.label AS batch_label, b.visibility AS batch_visibility,
+       p.id AS project_id, p.name AS project_name, p.dataset_mode, p.owner_user_id,
+       pb.status AS membership_status
      FROM collection_batch b JOIN monitor_project_batch pb ON pb.batch_id=b.id
      JOIN monitor_project p ON p.id=pb.project_id WHERE b.id=$1`, [batchId],
   )).rows;
@@ -169,9 +171,11 @@ test("PG16 upgrades main 060 to V2 without changing historical checksums or batc
   assert.deepEqual(await runMigrations({ pool: db.pool }), [
     "061_content_enrichment_and_source_lanes.sql", "062_feed_personalization_and_seen.sql",
     "063_social_intelligence_monitors_and_rollups.sql", "064_feed_positive_event_idempotency.sql",
-    "065_monitor_managed_sources.sql",
+    "065_monitor_managed_sources.sql", "066_p0_p1_remediation.sql",
   ]);
   assert.deepEqual(await snapshot(), existing);
+  assert.equal((await db.pool.query("SELECT visibility FROM monitor_project WHERE id=$1", [projectId])).rows[0].visibility, "shared");
+  assert.equal((await db.pool.query("SELECT daily_social_item_ceiling FROM source_global_budget WHERE id='default'")).rows[0].daily_social_item_ceiling, 20000);
   assert.deepEqual((await db.pool.query("SELECT filename,checksum FROM schema_migration ORDER BY filename")).rows.slice(0, before.length), before);
   assert.equal((await db.pool.query("SELECT feed_lane,usage_domain FROM collection_source WHERE id=$1", [sourceId])).rows[0].usage_domain, "research");
   assert.equal((await db.pool.query("SELECT monitor_managed FROM collection_source WHERE id=$1", [sourceId])).rows[0].monitor_managed, false);

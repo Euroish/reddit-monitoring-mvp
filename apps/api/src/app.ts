@@ -29,13 +29,20 @@ import {
   refreshRoutes,
   registerCollectionModule,
   readCollectionWorkerHealth,
+  type CredentialLookupName,
   type CredentialVault,
 } from "../../../src/modules/collection/index";
 import { registerContentModule } from "../../../src/modules/content/index";
 import { registerDocsModule } from "../../../src/modules/docs/index";
 import { registerFeedModule } from "../../../src/modules/feed/index";
 import { registerIntelligenceModule } from "../../../src/modules/intelligence/index";
-import { assertProjectWritable, listProjectBatchIds, registerProjectsModule, resolveProjectScope } from "../../../src/modules/projects/index";
+import {
+  assertProjectWritable,
+  listProjectBatchIds,
+  registerProjectsModule,
+  removeBatchFromAllProjectsInTx,
+  resolveProjectScope,
+} from "../../../src/modules/projects/index";
 import { registerWorkspaceModule } from "../../../src/modules/workspace/index";
 import type { DeclarativeRouteAuth } from "../../../src/platform/route-auth";
 import { fail } from "../../../src/shared/errors";
@@ -270,7 +277,23 @@ export async function buildApp(options: {
   const vault = options.credentialVault ?? createCredentialVault(options.pool, options.sessionSecret);
   await credentialRoutes(app, vault);
   await policyRoutes(app, options.pool, providers);
-  await registerCollectionModule(app, options.pool, providers, assertProjectWritable, listProjectBatchIds);
+  const credentialed = new Set(["kaix", "red_crawler", "twitterapis", "scrapebadger"]);
+  const getCredentialState = (providerName: string): "ok" | "missing" | "network_disabled" => {
+    const matched = providers.find((item) => item.capability.provider === providerName);
+    if (matched?.capability.enabled) return "ok";
+    if (
+      credentialed.has(providerName) &&
+      !vault.getSecret(providerName as CredentialLookupName) &&
+      (process.env.SOURCE_NETWORK_ENABLED === "true" || providers.some((item) => item.capability.enabled))
+    ) {
+      return "missing";
+    }
+    return "network_disabled";
+  };
+  await registerCollectionModule(app, options.pool, providers, assertProjectWritable, listProjectBatchIds, {
+    onBatchDiscarded: removeBatchFromAllProjectsInTx,
+    getCredentialState,
+  });
   await refreshRoutes(app, options.pool, providers);
   await jobRoutes(app, options.pool, listProjectBatchIds);
 
@@ -285,7 +308,7 @@ export async function buildApp(options: {
   await registerProjectsModule(app, options.pool, providers);
   await registerWorkspaceModule(app, options.pool, contentVisibility);
   await registerFeedModule(app, options.pool, contentVisibility);
-  await registerIntelligenceModule(app, options.pool, providers);
+  await registerIntelligenceModule(app, options.pool, providers, assertProjectWritable);
 
   app.get(
     "/v1/openapi.json",

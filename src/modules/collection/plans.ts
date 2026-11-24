@@ -3,14 +3,37 @@ import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool, QueryResultRow } from "pg";
 import { providerResourceReservation } from "../../../packages/contracts/src/collection-budget";
 import type { Actor } from "../../../packages/contracts/src/access";
-import { ResearchPlanPreviewInput, type ResearchCollectionRestriction, type ResearchPlanPreviewRequest } from "../../../packages/contracts/src/collection";
+import {
+  ResearchPlanCollectInput,
+  ResearchPlanPreviewInput,
+  type ResearchCollectionRestriction,
+  type ResearchPlanPreviewRequest,
+} from "../../../packages/contracts/src/collection";
+import { IdempotencyHeaders } from "../../../packages/contracts/src/common";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { countSourceSamples } from "../content/index";
 import { fail } from "../../shared/errors";
+import { notifyChannel } from "../../platform/pg-notify";
+import { transaction } from "../../storage/db";
 import { loadEffectivePolicyForUser, viewerCollectionDemand, type EffectivePolicy } from "./policy";
 import { batchMembership, type RequireWritableProject } from "./batches";
+import { enqueueOnDemandCollection } from "./managed";
 import { sourceSelect } from "./sql";
-import { collectionRequestRestriction, isCollectionBudgetDisabled } from "./config";
+import {
+  collectionRequestRestriction,
+  isCollectionBudgetDisabled,
+  providerFilterCapabilities,
+  queryHintsRestriction,
+} from "./config";
+
+export type ProviderCredentialDiagnostic = "ok" | "missing" | "network_disabled";
+export type CredentialStateResolver = (provider: string) => ProviderCredentialDiagnostic;
+
+const PRIMARY_ON_DEMAND_PROVIDER: Record<"reddit" | "x" | "bluesky", string> = {
+  reddit: "kaix",
+  x: "twitterapis",
+  bluesky: "bluesky_appview",
+};
 
 function normalizeTargetValue(targetType: string, raw: string): string {
   const trimmed = raw.trim();
@@ -26,7 +49,12 @@ function sourceTargetMatches(target: Record<string, unknown>, targetType: string
   return typeof field === "string" && normalizeTargetValue(targetType, field) === normalized;
 }
 
-function buildFieldPolicy(isViewer: boolean, effective: EffectivePolicy) {
+function buildFieldPolicy(
+  isViewer: boolean,
+  effective: EffectivePolicy,
+  providerName?: string,
+  targetType?: string,
+) {
   return {
     canEditTarget: true,
     canChooseProvider: !isViewer || effective.allowProviderChoice,
@@ -35,12 +63,58 @@ function buildFieldPolicy(isViewer: boolean, effective: EffectivePolicy) {
     maxLookbackDays: isViewer ? effective.maxLookbackDays : 365,
     maxBatchLimit: isViewer ? effective.maxBatchLimit : 300,
     maxCommentsPerPost: isViewer ? effective.maxCommentsPerPost : 50,
+    supportedFilters: providerFilterCapabilities(providerName ?? "", targetType ?? ""),
   };
 }
 
 type Restriction = { code: ResearchCollectionRestriction; message: string };
 
-function collectPolicyBlockers(isViewer: boolean, effective: EffectivePolicy, body: ResearchPlanPreviewRequest, spanDays: number): Restriction[] {
+function hasInvalidCredentialError(health: unknown): boolean {
+  if (!health || typeof health !== "object") return false;
+  const err = (health as { lastError?: unknown }).lastError;
+  return typeof err === "string" && /401|403|invalid api key|unauthorized|invalid credential|bad credentials/i.test(err);
+}
+
+function providerDiagnosticBlocker(
+  providerName: string,
+  provider: ContentProvider | undefined,
+  getCredentialState?: CredentialStateResolver,
+  health?: unknown,
+): Restriction | null {
+  if (provider?.capability.enabled) {
+    if (hasInvalidCredentialError(health)) {
+      return {
+        code: "credential_invalid",
+        message: `Provider ${providerName} credential was rejected upstream; an administrator should test and rotate it in Settings`,
+      };
+    }
+    return null;
+  }
+  const state = getCredentialState?.(providerName);
+  if (state === "missing") {
+    return {
+      code: "credential_missing",
+      message: `Provider ${providerName} API key is not configured; ask an administrator to add it in Settings -> Provider Keys`,
+    };
+  }
+  if (state === "network_disabled") {
+    return {
+      code: "network_disabled",
+      message: `External network collection is disabled for ${providerName} (SOURCE_NETWORK_ENABLED is off)`,
+    };
+  }
+  return {
+    code: "provider_unavailable",
+    message: `Provider ${providerName} is disabled or missing credentials/networking`,
+  };
+}
+
+function collectPolicyBlockers(
+  isViewer: boolean,
+  effective: EffectivePolicy,
+  body: ResearchPlanPreviewRequest,
+  spanDays: number,
+): Restriction[] {
   if (!isViewer) return [];
   const blockers: Restriction[] = [];
   if (!effective.manualCollectEnabled) blockers.push({ code: "manual_disabled", message: `Manual collection is disabled for ${effective.planTier} tier` });
@@ -57,6 +131,27 @@ function collectPolicyBlockers(isViewer: boolean, effective: EffectivePolicy, bo
   return blockers;
 }
 
+async function collectProviderRunBlockers(
+  pool: Pool,
+  isViewer: boolean,
+  effective: EffectivePolicy,
+  providerName: string,
+  provider: ContentProvider | undefined,
+  getCredentialState?: CredentialStateResolver,
+  health?: unknown,
+): Promise<Restriction[]> {
+  const blockers: Restriction[] = [];
+  const diag = providerDiagnosticBlocker(providerName, provider, getCredentialState, health);
+  if (diag) blockers.push(diag);
+  if (isViewer && !effective.allowedProviders.includes(providerName)) {
+    blockers.push({ code: "source_access", message: `Provider ${providerName} is not enabled for ${effective.planTier} tier` });
+  }
+  if (await isCollectionBudgetDisabled(pool, providerName)) {
+    blockers.push({ code: "budget_unavailable", message: `System channel budget for ${providerName} is disabled or zero` });
+  }
+  return blockers;
+}
+
 async function collectSourceBlockers(
   pool: Pool,
   isViewer: boolean,
@@ -64,23 +159,17 @@ async function collectSourceBlockers(
   matched: QueryResultRow,
   providerName: string,
   provider: ContentProvider | undefined,
+  getCredentialState?: CredentialStateResolver,
 ): Promise<Restriction[]> {
-  const blockers: Restriction[] = [];
-  if (!provider?.capability.enabled) {
-    blockers.push({ code: "provider_unavailable", message: `Provider ${providerName} is disabled or missing credentials/networking` });
-  }
+  const blockers = await collectProviderRunBlockers(
+    pool, isViewer, effective, providerName, provider, getCredentialState, matched.health,
+  );
   if (matched.automatic_collection_blocked) {
     blockers.push({ code: "charge_unresolved", message: "Source is blocked pending review of an unresolved paid request" });
   }
   if (matched.state !== "active") blockers.push({ code: "source_inactive", message: "Research source is paused or archived" });
-  if (isViewer && !effective.allowedProviders.includes(providerName)) {
-    blockers.push({ code: "source_access", message: `Provider ${providerName} is not enabled for ${effective.planTier} tier` });
-  }
   if (isViewer && effective.allowedSourceIds !== null && !effective.allowedSourceIds.includes(matched.id)) {
     blockers.push({ code: "source_access", message: "This source is outside your allowed collection scope" });
-  }
-  if (await isCollectionBudgetDisabled(pool, providerName)) {
-    blockers.push({ code: "budget_unavailable", message: `System channel budget for ${providerName} is disabled or zero` });
   }
   return blockers;
 }
@@ -101,6 +190,30 @@ async function previewQuotaBlockers(pool: Pool, userId: string | undefined, effe
   return blockers;
 }
 
+function estimateResources(
+  providerName: string,
+  provider: ContentProvider | undefined,
+  targetType: string,
+  body: ResearchPlanPreviewRequest,
+) {
+  const pageSize = providerName === "twitterapis" ? Math.min(body.limit, 20) : body.limit;
+  const systemResources = provider
+    ? providerResourceReservation({
+        provider: providerName,
+        targetType,
+        pageSize,
+        includeComments: body.includeComments,
+        maxCommentsPerPost: body.maxCommentsPerPost,
+        requestResourceUpperBound: provider.capability.requestResourceUpperBound,
+      })
+    : pageSize;
+  const personalResources = viewerCollectionDemand(providerName, targetType, pageSize, {
+    includeComments: body.includeComments,
+    maxCommentsPerPost: body.maxCommentsPerPost,
+  }).resources;
+  return { requests: 1, systemResources, personalResources };
+}
+
 async function previewMatchedSource(
   pool: Pool,
   actor: Actor,
@@ -110,38 +223,30 @@ async function previewMatchedSource(
   matched: QueryResultRow,
   normalizedTarget: string | null,
   policyBlockers: Restriction[],
-  fieldPolicy: ReturnType<typeof buildFieldPolicy>,
+  getCredentialState?: CredentialStateResolver,
 ) {
   const isViewer = actor.role === "viewer";
-  const fallbackRequested = body.useFallback && fieldPolicy.canUseFallback;
+  const allowFallback = !isViewer || effective.allowProviderChoice;
+  const fallbackRequested = Boolean(body.useFallback) && allowFallback;
   const providerName: string =
     fallbackRequested && matched.fallback_provider ? matched.fallback_provider : matched.primary_provider;
   const provider = providers.find(
     (p) => p.capability.provider === providerName && p.capability.platform === matched.platform,
   );
+  const fieldPolicy = buildFieldPolicy(isViewer, effective, providerName, String(matched.target?.type ?? ""));
   const blockers = [
     ...policyBlockers,
-    ...(await collectSourceBlockers(pool, isViewer, effective, matched, providerName, provider)),
+    ...(await collectSourceBlockers(pool, isViewer, effective, matched, providerName, provider, getCredentialState)),
   ];
-  if (fallbackRequested && !matched.fallback_provider) blockers.push({ code: "provider_choice", message: "No fallback provider configured for this source" });
-  const restriction = collectionRequestRestriction(providerName, matched.platform, matched.target.type, body);
+  if (fallbackRequested && !matched.fallback_provider) {
+    blockers.push({ code: "provider_choice", message: "No fallback provider configured for this source" });
+  }
+  const restriction =
+    collectionRequestRestriction(providerName, matched.platform, matched.target.type, body)
+    ?? queryHintsRestriction(providerName, matched.target.type, body.queryHints);
   if (restriction) blockers.push({ code: "unsupported_scope", message: restriction });
-  const pageSize = providerName === "twitterapis" ? Math.min(body.limit, 20) : body.limit;
-  const systemResources = provider
-    ? providerResourceReservation({
-        provider: providerName,
-        targetType: matched.target.type,
-        pageSize,
-        includeComments: body.includeComments,
-        maxCommentsPerPost: body.maxCommentsPerPost,
-        requestResourceUpperBound: provider.capability.requestResourceUpperBound,
-      })
-    : pageSize;
-  const personalResources = viewerCollectionDemand(providerName, matched.target.type, pageSize, {
-    includeComments: body.includeComments,
-    maxCommentsPerPost: body.maxCommentsPerPost,
-  }).resources;
-  if (isViewer) blockers.push(...await previewQuotaBlockers(pool, actor.userId, effective, personalResources));
+  const estimate = estimateResources(providerName, provider, matched.target.type, body);
+  if (isViewer) blockers.push(...await previewQuotaBlockers(pool, actor.userId, effective, estimate.personalResources));
 
   const existingItemCount = await countSourceSamples(pool, matched.id, body.from, body.to,
     isViewer ? batchMembership(undefined, actor) : undefined);
@@ -154,7 +259,7 @@ async function previewMatchedSource(
   }>(
     `SELECT id, label, item_count AS "itemCount", visibility, created_at AS "createdAt"
      FROM collection_batch
-     WHERE collection_source_id = $1 AND item_count > 0
+     WHERE collection_source_id = $1 AND item_count > 0 AND discarded_at IS NULL
        AND (NOT $2::boolean OR visibility = 'shared' OR created_by_user_id = $3::uuid)
      ORDER BY created_at DESC LIMIT 5`,
     [matched.id, isViewer, actor.userId ?? null],
@@ -186,14 +291,111 @@ async function previewMatchedSource(
           : "No stored samples found in this window.",
     },
     reusableBatches,
-    estimate: { requests: 1, systemResources, personalResources },
+    estimate,
     blockers: blockers.map(item => item.message),
     restrictions: [...new Set(blockers.map(item => item.code))],
     fieldPolicy,
   };
 }
 
-export async function planRoutes(app: FastifyInstance, pool: Pool, providers: ContentProvider[], requireWritableProject?: RequireWritableProject) {
+async function previewUnmatchedTarget(
+  pool: Pool,
+  actor: Actor,
+  providers: ContentProvider[],
+  effective: EffectivePolicy,
+  body: ResearchPlanPreviewRequest,
+  normalizedTarget: string | null,
+  policyBlockers: Restriction[],
+  getCredentialState?: CredentialStateResolver,
+) {
+  const isViewer = actor.role === "viewer";
+  const allowOnDemand = actor.allowedSourceIds === null && (!isViewer || effective.allowedSourceIds === null);
+  const providerName = body.platform ? PRIMARY_ON_DEMAND_PROVIDER[body.platform] : undefined;
+  const provider = providerName
+    ? providers.find((p) => p.capability.platform === body.platform && p.capability.provider === providerName)
+    : undefined;
+  const fieldPolicy = buildFieldPolicy(isViewer, effective, providerName, body.targetType);
+
+  if (!body.platform || !body.targetType || !body.targetValue || !provider || !allowOnDemand) {
+    return {
+      resolutionStatus: "needs_admin_source" as const,
+      executable: false,
+      matchedSource: null,
+      resolvedTarget: body.targetType && body.targetValue
+        ? { platform: body.platform ?? null, type: body.targetType, value: normalizedTarget ?? body.targetValue.trim() }
+        : null,
+      coverage: {
+        status: "empty" as const,
+        existingItemCount: 0,
+        lastSuccessAt: null,
+        note: "No registered research source matches this target yet. Ask an administrator to register it in Operations.",
+      },
+      reusableBatches: [],
+      estimate: { requests: 0, systemResources: 0, personalResources: 0 },
+      blockers: [
+        ...policyBlockers.map(item => item.message),
+        "Target is not registered as an active research source yet; an administrator must approve and create it in Operations.",
+      ],
+      restrictions: ["target_unavailable" as const, ...new Set(policyBlockers.map(item => item.code))],
+      fieldPolicy,
+    };
+  }
+
+  const blockers = [
+    ...policyBlockers,
+    ...(await collectProviderRunBlockers(pool, isViewer, effective, providerName!, provider, getCredentialState)),
+  ];
+  const rawTarget =
+    body.targetType === "community"
+      ? { type: "community" as const, community: body.targetValue }
+      : body.targetType === "account"
+        ? { type: "account" as const, account: body.targetValue }
+        : { type: "search" as const, query: body.targetValue };
+  try {
+    provider.normalizeTarget(rawTarget, "post");
+  } catch (err) {
+    blockers.push({ code: "unsupported_scope", message: err instanceof Error ? err.message : "Invalid target format" });
+  }
+  const restriction =
+    collectionRequestRestriction(providerName!, body.platform, body.targetType, body)
+    ?? queryHintsRestriction(providerName!, body.targetType, body.queryHints);
+  if (restriction) blockers.push({ code: "unsupported_scope", message: restriction });
+  const estimate = estimateResources(providerName!, provider, body.targetType, body);
+  if (isViewer) blockers.push(...await previewQuotaBlockers(pool, actor.userId, effective, estimate.personalResources));
+
+  return {
+    resolutionStatus: blockers.length === 0 ? ("on_demand_available" as const) : ("blocked" as const),
+    executable: blockers.length === 0,
+    matchedSource: null,
+    resolvedTarget: {
+      platform: body.platform,
+      type: body.targetType,
+      value: normalizedTarget ?? body.targetValue.trim(),
+    },
+    coverage: {
+      status: "empty" as const,
+      existingItemCount: 0,
+      lastSuccessAt: null,
+      note:
+        blockers.length === 0
+          ? "No registered source is required; starting this run will provision the target automatically under your quota."
+          : "Target is recognized for on-demand research, but current policy/budget blockers must be resolved first.",
+    },
+    reusableBatches: [],
+    estimate,
+    blockers: blockers.map(item => item.message),
+    restrictions: [...new Set(blockers.map(item => item.code))],
+    fieldPolicy,
+  };
+}
+
+export async function planRoutes(
+  app: FastifyInstance,
+  pool: Pool,
+  providers: ContentProvider[],
+  requireWritableProject?: RequireWritableProject,
+  getCredentialState?: CredentialStateResolver,
+) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   api.post(
     "/v1/research/collection-plans/preview",
@@ -212,7 +414,6 @@ export async function planRoutes(app: FastifyInstance, pool: Pool, providers: Co
       const isViewer = actor.role === "viewer";
       const effective = await loadEffectivePolicyForUser(pool, actor.userId);
       const policyBlockers = collectPolicyBlockers(isViewer, effective, body, (toMs - fromMs) / 86_400_000);
-      const fieldPolicy = buildFieldPolicy(isViewer, effective);
 
       const { rows: candidateRows } = await pool.query(
         `${sourceSelect}
@@ -233,30 +434,37 @@ export async function planRoutes(app: FastifyInstance, pool: Pool, providers: Co
         );
       }
       if (!matched) {
-        return {
-          resolutionStatus: "needs_admin_source" as const,
-          executable: false,
-          matchedSource: null,
-          resolvedTarget: body.targetType && body.targetValue
-            ? { platform: body.platform ?? null, type: body.targetType, value: normalizedTarget ?? body.targetValue.trim() }
-            : null,
-          coverage: {
-            status: "empty" as const,
-            existingItemCount: 0,
-            lastSuccessAt: null,
-            note: "No registered research source matches this target yet. Ask an administrator to register it in Operations.",
-          },
-          reusableBatches: [],
-          estimate: { requests: 0, systemResources: 0, personalResources: 0 },
-          blockers: [
-            ...policyBlockers.map(item => item.message),
-            "Target is not registered as an active research source yet; an administrator must approve and create it in Operations.",
-          ],
-          restrictions: ["target_unavailable" as const, ...new Set(policyBlockers.map(item => item.code))],
-          fieldPolicy,
-        };
+        return previewUnmatchedTarget(
+          pool, actor, providers, effective, body, normalizedTarget, policyBlockers, getCredentialState,
+        );
       }
-      return previewMatchedSource(pool, actor, providers, effective, body, matched, normalizedTarget, policyBlockers, fieldPolicy);
+      return previewMatchedSource(
+        pool, actor, providers, effective, body, matched, normalizedTarget, policyBlockers, getCredentialState,
+      );
+    },
+  );
+  api.post(
+    "/v1/research/collection-plans/collect",
+    {
+      config: { auth: { access: "viewer_write", browserOnly: true } },
+      schema: { body: ResearchPlanCollectInput, headers: IdempotencyHeaders },
+    },
+    async (request) => {
+      const actor = request.actor!;
+      if (actor.clientKind !== "browser") fail(403, "Browser session required");
+      const outcome = await transaction(pool, async (client) => {
+        if (!requireWritableProject) fail(500, "Project scope resolver is unavailable");
+        const proj = await requireWritableProject(client, actor, request.body.projectId) as
+          | { visibility?: "private" | "shared" }
+          | undefined;
+        return enqueueOnDemandCollection(client, actor, providers, {
+          ...request.body,
+          projectVisibility: proj?.visibility ?? (actor.role === "viewer" ? "private" : undefined),
+          requestKey: request.headers["idempotency-key"],
+        });
+      });
+      if (outcome.created) await notifyChannel(pool, "collection_jobs_ready");
+      return { jobId: outcome.jobId, sourceId: outcome.sourceId };
     },
   );
 }

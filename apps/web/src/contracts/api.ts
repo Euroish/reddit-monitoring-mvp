@@ -1,5 +1,5 @@
 import type { ResearchCollectionRestriction, UserQuotaOverride as QuotaOverrideDto } from '../../../../packages/contracts/src/collection.js';
-export type { ResearchPlanPreviewRequest, ResearchCollectionRestriction, UserQuotaOverride as QuotaOverrideDto } from '../../../../packages/contracts/src/collection.js';
+export type { QueryHintsValue, ResearchPlanCollectRequest, ResearchPlanPreviewRequest, ResearchCollectionRestriction, UserQuotaOverride as QuotaOverrideDto } from '../../../../packages/contracts/src/collection.js';
 import type { SourceCapability, SourceTarget } from '../../../../packages/contracts/src/source-content.js';
 export type { CollectionSource, SourceCapability, SourceTarget } from '../../../../packages/contracts/src/source-content.js';
 export type {
@@ -226,6 +226,9 @@ export interface PlanPolicyDto {
   maxLookbackDays?: number;
   allowProviderChoice?: boolean;
   exportEnabled?: boolean;
+  allowAutoSchedule?: boolean;
+  maxScheduledTasks?: number;
+  minScheduleIntervalHours?: number;
   updatedAt: string;
   revision: number;
 }
@@ -243,11 +246,27 @@ export interface EffectivePolicyDto {
   maxLookbackDays?: number;
   allowProviderChoice?: boolean;
   exportEnabled?: boolean;
+  allowAutoSchedule?: boolean;
+  maxScheduledTasks?: number;
+  minScheduleIntervalHours?: number;
   hasOverride: boolean;
+}
+
+export interface EffectiveCapabilitiesDto {
+  bypassPlanLimits: boolean;
+  canManageSources: boolean;
+  canManageBudgets: boolean;
+  canManageUserOverrides: boolean;
+  canManagePlanPolicies: boolean;
+  canManageMembers: boolean;
+  canInviteAdmins: boolean;
+  canChangeUserPlans: boolean;
 }
 
 export interface QuotasSummaryResponse {
   scope: 'personal' | 'admin';
+  bypassPlanLimits?: boolean;
+  effectiveCapabilities?: EffectiveCapabilitiesDto;
   resetsAtUtc: string;
   effectivePolicy: EffectivePolicyDto;
   myUsage: {
@@ -342,8 +361,18 @@ export interface ProjectBatchDto {
   createdAt: string;
 }
 
+export interface ProviderFilterSupportDto {
+  sortOptions: Array<'new' | 'top' | 'hot' | 'relevance'>;
+  supportsTimeRange: boolean;
+  supportsMinLikes: boolean;
+  supportsMinComments: boolean;
+  supportsExcludeReposts: boolean;
+  supportsLanguage: boolean;
+  engagementFilterMode: 'native' | 'post_filter' | 'none';
+}
+
 export interface ResearchPlanPreviewResponse {
-  resolutionStatus: 'matched_source' | 'needs_admin_source' | 'blocked';
+  resolutionStatus: 'matched_source' | 'on_demand_available' | 'needs_admin_source' | 'blocked';
   executable: boolean;
   matchedSource: {
     id: string;
@@ -378,7 +407,71 @@ export interface ResearchPlanPreviewResponse {
     maxLookbackDays: number;
     maxBatchLimit: number;
     maxCommentsPerPost: number;
+    supportedFilters?: ProviderFilterSupportDto;
   };
+}
+
+export interface GlobalSocialBudgetDto {
+  dailySocialItemCeiling: number;
+  autoHydrationEnabled: boolean;
+  reservedToday: number;
+  revision: number;
+  updatedAt: string;
+}
+
+export interface LegacySourceCandidateDto {
+  id: string;
+  label: string;
+  platform: Platform;
+  primaryProvider: string;
+  state: SourceState;
+  feedLane: string;
+  usageDomain: string;
+  monitorManaged: boolean;
+  scheduleEnabled: boolean;
+  schedule: Record<string, unknown>;
+  nextDueAt: string | null;
+  revision: number;
+  automaticCollectionBlocked: boolean;
+  recentJobStatus: string | null;
+  recentJobAt: string | null;
+  unresolvedCharges: number;
+  resourcesToday: number;
+  classification: 'monitor_derived' | 'operator_owned' | 'unclassified';
+  totalMonitorRefs: number;
+  enabledMonitorRefs: number;
+  monitorIds: string[];
+}
+
+export interface IntelMonitorDto {
+  id: string;
+  kind: 'keyword' | 'author_list' | 'community_bundle';
+  name: string;
+  config: {
+    platforms: Array<'reddit' | 'x'>;
+    keywords?: string[];
+    competitorKeywords?: string[];
+    handles?: Array<{ platform: 'reddit' | 'x'; handle: string }>;
+    subreddits?: string[];
+    sort?: 'top' | 'hot' | 'new';
+    minLikes?: number;
+    minComments?: number;
+    excludeReposts?: boolean;
+    language?: string;
+  };
+  scheduleIntervalHours: number;
+  dailyItemBudget: number;
+  enabled: boolean;
+  projectId?: string | null;
+  pausedReason?: string | null;
+  lastDispatchedAt?: string | null;
+  nextDueAt?: string | null;
+  revision: number;
+  sourceCount: number;
+  targetCount: number;
+  lastSuccessAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface UserAccountDto {
@@ -443,6 +536,9 @@ export interface Project {
   name: string;
   description?: string | null;
   dataset_mode?: 'source_filter' | 'batch';
+  visibility?: 'private' | 'shared';
+  forked_from_project_id?: string | null;
+  linked_monitor_id?: string | null;
   filter: ContentFilter;
   revision: number;
   thread_aware: boolean;
@@ -462,6 +558,7 @@ export interface ProjectInput {
   name: string;
   description?: string | null;
   datasetMode?: 'source_filter' | 'batch';
+  visibility?: 'private' | 'shared';
   sourceIds?: string[];
   filter?: ContentFilter;
   threadAware?: boolean;

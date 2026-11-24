@@ -3,9 +3,78 @@ import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool, PoolClient } from "pg";
 import type { PublicContentKind } from "../../../packages/contracts/src/common";
-import { SourceInput, SourcePreview, type SourceTarget } from "../../../packages/contracts/src/collection";
+import { QueryHints, type QueryHintsValue, SourceInput, SourcePreview, type SourceTarget } from "../../../packages/contracts/src/collection";
 import { ContentProviderError, type ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { fail } from "../../shared/errors";
+
+export interface ProviderFilterSupport {
+  sortOptions: Array<"new" | "top" | "hot" | "relevance">;
+  supportsTimeRange: boolean;
+  supportsMinLikes: boolean;
+  supportsMinComments: boolean;
+  supportsExcludeReposts: boolean;
+  supportsLanguage: boolean;
+  engagementFilterMode: "native" | "post_filter" | "none";
+}
+
+export function providerFilterCapabilities(provider: string, targetType: string): ProviderFilterSupport {
+  if (provider === "kaix" || provider === "red_crawler") {
+    return {
+      sortOptions: targetType === "account" ? ["new", "top"] : ["new", "top", "hot", "relevance"],
+      supportsTimeRange: targetType === "search" || targetType === "community",
+      supportsMinLikes: targetType !== "post",
+      supportsMinComments: targetType !== "post",
+      supportsExcludeReposts: false,
+      supportsLanguage: false,
+      engagementFilterMode: targetType !== "post" ? "post_filter" : "none",
+    };
+  }
+  if (provider === "twitterapis") {
+    return {
+      sortOptions: ["new", "top"],
+      supportsTimeRange: false,
+      supportsMinLikes: true,
+      supportsMinComments: true,
+      supportsExcludeReposts: true,
+      supportsLanguage: true,
+      engagementFilterMode: "native",
+    };
+  }
+  if (provider === "scrapebadger") {
+    return {
+      sortOptions: targetType === "search" ? ["new", "top"] : [],
+      supportsTimeRange: false,
+      supportsMinLikes: false,
+      supportsMinComments: false,
+      supportsExcludeReposts: false,
+      supportsLanguage: false,
+      engagementFilterMode: "none",
+    };
+  }
+  return {
+    sortOptions: [],
+    supportsTimeRange: false,
+    supportsMinLikes: false,
+    supportsMinComments: false,
+    supportsExcludeReposts: false,
+    supportsLanguage: false,
+    engagementFilterMode: "none",
+  };
+}
+
+export function queryHintsRestriction(provider: string, targetType: string, hints?: QueryHintsValue): string | undefined {
+  if (!hints) return undefined;
+  const cap = providerFilterCapabilities(provider, targetType);
+  if (hints.sort && !cap.sortOptions.includes(hints.sort)) return `Provider ${provider} does not support sort=${hints.sort}`;
+  if (hints.timeRange && !cap.supportsTimeRange) return `Provider ${provider} does not support timeRange for ${targetType}`;
+  if (hints.minLikes !== undefined && !cap.supportsMinLikes) return `Provider ${provider} does not support minLikes`;
+  if (hints.minComments !== undefined && !cap.supportsMinComments) return `Provider ${provider} does not support minComments`;
+  if (hints.excludeReposts !== undefined && !cap.supportsExcludeReposts) return `Provider ${provider} does not support excludeReposts`;
+  if (hints.language && !cap.supportsLanguage) return `Provider ${provider} does not support language filter`;
+  return undefined;
+}
+
+export { QueryHints };
 
 export function collectionRequestRestriction(
   provider: string,
@@ -46,8 +115,19 @@ export function validateFallback(providers: ContentProvider[], input: {
   provider.normalizeTarget(input.target, input.kind);
 }
 
+export function validateDomainLane(platform: string, feedLane?: string) {
+  if (!feedLane) return;
+  if (platform === "web" && feedLane === "monitor_only") {
+    fail(422, "Feed sources cannot use monitor_only lane");
+  }
+  if (platform !== "web" && feedLane === "release") {
+    fail(422, "Research sources cannot use official release lane");
+  }
+}
+
 export function validateSource(providers: ContentProvider[], input: Static<typeof SourceInput>) {
   if (!input.label.trim()) fail(422, "Source label cannot be blank");
+  validateDomainLane(input.platform, input.feedLane);
   const provider = providers.find(({ capability }) =>
     capability.provider === input.primaryProvider && capability.platform === input.platform);
   if ((input.deliveryMode === "push") !== (input.primaryProvider === "external_ingest"))

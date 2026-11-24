@@ -102,6 +102,7 @@ async function admitJobDispatch(
   source: QueryResultRow,
   provider: ContentProvider,
   token: string,
+  hooks: WorkerHooks = {},
 ) {
   const resources = providerResourceReservation({
     provider: job.provider, targetType: source.target.type, pageSize: job.page_size,
@@ -112,12 +113,15 @@ async function admitJobDispatch(
   const refresh = Array.isArray(job.request_json.externalIds);
   const hydrate = job.operation === "hydrate";
   return transaction(pool, async (client) => {
-    const currentSource = await lockSource(client, workerActor, source.id);
-    if (job.purpose === "scheduled" && !currentSource.schedule.enabled) {
+    const currentSource = await lockSource(client, workerActor, source.id, false);
+    if (currentSource.state !== "active" || currentSource.automatic_collection_blocked ||
+        (job.purpose === "scheduled" && !currentSource.schedule.enabled)) {
       await client.query(
         `UPDATE source_collection_job SET status='cancelled',finished_at=now(),
-          lease_token=NULL,lease_until=NULL,attempts=attempts-1 WHERE id=$1 AND lease_token=$2`,
-        [job.id, token],
+          lease_token=NULL,lease_until=NULL,attempts=GREATEST(0, attempts-1),
+          error=CASE WHEN $3 THEN 'Source paused or blocked before dispatch' ELSE error END
+        WHERE id=$1 AND lease_token=$2`,
+        [job.id, token, currentSource.state !== "active" || Boolean(currentSource.automatic_collection_blocked)],
       );
       return false;
     }
@@ -149,6 +153,33 @@ async function admitJobDispatch(
       [job.id, token, job.provider, resources],
     );
     if (deferred.rowCount) return false;
+    // This hook debits monitor/viewer usage and advances due times. Run it only
+    // after system/provider budgets admit dispatch, in the same transaction.
+    if (job.purpose === "scheduled" && hooks.authorizeScheduledSourceDispatch) {
+      const auth = await hooks.authorizeScheduledSourceDispatch(client, {
+        sourceId: source.id,
+        provider: job.provider,
+        resources,
+      });
+      if (!auth.admitted) {
+        if (auth.deferUntilIso) {
+          await client.query(
+            `UPDATE source_collection_job SET status='queued',next_run_at=$3,lease_token=NULL,lease_until=NULL,
+              attempts=GREATEST(0, attempts-1),error=$4
+            WHERE id=$1 AND lease_token=$2`,
+            [job.id, token, auth.deferUntilIso, auth.deferReason ?? "Waiting for monitor daily budget"],
+          );
+        } else {
+          await client.query(
+            `UPDATE source_collection_job SET status='cancelled',finished_at=now(),lease_token=NULL,lease_until=NULL,
+              attempts=GREATEST(0, attempts-1),error=$3
+            WHERE id=$1 AND lease_token=$2`,
+            [job.id, token, auth.deferReason ?? "Monitor entitlement revoked before dispatch"],
+          );
+        }
+        return false;
+      }
+    }
     const updated = await client.query(
       `UPDATE source_collection_job SET provider_state='{"phase":"starting"}',error=NULL,
         request_count=request_count+1,page_request_attempts=page_request_attempts+1,lease_until=NOW()+make_interval(secs=>$3)
@@ -179,8 +210,15 @@ function computeNextScheduleInterval(
   const previous = schedule.intervalSeconds ?? cadence;
   if (page.warning || job.provider === "newsnow") return cadence;
   if (!page.exhausted) return job.provider === "feed" ? cadence : Math.max(120, Math.floor(previous / 2));
-  if (page.notModified || job.records_inserted + addedCount === 0) return Math.min(14400, Math.ceil(previous * 1.25));
+  if (page.notModified || job.records_inserted + addedCount === 0) {
+    return Math.min(Math.max(cadence, 14400), Math.ceil(previous * 1.25));
+  }
   return cadence;
+}
+
+function resolveCommittedBatchVisibility(rawProjectVis: unknown, projectId: unknown): "private" | "shared" | undefined {
+  if (rawProjectVis === "private" || rawProjectVis === "shared") return rawProjectVis;
+  return typeof projectId === "string" ? "private" : undefined;
 }
 
 async function commitCollectedPage(
@@ -208,11 +246,15 @@ async function commitCollectedPage(
     batch,
     new Date().toISOString(),
   );
-  const committed = await recordCommittedBatch(client, {
-    jobId: job.id, sourceId: source.id, sourceLabel: source.label,
-    userId: job.requested_by_user_id ?? null, contentIds: counts.contentIds,
-  });
   const projectId = job.request_json?.projectId;
+  const committed = await recordCommittedBatch(client, {
+    jobId: job.id,
+    sourceId: source.id,
+    sourceLabel: source.label,
+    userId: job.requested_by_user_id ?? null,
+    contentIds: counts.contentIds,
+    visibility: resolveCommittedBatchVisibility(job.request_json?.projectVisibility, projectId),
+  });
   if (typeof projectId === "string" && onBatchCommitted) {
     await onBatchCommitted(client, {
       batchId: committed.batchId, projectId, userId: job.requested_by_user_id ?? null,
@@ -396,6 +438,10 @@ async function fetchProviderPage(
     primaryProvider: job.provider,
     fetchPolicy: source.fetch_policy ?? {},
   };
+  const hints = job.request_json?.queryHints;
+  if (hints && typeof hints === "object" && !Array.isArray(hints) && collectionSource.target.type !== "post" && collectionSource.target.type !== "feed") {
+    collectionSource.target = { ...collectionSource.target, ...hints };
+  }
   const externalIds = job.request_json.externalIds;
   if (job.operation === "hydrate" && !externalIds) {
     collectionSource.target = { type: "post", postId: job.request_json.postId };
@@ -443,6 +489,11 @@ function assertProviderReadyForJob(job: QueryResultRow, provider: ContentProvide
 export type WorkerHooks = {
   // Runs in the content transaction: a failed project attachment rolls back the page.
   onProjectBatchCommitted?: BatchCommittedHook;
+  // Runs in the admission transaction for scheduled jobs before charging upstream.
+  authorizeScheduledSourceDispatch?: (
+    client: PoolClient,
+    info: { sourceId: string; provider: string; resources: number },
+  ) => Promise<{ admitted: boolean; deferReason?: string; deferUntilIso?: string }>;
   // Runs after commit: failures must never replay an already charged collection.
   onSourceContentCommitted?: (sourceId: string, result: { changed: boolean; hydration: boolean }) => void | Promise<void>;
 };
@@ -475,7 +526,7 @@ export async function workOnce(
     assertProviderReadyForJob(job, provider);
     const phase = job.provider_state.phase;
     if (!phase || (phase === "starting" && provider.capability.automaticRequestReplay !== false)) {
-      const admitted = await admitJobDispatch(pool, job as Parameters<typeof admitJobDispatch>[1], source, provider, token);
+      const admitted = await admitJobDispatch(pool, job as Parameters<typeof admitJobDispatch>[1], source, provider, token, hooks);
       if (!admitted) return true;
       job.provider_state = { phase: "starting" };
       job.page_request_attempts++;

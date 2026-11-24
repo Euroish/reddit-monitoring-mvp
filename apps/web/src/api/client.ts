@@ -361,6 +361,7 @@ export const apiClient = {
       useFallback?: boolean;
       maxCommentsPerPost?: number;
       projectId?: string;
+      queryHints?: import('../contracts/api').QueryHintsValue;
     },
     idempotencyKey: string,
   ): Promise<{ jobId: string }> {
@@ -617,6 +618,124 @@ export const apiClient = {
     return liveFetch('/research/collection-plans/preview', {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  },
+
+  async collectResearchPlan(
+    payload: import('../contracts/api').ResearchPlanCollectRequest,
+    idempotencyKey: string,
+  ): Promise<{ jobId: string; sourceId: string }> {
+    return liveFetch('/research/collection-plans/collect', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async publishProject(
+    projectId: string,
+    payload: { visibility: 'private' | 'shared'; revision: number },
+  ): Promise<Project> {
+    return liveFetch(`/projects/${projectId}/publish`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async forkProject(
+    projectId: string,
+    payload: { name?: string; description?: string } = {},
+  ): Promise<Project> {
+    return liveFetch(`/projects/${projectId}/fork`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async moveProjectBatch(
+    sourceProjectId: string,
+    batchId: string,
+    targetProjectId: string,
+  ): Promise<{ moved: boolean; batchId: string; sourceProjectId: string; targetProjectId: string }> {
+    return liveFetch(`/projects/${sourceProjectId}/batches/${batchId}/move`, {
+      method: 'POST',
+      body: JSON.stringify({ targetProjectId }),
+    });
+  },
+
+  async discardBatch(batchId: string): Promise<{ discarded: boolean; id: string }> {
+    return liveFetch(`/batches/${batchId}`, { method: 'DELETE' });
+  },
+
+  async getGlobalBudget(): Promise<import('../contracts/api').GlobalSocialBudgetDto> {
+    return liveFetch('/sources/budgets/global');
+  },
+
+  async updateGlobalBudget(payload: {
+    dailySocialItemCeiling: number;
+    autoHydrationEnabled?: boolean;
+    revision: number;
+  }): Promise<import('../contracts/api').GlobalSocialBudgetDto> {
+    return liveFetch('/sources/budgets/global', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getLegacySources(): Promise<{ items: import('../contracts/api').LegacySourceCandidateDto[] }> {
+    return liveFetch('/intelligence/admin/legacy-sources');
+  },
+
+  async reconcileLegacySource(
+    sourceId: string,
+    payload: { action: 'pause_schedule' | 'claim_monitor_managed'; revision: number },
+  ): Promise<{ reconciled: boolean; id: string; action: string }> {
+    return liveFetch(`/intelligence/admin/legacy-sources/${sourceId}/reconcile`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getMonitors(): Promise<{ monitors: import('../contracts/api').IntelMonitorDto[] }> {
+    return liveFetch('/intelligence/monitors');
+  },
+
+  async createMonitor(payload: {
+    kind: 'keyword' | 'author_list' | 'community_bundle';
+    name: string;
+    config: import('../contracts/api').IntelMonitorDto['config'];
+    scheduleIntervalHours?: number;
+    dailyItemBudget?: number;
+    enabled?: boolean;
+    projectId?: string;
+  }): Promise<{ monitor: import('../contracts/api').IntelMonitorDto }> {
+    return liveFetch('/intelligence/monitors', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateMonitor(
+    id: string,
+    payload: {
+      revision: number;
+      name?: string;
+      scheduleIntervalHours?: number;
+      dailyItemBudget?: number;
+      enabled?: boolean;
+      projectId?: string | null;
+    },
+  ): Promise<{ monitor: import('../contracts/api').IntelMonitorDto }> {
+    return liveFetch(`/intelligence/monitors/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteMonitor(id: string, revision: number): Promise<{ deleted: true }> {
+    return liveFetch(`/intelligence/monitors/${id}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ revision }),
     });
   },
 

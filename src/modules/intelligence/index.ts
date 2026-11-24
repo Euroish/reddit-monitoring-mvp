@@ -7,5 +7,6 @@ export {
   packXAccountBatches,
 } from "./metrics";
 export { refreshMonitorRollups, refreshRollupsForSource } from "./rollups";
+export { authorizeScheduledSourceDispatch } from "./sql";
 export { intelligenceRoutes, intelligenceRoutes as registerIntelligenceModule } from "./routes";
 export { hydrateHotCommunityPost } from "./community-hydration";

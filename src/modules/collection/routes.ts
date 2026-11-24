@@ -25,7 +25,8 @@ import { notifyChannel } from "../../platform/pg-notify";
 import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
 import { canonical, commitContentBatch, prepareContentBatch } from "../content/index";
-import { sourcePreviewRoute, validateFallback, validateSource } from "./config";
+import { getGlobalSocialBudget, socialResourcesReservedToday, updateGlobalSocialBudget } from "./automatic-hydration";
+import { sourcePreviewRoute, validateDomainLane, validateFallback, validateSource } from "./config";
 import { batchRoutes, recordCommittedBatch, type RequireWritableProject } from "./batches";
 import { planRoutes } from "./plans";
 import { sourceImportRoute } from "./import";
@@ -72,6 +73,7 @@ async function applySourcePatch(
   if (body.schedule?.enabled && source.delivery_mode !== "pull") {
     fail(422, "Automatic scheduling requires a pull source");
   }
+  validateDomainLane(source.platform, body.feedLane ?? source.feed_lane);
   if (body.fallbackProvider) {
     validateFallback(providers, {
       primary: source.primary_provider,
@@ -112,15 +114,34 @@ async function applySourcePatch(
   return { updated: true };
 }
 
-export async function collectionRoutes(app: FastifyInstance, pool: Pool, providers: ContentProvider[], requireWritableProject?: RequireWritableProject,
+export async function collectionRoutes(
+  app: FastifyInstance,
+  pool: Pool,
+  providers: ContentProvider[],
+  requireWritableProject?: RequireWritableProject,
   listProjectBatchIds?: (db: Pool, actor: Actor, id: string) => Promise<string[]>,
+  options?: {
+    onBatchDiscarded?: (client: PoolClient, batchId: string) => Promise<string[]>;
+    getCredentialState?: (provider: string) => "ok" | "missing" | "network_disabled";
+  },
 ) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   sourcePreviewRoute(app, providers);
   await sourceImportRoute(app, pool, providers);
   await batchRoutes(app, pool, requireWritableProject && listProjectBatchIds
-    ? { assertWritable: requireWritableProject, listBatchIds: listProjectBatchIds } : undefined);
-  await planRoutes(app, pool, providers, requireWritableProject);
+    ? {
+        assertWritable: requireWritableProject,
+        listBatchIds: listProjectBatchIds,
+        onBatchDiscarded: options?.onBatchDiscarded,
+      }
+    : options?.onBatchDiscarded
+      ? {
+          assertWritable: async () => undefined,
+          listBatchIds: async () => [],
+          onBatchDiscarded: options.onBatchDiscarded,
+        }
+      : undefined);
+  await planRoutes(app, pool, providers, requireWritableProject, options?.getCredentialState);
   api.get(
     "/v1/public/sources",
     {
@@ -145,7 +166,7 @@ export async function collectionRoutes(app: FastifyInstance, pool: Pool, provide
   );
   api.get(
     "/v1/sources/budgets",
-    { config: { auth: { access: "authenticated", machineScope: "read" } } },
+    { config: { auth: { access: "admin", browserOnly: true } } },
     async (request) => {
       if (request.actor!.clientKind !== "browser" || request.actor!.role === "viewer") {
         fail(403, "Administrator browser session required");
@@ -173,10 +194,50 @@ export async function collectionRoutes(app: FastifyInstance, pool: Pool, provide
       };
     },
   );
+  api.get(
+    "/v1/sources/budgets/global",
+    { config: { auth: { access: "admin", browserOnly: true } } },
+    async (request) => {
+      if (request.actor!.clientKind !== "browser" || request.actor!.role === "viewer") {
+        fail(403, "Administrator browser session required");
+      }
+      const [config, socialResourcesToday] = await Promise.all([
+        getGlobalSocialBudget(pool),
+        socialResourcesReservedToday(pool),
+      ]);
+      return { ...config, socialResourcesToday };
+    },
+  );
+  api.put(
+    "/v1/sources/budgets/global",
+    {
+      config: { auth: { access: "admin_mfa", browserOnly: true } },
+      schema: {
+        body: Type.Object(
+          {
+            dailySocialItemCeiling: Type.Integer({ minimum: 0, maximum: 1_000_000 }),
+            autoHydrationEnabled: Type.Boolean(),
+            revision: Type.Integer({ minimum: 1 }),
+          },
+          { additionalProperties: false },
+        ),
+      },
+    },
+    async (request) => {
+      if (request.actor!.clientKind !== "browser" || request.actor!.role === "viewer") {
+        fail(403, "Administrator browser session required");
+      }
+      const out = await transaction(pool, (client) =>
+        updateGlobalSocialBudget(client, request.actor!, request.body),
+      );
+      await notifyChannel(pool, "collection_jobs_ready");
+      return out;
+    },
+  );
   api.put(
     "/v1/sources/budgets/:provider",
     {
-      config: { auth: { access: "admin", machineScope: "sources:write" } },
+      config: { auth: { access: "admin_mfa", browserOnly: true } },
       schema: {
         params: Type.Object({ provider: Type.String({ maxLength: 64 }) }),
         body: Type.Object(
@@ -328,13 +389,20 @@ export async function collectionRoutes(app: FastifyInstance, pool: Pool, provide
     },
     async (request) => {
       const outcome = await transaction(pool, async (client) => {
+        let projectVisibility: "private" | "shared" | undefined;
         if (request.body.projectId) {
           if (request.actor!.clientKind !== "browser") fail(403, "Browser session required");
           if (!requireWritableProject) fail(500, "Project scope resolver is unavailable");
-          await requireWritableProject(client, request.actor!, request.body.projectId);
+          const proj = await requireWritableProject(client, request.actor!, request.body.projectId) as
+            | { visibility?: "private" | "shared" }
+            | undefined;
+          projectVisibility = proj?.visibility ?? (request.actor!.role === "viewer" ? "private" : undefined);
         }
         return enqueueCollectionForSource(client, request.actor!, providers, {
-          ...request.body, sourceId: request.params.id, requestKey: request.headers["idempotency-key"],
+          ...request.body,
+          sourceId: request.params.id,
+          projectVisibility,
+          requestKey: request.headers["idempotency-key"],
         });
       });
       if (outcome.created) await notifyChannel(pool, "collection_jobs_ready");

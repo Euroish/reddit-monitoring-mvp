@@ -58,5 +58,5 @@ export {
 } from "./search";
 export { commitContentBatch, prepareContentBatch } from "./sql";
 
-export { countSourceSamples, isWebArticlePullSource } from "./queries";
+export { countSourceSamples, isWebArticlePullSource, listScopedContentIds } from "./queries";
 export type { BatchMembership, ContentVisibilityResolver } from "./search";
