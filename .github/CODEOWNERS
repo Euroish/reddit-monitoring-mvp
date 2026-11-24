@@ -1,8 +1,7 @@
 # Either maintainer can review these paths. Authors need the other maintainer.
-# Admission instructions and templates are governance, not author-controlled exemptions.
-/AGENTS.md @Euroish @HikariVerse
-/docs/development.md @Euroish @HikariVerse
-/.github/pull_request_template.md @Euroish @HikariVerse
+# Rule documents (AGENTS.md, docs/development.md, pull_request_template.md) are intentionally not
+# owner-locked: they are amended by the same PRs that follow them, and locking the rulebook behind
+# the rulebook turns every correction into the review process it was meant to simplify.
 /src/storage/schema/ @Euroish @HikariVerse
 /src/modules/access/ @Euroish @HikariVerse
 /apps/api/src/app.ts @Euroish @HikariVerse

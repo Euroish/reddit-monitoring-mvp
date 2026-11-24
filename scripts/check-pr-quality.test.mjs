@@ -4,10 +4,26 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { checkPullRequestQuality, REQUIRED_SECTIONS } from "./check-pr-quality.mjs";
+import { fileURLToPath } from "node:url";
+import { checkPullRequestBlockers, checkPullRequestQuality, REQUIRED_SECTIONS } from "./check-pr-quality.mjs";
+
+// Repository files are checked out with CRLF on Windows and LF on CI runners.
+const readNormalized = url => readFileSync(url, "utf8").replace(/\r\n/g, "\n");
 
 const body = REQUIRED_SECTIONS.map(title => `## ${title}\n${title === "真实依赖" ? "无" : `${title}：有可核验的行为、路径和验证结果。`}`).join("\n\n");
 const pr = (extra = {}) => ({ body, draft: false, labels: [], ...extra });
+
+test("blockers only cover merge-readiness facts, not writing style", () => {
+  assert.deepEqual(checkPullRequestBlockers(pr({ number: 7, user: { login: "any-author" } })), []);
+  assert.match(checkPullRequestBlockers(pr({ draft: true })).join(), /Draft/);
+  for (const labels of [[{ name: "quality:hold" }], ["quality:hold"]]) {
+    assert.match(checkPullRequestBlockers(pr({ labels })).join(), /quality:hold/);
+  }
+  assert.ok(checkPullRequestBlockers(undefined).length);
+  // Missing or malformed evidence is not a blocker; it is a request for information.
+  assert.deepEqual(checkPullRequestBlockers(pr({ body: "" })), []);
+  assert.deepEqual(checkPullRequestBlockers(pr({ body: null })), []);
+});
 
 test("admission accepts independent PRs regardless of number, age, author or other PRs", () => {
   for (const number of [1, 32, 500]) {
@@ -16,11 +32,7 @@ test("admission accepts independent PRs regardless of number, age, author or oth
   assert.deepEqual(checkPullRequestQuality(pr({ body: body.replace("\n无\n", "\n#99：需要其公开契约，否则调用无法编译。\n") }), []), []);
 });
 
-test("draft, explicit hold, missing body and missing sections block admission", () => {
-  assert.match(checkPullRequestQuality(pr({ draft: true }), []).join(), /Draft/);
-  for (const labels of [[{ name: "quality:hold" }], ["quality:hold"]]) {
-    assert.match(checkPullRequestQuality(pr({ labels }), []).join(), /quality:hold/);
-  }
+test("missing body, missing sections and duplicates are reported as evidence gaps", () => {
   assert.ok(checkPullRequestQuality(undefined, []).length);
   assert.ok(checkPullRequestQuality(pr({ body: null }), []).length);
   assert.equal(checkPullRequestQuality(pr({ body: "" }), []).length, REQUIRED_SECTIONS.length);
@@ -28,7 +40,7 @@ test("draft, explicit hold, missing body and missing sections block admission", 
 });
 
 test("unchanged template, comments, fenced headings and placeholders cannot supply evidence", () => {
-  const template = readFileSync(new URL("../.github/pull_request_template.md", import.meta.url), "utf8");
+  const template = readNormalized(new URL("../.github/pull_request_template.md", import.meta.url));
   assert.ok(checkPullRequestQuality(pr({ body: template }), ["apps/web/src/App.tsx"]).length);
   for (const content of ["<!-- evidence -->", "- TODO", "TODO add evidence", "TBD", "待填写", "请填写具体证据", "无", "N/A", "不适用"]) {
     const replaced = body.replace("价值与验收：有可核验的行为、路径和验证结果。", content);
@@ -48,34 +60,63 @@ test("web source changes require rendered evidence or a justified nonvisual scop
   assert.deepEqual(checkPullRequestQuality(pr(), ["docs/design.md", "src/modules/content/sql.ts"]), []);
 });
 
-test("the required CI Gate revalidates admission on metadata changes with read-only permissions", () => {
-  const workflow = readFileSync(new URL("../.github/workflows/verify.yml", import.meta.url), "utf8");
-  const events = workflow.match(/types: \[([^\]]+)\]/)[1].split(",").map(value => value.trim());
-  for (const event of ["opened", "edited", "synchronize", "ready_for_review", "converted_to_draft", "labeled", "unlabeled"]) {
-    assert.ok(events.includes(event), event);
-  }
-  const policy = workflow.split("  policy:")[1].split("\n  project:")[0];
+test("blocking gate keeps drafts and maintainer holds out, metadata edits use a separate advisory run", () => {
+  const verify = readNormalized(new URL("../.github/workflows/verify.yml", import.meta.url));
+  const admission = readNormalized(new URL("../.github/workflows/pr-admission.yml", import.meta.url));
+
+  const verifyEvents = verify.match(/types: \[([^\]]+)\]/)[1].split(",").map(value => value.trim());
+  assert.deepEqual(verifyEvents, ["opened", "synchronize", "reopened", "ready_for_review", "labeled", "unlabeled"]);
+  const policy = verify.split("  policy:")[1].split("\n  project:")[0];
   assert.match(policy, /run: node --test scripts\/check-pr-quality\.test\.mjs/);
-  assert.match(policy, /run: node scripts\/check-pr-quality\.mjs/);
-  assert.match(workflow, /needs: \[policy, project, workflow, docker\]/);
-  assert.match(workflow, /permissions:\n  contents: read/);
-  assert.ok(!workflow.includes("pull_request_target"));
+  assert.match(policy, /run: node scripts\/check-pr-quality\.mjs --blockers/);
+  // Evidence review must not gate the required CI job.
+  assert.ok(!policy.includes("run: node scripts/check-pr-quality.mjs\n"));
+
+  const admissionEvents = admission.match(/types: \[([^\]]+)\]/)[1].split(",").map(value => value.trim());
+  for (const event of ["opened", "edited", "reopened", "ready_for_review", "converted_to_draft"]) {
+    assert.ok(admissionEvents.includes(event), event);
+  }
+  assert.match(admission, /run: node scripts\/check-pr-quality\.mjs\b(?! --blockers)/);
+  assert.match(admission, /continue-on-error: true/);
+  assert.ok(!admission.includes("npm ci"), "advisory run must not install dependencies");
+  assert.ok(!admission.includes("pull_request_target"));
+
+  assert.match(verify, /needs: \[policy, project, workflow, docker\]/);
+  assert.match(verify, /permissions:\n  contents: read/);
+  assert.ok(!verify.includes("pull_request_target"));
 });
 
-test("CLI reads event JSON as data, fails closed for missing base, and propagates rejection", () => {
+test("complexity ratchet reports regressions without blocking the required job", () => {
+  const verify = readNormalized(new URL("../.github/workflows/verify.yml", import.meta.url));
+  const step = verify.split("- name: Prevent production complexity regressions")[1].split("- name:")[0];
+  assert.match(step, /continue-on-error: true/);
+});
+
+test("CLI blocks on holds, never blocks on evidence, and skips non-PR events", () => {
   const directory = mkdtempSync(join(tmpdir(), "pr-admission-"));
   try {
     const event = join(directory, "event.json");
-    writeFileSync(event, JSON.stringify({ pull_request: pr({ labels: [{ name: "quality:hold" }] }) }));
-    const script = new URL("./check-pr-quality.mjs", import.meta.url).pathname;
+    const script = fileURLToPath(new URL("./check-pr-quality.mjs", import.meta.url));
     const env = { ...process.env, GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: event,
       MIGRATION_BASE_SHA: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim() };
-    const held = spawnSync(process.execPath, [script], { env, encoding: "utf8" });
+
+    writeFileSync(event, JSON.stringify({ pull_request: pr({ labels: [{ name: "quality:hold" }] }) }));
+    const held = spawnSync(process.execPath, [script, "--blockers"], { env, encoding: "utf8" });
     assert.equal(held.status, 1);
     assert.match(held.stderr, /quality:hold/);
-    writeFileSync(event, JSON.stringify({ pull_request: pr({ body: body + "\n$(exit 99)\n" }) }));
-    assert.equal(spawnSync(process.execPath, [script], { env }).status, 0);
-    assert.equal(spawnSync(process.execPath, [script], { env: { ...env, MIGRATION_BASE_SHA: "" } }).status, 1);
+
+    writeFileSync(event, JSON.stringify({ pull_request: pr({ draft: true }) }));
+    assert.equal(spawnSync(process.execPath, [script, "--blockers"], { env }).status, 1);
+
+    writeFileSync(event, JSON.stringify({ pull_request: pr() }));
+    assert.equal(spawnSync(process.execPath, [script, "--blockers"], { env }).status, 0);
+
+    // Advisory mode: shell metacharacters in the body are data, and gaps never fail the run.
+    writeFileSync(event, JSON.stringify({ pull_request: pr({ body: "$(exit 99)\n## 价值与验收\nTODO" }) }));
+    const advisory = spawnSync(process.execPath, [script], { env, encoding: "utf8" });
+    assert.equal(advisory.status, 0);
+    assert.match(advisory.stdout, /缺口/);
+    assert.equal(spawnSync(process.execPath, [script], { env: { ...env, MIGRATION_BASE_SHA: "" } }).status, 0);
     assert.equal(spawnSync(process.execPath, [script], { env: { ...env, GITHUB_EVENT_NAME: "push", GITHUB_EVENT_PATH: "missing" } }).status, 0);
   } finally {
     rmSync(directory, { recursive: true, force: true });

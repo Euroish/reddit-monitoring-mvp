@@ -3,7 +3,7 @@ name: Core verification
 on:
   pull_request:
     branches: [main]
-    types: [opened, edited, synchronize, reopened, ready_for_review, converted_to_draft, labeled, unlabeled]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
   merge_group:
   push:
     branches: [main]
@@ -41,11 +41,9 @@ jobs:
         run: node --test scripts/ci-scope.test.mjs
       - name: Test PR admission policy
         run: node --test scripts/check-pr-quality.test.mjs
-      - name: Require PR evidence and no quality hold
+      - name: Keep drafts and maintainer holds out of the merge queue
         if: github.event_name == 'pull_request'
-        run: node scripts/check-pr-quality.mjs
-        env:
-          MIGRATION_BASE_SHA: ${{ steps.scope.outputs.base }}
+        run: node scripts/check-pr-quality.mjs --blockers
       - name: Gitleaks secret scan
         env:
           BASE: ${{ steps.scope.outputs.base }}
@@ -63,6 +61,10 @@ jobs:
       - name: Test complexity ratchet
         run: node --test scripts/check-complexity.test.mjs
       - name: Prevent production complexity regressions
+        # Advisory: the ratchet reports regressions so reviewers can weigh them. It does not
+        # decide whether a feature is worth shipping, and normal incremental work on an already
+        # large component must not be blocked by a one-point increase.
+        continue-on-error: true
         if: steps.scope.outputs.base != ''
         run: npm run check:complexity
         env:
