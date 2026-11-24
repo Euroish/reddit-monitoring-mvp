@@ -10,7 +10,7 @@
 | :--- | :--- | :--- |
 | **线上生产环境** | 最近记录 `f3bcc1b` | 本轮未部署、未写生产库，未重新巡检生产容器。2026-11-22 历史抽样为迁移至 `058`、46 表、约 51 MiB、101 活跃源；这些不是本轮实时统计。 |
 | **`origin/main` 主干** | `f7eb141` | `#30`、`#32` (`dbf2753`)、`#33` (`e88b0df`)、`#34` (`73c50d7`)、`#35` (`f7eb141`) 已合入；9 域、58 表、迁移编号至 `064`、OpenAPI 122 路径 / 140 操作；含统一手动采集准入、意图片段指纹与批次关联防覆盖修复。均未由本轮部署到生产。 |
-| **在途候选修复栈** | `#36` (`d85ef3b`) → `#37` (`ab743c6`) → `#38 / fix/audit-content-visibility` (`d93dcb9`) → `fix/audit-role-isolation` | 均未合入 `main`、未部署生产。`#36`~`#38` 修复监测器归属/调度停机/导出校验/跨模块私有批次可见性与禁用守卫；本地候选 `fix/audit-role-isolation` 在此基础上完成 Stage 1–3（`066` 迁移、`AUD-01`~`AUD-18` P0/P1 主体闭环：可配置全站社媒预算、`admin_mfa`、按需研究建源与扩展筛选、共享项目 `publish`/`fork`/批次 `move` 与私有 `discard`、Viewer 空间与设置隔离、受限自动调度权限与按期归因计费、存量未纳管研究源核查与接管、被归档资讯源诊断恢复、OpenAPI 130 路径 / 149 操作），待全量门禁与本地 Docker 部署验收后申请提交 PR。 |
+| **在途候选修复栈** | `#36` (`d85ef3b`) → `#37` (`ab743c6`) → `#38` (`d93dcb9`) → `#39 / fix/audit-role-isolation` | 均未合入 `main`、未部署生产。`#36`~`#38` 修复监测器归属/调度停机/导出校验/跨模块私有批次可见性与禁用守卫；`#39`（`fix/audit-role-isolation`）在此基础上完成 Stage 1–3（`066` 迁移、`AUD-01`~`AUD-18` P0/P1 主体闭环：可配置全站社媒预算、`admin_mfa`、按需研究建源与扩展筛选、共享项目 `publish`/`fork`/批次 `move` 与私有 `discard`、Viewer 空间与设置隔离、受限自动调度权限与按期归因计费、存量未纳管研究源核查与接管、被归档资讯源诊断恢复、OpenAPI 130 路径 / 149 操作），已在 `454ad61` 通过全量本地门禁与 Docker Compose 部署冒烟，待独立评审与合入 `main`。 |
 
 ---
 
@@ -25,7 +25,7 @@
 ## 3. 在途候选修复的验证与未收口项
 
 - **已合入主干基线（`f7eb141`）**：`#34` 统一手动采集准入、幂等指纹与批次自动关联修复已并入 `main`；`#35` 已收录 22 项业务审计正式台账。
-- **当前候选分支（`fix/audit-role-isolation`，基于 `#38@d93dcb9`）**：本地已完成 Stage 1–3 核心开发与定向 PG16/E2E 验证（含复杂度增量门禁零回归、OpenAPI 130 路径 / 149 操作）；尚未推送远端或创建 PR，正在收敛全量 PG16/浏览器 E2E 门禁与本地 Docker Compose (`monitoring-local`) 部署实测，完成后向用户申请提交 PR。
+- **当前候选分支（[PR #39](https://github.com/Euroish/reddit-monitoring-mvp/pull/39) `fix/audit-role-isolation`，基于 `#38@d93dcb9`）**：已推送远端并提交非 Draft PR #39；在代码/迁移定稿提交 `454ad61` 上已完成双端 `typecheck`、全套 `lint`、`Squawk 2.9.0`（0 issues）、`check:openapi`（130 路径 / 149 操作）、`check:complexity`（对 `#38` 45 文件及对 `main` 62 文件均 0 回归）、`build` & `check:web-bundle`（32 chunks）、单元测试（**67/67**）、隔离 PG16 集成回归（**57/57**）及全量 Playwright 浏览器 E2E（**8/8**），并于等代码构建 `898793b` 完成隔离 Docker Compose（`runtime` + `proxy`）全流程部署冒烟，待远端 `CI Gate` 绿灯与独立评审。
 - **未收口**：`#36` / `#37` / `#38` 及本分支均尚未合入 `main`；`AUD-19`~`AUD-22`（AI 发布情报全量 CRUD/密钥与 Registry 编辑、资讯运维内嵌预览及 V2 完整运维台 `[5]`/`Frontend V2` 全面视觉重构）仍为后续阶段待推进项（见 [审计修复进度表](research/business-audit-2026-11-23/SIFTLINE_修复进度完成表_2026-11-23.md)）。
 
 ---
