@@ -32,5 +32,5 @@ export { allSourcesExist, listSourcesByIds } from "./sql";
 export { readCollectionWorkerHealth, startWorker } from "./worker";
 
 export { batchMembership, contentVisibility, createSnapshotBatch, loadAuthorizedBatches } from "./batches";
-export { assertBrowserExportAllowed, loadEffectivePolicyForUser } from "./policy";
+export { assertBrowserExportAllowed, checkAndDebitViewerQuota, loadEffectivePolicyForUser } from "./policy";
 export { getUserRoleStatus, listStaffOwnerIds } from "../access/index";

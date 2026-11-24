@@ -13,6 +13,92 @@ import { GlobalSocialBudgetCard } from './GlobalSocialBudgetCard';
 import { InlineMfaStepUp } from './InlineMfaStepUp';
 import { ProviderBudgetTable } from './ProviderBudgetTable';
 
+function ViewerPolicyCard({
+  summary,
+  providers,
+  t,
+  scopeCount,
+  limitText,
+  number,
+}: {
+  summary: NonNullable<ReturnType<typeof useQuotasSummaryQuery>['data']>;
+  providers: SourceCapability[];
+  t: (en: string, zh: string) => string;
+  scopeCount: (ids: string[] | null) => string;
+  limitText: (cap: number | null, en: string, zh: string) => string;
+  number: Intl.NumberFormat;
+}) {
+  const ep = summary.effectivePolicy;
+  const my = summary.myUsage;
+  void providers;
+  return (
+    <section className="ds-card collection-panel">
+      <header className="ds-card-hd collection-panel-header">
+        <div>
+          <h2 className="ds-card-title"><Sliders size={16} />{t('Effective policy', '当前生效策略')} · {ep.planTier.toUpperCase()}</h2>
+          <p className="ds-card-sub">{t('Next reset (UTC)', '下次重置（UTC）')} · <time dateTime={summary.resetsAtUtc}>{summary.resetsAtUtc.slice(0, 16).replace('T', ' ')}</time>
+            {' · '}{ep.hasOverride ? t('Personal override applied', '已应用个人覆盖') : t('Inherited plan policy', '继承套餐策略')}</p>
+        </div>
+        <span className={'collection-status ' + (ep.manualCollectEnabled ? 'collection-status--ok' : '')}>{ep.manualCollectEnabled ? t('Manual collection enabled', '可手动采集') : t('Manual collection disabled', '手动采集已关闭')}</span>
+      </header>
+      <dl className="collection-quota-guide">
+        <div><dt>{t('Reserved requests', '已预留请求')}</dt><dd><strong>{number.format(my.requestsReserved)}</strong> / {limitText(ep.dailyRequests, 'requests', '次')}</dd></div>
+        <div><dt>{t('Executed requests', '已执行请求')}</dt><dd><strong>{number.format(my.requestsExecuted)}</strong> {t('requests', '次')}</dd></div>
+        <div><dt>{t('Reserved resources', '已预留资源')}</dt><dd><strong>{number.format(my.resourcesReserved)}</strong> / {limitText(ep.dailyResources, 'units', '单位')}</dd></div>
+      </dl>
+      <div className="ds-card-bd collection-form">
+        <p className="collection-hint">{t('Personal usage uses the amount requested at submission. System provider budgets also apply at execution.', '个人额度按提交时的请求预留。任务执行时还要满足渠道预算。')}</p>
+        <div className="collection-toolbar">
+          <span>{t('Sources', '来源范围')} · {scopeCount(ep.allowedSourceIds)}</span>
+          <span>{t('Private projects', '私有项目上限')} · {ep.maxProjects ?? 3}</span>
+          <span>{t('Lookback window', '历史回溯')} · {ep.maxLookbackDays ?? 7} {t('days', '天')}</span>
+          <span>{t('Batch limit', '单批上限')} · {limitText(ep.maxBatchLimit, 'items', '条')}</span>
+          <span>{t('Comments per post', '每帖评论')} · {limitText(ep.maxCommentsPerPost, 'comments', '条')}</span>
+          <span>{ep.allowProviderChoice ? t('Fallback/provider choice on', '可用备用渠道') : t('Primary provider only', '仅主渠道')}</span>
+          <span>{ep.exportEnabled ? t('Export allowed', '允许导出') : t('Export disabled', '禁止导出')}</span>
+          <span>{ep.allowAutoSchedule ? t(`Auto-schedule: up to ${ep.maxScheduledTasks ?? 0} (min ${ep.minScheduleIntervalHours ?? 24}h)`, `连续自动调度：最多 ${ep.maxScheduledTasks ?? 0} 个（最短 ${ep.minScheduleIntervalHours ?? 24}h）`) : t('Auto-schedule disabled', '连续自动调度已关闭')}</span>
+        </div>
+        {(summary.providerAvailability ?? []).map(provider => {
+          const usage = my.byProvider.find(row => row.provider === provider.provider);
+          const state = !provider.planAllowed ? t('Outside policy', '策略未开放') : !provider.enabled ? t('Provider unavailable', '渠道未就绪')
+            : !provider.budgetEnabled ? t('Budget unavailable', '预算不可用') : t('Ready', '就绪');
+          return <div className="collection-account-provider" key={provider.provider}>
+            <strong>{provider.provider}</strong><span className="collection-status">{state}</span>
+            {usage && <small>{t('Reserved / executed', '预留 / 执行')} {number.format(usage.requests_reserved)} / {number.format(usage.requests_executed)} {t('requests', '次')} · {t('Resources', '资源')} {number.format(usage.resources_reserved)} {t('units', '单位')}</small>}
+          </div>;
+        })}
+      </div>
+    </section>
+  );
+}
+
+function buildOverrideLabels(
+  override: QuotaOverrideDto | null,
+  t: (en: string, zh: string) => string,
+  limitText: (cap: number | null, en: string, zh: string) => string,
+  scopeCount: (ids: string[] | null) => string,
+) {
+  if (!override) return [];
+  const labels: string[] = [];
+  if (typeof override.manualCollectEnabled === 'boolean') labels.push(override.manualCollectEnabled ? t('Allow manual collection', '允许手动采集') : t('Block manual collection', '禁止手动采集'));
+  if (override.dailyRequests !== undefined) labels.push(t('Daily requests', '日请求') + ' · ' + limitText(override.dailyRequests, 'requests', '次'));
+  if (override.dailyResources !== undefined) labels.push(t('Daily resources', '日资源') + ' · ' + limitText(override.dailyResources, 'units', '单位'));
+  if (override.maxBatchLimit != null) labels.push(t('Batch limit', '单批上限') + ' · ' + limitText(override.maxBatchLimit, 'items', '条'));
+  if (override.maxCommentsPerPost != null) labels.push(t('Comments per post', '每帖评论') + ' · ' + limitText(override.maxCommentsPerPost, 'comments', '条'));
+  if (override.maxProjects != null) labels.push(t('Private project limit', '私有项目上限') + ' · ' + limitText(override.maxProjects, 'projects', '个'));
+  if (override.maxLookbackDays != null) labels.push(t('Lookback limit', '历史回溯上限') + ' · ' + limitText(override.maxLookbackDays, 'days', '天'));
+  if (typeof override.allowProviderChoice === 'boolean') labels.push(override.allowProviderChoice ? t('Allow provider choice', '允许选择渠道') : t('Block provider choice', '禁止选择渠道'));
+  if (typeof override.exportEnabled === 'boolean') labels.push(override.exportEnabled ? t('Allow export', '允许导出') : t('Block export', '禁止导出'));
+  if (override.allowedProviders) labels.push(override.allowedProviders.join(', ') || t('No providers', '无可用渠道'));
+  if (override.allowedSourceIds !== undefined) labels.push(scopeCount(override.allowedSourceIds));
+  return labels;
+}
+
+function PolicyNotice({ notice }: { notice: string }) {
+  if (!notice) return null;
+  return <p className="wb-alert wb-alert--success" role="status">{notice}</p>;
+}
+
 export function QuotasManagementView({
   actor,
   budgets,
@@ -149,68 +235,22 @@ export function QuotasManagementView({
     : ids.length ? number.format(ids.length) + ' ' + t('selected', '个指定来源') : t('No sources', '无可用来源');
   const limitText = (cap: number | null, en: string, zh: string) =>
     cap === null ? t('Unlimited', '不限') : number.format(cap) + ' ' + t(en, zh);
-  function overrideText(override: QuotaOverrideDto | null) {
-    if (!override) return [];
-    const labels: string[] = [];
-    if (typeof override.manualCollectEnabled === 'boolean') labels.push(override.manualCollectEnabled ? t('Allow manual collection', '允许手动采集') : t('Block manual collection', '禁止手动采集'));
-    if (override.dailyRequests !== undefined) labels.push(t('Daily requests', '日请求') + ' · ' + limitText(override.dailyRequests, 'requests', '次'));
-    if (override.dailyResources !== undefined) labels.push(t('Daily resources', '日资源') + ' · ' + limitText(override.dailyResources, 'units', '单位'));
-    if (override.maxBatchLimit != null) labels.push(t('Batch limit', '单批上限') + ' · ' + limitText(override.maxBatchLimit, 'items', '条'));
-    if (override.maxCommentsPerPost != null) labels.push(t('Comments per post', '每帖评论') + ' · ' + limitText(override.maxCommentsPerPost, 'comments', '条'));
-    if (override.maxProjects != null) labels.push(t('Private project limit', '私有项目上限') + ' · ' + limitText(override.maxProjects, 'projects', '个'));
-    if (override.maxLookbackDays != null) labels.push(t('Lookback limit', '历史回溯上限') + ' · ' + limitText(override.maxLookbackDays, 'days', '天'));
-    if (typeof override.allowProviderChoice === 'boolean') labels.push(override.allowProviderChoice ? t('Allow provider choice', '允许选择渠道') : t('Block provider choice', '禁止选择渠道'));
-    if (typeof override.exportEnabled === 'boolean') labels.push(override.exportEnabled ? t('Allow export', '允许导出') : t('Block export', '禁止导出'));
-    if (override.allowedProviders) labels.push(override.allowedProviders.join(', ') || t('No providers', '无可用渠道'));
-    if (override.allowedSourceIds !== undefined) labels.push(scopeCount(override.allowedSourceIds));
-    return labels;
-  }
+  const overrideText = (override: QuotaOverrideDto | null) => buildOverrideLabels(override, t, limitText, scopeCount);
   const queryError = quotasQuery.error;
   if (queryError || !summary) {
     return <div role={queryError ? 'alert' : 'status'} className="wb-alert">{queryError ? formatApiError(queryError) : t('Loading collection policy…', '正在加载采集策略…')}</div>;
   }
 
   if (!isAdmin) {
-    const ep = summary.effectivePolicy;
-    const my = summary.myUsage;
     return (
-      <section className="ds-card collection-panel">
-        <header className="ds-card-hd collection-panel-header">
-          <div>
-            <h2 className="ds-card-title"><Sliders size={16} />{t('Effective policy', '当前生效策略')} · {ep.planTier.toUpperCase()}</h2>
-            <p className="ds-card-sub">{t('Next reset (UTC)', '下次重置（UTC）')} · <time dateTime={summary.resetsAtUtc}>{summary.resetsAtUtc.slice(0, 16).replace('T', ' ')}</time>
-              {' · '}{ep.hasOverride ? t('Personal override applied', '已应用个人覆盖') : t('Inherited plan policy', '继承套餐策略')}</p>
-          </div>
-          <span className={'collection-status ' + (ep.manualCollectEnabled ? 'collection-status--ok' : '')}>{ep.manualCollectEnabled ? t('Manual collection enabled', '可手动采集') : t('Manual collection disabled', '手动采集已关闭')}</span>
-        </header>
-        <dl className="collection-quota-guide">
-          <div><dt>{t('Reserved requests', '已预留请求')}</dt><dd><strong>{number.format(my.requestsReserved)}</strong> / {limitText(ep.dailyRequests, 'requests', '次')}</dd></div>
-          <div><dt>{t('Executed requests', '已执行请求')}</dt><dd><strong>{number.format(my.requestsExecuted)}</strong> {t('requests', '次')}</dd></div>
-          <div><dt>{t('Reserved resources', '已预留资源')}</dt><dd><strong>{number.format(my.resourcesReserved)}</strong> / {limitText(ep.dailyResources, 'units', '单位')}</dd></div>
-        </dl>
-        <div className="ds-card-bd collection-form">
-          <p className="collection-hint">{t('Personal usage uses the amount requested at submission. System provider budgets also apply at execution.', '个人额度按提交时的请求预留。任务执行时还要满足渠道预算。')}</p>
-          <div className="collection-toolbar">
-            <span>{t('Sources', '来源范围')} · {scopeCount(ep.allowedSourceIds)}</span>
-            <span>{t('Private projects', '私有项目上限')} · {ep.maxProjects ?? 3}</span>
-            <span>{t('Lookback window', '历史回溯')} · {ep.maxLookbackDays ?? 7} {t('days', '天')}</span>
-            <span>{t('Batch limit', '单批上限')} · {limitText(ep.maxBatchLimit, 'items', '条')}</span>
-            <span>{t('Comments per post', '每帖评论')} · {limitText(ep.maxCommentsPerPost, 'comments', '条')}</span>
-            <span>{ep.allowProviderChoice ? t('Fallback/provider choice on', '可用备用渠道') : t('Primary provider only', '仅主渠道')}</span>
-            <span>{ep.exportEnabled ? t('Export allowed', '允许导出') : t('Export disabled', '禁止导出')}</span>
-            <span>{ep.allowAutoSchedule ? t(`Auto-schedule: up to ${ep.maxScheduledTasks ?? 0} (min ${ep.minScheduleIntervalHours ?? 24}h)`, `连续自动调度：最多 ${ep.maxScheduledTasks ?? 0} 个（最短 ${ep.minScheduleIntervalHours ?? 24}h）`) : t('Auto-schedule disabled', '连续自动调度已关闭')}</span>
-          </div>
-          {(summary.providerAvailability ?? []).map(provider => {
-            const usage = my.byProvider.find(row => row.provider === provider.provider);
-            const state = !provider.planAllowed ? t('Outside policy', '策略未开放') : !provider.enabled ? t('Provider unavailable', '渠道未就绪')
-              : !provider.budgetEnabled ? t('Budget unavailable', '预算不可用') : t('Ready', '就绪');
-            return <div className="collection-account-provider" key={provider.provider}>
-              <strong>{provider.provider}</strong><span className="collection-status">{state}</span>
-              {usage && <small>{t('Reserved / executed', '预留 / 执行')} {number.format(usage.requests_reserved)} / {number.format(usage.requests_executed)} {t('requests', '次')} · {t('Resources', '资源')} {number.format(usage.resources_reserved)} {t('units', '单位')}</small>}
-            </div>;
-          })}
-        </div>
-      </section>
+      <ViewerPolicyCard
+        summary={summary}
+        providers={providers}
+        t={t}
+        scopeCount={scopeCount}
+        limitText={limitText}
+        number={number}
+      />
     );
   }
 
@@ -219,7 +259,7 @@ export function QuotasManagementView({
       {/* 1. System Provider Budgets */}
       {budgetError ? <div role="alert" className="wb-alert wb-alert--error">{formatApiError(budgetError)}</div> : <ProviderBudgetTable budgets={budgets} providers={providers} pending={budgetsPending} onEdit={onEditBudget} />}
       <GlobalSocialBudgetCard isAdmin={isAdmin} />
-      {notice && <p className="wb-alert wb-alert--success" role="status">{notice}</p>}
+      <PolicyNotice notice={notice} />
       <p className="collection-hint">
         {summary.bypassPlanLimits
           ? t('Admin/Owner accounts bypass viewer Free/Pro plan limits and are bounded directly by system provider budgets and the global social ceiling.', 'Admin / Owner 账号豁免 Viewer 套餐与个人日配额上限，直接受系统渠道预算与全站社媒总上限约束。')

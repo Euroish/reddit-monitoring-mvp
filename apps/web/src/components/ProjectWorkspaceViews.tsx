@@ -20,7 +20,7 @@ import {
 } from '../api/hooks';
 import { Badge } from './ui/badge';
 import { Table } from './ui/table';
-import type { Project, ProjectBatchDto } from '../contracts/api';
+import type { IntelMonitorDto, Project, ProjectBatchDto } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
 
 export function ProjectListView({
@@ -28,6 +28,7 @@ export function ProjectListView({
   activeProjectId,
   maxProjects,
   isViewer,
+  monitors = [],
   onSelect,
   onCreate,
 }: {
@@ -35,6 +36,7 @@ export function ProjectListView({
   activeProjectId?: string;
   maxProjects?: number;
   isViewer: boolean;
+  monitors?: IntelMonitorDto[];
   onSelect: (project: Project) => void;
   onCreate: () => void;
 }) {
@@ -65,7 +67,9 @@ export function ProjectListView({
             <section style={{ display: 'grid', gap: 8 }}>
               <h4 style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>{t('My Projects', '我的项目')}</h4>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
-                {mine.map((p) => (
+                {mine.map((p) => {
+                  const boundMon = monitors.find((m) => m.projectId === p.id || p.linked_monitor_id === m.id);
+                  return (
                   <button
                     key={p.id}
                     type="button"
@@ -82,6 +86,11 @@ export function ProjectListView({
                       <b style={{ fontSize: 13 }}>{p.name}</b>
                       <div style={{ display: 'inline-flex', gap: 4 }}>
                         <span className="tag" style={{ fontSize: 10 }}>{t('Private', '私有')}</span>
+                        {boundMon && (
+                          <span className={`tag ${boundMon.enabled ? 'tag--mint' : 'tag--line'}`} style={{ fontSize: 10 }}>
+                            {boundMon.enabled ? `Auto · ${boundMon.scheduleIntervalHours}h` : t('Paused', '已暂停')}
+                          </span>
+                        )}
                         <span className="tag tag--lilac" style={{ fontSize: 10 }}>
                           {p.dataset_mode === 'batch' ? `${p.enabled_batch_count ?? 0} ${t('batches', '批次')}` : `${p.source_ids.length} ${t('sources', '来源')}`}
                         </span>
@@ -89,7 +98,8 @@ export function ProjectListView({
                     </div>
                     {p.description && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>{p.description}</p>}
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </section>
           )}

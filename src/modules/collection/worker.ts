@@ -102,6 +102,7 @@ async function admitJobDispatch(
   source: QueryResultRow,
   provider: ContentProvider,
   token: string,
+  hooks: WorkerHooks = {},
 ) {
   const resources = providerResourceReservation({
     provider: job.provider, targetType: source.target.type, pageSize: job.page_size,
@@ -135,6 +136,31 @@ async function admitJobDispatch(
         [job.id, token],
       );
       return false;
+    }
+    if (job.purpose === "scheduled" && hooks.authorizeScheduledSourceDispatch) {
+      const auth = await hooks.authorizeScheduledSourceDispatch(client, {
+        sourceId: source.id,
+        provider: job.provider,
+        resources,
+      });
+      if (!auth.admitted) {
+        if (auth.deferUntilIso) {
+          await client.query(
+            `UPDATE source_collection_job SET status='queued',next_run_at=$3,lease_token=NULL,lease_until=NULL,
+              attempts=GREATEST(0, attempts-1),error=$4
+            WHERE id=$1 AND lease_token=$2`,
+            [job.id, token, auth.deferUntilIso, auth.deferReason ?? "Waiting for monitor daily budget"],
+          );
+        } else {
+          await client.query(
+            `UPDATE source_collection_job SET status='cancelled',finished_at=now(),lease_token=NULL,lease_until=NULL,
+              attempts=GREATEST(0, attempts-1),error=$3
+            WHERE id=$1 AND lease_token=$2`,
+            [job.id, token, auth.deferReason ?? "Monitor entitlement revoked before dispatch"],
+          );
+        }
+        return false;
+      }
     }
     const socialProvider = budgetedSocialProviders.includes(job.provider);
     if (socialProvider) await lockSocialDispatchBudget(client);
@@ -188,6 +214,11 @@ function computeNextScheduleInterval(
   return cadence;
 }
 
+function resolveCommittedBatchVisibility(rawProjectVis: unknown, projectId: unknown): "private" | "shared" | undefined {
+  if (rawProjectVis === "private" || rawProjectVis === "shared") return rawProjectVis;
+  return typeof projectId === "string" ? "private" : undefined;
+}
+
 async function commitCollectedPage(
   client: PoolClient,
   job: QueryResultRow,
@@ -213,21 +244,15 @@ async function commitCollectedPage(
     batch,
     new Date().toISOString(),
   );
-  const rawProjectVis = job.request_json?.projectVisibility;
+  const projectId = job.request_json?.projectId;
   const committed = await recordCommittedBatch(client, {
     jobId: job.id,
     sourceId: source.id,
     sourceLabel: source.label,
     userId: job.requested_by_user_id ?? null,
     contentIds: counts.contentIds,
-    visibility:
-      rawProjectVis === "private" || rawProjectVis === "shared"
-        ? rawProjectVis
-        : typeof job.request_json?.projectId === "string"
-          ? "private"
-          : undefined,
+    visibility: resolveCommittedBatchVisibility(job.request_json?.projectVisibility, projectId),
   });
-  const projectId = job.request_json?.projectId;
   if (typeof projectId === "string" && onBatchCommitted) {
     await onBatchCommitted(client, {
       batchId: committed.batchId, projectId, userId: job.requested_by_user_id ?? null,
@@ -462,6 +487,11 @@ function assertProviderReadyForJob(job: QueryResultRow, provider: ContentProvide
 export type WorkerHooks = {
   // Runs in the content transaction: a failed project attachment rolls back the page.
   onProjectBatchCommitted?: BatchCommittedHook;
+  // Runs in the admission transaction for scheduled jobs before charging upstream.
+  authorizeScheduledSourceDispatch?: (
+    client: PoolClient,
+    info: { sourceId: string; provider: string; resources: number },
+  ) => Promise<{ admitted: boolean; deferReason?: string; deferUntilIso?: string }>;
   // Runs after commit: failures must never replay an already charged collection.
   onSourceContentCommitted?: (sourceId: string, result: { changed: boolean; hydration: boolean }) => void | Promise<void>;
 };
@@ -494,7 +524,7 @@ export async function workOnce(
     assertProviderReadyForJob(job, provider);
     const phase = job.provider_state.phase;
     if (!phase || (phase === "starting" && provider.capability.automaticRequestReplay !== false)) {
-      const admitted = await admitJobDispatch(pool, job as Parameters<typeof admitJobDispatch>[1], source, provider, token);
+      const admitted = await admitJobDispatch(pool, job as Parameters<typeof admitJobDispatch>[1], source, provider, token, hooks);
       if (!admitted) return true;
       job.provider_state = { phase: "starting" };
       job.page_request_attempts++;

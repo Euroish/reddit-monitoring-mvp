@@ -99,6 +99,34 @@ export async function assertProjectWritable(pool: Pool | PoolClient, actor: Acto
   return project;
 }
 
+async function assertViewerProjectQuota(client: PoolClient, actor: Actor) {
+  if (actor.role !== "viewer") return;
+  if (!actor.userId) fail(403, "Authenticated browser session required");
+  const plan = await loadEffectivePolicyForUser(client, actor.userId, true);
+  const { rows: [owned] } = await client.query<{ count: string }>(
+    "SELECT COUNT(*) AS count FROM monitor_project WHERE owner_user_id=$1",
+    [actor.userId],
+  );
+  if (Number(owned.count) >= plan.maxProjects) {
+    fail(403, `Project limit reached for ${plan.planTier} tier (${plan.maxProjects})`);
+  }
+}
+
+function resolveNewProjectParams(actor: Actor, input: ProjectWrite, sources: string[]) {
+  const mode = input.datasetMode ?? (sources.length > 0 ? "source_filter" : "batch");
+  if (mode === "source_filter" && sources.length < 1) {
+    fail(422, "Select at least one collection source");
+  }
+  if (actor.role === "viewer" && input.visibility === "shared") {
+    fail(403, "Only administrators can publish shared projects");
+  }
+  const visibility =
+    (actor.role === "admin" || actor.role === "owner") && input.visibility === "shared"
+      ? "shared"
+      : "private";
+  return { mode, visibility };
+}
+
 export async function writeProject(pool: Pool, actor: Actor, input: ProjectWrite, update?: { id: string; revision: number }) {
   const sources = [...new Set(input.sourceIds ?? [])];
   if (actor.allowedSourceIds !== null && !sources.every((id) => actor.allowedSourceIds!.includes(id)))
@@ -140,26 +168,8 @@ export async function writeProject(pool: Pool, actor: Actor, input: ProjectWrite
       if (!result.rowCount) fail(409, "Project changed; reload before saving");
       await client.query("DELETE FROM monitor_project_source WHERE project_id=$1", [id]);
     } else {
-      const mode = input.datasetMode ?? (sources.length > 0 ? "source_filter" : "batch");
-      if (mode === "source_filter" && sources.length < 1) {
-        fail(422, "Select at least one collection source");
-      }
-      if (actor.role === "viewer") {
-        if (input.visibility === "shared") fail(403, "Only administrators can publish shared projects");
-        if (!actor.userId) fail(403, "Authenticated browser session required");
-        const plan = await loadEffectivePolicyForUser(client, actor.userId, true);
-        const { rows: [owned] } = await client.query<{ count: string }>(
-          "SELECT COUNT(*) AS count FROM monitor_project WHERE owner_user_id=$1",
-          [actor.userId],
-        );
-        if (Number(owned.count) >= plan.maxProjects) {
-          fail(403, `Project limit reached for ${plan.planTier} tier (${plan.maxProjects})`);
-        }
-      }
-      const visibility =
-        (actor.role === "admin" || actor.role === "owner") && input.visibility === "shared"
-          ? "shared"
-          : "private";
+      const { mode, visibility } = resolveNewProjectParams(actor, input, sources);
+      await assertViewerProjectQuota(client, actor);
       await client.query(`
         INSERT INTO monitor_project(id,name,description,dataset_mode,visibility,filter,thread_aware,include_push_in_trends,owner_user_id)
         VALUES($1,$2,$3,$4,$5,$6,COALESCE($7,TRUE),COALESCE($8,FALSE),$9)`,

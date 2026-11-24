@@ -27,6 +27,7 @@ import {
   useCreateProjectMutation,
   useDeleteProjectMutation,
   useForkProjectMutation,
+  useMonitorsQuery,
   useProjectOverviewQuery,
   useProjectsQuery,
   usePublishProjectMutation,
@@ -36,6 +37,7 @@ import {
 } from '../api/hooks';
 import { apiClient } from '../api/client';
 import { InlineMfaStepUp } from '../components/InlineMfaStepUp';
+import { MonitorSchedulePanel } from '../components/MonitorSchedulePanel';
 import { KpiCard } from '../components/workbench/KpiCard';
 import { Alert } from '../components/ui/alert';
 import { Card } from '../components/ui/card';
@@ -266,6 +268,132 @@ function ProjectForkPublishActions({
 const PAIN_RE =
   /\b(broken|bug|slow|expensive|pricing|sucks|frustrated|unusable|churn|blocked|timeout|hate|pain|issue|fail(?:ed|ing)?|refund|friction|overage)\b|崩溃|卡顿|太贵|难用|踩坑|报错|封号|吐槽|痛/i;
 
+function resolveProjectActiveView(
+  urlView: string,
+  canWrite: boolean,
+  selectedProject: Project | undefined,
+): 'list' | 'collect' | 'jobs' | 'my-jobs' | 'batches' | 'overview' {
+  if (urlView === 'list' || urlView === 'collect' || urlView === 'jobs' || urlView === 'my-jobs' || urlView === 'batches' || urlView === 'overview') {
+    return urlView;
+  }
+  if (canWrite && selectedProject && selectedProject.dataset_mode === 'batch' && (selectedProject.enabled_batch_count ?? 0) === 0) {
+    return 'collect';
+  }
+  return 'overview';
+}
+
+function ProjectAdvancedFilterFields({
+  t,
+  formAnyTerms,
+  setFormAnyTerms,
+  formAllTerms,
+  setFormAllTerms,
+  formExclusions,
+  setFormExclusions,
+  formScope,
+  setFormScope,
+  formSignal,
+  setFormSignal,
+  formPlatform,
+  setFormPlatform,
+  formKind,
+  setFormKind,
+  formThreadAware,
+  setFormThreadAware,
+  formIncludePush,
+  setFormIncludePush,
+}: {
+  t: (en: string, zh: string) => string;
+  formAnyTerms: string;
+  setFormAnyTerms: (v: string) => void;
+  formAllTerms: string;
+  setFormAllTerms: (v: string) => void;
+  formExclusions: string;
+  setFormExclusions: (v: string) => void;
+  formScope: SearchScope;
+  setFormScope: (v: SearchScope) => void;
+  formSignal: '' | SignalType;
+  setFormSignal: (v: '' | SignalType) => void;
+  formPlatform: '' | Platform;
+  setFormPlatform: (v: '' | Platform) => void;
+  formKind: '' | ContentKind;
+  setFormKind: (v: '' | ContentKind) => void;
+  formThreadAware: boolean;
+  setFormThreadAware: (v: boolean) => void;
+  formIncludePush: boolean;
+  setFormIncludePush: (v: boolean) => void;
+}) {
+  return (
+    <details className="collection-disclosure">
+      <summary>{t('Advanced analysis filter rules (optional)', '高级分析过滤规则（可选，仅过滤已有样本）')}</summary>
+      <div style={{ display: 'grid', gap: 10, marginTop: 10 }}>
+        <div className="wb-grid-2">
+          <div className="wb-field">
+            <label>{t('anyTerms (OR, comma separated)', 'anyTerms（任意命中 OR）')}</label>
+            <input className="wb-input" value={formAnyTerms} onChange={(e) => setFormAnyTerms(e.target.value)} placeholder="pricing, billing, churn" />
+          </div>
+          <div className="wb-field">
+            <label>{t('allTerms (AND, comma separated)', 'allTerms（全部命中 AND）')}</label>
+            <input className="wb-input" value={formAllTerms} onChange={(e) => setFormAllTerms(e.target.value)} placeholder="kubernetes" />
+          </div>
+        </div>
+        <div className="wb-grid-2">
+          <div className="wb-field">
+            <label>{t('exclusions (NOT)', 'exclusions（排除词）')}</label>
+            <input className="wb-input" value={formExclusions} onChange={(e) => setFormExclusions(e.target.value)} placeholder="hiring, sponsorship" />
+          </div>
+          <div className="wb-field">
+            <label>{t('Search Scope', '词项匹配范围')}</label>
+            <select className="wb-select" value={formScope} onChange={(e) => setFormScope(e.target.value as SearchScope)}>
+              <option value="title_text">title_text</option>
+              <option value="title">title</option>
+              <option value="text">text</option>
+            </select>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+          <div className="wb-field">
+            <label>{t('Signal', '信号')}</label>
+            <select className="wb-select" value={formSignal} onChange={(e) => setFormSignal(e.target.value as '' | SignalType)}>
+              <option value="">All</option>
+              <option value="pain">pain</option>
+              <option value="discussion">discussion</option>
+            </select>
+          </div>
+          <div className="wb-field">
+            <label>{t('Platform', '平台')}</label>
+            <select className="wb-select" value={formPlatform} onChange={(e) => setFormPlatform(e.target.value as '' | Platform)}>
+              <option value="">All</option>
+              <option value="reddit">reddit</option>
+              <option value="x">x</option>
+              <option value="bluesky">bluesky</option>
+            </select>
+          </div>
+          <div className="wb-field">
+            <label>{t('Kind', '形态')}</label>
+            <select className="wb-select" value={formKind} onChange={(e) => setFormKind(e.target.value as '' | ContentKind)}>
+              <option value="">All</option>
+              <option value="post">post</option>
+              <option value="comment">comment</option>
+              <option value="article">article</option>
+            </select>
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, paddingTop: 4 }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+            <input type="checkbox" checked={formThreadAware} onChange={(e) => setFormThreadAware(e.target.checked)} />
+            <span>thread_aware ({t('fold comments to roots', '评论回溯根帖')})</span>
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+            <input type="checkbox" checked={formIncludePush} onChange={(e) => setFormIncludePush(e.target.checked)} />
+            <span>include_push_in_trends</span>
+          </label>
+        </div>
+      </div>
+    </details>
+  );
+}
+
 export function ProjectsPage({
   actor,
   selectedProjectId,
@@ -283,6 +411,8 @@ export function ProjectsPage({
   const projectsQuery = useProjectsQuery(true);
   const sourcesQuery = useSourcesQuery(true);
   const quotasSummaryQuery = useQuotasSummaryQuery(true);
+  const monitorsQuery = useMonitorsQuery(true);
+  const monitors = monitorsQuery.data?.monitors ?? [];
   const projects = useMemo(() => projectsQuery.data?.projects ?? [], [projectsQuery.data?.projects]);
   const sources = useMemo(() => sourcesQuery.data?.sources ?? [], [sourcesQuery.data?.sources]);
   const researchSources = useMemo(() => sources.filter(isResearchSource), [sources]);
@@ -315,12 +445,7 @@ export function ProjectsPage({
     ? undefined
     : projects.find((p) => p.id === (urlProjectId || selectedProjectId)) || projects[0];
   const canWrite = Boolean(selectedProject?.can_edit ?? isAdmin);
-  const activeView: 'list' | 'collect' | 'jobs' | 'my-jobs' | 'batches' | 'overview' =
-    urlView === 'list' || urlView === 'collect' || urlView === 'jobs' || urlView === 'my-jobs' || urlView === 'batches' || urlView === 'overview'
-      ? urlView
-      : canWrite && selectedProject && selectedProject.dataset_mode === 'batch' && (selectedProject.enabled_batch_count ?? 0) === 0
-        ? 'collect'
-        : 'overview';
+  const activeView = resolveProjectActiveView(urlView, canWrite, selectedProject);
   const go = useCallback(
     (path: string) => {
       if (onNavigate) onNavigate(path);
@@ -583,14 +708,10 @@ export function ProjectsPage({
     const last = new Date(windowEnd - 86_400_000).toISOString().slice(0, 10);
     return first === last ? `${first} UTC` : `${first} – ${last} UTC`;
   }, [windowFrom, windowEnd]);
-  const hasBoundPushSource = useMemo(
-    () =>
-      Boolean(
-        selectedProject?.source_ids.some(
-          (sid) => sources.find((s) => s.id === sid)?.deliveryMode === 'push',
-        ),
-      ),
-    [selectedProject?.source_ids, sources],
+  const hasBoundPushSource = Boolean(
+    selectedProject?.source_ids.some(
+      (sid) => sources.find((s) => s.id === sid)?.deliveryMode === 'push',
+    ),
   );
 
   const unknownRow = overview?.facets.find((f) => f.day_group === 0 && f.day === null);
@@ -789,6 +910,7 @@ export function ProjectsPage({
           activeProjectId={selectedProject?.id}
           maxProjects={quotasSummaryQuery.data?.effectivePolicy.maxProjects}
           isViewer={!isAdmin}
+          monitors={monitors}
           onSelect={(p) => {
             onSelectProjectId(p.id);
             const nextView = p.dataset_mode === 'batch' && (p.enabled_batch_count ?? 0) === 0 ? 'collect' : 'overview';
@@ -862,6 +984,14 @@ export function ProjectsPage({
                 onOpenContentDetail={onOpenContentDetail}
               />
             </div>
+          )}
+          {selectedProject && (
+            <MonitorSchedulePanel
+              actor={actor}
+              project={selectedProject}
+              quota={quotasSummaryQuery.data}
+              monitors={monitors}
+            />
           )}
 
           {/* Evidence filters */}
@@ -1365,76 +1495,27 @@ export function ProjectsPage({
               )}
 
               {modalMode === 'edit' && (
-                <details className="collection-disclosure">
-                  <summary>{t('Advanced analysis filter rules (optional)', '高级分析过滤规则（可选，仅过滤已有样本）')}</summary>
-                  <div style={{ display: 'grid', gap: 10, marginTop: 10 }}>
-                    <div className="wb-grid-2">
-                      <div className="wb-field">
-                        <label>{t('anyTerms (OR, comma separated)', 'anyTerms（任意命中 OR）')}</label>
-                        <input className="wb-input" value={formAnyTerms} onChange={(e) => setFormAnyTerms(e.target.value)} placeholder="pricing, billing, churn" />
-                      </div>
-                      <div className="wb-field">
-                        <label>{t('allTerms (AND, comma separated)', 'allTerms（全部命中 AND）')}</label>
-                        <input className="wb-input" value={formAllTerms} onChange={(e) => setFormAllTerms(e.target.value)} placeholder="kubernetes" />
-                      </div>
-                    </div>
-
-                    <div className="wb-grid-2">
-                      <div className="wb-field">
-                        <label>{t('exclusions (NOT)', 'exclusions（排除词）')}</label>
-                        <input className="wb-input" value={formExclusions} onChange={(e) => setFormExclusions(e.target.value)} placeholder="hiring, sponsorship" />
-                      </div>
-                      <div className="wb-field">
-                        <label>{t('Search Scope', '词项匹配范围')}</label>
-                        <select className="wb-select" value={formScope} onChange={(e) => setFormScope(e.target.value as SearchScope)}>
-                          <option value="title_text">title_text</option>
-                          <option value="title">title</option>
-                          <option value="text">text</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-                      <div className="wb-field">
-                        <label>{t('Signal', '信号')}</label>
-                        <select className="wb-select" value={formSignal} onChange={(e) => setFormSignal(e.target.value as '' | SignalType)}>
-                          <option value="">All</option>
-                          <option value="pain">pain</option>
-                          <option value="discussion">discussion</option>
-                        </select>
-                      </div>
-                      <div className="wb-field">
-                        <label>{t('Platform', '平台')}</label>
-                        <select className="wb-select" value={formPlatform} onChange={(e) => setFormPlatform(e.target.value as '' | Platform)}>
-                          <option value="">All</option>
-                          <option value="reddit">reddit</option>
-                          <option value="x">x</option>
-                          <option value="bluesky">bluesky</option>
-                        </select>
-                      </div>
-                      <div className="wb-field">
-                        <label>{t('Kind', '形态')}</label>
-                        <select className="wb-select" value={formKind} onChange={(e) => setFormKind(e.target.value as '' | ContentKind)}>
-                          <option value="">All</option>
-                          <option value="post">post</option>
-                          <option value="comment">comment</option>
-                          <option value="article">article</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, paddingTop: 4 }}>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={formThreadAware} onChange={(e) => setFormThreadAware(e.target.checked)} />
-                        <span>thread_aware ({t('fold comments to roots', '评论回溯根帖')})</span>
-                      </label>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={formIncludePush} onChange={(e) => setFormIncludePush(e.target.checked)} />
-                        <span>include_push_in_trends</span>
-                      </label>
-                    </div>
-                  </div>
-                </details>
+                <ProjectAdvancedFilterFields
+                  t={t}
+                  formAnyTerms={formAnyTerms}
+                  setFormAnyTerms={setFormAnyTerms}
+                  formAllTerms={formAllTerms}
+                  setFormAllTerms={setFormAllTerms}
+                  formExclusions={formExclusions}
+                  setFormExclusions={setFormExclusions}
+                  formScope={formScope}
+                  setFormScope={setFormScope}
+                  formSignal={formSignal}
+                  setFormSignal={setFormSignal}
+                  formPlatform={formPlatform}
+                  setFormPlatform={setFormPlatform}
+                  formKind={formKind}
+                  setFormKind={setFormKind}
+                  formThreadAware={formThreadAware}
+                  setFormThreadAware={setFormThreadAware}
+                  formIncludePush={formIncludePush}
+                  setFormIncludePush={setFormIncludePush}
+                />
               )}
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>

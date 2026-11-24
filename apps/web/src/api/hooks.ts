@@ -755,6 +755,53 @@ export function useReconcileLegacySourceMutation() {
   });
 }
 
+export function useMonitorsQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['intelMonitors'],
+    queryFn: () => apiClient.getMonitors(),
+    enabled,
+  });
+}
+
+export function useCreateMonitorMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Parameters<typeof apiClient.createMonitor>[0]) => apiClient.createMonitor(payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['intelMonitors'] });
+      qc.invalidateQueries({ queryKey: ['sources'] });
+    },
+  });
+}
+
+export function useUpdateMonitorMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: Parameters<typeof apiClient.updateMonitor>[1];
+    }) => apiClient.updateMonitor(id, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['intelMonitors'] });
+      qc.invalidateQueries({ queryKey: ['sources'] });
+    },
+  });
+}
+
+export function useDeleteMonitorMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, revision }: { id: string; revision: number }) => apiClient.deleteMonitor(id, revision),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['intelMonitors'] });
+      qc.invalidateQueries({ queryKey: ['sources'] });
+    },
+  });
+}
+
 export function useUpdateProjectBatchStatusMutation() {
   const qc = useQueryClient();
   return useMutation({

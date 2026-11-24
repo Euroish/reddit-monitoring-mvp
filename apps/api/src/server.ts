@@ -6,7 +6,11 @@ import {
 } from "../../../src/modules/access/index";
 import { startAiSyncScheduler } from "../../../src/modules/ai/index";
 import { pruneFeedArtifacts } from "../../../src/modules/feed/index";
-import { hydrateHotCommunityPost, refreshRollupsForSource } from "../../../src/modules/intelligence/index";
+import {
+  authorizeScheduledSourceDispatch,
+  hydrateHotCommunityPost,
+  refreshRollupsForSource,
+} from "../../../src/modules/intelligence/index";
 import { attachBatchToProjectInTx } from "../../../src/modules/projects/index";
 import { createCredentialVault, startWorker } from "../../../src/modules/collection/index";
 import { BlueskyAppViewContentConnector } from "../../../src/connectors/bluesky/bluesky-appview-content.connector";
@@ -101,6 +105,7 @@ export async function main() {
       (error) => app.log.error({ err: error }, "Collection worker failed"),
       {
         onProjectBatchCommitted: attachBatchToProjectInTx,
+        authorizeScheduledSourceDispatch,
         onSourceContentCommitted: async (sourceId, { changed, hydration }) => {
           await Promise.all([
             changed && refreshRollupsForSource(workerPool, sourceId).catch((error) =>

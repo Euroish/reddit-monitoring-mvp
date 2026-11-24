@@ -172,6 +172,38 @@ export async function admitViewerCollection(
   );
 }
 
+export async function checkAndDebitViewerQuota(
+  client: PoolClient,
+  userId: string,
+  provider: string,
+  resources: number,
+  effective: EffectivePolicy,
+): Promise<boolean> {
+  await client.query(
+    `INSERT INTO user_provider_usage(user_id,provider,day,requests_reserved,requests_executed,resources_reserved)
+     VALUES($1,$2,(NOW() AT TIME ZONE 'UTC')::date,0,0,0) ON CONFLICT (user_id,provider,day) DO NOTHING`,
+    [userId, provider],
+  );
+  const { rows } = await client.query<{ requests_reserved: number; resources_reserved: number }>(
+    `SELECT requests_reserved, resources_reserved FROM user_provider_usage
+     WHERE user_id=$1 AND day=(NOW() AT TIME ZONE 'UTC')::date FOR UPDATE`,
+    [userId],
+  );
+  const usedRequests = rows.reduce((s, r) => s + r.requests_reserved, 0);
+  const usedResources = rows.reduce((s, r) => s + r.resources_reserved, 0);
+  if (effective.dailyRequests !== null && usedRequests + 1 > effective.dailyRequests) return false;
+  if (effective.dailyResources !== null && usedResources + resources > effective.dailyResources) return false;
+  await client.query(
+    `UPDATE user_provider_usage
+     SET requests_reserved=requests_reserved+1,
+         requests_executed=requests_executed+1,
+         resources_reserved=resources_reserved+$3
+     WHERE user_id=$1 AND provider=$2 AND day=(NOW() AT TIME ZONE 'UTC')::date`,
+    [userId, provider, resources],
+  );
+  return true;
+}
+
 export async function recordUserExecutedRequest(client: PoolClient, jobId: string, provider: string) {
   const row = (
     await client.query<{ requested_by_user_id: string | null; requested_by_client_kind: string | null }>(

@@ -696,6 +696,49 @@ export const apiClient = {
     });
   },
 
+  async getMonitors(): Promise<{ monitors: import('../contracts/api').IntelMonitorDto[] }> {
+    return liveFetch('/intelligence/monitors');
+  },
+
+  async createMonitor(payload: {
+    kind: 'keyword' | 'author_list' | 'community_bundle';
+    name: string;
+    config: import('../contracts/api').IntelMonitorDto['config'];
+    scheduleIntervalHours?: number;
+    dailyItemBudget?: number;
+    enabled?: boolean;
+    projectId?: string;
+  }): Promise<{ monitor: import('../contracts/api').IntelMonitorDto }> {
+    return liveFetch('/intelligence/monitors', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateMonitor(
+    id: string,
+    payload: {
+      revision: number;
+      name?: string;
+      scheduleIntervalHours?: number;
+      dailyItemBudget?: number;
+      enabled?: boolean;
+      projectId?: string | null;
+    },
+  ): Promise<{ monitor: import('../contracts/api').IntelMonitorDto }> {
+    return liveFetch(`/intelligence/monitors/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteMonitor(id: string, revision: number): Promise<{ deleted: true }> {
+    return liveFetch(`/intelligence/monitors/${id}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ revision }),
+    });
+  },
+
   async getQuotasSummary(): Promise<QuotasSummaryResponse> {
     return liveFetch('/quotas/summary');
   },

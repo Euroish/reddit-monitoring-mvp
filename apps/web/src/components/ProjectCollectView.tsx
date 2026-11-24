@@ -30,6 +30,43 @@ function readDraft(params: string): ManualTarget {
   return { platform, targetType, targetValue: sp.get('resumeTarget')?.slice(0, 512) ?? '' };
 }
 
+function buildAdminRegistrationPath(
+  isAdmin: boolean,
+  restriction: ResearchPlanPreviewResponse | undefined,
+  projectId: string,
+  draft: ReturnType<typeof readDraft>,
+): string | undefined {
+  if (!isAdmin || restriction?.resolutionStatus !== 'needs_admin_source') return undefined;
+  const val = draft.targetValue.trim();
+  if (!val) return undefined;
+  return '/sources?' + new URLSearchParams({
+    tab: 'sources', domain: 'research', new: '1', returnProjectId: projectId,
+    targetPlatform: draft.platform, targetType: draft.targetType, targetValue: val,
+  });
+}
+
+function buildScopePreviewRequest(
+  projectId: string,
+  target: ResearchPlanPreviewResponse,
+  draft: ReturnType<typeof readDraft>,
+  range: CollectionRange,
+  now: number,
+): ResearchPlanPreviewRequest {
+  const hints = Object.keys(range.queryHints).length ? range.queryHints : undefined;
+  const common = {
+    projectId,
+    from: new Date(now - range.days * dayMs).toISOString(),
+    to: new Date(now).toISOString(),
+    limit: range.limit,
+    includeComments: range.comments,
+    maxCommentsPerPost: range.comments ? range.commentLimit : undefined,
+    queryHints: hints,
+  };
+  return target.matchedSource
+    ? { ...common, sourceId: target.matchedSource.id, useFallback: range.fallback }
+    : { ...common, platform: draft.platform, targetType: draft.targetType, targetValue: draft.targetValue.trim() };
+}
+
 export function ProjectCollectView({ actor, project, sources, initialSearch = '', onNavigate }: {
   actor: Actor;
   project: Project;
@@ -121,31 +158,7 @@ export function ProjectCollectView({ actor, project, sources, initialSearch = ''
     setError('');
     setRestriction(undefined);
     const now = Date.now();
-    const hints = Object.keys(range.queryHints).length ? range.queryHints : undefined;
-    const request: ResearchPlanPreviewRequest = flow.target.matchedSource
-      ? {
-          projectId: project.id,
-          sourceId: flow.target.matchedSource.id,
-          from: new Date(now - range.days * dayMs).toISOString(),
-          to: new Date(now).toISOString(),
-          limit: range.limit,
-          includeComments: range.comments,
-          maxCommentsPerPost: range.comments ? range.commentLimit : undefined,
-          useFallback: range.fallback,
-          queryHints: hints,
-        }
-      : {
-          projectId: project.id,
-          platform: draft.platform,
-          targetType: draft.targetType,
-          targetValue: draft.targetValue.trim(),
-          from: new Date(now - range.days * dayMs).toISOString(),
-          to: new Date(now).toISOString(),
-          limit: range.limit,
-          includeComments: range.comments,
-          maxCommentsPerPost: range.comments ? range.commentLimit : undefined,
-          queryHints: hints,
-        };
+    const request = buildScopePreviewRequest(project.id, flow.target, draft, range, now);
     try {
       const result = await preview.mutateAsync(request);
       if (!mounted.current) return;
@@ -200,10 +213,7 @@ export function ProjectCollectView({ actor, project, sources, initialSearch = ''
     finally { submitting.current = false; }
   }
 
-  const registrationPath = isAdmin && restriction?.resolutionStatus === 'needs_admin_source' && draft.targetValue.trim()
-    ? '/sources?' + new URLSearchParams({ tab: 'sources', domain: 'research', new: '1', returnProjectId: project.id,
-      targetPlatform: draft.platform, targetType: draft.targetType, targetValue: draft.targetValue.trim() })
-    : undefined;
+  const registrationPath = buildAdminRegistrationPath(isAdmin, restriction, project.id, draft);
 
   return <div className="research-intake">
     <header className="research-intake-heading">

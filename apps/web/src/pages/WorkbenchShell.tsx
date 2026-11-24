@@ -67,6 +67,102 @@ interface WorkbenchShellProps {
   children: React.ReactNode;
 }
 
+function computeQuotaStats(
+  canWrite: boolean,
+  q: ReturnType<typeof useQuotasSummaryQuery>['data'],
+  budgets: { enabled: boolean; daily_requests: number; requests_today?: number }[],
+) {
+  const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n));
+  if (!canWrite) {
+    if (!q) return { pct: 0, used: '0', cap: '—' };
+    const used = q.myUsage.requestsReserved;
+    const cap = q.effectivePolicy.dailyRequests;
+    if (!q.effectivePolicy.manualCollectEnabled) return { pct: 0, used: fmt(used), cap: 'Off' };
+    if (cap === null) return { pct: 0, used: fmt(used), cap: '∞' };
+    if (cap <= 0) return { pct: 0, used: fmt(used), cap: '0 cap' };
+    return { pct: Math.min(100, Math.round((used / cap) * 100)), used: fmt(used), cap: fmt(cap) };
+  }
+  if (!budgets.length) return { pct: 0, used: '0', cap: '0' };
+  const enabled = budgets.filter((b) => b.enabled);
+  const totalUsed = enabled.reduce((sum, budget) => sum + (budget.requests_today ?? 0), 0);
+  const totalCap = enabled.reduce((sum, budget) => sum + budget.daily_requests, 0);
+  if (totalCap <= 0) return { pct: 0, used: fmt(totalUsed), cap: '0 cap' };
+  return { pct: Math.min(100, Math.round((totalUsed / totalCap) * 100)), used: fmt(totalUsed), cap: fmt(totalCap) };
+}
+
+function resolveShellActiveDomain(route: string, canWrite: boolean): 'feed' | 'research' | 'ops' | 'settings' {
+  if (route === '/settings') return 'settings';
+  if (route === '/app/feed') return 'feed';
+  if (canWrite && (route === '/sources' || route === '/admin/queue')) return 'ops';
+  return 'research';
+}
+
+function NotificationsPopover({
+  canWrite,
+  unreadNotifs,
+  blockedSources,
+  zeroQuotaProviders,
+  viewerFailedJobs,
+  t,
+  onDismiss,
+}: {
+  canWrite: boolean;
+  unreadNotifs: number;
+  blockedSources: { id: string; label: string }[];
+  zeroQuotaProviders: { provider: string }[];
+  viewerFailedJobs: { id: string; sourceLabel: string }[];
+  t: (en: string, zh: string) => string;
+  onDismiss: () => void;
+}) {
+  const empty = blockedSources.length === 0 && zeroQuotaProviders.length === 0 && viewerFailedJobs.length === 0;
+  return (
+    <div className="ds-pop" style={{ top: 'calc(100% + 6px)', right: 0, width: 310, padding: 0, overflow: 'hidden' }}>
+      <div style={{ padding: '11px 14px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+        <b>{canWrite ? t('System Alerts', '运行与采集告警') : t('Personal Alerts', '个人采集与额度提醒')}</b>
+        <span style={{ fontSize: 10.5, color: 'var(--faint)' }}>
+          {unreadNotifs} {t('active', '条提示')}
+        </span>
+      </div>
+      {blockedSources.map((src) => (
+        <div key={src.id} style={{ padding: '10px 14px', borderBottom: '1px solid #f3f5ee', display: 'flex', gap: 9 }}>
+          <AlertTriangle size={15} color="#d4821c" style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+            <b>{src.label}</b> · {t('Automatic collection blocked pending review', '存在未决付费阶段任务，已暂停自动采集')}
+          </div>
+        </div>
+      ))}
+      {zeroQuotaProviders.map((b) => (
+        <div key={b.provider} style={{ padding: '10px 14px', borderBottom: '1px solid #f3f5ee', display: 'flex', gap: 9 }}>
+          <AlertTriangle size={15} color="#6b756a" style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+            <b>{b.provider}</b> · {t('Daily request cap is 0', '已启用但日请求额度上限为 0')}
+          </div>
+        </div>
+      ))}
+      {viewerFailedJobs.map((j) => (
+        <div key={j.id} style={{ padding: '10px 14px', borderBottom: '1px solid #f3f5ee', display: 'flex', gap: 9 }}>
+          <AlertTriangle size={15} color="#d4821c" style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+            <b>{j.sourceLabel}</b> · {t('Personal collection job failed', '个人采集任务未成功完成')}
+          </div>
+        </div>
+      ))}
+      {empty && (
+        <div style={{ padding: '16px 14px', textAlign: 'center', fontSize: 11.5, color: 'var(--faint)' }}>
+          {canWrite ? t('No active collection or quota alerts.', '当前无阻断来源或配额告警。') : t('No failed personal jobs.', '当前无异常个人采集任务。')}
+        </div>
+      )}
+      {unreadNotifs > 0 && (
+        <div style={{ padding: 6, textAlign: 'center' }}>
+          <button type="button" className="ds-btn ds-btn--quiet" style={{ fontSize: 11, width: '100%' }} onClick={onDismiss}>
+            {t('Dismiss notifications', '忽略当前红点')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function WorkbenchShell({
   actor,
   publicRegistration = false,
@@ -137,14 +233,7 @@ export function WorkbenchShell({
     ? projects.find(project => project.id === urlProjectId)
     : projects.find(project => project.id === selectedProjectId) ?? projects[0];
 
-  const activeDomain: 'feed' | 'research' | 'ops' | 'settings' =
-    route === '/settings'
-      ? 'settings'
-      : route === '/app/feed'
-        ? 'feed'
-        : canWrite && (route === '/sources' || route === '/admin/queue')
-          ? 'ops'
-          : 'research';
+  const activeDomain = resolveShellActiveDomain(route, canWrite);
   const pidQs = resolvedProject ? `&projectId=${encodeURIComponent(resolvedProject.id)}` : '';
   const pidQueryOnly = resolvedProject ? `?projectId=${encodeURIComponent(resolvedProject.id)}` : '';
 
@@ -199,26 +288,10 @@ export function WorkbenchShell({
   }, [paletteOpen, shortcutsOpen, openPop]);
 
   // Dynamic quota summary from real backend budgets / personal policy
-  const quotaStats = useMemo(() => {
-    const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n));
-    if (!canWrite) {
-      const q = quotasSummaryQuery.data;
-      if (!q) return { pct: 0, used: '0', cap: '—' };
-      const used = q.myUsage.requestsReserved;
-      const cap = q.effectivePolicy.dailyRequests;
-      if (!q.effectivePolicy.manualCollectEnabled) return { pct: 0, used: fmt(used), cap: 'Off' };
-      if (cap === null) return { pct: 0, used: fmt(used), cap: '∞' };
-      if (cap <= 0) return { pct: 0, used: fmt(used), cap: '0 cap' };
-      return { pct: Math.min(100, Math.round((used / cap) * 100)), used: fmt(used), cap: fmt(cap) };
-    }
-    if (!budgets.length) return { pct: 0, used: '0', cap: '0' };
-    const enabled = budgets.filter(b => b.enabled);
-    const totalUsed = enabled.reduce((sum, budget) => sum + (budget.requests_today ?? 0), 0);
-    const totalCap = enabled.reduce((sum, budget) => sum + budget.daily_requests, 0);
-    if (totalCap <= 0) return { pct: 0, used: fmt(totalUsed), cap: '0 cap' };
-    const pct = Math.min(100, Math.round((totalUsed / totalCap) * 100));
-    return { pct, used: fmt(totalUsed), cap: fmt(totalCap) };
-  }, [canWrite, budgets, quotasSummaryQuery.data]);
+  const quotaStats = useMemo(
+    () => computeQuotaStats(canWrite, quotasSummaryQuery.data, budgets),
+    [canWrite, budgets, quotasSummaryQuery.data],
+  );
 
   const handleGlobalSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -964,60 +1037,18 @@ export function WorkbenchShell({
                   </button>
 
                   {openPop === 'notif' && (
-                    <div className="ds-pop" style={{ top: 'calc(100% + 6px)', right: 0, width: 310, padding: 0, overflow: 'hidden' }}>
-                      <div style={{ padding: '11px 14px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                        <b>{canWrite ? t('System Alerts', '运行与采集告警') : t('Personal Alerts', '个人采集与额度提醒')}</b>
-                        <span style={{ fontSize: 10.5, color: 'var(--faint)' }}>
-                          {unreadNotifs} {t('active', '条提示')}
-                        </span>
-                      </div>
-                      {blockedSources.map((src) => (
-                        <div key={src.id} style={{ padding: '10px 14px', borderBottom: '1px solid #f3f5ee', display: 'flex', gap: 9 }}>
-                          <AlertTriangle size={15} color="#d4821c" style={{ flexShrink: 0, marginTop: 2 }} />
-                          <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-                            <b>{src.label}</b> · {t('Automatic collection blocked pending review', '存在未决付费阶段任务，已暂停自动采集')}
-                          </div>
-                        </div>
-                      ))}
-                      {zeroQuotaProviders.map((b) => (
-                        <div key={b.provider} style={{ padding: '10px 14px', borderBottom: '1px solid #f3f5ee', display: 'flex', gap: 9 }}>
-                          <AlertTriangle size={15} color="#6b756a" style={{ flexShrink: 0, marginTop: 2 }} />
-                          <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-                            <b>{b.provider}</b> · {t('Daily request cap is 0', '已启用但日请求额度上限为 0')}
-                          </div>
-                        </div>
-                      ))}
-                      {viewerFailedJobs.map((j) => (
-                        <div key={j.id} style={{ padding: '10px 14px', borderBottom: '1px solid #f3f5ee', display: 'flex', gap: 9 }}>
-                          <AlertTriangle size={15} color="#d4821c" style={{ flexShrink: 0, marginTop: 2 }} />
-                          <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-                            <b>{j.sourceLabel}</b> · {t('Personal collection job failed', '个人采集任务未成功完成')}
-                          </div>
-                        </div>
-                      ))}
-                      {blockedSources.length === 0 && zeroQuotaProviders.length === 0 && viewerFailedJobs.length === 0 && (
-                        <div style={{ padding: '16px 14px', textAlign: 'center', fontSize: 11.5, color: 'var(--faint)' }}>
-                          {canWrite
-                            ? t('No active collection or quota alerts.', '当前无阻断来源或配额告警。')
-                            : t('No failed personal jobs.', '当前无异常个人采集任务。')}
-                        </div>
-                      )}
-                      {unreadNotifs > 0 && (
-                        <div style={{ padding: 6, textAlign: 'center' }}>
-                          <button
-                            type="button"
-                            className="ds-btn ds-btn--quiet"
-                            style={{ fontSize: 11, width: '100%' }}
-                            onClick={() => {
-                              setAlertsDismissed(true);
-                              setOpenPop(null);
-                            }}
-                          >
-                            {t('Dismiss notifications', '忽略当前红点')}
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    <NotificationsPopover
+                      canWrite={canWrite}
+                      unreadNotifs={unreadNotifs}
+                      blockedSources={blockedSources}
+                      zeroQuotaProviders={zeroQuotaProviders}
+                      viewerFailedJobs={viewerFailedJobs}
+                      t={t}
+                      onDismiss={() => {
+                        setAlertsDismissed(true);
+                        setOpenPop(null);
+                      }}
+                    />
                   )}
                 </div>
 

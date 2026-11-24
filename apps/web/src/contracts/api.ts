@@ -437,7 +437,41 @@ export interface LegacySourceCandidateDto {
   recentJobAt: string | null;
   unresolvedCharges: number;
   resourcesToday: number;
-  classification: 'legacy_scheduled' | 'monitor_only_legacy' | 'unclassified';
+  classification: 'monitor_derived' | 'operator_owned' | 'unclassified';
+  totalMonitorRefs: number;
+  enabledMonitorRefs: number;
+  monitorIds: string[];
+}
+
+export interface IntelMonitorDto {
+  id: string;
+  kind: 'keyword' | 'author_list' | 'community_bundle';
+  name: string;
+  config: {
+    platforms: Array<'reddit' | 'x'>;
+    keywords?: string[];
+    competitorKeywords?: string[];
+    handles?: Array<{ platform: 'reddit' | 'x'; handle: string }>;
+    subreddits?: string[];
+    sort?: 'top' | 'hot' | 'new';
+    minLikes?: number;
+    minComments?: number;
+    excludeReposts?: boolean;
+    language?: string;
+  };
+  scheduleIntervalHours: number;
+  dailyItemBudget: number;
+  enabled: boolean;
+  projectId?: string | null;
+  pausedReason?: string | null;
+  lastDispatchedAt?: string | null;
+  nextDueAt?: string | null;
+  revision: number;
+  sourceCount: number;
+  targetCount: number;
+  lastSuccessAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface UserAccountDto {

@@ -93,6 +93,65 @@ export function IntakeTargetStep({ sources, draft, setDraft, selected, pending, 
   </>;
 }
 
+function ChannelFilterHintsDetails({
+  sf,
+  range,
+  setHint,
+}: {
+  sf: ResearchPlanPreviewResponse['fieldPolicy']['supportedFilters'];
+  range: CollectionRange;
+  setHint: <K extends keyof QueryHintsValue>(k: K, val: QueryHintsValue[K]) => void;
+}) {
+  const { t } = useI18n();
+  if (!sf || !(sf.sortOptions.length > 0 || sf.supportsMinLikes || sf.supportsTimeRange || sf.supportsLanguage)) {
+    return null;
+  }
+  return (
+    <details open={Object.keys(range.queryHints).length > 0}>
+      <summary>{t('Channel filter options', '平台筛选与排序提示')} ({sf.engagementFilterMode === 'native' ? t('Native upstream query', '上游原生支持') : t('Best-effort / post-filter', '回传后过滤 / 尽力支持')})</summary>
+      <div className="wb-grid-2" style={{ marginTop: 8 }}>
+        {sf.sortOptions.length > 0 && (
+          <label className="wb-field">{t('Sort mode', '排序方式')}
+            <select className="wb-select" value={range.queryHints.sort ?? ''} onChange={e => setHint('sort', (e.target.value || undefined) as QueryHintsValue['sort'])}>
+              <option value="">{t('Provider default', '渠道默认')}</option>
+              {sf.sortOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+            </select>
+          </label>
+        )}
+        {sf.supportsTimeRange && (
+          <label className="wb-field">{t('Upstream period hint', '上游时段窗口')}
+            <select className="wb-select" value={range.queryHints.timeRange ?? ''} onChange={e => setHint('timeRange', (e.target.value || undefined) as QueryHintsValue['timeRange'])}>
+              <option value="">{t('Match date window', '按采集起止日')}</option>
+              {(['day', 'week', 'month', 'year'] as const).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+            </select>
+          </label>
+        )}
+        {sf.supportsMinLikes && (
+          <label className="wb-field">{t('Min likes / score', '最低点赞 / 分数')}
+            <Input type="number" min={0} max={1000000} value={range.queryHints.minLikes ?? ''} onChange={e => setHint('minLikes', e.target.value === '' ? undefined : Number(e.target.value))} />
+          </label>
+        )}
+        {sf.supportsMinComments && (
+          <label className="wb-field">{t('Min replies / comments', '最低回复 / 评论数')}
+            <Input type="number" min={0} max={1000000} value={range.queryHints.minComments ?? ''} onChange={e => setHint('minComments', e.target.value === '' ? undefined : Number(e.target.value))} />
+          </label>
+        )}
+        {sf.supportsLanguage && (
+          <label className="wb-field">{t('Language code (e.g. en)', '语言代码（如 en / ja）')}
+            <Input maxLength={16} value={range.queryHints.language ?? ''} onChange={e => setHint('language', e.target.value.trim() || undefined)} />
+          </label>
+        )}
+      </div>
+      {sf.supportsExcludeReposts && (
+        <label className="intake-check" style={{ marginTop: 6 }}>
+          <Checkbox checked={Boolean(range.queryHints.excludeReposts)} onCheckedChange={v => setHint('excludeReposts', v ? true : undefined)} />
+          {t('Exclude reposts / retweets', '排除转发 / 转推内容')}
+        </label>
+      )}
+    </details>
+  );
+}
+
 export function IntakeScopeStep({ result, source, range, setRange, pending, onContinue, onBack }: {
   result: ResearchPlanPreviewResponse;
   source?: CollectionSource;
@@ -138,50 +197,7 @@ export function IntakeScopeStep({ result, source, range, setRange, pending, onCo
                 setRange({ ...range, commentLimit, limit: Math.min(range.limit, Math.floor(2000 / (commentLimit + 1))) });
               }} /></label>}
         </>}
-        {sf && (sf.sortOptions.length > 0 || sf.supportsMinLikes || sf.supportsTimeRange || sf.supportsLanguage) && (
-          <details open={Object.keys(range.queryHints).length > 0}>
-            <summary>{t('Channel filter options', '平台筛选与排序提示')} ({sf.engagementFilterMode === 'native' ? t('Native upstream query', '上游原生支持') : t('Best-effort / post-filter', '回传后过滤 / 尽力支持')})</summary>
-            <div className="wb-grid-2" style={{ marginTop: 8 }}>
-              {sf.sortOptions.length > 0 && (
-                <label className="wb-field">{t('Sort mode', '排序方式')}
-                  <select className="wb-select" value={range.queryHints.sort ?? ''} onChange={e => setHint('sort', (e.target.value || undefined) as QueryHintsValue['sort'])}>
-                    <option value="">{t('Provider default', '渠道默认')}</option>
-                    {sf.sortOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                  </select>
-                </label>
-              )}
-              {sf.supportsTimeRange && (
-                <label className="wb-field">{t('Upstream period hint', '上游时段窗口')}
-                  <select className="wb-select" value={range.queryHints.timeRange ?? ''} onChange={e => setHint('timeRange', (e.target.value || undefined) as QueryHintsValue['timeRange'])}>
-                    <option value="">{t('Match date window', '按采集起止日')}</option>
-                    {(['day', 'week', 'month', 'year'] as const).map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                  </select>
-                </label>
-              )}
-              {sf.supportsMinLikes && (
-                <label className="wb-field">{t('Min likes / score', '最低点赞 / 分数')}
-                  <Input type="number" min={0} max={1000000} value={range.queryHints.minLikes ?? ''} onChange={e => setHint('minLikes', e.target.value === '' ? undefined : Number(e.target.value))} />
-                </label>
-              )}
-              {sf.supportsMinComments && (
-                <label className="wb-field">{t('Min replies / comments', '最低回复 / 评论数')}
-                  <Input type="number" min={0} max={1000000} value={range.queryHints.minComments ?? ''} onChange={e => setHint('minComments', e.target.value === '' ? undefined : Number(e.target.value))} />
-                </label>
-              )}
-              {sf.supportsLanguage && (
-                <label className="wb-field">{t('Language code (e.g. en)', '语言代码（如 en / ja）')}
-                  <Input maxLength={16} value={range.queryHints.language ?? ''} onChange={e => setHint('language', e.target.value.trim() || undefined)} />
-                </label>
-              )}
-            </div>
-            {sf.supportsExcludeReposts && (
-              <label className="intake-check" style={{ marginTop: 6 }}>
-                <Checkbox checked={Boolean(range.queryHints.excludeReposts)} onCheckedChange={v => setHint('excludeReposts', v ? true : undefined)} />
-                {t('Exclude reposts / retweets', '排除转发 / 转推内容')}
-              </label>
-            )}
-          </details>
-        )}
+        <ChannelFilterHintsDetails sf={sf} range={range} setHint={setHint} />
         {result.fieldPolicy.canUseFallback && source?.fallbackProvider && <details>
           <summary>{t('Advanced collection settings', '高级采集设置')}</summary>
           <label className="intake-check"><Checkbox checked={range.fallback} onCheckedChange={fallback => {

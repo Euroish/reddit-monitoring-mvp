@@ -45,6 +45,7 @@ const VIEWER_ALLOWED_POSTS = new Set([
   "/v1/projects/:id/hydrate",
   "/v1/projects/:id/batches",
   "/v1/projects/:id/batches/:batchId/move",
+  "/v1/intelligence/monitors",
   "/v1/source-jobs/:id/cancel",
   "/v1/source-jobs/:id/retry",
   "/v1/source-jobs/:id/continue",

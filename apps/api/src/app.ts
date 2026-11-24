@@ -308,7 +308,7 @@ export async function buildApp(options: {
   await registerProjectsModule(app, options.pool, providers);
   await registerWorkspaceModule(app, options.pool, contentVisibility);
   await registerFeedModule(app, options.pool, contentVisibility);
-  await registerIntelligenceModule(app, options.pool, providers);
+  await registerIntelligenceModule(app, options.pool, providers, assertProjectWritable);
 
   app.get(
     "/v1/openapi.json",

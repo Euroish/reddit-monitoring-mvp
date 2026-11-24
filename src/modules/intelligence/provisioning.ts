@@ -188,7 +188,7 @@ export async function reconcileMonitorSources(client: PoolClient, affectedSource
   if (!affectedSourceIds.length) return;
   const { rows } = await client.query<{ sourceId: string; cadenceSeconds: number | null }>(
     `SELECT affected.id AS "sourceId",
-       MIN(LEAST(m.schedule_interval_hours,12)) FILTER (WHERE m.id IS NOT NULL) * 3600 AS "cadenceSeconds"
+       MIN(m.schedule_interval_hours) FILTER (WHERE m.id IS NOT NULL) * 3600 AS "cadenceSeconds"
      FROM (SELECT DISTINCT unnest($1::uuid[]) AS id) affected
      LEFT JOIN intel_monitor_source ms ON ms.collection_source_id=affected.id
      LEFT JOIN intel_monitor m ON m.id=ms.monitor_id AND m.enabled

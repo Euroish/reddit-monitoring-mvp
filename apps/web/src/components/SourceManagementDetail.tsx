@@ -30,6 +30,7 @@ function SourceDiagnostics({ source, section, diagnostics, jobHistory }: Pick<De
       <summary>{t('Technical details', '技术诊断')}</summary>
       <dl className="source-technical-details">
         <div><dt>{t('Provider', '采集服务')}</dt><dd>{source.primaryProvider}</dd></div>
+        <div><dt>{t('Domain / Lane', '数据域 / 通道')}</dt><dd>{source.usageDomain ?? 'research'} · {source.feedLane ?? 'monitor_only'}</dd></div>
         <div><dt>{t('Revision', '版本')}</dt><dd>{source.revision}</dd></div>
         {source.sourceGroup && <div><dt>{t('Source group', '来源分类')}</dt><dd>{source.sourceGroup}</dd></div>}
         {source.lastCheckedAt && <div><dt>{t('Last check (UTC)', '上次检查（UTC）')}</dt><dd>{source.lastCheckedAt}</dd></div>}
@@ -82,6 +83,14 @@ export function FeedSourceDetail({ source, section, readiness, update, jobHistor
         </div>
         {onPreview && <Button type="button" variant="outline" onClick={onPreview}><ExternalLink size={14} />{t('Preview fetch', '预览抓取')}</Button>}
       </div>
+      {source.state === 'archived' && (
+        <div role="status" className="wb-alert wb-alert--info" style={{ marginTop: 8 }}>
+          {t(
+            'This feed source is archived. Run "Preview fetch" to verify availability and feed quality before clicking Activate.',
+            '当前资讯源处于归档（archived）状态；重新启用前建议先点击右上角「预览抓取」验证地址可用性与内容质量。',
+          )}
+        </div>
+      )}
       {readiness}
       {update}
       <button type="button" className="collection-text-button" onClick={onJobs}>{pull ? t('View jobs for this source', '查看此来源的任务') : t('View delivery records', '查看推送记录')}</button>

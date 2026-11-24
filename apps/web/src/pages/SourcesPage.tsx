@@ -28,6 +28,7 @@ import {
 } from '../api/hooks';
 import { ProviderBudgetEditor } from '../components/ProviderBudgetEditor';
 import { CollectionJobsView } from '../components/CollectionJobsView';
+import { LegacySourcesPanel } from '../components/LegacySourcesPanel';
 import { ProviderCredentialsTab } from '../components/ProviderCredentialsTab';
 import { QuotasManagementView } from '../components/QuotasManagementView';
 import { R4ArchivePanel } from '../components/R4ArchivePanel';
@@ -938,6 +939,7 @@ export function SourcesPage({
             </div>
           </div>
         )}
+        <LegacySourcesPanel canManage={canWrite} />
         </div>
       )}
 
