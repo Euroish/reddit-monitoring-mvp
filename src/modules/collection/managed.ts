@@ -123,10 +123,15 @@ export async function enqueueCollectionForSource(
   const providerName = collectionProvider(source, body, providers);
   if (body.projectId && await isCollectionBudgetDisabled(client, providerName))
     fail(409, "System channel budget is disabled or zero");
-  const pageSize = providerName === "twitterapis" ? Math.min(body.limit, 20) : body.limit;
+  const pageSize = providerName === "twitterapis" ? Math.min(body.limit, 20)
+    : providerName === "scrapebadger" ? Math.min(body.limit, 100)
+    : body.limit;
+  const maxPages = providerName === "twitterapis" ? Math.min(500, Math.ceil(body.limit / 20))
+    : providerName === "scrapebadger" ? Math.min(500, Math.ceil(body.limit / 100))
+    : 1;
   await admitViewerCollection(client, actor, {
     sourceId: source.id, from: body.from, to: body.to, useFallback: body.useFallback,
-    ...viewerCollectionDemand(providerName, source.target.type, pageSize, body),
+    ...viewerCollectionDemand(providerName, source.target.type, body.limit, body),
   });
   const storedRequest = projectVisibility ? { ...body, projectVisibility } : body;
   const id = randomUUID();
@@ -135,8 +140,8 @@ export async function enqueueCollectionForSource(
        id,collection_source_id,status,purpose,operation,provider,from_at,to_at,
        page_size,max_pages,next_run_at,created_at,request_key,request_json,requested_by_user_id,requested_by_client_kind,payload_hash
      )
-     VALUES($1,$2,'queued','collect','radar',$3,$4,$5,$6,1,NOW(),NOW(),$7,$8,$9,$10,$11)`,
-    [id, source.id, providerName, body.from, body.to, pageSize, requestKey, storedRequest, actor.userId, actor.clientKind, requestHash ?? null],
+     VALUES($1,$2,'queued','collect','radar',$3,$4,$5,$6,$7,NOW(),NOW(),$8,$9,$10,$11,$12)`,
+    [id, source.id, providerName, body.from, body.to, pageSize, maxPages, requestKey, storedRequest, actor.userId, actor.clientKind, requestHash ?? null],
   );
   return { jobId: id, created: true };
 }

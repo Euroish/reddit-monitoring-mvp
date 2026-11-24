@@ -221,6 +221,31 @@ function resolveCommittedBatchVisibility(rawProjectVis: unknown, projectId: unkn
   return typeof projectId === "string" ? "private" : undefined;
 }
 
+function prepareContentBatches(items: CollectedPage["items"]): Array<ReturnType<typeof prepareContentBatch>> {
+  if (items.length <= 1500 && Buffer.byteLength(JSON.stringify(items), "utf8") <= 10 * 1024 * 1024) {
+    return [prepareContentBatch(items)];
+  }
+  const ordered = [
+    ...items.filter((item) => item.kind !== "comment"),
+    ...items.filter((item) => item.kind === "comment"),
+  ];
+  const batches: Array<ReturnType<typeof prepareContentBatch>> = [];
+  let chunk: CollectedPage["items"] = [];
+  let chunkBytes = 2;
+  for (const item of ordered) {
+    const itemBytes = Buffer.byteLength(JSON.stringify(item), "utf8") + 1;
+    if (chunk.length > 0 && (chunk.length >= 1500 || chunkBytes + itemBytes > 10 * 1024 * 1024)) {
+      batches.push(prepareContentBatch(chunk));
+      chunk = [];
+      chunkBytes = 2;
+    }
+    chunk.push(item);
+    chunkBytes += itemBytes;
+  }
+  if (chunk.length > 0) batches.push(prepareContentBatch(chunk));
+  return batches;
+}
+
 async function commitCollectedPage(
   client: PoolClient,
   job: QueryResultRow,
@@ -228,7 +253,7 @@ async function commitCollectedPage(
   provider: ContentProvider,
   token: string,
   page: CollectedPage,
-  batch: ReturnType<typeof prepareContentBatch>,
+  batches: Array<ReturnType<typeof prepareContentBatch>>,
   elapsedMs: number,
   onBatchCommitted?: BatchCommittedHook,
 ) {
@@ -240,12 +265,18 @@ async function commitCollectedPage(
     )
   ).rows[0];
   if (!current) fail(409, "Collection lease lost");
-  const counts = await commitContentBatch(
-    client,
-    { id: source.id, platformId: source.platform_id, platform: source.platform, provider: job.provider, contentKinds: provider.capability.contentKinds },
-    batch,
-    new Date().toISOString(),
-  );
+  const committedAt = new Date().toISOString();
+  const sourceMeta = { id: source.id, platformId: source.platform_id, platform: source.platform, provider: job.provider, contentKinds: provider.capability.contentKinds };
+  let added = 0;
+  let updated = 0;
+  const contentIds: string[] = [];
+  for (const batch of batches) {
+    const part = await commitContentBatch(client, sourceMeta, batch, committedAt);
+    added += part.added;
+    updated += part.updated;
+    contentIds.push(...part.contentIds);
+  }
+  const counts = { added, updated, contentIds };
   const projectId = job.request_json?.projectId;
   const committed = await recordCommittedBatch(client, {
     jobId: job.id,
@@ -261,9 +292,15 @@ async function commitCollectedPage(
     });
   }
   const scheduled = job.purpose === "scheduled";
+  const targetLimit = typeof job.request_json?.limit === "number" ? job.request_json.limit : job.page_size * job.max_pages;
   const nextPage =
-    scheduled && finishingSource.state === "active" && finishingSource.schedule.enabled &&
-    job.provider !== "feed" && page.nextCheckpoint !== null && job.pages_committed + 1 < job.max_pages;
+    finishingSource.state === "active" &&
+    job.provider !== "feed" &&
+    page.nextCheckpoint !== null &&
+    job.pages_committed + 1 < job.max_pages &&
+    (scheduled
+      ? Boolean(finishingSource.schedule.enabled)
+      : job.purpose === "collect" && job.records_processed + page.items.length < targetLimit);
   const summary = page.warning || page.creditsUsed !== undefined
     ? { warning: page.warning ?? undefined, creditsUsed: page.creditsUsed }
     : null;
@@ -547,8 +584,8 @@ export async function workOnce(
       );
       return true;
     }
-    const batch = prepareContentBatch(page.items);
-    const dirty = await transaction(pool, (client) => commitCollectedPage(client, job, source, provider, token, page, batch, elapsedMs, hooks.onProjectBatchCommitted));
+    const batches = prepareContentBatches(page.items);
+    const dirty = await transaction(pool, (client) => commitCollectedPage(client, job, source, provider, token, page, batches, elapsedMs, hooks.onProjectBatchCommitted));
     const onSourceContentCommitted = hooks.onSourceContentCommitted;
     if (onSourceContentCommitted && (dirty || source.target.type === "community")) {
       await Promise.resolve().then(() => onSourceContentCommitted(source.id, {

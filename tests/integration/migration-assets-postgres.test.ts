@@ -120,7 +120,7 @@ test("PG16 upgrades applied 058 to the immutable batch migrations and safely rer
     "059_project_batches_and_ownership.sql", "060_batch_visibility_and_field_policy.sql",
     "061_content_enrichment_and_source_lanes.sql", "062_feed_personalization_and_seen.sql",
     "063_social_intelligence_monitors_and_rollups.sql", "064_feed_positive_event_idempotency.sql",
-    "065_monitor_managed_sources.sql", "066_p0_p1_remediation.sql",
+    "065_monitor_managed_sources.sql", "066_p0_p1_remediation.sql", "067_collection_limits_and_tiers.sql",
   ]);
   assert.deepEqual(await runMigrations({ pool: db.pool }), []);
   const after = await db.pool.query("SELECT filename,checksum FROM schema_migration ORDER BY filename");
@@ -171,7 +171,12 @@ test("PG16 upgrades main 060 to V2 without changing historical checksums or batc
   assert.deepEqual(await runMigrations({ pool: db.pool }), [
     "061_content_enrichment_and_source_lanes.sql", "062_feed_personalization_and_seen.sql",
     "063_social_intelligence_monitors_and_rollups.sql", "064_feed_positive_event_idempotency.sql",
-    "065_monitor_managed_sources.sql", "066_p0_p1_remediation.sql",
+    "065_monitor_managed_sources.sql", "066_p0_p1_remediation.sql", "067_collection_limits_and_tiers.sql",
+  ]);
+  const planLimits = (await db.pool.query("SELECT plan_tier, max_batch_limit FROM plan_collection_policy ORDER BY plan_tier")).rows;
+  assert.deepEqual(planLimits, [
+    { plan_tier: "free", max_batch_limit: 2000 },
+    { plan_tier: "pro", max_batch_limit: 5000 },
   ]);
   assert.deepEqual(await snapshot(), existing);
   assert.equal((await db.pool.query("SELECT visibility FROM monitor_project WHERE id=$1", [projectId])).rows[0].visibility, "shared");

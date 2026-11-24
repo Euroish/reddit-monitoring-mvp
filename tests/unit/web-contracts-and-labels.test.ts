@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Value } from "@sinclair/typebox/value";
 import { providerResourceReservation, viewerCollectionDemand } from "../../packages/contracts/src/collection-budget";
 import { SourceUpdate, REDDIT_ARCHIVE_SOURCE_TAG, type CollectionSource } from "../../packages/contracts/src/source-content";
-import { collectionLimits, isRedditArchiveSource } from "../../apps/web/src/lib/collectionLimits.js";
+import { collectionLimits, getRangeLimits, isRedditArchiveSource, parseManualTargets } from "../../apps/web/src/lib/collectionLimits.js";
 import type { QuotasSummaryResponse } from "../../apps/web/src/contracts/api.js";
 import { KaixContentConnector } from "../../src/connectors/reddit/kaix-content.connector";
 import {
@@ -55,8 +55,9 @@ describe("source configuration and collection controls", () => {
     });
     assert.equal(collectionLimits({ ...source, id: "another" }, live, personal, false, false, 0).maxLimit, 0);
     assert.equal(collectionLimits({ ...source, target: { type: "post", postId: "post" } }, live, personal, false, false, 0).maxLimit, 4);
-    assert.equal(collectionLimits(source, live, personal, true, true, 50).maxLimit, 39);
-    assert.equal(collectionLimits(source, { ...live, provider: "twitterapis" }, personal, true, false, 0).maxLimit, 20);
+    assert.equal(collectionLimits(source, live, personal, true, true, 500).maxLimit, 10000);
+    assert.equal(collectionLimits(source, live, personal, true, true, 500).maxComments, 500);
+    assert.equal(collectionLimits(source, { ...live, provider: "twitterapis" }, personal, true, false, 0).maxLimit, 10000);
   });
 
   it("identifies only explicitly tagged Reddit archive Push sources", () => {
@@ -112,4 +113,39 @@ it("keeps provider reservation units distinct from viewer requests and item coun
   assert.equal(providerResourceReservation({ provider: "kaix", targetType: "post", pageSize: 10 }), 11);
   assert.equal(viewerCollectionDemand("kaix", "search", 10, { includeComments: true, maxCommentsPerPost: 2 }).resources, 30);
   assert.equal(providerResourceReservation({ provider: "kaix", targetType: "search", pageSize: 10, includeComments: true, maxCommentsPerPost: 2 }), 31);
+  assert.equal(providerResourceReservation({ provider: "kaix", targetType: "community", pageSize: 10000, includeComments: true, maxCommentsPerPost: 100 }), 1010001);
+});
+
+it("parses multiple comma/newline communities without duplicates and unifies X/Reddit range caps", () => {
+  const parsed = parseManualTargets({
+    platform: "reddit",
+    targetType: "community",
+    targetValue: "r/LocalLLaMA, r/ClaudeAI，LocalLLaMA\nr/MachineLearning",
+  });
+  assert.equal(parsed.valid, true);
+  assert.deepEqual(parsed.targets.map((t) => t.targetValue), ["r/LocalLLaMA", "r/ClaudeAI", "r/MachineLearning"]);
+  assert.equal(parseManualTargets({ platform: "reddit", targetType: "community", targetValue: "r/ok, bad name!" }).valid, false);
+
+  const mkPreview = (platform: "reddit" | "x", maxBatchLimit: number, maxCommentsPerPost: number) => ({
+    resolutionStatus: "on_demand_available" as const,
+    executable: true,
+    matchedSource: null,
+    resolvedTarget: { platform, type: platform === "reddit" ? "community" as const : "search" as const, value: "test" },
+    coverage: { status: "empty" as const, existingItemCount: 0, lastSuccessAt: null, note: "" },
+    reusableBatches: [],
+    estimate: { requests: 1, systemResources: 1, personalResources: 1 },
+    blockers: [],
+    restrictions: [],
+    fieldPolicy: {
+      canEditTarget: true, canChooseProvider: true, canUseFallback: true, canIncludeComments: maxCommentsPerPost > 0,
+      maxLookbackDays: 365, maxBatchLimit, maxCommentsPerPost,
+    },
+  });
+  assert.equal(getRangeLimits(mkPreview("reddit", 2000, 0)).maxItems, 2000);
+  assert.equal(getRangeLimits(mkPreview("x", 2000, 0)).maxItems, 2000);
+  assert.equal(getRangeLimits(mkPreview("reddit", 5000, 0)).maxItems, 5000);
+  assert.equal(getRangeLimits(mkPreview("x", 5000, 0)).maxItems, 5000);
+  assert.equal(getRangeLimits(mkPreview("reddit", 10000, 500)).maxItems, 10000);
+  assert.equal(getRangeLimits(mkPreview("reddit", 10000, 500)).maxComments, 500);
+  assert.equal(getRangeLimits(mkPreview("x", 10000, 500)).maxItems, 10000);
 });

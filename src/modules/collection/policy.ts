@@ -227,7 +227,7 @@ export async function isViewerJobStillAuthorized(db: Pool | PoolClient, job: {
   provider: string;
   collection_source_id: string;
   page_size: number;
-  request_json?: { useFallback?: unknown } | null;
+  request_json?: { useFallback?: unknown; limit?: unknown } | null;
 }, commentLimit?: number): Promise<boolean> {
   if (!job.requested_by_user_id || job.requested_by_client_kind !== "browser") return true;
   const user = await getUserRoleStatus(db, job.requested_by_user_id);
@@ -237,7 +237,8 @@ export async function isViewerJobStillAuthorized(db: Pool | PoolClient, job: {
   if (!effective.manualCollectEnabled) return false;
   if (job.request_json?.useFallback === true && !effective.allowProviderChoice) return false;
   if (!effective.allowedProviders.includes(job.provider)) return false;
-  if (job.page_size > effective.maxBatchLimit || (commentLimit ?? 0) > effective.maxCommentsPerPost) return false;
+  const requestedLimit = typeof job.request_json?.limit === "number" ? job.request_json.limit : job.page_size;
+  if (requestedLimit > effective.maxBatchLimit || (commentLimit ?? 0) > effective.maxCommentsPerPost) return false;
   if (effective.allowedSourceIds !== null && !effective.allowedSourceIds.includes(job.collection_source_id)) {
     return false;
   }

@@ -329,10 +329,10 @@ export function QuotasManagementView({
                 </div>
                 <div className="wb-field">
                   <label htmlFor="plan-batch">{t('Max Batch Limit', '单次最大条数')}</label>
-                  <input id="plan-batch" className="wb-input" type="number" required min={1} max={2000} value={pMaxBatch} onChange={(e) => setPMaxBatch(Number(e.target.value))} />
+                  <input id="plan-batch" className="wb-input" type="number" required min={1} max={10000} value={pMaxBatch} onChange={(e) => setPMaxBatch(Number(e.target.value))} />
                 </div>
                 <label className="wb-field">{t('Max comments per post', '每帖评论上限')}
-                  <input className="wb-input" type="number" min={0} max={50} value={pMaxComments} onChange={event => setPMaxComments(Number(event.target.value))} />
+                  <input className="wb-input" type="number" min={0} max={500} value={pMaxComments} onChange={event => setPMaxComments(Number(event.target.value))} />
                 </label>
                 <label className="wb-field">{t('Max private projects', '私有项目数量上限')}
                   <input className="wb-input" type="number" min={0} max={500} value={pMaxProjects} onChange={event => setPMaxProjects(Number(event.target.value))} />
@@ -463,8 +463,8 @@ function UserQuotaOverrideFields({ draft, onChange, providerOptions, sourceOptio
       <BooleanOverride label={t('Manual Collect', '手动采集开关')} value={draft.manualCollectEnabled} onChange={value => change('manualCollectEnabled', value)} />
       <DailyOverride label={t('Daily requests (count)', '日请求上限（次）')} max={100_000} value={draft.dailyRequests} onChange={value => change('dailyRequests', value)} />
       <DailyOverride label={t('Daily resources (units)', '日资源上限（单位）')} max={10_000_000} value={draft.dailyResources} onChange={value => change('dailyResources', value)} />
-      <NumberOverride label={t('Batch limit (blank inherits)', '批量上限（留空继承）')} min={1} max={2000} value={draft.maxBatchLimit} onChange={value => change('maxBatchLimit', value)} />
-      <NumberOverride label={t('Max comments per post', '每帖评论上限')} min={0} max={50} value={draft.maxCommentsPerPost} onChange={value => change('maxCommentsPerPost', value)} />
+      <NumberOverride label={t('Batch limit (blank inherits)', '批量上限（留空继承）')} min={1} max={10000} value={draft.maxBatchLimit} onChange={value => change('maxBatchLimit', value)} />
+      <NumberOverride label={t('Max comments per post', '每帖评论上限')} min={0} max={500} value={draft.maxCommentsPerPost} onChange={value => change('maxCommentsPerPost', value)} />
       <NumberOverride label={t('Max private projects', '私有项目数量上限')} min={1} max={100} value={draft.maxProjects} onChange={value => change('maxProjects', value)} />
       <NumberOverride label={t('Max lookback (days)', '最大历史回溯天数')} min={1} max={365} value={draft.maxLookbackDays} onChange={value => change('maxLookbackDays', value)} />
       <BooleanOverride label={t('Choosing a collection provider', '选择采集渠道')} value={draft.allowProviderChoice} onChange={value => change('allowProviderChoice', value)} />

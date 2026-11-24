@@ -477,7 +477,7 @@ export function ProjectsPage({
   };
 
   const contentQuery = useContentListQuery({
-    limit: 100, threadAware, from: windowFrom, to: windowTo,
+    limit: 100, sort: 'engagement', threadAware, from: windowFrom, to: windowTo,
     kind: filterKind === 'all' ? undefined : filterKind,
     deliveryMode: selectedProject?.dataset_mode === 'source_filter' && !selectedProject.include_push_in_trends
       ? 'pull' : undefined,
@@ -680,19 +680,30 @@ export function ProjectsPage({
     }
   };
 
-  // Filtered view of scoped content for High-Signal table & Radar scatter
+  // Filtered view of scoped content for High-Signal table & Radar scatter (sorted by comments + likes)
   const filteredContent = useMemo(() => {
-    return rawItems.filter((item) => {
-      if (!filterPlatforms.has(item.platform)) return false;
-      if (filterKind !== 'all' && item.kind !== filterKind) return false;
-      if (filterSignal === 'pain' && !PAIN_RE.test(`${item.title || ''} ${item.text || ''}`)) return false;
-      if (filterSignal === 'discussion') {
-        const m = item.observations[item.observations.length - 1]?.metrics || {};
-        const c = Number(m['reddit.num_comments'] ?? m['x.replies'] ?? m['bluesky.replies'] ?? 0);
-        if (c < 10) return false;
-      }
-      return true;
-    });
+    const engagementOf = (item: PublicContent) => {
+      const m = item.observations[item.observations.length - 1]?.metrics || {};
+      const comments = Number(m['reddit.num_comments'] ?? m['x.replies'] ?? m['bluesky.replies'] ?? 0) || 0;
+      const likes = Number(m['reddit.score'] ?? m['x.likes'] ?? m['bluesky.likes'] ?? 0) || 0;
+      return { comments, likes, total: comments + likes };
+    };
+    return rawItems
+      .filter((item) => {
+        if (!filterPlatforms.has(item.platform)) return false;
+        if (filterKind !== 'all' && item.kind !== filterKind) return false;
+        if (filterSignal === 'pain' && !PAIN_RE.test(`${item.title || ''} ${item.text || ''}`)) return false;
+        if (filterSignal === 'discussion' && engagementOf(item).comments < 10) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const ea = engagementOf(a);
+        const eb = engagementOf(b);
+        return eb.total - ea.total
+          || eb.comments - ea.comments
+          || eb.likes - ea.likes
+          || (b.publishedAt || '').localeCompare(a.publishedAt || '');
+      });
   }, [rawItems, filterPlatforms, filterKind, filterSignal]);
 
   const dayBuckets = useMemo(

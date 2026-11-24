@@ -239,8 +239,8 @@ export const PlanPolicyInput = Type.Object(
     allowedSourceIds: Type.Union([Type.Array(Id, { maxItems: 1000, uniqueItems: true }), Type.Null()]),
     dailyRequests: Type.Union([Type.Integer({ minimum: 0, maximum: 100000 }), Type.Null()]),
     dailyResources: Type.Union([Type.Integer({ minimum: 0, maximum: 10000000 }), Type.Null()]),
-    maxBatchLimit: Type.Integer({ minimum: 1, maximum: 2000 }),
-    maxCommentsPerPost: Type.Integer({ minimum: 0, maximum: 50 }),
+    maxBatchLimit: Type.Integer({ minimum: 1, maximum: 10000 }),
+    maxCommentsPerPost: Type.Integer({ minimum: 0, maximum: 500 }),
     revision: Type.Integer({ minimum: 1 }),
   },
   { additionalProperties: false },
@@ -257,7 +257,7 @@ export const UserQuotaOverrideInput = Type.Object(
     allowedSourceIds: Type.Optional(Type.Union([Type.Array(Id, { maxItems: 1000, uniqueItems: true }), Type.Null()])),
     dailyRequests: Type.Optional(Type.Union([Type.Integer({ minimum: 0, maximum: 100000 }), Type.Null()])),
     dailyResources: Type.Optional(Type.Union([Type.Integer({ minimum: 0, maximum: 10000000 }), Type.Null()])),
-    maxBatchLimit: Type.Optional(Type.Union([Type.Integer({ minimum: 1, maximum: 2000 }), Type.Null()])),
+    maxBatchLimit: Type.Optional(Type.Union([Type.Integer({ minimum: 1, maximum: 10000 }), Type.Null()])),
   },
   { additionalProperties: false },
 );
@@ -286,11 +286,11 @@ export const Collect = Type.Object(
   {
     from: DateTime,
     to: DateTime,
-    limit: Type.Integer({ minimum: 1, maximum: 300 }),
+    limit: Type.Integer({ minimum: 1, maximum: 10000 }),
     includeComments: Type.Optional(Type.Boolean()),
     useFallback: Type.Optional(Type.Boolean()),
     maxCommentsPerPost: Type.Optional(
-      Type.Integer({ minimum: 1, maximum: 50 }),
+      Type.Integer({ minimum: 1, maximum: 500 }),
     ),
     projectId: Type.Optional(Id),
     queryHints: Type.Optional(QueryHints),
@@ -304,7 +304,7 @@ export const Refresh = Type.Object({
 
 export const Hydrate = Type.Object({
   contentIds: Type.Array(Id, { minItems: 1, maxItems: 30, uniqueItems: true }),
-  maxCommentsPerPost: Type.Integer({ minimum: 1, maximum: 50 }),
+  maxCommentsPerPost: Type.Integer({ minimum: 1, maximum: 500 }),
 }, { additionalProperties: false });
 
 export type FeedLaneValue = Static<typeof FeedLane>;
@@ -345,9 +345,9 @@ export const ResearchPlanPreviewInput = Type.Object(
     targetValue: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
     from: DateTime,
     to: DateTime,
-    limit: Type.Integer({ minimum: 1, maximum: 300 }),
+    limit: Type.Integer({ minimum: 1, maximum: 10000 }),
     includeComments: Type.Optional(Type.Boolean()),
-    maxCommentsPerPost: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+    maxCommentsPerPost: Type.Optional(Type.Integer({ minimum: 1, maximum: 500 })),
     useFallback: Type.Optional(Type.Boolean()),
     queryHints: Type.Optional(QueryHints),
   },

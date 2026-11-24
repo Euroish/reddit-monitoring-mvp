@@ -407,7 +407,7 @@ test("browser: project switching and guided intake with real project and role bo
   const preflight = page.getByRole("button", { name: "查看预计消耗" });
   const confirm = page.getByRole("button", { name: "确认开始采集" });
   const chooseX = async () => {
-    await page.getByRole("radio", { name: /Registered X source/ }).check();
+    await page.getByRole("checkbox", { name: /Registered X source/ }).check();
     await page.getByRole("button", { name: "继续设置范围" }).click();
     await page.getByRole("heading", { name: "设置采集范围" }).waitFor();
   };
@@ -428,7 +428,7 @@ test("browser: project switching and guided intake with real project and role bo
   await start.click();
   await page.getByRole("heading", { name: "选择研究对象" }).waitFor();
   await capture("owner-target-1440");
-  await page.getByRole("radio", { name: /Registered X source/ }).check();
+  await page.getByRole("checkbox", { name: /Registered X source/ }).check();
   await page.getByRole("button", { name: "继续设置范围" }).click();
   await page.getByText("该采集服务暂无可用预算。", { exact: true }).waitFor();
   assert.equal(await page.getByRole("link", { name: "检查渠道预算" }).getAttribute("href"), "/sources?tab=budgets");

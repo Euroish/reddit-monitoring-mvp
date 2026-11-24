@@ -5,15 +5,12 @@ import { Input } from './ui/input';
 import { Alert } from './ui/alert';
 import { Checkbox } from './ui/checkbox';
 import { formatSourceTarget, type CollectionBatchDto, type CollectionSource, type QueryHintsValue, type ResearchCollectionRestriction, type ResearchPlanPreviewRequest, type ResearchPlanPreviewResponse } from '../contracts/api';
-import { getRangeLimits } from '../lib/researchIntake';
+import { getRangeLimits, parseManualTargets, type ManualTarget } from '../lib/researchIntake';
 import { useI18n } from '../i18n/translations';
 
-export type ManualTarget = {
-  platform: NonNullable<ResearchPlanPreviewRequest['platform']>;
-  targetType: NonNullable<ResearchPlanPreviewRequest['targetType']>;
-  targetValue: string;
-};
+export type { ManualTarget };
 export type IntakeTarget = { sourceId: string } | ManualTarget;
+export type ResolvedIntakeTarget = { input: IntakeTarget; result: ResearchPlanPreviewResponse };
 export type CollectionRange = {
   days: number;
   limit: number;
@@ -27,32 +24,39 @@ export type CollectionEstimate = { request: ResearchPlanPreviewRequest; result: 
 const kinds = { reddit: ['community', 'account', 'search'], x: ['account', 'search'], bluesky: ['account'] } as const;
 const platformNames = { reddit: 'Reddit', x: 'X', bluesky: 'Bluesky', web: 'Web' } as const;
 
+function formatResolvedTargetLabel(result: ResearchPlanPreviewResponse): string {
+  return result.matchedSource?.label
+    ?? (result.resolvedTarget ? `${platformNames[result.resolvedTarget.platform as ManualTarget['platform']] ?? result.resolvedTarget.platform}: ${result.resolvedTarget.value}` : '');
+}
+
 export function IntakeTargetStep({ sources, draft, setDraft, selected, pending, onSelect }: {
   sources: CollectionSource[];
   draft: ManualTarget;
   setDraft: (value: ManualTarget) => void;
-  selected: string | undefined;
+  selected: string[];
   pending: boolean;
-  onSelect: (target: IntakeTarget) => void;
+  onSelect: (targets: IntakeTarget[]) => void;
 }) {
   const { t } = useI18n();
   const [search, setSearch] = useState('');
   const [manual, setManual] = useState(Boolean(draft.targetValue));
-  const [sourceId, setSourceId] = useState(selected ?? '');
+  const [sourceIds, setSourceIds] = useState<string[]>(selected);
   const needle = search.trim().toLocaleLowerCase();
   const visible = sources.filter(source =>
     [source.label, formatSourceTarget(source.target), platformNames[source.platform]].some(value => value.toLocaleLowerCase().includes(needle)));
-  const target = draft.targetValue.trim();
-  const targetIsValid = draft.targetType === 'community' ? /^(?:r\/)?[a-z0-9_]{1,100}$/i.test(target)
-    : draft.targetType === 'account' ? /^@?[^\s/@]{1,253}$/.test(target) : target.length > 0 && target.length <= 512;
+  const parsedManual = parseManualTargets(draft);
+  const validSelectedIds = sourceIds.filter(id => sources.some(source => source.id === id));
+  const selectedCount = manual ? parsedManual.targets.length : validSelectedIds.length;
+  const toggleSource = (id: string) =>
+    setSourceIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
   return <>
     <h2>{t('Choose what to research', '选择研究对象')}</h2>
-    <p>{t('Choose a target your account can use, or check another community, account or topic.', '从当前账号可用的对象中选择，也可以检查其他社区、账号或关键词。')}</p>
+    <p>{t('Select one or more targets to collect into this project, or enter communities, accounts or topics.', '可单选或多选研究对象一并采集到当前项目，也可手动输入多个社区、账号或关键词。')}</p>
     <form className="intake-step-form" onSubmit={event => {
       event.preventDefault();
       if (pending) return;
-      if (manual && targetIsValid) onSelect({ ...draft, targetValue: target });
-      if (!manual && sources.some(source => source.id === sourceId)) onSelect({ sourceId });
+      if (manual && parsedManual.valid) onSelect(parsedManual.targets);
+      if (!manual && validSelectedIds.length > 0) onSelect(validSelectedIds.map(sourceId => ({ sourceId })));
     }}>
       <fieldset className="intake-fields" disabled={pending}>
         {manual ? <>
@@ -68,14 +72,17 @@ export function IntakeTargetStep({ sources, draft, setDraft, selected, pending, 
           </div>
           <label className="wb-field">{t('Community, account or keywords', '目标内容')}
             <Input value={draft.targetValue} required maxLength={512} onChange={event => setDraft({ ...draft, targetValue: event.target.value })}
-              placeholder={draft.targetType === 'community' ? 'r/LocalLLaMA' : draft.targetType === 'account' ? '@example' : 'OpenAI OR ChatGPT'} />
+              placeholder={draft.targetType === 'community' ? 'r/LocalLLaMA, r/ClaudeAI' : draft.targetType === 'account' ? '@openai, @anthropicai' : 'OpenAI OR ChatGPT'} />
           </label>
+          {draft.targetType !== 'search' && (
+            <p className="collection-hint">{t('Separate multiple communities or accounts with commas (up to 20 at once).', '支持用逗号分隔输入多个板块或账号（单次最多 20 个），将一并采集到本项目。')}</p>
+          )}
         </> : <>
           <label className="wb-field">{t('Find an available target', '搜索可用对象')}<Input type="search" value={search} onChange={event => setSearch(event.target.value)} /></label>
           <div className="intake-target-list">
             {visible.length === 0 && <p role="status">{sources.length ? t('No targets match this search.', '没有符合搜索的对象。') : t('No collection targets available for this account.', '当前账号暂无可用的采集对象。')}</p>}
             {visible.map(source => <label key={source.id} className="intake-target-row">
-              <input type="radio" name="intake-source" value={source.id} checked={sourceId === source.id} onChange={() => setSourceId(source.id)} />
+              <input type="checkbox" name="intake-source" value={source.id} checked={sourceIds.includes(source.id)} onChange={() => toggleSource(source.id)} />
               <span><strong>{source.label}</strong><small>{platformNames[source.platform]} · {formatSourceTarget(source.target)}</small></span>
               {source.health.lastStatus === 'failed' && <small>{t('Recent run failed', '最近运行失败')}</small>}
             </label>)}
@@ -83,8 +90,11 @@ export function IntakeTargetStep({ sources, draft, setDraft, selected, pending, 
         </>}
       </fieldset>
       <div className="intake-actions">
-        <Button type="submit" disabled={pending || (manual ? !targetIsValid : !sourceId)}
-          className="intake-primary">{pending ? t('Checking availability…', '正在检查可用性…') : manual ? t('Check availability', '检查这个目标') : t('Continue to scope', '继续设置范围')}<ArrowRight size={16} /></Button>
+        <Button type="submit" disabled={pending || selectedCount === 0}
+          className="intake-primary">{pending ? t('Checking availability…', '正在检查可用性…')
+            : manual
+              ? (selectedCount > 1 ? t(`Check availability (${selectedCount})`, `检查这 ${selectedCount} 个目标`) : t('Check availability', '检查这个目标'))
+              : (selectedCount > 1 ? t(`Continue to scope (${selectedCount})`, `继续设置范围（已选 ${selectedCount} 个）`) : t('Continue to scope', '继续设置范围'))}<ArrowRight size={16} /></Button>
         <Button type="button" variant="ghost" disabled={pending} onClick={() => setManual(!manual)}>
           {manual ? t('Choose an available target', '返回可用对象') : t('Enter another target', '输入其他研究对象')}
         </Button>
@@ -152,9 +162,9 @@ function ChannelFilterHintsDetails({
   );
 }
 
-export function IntakeScopeStep({ result, source, range, setRange, pending, onContinue, onBack }: {
-  result: ResearchPlanPreviewResponse;
-  source?: CollectionSource;
+export function IntakeScopeStep({ targets, sources, range, setRange, pending, onContinue, onBack }: {
+  targets: ResolvedIntakeTarget[];
+  sources: CollectionSource[];
   range: CollectionRange;
   setRange: (range: CollectionRange) => void;
   isAdmin?: boolean;
@@ -163,11 +173,26 @@ export function IntakeScopeStep({ result, source, range, setRange, pending, onCo
   onBack: () => void;
 }) {
   const { t } = useI18n();
-  const limits = getRangeLimits(result, range.fallback ? source?.fallbackProvider ?? undefined : undefined);
-  const maximum = Math.min(limits.maxItems, range.comments ? Math.floor(2000 / (range.commentLimit + 1)) : limits.maxItems);
+  const primary = targets[0]!.result;
+  const primarySource = targets.length === 1 && primary.matchedSource
+    ? sources.find(source => source.id === primary.matchedSource!.id)
+    : undefined;
+  const perTargetLimits = targets.map(item => {
+    const matched = item.result.matchedSource ? sources.find(s => s.id === item.result.matchedSource!.id) : undefined;
+    return getRangeLimits(item.result, range.fallback ? matched?.fallbackProvider ?? undefined : undefined);
+  });
+  const limits = {
+    maxDays: Math.min(...perTargetLimits.map(l => l.maxDays)),
+    maxItems: Math.min(...perTargetLimits.map(l => l.maxItems)),
+    maxComments: Math.min(...perTargetLimits.map(l => l.maxComments)),
+  };
+  const maximum = limits.maxItems;
   const choices = [...new Set([7, 30, 90, limits.maxDays].filter(n => n > 0 && n <= limits.maxDays))];
-  const targetDisplay = result.matchedSource?.label ?? (result.resolvedTarget ? `${platformNames[result.resolvedTarget.platform as ManualTarget['platform']] ?? result.resolvedTarget.platform}: ${result.resolvedTarget.value}` : '');
-  const sf = result.fieldPolicy.supportedFilters;
+  const labels = targets.map(item => formatResolvedTargetLabel(item.result));
+  const targetDisplay = labels.length === 1
+    ? labels[0]
+    : t(`${labels.length} targets (${labels.join(', ')})`, `${labels.length} 个对象（${labels.join('、')}）`);
+  const sf = primary.fieldPolicy.supportedFilters;
   const setHint = <K extends keyof QueryHintsValue>(k: K, val: QueryHintsValue[K]) => {
     const next = { ...range.queryHints, [k]: val };
     if (val === undefined || val === '' || val === false) delete next[k];
@@ -175,35 +200,34 @@ export function IntakeScopeStep({ result, source, range, setRange, pending, onCo
   };
   return <>
     <h2>{t('Set the collection scope', '设置采集范围')}</h2>
-    <p>{t('Collect from', '本次采集对象')}{' ' }<strong>{targetDisplay}</strong>
-      {result.resolutionStatus === 'on_demand_available' && <small className="collection-hint"> · {t('On-demand research target', '按需实时研究对象')}</small>}</p>
+    <p>{t('Collect from', '本次采集对象')}{' '}<strong>{targetDisplay}</strong>
+      {targets.some(item => item.result.resolutionStatus === 'on_demand_available') && <small className="collection-hint"> · {t('On-demand research target', '按需实时研究对象')}</small>}</p>
     <form onSubmit={onContinue} className="intake-step-form">
       <fieldset className="intake-fields" disabled={pending}>
         <label className="wb-field">{t('Time range', '时间范围')}<select value={range.days} className="wb-select"
           onChange={event => setRange({ ...range, days: Number(event.target.value) })}>
           {choices.map(days => <option key={days} value={days}>{t(`Last ${days} days`, `最近 ${days} 天`)}</option>)}
         </select></label>
-        <label className="wb-field">{t('Maximum items', '本次条数上限')}<Input type="number" required min={1} max={maximum}
+        <label className="wb-field">{targets.length > 1 ? t('Maximum items per target', '每个对象本次条数上限') : t('Maximum items', '本次条数上限')}<Input type="number" required min={1} max={maximum}
           value={range.limit} onChange={event => setRange({ ...range, limit: Number(event.target.value) })} /></label>
-        <p className="collection-hint">{t(`You can request up to ${maximum} items for this target.`, `按当前对象和设置，本次最多请求 ${maximum} 条内容。`)}</p>
+        <p className="collection-hint">{targets.length > 1
+          ? t(`Up to ${maximum} items per target (${targets.length} targets will be queued into this project).`, `每个对象最多请求 ${maximum} 条（共 ${targets.length} 个对象，将一并入队到本项目）。`)
+          : t(`You can request up to ${maximum} items for this target.`, `按当前对象和设置，本次最多请求 ${maximum} 条内容。`)}</p>
         {limits.maxComments > 0 && <>
           <label className="intake-check"><Checkbox checked={range.comments} onCheckedChange={comments =>
-            setRange({ ...range, comments, limit: Math.min(range.limit, Math.floor(2000 / (range.commentLimit + 1))) })} />
+            setRange({ ...range, comments })} />
             {t('Include comments', '同时采集评论')}</label>
           {range.comments && <label className="wb-field">{t('Comments per post', '每帖评论上限')}
             <Input type="number" required min={1} max={limits.maxComments} value={range.commentLimit}
-              onChange={event => {
-                const commentLimit = Number(event.target.value);
-                setRange({ ...range, commentLimit, limit: Math.min(range.limit, Math.floor(2000 / (commentLimit + 1))) });
-              }} /></label>}
+              onChange={event => setRange({ ...range, commentLimit: Number(event.target.value) })} /></label>}
         </>}
         <ChannelFilterHintsDetails sf={sf} range={range} setHint={setHint} />
-        {result.fieldPolicy.canUseFallback && source?.fallbackProvider && <details>
+        {targets.length === 1 && primary.fieldPolicy.canUseFallback && primarySource?.fallbackProvider && <details>
           <summary>{t('Advanced collection settings', '高级采集设置')}</summary>
           <label className="intake-check"><Checkbox checked={range.fallback} onCheckedChange={fallback => {
-            const next = getRangeLimits(result, fallback ? source.fallbackProvider ?? undefined : undefined);
+            const next = getRangeLimits(primary, fallback ? primarySource.fallbackProvider ?? undefined : undefined);
             setRange({ ...range, fallback, comments: false, limit: Math.min(range.limit, next.maxItems) });
-          }} />{t('Use the backup service', '使用备用采集服务')} ({source.fallbackProvider})</label>
+          }} />{t('Use the backup service', '使用备用采集服务')} ({primarySource.fallbackProvider})</label>
         </details>}
       </fieldset>
       <div className="intake-actions">
@@ -216,8 +240,8 @@ export function IntakeScopeStep({ result, source, range, setRange, pending, onCo
   </>;
 }
 
-export function IntakeReviewStep({ estimate, confirmed, setConfirmed, pending, isAdmin, onConfirm, onBack, onReuse }: {
-  estimate: CollectionEstimate;
+export function IntakeReviewStep({ estimates, confirmed, setConfirmed, pending, isAdmin, onConfirm, onBack, onReuse }: {
+  estimates: CollectionEstimate[];
   isAdmin: boolean;
   confirmed: boolean;
   setConfirmed: (value: boolean) => void;
@@ -227,17 +251,24 @@ export function IntakeReviewStep({ estimate, confirmed, setConfirmed, pending, i
   onReuse?: () => void;
 }) {
   const { t } = useI18n();
-  const { request, result } = estimate;
-  const units = isAdmin ? result.estimate.systemResources : result.estimate.personalResources;
-  const targetLabel = result.matchedSource?.label ?? (result.resolvedTarget ? `${result.resolvedTarget.platform}: ${result.resolvedTarget.value}` : '');
+  const first = estimates[0]!;
+  const { request } = first;
+  const totalRequests = estimates.reduce((sum, item) => sum + item.result.estimate.requests, 0);
+  const totalUnits = estimates.reduce((sum, item) => sum + (isAdmin ? item.result.estimate.systemResources : item.result.estimate.personalResources), 0);
+  const targetLabels = estimates.map(item => formatResolvedTargetLabel(item.result));
+  const targetLabel = targetLabels.length === 1
+    ? targetLabels[0]
+    : t(`${targetLabels.length} targets: ${targetLabels.join(', ')}`, `共 ${targetLabels.length} 个对象：${targetLabels.join('、')}`);
+  const totalExisting = estimates.reduce((sum, item) => sum + item.result.coverage.existingItemCount, 0);
+  const anyUnknownCoverage = estimates.some(item => item.result.coverage.status === 'unknown');
   return <>
     <h2>{t('Confirm what to collect and the estimated usage', '确认采集内容与预计消耗')}</h2>
     <dl className="intake-facts">
       <div><dt>{t('Research target', '研究对象')}</dt><dd>{targetLabel}</dd></div>
-      <div><dt>{t('Collection scope', '采集范围')}</dt><dd>{request.from.slice(0, 10)} – {request.to.slice(0, 10)} UTC · {t(`up to ${request.limit} items`, `最多 ${request.limit} 条`)} · {request.includeComments ? t('with comments', '包含评论') : t('without comments', '不含评论')}</dd></div>
-      <div><dt>{t('Estimated usage', '预计消耗')}</dt><dd>{t(`${result.estimate.requests} external request(s) · ${units} collection units`, `${result.estimate.requests} 次外部请求 · ${units} 采集额度`)}</dd></div>
+      <div><dt>{t('Collection scope', '采集范围')}</dt><dd>{request.from.slice(0, 10)} – {request.to.slice(0, 10)} UTC · {estimates.length > 1 ? t(`up to ${request.limit} items each`, `每个最多 ${request.limit} 条`) : t(`up to ${request.limit} items`, `最多 ${request.limit} 条`)} · {request.includeComments ? t('with comments', '包含评论') : t('without comments', '不含评论')}</dd></div>
+      <div><dt>{t('Estimated usage', '预计消耗')}</dt><dd>{t(`${totalRequests} external request(s) · ${totalUnits} collection units`, `${totalRequests} 次外部请求 · ${totalUnits} 采集额度`)}</dd></div>
     </dl>
-    {result.coverage.status === 'unknown' && <p>{t(`${result.coverage.existingItemCount} samples are already stored. Complete coverage across these dates is unknown.`, `这个时间范围已有 ${result.coverage.existingItemCount} 条样本，暂时无法确认完整覆盖。`)} {onReuse && <button type="button" className="intake-link" disabled={pending} onClick={onReuse}>{t('Use existing data', '使用已有数据')}</button>}</p>}
+    {anyUnknownCoverage && <p>{t(`${totalExisting} samples are already stored. Complete coverage across these dates is unknown.`, `这个时间范围已有 ${totalExisting} 条样本，暂时无法确认完整覆盖。`)} {onReuse && <button type="button" className="intake-link" disabled={pending} onClick={onReuse}>{t('Use existing data', '使用已有数据')}</button>}</p>}
     <p>{t('Actual usage can differ. Follow progress in Tasks. Saved results will appear in this project.', '实际额度可能不同。确认后可在采集任务查看进度，已入库数据会加入本项目。')}</p>
     <label className="intake-check"><Checkbox checked={confirmed} onCheckedChange={setConfirmed} disabled={pending} />
       {t('I understand the estimated usage.', '我已核对预计用量并确认本次采集。')}</label>
