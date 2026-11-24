@@ -4,16 +4,18 @@
 > **审批定案与执行决议（2026-11-23）**
 > 1. **信源清洗策略**：通过迁移 `061` 归档传统新闻媒体 RSS 及 V2EX 等营销类讨论源（完整保留 `ai_vendor_source` 官方发布源）；高讨论度 L1/L2 信源由维护者在上线后按需精选补充。
 > 2. **摘要与意图识别**：先以低复杂度可插拔规则引擎（`src/modules/content/enrich.ts` `heuristic_v1` + `upgradeContentEnrichment` 升级钩子）落地 `clean_excerpt` 与 `intent_tag`，为后续模型升级保留稳定契约。
-> 3. **直调 API 预算上限**：X + Reddit 全站直调 API 联合上限校准为 `<= 20,000` 条/天，复用 `collection` 配额与 `estimate -> collect` 预估门禁。
-> 4. **前后端分期节奏**：先在 PR #32 收口后端数据结构、9 域边界、算法与 BFF 契约（冻结现有前端 `apps/web/**`），降低后续前端重做复杂度；匿名访客在信息流采用非个性化高价值混排（`hot` + `explore` + `rising`）。
+> 3. **直调 API 预算上限**：当前 main 在派发前执行全站每天 20,000 资源预留单位与分渠道预算，复用 `collection` 配额与预检；不是已采条数或金额承诺。
+> 4. **前后端分期节奏**：#32 已合入，原开发阶段前端冻结结束。现有任务体验可独立改进，Frontend V2 分批接入；匿名访客采用非个性化混排。
+>
+> **使用边界**：本文保留已批准方向与设计示意，不是主干实现清单。状态查 [status.md](../status.md)，真实路由/Schema 查 [contracts.md](../contracts.md) 与共享契约；产品取舍和交互以 [产品规范](../README.md)及 [design.md](../design.md)为准。历史推测的性能、节省比例与字段覆盖不得作为实测结果。
 
 > **文档定位**：本蓝图面向即将重做的前端，先一步完成**后端数据底座、算法引擎、模块边界与 BFF 接口契约**的完整设计。核心目标只有两条：
-> 1. **后端高内聚、零耦合、低复杂度（4 GB 单机 PG16 预算）**，延续严格单向 DAG 与单一写归属；
-> 2. **前端极简适配** —— 前端每个页面只调用 **1–2 个 BFF 接口**，零 JSONB 解包、零跨平台字段分支、零多接口前端拼装。
+> 1. **后端高内聚、明确单向依赖、低复杂度（4 GB 单机 PG16 预算）**，维持单一写归属，不追求不存在的“零耦合”；
+> 2. **前端面向用户任务** —— 聚合契约减少串行请求与跨平台拼装；每页 1–2 个 BFF 调用是方向，不是机械配额，不为请求数限制增加万能接口或重复状态。
 
 ---
 
-## 1. 现状根因诊断（基于已核实源码与生产基线）
+## 1. 立项时根因诊断（历史基线，非当前缺陷清单）
 
 | 瓶颈维度 | 已观测的源码与生产事实 | 对前端重做与产品体验的直接伤害 |
 | :--- | :--- | :--- |
@@ -37,7 +39,7 @@ flowchart TD
   APP --> COLLECTION["collection (Sources / Connectors / Budgets / LISTEN-NOTIFY Worker)"]
   APP --> FEED["feed [NEW] (Swipe Stream / Anti-Filter-Bubble / Hot Board / Events)"]
   APP --> INTEL["intelligence [NEW] (Keyword / KOL / Subreddit Monitors + Rollups)"]
-  APP --> PROJECTS["projects (Legacy Compatibility Layer)"]
+  APP --> PROJECTS["projects (Research Evidence & Batch Organization)"]
   APP --> WORKSPACE["workspace (Personal Bookmarks & Notes)"]
   APP --> AI["ai (AI Release Intelligence)"]
 
@@ -60,11 +62,11 @@ flowchart TD
 
 ---
 
-## 3. PostgreSQL 16 前向增量 Schema 设计（迁移 `059`–`061`）
+## 3. PostgreSQL 16 前向增量 Schema 设计（已合入 V2 为 `061`–`064`）
 
 所有新迁移严格前向追加、通过 `Squawk` 锁表检查，并在 4 GB 预算下控制索引膨胀（TTL 清理 + 部分索引）。
 
-### 3.1 Migration `059`：内容增强与热路径标量物化（Owner: `content` / `collection`）
+### 3.1 Migration `061`：内容增强与热路径标量物化（Owner: `content` / `collection`）
 
 在 `content` 表将高频筛选/排序字段**物化为标量列**（由 `commitContentBatch` 与历史观测追加同一事务内原子更新；同时保留 `content_observation` 作为时序历史台账用于计算增量速度）：
 
@@ -76,16 +78,16 @@ flowchart TD
 | **新表 `content_author_profile`** | 主键 `(platform_id, author_handle)`：`author_external_id`、`display_name`、`avatar_url`、`bio`、`verified BOOLEAN`、`followers_count BIGINT`、`following_count INT`、`statuses_count INT`、`last_seen_at TIMESTAMPTZ`、`metrics_updated_at TIMESTAMPTZ` | `content` (`commitContentBatch`) | 支撑 KOL/高价值账号整合页、头像展示与准确互动率（ER）分母 |
 | **`collection_source.feed_lane`** | `TEXT NOT NULL DEFAULT 'discussion' CHECK (feed_lane IN ('discussion','release','monitor_only','news'))` + `quality_grade TEXT` | `collection` | **彻底隔离高讨论信源、专项监控信源与传统新闻 RSS**，确保付费抓取与新闻抓取互不污染 |
 
-### 3.2 Migration `060`：信息流推荐、去重与防茧房状态表（Owner: `feed`）
+### 3.2 Migration `062`（正向反馈幂等补充为 `064`）：信息流推荐、去重与防茧房状态表（Owner: `feed`）
 
 | 表名 | 核心结构与主键 | 设计要点（防膨胀 & 高性能） |
 | :--- | :--- | :--- |
-| **`feed_user_seen`** | `(user_id UUID, content_id UUID)` 复合主键 + `seen_at TIMESTAMPTZ` | 每次下拉刷新执行 `NOT EXISTS / ANTI JOIN`，**保证像抖音一样滑走后绝不重复**；后台每 6h 自动清理超过 14 天的记录，表体积恒定 |
+| **`feed_user_seen`** | `(user_id UUID, content_id UUID)` 复合主键 + `seen_at TIMESTAMPTZ` | 每次下拉刷新执行 `NOT EXISTS / ANTI JOIN`，在已读保留窗与当前会话内去重，不承诺跨设备/历史清理后永不重复；记录按 14 天保留窗清理，当前清理频率查开发手册；体积仍随活跃用户和阅读量变化 |
 | **`feed_user_event`** | `(id BIGSERIAL, user_id, content_id, event_type, dwell_ms INT, created_at)`；唯一防重约束按 `(user_id, content_id, event_type)` | `event_type ∈ ('impression','dwell','open','bookmark','useful','dismiss','mute_source','mute_topic','mute_author')`；仅在前台可视后上报，禁止把网络预取算作阅读；30 天滚动清理 |
 | **`feed_user_affinity`** | `(user_id, dim_type, dim_key)` 主键；`weight REAL`、`exposure_count INT`、`positive_count INT`、`negative_count INT`、`updated_at` | `dim_type ∈ ('topic','source','platform','author','community')`；采用 **14 天半衰期指数衰减** 并在写入时钳位在 `[-2.0, +2.0]`，同时记录 `exposure_count` 给探索惩罚/奖励使用 |
 | **`feed_user_preference`** | `(user_id PK, explore_ratio REAL DEFAULT 0.20, followed_topics TEXT[], muted_sources UUID[], muted_keywords TEXT[], muted_authors TEXT[], updated_at)` | 显式兴趣控制与自由调节探索比例（破茧滑块 0%–50%） |
 
-### 3.3 Migration `061`：Semrush 级社媒/GEO 监测与预聚合表（Owner: `intelligence`）
+### 3.3 Migration `063`：Semrush 级社媒/GEO 监测与预聚合表（Owner: `intelligence`）
 
 借鉴 `umami-software/umami` 时序预聚合表思想（在 PG16 内跑通，不引入 ClickHouse）：
 
@@ -94,7 +96,7 @@ flowchart TD
 | **`intel_monitor`** | `id UUID PK`, `owner_user_id UUID`, `kind CHECK ('keyword','author_list','community_bundle')`, `name TEXT`, `config JSONB`（关键词、竞品词、最低赞/评门槛、账号列表、板块列表、平台集合）, `revision INT` | 三大产品场景（关键词监测 / 高价值用户监测 / 板块全量监测）统一模型，配置版本乐观锁控制 |
 | **`intel_monitor_source`** | `(monitor_id, collection_source_id)` 复合主键，`role TEXT`（`primary` \| `competitor` \| `bundle_member`） | **100% 复用 `collection` 域调度与配额器**，不自建第二套爬虫队列 |
 | **`intel_monitor_target`** | `(id UUID, monitor_id, target_kind CHECK ('keyword','competitor_keyword','author','subreddit'), target_value TEXT, platform, meta JSONB)` | 结构化拆分关键词与竞品词，直接生成多关键词声量占比（SoV）对比矩阵 |
-| **`intel_rollup_bucket`** | `(bucket_at TIMESTAMPTZ, bucket_size CHECK ('6h','1d'), scope_kind CHECK ('monitor','keyword','author','subreddit'), scope_id TEXT, platform)` 主键；包含 `post_count`, `comment_count`, `unique_authors`, `sum_score`, `sum_comments`, `sum_views`, `sum_likes`, `avg_engagement_rate`, `intent_counts JSONB`, `top_domains JSONB`, `top_terms JSONB` | **核心提速表**：采集任务完成事件或每 5 分钟增量重算当前活跃分桶，DashBoard 趋势图/对比矩阵查询稳定 **< 15 ms** |
+| **`intel_rollup_bucket`** | `(bucket_at TIMESTAMPTZ, bucket_size CHECK ('6h','1d'), scope_kind CHECK ('monitor','keyword','author','subreddit'), scope_id TEXT, platform)` 主键；包含 `post_count`, `comment_count`, `unique_authors`, `sum_score`, `sum_comments`, `sum_views`, `sum_likes`, `avg_engagement_rate`, `intent_counts JSONB`, `top_domains JSONB`, `top_terms JSONB` | **核心提速表**：采集任务完成事件或每 5 分钟增量重算当前活跃分桶，Dashboard 查询 **< 15 ms 为待压测目标，非已达到结果** |
 
 ---
 
@@ -107,7 +109,7 @@ flowchart TD
 1. **信源车道重构**：现有传统新闻类 RSS（如通用媒体、日常资讯）标记为 `feed_lane = 'news'`，**默认不进入信息流主卡片池**（可选保留在“新闻档案”开关中）；默认刷流只从 `discussion` 与 `release` 车道取样。
 2. **零成本/低成本高讨论源扩充**：
    - **L1（\$0）**：Hacker News（Frontpage / Best / Show HN / Ask HN，原生带分数与评论数）、Reddit 高价值技术/AI/创业/产品社区 `.rss`（作全量轻量雷达，命中高讨论后按需触发评论补采）、Lobsters、~~V2EX 热议~~（已按 2026-11-23 决议剔除 V2EX 等营销类源）、GitHub Trending & Discussions、HuggingFace Papers、Bluesky 科技流。
-   - **L2（付费受控）**：X 核心高价值 KOL 账号继续按 15–20 人拼装一条 `from:u1 OR from:u2` 批次查询（较单号轮询节省 ~95% 配额），全部进入 `feed_lane = 'discussion'`。
+   - **L2（付费受控）**：X 核心高价值 KOL 账号继续按 15–20 人拼装一条 `from:u1 OR from:u2` 批次查询（减少逐账号请求，实际节省取决于批次大小与供应商计费，未实测），全部进入 `feed_lane = 'discussion'`。
 
 ### 4.2 四池混合 + 破茧重排流水线（`GET /v1/feed/stream`）
 
@@ -145,17 +147,17 @@ flowchart TD
 
 | 连接器 | 现存字段浪费 | V2 强制提取并入库字段 | 产品直接收益 |
 | :--- | :--- | :--- | :--- |
-| **`kaix` / `red_crawler` (Reddit)** | `red-crawler` 丢弃所有媒体；两者均硬编码 `sort=new` 且丢弃板块统计、奖励、置顶与媒体画廊 | ① **富媒体提取**：`thumbnail`、`preview.images`、Reddit Gallery 多图、`reddit_video`/`is_video`、外链预览；② **社区与结构字段**：`domain`（外链域名用于 GEO 引用统计）、`is_self`、`stickied`、`num_crossposts`、`all_awardings/total_awards_received`、`author_flair_text`；③ **原生高质排序参数**：支持 `sort: "top" \| "hot" \| "relevance" \| "new"` 与 `time: "hour" \| "day" \| "week" \| "month" \| "year" \| "all"` | 搜索高赞/高评论帖子直出结果，废帖过滤 **>85%**；外链域名直接产出“GEO 品牌/站点被引用排行” |
+| **`kaix` / `red_crawler` (Reddit)** | `red-crawler` 丢弃所有媒体；两者均硬编码 `sort=new` 且丢弃板块统计、奖励、置顶与媒体画廊 | ① **富媒体提取**：`thumbnail`、`preview.images`、Reddit Gallery 多图、`reddit_video`/`is_video`、外链预览；② **社区与结构字段**：`domain`（外链域名用于 GEO 引用统计）、`is_self`、`stickied`、`num_crossposts`、`all_awardings/total_awards_received`、`author_flair_text`；③ **原生高质排序参数**：支持 `sort: "top" \| "hot" \| "relevance" \| "new"` 与 `time: "hour" \| "day" \| "week" \| "month" \| "year" \| "all"` | 搜索高赞/高评论帖子直出结果，减少低互动候选（效果待实测）；外链域名直接产出“GEO 品牌/站点被引用排行” |
 | **`twitterapis` / `scrapebadger` (X)** | 硬编码 `Latest`；丢弃作者粉丝/头像/认证及推文实体标签 | ① **`content_author_profile` 全量入库**：`followers_count`、`following_count`、`statuses_count`、`isBlueVerified`、`profilePicture`、`description`、`location`；② **语义实体**：`hashtags`、`user_mentions`、`cashtags`、外链展开域名；③ **查询语法自动编译**：自动注入 `min_faves:N`、`min_replies:N`、`-is:retweet` 与 `product="Top"` | **付费 X API 不再为 0 互动垃圾推文买单**；账号监测自动拥有实时粉丝数分母计算 ER，无需额外调粉丝接口 |
 
 ### 5.2 三大监控工作流与底层复用架构
 
-所有监测在后端统一抽象为 `intel_monitor`，前端呈现清晰的三入口页面：
+监测配置使用 `intel_monitor`；前端按三类用户任务在项目上下文提供模板/视图，不强制三套一级页面，也不取代项目与批次组织证据的职责：
 
 1. **关键词 SEO / GEO 监测 (`kind = 'keyword'`)**：
    - 用户输入目标关键词 + 可选竞品关键词（如 `"cursor"` vs `"windsurf"`）及最低高赞/高评阈值；
    - 后端创建/绑定 `collection_source`（设置 `sort='top'` + X `min_faves`/`min_replies`），执行前调用 **Pre-flight 预估费用接口**；
-   - **产出图表与洞察**：声量与互动双口径 **Share of Voice (SoV)** 趋势对比、声量飙升 **Velocity** 曲线、内容意图占比（求助提问 `question` / 对比评测 `comparison` / 痛点吐槽 `pain` / 产品发布 `launch`）、**GEO 高频引用外链域名榜（哪些文章/文档/GitHub 仓库正在被 Reddit/X 大量引用从而喂给大模型）**、高频共现词、Top 高讨论原帖+评论树下钻。
+   - **产出图表与洞察**：声量与互动双口径 **Share of Voice (SoV)** 趋势对比、声量飙升 **Velocity** 曲线、内容意图占比（求助提问 `question` / 对比评测 `comparison` / 痛点吐槽 `pain` / 产品发布 `launch`）、**样本内高频外链域名榜（统计 Reddit/X 帖子及评论引用，不代表大模型实际使用）**、高频共现词、Top 高讨论原帖+评论树下钻。
 2. **高价值用户 / KOL 整合监测 (`kind = 'author_list'`)**：
    - 用户维护关注的一组 Reddit `u/` 或 X `@` 账号名单；
    - 后端在 `collection` 层将每 15–20 个同平台 X 账号**自动打包合并**为一条批量查询源，Reddit 账号采用 `.rss` + 周期 `kaix` 补采；
@@ -177,9 +179,11 @@ flowchart TD
 
 ---
 
-## 6. 极简前端 BFF 接口契约总览（每页 1–2 个请求完成渲染）
+## 6. BFF 设计示意（实际契约以共享 Schema 与 contracts 为准）
 
 ### 6.1 信息流域接口 (`/v1/feed/*`)
+
+以下为原蓝图的形状示意；参数名、上限、缺省值及字段是否已实现以 `packages/contracts/src/feed.ts` 为准，不要求为了对齐示意 DTO 新增兼容层。
 
 | 方法与路径 | 鉴权边界 | 核心职责与返回结构 |
 | :--- | :--- | :--- |
@@ -221,8 +225,8 @@ interface FeedCard {
 
 | 方法与路径 | 鉴权边界 | 解决的前端痛点 |
 | :--- | :--- | :--- |
-| `GET` / `POST /v1/intelligence/monitors` | `authenticated` / `viewer_write` | 一键新建“关键词追踪”、“KOL 账号组”或“一揽子 Subreddit 监控”，自动编排/复用底层 `collection_source` |
-| `GET` / `PATCH` / `DELETE /v1/intelligence/monitors/:id` | `authenticated` / `viewer_write` | 监控详情、修改关键词/阈值/账号/板块集合、删除监控（乐观锁 `revision`） |
+| `GET` / `POST /v1/intelligence/monitors` | 读取按归属；main 新建限管理员浏览器 | 一键新建“关键词追踪”、“KOL 账号组”或“一揽子 Subreddit 监控”，自动编排/复用底层 `collection_source` |
+| `GET` / `PATCH` / `DELETE /v1/intelligence/monitors/:id` | 按归属；main 配置/重新启用限管理员浏览器 | 监控详情、修改关键词/阈值/账号/板块集合、删除监控（乐观锁 `revision`） |
 | `POST /v1/intelligence/monitors/:id/estimate` & `.../collect` | `viewer_write` (`Idempotency-Key`) | **先估价、再付费抓取**；触发高赞/多评论模式采集并直接返回任务追踪 ID |
 | `GET /v1/intelligence/monitors/:id/overview` | `authenticated` (`read`) | **单请求拉齐 Semrush 仪表盘全套图表**：KPI + 环比增量、时间序列折线、SoV 对比、意图分布饼图、GEO 外链引用 Domain 排行、共现热词、样本覆盖声明 |
 | `GET /v1/intelligence/monitors/:id/posts` | `authenticated` (`read`) | 监控下的高价值帖子下钻（按 `unifiedHeat \| score \| comments \| er \| newest` 排序，直接支持回跳线程评论树） |
@@ -231,18 +235,14 @@ interface FeedCard {
 
 ---
 
-## 7. 增量交付切片（5 个独立可验收纵向 PR）
+## 7. 增量交付与兼容
 
-| 切片 | 范围与迁移 | 验收门槛 |
-| :--- | :--- | :--- |
-| **Slice 1 · 连接器富化 + 标量底座** | 升级 `red_crawler`/`kaix`/`twitterapis`/`scrapebadger`（提取富媒体、作者粉丝/头像、实体标签与 `Top`/`min_faves` 排序）；落地 Migration `059`（`content` 热路径列与 `content_author_profile`） | 连接器单测、PG16 回滚测试、`commitContentBatch` 幂等与触发器耗时达标 |
-| **Slice 2 · Pillar 1 信息流推荐与热榜** | 新建 `src/modules/feed/`；落地 Migration `060`；信源 `feed_lane` 清洗；4 池破茧推荐与 `/v1/feed/{stream,hot,events,preferences}` | DAG 零违规、滑刷不重复 PG16 集成测试、防茧房多样性数学单测、OpenAPI 100% 声明鉴权 |
-| **Slice 3 · Pillar 2 监测底座与预聚合引擎** | 新建 `src/modules/intelligence/`；落地 Migration `061`；实现 `intel_rollup_bucket` 增量计算与费用预估门禁 | 单writer表归属全过、高并发配额不超发、`overview` < 15ms 压测 |
-| **Slice 4 · Semrush 三场景 BFF 全面落地** | 完成关键词 SoV/GEO 引用、KOL 批量整合（15–20 号打包）与 Subreddit 矩阵热力图全接口与完整 OpenAPI 契约 | 100% 覆盖 PG16 集成测试 + 前端零 JSONB 直出契约验证 |
-| **Slice 5 · 前端重做对接与兼容收口** | 基于干净的 `/v1/feed/*` 与 `/v1/intelligence/*` 重做前端 UI/UX；视需要收缩/归档旧 `/v1/projects/*` 冗余端点 | 全链路端到端 Playwright/API 验收、4 GB 单机容器压测绿灯 |
+后端底座与 BFF 已随 #32 合入，#34/#36 修复组合语义；剩余交付以 [状态页](../status.md#4-交付优先级与验收出口)与 [审计台账](../research/business-audit-2026-11-23/SIFTLINE_修复进度完成表_2026-11-23.md)为准，不重复维护五份切片计划。
+
+前端按最短用户任务增量交付，不要求一次全面重做。项目/批次、阅读、AI 情报、R4 和停用但有效的扩展契约保留；退役接口需要明确替代、调用方与兼容验证，不以“Legacy”标签或静态未调用为由删除。
 
 ---
 
 ## 8. 实施对齐与当前收口状态
 
-Backend V2 已合入，接口边界、候选修复与待办事项由[当前状态与路线](../status.md#2-v2-已合入的集成边界)跟踪。迁移 `062` 为 Feed 收藏与有用反馈增加了数据库去重约束。
+Backend V2 已合入，接口边界、候选修复与待办事项由[当前状态与路线](../status.md#2-v2-已合入的集成边界)跟踪。Feed 反馈状态表在 `062`，收藏/有用正向事件的幂等补充在 `064`；不重新编号或修改已合入迁移。

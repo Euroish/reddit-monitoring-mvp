@@ -41,11 +41,9 @@ jobs:
         run: node --test scripts/ci-scope.test.mjs
       - name: Test PR admission policy
         run: node --test scripts/check-pr-quality.test.mjs
-      - name: Require PR evidence and no quality hold
+      - name: Require ready PR and no quality hold
         if: github.event_name == 'pull_request'
         run: node scripts/check-pr-quality.mjs
-        env:
-          MIGRATION_BASE_SHA: ${{ steps.scope.outputs.base }}
       - name: Gitleaks secret scan
         env:
           BASE: ${{ steps.scope.outputs.base }}

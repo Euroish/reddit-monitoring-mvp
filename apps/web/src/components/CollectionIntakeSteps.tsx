@@ -141,11 +141,9 @@ export function IntakeScopeStep({ result, source, range, setRange, isAdmin, pend
   </>;
 }
 
-export function IntakeReviewStep({ estimate, confirmed, setConfirmed, pending, isAdmin, onConfirm, onBack, onReuse }: {
+export function IntakeReviewStep({ estimate, pending, isAdmin, onConfirm, onBack, onReuse }: {
   estimate: CollectionEstimate;
   isAdmin: boolean;
-  confirmed: boolean;
-  setConfirmed: (value: boolean) => void;
   pending: boolean;
   onConfirm: () => void;
   onBack: () => void;
@@ -163,10 +161,8 @@ export function IntakeReviewStep({ estimate, confirmed, setConfirmed, pending, i
     </dl>
     {result.coverage.status === 'unknown' && <p>{t(`${result.coverage.existingItemCount} samples are already stored. Complete coverage across these dates is unknown.`, `这个时间范围已有 ${result.coverage.existingItemCount} 条样本，暂时无法确认完整覆盖。`)} {onReuse && <button type="button" className="intake-link" disabled={pending} onClick={onReuse}>{t('Use existing data', '使用已有数据')}</button>}</p>}
     <p>{t('Actual usage can differ. Follow progress in Tasks. Saved results will appear in this project.', '实际额度可能不同。确认后可在采集任务查看进度，已入库数据会加入本项目。')}</p>
-    <label className="intake-check"><Checkbox checked={confirmed} onCheckedChange={setConfirmed} disabled={pending} />
-      {t('I understand the estimated usage.', '我已核对预计用量并确认本次采集。')}</label>
     <div className="intake-actions">
-      <Button type="button" className="intake-primary" disabled={!confirmed || pending} onClick={onConfirm}>{pending ? t('Starting collection…', '正在提交…') : t('Confirm and start collecting', '确认开始采集')}<ArrowRight size={16} /></Button>
+      <Button type="button" className="intake-primary" disabled={pending} onClick={onConfirm}>{pending ? t('Starting collection…', '正在提交…') : t('Confirm and start collecting', '确认开始采集')}<ArrowRight size={16} /></Button>
       <Button type="button" variant="ghost" disabled={pending} onClick={onBack}>{t('Change the scope', '修改采集范围')}</Button>
     </div>
   </>;
