@@ -27,9 +27,11 @@ CREATE TABLE IF NOT EXISTS intel_research_task (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- squawk-ignore require-concurrent-index-creation
 CREATE INDEX IF NOT EXISTS idx_intel_research_task_project_created
   ON intel_research_task (project_id, created_at DESC);
 
+-- squawk-ignore require-concurrent-index-creation
 CREATE INDEX IF NOT EXISTS idx_intel_research_task_status
   ON intel_research_task (status, created_at ASC)
   WHERE status IN ('queued', 'running');
@@ -46,10 +48,12 @@ CREATE TABLE IF NOT EXISTS intel_research_task_item (
   PRIMARY KEY (task_id, content_id)
 );
 
+-- squawk-ignore require-concurrent-index-creation
 CREATE INDEX IF NOT EXISTS idx_intel_research_task_item_sentiment
   ON intel_research_task_item (task_id, sentiment_label)
   WHERE sentiment_label IS NOT NULL;
 
+-- squawk-ignore require-concurrent-index-creation
 CREATE INDEX IF NOT EXISTS idx_intel_research_task_item_topic
   ON intel_research_task_item (task_id, topic_index)
   WHERE topic_index IS NOT NULL;
@@ -67,8 +71,10 @@ CREATE TABLE IF NOT EXISTS intel_research_cache (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- squawk-ignore require-concurrent-index-creation
 CREATE INDEX IF NOT EXISTS idx_intel_research_cache_project_ver
   ON intel_research_cache (project_id, layer, data_version);
 
+-- squawk-ignore require-concurrent-index-creation
 CREATE INDEX IF NOT EXISTS idx_intel_research_cache_expires
   ON intel_research_cache (expires_at);

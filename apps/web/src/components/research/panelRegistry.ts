@@ -325,7 +325,7 @@ export const L1_PANEL_RULES: readonly PanelPolicyRule<L1OverviewResponse>[] = [
     layer: 'l1',
     titleEn: 'Top Discussions & Representative Content',
     titleZh: '热门讨论与代表内容',
-    priority: 92,
+    priority: 50,
     defaultSpan: 'full',
     compactCapable: false,
     dependencies: ['topContent.items >= 1'],

@@ -404,7 +404,7 @@ test("browser: project switching and guided intake with real project and role bo
   const switcher = page.getByRole("dialog", { name: "切换研究项目" });
   const search = switcher.getByRole("searchbox");
   const targetSubmit = page.getByRole("button", { name: "检查目标并设置范围" });
-  const preflight = page.getByRole("button", { name: "查看预计消耗" });
+  const preflight = page.getByRole("button", { name: "下一步：核对预计消耗" });
   const confirm = page.getByRole("button", { name: "确认开始采集" });
   const chooseX = async (account = "@example") => {
     await page.getByRole("radiogroup", { name: "选择采集平台" }).getByRole("radio", { name: /X \(Twitter\)/ }).click();
@@ -502,7 +502,8 @@ test("browser: project switching and guided intake with real project and role bo
   await selectProject.filter({ hasText: "系统共享研究" }).waitFor();
   await page.getByRole("button", { name: "复制到我的私有项目" }).waitFor();
   await page.getByRole("button", { name: "按筛选导出 (CSV)" }).waitFor();
-  await page.getByText("暂无趋势数据", { exact: true }).first().waitFor();
+  await page.getByText(/自适应展示状态：/).first().waitFor();
+  await page.getByRole("button", { name: /其他分析/ }).first().waitFor();
   assert.equal(await page.locator(".kpi-strip canvas").count(), 0);
   await capture("empty-project-analysis-1440");
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -522,21 +523,21 @@ test("browser: project switching and guided intake with real project and role bo
   await capture("intake-scope-1440");
   assert.equal(await page.getByLabel("同时采集评论").count(), 0);
   await preflight.click();
-  await page.getByRole("heading", { name: "确认采集内容与预计消耗" }).waitFor();
+  await page.getByRole("heading", { name: "3. 核对采集内容与预计额度消耗" }).waitFor();
   assert.equal(await confirm.isDisabled(), true);
-  await page.getByRole("checkbox", { name: "我已核对预计用量并确认本次采集。" }).check();
+  await page.getByRole("checkbox", { name: /我已核对预计用量并确认发起本次采集/ }).check();
   await page.clock.setFixedTime(new Date(Date.now() + 6 * 60_000));
   await confirm.click();
   await page.getByRole("alert").filter({ hasText: "估算已过期" }).waitFor();
   assert.equal(upstreamCalls, 0);
   await page.clock.setFixedTime(new Date());
   await preflight.click();
-  await page.getByRole("heading", { name: "确认采集内容与预计消耗" }).waitFor();
+  await page.getByRole("heading", { name: "3. 核对采集内容与预计额度消耗" }).waitFor();
   await page.getByRole("button", { name: "返回修改范围" }).click();
   await page.getByLabel("本次条数上限").fill("10");
   assert.equal(await confirm.count(), 0);
   await preflight.click();
-  await page.getByRole("heading", { name: "确认采集内容与预计消耗" }).waitFor();
+  await page.getByRole("heading", { name: "3. 核对采集内容与预计额度消耗" }).waitFor();
   await capture("pro-preflight-1440");
   for (const width of [1280, 768, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
@@ -544,7 +545,7 @@ test("browser: project switching and guided intake with real project and role bo
     await capture(`pro-preflight-${width}`);
   }
   await page.setViewportSize({ width: 1440, height: 900 });
-  const confirmQuota = page.getByRole("checkbox", { name: "我已核对预计用量并确认本次采集。" });
+  const confirmQuota = page.getByRole("checkbox", { name: /我已核对预计用量并确认发起本次采集/ });
   await confirmQuota.check();
   await db.pool.query("UPDATE source_provider_budget SET enabled=false WHERE provider='twitterapis'");
   await confirm.click();
@@ -575,10 +576,10 @@ test("browser: project switching and guided intake with real project and role bo
   assert.equal(upstreamCalls, 1);
 
   await page.goto(origin + `/projects?view=overview&projectId=${secondId}`);
-  await page.getByText("全平台总规模").waitFor();
-  await page.getByRole("button", { name: "近 7 天" }).click();
+  await page.getByText("去重内容总量").waitFor();
+  await page.getByLabel("时间范围").selectOption("7");
   await page.getByRole("button", { name: "应用到分析" }).click();
-  await page.getByText("内容趋势与爆发").waitFor();
+  await page.getByText("热门讨论与代表内容").waitFor();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出证据样本（CSV）" }).click();
   const csv = await readFile(await (await downloadPromise).path(), "utf8");
@@ -636,7 +637,7 @@ test("browser: project switching and guided intake with real project and role bo
   await page.goto(origin + intakePath(firstId));
   await chooseX();
   await preflight.click();
-  await page.getByRole("checkbox", { name: "我已核对预计用量并确认本次采集。" }).check();
+  await page.getByRole("checkbox", { name: /我已核对预计用量并确认发起本次采集/ }).check();
   await confirm.click();
   await page.waitForURL(/view=jobs.*jobId=/);
   assert.equal(await workOnce(db.pool, [x], undefined, undefined, { onProjectBatchCommitted: attachBatchToProjectInTx }), true);
