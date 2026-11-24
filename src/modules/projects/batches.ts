@@ -140,18 +140,24 @@ export async function moveBatchBetweenProjects(
       fail(409, "Moving batches is only supported between batch-mode projects");
     }
     if (!(await loadAuthorizedBatches(client, actor, [batchId])).length) fail(404, "Batch not found");
-    const removed = await client.query(
-      `UPDATE monitor_project_batch SET status='removed', updated_at=NOW()
-       WHERE project_id=$1 AND batch_id=$2 AND status<>'removed'
-       RETURNING batch_id`,
+    const { rows: [membership] } = await client.query<{ status: "enabled" | "disabled" }>(
+      "SELECT status FROM monitor_project_batch WHERE project_id=$1 AND batch_id=$2 AND status<>'removed'",
       [sourceProjectId, batchId],
     );
-    if (!removed.rowCount) fail(404, "Batch is not linked to the source project");
+    if (!membership) fail(404, "Batch is not linked to the source project");
+    // Reuse the local candidate's move semantics: preserve the source status
+    // for new/restored links and an existing destination's explicit decision.
     await client.query(
       `INSERT INTO monitor_project_batch(project_id, batch_id, status, added_by_user_id, added_at, updated_at)
-       VALUES($1, $2, 'enabled', $3, NOW(), NOW())
-       ON CONFLICT (project_id, batch_id) DO UPDATE SET status='enabled', updated_at=NOW()`,
-      [targetProjectId, batchId, actor.userId ?? null],
+       VALUES($1, $2, $3, $4, NOW(), NOW())
+       ON CONFLICT (project_id, batch_id) DO UPDATE
+       SET status=CASE WHEN monitor_project_batch.status='removed' THEN EXCLUDED.status ELSE monitor_project_batch.status END,
+           updated_at=NOW()`,
+      [targetProjectId, batchId, membership.status, actor.userId ?? null],
+    );
+    await client.query(
+      "UPDATE monitor_project_batch SET status='removed', updated_at=NOW() WHERE project_id=$1 AND batch_id=$2",
+      [sourceProjectId, batchId],
     );
     await client.query(
       "UPDATE monitor_project SET revision=revision+1, updated_at=NOW() WHERE id = ANY($1::uuid[])",

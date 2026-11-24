@@ -6,6 +6,7 @@ import { buildApp } from "../../apps/api/src/app";
 import { provisionMfa } from "../../src/modules/access/mfa-sql";
 import { bootstrapOwner } from "../../src/modules/access/sql";
 import { workOnce } from "../../src/modules/collection/worker";
+import { contentVisibility } from "../../src/modules/collection/batches";
 import { attachBatchToProjectInTx } from "../../src/modules/projects/index";
 import { testDatabase } from "../helpers/database";
 
@@ -279,6 +280,11 @@ test("Stage 2 one-off research loop: on-demand targets, queryHints, diagnostics,
   assert.equal(exportJson.statusCode, 200, exportJson.body);
   assert.equal(JSON.parse(exportJson.body).items.length, 1);
 
+  // Moving must not silently re-enable an existing destination membership.
+  await db.pool.query(
+    "INSERT INTO monitor_project_batch(project_id,batch_id,status) VALUES($1,$2,'disabled')",
+    [projA2.id, batchId],
+  );
   // 4. Atomic Move batch from projA1 -> projA2 (AUD-11)
   const moveRes = await app.inject({
     method: "POST",
@@ -290,12 +296,36 @@ test("Stage 2 one-off research loop: on-demand targets, queryHints, diagnostics,
   assert.equal((await app.inject({ method: "GET", url: `/v1/projects/${projA1.id}/batches`, headers: { cookie: viewerACookie } })).json().batches.length, 0);
   assert.equal((await app.inject({ method: "GET", url: `/v1/projects/${projA2.id}/batches`, headers: { cookie: viewerACookie } })).json().batches.length, 1);
 
+  await t.test("moving preserves the destination's disabled decision", async () => {
+    const { rows: [membership] } = await db.pool.query(
+      "SELECT status FROM monitor_project_batch WHERE project_id=$1 AND batch_id=$2",
+      [projA2.id, batchId],
+    );
+    assert.equal(membership.status, "disabled");
+  });
+
   // 5. Private Batch Soft-Discard removes from projects & hides from /v1/batches; Shared cannot be discarded (AUD-11)
   const delBatch = await app.inject({
     method: "DELETE", url: `/v1/batches/${batchId}`, headers: viewerAHeaders,
   });
   assert.equal(delBatch.statusCode, 200, delBatch.body);
   assert.equal((await app.inject({ method: "GET", url: `/v1/projects/${projA2.id}/batches`, headers: { cookie: viewerACookie } })).json().batches.length, 0);
+
+  await t.test("discard never publishes private canonical content", async () => {
+    for (const visibility of [
+      contentVisibility({ role: "viewer", userId: randomUUID() }),
+      contentVisibility(undefined, { publicOnly: true }),
+    ]) {
+      const values: unknown[] = [batchId];
+      const condition = visibility.contains(value => `$${values.push(value)}`, "c.id");
+      const visible = await db.pool.query(
+        `SELECT c.id FROM content c JOIN collection_batch_item i ON i.content_id=c.id
+         WHERE i.batch_id=$1 AND ${condition}`,
+        values,
+      );
+      assert.equal(visible.rowCount, 0, "discard is not consent to share");
+    }
+  });
 
   // 6. Owner creates a shared source_filter project -> Viewer A forks it at 0 API cost (AUD-08)
   const sharedFilterRes = await app.inject({

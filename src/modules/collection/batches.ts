@@ -253,12 +253,14 @@ export function contentVisibility(
           : column === "o.content_id"
             ? " AND cb.collection_source_id=o.collection_source_id"
             : "";
+      // Discard removes an asset, not its privacy provenance. Only an active
+      // shared/owned membership may override another private membership.
       if (options?.publicOnly) {
-        return `(NOT EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.discarded_at IS NULL AND cb.visibility='private') OR EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.discarded_at IS NULL AND cb.visibility='shared'))`;
+        return `(NOT EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.visibility='private') OR EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.discarded_at IS NULL AND cb.visibility='shared'))`;
       }
       if (actor && actor.role !== "viewer") return "TRUE";
       const userId = bind(actor?.userId ?? null);
-      return `(NOT EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.discarded_at IS NULL AND cb.visibility='private' AND cb.created_by_user_id IS DISTINCT FROM ${userId}::uuid) OR EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.discarded_at IS NULL AND (cb.visibility='shared' OR cb.created_by_user_id=${userId}::uuid)))`;
+      return `(NOT EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.visibility='private' AND cb.created_by_user_id IS DISTINCT FROM ${userId}::uuid) OR EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.discarded_at IS NULL AND (cb.visibility='shared' OR cb.created_by_user_id=${userId}::uuid)))`;
     },
   };
 }
