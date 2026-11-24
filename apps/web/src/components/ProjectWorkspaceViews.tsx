@@ -244,7 +244,8 @@ export function ProjectBatchesView({
   const [notice, setNotice] = useState<{ text: string; isError?: boolean } | null>(null);
 
   const batches = batchesQuery.data?.batches ?? [];
-  const otherWritableProjects = allProjects.filter((p) => p.id !== project.id && p.can_edit);
+  const reuseProjects = allProjects.filter((p) => p.id !== project.id && p.can_edit && p.dataset_mode === 'batch');
+  const showActions = project.can_edit || (reuseProjects.length > 0 && batches.some((batch) => batch.visibility === 'shared'));
 
   return (
     <div style={{ display: 'grid', gap: 14 }}>
@@ -253,7 +254,9 @@ export function ProjectBatchesView({
           <div>
             <div className="ds-card-title">{t(`Data Batches · ${project.name}`, `数据批次管理 · ${project.name}`)}</div>
             <div className="ds-card-sub">
-              {t('Enable/disable updates this project immediately; removing only unlinks this project without deleting shared content.', '启用或禁用实时刷新本项目分析；移除仅解除与本项目的关联，不删除共享底层内容，也不影响其他项目。')}
+              {project.can_edit
+                ? t('Enable/disable updates this project immediately; removing only unlinks this project without deleting shared content.', '启用或禁用实时刷新本项目分析；移除仅解除与本项目的关联，不删除共享底层内容，也不影响其他项目。')
+                : t('You can add shared batches to a project you can edit.', '可以将共享批次引入有编辑权限的研究项目。')}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -278,7 +281,9 @@ export function ProjectBatchesView({
             <p className="collection-hint">{t('Loading project batches…', '正在加载项目批次…')}</p>
           ) : batchesQuery.isError ? <p role="alert">{formatApiError(batchesQuery.error)}</p> : batches.length === 0 ? (
             <p className="collection-hint">
-              {t('No batches attached to this project yet. Go to Data Ingestion to collect or reuse a batch.', '当前项目还没有关联任何数据批次。前往「数据接入」发起采集或复用已有授权批次。')}
+              {project.can_edit
+                ? t('No batches attached to this project yet. Go to Data Ingestion to collect or reuse a batch.', '当前项目还没有关联任何数据批次。前往「数据接入」发起采集或复用已有授权批次。')
+                : t('This project has no batches available to reuse.', '此项目暂无可引入的批次。')}
             </p>
           ) : (
             <div className="collection-table-scroll">
@@ -290,13 +295,13 @@ export function ProjectBatchesView({
                     <th>{t('Items', '样本数')}</th>
                     <th>{t('Collected / Added (UTC)', '采集 / 纳入时间')}</th>
                     <th>{t('Status', '项目状态')}</th>
-                    {project.can_edit && <th className="num">{t('Actions', '操作')}</th>}
+                    {showActions && <th className="num">{t('Actions', '操作')}</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {batches.map((b) => {
                     const isEnabled = b.status === 'enabled';
-                    const targetId = reuseTargetByBatch[b.batchId] ?? otherWritableProjects[0]?.id ?? '';
+                    const target = reuseProjects.find((p) => p.id === reuseTargetByBatch[b.batchId]) ?? reuseProjects[0];
                     return (
                       <tr key={b.batchId} aria-current={b.batchId === batchId ? 'true' : undefined}>
                         <td>
@@ -320,9 +325,10 @@ export function ProjectBatchesView({
                             {isEnabled ? t('Enabled', '已启用') : t('Disabled', '已禁用')}
                           </span>
                         </td>
-                        {project.can_edit && (
+                        {showActions && (
                           <td className="num">
                             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                              {project.can_edit && <>
                               <button
                                 type="button"
                                 className="ds-btn ds-btn--ghost"
@@ -381,16 +387,17 @@ export function ProjectBatchesView({
                                 <Trash2 size={11} />
                                 <span>{t('Remove', '移除')}</span>
                               </button>
-                              {otherWritableProjects.length > 0 && (
+                              </>}
+                              {target && (project.can_edit || b.visibility === 'shared') && (
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                   <select
                                     className="wb-select"
                                     aria-label={t('Target project for batch reuse', '选择要复用到的目标项目')}
                                     style={{ height: 26, fontSize: 11, maxWidth: 120 }}
-                                    value={targetId}
+                                    value={target.id}
                                     onChange={(e) => setReuseTargetByBatch((prev) => ({ ...prev, [b.batchId]: e.target.value }))}
                                   >
-                                    {otherWritableProjects.map((op) => (
+                                    {reuseProjects.map((op) => (
                                       <option key={op.id} value={op.id}>{op.name}</option>
                                     ))}
                                   </select>
@@ -398,15 +405,13 @@ export function ProjectBatchesView({
                                     type="button"
                                     className="ds-btn ds-btn--ghost"
                                     style={{ height: 26, fontSize: 11 }}
-                                    disabled={!targetId || attachMut.isPending}
+                                    disabled={attachMut.isPending}
                                     onClick={async () => {
-                                      if (!targetId) return;
                                       setNotice(null);
                                       try {
-                                        await attachMut.mutateAsync({ projectId: targetId, batchId: b.batchId });
-                                        const targetName = otherWritableProjects.find((p) => p.id === targetId)?.name ?? '';
+                                        await attachMut.mutateAsync({ projectId: target.id, batchId: b.batchId });
                                         setNotice({
-                                          text: t(`Batch added to "${targetName}" (0 API cost).`, `已将该批次复用到项目『${targetName}』（零外部 API 消耗）。`),
+                                          text: t(`Batch added to "${target.name}" (0 API cost).`, `已将该批次复用到项目『${target.name}』（零外部 API 消耗）。`),
                                         });
                                       } catch (err) {
                                         setNotice({ text: formatApiError(err), isError: true });
@@ -414,7 +419,7 @@ export function ProjectBatchesView({
                                     }}
                                   >
                                     <FolderPlus size={11} />
-                                    <span>{t('Reuse', '复用')}</span>
+                                    <span>{project.can_edit ? t('Reuse', '复用') : t('Add to project', '引入到项目')}</span>
                                   </button>
                                 </span>
                               )}

@@ -367,6 +367,7 @@ test("browser: project switching and guided intake with real project and role bo
   });
   assert.equal(sourceResponse.status(), 200, await sourceResponse.text());
   const sourceId = (await sourceResponse.json()).source.id as string;
+  await db.pool.query("UPDATE source_provider_budget SET enabled=false WHERE provider='twitterapis'");
   await page.goto(origin + intakePath(sharedId));
   await page.getByText("目前没有可添加的已有研究数据。").waitFor();
   assert.equal(await page.getByRole("button", { name: "使用已有数据", exact: true }).count(), 0);
@@ -374,6 +375,13 @@ test("browser: project switching and guided intake with real project and role bo
   await start.click();
   await page.getByRole("heading", { name: "选择研究对象" }).waitFor();
   await capture("owner-target-1440");
+  await page.getByRole("radio", { name: /Registered X source/ }).check();
+  await page.getByRole("button", { name: "继续设置范围" }).click();
+  await page.getByText("该采集服务暂无可用预算。", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("link", { name: "检查渠道预算" }).getAttribute("href"), "/sources?tab=budgets");
+  assert.equal(await confirm.count(), 0);
+  await db.pool.query("UPDATE source_provider_budget SET enabled=true WHERE provider='twitterapis'");
+  await page.getByRole("button", { name: "更换研究对象" }).click();
   await page.getByRole("button", { name: "输入其他研究对象" }).click();
   await page.getByLabel("目标平台").selectOption("x");
   await page.getByLabel("目标内容").fill("@newtarget");
@@ -552,6 +560,23 @@ test("browser: project switching and guided intake with real project and role bo
   await capture("intake-failed-1440");
   assert.equal(upstreamCalls, 2);
 
+  const sharedBatchId = (await db.pool.query(`INSERT INTO collection_batch(id,collection_source_id,label,visibility)
+    VALUES(gen_random_uuid(),$1,'Reusable shared evidence','shared') RETURNING id`, [sourceId])).rows[0].id;
+  await db.pool.query("INSERT INTO monitor_project_batch(project_id,batch_id) VALUES($1,$2)", [sharedId, sharedBatchId]);
+  await page.goto(origin + `/projects?view=batches&projectId=${sharedId}`);
+  const sharedBatch = page.getByRole("row").filter({ hasText: "Reusable shared evidence" });
+  await sharedBatch.getByRole("button", { name: "引入到项目" }).waitFor();
+  assert.equal(await sharedBatch.getByRole("button", { name: /禁用|移除/ }).count(), 0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await capture("readonly-shared-batch-390");
+  await sharedBatch.getByLabel("选择要复用到的目标项目").selectOption(firstId);
+  await sharedBatch.getByRole("button", { name: "引入到项目" }).press("Enter");
+  await page.getByRole("status").filter({ hasText: "已将该批次复用到项目『私人研究一』" }).waitFor();
+  await page.goto(origin + `/projects?view=batches&projectId=${firstId}`);
+  await page.getByRole("row").filter({ hasText: "Reusable shared evidence" }).getByRole("button", { name: "禁用" }).waitFor();
+  assert.equal(upstreamCalls, 2);
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   await logout();
   await login("free@example.test");

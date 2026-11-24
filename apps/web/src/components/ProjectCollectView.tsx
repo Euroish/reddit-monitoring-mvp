@@ -63,13 +63,11 @@ export function ProjectCollectView({ actor, project, sources, initialSearch = ''
   const jobs = useRecentJobsQuery({ projectId: project.id, limit: 20 }, canModify && flow.step === 'landing');
   const policy = quotas.data?.effectivePolicy;
   const canStart = isAdmin || policy?.manualCollectEnabled === true;
-  const available = quotas.data?.providerAvailability;
+  // Let preflight explain service and budget blocks for otherwise permitted targets.
   const eligible = sources.filter(source => isResearchSource(source) && source.state === 'active' &&
     source.deliveryMode === 'pull' && !source.automaticCollectionBlocked &&
     (isAdmin || policy?.allowedProviders.includes(source.primaryProvider) &&
-      (policy.allowedSourceIds === null || policy.allowedSourceIds.includes(source.id))) &&
-    (!available || available.some(service => service.platform === source.platform && service.provider === source.primaryProvider &&
-      service.enabled && service.planAllowed && service.budgetEnabled)));
+      (policy.allowedSourceIds === null || policy.allowedSourceIds.includes(source.id))));
   const batches = existing.data?.batches ?? [];
   const projectParams = new URLSearchParams({ projectId: project.id });
   const path = (view: string) => `/projects?view=${view}&${projectParams}`;
@@ -222,7 +220,7 @@ export function ProjectCollectView({ actor, project, sources, initialSearch = ''
         {flow.step === 'scope' && !restriction && <IntakeScopeStep result={flow.target} source={sources.find(source => source.id === sourceId)}
           range={range} setRange={setRange} isAdmin={isAdmin} pending={preview.isPending}
           onContinue={estimate} onBack={() => move('target')} />}
-        {restriction && <IntakeRestriction result={restriction} registrationPath={registrationPath}
+        {restriction && <IntakeRestriction result={restriction} registrationPath={registrationPath} isAdmin={isAdmin}
           onBack={() => { setRestriction(undefined); setError(''); }} />}
         {flow.step === 'review' && <IntakeReviewStep estimate={flow.estimate} isAdmin={isAdmin} confirmed={confirmed} setConfirmed={setConfirmed}
           pending={collect.isPending} onConfirm={() => void confirm()} onBack={() => {

@@ -186,19 +186,26 @@ const restrictionText: Record<ResearchCollectionRestriction, [string, string]> =
   unsupported_scope: ['The collection service does not support this scope.', '当前采集服务不支持此范围。'],
 };
 
-export function IntakeRestriction({ result, registrationPath, onBack }: {
+export function IntakeRestriction({ result, registrationPath, isAdmin, onBack }: {
   result: ResearchPlanPreviewResponse;
   registrationPath?: string;
+  isAdmin: boolean;
   onBack: () => void;
 }) {
   const { t } = useI18n();
   const codes = result.restrictions ?? (result.resolutionStatus === 'needs_admin_source' ? ['target_unavailable'] : []);
+  const channel = result.matchedSource?.provider;
+  const providerBlocked = isAdmin && codes.includes('provider_unavailable');
+  const budgetBlocked = isAdmin && codes.includes('budget_unavailable');
   return <Alert role="status" className="intake-restriction">
     <h3>{t('Collection cannot start yet', '暂时无法开始采集')}</h3>
     {codes.length ? <ul>{codes.map(code => <li key={code}>{restrictionText[code] ? t(...restrictionText[code]) : t('Collection is currently restricted.', '当前采集受限。')}</li>)}</ul>
       : <p>{t('Try another target or contact an administrator.', '请更换研究对象，或联系管理员检查采集设置。')}</p>}
+    {providerBlocked && channel && <p>{t(`Check the saved credential and network status for ${channel}.`, `请检查 ${channel} 的渠道凭证和联网状态。`)}</p>}
     <div className="intake-actions">
       {registrationPath && <a href={registrationPath}>{t('Add this research source', '添加此研究来源')}</a>}
+      {providerBlocked && <a href="/sources?tab=providers">{t('Check provider credentials', '检查渠道凭证')}</a>}
+      {budgetBlocked && <a href="/sources?tab=budgets">{t('Check provider budgets', '检查渠道预算')}</a>}
       <Button type="button" variant="outline" onClick={onBack}>{t('Try another target', '更换研究对象')}</Button>
     </div>
   </Alert>;

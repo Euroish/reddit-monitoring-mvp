@@ -6,6 +6,7 @@ export {
   enqueueCollectionForSource,
   ensureManagedSource,
   getProviderDailyUsage,
+  syncManagedMonitorSchedules,
   type ProviderDailyUsageSummary,
 } from "./managed";
 export { policyRoutes } from "./policy";

@@ -19,11 +19,22 @@ export async function lockSocialDispatchBudget(client: PoolClient) {
 
 export async function socialResourcesReservedToday(client: PoolClient): Promise<number> {
   const { rows: [row] } = await client.query<{ reserved: number }>(
-    `SELECT COALESCE(SUM(resources_reserved), 0)::int AS reserved FROM source_provider_usage
+    `SELECT COALESCE(SUM(resources_reserved), 0)::float8 AS reserved FROM source_provider_usage
      WHERE provider=ANY($1::text[]) AND day=(now() AT TIME ZONE 'UTC')::date`,
     [budgetedSocialProviders],
   );
   return row.reserved;
+}
+
+export async function deferSocialCollectionOutsideBudget(client: PoolClient, jobId: string, token: string, resources: number) {
+  if (await socialResourcesReservedToday(client) + resources <= DAILY_SOCIAL_ITEM_CEILING) return false;
+  await client.query(
+    `UPDATE source_collection_job SET status='queued',next_run_at=date_trunc('day',now(),'UTC')+interval '24 hours',
+       lease_token=NULL,lease_until=NULL,attempts=attempts-1,error='Waiting for system social budget'
+     WHERE id=$1 AND lease_token=$2 AND status='running'`,
+    [jobId, token],
+  );
+  return true;
 }
 
 export async function enqueueAutomaticCommunityHydration(
@@ -126,7 +137,7 @@ export async function cancelHydrationOutsideBudget(client: PoolClient, jobId: st
        error='Automatic hydration reservation is unavailable'
      WHERE id=$1 AND lease_token=$2 AND request_json ? 'autoMonitorId'
        AND (request_count > 0 OR created_at < date_trunc('day', now(), 'UTC')
-         OR $3::int > $4::int
+         OR $3::float8 > $4::float8
          OR provider_ready_at(provider, $5) >= date_trunc('day', now(), 'UTC') + interval '24 hours')`,
     [jobId, token, reserved + resources, DAILY_SOCIAL_ITEM_CEILING, resources],
   );

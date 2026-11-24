@@ -5,7 +5,7 @@ import type { SourceInput } from "../../../packages/contracts/src/collection";
 import type { MonitorConfigValue, MonitorKindValue } from "../../../packages/contracts/src/intelligence";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { fail } from "../../shared/errors";
-import { DAILY_SOCIAL_ITEM_CEILING, ensureManagedSource, getProviderDailyUsage } from "../collection/index";
+import { DAILY_SOCIAL_ITEM_CEILING, ensureManagedSource, getProviderDailyUsage, syncManagedMonitorSchedules } from "../collection/index";
 import { packXAccountBatches } from "./metrics";
 
 
@@ -22,13 +22,8 @@ interface TargetRow {
   platform: "reddit" | "x";
 }
 
-function buildSchedule(intervalHours: number) {
-  return { enabled: true, cadenceSeconds: Math.min(43200, Math.max(120, intervalHours * 3600)), pageSize: 50, maxPages: 1 };
-}
-
 function buildKeywordSpecs(
   config: MonitorConfigValue,
-  schedule: ReturnType<typeof buildSchedule>,
 ): { specs: ProvisionSpec[]; targets: TargetRow[] } {
   const specs: ProvisionSpec[] = [];
   const targets: TargetRow[] = [];
@@ -51,13 +46,13 @@ function buildKeywordSpecs(
           ? {
               platform: "reddit", primaryProvider: "kaix", fallbackProvider: "red_crawler",
               deliveryMode: "pull", contentKind: "post", feedLane: "monitor_only",
-              label: `KW Reddit: ${kw}`.slice(0, 100), schedule,
+              label: `KW Reddit: ${kw}`.slice(0, 100),
               target: { type: "search", query: kw, sort: config.sort ?? "top", timeRange: "week", minLikes: config.minLikes, minComments: config.minComments },
             }
           : {
               platform: "x", primaryProvider: "twitterapis", fallbackProvider: "scrapebadger",
               deliveryMode: "pull", contentKind: "post", feedLane: "monitor_only",
-              label: `KW X: ${kw}`.slice(0, 100), schedule,
+              label: `KW X: ${kw}`.slice(0, 100),
               target: { type: "search", query: kw, sort: config.sort ?? "top", minLikes: config.minLikes, minComments: config.minComments, excludeReposts: config.excludeReposts ?? true, language: config.language },
             },
       });
@@ -68,7 +63,6 @@ function buildKeywordSpecs(
 
 function buildAuthorSpecs(
   config: MonitorConfigValue,
-  schedule: ReturnType<typeof buildSchedule>,
 ): { specs: ProvisionSpec[]; targets: TargetRow[] } {
   const handles = config.handles ?? [];
   if (!handles.length) fail(422, "Author monitor requires at least one handle");
@@ -87,7 +81,7 @@ function buildAuthorSpecs(
         targetLabel: `u/${clean}`,
         sourceInput: {
           platform: "reddit", primaryProvider: "kaix", deliveryMode: "pull", contentKind: "post",
-          feedLane: "monitor_only", label: `KOL Reddit: u/${clean}`.slice(0, 100), schedule,
+          feedLane: "monitor_only", label: `KOL Reddit: u/${clean}`.slice(0, 100),
           target: { type: "account", account: clean, sort: config.sort ?? "new" },
         },
       });
@@ -100,7 +94,7 @@ function buildAuthorSpecs(
       sourceInput: {
         platform: "x", primaryProvider: "twitterapis", fallbackProvider: "scrapebadger",
         deliveryMode: "pull", contentKind: "post", feedLane: "monitor_only",
-        label: `KOL X Batch #${idx + 1} (${batch.length})`.slice(0, 100), schedule,
+        label: `KOL X Batch #${idx + 1} (${batch.length})`.slice(0, 100),
         target: { type: "account", account: batch[0], accounts: batch, sort: config.sort ?? "new", excludeReposts: config.excludeReposts ?? true },
       },
     });
@@ -111,7 +105,6 @@ function buildAuthorSpecs(
 
 function buildCommunitySpecs(
   config: MonitorConfigValue,
-  schedule: ReturnType<typeof buildSchedule>,
 ): { specs: ProvisionSpec[]; targets: TargetRow[] } {
   const subs = [
     ...new Set((config.subreddits ?? []).map((s) => s.trim().replace(/^r\//i, "").toLowerCase()).filter(Boolean)),
@@ -127,7 +120,7 @@ function buildCommunitySpecs(
       sourceInput: {
         platform: "reddit", primaryProvider: "kaix", fallbackProvider: "red_crawler",
         deliveryMode: "pull", contentKind: "post", feedLane: "monitor_only",
-        label: `Subreddit: r/${sub}`.slice(0, 100), schedule,
+        label: `Subreddit: r/${sub}`.slice(0, 100),
         target: { type: "community", community: sub, sort: config.sort ?? "hot", timeRange: "week", minLikes: config.minLikes, minComments: config.minComments },
       },
     });
@@ -141,20 +134,24 @@ export async function provisionMonitorSources(
   monitorId: string,
   kind: MonitorKindValue,
   config: MonitorConfigValue,
-  intervalHours: number,
 ) {
-  const schedule = buildSchedule(intervalHours);
   const plan = kind === "keyword"
-    ? buildKeywordSpecs(config, schedule)
+    ? buildKeywordSpecs(config)
     : kind === "author_list"
-      ? buildAuthorSpecs(config, schedule)
-      : buildCommunitySpecs(config, schedule);
+      ? buildAuthorSpecs(config)
+      : buildCommunitySpecs(config);
 
-  await client.query("DELETE FROM intel_monitor_source WHERE monitor_id=$1", [monitorId]);
+  const previous = await client.query<{ collection_source_id: string }>(
+    "DELETE FROM intel_monitor_source WHERE monitor_id=$1 RETURNING collection_source_id", [monitorId],
+  );
+  const affectedSourceIds = previous.rows.map(row => row.collection_source_id);
   await client.query("DELETE FROM intel_monitor_target WHERE monitor_id=$1", [monitorId]);
 
   for (const spec of plan.specs) {
-    const cs = await ensureManagedSource(client, providers, spec.sourceInput);
+    const cs = await ensureManagedSource(client, providers, {
+      ...spec.sourceInput, schedule: { enabled: false, pageSize: 50, maxPages: 1 },
+    });
+    affectedSourceIds.push(cs.id);
     await client.query(
       `INSERT INTO intel_monitor_source(monitor_id, collection_source_id, role, target_label)
        VALUES($1, $2, $3, $4)
@@ -172,7 +169,33 @@ export async function provisionMonitorSources(
     );
   }
 
-  return { sourceCount: plan.specs.length, targetCount: plan.targets.length };
+  return affectedSourceIds;
+}
+
+export async function lockMonitorLifecycle(client: PoolClient) {
+  // Provisioning and reconciliation can touch sources shared by different monitors.
+  await client.query("SELECT pg_advisory_xact_lock(728419, 4)");
+}
+
+export async function monitorSourceIds(client: PoolClient, monitorId: string) {
+  const { rows } = await client.query<{ collection_source_id: string }>(
+    "SELECT collection_source_id FROM intel_monitor_source WHERE monitor_id=$1", [monitorId],
+  );
+  return rows.map(row => row.collection_source_id);
+}
+
+export async function reconcileMonitorSources(client: PoolClient, affectedSourceIds: string[]) {
+  if (!affectedSourceIds.length) return;
+  const { rows } = await client.query<{ sourceId: string; cadenceSeconds: number | null }>(
+    `SELECT affected.id AS "sourceId",
+       MIN(LEAST(m.schedule_interval_hours,12)) FILTER (WHERE m.id IS NOT NULL) * 3600 AS "cadenceSeconds"
+     FROM (SELECT DISTINCT unnest($1::uuid[]) AS id) affected
+     LEFT JOIN intel_monitor_source ms ON ms.collection_source_id=affected.id
+     LEFT JOIN intel_monitor m ON m.id=ms.monitor_id AND m.enabled
+     GROUP BY affected.id`,
+    [affectedSourceIds],
+  );
+  await syncManagedMonitorSchedules(client, rows);
 }
 
 export async function estimateMonitorCollection(

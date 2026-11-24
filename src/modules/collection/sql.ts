@@ -76,52 +76,58 @@ export async function listSourcesByIds(db: Pool | PoolClient, ids: readonly stri
   return rows.map(sourceFromRow);
 }
 
+async function reactivateArchivedSource(
+  pool: Pool | PoolClient,
+  input: Static<typeof SourceInput>,
+  target: SourceTarget,
+): Promise<CollectionSource | undefined> {
+  const schedule = input.schedule ?? { enabled: false };
+  const { rows: [archived] } = await pool.query<{ id: string }>(
+    `UPDATE collection_source cs
+     SET state='active',delivery_mode=$5,label=$6,fallback_provider=$7,schedule=$8::jsonb,
+         next_due_at=CASE WHEN $8::jsonb @> '{"enabled":true}' THEN now() END,
+         tier=$9,owner_entity_id=$10,source_group=$11,tags=$12,locale=$13,fetch_policy=$14::jsonb,
+         feed_lane=$15,quality_grade=$16,monitor_managed=false,revision=cs.revision+1,updated_at=NOW()
+     FROM source s WHERE s.id=cs.platform_id AND s.code=$1 AND cs.primary_provider=$2
+       AND cs.content_kind=$3 AND cs.target=$4::jsonb AND cs.state='archived' RETURNING cs.id`,
+    [
+      input.platform, input.primaryProvider, input.contentKind, target,
+      input.deliveryMode, input.label, input.fallbackProvider ?? null, schedule,
+      input.tier ?? "T2", input.ownerEntityId ?? null, input.sourceGroup ?? null, input.tags ?? [],
+      input.locale ?? null, input.fetchPolicy ?? {}, input.feedLane ?? "discussion", input.qualityGrade ?? null,
+    ],
+  );
+  if (!archived) return;
+  return sourceFromRow((await pool.query(`${sourceSelect} WHERE cs.id=$1`, [archived.id])).rows[0]);
+}
+
 export async function insertSource(
   pool: Pool | PoolClient,
   input: Static<typeof SourceInput>,
   target: SourceTarget,
+  mode: "admin" | "monitor" = "admin",
 ): Promise<CollectionSource> {
-  const archived = (
-    await pool.query<{ id: string }>(
-      `SELECT cs.id FROM collection_source cs JOIN source s ON s.id=cs.platform_id
-       WHERE s.code=$1 AND cs.primary_provider=$2 AND cs.content_kind=$3 AND cs.target=$4::jsonb AND cs.state='archived'`,
-      [input.platform, input.primaryProvider, input.contentKind, target],
-    )
-  ).rows[0];
-  if (archived) {
-    const schedule = input.schedule ?? { enabled: false };
-    await pool.query(
-      `UPDATE collection_source
-       SET state='active',delivery_mode=$2,label=$3,fallback_provider=$4,schedule=$5::jsonb,
-           next_due_at=CASE WHEN $5::jsonb @> '{"enabled":true}' THEN now() ELSE NULL END,
-           tier=$6,owner_entity_id=$7,source_group=$8,tags=$9,locale=$10,fetch_policy=$11::jsonb,
-           feed_lane=$12,quality_grade=$13,revision=revision+1,updated_at=NOW()
-       WHERE id=$1`,
-      [
-        archived.id, input.deliveryMode, input.label, input.fallbackProvider ?? null, schedule,
-        input.tier ?? "T2", input.ownerEntityId ?? null, input.sourceGroup ?? null, input.tags ?? [],
-        input.locale ?? null, input.fetchPolicy ?? {}, input.feedLane ?? "discussion", input.qualityGrade ?? null,
-      ],
-    );
-    return sourceFromRow((await pool.query(`${sourceSelect} WHERE cs.id=$1`, [archived.id])).rows[0]);
+  if (mode === "admin") {
+    const reactivated = await reactivateArchivedSource(pool, input, target);
+    if (reactivated) return reactivated;
   }
   const row = (
     await pool.query(
       `INSERT INTO collection_source(
         id,platform_id,primary_provider,label,target,content_kind,delivery_mode,
         fallback_provider,created_at,updated_at,schedule,next_due_at,tier,
-        owner_entity_id,source_group,tags,locale,fetch_policy,feed_lane,quality_grade,usage_domain
+        owner_entity_id,source_group,tags,locale,fetch_policy,feed_lane,quality_grade,usage_domain,monitor_managed
       )
       SELECT $1,id,$2,$3,$4,$5,$6,$8,NOW(),NOW(),$9::jsonb,
         CASE WHEN $9::jsonb @> '{"enabled":true}' THEN now() END,
-        $10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18
+        $10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18,$19
       FROM source WHERE code=$7 RETURNING id`,
       [
         randomUUID(), input.primaryProvider, input.label, target, input.contentKind, input.deliveryMode,
         input.platform, input.fallbackProvider ?? null, input.schedule ?? { enabled: false },
         input.tier ?? "T2", input.ownerEntityId ?? null, input.sourceGroup ?? null, input.tags ?? [],
         input.locale ?? null, input.fetchPolicy ?? {}, input.feedLane ?? "discussion", input.qualityGrade ?? null,
-        input.platform === "web" ? "feed" : "research",
+        input.platform === "web" ? "feed" : "research", mode === "monitor",
       ],
     )
   ).rows[0];

@@ -21,7 +21,10 @@ import {
 } from "../collection/index";
 import {
   estimateMonitorCollection,
+  lockMonitorLifecycle,
+  monitorSourceIds,
   provisionMonitorSources,
+  reconcileMonitorSources,
 } from "./provisioning";
 
 export interface MonitorWithSources {
@@ -30,11 +33,27 @@ export interface MonitorWithSources {
   targets: Array<{ targetKind: string; targetValue: string; platform: string }>;
 }
 
-function assertActorAllowed(actor: Actor, sourceIds: readonly string[]) {
-  if (actor.allowedSourceIds === null) return;
-  if (!sourceIds.every((id) => actor.allowedSourceIds!.includes(id))) {
-    fail(404, "Monitor not found");
-  }
+const monitorAccess = `($2::uuid IS NULL OR m.owner_user_id=$2)
+  AND ($3::uuid[] IS NULL OR NOT EXISTS (
+    SELECT 1 FROM intel_monitor_source ms
+    WHERE ms.monitor_id=m.id AND NOT (ms.collection_source_id=ANY($3))
+  ))`;
+
+function isStaffBrowser(actor: Actor) {
+  return actor.clientKind === "browser" && (actor.role === "owner" || actor.role === "admin");
+}
+
+function monitorAccessParameters(actor: Actor) {
+  return [isStaffBrowser(actor) ? null : actor.userId, actor.allowedSourceIds] as const;
+}
+
+async function selectMonitor(db: Pool | PoolClient, actor: Actor, id: string, lock = false) {
+  const { rows: [row] } = await db.query(
+    `SELECT m.* FROM intel_monitor m WHERE m.id=$1 AND ${monitorAccess}${lock ? " FOR UPDATE OF m" : ""}`,
+    [id, ...monitorAccessParameters(actor)],
+  );
+  if (!row) fail(404, "Monitor not found");
+  return row;
 }
 
 export async function listMonitors(pool: Pool, actor: Actor, kind?: string): Promise<IntelMonitorDto[]> {
@@ -43,19 +62,15 @@ export async function listMonitors(pool: Pool, actor: Actor, kind?: string): Pro
        COALESCE(ARRAY(SELECT ms.collection_source_id FROM intel_monitor_source ms WHERE ms.monitor_id=m.id ORDER BY ms.collection_source_id), '{}') AS source_ids,
        (SELECT COUNT(*)::int FROM intel_monitor_target mt WHERE mt.monitor_id=m.id) AS target_count
      FROM intel_monitor m
-     WHERE ($1::text IS NULL OR m.kind=$1)
+     WHERE ($1::text IS NULL OR m.kind=$1) AND ${monitorAccess}
      ORDER BY m.updated_at DESC, m.id DESC`,
-    [kind ?? null],
+    [kind ?? null, ...monitorAccessParameters(actor)],
   );
-  const filtered = rows.filter((r) => {
-    if (actor.allowedSourceIds === null) return true;
-    return (r.source_ids as string[]).every((id) => actor.allowedSourceIds!.includes(id));
-  });
-  const allSrcIds = [...new Set(filtered.flatMap((r) => r.source_ids as string[]))];
+  const allSrcIds = [...new Set(rows.flatMap((r) => r.source_ids as string[]))];
   const sources = await listSourcesByIds(pool, allSrcIds);
   const srcMap = new Map(sources.map((s) => [s.id, s]));
 
-  return filtered.map((r) => {
+  return rows.map((r) => {
     const srcIds = (r.source_ids as string[]) ?? [];
     const lastDates = srcIds
       .map((id) => srcMap.get(id)?.lastSuccessAt)
@@ -80,20 +95,19 @@ export async function listMonitors(pool: Pool, actor: Actor, kind?: string): Pro
 }
 
 export async function loadMonitor(db: Pool | PoolClient, actor: Actor, id: string): Promise<MonitorWithSources> {
-  const row = (await db.query("SELECT * FROM intel_monitor WHERE id=$1", [id])).rows[0];
+  const { rows: [row] } = await db.query(
+    `SELECT m.*,
+       ARRAY(SELECT ms.collection_source_id FROM intel_monitor_source ms
+         WHERE ms.monitor_id=m.id ORDER BY ms.collection_source_id) AS source_ids,
+       COALESCE((SELECT jsonb_agg(jsonb_build_object('targetKind', mt.target_kind, 'targetValue', mt.target_value,
+         'platform', mt.platform) ORDER BY mt.target_kind, mt.platform, mt.target_value)
+         FROM intel_monitor_target mt WHERE mt.monitor_id=m.id), '[]') AS targets
+     FROM intel_monitor m WHERE m.id=$1 AND ${monitorAccess}`,
+    [id, ...monitorAccessParameters(actor)],
+  );
   if (!row) fail(404, "Monitor not found");
-  const [srcRes, tgtRes] = await Promise.all([
-    db.query<{ collection_source_id: string }>(
-      "SELECT collection_source_id FROM intel_monitor_source WHERE monitor_id=$1 ORDER BY collection_source_id",
-      [id],
-    ),
-    db.query<{ target_kind: string; target_value: string; platform: string }>(
-      "SELECT target_kind, target_value, platform FROM intel_monitor_target WHERE monitor_id=$1 ORDER BY target_kind, platform, target_value",
-      [id],
-    ),
-  ]);
-  const sourceIds = srcRes.rows.map((r) => r.collection_source_id);
-  assertActorAllowed(actor, sourceIds);
+  const sourceIds: string[] = row.source_ids;
+  const targets: MonitorWithSources["targets"] = row.targets;
   const sources = await listSourcesByIds(db, sourceIds);
   const lastDates = sources.map((s) => s.lastSuccessAt).filter((v): v is string => Boolean(v)).sort();
   return {
@@ -107,13 +121,13 @@ export async function loadMonitor(db: Pool | PoolClient, actor: Actor, id: strin
       enabled: Boolean(row.enabled),
       revision: row.revision,
       sourceCount: sourceIds.length,
-      targetCount: tgtRes.rows.length,
+      targetCount: targets.length,
       lastSuccessAt: lastDates.length ? lastDates[lastDates.length - 1] : null,
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
     },
     sourceIds,
-    targets: tgtRes.rows.map((t) => ({ targetKind: t.target_kind, targetValue: t.target_value, platform: t.platform })),
+    targets,
   };
 }
 
@@ -128,12 +142,14 @@ export async function createMonitor(
   const dailyItemBudget = input.dailyItemBudget ?? 1000;
   const enabled = input.enabled ?? true;
   await transaction(pool, async (client) => {
+    await lockMonitorLifecycle(client);
     await client.query(
       `INSERT INTO intel_monitor(id, owner_user_id, kind, name, config, schedule_interval_hours, daily_item_budget, enabled, created_at, updated_at)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW())`,
       [id, actor.userId, input.kind, input.name.trim(), input.config, intervalHours, dailyItemBudget, enabled],
     );
-    await provisionMonitorSources(client, providers, id, input.kind, input.config, intervalHours);
+    await reconcileMonitorSources(client, await provisionMonitorSources(client, providers, id, input.kind, input.config));
+    if (actor.allowedSourceIds !== null) await selectMonitor(client, actor, id);
   });
   return (await loadMonitor(pool, actor, id)).monitor;
 }
@@ -146,13 +162,14 @@ export async function updateMonitor(
   patch: Static<typeof MonitorPatchBody>,
 ): Promise<IntelMonitorDto> {
   await transaction(pool, async (client) => {
-    const row = (await client.query("SELECT * FROM intel_monitor WHERE id=$1 FOR UPDATE", [id])).rows[0];
-    if (!row) fail(404, "Monitor not found");
-    const existingSources = (
-      await client.query<{ collection_source_id: string }>("SELECT collection_source_id FROM intel_monitor_source WHERE monitor_id=$1", [id])
-    ).rows.map((r) => r.collection_source_id);
-    assertActorAllowed(actor, existingSources);
+    await lockMonitorLifecycle(client);
+    const row = await selectMonitor(client, actor, id, true);
     if (row.revision !== patch.revision) fail(409, "Monitor changed; reload before saving");
+    const scheduleChanged = patch.scheduleIntervalHours !== undefined && patch.scheduleIntervalHours !== row.schedule_interval_hours;
+    const enabledChanged = patch.enabled !== undefined && patch.enabled !== row.enabled;
+    if ((patch.config || scheduleChanged || (enabledChanged && patch.enabled)) && !isStaffBrowser(actor)) {
+      fail(403, "An administrator browser session is required to configure or enable monitoring");
+    }
 
     const nextName = patch.name?.trim() ?? row.name;
     const nextConfig = patch.config ?? row.config;
@@ -166,8 +183,12 @@ export async function updateMonitor(
        WHERE id=$1`,
       [id, nextName, nextConfig, nextInterval, nextBudget, nextEnabled],
     );
-    if (patch.config || patch.scheduleIntervalHours !== undefined) {
-      await provisionMonitorSources(client, providers, id, row.kind, nextConfig, nextInterval);
+    if (patch.config) {
+      const affectedSourceIds = await provisionMonitorSources(client, providers, id, row.kind, nextConfig);
+      if (actor.allowedSourceIds !== null) await selectMonitor(client, actor, id);
+      await reconcileMonitorSources(client, affectedSourceIds);
+    } else if (enabledChanged || scheduleChanged) {
+      await reconcileMonitorSources(client, await monitorSourceIds(client, id));
     }
     if (!nextEnabled || patch.config || nextBudget < row.daily_item_budget) {
       await cancelUnstartedMonitorHydrations(client, id);
@@ -178,15 +199,13 @@ export async function updateMonitor(
 
 export async function deleteMonitor(pool: Pool, actor: Actor, id: string, revision: number): Promise<{ deleted: true }> {
   return transaction(pool, async (client) => {
-    const row = (await client.query("SELECT id, revision FROM intel_monitor WHERE id=$1 FOR UPDATE", [id])).rows[0];
-    if (!row) fail(404, "Monitor not found");
-    const srcs = (
-      await client.query<{ collection_source_id: string }>("SELECT collection_source_id FROM intel_monitor_source WHERE monitor_id=$1", [id])
-    ).rows.map((r) => r.collection_source_id);
-    assertActorAllowed(actor, srcs);
+    await lockMonitorLifecycle(client);
+    const row = await selectMonitor(client, actor, id, true);
     if (row.revision !== revision) fail(409, "Monitor changed; reload before deleting");
-    await cancelUnstartedMonitorHydrations(client, id);
+    const affectedSourceIds = await monitorSourceIds(client, id);
     await client.query("DELETE FROM intel_monitor WHERE id=$1", [id]);
+    await reconcileMonitorSources(client, affectedSourceIds);
+    await cancelUnstartedMonitorHydrations(client, id);
     return { deleted: true };
   });
 }
@@ -235,6 +254,8 @@ export async function triggerMonitorCollect(
   const to = new Date();
   const from = new Date(to.getTime() - (body.lookbackHours ?? 168) * 3_600_000);
   const outcome = await transaction(pool, async (client) => {
+    const current = await selectMonitor(client, actor, id, true);
+    if (current.revision !== monitor.revision) fail(409, "Monitor changed; reload before collecting");
     const jobIds: string[] = [];
     let anyCreated = false;
     for (const sourceId of sourceIds) {

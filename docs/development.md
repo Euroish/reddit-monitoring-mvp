@@ -158,6 +158,40 @@ docker stop pg16-dev-test
 - `WorkerHooks.onProjectBatchCommitted` 在内容事务内执行，关联失败回滚整页；`onSourceContentCommitted` 在提交后执行，回算/自动水合失败独立记录，不能触发已提交采集重放。
 - 批次累计数按实际新增 membership 增量维护；历史批次即使任务已清理也阻止来源物理删除，改为归档。
 
+### V2 上线前核对信源与预算
+
+先在隔离恢复库记录迁移前配置，再应用候选版本并按来源 ID 和供应商对比。`061` 会停掉命中的被动媒体来源，并抬高四个社媒渠道的日月预算。先让运维确认有意归档的来源、应保留的官方发布源及预算值，再启用对外采集。
+
+```sql
+SELECT cs.id, cs.label, cs.source_group, cs.state, cs.schedule, cs.next_due_at
+FROM collection_source cs
+WHERE NOT EXISTS (SELECT 1 FROM ai_vendor_source avs WHERE avs.source_id=cs.id)
+  AND (cs.source_group IN ('public-affairs','lifestyle','tech-media','design-visual','science')
+    OR cs.label ~* '(v2ex|bilibili|zhihu|ithome|ifanr|cnbeta|technews|google\.com/trends|google-trends)'
+    OR cs.target::text ~* '(v2ex|bilibili|zhihu|ithome|ifanr|cnbeta|technews\.tw|google-trends|trends\.google)')
+ORDER BY cs.label, cs.id;
+
+SELECT provider, enabled, daily_requests, monthly_requests, daily_resources, monthly_resources, minimum_interval_ms
+FROM source_provider_budget
+WHERE provider IN ('kaix','red_crawler','twitterapis','scrapebadger')
+ORDER BY provider;
+```
+
+对误归档项使用来源管理恢复既有 ID，并按迁移前记录恢复状态和调度。按确认后的配置恢复渠道预算，再验证公开首页与 `/app/feed` 有代表性来源、旧研究项目可查、Worker 未出现异常付费排队。保留迁移前清单以便失败时回退与复核。
+
+已经运行过 `063` 的环境还需在应用 `065` 后检查历史 `monitor_only` 来源。以下结果是待核对清单。只有核实来源归属和实际用途后，才从来源管理关闭无人使用的调度。已经发起的请求遵循原有未决付费处理流程。
+
+```sql
+SELECT cs.id, cs.label, cs.state, cs.schedule, COUNT(m.id) AS enabled_monitor_refs
+FROM collection_source cs
+LEFT JOIN intel_monitor_source ms ON ms.collection_source_id=cs.id
+LEFT JOIN intel_monitor m ON m.id=ms.monitor_id AND m.enabled
+WHERE cs.feed_lane='monitor_only' AND NOT cs.monitor_managed
+  AND cs.schedule @> '{"enabled":true}'
+GROUP BY cs.id
+ORDER BY enabled_monitor_refs, cs.label, cs.id;
+```
+
 ## 4. Docker 多阶段构建与单机 Compose
 
 [Dockerfile](../Dockerfile) 依次定义 `build` -> `runtime` -> **`proxy`（默认末段目标）**。打包生产镜像必须显式指定 `--target` 并传入同一提交 SHA 标签：
