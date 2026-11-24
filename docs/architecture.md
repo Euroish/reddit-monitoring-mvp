@@ -30,13 +30,13 @@ Web 浏览器 / 移动 Web / 外部 Agent / L3 外部 Sidecar / R4 plugins/zst-a
 
 由 `.dependency-cruiser.cjs` 与 `scripts/check-table-ownership.ts` 在 CI (`npm run lint:arch`) 双重强制：**全仓零循环依赖、跨模块只经目标域 `index.ts` 公开门面（禁引内部文件与 `routes.ts`）、每张数据库表有且仅有一个写主模块。**
 
-依赖方向不设白名单：业务域之间在不成环的前提下可按需协作。下图是**当前实际依赖**，不是强制分配；新增跨域依赖只要通过 `lint:arch`（不成环、走门面）即可，无需先改规则表。
+依赖方向不设白名单：除 `access`/`content` 两个严格叶子域外，业务域之间在不成环的前提下可按需协作。下图是**当前实际依赖**，不是强制分配；新增跨域依赖只要通过 `lint:arch`（不成环、走门面）即可，无需先改规则表。
 
 ```mermaid
 flowchart TD
-  APP["apps/api (Thin Composition Root + Route Auth)"] --> ACCESS["access (Auth / MFA / Audit)"]
+  APP["apps/api (Thin Composition Root + Route Auth)"] --> ACCESS["access (Leaf: Auth / MFA / Audit)"]
   APP --> DOCS["docs (Product Docs)"]
-  APP --> CONTENT["content (Canonical Content / Scalar Metrics / Thread / Search)"]
+  APP --> CONTENT["content (Leaf: Canonical Content / Scalar Metrics / Thread / Search)"]
   APP --> COLLECTION["collection (Sources / Connectors / Budgets / Worker)"]
   APP --> FEED["feed [V2] (Anti-Filter-Bubble Stream / Hot Board / Events)"]
   APP --> INTEL["intelligence [V2] (Keyword / KOL / Subreddit Monitors + Rollups)"]
@@ -59,7 +59,7 @@ flowchart TD
 | :--- | :--- | :--- |
 | **`access`** | 严格叶子域（`modules-access-leaf` 强制） | **8 表**：`app_user`、`app_user_password`、`app_invite`、`app_audit_log`、`app_session`、`app_auth_challenge`、`app_auth_mfa`、`app_auth_mfa_login`。 |
 | **`docs`** | 当前无跨域依赖 | **1 表**：`doc_page`（产品文档中心，支持 `markdown` / `https` 外链 / 8 MiB 内联 PDF）。 |
-| **`content`** | 当前无跨域依赖；范围由 `resolveProjectScope` 注入 | **5 表**：`content`、`content_discovery`、`content_observation`、`content_author_profile`、`public_content_search_document`。全库唯一写入入口 `commitContentBatch`；读取 `collection` 的 `source` 与 `collection_source` 属常规业务读。 |
+| **`content`** | 严格叶子域（`modules-content-leaf` 强制）；范围由 `resolveProjectScope` 注入 | **5 表**：`content`、`content_discovery`、`content_observation`、`content_author_profile`、`public_content_search_document`。全库唯一写入入口 `commitContentBatch`；读取 `collection` 的 `source` 与 `collection_source` 属常规业务读。 |
 | **`collection`** | `access`、`content` | **11 表**：`collection_batch`、`collection_batch_item`、`source`、`collection_source`、`source_collection_job`、`source_provider_budget`、`source_provider_usage`、`source_worker_heartbeat`、`source_provider_credential`、`plan_collection_policy`、`user_provider_usage`。 |
 | **`feed`** | `content` | **4 表**（`062`）：`feed_user_seen`、`feed_user_event`、`feed_user_affinity`、`feed_user_preference`。与 `intelligence`/`projects`/`workspace`/`ai` 物理隔离。 |
 | **`intelligence`** | `content`、`collection` | **4 表**（`063`）：`intel_monitor`、`intel_monitor_source`、`intel_monitor_target`、`intel_rollup_bucket`。通过 `collection` 门面创/停源与预估额度。 |

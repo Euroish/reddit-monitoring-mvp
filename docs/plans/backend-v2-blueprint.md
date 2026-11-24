@@ -1,7 +1,7 @@
 # Backend V2 产品与架构演进蓝图：高价值信息流 × Semrush 级社媒/GEO 监测
 
 > [!NOTE]
-> **架构约束时效**：本蓝图撰写于 2026-11-23，文中"9 域严格单向 DAG""业务表跨模块读隔离"是当时的强约束。2026-11-24 治理调整后，`lint:arch` 只强制**零循环依赖、公开门面、单写表归属与凭证表读隔离**；依赖方向不再设白名单，业务表允许跨模块 `SELECT/JOIN`。现行规则以 [architecture.md](../architecture.md) 与 [invariants.md](../invariants.md) 为准，本文保留原始设计上下文。
+> **架构约束时效**：本蓝图撰写于 2026-11-23，文中"9 域严格单向 DAG""业务表跨模块读隔离"是当时的强约束。2026-11-24 治理调整后，`lint:arch` 只强制**零循环依赖、公开门面、`access`/`content` 严格叶子域、单写表归属与凭证表读隔离**；其余依赖方向不设白名单，业务表允许跨模块 `SELECT/JOIN`。现行规则以 [architecture.md](../architecture.md) 与 [invariants.md](../invariants.md) 为准，本文保留原始设计上下文。
 
 > [!IMPORTANT]
 > **审批定案与执行决议（2026-11-23）**
