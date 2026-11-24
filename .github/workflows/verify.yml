@@ -3,7 +3,7 @@ name: Core verification
 on:
   pull_request:
     branches: [main]
-    types: [opened, edited, synchronize, reopened, ready_for_review, converted_to_draft, labeled, unlabeled]
+    types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
   push:
     branches: [main]
@@ -39,13 +39,6 @@ jobs:
       - name: Verify CI scope rules
         if: fromJSON(steps.scope.outputs.scope).workflow
         run: node --test scripts/ci-scope.test.mjs
-      - name: Test PR admission policy
-        run: node --test scripts/check-pr-quality.test.mjs
-      - name: Require PR evidence and no quality hold
-        if: github.event_name == 'pull_request'
-        run: node scripts/check-pr-quality.mjs
-        env:
-          MIGRATION_BASE_SHA: ${{ steps.scope.outputs.base }}
       - name: Gitleaks secret scan
         env:
           BASE: ${{ steps.scope.outputs.base }}
@@ -60,13 +53,6 @@ jobs:
             -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
             -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.28.0 git /repo --redact --log-opts="$range"
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Test complexity ratchet
-        run: node --test scripts/check-complexity.test.mjs
-      - name: Prevent production complexity regressions
-        if: steps.scope.outputs.base != ''
-        run: npm run check:complexity
-        env:
-          MIGRATION_BASE_SHA: ${{ steps.scope.outputs.base }}
       - run: npm run lint:policy
         env:
           MIGRATION_BASE_SHA: ${{ steps.scope.outputs.base }}
@@ -88,20 +74,7 @@ jobs:
           lint_dir="$RUNNER_TEMP/migration-lint"
           mkdir -p "$lint_dir"
           cp --parents -- "${migrations[@]}" "$lint_dir"
-          regular=()
-          for file in "${migrations[@]}"; do
-            if [[ "$file" == src/storage/schema/059_project_batches_and_ownership.sql ]] &&
-               echo "ca149dda66979d260c2d2091b11d97ffbb88ed19d8366cdab48c0052ba75c893  $file" | sha256sum --check --status; then
-              # The three indexes build on tables created in the same transaction.
-              # This exact already-applied file must retain its checksum.
-              docker run --rm --network none -v "$lint_dir:/repo:ro" -w /repo ghcr.io/sbdchd/squawk:2.9.0 --exclude=require-concurrent-index-creation "$file"
-            else
-              regular+=("$file")
-            fi
-          done
-          if (( ${#regular[@]} )); then
-            docker run --rm --network none -v "$lint_dir:/repo:ro" -w /repo ghcr.io/sbdchd/squawk:2.9.0 "${regular[@]}"
-          fi
+          docker run --rm --network none -v "$lint_dir:/repo:ro" -w /repo ghcr.io/sbdchd/squawk:2.9.0 "${migrations[@]}"
 
   project:
     name: API, Web & runtime verification

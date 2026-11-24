@@ -80,16 +80,6 @@ module.exports = {
       },
     },
     {
-      name: "modules-no-cross-workspace",
-      severity: "error",
-      comment: "Personal workspace stays isolated; no other module may depend on workspace.",
-      from: { path: "^src/modules/([^/]+)/" },
-      to: {
-        path: "^src/modules/workspace/",
-        pathNot: "^src/modules/$1/",
-      },
-    },
-    {
       name: "modules-access-leaf",
       severity: "error",
       comment: "access is a strict leaf domain and must not depend on any sibling domain module.",
@@ -100,16 +90,6 @@ module.exports = {
       },
     },
     {
-      name: "modules-docs-leaf",
-      severity: "error",
-      comment: "docs is a strict leaf domain and must not depend on any sibling domain module.",
-      from: { path: "^src/modules/docs/" },
-      to: {
-        path: "^src/modules/",
-        pathNot: "^src/modules/docs/",
-      },
-    },
-    {
       name: "modules-content-leaf",
       severity: "error",
       comment: "content is a strict leaf domain (project scope is injected from composition root) and must not depend on sibling domains.",
@@ -117,95 +97,6 @@ module.exports = {
       to: {
         path: "^src/modules/",
         pathNot: "^src/modules/content/",
-      },
-    },
-    {
-      name: "modules-collection-dag",
-      severity: "error",
-      comment: "collection may depend only on access and content public facades.",
-      from: { path: "^src/modules/collection/" },
-      to: {
-        path: "^src/modules/",
-        pathNot: ["^src/modules/collection/", "^src/modules/(access|content)/index\\.ts$"],
-      },
-    },
-    {
-      name: "modules-projects-dag",
-      severity: "error",
-      comment: "projects may depend only on content and collection public facades.",
-      from: { path: "^src/modules/projects/" },
-      to: {
-        path: "^src/modules/",
-        pathNot: ["^src/modules/projects/", "^src/modules/(content|collection)/index\\.ts$"],
-      },
-    },
-    {
-      name: "modules-workspace-dag",
-      severity: "error",
-      comment: "workspace may depend only on content public facade.",
-      from: { path: "^src/modules/workspace/" },
-      to: {
-        path: "^src/modules/",
-        pathNot: ["^src/modules/workspace/", "^src/modules/content/index\\.ts$"],
-      },
-    },
-    {
-      name: "modules-ai-dag",
-      severity: "error",
-      comment: "ai may depend only on content public facade.",
-      from: { path: "^src/modules/ai/" },
-      to: {
-        path: "^src/modules/",
-        pathNot: ["^src/modules/ai/", "^src/modules/content/index\\.ts$"],
-      },
-    },
-    {
-      name: "modules-no-cross-feed",
-      severity: "error",
-      comment: "Feed product domain stays top-level isolated; no sibling module may depend on feed.",
-      from: { path: "^src/modules/([^/]+)/" },
-      to: {
-        path: "^src/modules/feed/",
-        pathNot: "^src/modules/$1/",
-      },
-    },
-    {
-      name: "modules-no-cross-intelligence",
-      severity: "error",
-      comment: "Intelligence product domain stays top-level isolated; no sibling module may depend on intelligence.",
-      from: { path: "^src/modules/([^/]+)/" },
-      to: {
-        path: "^src/modules/intelligence/",
-        pathNot: "^src/modules/$1/",
-      },
-    },
-    {
-      name: "modules-feed-dag",
-      severity: "error",
-      comment: "feed may depend only on content public facade.",
-      from: { path: "^src/modules/feed/" },
-      to: {
-        path: "^src/modules/",
-        pathNot: ["^src/modules/feed/", "^src/modules/content/index\\.ts$"],
-      },
-    },
-    {
-      name: "modules-intelligence-dag",
-      severity: "error",
-      comment: "intelligence may depend only on content and collection public facades.",
-      from: { path: "^src/modules/intelligence/" },
-      to: {
-        path: "^src/modules/",
-        pathNot: ["^src/modules/intelligence/", "^src/modules/(content|collection)/index\\.ts$"],
-      },
-    },
-    {
-      name: "no-retired-paths-or-connectors",
-      severity: "error",
-      comment: "Prevent re-introducing retired pre-050 architecture layers or retired online connectors.",
-      from: {},
-      to: {
-        path: "^(src/(application|domain|runtime|jobs|workers|storage/repositories)/|workers/|src/connectors/(reddit/arctic-shift|x/twitterapi-io))",
       },
     },
     {

@@ -196,25 +196,30 @@ test("Property invariants: decodeCursor, compileContentFilter, and canonical hol
   }
 });
 
-test("INV-008: table read-ownership audit rejects unauthorized cross-module reads while permitting contracted shared reads", () => {
+test("INV-008: table read-ownership audit permits cross-module business reads while isolating sensitive credential tables", () => {
   const dir = mkdtempSync(join(tmpdir(), "table-read-ownership-"));
   try {
-    mkdirSync(join(dir, "src", "modules", "content"), { recursive: true });
+    mkdirSync(join(dir, "src", "modules", "access"), { recursive: true });
     mkdirSync(join(dir, "src", "modules", "ai"), { recursive: true });
     writeFileSync(
-      join(dir, "src", "modules", "content", "search.ts"),
-      `export const q = "SELECT c.id FROM content c JOIN source s ON s.id=c.source_id JOIN collection_source cs ON cs.id=c.id";`,
+      join(dir, "src", "modules", "access", "auth.ts"),
+      `export const q = "SELECT user_id FROM app_user_password WHERE user_id=$1";`,
+    );
+    writeFileSync(
+      join(dir, "src", "modules", "ai", "analytics.ts"),
+      `export const q = "SELECT c.id FROM content c JOIN source s ON s.id=c.source_id";`,
     );
     const allowed = auditTableReadOwnership(dir);
     assert.deepEqual(allowed.violations, []);
 
     writeFileSync(
       join(dir, "src", "modules", "ai", "leak.ts"),
-      `export const q = "SELECT id FROM content WHERE title IS NOT NULL";`,
+      `export const q = "SELECT password_hash FROM app_user_password UNION SELECT secret_enc FROM source_provider_credential";`,
     );
     const denied = auditTableReadOwnership(dir);
-    assert.ok(denied.violations.length >= 1);
-    assert.match(denied.violations[0], /content/);
+    assert.equal(denied.violations.length, 2);
+    assert.match(denied.violations[0], /app_user_password/);
+    assert.match(denied.violations[1], /source_provider_credential/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

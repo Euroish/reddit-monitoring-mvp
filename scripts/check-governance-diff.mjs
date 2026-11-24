@@ -13,8 +13,8 @@ import { appendFileSync } from "node:fs";
 const GOVERNANCE_PATTERNS = [
   /^\.github\/workflows\//,
   /^\.github\/CODEOWNERS$/,
-  /^(?:AGENTS\.md|docs\/development\.md|\.github\/pull_request_template\.md)$/,
-  /^eslint\.config\.mjs$/,
+  /^(?:AGENTS\.md|docs\/invariants\.md)$/,
+  /^(?:eslint\.config\.mjs|apps\/web\/eslint\.config\.js)$/,
   /^scripts\/(?:ci-scope(?:\.test)?\.mjs|verify-container-build\.sh)$/,
   /^\.dependency-cruiser\.cjs$/,
   /^scripts\/check-[^/]+\.(ts|mjs)$/,
@@ -76,7 +76,7 @@ function main() {
   ])
     .split(/\r?\n/)
     .filter((line) => line.startsWith("+") && !line.startsWith("+++"));
-  const addedLintDisable = codeDiff.filter((line) => /eslint-disable|@ts-ignore|@ts-nocheck/.test(line));
+  const addedLintDisable = codeDiff.filter((line) => /eslint-disable|@ts-ignore|@ts-nocheck|@ts-expect-error/.test(line));
 
   const lines = [
     "### PR Governance & Blast-Radius Audit",
@@ -98,7 +98,7 @@ function main() {
   }
   if (addedLintDisable.length > 0) {
     warnings.push(
-      `⚠️ **Lint/type suppression added** (${addedLintDisable.length} \`eslint-disable\` / \`@ts-ignore\` / \`@ts-nocheck\` line(s)).`,
+      `⚠️ **Lint/type suppression added** (${addedLintDisable.length} \`eslint-disable\` / \`@ts-ignore\` / \`@ts-nocheck\` / \`@ts-expect-error\` line(s)).`,
     );
   }
 

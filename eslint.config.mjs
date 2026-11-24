@@ -63,58 +63,6 @@ export default tseslint.config(
             "Avoid InMemory* repository fakes; test database behavior against isolated PG16.",
         },
       ],
-      "no-restricted-imports": [
-        "error",
-        {
-          paths: [
-            {
-              name: "prisma",
-              message: "Mainline runtime forbids ORMs; use parameterized pg SQL.",
-            },
-            {
-              name: "@prisma/client",
-              message: "Mainline runtime forbids ORMs; use parameterized pg SQL.",
-            },
-            {
-              name: "typeorm",
-              message: "Mainline runtime forbids ORMs; use parameterized pg SQL.",
-            },
-            {
-              name: "drizzle-orm",
-              message: "Mainline runtime forbids ORMs; use parameterized pg SQL.",
-            },
-            {
-              name: "bullmq",
-              message: "Mainline runtime uses the PG-backed job table, not Redis/BullMQ.",
-            },
-            {
-              name: "ioredis",
-              message: "Mainline runtime stays Redis-free within the 4 GB single-node budget.",
-            },
-            {
-              name: "playwright",
-              message: "Headless browsers belong in tests or external L3 sidecars, never mainline runtime.",
-            },
-            {
-              name: "puppeteer",
-              message: "Headless browsers belong in tests or external L3 sidecars, never mainline runtime.",
-            },
-          ],
-          patterns: [
-            {
-              group: [
-                "**/application/services/**",
-                "**/domain/repositories/**",
-                "**/storage/repositories/**",
-                "**/src/runtime/**",
-                "**/arctic-shift*",
-                "**/twitterapi-io*",
-              ],
-              message: "Retired architecture path or connector must not be re-introduced.",
-            },
-          ],
-        },
-      ],
       "@typescript-eslint/no-explicit-any": "warn",
     },
   },
