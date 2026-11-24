@@ -6,7 +6,14 @@ import type { Filter } from "../../../packages/contracts/src/content";
 import type { ProjectInput } from "../../../packages/contracts/src/projects";
 import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
-import { allSourcesExist, batchMembership, listStaffOwnerIds, loadAuthorizedBatches, loadEffectivePolicyForUser } from "../collection/index";
+import {
+  allSourcesExist,
+  batchMembership,
+  contentVisibility,
+  listStaffOwnerIds,
+  loadAuthorizedBatches,
+  loadEffectivePolicyForUser,
+} from "../collection/index";
 import { compileContentFilter, summarizeScopedContent } from "../content/index";
 
 type ProjectWrite = Static<typeof ProjectInput>;
@@ -183,7 +190,12 @@ export async function deleteProject(pool: Pool, actor: Actor, id: string, revisi
 
 export async function projectOverview(pool: Pool, actor: Actor, id: string) {
   const project = await projectSources(pool, actor, id);
-  const summary = await summarizeScopedContent(pool, actor, await scopeForProject(pool, actor, project));
+  const summary = await summarizeScopedContent(
+    pool,
+    actor,
+    await scopeForProject(pool, actor, project),
+    contentVisibility(actor),
+  );
   return { project, ...summary };
 }
 

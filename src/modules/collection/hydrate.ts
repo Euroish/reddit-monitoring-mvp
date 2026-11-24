@@ -6,6 +6,7 @@ import type { Hydrate } from "../../../packages/contracts/src/collection";
 import type { Filter } from "../../../packages/contracts/src/content";
 import { fail } from "../../shared/errors";
 import { findHydratableRedditPosts, type BatchMembership } from "../content/index";
+import { contentVisibility } from "./batches";
 import { admitViewerCollection } from "./policy";
 
 export async function enqueueHydrationForScope(
@@ -38,7 +39,7 @@ export async function enqueueHydrationForScope(
   const roots = await findHydratableRedditPosts(
     client,
     actor,
-    { sourceIds: scope.sourceIds, filter: scope.filter, batchMembership: scope.batchMembership },
+    { sourceIds: scope.sourceIds, filter: scope.filter, batchMembership: scope.batchMembership ?? contentVisibility(actor) },
     ids,
   );
   if (roots.length !== ids.length) {

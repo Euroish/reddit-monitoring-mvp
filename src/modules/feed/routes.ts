@@ -5,6 +5,7 @@ import {
   FeedEventBatchBody, FeedHotQuery, FeedHotResponse, FeedPreferences,
   FeedPreferencesPatch, FeedStreamQuery, FeedStreamResponse,
 } from "../../../packages/contracts/src/feed";
+import type { ContentVisibilityResolver } from "../content/index";
 import { fail } from "../../shared/errors";
 import {
   getFeedPreferences, isAuthenticatedUser, readFeedHotBoard, readFeedStream,
@@ -21,19 +22,23 @@ function parseExcludeIds(raw?: string): string[] {
   return parts;
 }
 
-export async function feedRoutes(app: FastifyInstance, pool: Pool) {
+export async function feedRoutes(
+  app: FastifyInstance,
+  pool: Pool,
+  resolveContentVisibility?: ContentVisibilityResolver,
+) {
   const api = app.withTypeProvider<TypeBoxTypeProvider>();
   const publicReadAuth = { auth: { access: "public_read" as const, machineScope: "read" as const } };
   const authRead = { auth: { access: "authenticated" as const } };
   const viewerWrite = { auth: { access: "viewer_write" as const } };
 
   api.get("/v1/feed/stream", { config: publicReadAuth, schema: { querystring: FeedStreamQuery, response: { 200: FeedStreamResponse } } },
-    (request) => readFeedStream(pool, request.actor!, request.query, parseExcludeIds(request.query.excludeIds)));
+    (request) => readFeedStream(pool, request.actor!, request.query, parseExcludeIds(request.query.excludeIds), resolveContentVisibility));
   api.get("/v1/feed/hot", { config: publicReadAuth, schema: { querystring: FeedHotQuery, response: { 200: FeedHotResponse } } },
-    (request) => readFeedHotBoard(pool, request.actor!, request.query));
+    (request) => readFeedHotBoard(pool, request.actor!, request.query, resolveContentVisibility));
   api.post("/v1/feed/events", { config: viewerWrite, schema: { body: FeedEventBatchBody } }, (request) => {
     if (!isAuthenticatedUser(request.actor!)) fail(401, "Sign in to record feed feedback");
-    return recordFeedEvents(pool, request.actor!, request.body);
+    return recordFeedEvents(pool, request.actor!, request.body, resolveContentVisibility);
   });
   api.get("/v1/feed/preferences", { config: authRead, schema: { response: { 200: FeedPreferences } } },
     (request) => getFeedPreferences(pool, request.actor!));

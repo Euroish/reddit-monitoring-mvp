@@ -3,12 +3,14 @@ import type { Pool, QueryResultRow } from "pg";
 import type { Actor } from "../../../packages/contracts/src/access";
 import type {
   AuthorListQuery,
+  AuthorProfileQuery,
+  CommunityDeepDiveQuery,
   CommunityListQuery,
   MonitorOverviewQuery,
   MonitorPostsQuery,
 } from "../../../packages/contracts/src/intelligence";
 import { fail } from "../../shared/errors";
-import { listSourcesByIds } from "../collection/index";
+import { contentVisibility, listSourcesByIds } from "../collection/index";
 import {
   queryAuthorDirectory,
   queryCommunityBreakdowns,
@@ -99,6 +101,7 @@ function summarizeBucketRows(rows: readonly QueryResultRow[]): AggregatedTotals 
 
 async function computeMonitorSoV(
   pool: Pool,
+  actor: Actor,
   sourceIds: readonly string[],
   targets: ReadonlyArray<{ targetKind: string; targetValue: string }>,
   from: Date,
@@ -110,9 +113,18 @@ async function computeMonitorSoV(
     if (!seen.has(t.targetValue)) seen.set(t.targetValue, t.targetKind === "competitor_keyword" ? "competitor" : "primary");
   }
   if (!seen.size) return [];
+  const visibility = contentVisibility(actor);
   const entries = await Promise.all(
     [...seen.entries()].slice(0, 10).map(async ([label, role]) => {
-      const stats = await queryScopedBucketStats(pool, { sourceIds, from, to, bucketSize: "1d", keywordFilter: label });
+      const stats = await queryScopedBucketStats(pool, {
+        sourceIds,
+        allowedSourceIds: actor.allowedSourceIds,
+        from,
+        to,
+        bucketSize: "1d",
+        keywordFilter: label,
+        visibility,
+      });
       const mentions = stats.reduce((s, b) => s + b.postCount, 0);
       const engagement = stats.reduce((s, b) => s + b.sumScore + b.sumLikes + 2 * b.sumComments + 2 * b.sumReposts, 0);
       return { label, role, mentions, engagement };
@@ -142,6 +154,7 @@ export async function getMonitorOverview(
     await refreshMonitorRollups(pool, monitorId, Math.max(days * 2, 14));
   }
 
+  const visibility = contentVisibility(actor);
   const [curBuckets, prevBuckets, sources, sov, topAuthors, communityMatrix] = await Promise.all([
     pool.query(
       "SELECT * FROM intel_rollup_bucket WHERE scope_kind='monitor' AND scope_id=$1 AND bucket_size=$2 AND bucket_at >= $3 AND bucket_at < $4 ORDER BY bucket_at ASC",
@@ -152,9 +165,9 @@ export async function getMonitorOverview(
       [monitorId, prevFrom.toISOString(), from.toISOString()],
     ),
     listSourcesByIds(pool, sourceIds),
-    monitor.kind === "keyword" ? computeMonitorSoV(pool, sourceIds, targets, from, to) : Promise.resolve([]),
-    queryAuthorDirectory(pool, actor, { sourceIds, sort: "engagement", limit: 10 }),
-    monitor.kind === "community_bundle" ? queryCommunityMatrix(pool, actor, { sourceIds, from, to, limit: 20 }) : Promise.resolve([]),
+    monitor.kind === "keyword" ? computeMonitorSoV(pool, actor, sourceIds, targets, from, to) : Promise.resolve([]),
+    queryAuthorDirectory(pool, actor, { sourceIds, sort: "engagement", limit: 10, visibility }),
+    monitor.kind === "community_bundle" ? queryCommunityMatrix(pool, actor, { sourceIds, from, to, limit: 20, visibility }) : Promise.resolve([]),
   ]);
 
   const cur = summarizeBucketRows(curBuckets.rows);
@@ -216,6 +229,7 @@ export async function listMonitorPosts(
     sort: query.sort ?? "heat",
     limit,
     offset,
+    visibility: contentVisibility(actor),
   });
   return {
     totalCount: result.totalCount,
@@ -241,6 +255,7 @@ export async function listTrackedAuthors(pool: Pool, actor: Actor, query: Static
     search: query.search,
     sort: query.sort ?? "followers",
     limit: query.limit ?? 40,
+    visibility: contentVisibility(actor),
   });
   return { items };
 }
@@ -250,16 +265,44 @@ export async function getTrackedAuthorProfile(
   actor: Actor,
   platform: "reddit" | "x",
   handle: string,
-  days = 30,
+  query: Static<typeof AuthorProfileQuery> = {},
 ) {
+  const days = query.days ?? 30;
+  const sourceIds = query.monitorId ? (await loadMonitor(pool, actor, query.monitorId)).sourceIds : undefined;
+  const visibility = contentVisibility(actor);
   const cleanHandle = handle.replace(/^(?:@|u\/)/i, "").toLowerCase();
-  const [profile] = await queryAuthorDirectory(pool, actor, { platform, handle: cleanHandle, limit: 1 });
+  const [profile] = await queryAuthorDirectory(pool, actor, {
+    platform,
+    sourceIds,
+    handle: cleanHandle,
+    limit: 1,
+    visibility,
+  });
   if (!profile) fail(404, "Author profile not found");
   const to = new Date();
   const from = new Date(to.getTime() - days * 86_400_000);
   const [timeline, posts] = await Promise.all([
-    queryScopedBucketStats(pool, { allowedSourceIds: actor.allowedSourceIds, from, to, bucketSize: "1d", authorFilter: cleanHandle, platform }),
-    queryMonitorPosts(pool, actor, { platform, author: cleanHandle, from, to, sort: "heat", limit: 30, offset: 0 }),
+    queryScopedBucketStats(pool, {
+      sourceIds,
+      allowedSourceIds: actor.allowedSourceIds,
+      from,
+      to,
+      bucketSize: "1d",
+      authorFilter: cleanHandle,
+      platform,
+      visibility,
+    }),
+    queryMonitorPosts(pool, actor, {
+      sourceIds,
+      platform,
+      author: cleanHandle,
+      from,
+      to,
+      sort: "heat",
+      limit: 30,
+      offset: 0,
+      visibility,
+    }),
   ]);
   return {
     profile,
@@ -289,20 +332,47 @@ export async function listMonitoredCommunities(pool: Pool, actor: Actor, query: 
     to,
     sort: query.sort ?? "heat",
     limit: query.limit ?? 40,
+    visibility: contentVisibility(actor),
   });
   return { items };
 }
 
-export async function getCommunityDeepDive(pool: Pool, actor: Actor, subreddit: string, days = 14) {
+export async function getCommunityDeepDive(
+  pool: Pool,
+  actor: Actor,
+  subreddit: string,
+  query: Static<typeof CommunityDeepDiveQuery> = {},
+) {
+  const days = query.days ?? 14;
+  const sourceIds = query.monitorId ? (await loadMonitor(pool, actor, query.monitorId)).sourceIds : undefined;
+  const visibility = contentVisibility(actor);
   const cleanSub = subreddit.replace(/^r\//i, "").toLowerCase();
   const to = new Date();
   const from = new Date(to.getTime() - days * 86_400_000);
   const [matrix, breakdowns, posts, authors, trend] = await Promise.all([
-    queryCommunityMatrix(pool, actor, { from, to, limit: 50 }),
-    queryCommunityBreakdowns(pool, actor, cleanSub, from, to),
-    queryMonitorPosts(pool, actor, { platform: "reddit", community: cleanSub, from, to, sort: "heat", limit: 30, offset: 0 }),
-    queryAuthorDirectory(pool, actor, { platform: "reddit", sort: "engagement", limit: 15 }),
-    queryScopedBucketStats(pool, { allowedSourceIds: actor.allowedSourceIds, from, to, bucketSize: "1d", subredditFilter: cleanSub }),
+    queryCommunityMatrix(pool, actor, { sourceIds, from, to, limit: 50, visibility }),
+    queryCommunityBreakdowns(pool, actor, cleanSub, from, to, { sourceIds, visibility }),
+    queryMonitorPosts(pool, actor, {
+      sourceIds,
+      platform: "reddit",
+      community: cleanSub,
+      from,
+      to,
+      sort: "heat",
+      limit: 30,
+      offset: 0,
+      visibility,
+    }),
+    queryAuthorDirectory(pool, actor, { platform: "reddit", sourceIds, sort: "engagement", limit: 15, visibility }),
+    queryScopedBucketStats(pool, {
+      sourceIds,
+      allowedSourceIds: actor.allowedSourceIds,
+      from,
+      to,
+      bucketSize: "1d",
+      subredditFilter: cleanSub,
+      visibility,
+    }),
   ]);
   const summary = matrix.find((m) => m.subreddit === cleanSub);
   if (!summary && posts.totalCount === 0) fail(404, "Subreddit sample not found");

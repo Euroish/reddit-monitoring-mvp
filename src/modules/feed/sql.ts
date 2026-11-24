@@ -17,7 +17,9 @@ import {
   loadPlatformEngagementBaselines,
   loadTopCommentsForPosts,
   queryFeedCandidates,
+  type BatchMembership,
   type ContentDimensionSummary,
+  type ContentVisibilityResolver,
   type PlatformEngagementBaseline,
 } from "../content/index";
 import {
@@ -35,11 +37,14 @@ export function isAuthenticatedUser(actor: Actor): boolean {
   return Boolean(actor.userId && actor.userId !== GUEST_USER_ID);
 }
 
-async function getBaselines(pool: Pool): Promise<Map<ContentPlatform, PlatformEngagementBaseline>> {
+async function getBaselines(
+  pool: Pool,
+  visibility?: BatchMembership,
+): Promise<Map<ContentPlatform, PlatformEngagementBaseline>> {
   const cached = baselineCache.get(pool);
   const now = Date.now();
   if (cached && cached.expiresAt > now && cached.data.size > 0) return cached.data;
-  const data = await loadPlatformEngagementBaselines(pool);
+  const data = await loadPlatformEngagementBaselines(pool, visibility);
   if (data.size > 0) baselineCache.set(pool, { expiresAt: now + 15_000, data });
   return data;
 }
@@ -111,12 +116,17 @@ async function loadViewerBookmarkState(pool: Pool, actor: Actor, contentIds: rea
 }
 
 export async function readFeedStream(
-  pool: Pool, actor: Actor, query: Static<typeof FeedStreamQuery>, excludeIds: readonly string[],
+  pool: Pool,
+  actor: Actor,
+  query: Static<typeof FeedStreamQuery>,
+  excludeIds: readonly string[],
+  resolveContentVisibility?: ContentVisibilityResolver,
 ) {
   const state = await loadUserFeedState(pool, actor);
   const mode = query.mode ?? "foryou";
   const limit = query.limit ?? 20;
   const mergedExclude = [...new Set([...state.seenIds, ...excludeIds])].slice(0, 2200);
+  const publicVisibility = resolveContentVisibility?.(actor, { publicOnly: true });
   const [candidates, baselines] = await Promise.all([
     queryFeedCandidates(pool, actor, {
       lookbackHours: mode === "explore" ? 120 : 72,
@@ -125,13 +135,19 @@ export async function readFeedStream(
       includeNews: query.includeNews ?? state.includeNewsLane,
       excludeContentIds: mergedExclude,
       mutedSourceIds: state.mutedSources, mutedAuthors: state.mutedAuthors, mutedKeywords: state.mutedKeywords,
+      visibility: publicVisibility,
     }),
-    getBaselines(pool),
+    getBaselines(pool, publicVisibility),
   ]);
   const { picks, channelMix } = mixFeedStream(candidates, baselines, state.profile, { mode, limit, seed: query.seed });
   const pickedRows = picks.map((p) => p.row);
   const [commentsMap, viewerStateMap] = await Promise.all([
-    loadTopCommentsForPosts(pool, pickedRows.map((r) => ({ id: r.id, platformId: r.platformId, kind: r.kind, externalId: r.externalId })), 2),
+    loadTopCommentsForPosts(
+      pool,
+      pickedRows.map((r) => ({ id: r.id, platformId: r.platformId, kind: r.kind, externalId: r.externalId })),
+      2,
+      publicVisibility,
+    ),
     loadViewerBookmarkState(pool, actor, pickedRows.map((r) => r.id)),
   ]);
   return {
@@ -147,24 +163,42 @@ export async function readFeedStream(
   };
 }
 
-export async function readFeedHotBoard(pool: Pool, actor: Actor, query: Static<typeof FeedHotQuery>) {
+export async function readFeedHotBoard(
+  pool: Pool,
+  actor: Actor,
+  query: Static<typeof FeedHotQuery>,
+  resolveContentVisibility?: ContentVisibilityResolver,
+) {
   const windowName = query.window ?? "24h";
   const hours = windowName === "6h" ? 6 : windowName === "48h" ? 48 : windowName === "7d" ? 168 : 24;
   const limit = query.limit ?? 30;
   const offset = query.offset ?? 0;
   const nowMs = Date.now();
+  const publicVisibility = resolveContentVisibility?.(actor, { publicOnly: true });
   const [candidates, baselines] = await Promise.all([
-    queryFeedCandidates(pool, actor, { lookbackHours: hours, limit: 300, topic: query.topic, platform: query.platform, includeNews: false }),
-    getBaselines(pool),
+    queryFeedCandidates(pool, actor, {
+      lookbackHours: hours,
+      limit: 300,
+      topic: query.topic,
+      platform: query.platform,
+      includeNews: false,
+      visibility: publicVisibility,
+    }),
+    getBaselines(pool, publicVisibility),
   ]);
   const ranked = candidates
     .map((row) => ({ row, ...computeUnifiedHeat(row, baselines, nowMs) }))
     .sort((a, b) => b.unifiedHeat - a.unifiedHeat || a.row.id.localeCompare(b.row.id));
   const slice = ranked.slice(offset, offset + limit);
   const [commentsMap, viewerMap, histories] = await Promise.all([
-    loadTopCommentsForPosts(pool, slice.map((s) => ({ id: s.row.id, platformId: s.row.platformId, kind: s.row.kind, externalId: s.row.externalId })), 2),
+    loadTopCommentsForPosts(
+      pool,
+      slice.map((s) => ({ id: s.row.id, platformId: s.row.platformId, kind: s.row.kind, externalId: s.row.externalId })),
+      2,
+      publicVisibility,
+    ),
     loadViewerBookmarkState(pool, actor, slice.map((s) => s.row.id)),
-    loadFeedObservationHistory(pool, actor, slice.map((s) => s.row.id), new Date(nowMs)),
+    loadFeedObservationHistory(pool, actor, slice.map((s) => s.row.id), new Date(nowMs), publicVisibility),
   ]);
   return {
     window: windowName,
@@ -230,9 +264,19 @@ function accumulateAffinityUpdates(
   };
 }
 
-export async function recordFeedEvents(pool: Pool, actor: Actor, body: Static<typeof FeedEventBatchBody>) {
+export async function recordFeedEvents(
+  pool: Pool,
+  actor: Actor,
+  body: Static<typeof FeedEventBatchBody>,
+  resolveContentVisibility?: ContentVisibilityResolver,
+) {
   const uniqueContentIds = [...new Set(body.events.map((e) => e.contentId))];
-  const dimsMap = await loadContentDimensionsByIds(pool, actor, uniqueContentIds);
+  const dimsMap = await loadContentDimensionsByIds(
+    pool,
+    actor,
+    uniqueContentIds,
+    resolveContentVisibility?.(actor, { publicOnly: true }),
+  );
   if (dimsMap.size !== uniqueContentIds.length) fail(404, "Content not found");
   return transaction(pool, async (client: PoolClient) => {
     await client.query(

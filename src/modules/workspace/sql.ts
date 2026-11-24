@@ -3,7 +3,11 @@ import type { Pool } from "pg";
 import type { Actor } from "../../../packages/contracts/src/access";
 import type { Filter } from "../../../packages/contracts/src/content";
 import { fail } from "../../shared/errors";
-import { isContentVisibleToActor, loadAnnotatedContentByIds } from "../content/index";
+import {
+  isContentVisibleToActor,
+  loadAnnotatedContentByIds,
+  type ContentVisibilityResolver,
+} from "../content/index";
 
 export async function listSavedQueries(pool: Pool, actor: Actor) {
   return (
@@ -23,7 +27,11 @@ export async function saveQuery(pool: Pool, actor: Actor, name: string, filter: 
   ).rows[0];
 }
 
-export async function listAnnotations(pool: Pool, actor: Actor) {
+export async function listAnnotations(
+  pool: Pool,
+  actor: Actor,
+  resolveContentVisibility?: ContentVisibilityResolver,
+) {
   const annotations = (
     await pool.query<{ content_id: string; favorite: boolean; note: string; revision: number }>(
       "SELECT content_id,favorite,note,revision FROM content_annotation WHERE user_id=$1 ORDER BY updated_at DESC,content_id DESC LIMIT 100",
@@ -34,6 +42,7 @@ export async function listAnnotations(pool: Pool, actor: Actor) {
     pool,
     actor,
     annotations.map((row) => row.content_id),
+    resolveContentVisibility,
   );
   return annotations.flatMap((row) => {
     const content = contentById.get(row.content_id);
@@ -59,8 +68,9 @@ export async function updateAnnotation(
   favorite: boolean,
   note: string,
   revision: number,
+  resolveContentVisibility?: ContentVisibilityResolver,
 ) {
-  if (!(await isContentVisibleToActor(pool, actor, contentId))) {
+  if (!(await isContentVisibleToActor(pool, actor, contentId, resolveContentVisibility))) {
     fail(404, "Content not found");
   }
   const result = await pool.query(

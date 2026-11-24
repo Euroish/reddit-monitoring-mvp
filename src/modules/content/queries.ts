@@ -8,6 +8,7 @@ import {
   escapeLike,
   matchedAnchors,
   normalizePublicSearchText,
+  type ContentVisibilityResolver,
 } from "./search";
 
 export async function findHydratableRedditPosts(
@@ -76,10 +77,11 @@ export async function loadAnnotatedContentByIds(
   db: Pool | PoolClient,
   actor: Actor,
   contentIds: string[],
+  resolveContentVisibility?: ContentVisibilityResolver,
 ): Promise<Map<string, { id: string; title: string | null; body_text: string | null; external_id: string }>> {
   const unique = [...new Set(contentIds)];
   if (!unique.length) return new Map();
-  const compiled = compileContentFilter(actor, {});
+  const compiled = compileContentFilter(actor, {}, undefined, {}, false, resolveContentVisibility?.(actor));
   compiled.values.push(unique);
   const rows = (
     await db.query<{ id: string; title: string | null; body_text: string | null; external_id: string }>(
@@ -96,8 +98,9 @@ export async function isContentVisibleToActor(
   db: Pool | PoolClient,
   actor: Actor,
   contentId: string,
+  resolveContentVisibility?: ContentVisibilityResolver,
 ): Promise<boolean> {
-  const compiled = compileContentFilter(actor, {});
+  const compiled = compileContentFilter(actor, {}, undefined, {}, false, resolveContentVisibility?.(actor));
   compiled.values.push(contentId);
   const res = await db.query(
     `SELECT 1 FROM content c JOIN source p ON p.id=c.source_id WHERE ${compiled.text} AND c.id=$${compiled.values.length} LIMIT 1`,

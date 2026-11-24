@@ -50,11 +50,11 @@
 
 - **监测生命周期**：`GET/POST /v1/intelligence/monitors`、`GET/PATCH/DELETE /v1/intelligence/monitors/:id`（`revision` 乐观锁），统一支撑 `keyword`、`author_list`（15–20 个 X 账号自动拼批）与 `community_bundle`，单日单项上限 `20,000`。
 - **监测器归属**：普通浏览器账号只可访问本人监测器。管理员和所有者的浏览器会话可跨账号管理。Machine Key 仅可访问所属账号的监测器，关联来源必须全部在 Key 范围内，并继续受相应接口的 scope 约束。监测器明细、写入和按监测器统计统一执行相同的访问规则。
-- **托管建源准入**：监测器新建、目标与周期配置、重新启用当前仅开放给管理员浏览器会话。普通用户可停用、删除和手动采集本人已有监测器，手动采集沿用套餐准入。监测器不得重新激活已停用来源。
+- **托管建源准入**：监测器新建、目标与周期配置、重新启用当前仅开放给管理员浏览器会话。普通用户可停用、删除和手动采集本人已启用的已有监测器，手动采集沿用套餐准入；已停用监测器禁止新建 `/collect` 任务（返回 `409`），同 `revision` 的历史幂等重放仍保持只读可查。监测器不得重新激活已停用来源。
 - **托管调度生命周期**：监测器新建来源时记录托管归属。多个已启用监测器共用一个托管来源时采用最短周期，沿用来源调度的 12 小时周期上限。没有启用引用时，停止定时并取消尚未发起渠道请求的排队任务，保留来源和历史数据。既有或管理员自建来源的调度保持独立。升级已经应用 `063` 的环境时，运维须核对历史监测来源及无人引用的启用调度。
 - **预算门控采集**：`POST /v1/intelligence/monitors/:id/estimate`（Pre-flight 预估请求数与条目预算）与 `POST /v1/intelligence/monitors/:id/collect`（强制 `Idempotency-Key`）。已启用的 `community_bundle` 在社区拉取成功后，以近 7 日已观测主帖评论量计算 P80。每次最多入队一条超过阈值的主帖，补采最多 15 条 Top 评论，受监测器 UTC 日预算、账户配额、系统日上限与供应商预算约束。
 - **社媒全站日上限**：Kaix、RedCrawler、TwitterAPIs 和 ScrapeBadger 的新渠道请求共同计入每日 20,000 资源预留单位。Worker 派发前原子检查全站上限和渠道预算。全站额度不足时，普通任务等下一 UTC 日，自动评论补采按当天的预留条件取消。
-- **单请求仪表盘与下钻**：`GET /v1/intelligence/monitors/:id/overview`（`days <= 90`、`bucket=6h|1d` 返回趋势、SoV、意图占比、GEO 高频外链域名榜（含获正向评分的评论，每个域名在同一条评论中计一次）、高频词与诚实样本覆盖声明）、`.../posts`（多维排序下钻）、`GET /v1/intelligence/authors` / `.../authors/:platform/:handle`（KOL 聚合与单人画像，个人互动率基于可见历史样本，计入点赞或分数、评论、转发、收藏）、`GET /v1/intelligence/communities` / `.../communities/:subreddit`（多板块象限对比与单板块 7×24 热力图/Flair/精华流）。
+- **单请求仪表盘与下钻**：`GET /v1/intelligence/monitors/:id/overview`（`days <= 90`、`bucket=6h|1d` 返回趋势、SoV、意图占比、GEO 高频外链域名榜（含获正向评分的评论，每个域名在同一条评论中计一次）、高频词与诚实样本覆盖声明）、`.../posts`（多维排序下钻）、`GET /v1/intelligence/authors` / `.../authors/:platform/:handle`（KOL 聚合与单人画像，可选 `monitorId` 校验并限定至授权监测器范围，个人互动率基于可见历史样本，计入点赞或分数、评论、转发、收藏）、`GET /v1/intelligence/communities` / `.../communities/:subreddit`（多板块象限对比与单板块 7×24 热力图/Flair/精华流，可选 `monitorId` 限定范围）；全量内容、Feed、标注与监测分析出口均在 `allowedSourceIds` 之外同步执行私有批次可见性隔离。
 
 ---
 

@@ -1,5 +1,6 @@
 import { scoreObservation } from "./enrich";
 import { groupStories } from "./story-groups";
+import type { BatchMembership } from "./search";
 import type { Pool, PoolClient } from "pg";
 import type { Actor } from "../../../packages/contracts/src/access";
 import type { ContentPlatform } from "../../../packages/contracts/src/common";
@@ -156,6 +157,7 @@ export async function queryFeedCandidates(
     mutedSourceIds?: string[];
     mutedAuthors?: string[];
     mutedKeywords?: string[];
+    visibility?: BatchMembership;
   },
 ): Promise<FeedCandidateRow[]> {
   const lanes = input.includeNews ? ["discussion", "release", "news"] : ["discussion", "release"];
@@ -180,6 +182,9 @@ export async function queryFeedCandidates(
     input.language ?? null,
     Math.min(400, Math.max(20, input.limit)),
   ];
+  const visSql = input.visibility
+    ? ` AND ${input.visibility.contains((v) => `$${values.push(v)}`, "d.content_id")}`
+    : "";
 
   const { rows } = await pool.query(
     `WITH visible AS (
@@ -239,7 +244,7 @@ export async function queryFeedCandidates(
          AND ($7::text[] = '{}' OR NOT EXISTS (SELECT 1 FROM UNNEST($7::text[]) AS pat WHERE LOWER(COALESCE(c.title, '') || ' ' || COALESCE(c.clean_excerpt, '')) LIKE pat ESCAPE '\\'))
          AND ($8::text IS NULL OR cs.source_group = $8)
          AND ($9::text IS NULL OR s.code = $9)
-         AND ($10::text IS NULL OR c.language = $10)
+         AND ($10::text IS NULL OR c.language = $10)${visSql}
        ORDER BY c.id, (CASE cs.tier WHEN 'T1' THEN 3 WHEN 'T1_5' THEN 2 ELSE 1 END) DESC, cs.id
      )
      SELECT v.*,
@@ -272,10 +277,18 @@ export async function queryFeedCandidates(
 }
 
 export async function loadFeedObservationHistory(
-  db: Pool, actor: Actor, contentIds: readonly string[], asOf: Date,
+  db: Pool,
+  actor: Actor,
+  contentIds: readonly string[],
+  asOf: Date,
+  visibility?: BatchMembership,
 ): Promise<Map<string, number[]>> {
   const histories = new Map<string, number[]>();
   if (!contentIds.length) return histories;
+  const values: unknown[] = [contentIds, actor.allowedSourceIds, asOf];
+  const visSql = visibility
+    ? ` AND ${visibility.contains((v) => `$${values.push(v)}`, "o.content_id")}`
+    : "";
   const { rows } = await db.query<{ content_id: string; metrics: Record<string, number | null> }>(
     `SELECT content_id, metrics
      FROM (
@@ -290,12 +303,12 @@ export async function loadFeedObservationHistory(
          AND observed.at BETWEEN $3::timestamptz - interval '48 hours' AND $3
          AND o.fetched_at <= $3
          AND EXISTS (SELECT 1 FROM jsonb_each(o.metrics) m WHERE jsonb_typeof(m.value) = 'number'
-           AND m.key IN ('reddit.score', 'reddit.num_comments', 'x.likes', 'x.replies', 'x.reposts', 'bluesky.likes', 'bluesky.replies', 'bluesky.reposts', 'bsky.reposts'))
+           AND m.key IN ('reddit.score', 'reddit.num_comments', 'x.likes', 'x.replies', 'x.reposts', 'bluesky.likes', 'bluesky.replies', 'bluesky.reposts', 'bsky.reposts'))${visSql}
        ORDER BY o.content_id, date_bin('6 hours', observed.at, TIMESTAMPTZ '2000-01-01 UTC'),
          observed.at DESC, o.fetched_at DESC, o.collection_source_id, o.provider, o.evidence_key
      ) snapshots
      ORDER BY content_id, at`,
-    [contentIds, actor.allowedSourceIds, asOf],
+    values,
   );
   for (const row of rows) {
     let points = histories.get(row.content_id);
@@ -307,7 +320,12 @@ export async function loadFeedObservationHistory(
 
 export async function loadPlatformEngagementBaselines(
   pool: Pool | PoolClient,
+  visibility?: BatchMembership,
 ): Promise<Map<ContentPlatform, PlatformEngagementBaseline>> {
+  const values: unknown[] = [];
+  const visSql = visibility
+    ? ` AND ${visibility.contains((v) => `$${values.push(v)}`, "c.id")}`
+    : "";
   const { rows } = await pool.query<{
     platform: ContentPlatform;
     p50: number;
@@ -325,8 +343,9 @@ export async function loadPlatformEngagementBaselines(
      JOIN source s ON s.id = c.source_id
      WHERE c.availability = 'available'
        AND c.kind IN ('post', 'article')
-       AND COALESCE(c.created_at_source, c.first_seen_at) >= NOW() - interval '7 days'
+       AND COALESCE(c.created_at_source, c.first_seen_at) >= NOW() - interval '7 days'${visSql}
      GROUP BY s.code`,
+    values,
   );
   return new Map(rows.map((row) => [row.platform, row]));
 }
@@ -335,10 +354,15 @@ export async function loadTopCommentsForPosts(
   pool: Pool | PoolClient,
   posts: ReadonlyArray<{ id: string; platformId: string; kind: string; externalId: string }>,
   maxPerPost = 2,
+  visibility?: BatchMembership,
 ): Promise<Map<string, TopCommentPreview[]>> {
   const result = new Map<string, TopCommentPreview[]>();
   if (!posts.length) return result;
   const payload = posts.map((p) => JSON.stringify(p));
+  const values: unknown[] = [payload, maxPerPost];
+  const visSql = visibility
+    ? ` AND ${visibility.contains((v) => `$${values.push(v)}`, "c.id")}`
+    : "";
   const { rows } = await pool.query<{
     post_id: string;
     author: string | null;
@@ -364,11 +388,11 @@ export async function loadTopCommentsForPosts(
          AND (
            c.content_references @> jsonb_build_array(jsonb_build_object('relation', 'thread_root', 'kind', t.kind, 'externalId', t.external_id))
            OR c.content_references @> jsonb_build_array(jsonb_build_object('relation', 'reply_to', 'kind', t.kind, 'externalId', t.external_id))
-         )
+         )${visSql}
        ORDER BY c.engagement_score DESC, COALESCE(c.metric_score, c.metric_likes, 0) DESC, c.id
        LIMIT $2
      ) cm ON TRUE`,
-    [payload, maxPerPost],
+    values,
   );
   for (const row of rows) {
     if (!row.body_text) continue;
@@ -383,9 +407,14 @@ export async function loadContentDimensionsByIds(
   db: Pool | PoolClient,
   actor: Actor,
   contentIds: readonly string[],
+  visibility?: BatchMembership,
 ): Promise<Map<string, ContentDimensionSummary>> {
   const unique = [...new Set(contentIds)];
   if (!unique.length) return new Map();
+  const values: unknown[] = [unique, actor.allowedSourceIds];
+  const visSql = visibility
+    ? ` AND ${visibility.contains((v) => `$${values.push(v)}`, "d.content_id")}`
+    : "";
   const { rows } = await db.query<{
     id: string;
     source_id: string | null;
@@ -406,9 +435,9 @@ export async function loadContentDimensionsByIds(
      JOIN content_discovery d ON d.content_id = c.id
      JOIN collection_source cs ON cs.id = d.collection_source_id
      WHERE c.id = ANY($1::uuid[])
-       AND ($2::uuid[] IS NULL OR cs.id = ANY($2))
+       AND ($2::uuid[] IS NULL OR cs.id = ANY($2))${visSql}
      ORDER BY c.id, cs.id`,
-    [unique, actor.allowedSourceIds],
+    values,
   );
   return new Map(
     rows.map((r) => [

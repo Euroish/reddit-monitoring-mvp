@@ -2,18 +2,31 @@ import type { Pool } from "pg";
 import type { Actor } from "../../../packages/contracts/src/access";
 import type { Filter } from "../../../packages/contracts/src/content";
 import { fail } from "../../shared/errors";
-import { compileContentFilter, contentSelect, type ContentScopeResolver } from "./search";
+import {
+  compileContentFilter,
+  contentSelect,
+  type ContentScopeResolver,
+  type ContentVisibilityResolver,
+} from "./search";
 import { contentFromRow } from "./sql";
 
 export async function readThread(
   pool: Pool, actor: Actor, id: string, projectId: string | undefined,
   filter: Filter, view: "top" | "matches" | "op",
   resolveProjectScope?: ContentScopeResolver,
+  resolveContentVisibility?: ContentVisibilityResolver,
 ) {
   const project = projectId
     ? await (resolveProjectScope ?? (() => fail(500, "Project scope resolver is unavailable")))(pool, actor, projectId)
     : undefined;
-  const compiled = compileContentFilter(actor, filter, project?.batchMembership ? undefined : project?.source_ids, project?.filter, false, project?.batchMembership);
+  const compiled = compileContentFilter(
+    actor,
+    filter,
+    project?.batchMembership ? undefined : project?.source_ids,
+    project?.filter,
+    false,
+    project?.batchMembership ?? resolveContentVisibility?.(actor),
+  );
   compiled.values.push(id);
   const idParam = `$${compiled.values.length}::uuid`;
   const match = compiled;

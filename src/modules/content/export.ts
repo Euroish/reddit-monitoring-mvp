@@ -7,7 +7,14 @@ import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Actor } from "../../../packages/contracts/src/access";
 import { strictMerge } from "../../../packages/contracts/src/common";
 import { ResearchFilter } from "../../../packages/contracts/src/content";
-import { compileContentFilter, contentSelect, filterSignature, matchedAnchors, type ContentScopeResolver } from "./search";
+import {
+  compileContentFilter,
+  contentSelect,
+  filterSignature,
+  matchedAnchors,
+  type ContentScopeResolver,
+  type ContentVisibilityResolver,
+} from "./search";
 import { contentFromRow } from "./sql";
 import { fail } from "../../shared/errors";
 
@@ -25,6 +32,7 @@ export async function exportRoutes(
   shutdown: AbortSignal,
   assertExportAllowed: ExportAdmission,
   resolveProjectScope?: ContentScopeResolver,
+  resolveContentVisibility?: ContentVisibilityResolver,
 ) {
   // One admission slot is shared by every user of this application process.
   let exporting = false;
@@ -97,7 +105,14 @@ export async function exportRoutes(
         const project = projectId
           ? await (resolveProjectScope ?? (() => fail(500, "Project scope resolver is unavailable")))(client, request.actor!, projectId)
           : undefined;
-        const compiled = compileContentFilter(request.actor!, filter, project?.batchMembership ? undefined : project?.source_ids, project?.filter, false, project?.batchMembership);
+        const compiled = compileContentFilter(
+          request.actor!,
+          filter,
+          project?.batchMembership ? undefined : project?.source_ids,
+          project?.filter,
+          false,
+          project?.batchMembership ?? resolveContentVisibility?.(request.actor!),
+        );
         const match = matchedAnchors(compiled, filter.threadAware ?? project?.thread_aware ?? false);
         signature = filterSignature(request.actor!, filter, project && { id: project.id, revision: project.revision });
         compiled.values.push(maxRows + 1);

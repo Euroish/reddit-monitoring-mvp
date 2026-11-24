@@ -172,6 +172,28 @@ export function batchMembership(ids: readonly string[] | undefined, actor?: Acto
   } };
 }
 
+export function contentVisibility(
+  actor?: Pick<Actor, "role" | "userId">,
+  options?: { publicOnly?: boolean },
+): import("../content/index").BatchMembership {
+  return {
+    contains: (bind, column) => {
+      const sourceMatch =
+        column === "d.content_id"
+          ? " AND cb.collection_source_id=d.collection_source_id"
+          : column === "o.content_id"
+            ? " AND cb.collection_source_id=o.collection_source_id"
+            : "";
+      if (options?.publicOnly) {
+        return `(NOT EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.visibility='private') OR EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.visibility='shared'))`;
+      }
+      if (actor && actor.role !== "viewer") return "TRUE";
+      const userId = bind(actor?.userId ?? null);
+      return `(NOT EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND cb.visibility='private' AND cb.created_by_user_id IS DISTINCT FROM ${userId}::uuid) OR EXISTS (SELECT 1 FROM collection_batch_item cbi JOIN collection_batch cb ON cb.id=cbi.batch_id WHERE cbi.content_id=${column}${sourceMatch} AND (cb.visibility='shared' OR cb.created_by_user_id=${userId}::uuid)))`;
+    },
+  };
+}
+
 export async function loadAuthorizedBatches(db: Pool | PoolClient, actor: Actor, ids: readonly string[]) {
   if (!ids.length) return [];
   const { rows } = await db.query<{

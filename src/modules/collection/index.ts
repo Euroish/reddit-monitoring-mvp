@@ -15,6 +15,6 @@ export { collectionRoutes, collectionRoutes as registerCollectionModule } from "
 export { allSourcesExist, listSourcesByIds } from "./sql";
 export { readCollectionWorkerHealth, startWorker } from "./worker";
 
-export { batchMembership, loadAuthorizedBatches } from "./batches";
+export { batchMembership, contentVisibility, loadAuthorizedBatches } from "./batches";
 export { assertBrowserExportAllowed, loadEffectivePolicyForUser } from "./policy";
 export { getUserRoleStatus, listStaffOwnerIds } from "../access/index";

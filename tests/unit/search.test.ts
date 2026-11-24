@@ -4,6 +4,7 @@ import {
   compileContentFilter,
   decodeCursor,
   escapeLike,
+  filterSignature,
   MAX_INDEXED_BODY_CHARS,
   normalizePublicSearchText,
   publicSearchDocument,
@@ -59,4 +60,14 @@ test("publicSearchDocument caps body length and compileContentFilter compiles gr
   assert.match(compiled.discovery, /cs\.tier=/);
   assert.match(compiled.text, /c\.language=/);
   assert.match(compiled.text, /jsonb_array_length\(c\.content_media\)>0/);
+});
+
+test("filterSignature isolates cursors across viewers while sharing staff scope", () => {
+  const sigA = filterSignature({ allowedSourceIds: null, role: "viewer", userId: "user-a" }, {});
+  const sigB = filterSignature({ allowedSourceIds: null, role: "viewer", userId: "user-b" }, {});
+  const sigAdmin = filterSignature({ allowedSourceIds: null, role: "admin", userId: "admin-1" }, {});
+  const sigOwner = filterSignature({ allowedSourceIds: null, role: "owner", userId: "owner-1" }, {});
+  assert.notEqual(sigA, sigB);
+  assert.notEqual(sigA, sigAdmin);
+  assert.equal(sigAdmin, sigOwner);
 });

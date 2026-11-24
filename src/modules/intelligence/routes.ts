@@ -4,7 +4,7 @@ import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool } from "pg";
 import { IdempotencyHeaders, ParamsId } from "../../../packages/contracts/src/common";
 import {
-  AuthorListQuery, AuthorProfileParams, CommunityListQuery, CommunityParams,
+  AuthorListQuery, AuthorProfileParams, AuthorProfileQuery, CommunityDeepDiveQuery, CommunityListQuery, CommunityParams,
   MonitorCollectBody, MonitorCreateBody, MonitorKind, MonitorOverviewQuery, MonitorPatchBody, MonitorPostsQuery,
 } from "../../../packages/contracts/src/intelligence";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
@@ -54,12 +54,12 @@ export async function intelligenceRoutes(app: FastifyInstance, pool: Pool, provi
     { config: readAuth, schema: { querystring: AuthorListQuery } },
     (request) => listTrackedAuthors(pool, request.actor!, request.query));
   api.get("/v1/intelligence/authors/:platform/:handle",
-    { config: readAuth, schema: { params: AuthorProfileParams, querystring: Type.Object({ days: Type.Optional(Type.Integer({ minimum: 1, maximum: 90 })) }, { additionalProperties: false }) } },
-    (request) => getTrackedAuthorProfile(pool, request.actor!, request.params.platform, request.params.handle, request.query.days ?? 30));
+    { config: readAuth, schema: { params: AuthorProfileParams, querystring: AuthorProfileQuery } },
+    (request) => getTrackedAuthorProfile(pool, request.actor!, request.params.platform, request.params.handle, request.query));
   api.get("/v1/intelligence/communities",
     { config: readAuth, schema: { querystring: CommunityListQuery } },
     (request) => listMonitoredCommunities(pool, request.actor!, request.query));
   api.get("/v1/intelligence/communities/:subreddit",
-    { config: readAuth, schema: { params: CommunityParams, querystring: Type.Object({ days: Type.Optional(Type.Integer({ minimum: 1, maximum: 90 })) }, { additionalProperties: false }) } },
-    (request) => getCommunityDeepDive(pool, request.actor!, request.params.subreddit, request.query.days ?? 14));
+    { config: readAuth, schema: { params: CommunityParams, querystring: CommunityDeepDiveQuery } },
+    (request) => getCommunityDeepDive(pool, request.actor!, request.params.subreddit, request.query));
 }
