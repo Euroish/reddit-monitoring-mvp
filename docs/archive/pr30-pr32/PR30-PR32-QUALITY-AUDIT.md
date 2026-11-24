@@ -66,19 +66,7 @@
 
 优先复核状态和事务所有权，而非机械切函数：来源编辑/保存与域/目标切换；Sources 与 Projects 的请求、选中态、表单和导航；WorkbenchShell 的装配；Collection intake 的过期响应、估算和确认。Frontend V2 交付时应按用户旅程分批收敛，保留现有有效任务，并提供真实渲染、窄屏、键盘和空/错/权限状态证据。未逐页验证前不宣布这些热点已经解决。
 
-静态扫描复现（复用现有依赖与规则，无新增审计工具）：
-
-```sh
-node --input-type=module <<'JS'
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { complexityViolations } from './scripts/check-complexity.mjs';
-const files = execFileSync('git', ['diff', '--name-only', '4b05369', '3fece79', '--', 'src', 'apps', 'packages'], { encoding: 'utf8' }).trim().split('\n');
-for (const file of files.filter(file => /\.tsx?$/.test(file)))
-  for (const item of complexityViolations(readFileSync(file, 'utf8'), file))
-    console.log(JSON.stringify({ file, ...item }));
-JS
-```
+该表为历史快照，使用当时的 ESLint 圈复杂度扫描结果，不是当前准入门禁。
 
 静态后端导入图无循环，但存在 Node 内置模块/外部依赖解析边界；循环图不是运行时安全证明。跨域约束另由 depcruise 与表归属门禁验证，实际 Worker 钩子和 route 注册已追踪。
 
@@ -88,7 +76,7 @@ JS
 - 双端 typecheck、API ESLint、DAG/表归属与 OpenAPI 通过；269 模块 / 1222 依赖无违规，122 路径 / 140 操作契约不变。
 - 最终 API 构建与编译产物 PG16 冒烟通过：66 SQL 文件、`readyz`、登录与鉴权来源查询。
 - 没有 UI 改动，未重跑浏览器/前端构建；未对生产环境或上游付费渠道进行本轮测试。
-- 候选修复的远端 CI 和集成状态以对应 PR 为准。本文是本轮快照，动态进展见 [状态页](../status.md)。
+- 候选修复的远端 CI 和集成状态以对应 PR 为准。本文是本轮快照，动态进展见 [状态页](../../status.md)。
 
 ## 附：92 个产品变更文件
 

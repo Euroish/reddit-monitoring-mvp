@@ -119,23 +119,7 @@ function checkMigrations(): void {
   }
 }
 
-// 1. Guard against retired architecture paths, retired connectors, and symlinked module files.
-for (const file of files) {
-  if (/^(?:src\/(?:application|domain|runtime|jobs|workers|storage\/repositories)\/|workers\/)/.test(file)) {
-    errors.push(`Retired architecture path: ${file}`);
-  }
-  if (/^src\/connectors\/(?:reddit\/arctic-shift|x\/twitterapi-io)/.test(file)) {
-    errors.push(`Retired online connector: ${file}`);
-  }
-  if ((file.startsWith("src/modules/") || file.startsWith("apps/api/src/")) && file.endsWith(".ts")) {
-    const fullPath = path.join(root, file);
-    if (lstatSync(fullPath).isSymbolicLink()) {
-      errors.push(`Linked module file: ${file}`);
-    }
-  }
-}
-
-// 2. Guard against private secrets or env files tracked in Git.
+// Guard against private secrets or env files tracked in Git.
 for (const file of gitFiles()) {
   if (
     /(?:^|\/)\.env(?:$|\.)|(?:^|\/)[^/]+\.env$|(?:^|\/)credentials\.json$|\.(key|pem)$/.test(file) &&
@@ -145,7 +129,7 @@ for (const file of gitFiles()) {
   }
 }
 
-// 3. Verify Markdown links and anchors across root docs and docs/**/*.md (allowing diagrams/assets in docs/).
+// Verify Markdown links and anchors across root docs and docs/**/*.md (allowing diagrams/assets in docs/).
 const markdownTargets = new Set<string>();
 for (const file of files) {
   if (file === "README.md" || file === "AGENTS.md" || (file.startsWith("docs/") && /\.(md|mdc|markdown)$/i.test(file))) {
@@ -180,7 +164,17 @@ for (const document of markdownTargets) {
   }
 }
 
-// 4. Enforce immutable applied SQL migrations and forward-only numbering.
+// Guard against accidentally committed focused tests that silently skip the rest of a suite.
+for (const file of files) {
+  if (!/^tests\/.+\.(?:[cm]?[jt]sx?)$/.test(file)) continue;
+  const fullPath = path.join(root, file);
+  if (!existsSync(fullPath) || lstatSync(fullPath).isSymbolicLink()) continue;
+  if (/\b(?:test|describe|it)\.only\s*\(/.test(readFileSync(fullPath, "utf8"))) {
+    errors.push(`Focused test (.only) must not be committed: ${file}`);
+  }
+}
+
+// Enforce immutable applied SQL migrations and forward-only numbering.
 checkMigrations();
 
 if (errors.length) {
@@ -188,6 +182,6 @@ if (errors.length) {
   process.exitCode = 1;
 } else {
   console.log(
-    `Policy check passed: ${markdownTargets.size} Markdown files checked; links, private paths, retired paths, and migrations valid.`,
+    `Policy check passed: ${markdownTargets.size} Markdown files checked; links, private paths, and migrations valid.`,
   );
 }

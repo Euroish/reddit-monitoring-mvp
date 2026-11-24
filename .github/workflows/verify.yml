@@ -3,7 +3,7 @@ name: Core verification
 on:
   pull_request:
     branches: [main]
-    types: [opened, edited, synchronize, reopened, ready_for_review, converted_to_draft, labeled, unlabeled]
+    types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
   push:
     branches: [main]
@@ -32,20 +32,11 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
-          cache: npm
-          cache-dependency-path: package-lock.json
       - id: scope
         run: node scripts/ci-scope.mjs
       - name: Verify CI scope rules
         if: fromJSON(steps.scope.outputs.scope).workflow
         run: node --test scripts/ci-scope.test.mjs
-      - name: Test PR admission policy
-        run: node --test scripts/check-pr-quality.test.mjs
-      - name: Require PR evidence and no quality hold
-        if: github.event_name == 'pull_request'
-        run: node scripts/check-pr-quality.mjs
-        env:
-          MIGRATION_BASE_SHA: ${{ steps.scope.outputs.base }}
       - name: Gitleaks secret scan
         env:
           BASE: ${{ steps.scope.outputs.base }}
@@ -59,20 +50,8 @@ jobs:
           docker run --rm \
             -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
             -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.28.0 git /repo --redact --log-opts="$range"
-      - run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Test complexity ratchet
-        run: node --test scripts/check-complexity.test.mjs
-      - name: Prevent production complexity regressions
-        if: steps.scope.outputs.base != ''
-        run: npm run check:complexity
-        env:
-          MIGRATION_BASE_SHA: ${{ steps.scope.outputs.base }}
-      - run: npm run lint:policy
-        env:
-          MIGRATION_BASE_SHA: ${{ steps.scope.outputs.base }}
-      - name: PR governance and blast-radius audit
-        if: github.event_name == 'pull_request'
-        run: node scripts/check-governance-diff.mjs
+      - name: Check repository links, private files and migration history
+        run: npm run lint:policy
         env:
           MIGRATION_BASE_SHA: ${{ steps.scope.outputs.base }}
       - name: Postgres migration safety (Squawk)

@@ -7,7 +7,7 @@
 | 产品支柱 | 解决的核心用户任务 | 数据与核心引擎 | 典型入口 |
 | :--- | :--- | :--- | :--- |
 | **高价值讨论流与热榜** | 像刷信息流一样高效消费高讨论度技术/产品内容，持续破除信息茧房且滑动绝不重复 | `feed_lane` 隔离新闻、`4` 池破茧重排（`50%` 兴趣 / `25%` 全网热议 / `15%` 未知高赞探索 / `10%` 6h 飙升）、`14d` 半衰期 + Plackett-Luce + 滑窗打散、`feed_user_seen` | `/v1/feed/stream`、`/v1/feed/hot`、`/v1/feed/events`、`/v1/feed/preferences` |
-| **Semrush 级社媒与 GEO 监测** | 追踪 Reddit 与 X 上的关键词声量占比（SoV）、被大模型引用的高权重外链域名（GEO）、关注 KOL 动态画像及一揽子 Subreddit 对比分析 | `intel_monitor` 三合一模型（`keyword` / `author_list` / `community_bundle`）、15–20 账号批查询拼装、`6h/1d` 增量预聚合分桶 `intel_rollup_bucket`、先估价后采门禁 | `/v1/intelligence/monitors*`、`/v1/intelligence/authors*`、`/v1/intelligence/communities*` |
+| **Semrush 级社媒与 GEO 监测** | 追踪 Reddit 与 X 上的关键词声量占比（SoV）、样本中引用的外链域名、关注 KOL 动态画像及一揽子 Subreddit 对比分析 | `intel_monitor` 三合一模型（`keyword` / `author_list` / `community_bundle`）、15–20 账号批查询拼装、`6h/1d` 增量预聚合分桶 `intel_rollup_bucket`、先估价后采门禁 | `/v1/intelligence/monitors*`、`/v1/intelligence/authors*`、`/v1/intelligence/communities*` |
 | **AI 发布情报中心** | 跟踪全球 AI 厂商模型与产品发布、官方一手证据链与第三方榜单 | `ai_vendor` / `ai_release_event` / `ai_model`、离线可验证历史基线 `data/ai/history/v1/`、管理员审核发布队列 | `/v1/ai/*`、`/v1/admin/ai/*` |
 
 ## 2. 产品边界与 2026-11-23 定案
@@ -20,10 +20,10 @@
 
 ### 2026-11-23 已确认执行决议
 
-1. **信源清洗**：迁入 `059` 归档现有被动媒体新闻与 V2EX/营销榜单源（完整保留 `ai_vendor_source` 官方发布源）；后续高讨论 L1/L2 信源由维护者精选补充。
+1. **信源清洗**：迁移 `061` 归档现有被动媒体新闻与 V2EX/营销榜单源（完整保留 `ai_vendor_source` 官方发布源）；后续高讨论 L1/L2 信源由维护者精选补充。
 2. **摘要与意图识别**：采用可插拔 `heuristic_v1` + 版本化升级钩子（`upgradeContentEnrichment`）低复杂度起步，保证结构化卡片立即可用且便于后期平滑替换为分类器/LLM。
-3. **采集预算额度**：X + Reddit 直调 API 总上限校准为 `<= 20,000` 条/天，采集前通过 `estimate` 预估配额。
-4. **分期交付顺序**：Backend V2 优先完成数据库、模块边界与前端 BFF 接口收口（暂不修改现有前端），待后端合入并稳态运行后再全面重做前端 UI/UX；匿名访客在信息流自动使用非个性化高价值混排。
+3. **采集预算额度**：全站社媒日上限可配置，默认 20,000 资源预留单位，不等于采集条数。
+4. **分期交付顺序**：前端按用户任务逐步接入 Backend V2，不需要等待整站重做；匿名访客使用非个性化混排。
 
 ## 3. 度量诚实性与工程规则（`docs:check` 受控 ID）
 
@@ -44,10 +44,10 @@
 | [README.md](../README.md) | 仓库总入口、核心能力概览与开发启动 |
 | [AGENTS.md](../AGENTS.md) | Agent 与协作者红线约束 |
 | [README.md](README.md)（本文） | 产品支柱、业务边界、2026-11-23 定案与度量诚实性 |
-| [architecture.md](architecture.md) | 4 GB 运行拓扑、9 域 DAG、58 表所有权、检索、L1–L3/R4 隔离与安全底线 |
+| [architecture.md](architecture.md) | 4 GB 运行拓扑、模块 DAG、表写归属、检索、L1–L3/R4 隔离与安全底线 |
 | [invariants.md](invariants.md) | `INV-001`..`INV-010` 核心工程不变量与门禁索引 |
-| [contracts.md](contracts.md) | Domain 对象、认证授权、采集/查询/导出规则与 OpenAPI 115 路由实测清单 |
+| [contracts.md](contracts.md) | Domain 对象、认证授权、采集/查询/导出规则与 OpenAPI 入口 |
 | [design.md](design.md) | 现有 UI 基线与 Frontend V2 信息架构/交互视觉规范 |
-| [status.md](status.md) | 生产最近已知基线、主干已合入代码、在途质量修复与未收口事项 |
+| [status.md](status.md) | 生产、主干与候选版本；链接到待办和交付归档 |
 | [development.md](development.md) | 分支协作、CI 门禁、本地验证、Docker 部署与生产运维手册 |
 | [backend-v2-blueprint.md](plans/backend-v2-blueprint.md) | 已批准 Backend V2 产品与架构完整设计规格 |

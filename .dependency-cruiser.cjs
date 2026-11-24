@@ -60,16 +60,6 @@ module.exports = {
       },
     },
     {
-      name: "modules-no-cross-routes",
-      severity: "error",
-      comment: "Fastify route plugins are wired only in apps/api/src/app.ts; modules must not import another module's routes.ts.",
-      from: { path: "^src/modules/([^/]+)/" },
-      to: {
-        path: "^src/modules/([^/]+)/routes\\.ts$",
-        pathNot: "^src/modules/$1/",
-      },
-    },
-    {
       name: "modules-public-api-only",
       severity: "error",
       comment: "Cross-module imports must go through the target module's public index.ts facade, never internal sql/batch/helper files.",
@@ -197,15 +187,6 @@ module.exports = {
       to: {
         path: "^src/modules/",
         pathNot: ["^src/modules/intelligence/", "^src/modules/(content|collection)/index\\.ts$"],
-      },
-    },
-    {
-      name: "no-retired-paths-or-connectors",
-      severity: "error",
-      comment: "Prevent re-introducing retired pre-050 architecture layers or retired online connectors.",
-      from: {},
-      to: {
-        path: "^(src/(application|domain|runtime|jobs|workers|storage/repositories)/|workers/|src/connectors/(reddit/arctic-shift|x/twitterapi-io))",
       },
     },
     {

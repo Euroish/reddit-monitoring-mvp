@@ -83,7 +83,6 @@ export function ProjectCollectView({ actor, project, sources, initialSearch = ''
   }));
   const [range, setRange] = useState<CollectionRange>(initialRange);
   const [restriction, setRestriction] = useState<ResearchPlanPreviewResponse>();
-  const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState('');
   const mounted = useRef(true);
   const heading = useRef<HTMLElement>(null);
@@ -124,7 +123,6 @@ export function ProjectCollectView({ actor, project, sources, initialSearch = ''
   function move(step: 'landing' | 'target' | 'existing') {
     setError('');
     setRestriction(undefined);
-    setConfirmed(false);
     collect.reset();
     setFlow({ step });
   }
@@ -168,19 +166,17 @@ export function ProjectCollectView({ actor, project, sources, initialSearch = ''
       }
       collect.reset();
       collectPlan.reset();
-      setConfirmed(false);
       setFlow({ step: 'review', target: flow.target,
         estimate: { request, result, key: generateUuidV4(), expiresAt: now + planLifetimeMs } });
     } catch (err) { setError(readableError(err)); }
   }
 
   async function confirm() {
-    if (!canModify || flow.step !== 'review' || !confirmed || submitting.current) return;
+    if (!canModify || flow.step !== 'review' || submitting.current) return;
     const { estimate: prepared, target } = flow;
     if (Date.now() >= prepared.expiresAt && !collect.isError && !collectPlan.isError) {
       setFlow({ step: 'scope', target });
       setError(t('The estimate expired. Check the estimated usage again.', '估算已过期，请重新查看预计消耗。'));
-      setConfirmed(false);
       return;
     }
     const { from, to, limit, includeComments, maxCommentsPerPost, useFallback, projectId, queryHints } = prepared.request;
@@ -266,10 +262,10 @@ export function ProjectCollectView({ actor, project, sources, initialSearch = ''
           onContinue={estimate} onBack={() => move('target')} />}
         {restriction && <IntakeRestriction result={restriction} registrationPath={registrationPath} isAdmin={isAdmin}
           onBack={() => { setRestriction(undefined); setError(''); }} />}
-        {flow.step === 'review' && <IntakeReviewStep estimate={flow.estimate} isAdmin={isAdmin} confirmed={confirmed} setConfirmed={setConfirmed}
+        {flow.step === 'review' && <IntakeReviewStep estimate={flow.estimate} isAdmin={isAdmin}
           pending={collect.isPending || collectPlan.isPending} onConfirm={() => void confirm()} onBack={() => {
             if (collect.isPending || collectPlan.isPending) return;
-            setError(''); setConfirmed(false); setFlow({ step: 'scope', target: flow.target });
+            setError(''); setFlow({ step: 'scope', target: flow.target });
           }} onReuse={batches.length ? () => move('existing') : undefined} />}
         {flow.step === 'existing' && <>
           <ExistingIntakeData batches={batches} pending={attach.isPending} onAttach={id => void addExisting(id)} />

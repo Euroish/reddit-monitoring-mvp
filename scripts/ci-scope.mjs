@@ -2,41 +2,34 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-export function verificationScope(files, { event, full = false, forceBrowser = false, release: _release = false }) {
+export function verificationScope(files, { event, full = false }) {
   const scope = {
-    api: false, web: false, postgres: false, browser: forceBrowser,
-    docker: event === "workflow_dispatch", workflow: false,
+    api: full, web: full, postgres: full, browser: full,
+    docker: event === "workflow_dispatch", workflow: full,
   };
-  const areas = new Set();
 
   for (const file of files) {
-    if (/^(README\.md|AGENTS\.md|\.github\/pull_request_template\.md)$|^docs\/|^\.github\/(CODEOWNERS$|ISSUE_TEMPLATE\/)/.test(file)) continue;
+    if (/^(README\.md|AGENTS\.md|scripts\/check-docs\.ts)$|^docs\/|^\.github\/(CODEOWNERS$|pull_request_template\.md$|ISSUE_TEMPLATE\/)/.test(file)) continue;
     if (/^\.github\/workflows\/|^scripts\/ci-scope\.(mjs|test\.mjs)$/.test(file)) {
       scope.workflow = true;
-      areas.add("shared");
     } else if (/^(Dockerfile|\.dockerignore|docker-compose\.yml|scripts\/verify-container-build\.sh)$|^deploy\//.test(file)) {
       scope.docker = true;
     } else if (file.startsWith("tests/browser/")) {
-      scope.browser = true;
-      scope.api = true; // Root typecheck includes browser test sources.
+      scope.api = scope.browser = true;
+    } else if (file === "apps/web/eslint.config.js") {
+      scope.web = true;
     } else if (file.startsWith("apps/web/") || file === "scripts/check-web-bundle.mjs") {
-      areas.add("web");
-    } else if (/^(src|apps\/api|data|tests)\//.test(file) ||
-               /^(eslint\.config\.mjs|\.dependency-cruiser\.cjs)$/.test(file)) {
-      areas.add("api");
+      scope.web = scope.browser = true;
+    } else if (/^tests\/unit\/|^(eslint\.config\.mjs|\.dependency-cruiser\.cjs)$/.test(file)) {
+      scope.api = true;
+    } else if (/^(src|apps\/api|data|tests)\//.test(file)) {
+      scope.api = scope.postgres = true;
     } else {
-      areas.add("shared"); // Locks, contracts, scripts, and new paths use shared build/typecheck checks.
+      // Shared dependencies, contracts and unknown paths need both builds and a PG regression run.
+      scope.api = scope.web = scope.postgres = true;
+      if (file.startsWith("packages/contracts/")) scope.browser = true;
     }
   }
-
-  if (full || (event === "push" && (areas.size || scope.browser || scope.docker))) {
-    scope.api = scope.web = scope.postgres = scope.browser = true;
-  } else if (areas.has("shared")) {
-    scope.api = scope.web = scope.postgres = true;
-  }
-  if (areas.has("api")) scope.api = scope.postgres = true;
-  if (areas.has("web")) scope.web = scope.browser = true;
-  if (full) scope.workflow = true;
   return { ...scope, project: scope.api || scope.web || scope.postgres || scope.browser };
 }
 
@@ -54,9 +47,7 @@ function main() {
   const hasBase = /^[0-9a-f]{40}$/.test(base ?? "") && !/^0+$/.test(base);
   if (hasBase) git("merge-base", "--is-ancestor", base, "HEAD");
   const files = hasBase ? git("diff", "--name-only", "--no-renames", "-z", base, "HEAD").split("\0").filter(Boolean) : [];
-  const scope = verificationScope(files, {
-    event, full: !hasBase, release, forceBrowser: pr?.labels.some(({ name }) => name === "run-e2e"),
-  });
+  const scope = verificationScope(files, { event, full: !hasBase });
   const output = JSON.stringify(scope);
   console.log(output);
   appendFileSync(process.env.GITHUB_OUTPUT, `base=${hasBase ? base : ""}\nscope=${output}\n`);

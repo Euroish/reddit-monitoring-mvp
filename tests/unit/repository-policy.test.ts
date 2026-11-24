@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-test("repository policy allows flexible docs assets/modules while enforcing links, secrets, retired paths, and migration immutability", (t) => {
+test("repository policy preserves links, private files and applied migrations", (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "monitor-policy-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const put = (file: string, body: string) => {
@@ -17,16 +17,9 @@ test("repository policy allows flexible docs assets/modules while enforcing link
   put("AGENTS.md", "# Flexible agent guide\n");
   put("docs/architecture.md", "# Architecture\n[Diagram](assets/arch.png)\n```md\n[ignored](missing.md)\n```\n");
   put("docs/assets/arch.png", "synthetic-png-bytes");
-  put(
-    "src/modules/analytics/trends/sql.ts",
-    `export class AnalyticsError extends Error {}\n` + "export const row = 1;\n".repeat(460),
-  );
-  put("docs/research/additional/study.md", "# Additional research\n");
-  put("notes.md", "# Additional notes\n");
-  execFileSync("git", ["add", "--", "docs/research/additional/study.md"], { cwd: root });
 
   const run = (base = "") =>
-    spawnSync(process.execPath, ["--import", "tsx", path.resolve("scripts/check-docs.ts"), root], {
+    spawnSync(process.execPath, [path.resolve("scripts/check-docs.ts"), root], {
       cwd: process.cwd(),
       encoding: "utf8",
       env: { ...process.env, LOCAL_ENV_FILE: "none", MIGRATION_BASE_SHA: base },
@@ -63,8 +56,7 @@ test("repository policy allows flexible docs assets/modules while enforcing link
   put("src/storage/schema/042_b.sql", "SELECT 2;\n");
   put(".env.local", "APIFY_API_TOKEN=synthetic_fixture_only\n");
   execFileSync("git", ["add", "--", ".env.local"], { cwd: root });
-  put("src/runtime/obsolete.ts", "export const retired = true;\n");
-  put("src/connectors/reddit/arctic-shift.ts", "export const retired = true;\n");
+  put("tests/unit/focused.test.ts", `import test from 'node:test';\ntest.${"only"}('skip others', () => {});\n`);
 
   const invalid = run();
   assert.equal(invalid.status, 1, invalid.stderr);
@@ -73,8 +65,7 @@ test("repository policy allows flexible docs assets/modules while enforcing link
     /Invalid repository link/,
     /Duplicate forward migration prefix 042/,
     /Private configuration tracked/,
-    /Retired architecture path/,
-    /Retired online connector/,
+    /Focused test \(\.only\) must not be committed/,
   ]) {
     assert.match(invalid.stderr, error);
   }

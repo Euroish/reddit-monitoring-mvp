@@ -529,8 +529,8 @@ test("browser: project switching and guided intake with real project and role bo
   assert.equal(await page.getByLabel("同时采集评论").count(), 0);
   await preflight.click();
   await page.getByRole("heading", { name: "确认采集内容与预计消耗" }).waitFor();
-  assert.equal(await confirm.isDisabled(), true);
-  await page.getByRole("checkbox", { name: "我已核对预计用量并确认本次采集。" }).check();
+  assert.equal((await db.pool.query("SELECT 1 FROM source_collection_job")).rowCount, 0,
+    "viewing an estimate never starts a paid collection");
   await page.clock.setFixedTime(new Date(Date.now() + 6 * 60_000));
   await confirm.click();
   await page.getByRole("alert").filter({ hasText: "估算已过期" }).waitFor();
@@ -550,15 +550,15 @@ test("browser: project switching and guided intake with real project and role bo
     await capture(`pro-preflight-${width}`);
   }
   await page.setViewportSize({ width: 1440, height: 900 });
-  const confirmQuota = page.getByRole("checkbox", { name: "我已核对预计用量并确认本次采集。" });
-  await confirmQuota.check();
   await db.pool.query("UPDATE source_provider_budget SET enabled=false WHERE provider='twitterapis'");
   await confirm.click();
   await page.getByRole("alert").filter({ hasText: "采集配置或服务预算可能已变化" }).waitFor();
   assert.equal(upstreamCalls, 0);
   await db.pool.query("UPDATE source_provider_budget SET enabled=true WHERE provider='twitterapis'");
-  await confirm.click();
+  await confirm.press("Enter");
   await page.waitForURL(/view=jobs.*jobId=/);
+  assert.equal((await db.pool.query("SELECT 1 FROM source_collection_job")).rowCount, 1,
+    "explicit confirmation creates exactly one job");
   await page.getByText("已排队", { exact: true }).waitFor();
   await capture("intake-queued-1440");
   await page.reload();
@@ -646,7 +646,6 @@ test("browser: project switching and guided intake with real project and role bo
   await start.click();
   await chooseX();
   await preflight.click();
-  await page.getByRole("checkbox", { name: "我已核对预计用量并确认本次采集。" }).check();
   await confirm.click();
   await page.waitForURL(/view=jobs.*jobId=/);
   assert.equal(await workOnce(db.pool, [x], undefined, undefined, { onProjectBatchCommitted: attachBatchToProjectInTx }), true);

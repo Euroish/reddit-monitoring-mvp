@@ -26,7 +26,7 @@ Web 浏览器 / 移动 Web / 外部 Agent / L3 外部 Sidecar / R4 plugins/zst-a
 
 ---
 
-## 2. 9 域无环架构（DAG）与 58 表所有权
+## 2. 9 域无环架构（DAG）与表所有权
 
 由 `.dependency-cruiser.cjs` 与 `scripts/check-table-ownership.ts` 在 CI (`npm run lint:arch`) 双重强制：**所有业务域之间严禁循环依赖、严禁跨模块引用内部文件或 `routes.ts`，且每张数据库表有且仅有一个写主模块。**
 
@@ -53,14 +53,14 @@ flowchart TD
   AI --> CONTENT
 ```
 
-| 模块域 | 允许依赖（仅经 `index.ts` 门面） | 独家写表所有权（V2 · `001..064` 合计 **58 表**） |
+| 模块域 | 允许依赖（仅经 `index.ts` 门面） | 独家写表所有权 |
 | :--- | :--- | :--- |
 | **`access`** | 严格叶子域 | **8 表**：`app_user`、`app_user_password`、`app_invite`、`app_audit_log`、`app_session`、`app_auth_challenge`、`app_auth_mfa`、`app_auth_mfa_login`。 |
 | **`docs`** | 严格叶子域 | **1 表**：`doc_page`（产品文档中心，支持 `markdown` / `https` 外链 / 8 MiB 内联 PDF）。 |
 | **`content`** | 严格叶子域（由 `resolveProjectScope` 注入范围） | **5 表**：`content`、`content_discovery`、`content_observation`、`content_author_profile`、`public_content_search_document`。全库唯一写入入口 `commitContentBatch`；契约许可只读 `JOIN` `collection` 的 `source` 与 `collection_source`。 |
-| **`collection`** | `access`、`content` | **11 表**：`collection_batch`、`collection_batch_item`、`source`、`collection_source`、`source_collection_job`、`source_provider_budget`、`source_provider_usage`、`source_worker_heartbeat`、`source_provider_credential`、`plan_collection_policy`、`user_provider_usage`。 |
+| **`collection`** | `access`、`content` | **12 表**：`source_global_budget`、`collection_batch`、`collection_batch_item`、`source`、`collection_source`、`source_collection_job`、`source_provider_budget`、`source_provider_usage`、`source_worker_heartbeat`、`source_provider_credential`、`plan_collection_policy`、`user_provider_usage`。 |
 | **`feed`** | `content` | **4 表**（`062`）：`feed_user_seen`、`feed_user_event`、`feed_user_affinity`、`feed_user_preference`。与 `intelligence`/`projects`/`workspace`/`ai` 物理隔离。 |
-| **`intelligence`** | `content`、`collection` | **4 表**（`063`）：`intel_monitor`、`intel_monitor_source`、`intel_monitor_target`、`intel_rollup_bucket`。通过 `collection` 门面创/停源与预估额度。 |
+| **`intelligence`** | `content`、`collection` | **5 表**（`063` / `066`）：`intel_monitor`、`intel_monitor_source`、`intel_monitor_target`、`intel_rollup_bucket`、`intel_monitor_usage`。通过 `collection` 门面创/停源与预估额度。 |
 | **`projects`** | `content`、`collection` | **3 表**：`monitor_project`、`monitor_project_source`、`monitor_project_batch`（现有专题兼容层，概览/水合分别委托 `content` 与 `collection`）。 |
 | **`workspace`** | `content` | **2 表**：`content_saved_query`、`content_annotation`（严格浏览器会话隔离）。 |
 | **`ai`** | `content` | **19 表**（`054..056`）：全量 `ai_*` 发布、榜单、同步运行与历史导入/回填表。 |
@@ -86,7 +86,7 @@ flowchart TD
 
 ### 3.3 迁移前向不可变纪律
 
-已合入 `main` 的迁移 `001..064` 严禁改写、移动或删除；候选分支新增迁移 `065+`（`065` 扩展策略与私有可见性、`066` 可配置全站社媒预算与监测器连续调度/批次丢弃契约）必须通过 `npm run lint:policy`、`Squawk` 防锁表扫描、PG16 事务失败完整回滚测试与 `.github/CODEOWNERS` 审查，永不恢复 `050` 已退役的 27 张旧表。
+已合入 `main` 的迁移严禁改写、移动或删除；新迁移必须通过 `npm run lint:policy`、`Squawk` 防锁表扫描、PG16 事务失败完整回滚测试与 `.github/CODEOWNERS` 审查，永不恢复 `050` 已退役的 27 张旧表。
 
 ---
 
