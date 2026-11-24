@@ -327,13 +327,19 @@ export function WorkbenchShell({
       { group: t('Feed', '信息流'), label: t("Today's Stories", '完整信息流 · 今日精选'), kbd: 'G H', run: () => navigateAndClose('/app/feed') },
       { group: t('Feed', '信息流'), label: t('48h Momentum', '48 小时热度'), kbd: 'G T', run: () => navigateAndClose('/app/feed?view=hot') },
       { group: t('Feed', '信息流'), label: t('08:00 Daily Digest', '08:00 日报'), kbd: 'G D', run: () => navigateAndClose('/app/feed?view=digest') },
+      { group: t('Feed', '信息流'), label: t('For You Stream (V2)', '破茧探索信息流 (V2)'), kbd: 'G F', run: () => navigateAndClose('/app/feed?view=stream') },
+      { group: t('Feed', '信息流'), label: t('Cross-Platform Hot (V2)', '跨平台综合热榜 (V2)'), kbd: 'G X', run: () => navigateAndClose('/app/feed?view=hot-v2') },
       { group: t('Feed', '信息流'), label: t('Product Overview', '产品介绍'), kbd: 'G P', run: () => navigateAndClose('/product') },
       { group: t('Feed', '信息流'), label: t('Product Docs', '产品文档'), kbd: 'G ?', run: () => navigateAndClose('/docs') },
       { group: t('Feed', '信息流'), label: t('Product Guide', '产品使用说明'), kbd: 'G U', run: () => navigateAndClose('/guide') },
       { group: t('Navigate', '页面跳转'), label: t('Project Overview', '项目总览'), kbd: 'G O', run: () => navigateAndClose('/projects') },
+      { group: t('Navigate', '页面跳转'), label: t('Intelligence Insights (V2)', '智能监测洞察 (V2)'), kbd: 'G V', run: () => navigateAndClose('/projects?view=intelligence') },
       { group: t('Navigate', '页面跳转'), label: t('Content Explorer', '内容检索与过滤'), kbd: 'G E', run: () => navigateAndClose('/content') },
       ...(canWrite
-        ? [{ group: t('Navigate', '页面跳转'), label: t('Sources & Collection Jobs', '来源与采集任务'), kbd: 'G S', run: () => navigateAndClose('/sources') }]
+        ? [
+            { group: t('Navigate', '页面跳转'), label: t('Sources & Collection Jobs', '来源与采集任务'), kbd: 'G S', run: () => navigateAndClose('/sources') },
+            { group: t('Navigate', '页面跳转'), label: t('Automation & Rollup Ops', '全站监测与水合总控'), kbd: 'G M', run: () => navigateAndClose('/sources?tab=ops') },
+          ]
         : [{ group: t('Navigate', '页面跳转'), label: t('My Collection Jobs', '我的采集任务'), kbd: 'G J', run: () => navigateAndClose('/projects?view=my-jobs') }]),
       { group: t('Navigate', '页面跳转'), label: t('Saved Queries & Annotations', '个人工作区'), kbd: 'G W', run: () => navigateAndClose('/workspace') },
       {
@@ -591,6 +597,24 @@ export function WorkbenchShell({
               </button>
               <button
                 type="button"
+                className={`nav-item ${route === '/app/feed' && currentView === 'stream' ? 'is-active' : ''}`}
+                aria-current={route === '/app/feed' && currentView === 'stream' ? 'page' : undefined}
+                onClick={() => navigateAndClose('/app/feed?view=stream')}
+              >
+                <Sparkles size={14} className="nav-ic" />
+                <span>{t('For You Stream (V2)', '破茧探索 (V2)')}</span>
+              </button>
+              <button
+                type="button"
+                className={`nav-item ${route === '/app/feed' && currentView === 'hot-v2' ? 'is-active' : ''}`}
+                aria-current={route === '/app/feed' && currentView === 'hot-v2' ? 'page' : undefined}
+                onClick={() => navigateAndClose('/app/feed?view=hot-v2')}
+              >
+                <Flame size={14} className="nav-ic" />
+                <span>{t('Cross-Platform Hot (V2)', '综合热榜 (V2)')}</span>
+              </button>
+              <button
+                type="button"
                 className="nav-item"
                 onClick={() => navigateAndClose('/ai')}
               >
@@ -665,6 +689,15 @@ export function WorkbenchShell({
                 </button>
                 <button
                   type="button"
+                  className={`nav-item ${route === '/projects' && currentView === 'intelligence' ? 'is-active' : ''}`}
+                  aria-current={route === '/projects' && currentView === 'intelligence' ? 'page' : undefined}
+                  onClick={() => navigateAndClose(`/projects?view=intelligence${pidQs}`)}
+                >
+                  <Sparkles size={14} className="nav-ic" />
+                  <span>{t('Intelligence Insights', '智能监测洞察 (V2)')}</span>
+                </button>
+                <button
+                  type="button"
                   className={`nav-item ${route === '/content' ? 'is-active' : ''}`}
                   aria-current={route === '/content' ? 'page' : undefined}
                   onClick={() => navigateAndClose(`/content${pidQueryOnly}`)}
@@ -702,8 +735,8 @@ export function WorkbenchShell({
                 <p className="nav-label">{t('Sources & Auto-Schedule', '来源与自动调度')}</p>
                 <button
                   type="button"
-                  className={`nav-item ${route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentTab !== 'providers' && currentDomainParam !== 'feed' ? 'is-active' : ''}`}
-                  aria-current={route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentTab !== 'providers' && currentDomainParam !== 'feed' ? 'page' : undefined}
+                  className={`nav-item ${route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentTab !== 'providers' && currentTab !== 'ops' && currentDomainParam !== 'feed' ? 'is-active' : ''}`}
+                  aria-current={route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentTab !== 'providers' && currentTab !== 'ops' && currentDomainParam !== 'feed' ? 'page' : undefined}
                   onClick={() => navigateAndClose('/sources?tab=sources&domain=research')}
                 >
                   <Database size={14} className="nav-ic" />
@@ -712,8 +745,8 @@ export function WorkbenchShell({
                 </button>
                 <button
                   type="button"
-                  className={`nav-item ${route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentTab !== 'providers' && currentDomainParam === 'feed' ? 'is-active' : ''}`}
-                  aria-current={route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentTab !== 'providers' && currentDomainParam === 'feed' ? 'page' : undefined}
+                  className={`nav-item ${route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentTab !== 'providers' && currentTab !== 'ops' && currentDomainParam === 'feed' ? 'is-active' : ''}`}
+                  aria-current={route === '/sources' && currentTab !== 'budgets' && currentTab !== 'jobs' && currentTab !== 'providers' && currentTab !== 'ops' && currentDomainParam === 'feed' ? 'page' : undefined}
                   onClick={() => navigateAndClose('/sources?tab=sources&domain=feed')}
                 >
                   <Globe size={14} className="nav-ic" />
@@ -760,6 +793,15 @@ export function WorkbenchShell({
                 >
                   <Sparkles size={14} className="nav-ic" />
                   <span>{t('AI Release Review', 'AI 发布审核队列')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/sources' && currentTab === 'ops' ? 'is-active' : ''}`}
+                  aria-current={route === '/sources' && currentTab === 'ops' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/sources?tab=ops')}
+                >
+                  <Command size={14} className="nav-ic" />
+                  <span>{t('Automation & Rollup Ops', '全站监测与水合总控')}</span>
                 </button>
               </div>
             </>

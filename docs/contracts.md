@@ -58,7 +58,7 @@
 
 ---
 
-## 5. 已注册全量 HTTP 路由清册（`check:openapi` 实测：`136` 路径 / `158` 操作）
+## 5. 已注册全量 HTTP 路由清册（`check:openapi` 实测：`140` 路径 / `162` 操作）
 
 | 资源域（路径 / 操作） | 已注册路由端点 |
 | :--- | :--- |
@@ -66,8 +66,8 @@
 | **Access (24 / 26)** | `GET /v1/auth/session`、`POST /v1/auth/{login,register,logout,logout-all}`、`GET /v1/auth/sessions`、`DELETE /v1/auth/sessions/:id`、`POST /v1/auth/password/change`、`POST /v1/auth/email/{register,reset,verify}/{start,finish}`、`POST /v1/auth/mfa/{complete,recovery-codes,step-up}`、`GET/POST /v1/access/keys`、`DELETE /v1/access/keys/:id`、`GET/POST /v1/access/invites`、`DELETE /v1/access/invites/:id`、`GET /v1/access/users`、`PATCH /v1/access/users/:id`、`GET /v1/access/audit` |
 | **Collection & Quotas (31 / 35)** | `GET /v1/public/sources`、`GET/POST /v1/sources`、`POST /v1/sources/batch-update`、`PATCH/DELETE /v1/sources/:id`、`POST /v1/sources/{preview,import}`、`POST /v1/sources/:id/{collect,ingest,refresh,unblock}`、`GET /v1/sources/:id/jobs`、`GET /v1/sources/budgets`、`GET/PUT /v1/sources/budgets/global`、`PUT /v1/sources/budgets/:provider`、`GET /v1/sources/credentials`、`PUT/DELETE /v1/sources/credentials/:provider`、`POST /v1/sources/credentials/:provider/test`、`GET /v1/source-jobs`、`GET /v1/source-jobs/recent`、`GET /v1/source-jobs/:id`、`POST /v1/source-jobs/:id/{cancel,retry,continue}`、`GET /v1/quotas/summary`、`PUT /v1/quotas/plans/:tier`、`PUT /v1/quotas/users/:id`、`GET /v1/batches`、`DELETE /v1/batches/:id`、`PATCH /v1/batches/:id/visibility`、`POST /v1/research/collection-plans/{preview,collect}` |
 | **Content (8 / 8)** | `GET /v1/content`、`GET /v1/content/{feed,facets,stories,export}`、`GET /v1/projects/:id/content`、`GET /v1/content/:id`、`GET /v1/content/:id/thread` |
-| **Feed [V2] (5 / 6)** | `GET /v1/feed/{stream,hot}`、`POST /v1/feed/events`、`GET/PATCH /v1/feed/preferences`、`POST /v1/feed/preferences/reset` |
-| **Intelligence [V2] (12 / 15)** | `GET/POST /v1/intelligence/monitors`、`GET/PATCH/DELETE /v1/intelligence/monitors/:id`、`POST /v1/intelligence/monitors/:id/{estimate,collect}`、`GET /v1/intelligence/monitors/:id/{overview,posts}`、`GET /v1/intelligence/authors`、`GET /v1/intelligence/authors/:platform/:handle`、`GET /v1/intelligence/communities`、`GET /v1/intelligence/communities/:subreddit`、`GET /v1/intelligence/admin/legacy-sources`、`POST /v1/intelligence/admin/legacy-sources/:id/reconcile` |
+| **Feed [V2] (7 / 8)** | `GET /v1/feed/{stream,hot}`、`POST /v1/feed/events`、`GET/PATCH /v1/feed/preferences`、`POST /v1/feed/preferences/reset`、`GET /v1/feed/admin/summary`、`POST /v1/feed/admin/prune` |
+| **Intelligence [V2] (14 / 17)** | `GET/POST /v1/intelligence/monitors`、`GET/PATCH/DELETE /v1/intelligence/monitors/:id`、`POST /v1/intelligence/monitors/:id/{estimate,collect}`、`GET /v1/intelligence/monitors/:id/{overview,posts}`、`GET /v1/intelligence/authors`、`GET /v1/intelligence/authors/:platform/:handle`、`GET /v1/intelligence/communities`、`GET /v1/intelligence/communities/:subreddit`、`GET /v1/intelligence/admin/legacy-sources`、`POST /v1/intelligence/admin/legacy-sources/:id/reconcile`、`GET /v1/intelligence/admin/ops-summary`、`POST /v1/intelligence/admin/monitors/:id/reconcile` |
 | **Projects (9 / 13)** | `GET/POST /v1/projects`、`GET/PATCH/DELETE /v1/projects/:id`、`POST /v1/projects/:id/{publish,fork}`、`GET /v1/projects/:id/overview`、`POST /v1/projects/:id/hydrate`、`GET/POST /v1/projects/:id/batches`、`PATCH /v1/projects/:id/batches/:batchId`、`POST /v1/projects/:id/batches/:batchId/move` |
 | **Docs (4 / 6)** | `GET/POST /v1/docs`、`GET /v1/docs/:slug`、`GET /v1/docs/:slug/file`、`PATCH/DELETE /v1/docs/:id` |
 | **Workspace (4 / 6)** | `GET/POST /v1/workspace/queries`、`DELETE /v1/workspace/queries/:id`、`GET /v1/workspace/annotations`、`GET/PUT /v1/workspace/annotations/:id` |

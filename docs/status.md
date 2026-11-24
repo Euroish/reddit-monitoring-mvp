@@ -10,7 +10,8 @@
 | :--- | :--- | :--- |
 | **线上生产环境** | 最近记录 `f3bcc1b` | 本轮未部署、未写生产库，未重新巡检生产容器。2026-11-22 历史抽样为迁移至 `058`、46 表、约 51 MiB、101 活跃源；不代表当前实时运行态。 |
 | **`origin/main` 主干** | `8e6412d`（已合入 `#36`–`#39`、`#42`） | 迁移至 `066`，OpenAPI `130` 路径 / `149` 操作；已合入 `AUD-01`–`AUD-18`（含 `#36`–`#39` + `#42`）主体修复。尚未部署生产。 |
-| **当前候选分支** | `fix/audit-p1-ops-closure` | 在 `8e6412d` 之上新增迁移 `067`（`ai_provider_credential`），OpenAPI `136` 路径 / `158` 操作；推进 Stage 1 闭环（统一 `intel_monitor_usage` 日预算、`AUD-04` 非调度孤立源可见性、`AUD-05`/`21` 批量治理与 `061` 归档恢复及内嵌预览、`AUD-13`/`B07` 导出筛选与截断提示、`AUD-19`/`20` AI 事件 CRUD + 在线凭证 + 注册表开关、遗留前端缺口与文档基线同步）。待验收合入 `main`。 |
+| **Stage 1 候选分支（PR #44）** | `fix/audit-p1-ops-closure` | 在 `8e6412d` 之上新增迁移 `067`（`ai_provider_credential`），OpenAPI `136` 路径 / `158` 操作；推进 Stage 1 闭环（统一 `intel_monitor_usage` 日预算、`AUD-04` 非调度孤立源可见性、`AUD-05`/`21` 批量治理与 `061` 归档恢复及内嵌预览、`AUD-13`/`B07` 导出筛选与截断提示、`AUD-19`/`20` AI 事件 CRUD + 在线凭证 + 注册表开关、遗留前端缺口与文档基线同步）。待合入 `main`。 |
+| **Stage 2 候选分支（堆叠于 PR #44）** | `fix/v2-ops-and-feed-ui` | OpenAPI `140` 路径 / `162` 操作；完成 `AUD-06` 与 `AUD-22` 闭环：上线 `/app/feed?view=stream\|hot-v2`（四池探索流 + 5 卡片布局 + 可视区上报 + 偏好滑块 + 跨平台热榜）、`/projects?view=intelligence`（Semrush 洞察：SoV、GEO 外链、意图词、KOL 画像、Subreddit 四象限 + 7×24 热力图与证据下钻）以及 `/sources?tab=ops` 运维总控 `[5]`（全站监测器管控、P80 水合/Rollup 监控与 Feed 阅读清理）。待合入 `main`。 |
 
 ---
 
@@ -22,9 +23,9 @@
 - **产品能力保留**：48 小时互动快照热榜、独立信源聚簇、收藏/有用事件幂等、KOL 互动率、正向评论 GEO 外链统计、社区 P80 评论补采和预算门控。尚未全面完成线上业务验收。
 - **质量规则**：CI 仅保留高信噪比硬阻断（密钥、迁移安全、核心架构边界与单写表/凭证表读隔离、OpenAPI 鉴权、类型/lint、单元/集成/冒烟/浏览器测试及禁 `.only(`），移除形式化的 PR 正文校验与圈复杂度硬门禁，并将遇阻直报写入 `AGENTS.md`。
 
-## 3. 未收口项（Stage 2）
+## 3. 未收口项（均已进入候选审查队列）
 
-- **`AUD-22`（Stage 2 待立项）**：运维空间 `[5]`（全站监测器干预、P80 自动补采总控、Rollup 回算运维控制）与 Frontend V2 产品界面融合（`/v1/feed/*` 信息流/热榜 UI 与 `/v1/intelligence/*` Semrush 监测总览及作者/社区下钻），将在 `fix/audit-p1-ops-closure` 验收合入后另开分支推进，详情见 [审计修复进度表](research/business-audit-2026-11-23/SIFTLINE_修复进度完成表_2026-11-23.md)。
+- **`AUD-22`（Stage 2 候选 `fix/v2-ops-and-feed-ui` 已落地，待评审合入）**：运维空间 `[5]`（全站监测器干预、P80 自动补采总控、Rollup 回算与 Feed 清理控制）与 Frontend V2 产品界面融合（`/app/feed?view=stream|hot-v2` 与 `/projects?view=intelligence`）已在 Stage 2 候选分支完成全栈实现与端到端校验，详情见 [审计修复进度表](research/business-audit-2026-11-23/SIFTLINE_修复进度完成表_2026-11-23.md)。
 
 ---
 

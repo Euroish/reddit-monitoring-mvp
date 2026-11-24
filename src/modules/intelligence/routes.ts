@@ -13,6 +13,10 @@ import {
   listMonitoredCommunities, listMonitorPosts, listTrackedAuthors,
 } from "./analytics";
 import {
+  getIntelligenceOpsSummary,
+  reconcileAdminMonitor,
+} from "./admin-ops";
+import {
   createMonitor, deleteMonitor, estimateMonitorRun, listLegacyMonitorSources, listMonitors,
   loadMonitor, reconcileLegacyMonitorSource, triggerMonitorCollect, updateMonitor, type AssertWritableProjectFn,
 } from "./sql";
@@ -82,4 +86,19 @@ export async function intelligenceRoutes(
       },
     },
     (request) => reconcileLegacyMonitorSource(pool, request.actor!, request.params.id, request.body));
+  api.get("/v1/intelligence/admin/ops-summary",
+    { config: { auth: { access: "admin", browserOnly: true } } },
+    () => getIntelligenceOpsSummary(pool));
+  api.post("/v1/intelligence/admin/monitors/:id/reconcile",
+    {
+      config: { auth: { access: "admin_mfa", browserOnly: true } },
+      schema: {
+        params: ParamsId,
+        body: Type.Object({
+          action: Type.Union([Type.Literal("pause"), Type.Literal("resume"), Type.Literal("refresh_rollups")]),
+          revision: Type.Integer({ minimum: 1 }),
+        }, { additionalProperties: false }),
+      },
+    },
+    (request) => reconcileAdminMonitor(pool, request.actor!, request.params.id, request.body));
 }

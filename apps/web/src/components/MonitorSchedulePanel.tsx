@@ -19,11 +19,13 @@ export function MonitorSchedulePanel({
   project,
   quota,
   monitors,
+  onOpenAnalytics,
 }: {
   actor: Actor;
   project: Project;
   quota?: QuotasSummaryResponse;
   monitors: IntelMonitorDto[];
+  onOpenAnalytics?: (monitorId: string) => void;
 }) {
   const { t } = useI18n();
   const isAdmin = actor.clientKind === 'browser' && actor.role !== 'viewer';
@@ -225,6 +227,15 @@ export function MonitorSchedulePanel({
                   <span className={`chip-state ${m.enabled ? 'active' : 'paused'}`}>
                     {m.enabled ? t('Active', '运行中') : t('Paused', '已暂停')}
                   </span>
+                  {onOpenAnalytics && (
+                    <button
+                      type="button"
+                      className="ds-btn ds-btn--ghost"
+                      onClick={() => onOpenAnalytics(m.id)}
+                    >
+                      {t('Insights V2', '深入洞察 V2')}
+                    </button>
+                  )}
                   {canEditProject && (
                     <>
                       <button

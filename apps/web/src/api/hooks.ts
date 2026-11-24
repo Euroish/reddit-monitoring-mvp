@@ -5,8 +5,12 @@ import {
   type CredentialProviderName,
   type DocInput,
   type DocPatch,
+  type FeedEventType,
+  type FeedMode,
+  type FeedPreferencesDto,
   type ListQuery,
   type MachineScope,
+  type Platform,
   type ProjectInput,
   type PullProviderName,
   type SourceInput,
@@ -967,6 +971,179 @@ export function useDeleteDocMutation() {
     onSuccess: () => {
       invalidate();
       void qc.invalidateQueries({ queryKey: ['doc'] });
+    },
+  });
+}
+
+export function useFeedStreamQuery(
+  params: {
+    mode?: FeedMode;
+    topic?: string;
+    platform?: Platform;
+    language?: string;
+    includeNews?: boolean;
+    limit?: number;
+    excludeIds?: string[];
+  },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['feedStream', params],
+    queryFn: () => apiClient.getFeedStream(params),
+    enabled,
+  });
+}
+
+export function useFeedHotQuery(
+  params: { window?: '6h' | '24h' | '48h' | '7d'; platform?: Platform; topic?: string; limit?: number; offset?: number },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['feedHot', params],
+    queryFn: () => apiClient.getFeedHot(params),
+    enabled,
+  });
+}
+
+export function useFeedPreferencesQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['feedPreferences'],
+    queryFn: () => apiClient.getFeedPreferences(),
+    enabled,
+  });
+}
+
+export function useUpdateFeedPreferencesMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: Partial<Pick<FeedPreferencesDto,
+      'exploreRatio' | 'followedTopics' | 'mutedSources' | 'mutedKeywords' | 'mutedAuthors' | 'includeNewsLane'
+    >>) => apiClient.updateFeedPreferences(patch),
+    onSuccess: (data) => {
+      qc.setQueryData(['feedPreferences'], data);
+      void qc.invalidateQueries({ queryKey: ['feedStream'] });
+    },
+  });
+}
+
+export function useResetFeedPreferencesMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.resetFeedPreferences(),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['feedPreferences'] });
+      void qc.invalidateQueries({ queryKey: ['feedStream'] });
+    },
+  });
+}
+
+export function useRecordFeedEventsMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (events: Array<{ contentId: string; eventType: FeedEventType; dwellMs?: number; meta?: Record<string, string> }>) =>
+      apiClient.recordFeedEvents(events),
+    onSuccess: (_data, events) => {
+      if (events.some((e) => e.eventType !== 'impression' && e.eventType !== 'dwell')) {
+        void qc.invalidateQueries({ queryKey: ['feedPreferences'] });
+        if (events.some((e) => e.eventType.startsWith('mute_') || e.eventType === 'dismiss')) {
+          void qc.invalidateQueries({ queryKey: ['feedStream'] });
+        }
+      }
+    },
+  });
+}
+
+export function useFeedAdminSummaryQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['feedAdminSummary'],
+    queryFn: () => apiClient.getFeedAdminSummary(),
+    enabled,
+  });
+}
+
+export function usePruneFeedAdminMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.pruneFeedAdmin(),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['feedAdminSummary'] });
+    },
+  });
+}
+
+export function useMonitorOverviewQuery(monitorId: string | undefined, days = 14, bucket?: '6h' | '1d') {
+  return useQuery({
+    queryKey: ['intelOverview', monitorId, days, bucket],
+    queryFn: () => apiClient.getMonitorOverview(monitorId!, { days, bucket }),
+    enabled: Boolean(monitorId),
+  });
+}
+
+export function useMonitorPostsQuery(
+  monitorId: string | undefined,
+  params: Parameters<typeof apiClient.getMonitorPosts>[1],
+) {
+  return useQuery({
+    queryKey: ['intelPosts', monitorId, params],
+    queryFn: () => apiClient.getMonitorPosts(monitorId!, params),
+    enabled: Boolean(monitorId),
+  });
+}
+
+export function useTrackedAuthorsQuery(params: Parameters<typeof apiClient.getTrackedAuthors>[0], enabled = true) {
+  return useQuery({
+    queryKey: ['intelAuthors', params],
+    queryFn: () => apiClient.getTrackedAuthors(params),
+    enabled,
+  });
+}
+
+export function useAuthorProfileQuery(
+  platform: 'reddit' | 'x' | undefined,
+  handle: string | undefined,
+  params?: { days?: number; monitorId?: string },
+) {
+  return useQuery({
+    queryKey: ['intelAuthorProfile', platform, handle, params],
+    queryFn: () => apiClient.getAuthorProfile(platform!, handle!, params),
+    enabled: Boolean(platform && handle),
+  });
+}
+
+export function useMonitoredCommunitiesQuery(params: Parameters<typeof apiClient.getMonitoredCommunities>[0], enabled = true) {
+  return useQuery({
+    queryKey: ['intelCommunities', params],
+    queryFn: () => apiClient.getMonitoredCommunities(params),
+    enabled,
+  });
+}
+
+export function useCommunityDeepDiveQuery(subreddit: string | undefined, params?: { days?: number; monitorId?: string }) {
+  return useQuery({
+    queryKey: ['intelCommunityDeepDive', subreddit, params],
+    queryFn: () => apiClient.getCommunityDeepDive(subreddit!, params),
+    enabled: Boolean(subreddit),
+  });
+}
+
+export function useIntelligenceOpsSummaryQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['intelOpsSummary'],
+    queryFn: () => apiClient.getIntelligenceOpsSummary(),
+    enabled,
+  });
+}
+
+export function useReconcileAdminMonitorMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, action, revision }: { id: string; action: 'pause' | 'resume' | 'refresh_rollups'; revision: number }) =>
+      apiClient.reconcileAdminMonitor(id, { action, revision }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['intelOpsSummary'] });
+      void qc.invalidateQueries({ queryKey: ['monitors'] });
+      void qc.invalidateQueries({ queryKey: ['sources'] });
+      void qc.invalidateQueries({ queryKey: ['intelOverview'] });
     },
   });
 }

@@ -377,7 +377,56 @@ export async function resetFeedProfile(pool: Pool, actor: Actor): Promise<{ rese
   return { reset: true };
 }
 
-export async function pruneFeedArtifacts(pool: Pool): Promise<void> {
-  await pool.query("DELETE FROM feed_user_seen WHERE seen_at < NOW() - interval '14 days'");
-  await pool.query("DELETE FROM feed_user_event WHERE event_type NOT IN ('bookmark', 'useful') AND created_at < NOW() - interval '30 days'");
+export async function getFeedAdminSummary(pool: Pool) {
+  const [prefsRes, seenRes, affRes, eventsRes, lanesRes] = await Promise.all([
+    pool.query<{ count: number }>("SELECT COUNT(*)::int AS count FROM feed_user_preference"),
+    pool.query<{ total: number; stale: number; distinct_users: number }>(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE seen_at < NOW() - interval '14 days')::int AS stale,
+              COUNT(DISTINCT user_id)::int AS distinct_users
+       FROM feed_user_seen`,
+    ),
+    pool.query<{ count: number }>("SELECT COUNT(*)::int AS count FROM feed_user_affinity"),
+    pool.query<{ event_type: string; cnt_7d: number; stale_cnt: number }>(
+      `SELECT event_type,
+              COUNT(*) FILTER (WHERE created_at >= NOW() - interval '7 days')::int AS cnt_7d,
+              COUNT(*) FILTER (WHERE event_type NOT IN ('bookmark', 'useful') AND created_at < NOW() - interval '30 days')::int AS stale_cnt
+       FROM feed_user_event
+       GROUP BY event_type
+       ORDER BY cnt_7d DESC, event_type ASC`,
+    ),
+    pool.query<{ feed_lane: string; cnt: number }>(
+      `SELECT feed_lane, COUNT(*)::int AS cnt
+       FROM collection_source
+       WHERE usage_domain = 'feed' AND state = 'active'
+       GROUP BY feed_lane`,
+    ),
+  ]);
+  const eventBreakdown = eventsRes.rows.map((r) => ({
+    eventType: r.event_type,
+    count7d: Number(r.cnt_7d),
+  }));
+  const staleEvents = eventsRes.rows.reduce((sum, r) => sum + Number(r.stale_cnt), 0);
+  const eventsLast7d = eventBreakdown.reduce((sum, r) => sum + r.count7d, 0);
+  const activeFeedLanes: Record<string, number> = {};
+  for (const r of lanesRes.rows) activeFeedLanes[r.feed_lane] = Number(r.cnt);
+  return {
+    preferencesUsers: Number(prefsRes.rows[0]?.count ?? 0),
+    seenTotal: Number(seenRes.rows[0]?.total ?? 0),
+    seenStale14d: Number(seenRes.rows[0]?.stale ?? 0),
+    seenDistinctUsers: Number(seenRes.rows[0]?.distinct_users ?? 0),
+    affinityRows: Number(affRes.rows[0]?.count ?? 0),
+    eventsLast7d,
+    staleEvents30d: staleEvents,
+    eventBreakdown,
+    activeFeedLanes,
+  };
+}
+
+export async function pruneFeedArtifacts(pool: Pool): Promise<{ deletedSeen: number; deletedEvents: number }> {
+  const seen = await pool.query("DELETE FROM feed_user_seen WHERE seen_at < NOW() - interval '14 days'");
+  const events = await pool.query(
+    "DELETE FROM feed_user_event WHERE event_type NOT IN ('bookmark', 'useful') AND created_at < NOW() - interval '30 days'",
+  );
+  return { deletedSeen: seen.rowCount ?? 0, deletedEvents: events.rowCount ?? 0 };
 }

@@ -1590,3 +1590,184 @@ test("AI Release Intelligence Center (/ai timeline, drawer, /admin/queue) and pu
 
   assert.deepEqual(errors, []);
 });
+
+test("browser: Stage 2 V2 feed stream/hot, Semrush intelligence analytics & Ops [5] console", async (t) => {
+  const db = await testDatabase();
+  t.after(db.close);
+  await bootstrapOwner(db.pool, "fixture-password-123", "owner@localhost");
+  await db.pool.query(`UPDATE source_provider_budget SET enabled=true, daily_requests=50, monthly_requests=500,
+    daily_resources=2000, monthly_resources=20000 WHERE provider='kaix'`);
+
+  const port = await freePort();
+  const origin = `http://127.0.0.1:${port}`;
+  const createApp: typeof buildApp = process.env.TEST_COMPILED === "true"
+    ? require("../../dist/apps/api/src/app.js").buildApp
+    : buildApp;
+  const reddit = new KaixContentConnector({ networkEnabled: true, apiToken: "browser-fixture" });
+  const redCrawler = {
+    capability: { ...reddit.capability, provider: "red_crawler" },
+    normalizeTarget: reddit.normalizeTarget.bind(reddit),
+    collectPage: reddit.collectPage.bind(reddit),
+  };
+  const app = await createApp({
+    pool: db.pool,
+    providers: [reddit, redCrawler],
+    origin,
+    credentialVault: createCredentialVault(db.pool, "synthetic-secret-".repeat(3), { SOURCE_NETWORK_ENABLED: "true" }),
+    sessionSecret: "synthetic-secret-".repeat(3),
+    secureCookies: false,
+    publicRead: true,
+    rateLimitMax: 500,
+  });
+  const address = await app.listen({ host: "127.0.0.1", port: 0 });
+  t.after(() => app.close());
+  await launchVite(t, address, port, origin);
+
+  const browser = await chromium.launch({ executablePath: resolveChromiumPath(), headless: true, args: ["--no-sandbox"] });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+
+  await page.goto(`${origin}/projects`);
+  await page.getByRole("button", { name: "立即登录" }).click();
+  await page.getByLabel("工作邮箱").fill("owner@localhost");
+  await page.getByLabel("密码", { exact: true }).fill("fixture-password-123");
+  await page.getByRole("button", { name: "登录工作台" }).click();
+  await page.getByRole("button", { name: "新建研究项目" }).waitFor();
+
+  // Seed 1 public feed source + 1 article and 1 keyword intelligence monitor with sample discussion post via API + batch
+  const cookies = await page.context().cookies();
+  const sess = cookies.find((c) => c.name === "app_session")!;
+  const cookieHeader = `app_session=${sess.value}`;
+
+  const feedSrcRes = await fetch(`${origin}/api/v1/sources`, {
+    method: "POST",
+    headers: { cookie: cookieHeader, origin, "content-type": "application/json" },
+    body: JSON.stringify({
+      platform: "reddit",
+      primaryProvider: "external_ingest",
+      deliveryMode: "push",
+      contentKind: "post",
+      feedLane: "discussion",
+      label: "Stage2 Feed Push Fixture",
+      target: { type: "search", query: "vllm benchmark" },
+    }),
+  });
+  assert.equal(feedSrcRes.status, 200);
+  const feedSrcId = (await feedSrcRes.json() as { source: { id: string } }).source.id;
+
+  const monRes = await fetch(`${origin}/api/v1/intelligence/monitors`, {
+    method: "POST",
+    headers: { cookie: cookieHeader, origin, "content-type": "application/json" },
+    body: JSON.stringify({
+      kind: "keyword",
+      name: "Stage2 vLLM Monitor",
+      config: { platforms: ["reddit"], keywords: ["vllm"], competitorKeywords: ["tgi"] },
+      scheduleIntervalHours: 12,
+      dailyItemBudget: 200,
+      enabled: true,
+    }),
+  });
+  assert.equal(monRes.status, 200);
+  const monSrcId = (await db.pool.query<{ collection_source_id: string }>(
+    "SELECT collection_source_id FROM intel_monitor_source LIMIT 1",
+  )).rows[0].collection_source_id;
+
+  const nowIso = new Date().toISOString();
+  const oneHourAgoIso = new Date(Date.now() - 3600_000).toISOString();
+  await transaction(db.pool, async (client) => {
+    await commitContentBatch(
+      client,
+      {
+        id: feedSrcId,
+        platformId: "11111111-1111-1111-1111-111111111111",
+        platform: "reddit",
+        provider: "external_ingest",
+        contentKinds: ["post"],
+      },
+      prepareContentBatch([
+        batchItem(feedSrcId, {
+          externalId: "t3_s2feed01",
+          title: "Stage2 Feed V2 Hot Discussion Benchmark",
+          text: "Comparing quantized inference memory bandwidth and discussion velocity. https://github.com/vllm-project/vllm",
+          url: "https://github.com/vllm-project/vllm",
+          publishedAt: oneHourAgoIso,
+          fetchedAt: nowIso,
+          author: { externalId: "a1", handle: "infra_lead", displayName: "Infra Lead", url: null, verified: true, followersCount: 4200 },
+          platformDetails: { platform: "reddit", community: "localllama", flair: "Benchmark", domain: "github.com", nsfw: false },
+          observation: {
+            sourceId: feedSrcId, provider: "external_ingest", sourceObservedAt: oneHourAgoIso, fetchedAt: nowIso,
+            timeBasis: "archive_initial", maturity: "initial", evidenceKey: "s2-feed-1",
+            metrics: { "reddit.score": 240, "reddit.num_comments": 55 },
+          },
+        }),
+      ]),
+      nowIso,
+    );
+
+    await commitContentBatch(
+      client,
+      {
+        id: monSrcId,
+        platformId: "11111111-1111-1111-1111-111111111111",
+        platform: "reddit",
+        provider: "kaix",
+        contentKinds: ["post"],
+      },
+      prepareContentBatch([
+        batchItem(monSrcId, {
+          externalId: "t3_s2intel01",
+          title: "vLLM throughput beats TGI on Hopper GPUs",
+          text: "vllm continuous batching outperforms tgi under high concurrency. https://docs.vllm.ai/en/latest/",
+          url: "https://docs.vllm.ai/en/latest/",
+          publishedAt: oneHourAgoIso,
+          fetchedAt: nowIso,
+          author: { externalId: "a2", handle: "kernel_dev", displayName: "Kernel Dev", url: null, verified: false, followersCount: 1800 },
+          platformDetails: { platform: "reddit", community: "localllama", flair: "Benchmarks", domain: "docs.vllm.ai", nsfw: false },
+          observation: {
+            sourceId: monSrcId, provider: "kaix", sourceObservedAt: oneHourAgoIso, fetchedAt: nowIso,
+            timeBasis: "provider_snapshot", maturity: "initial", evidenceKey: "s2-intel-1",
+            metrics: { "reddit.score": 180, "reddit.num_comments": 42 },
+          },
+        }),
+      ]),
+      nowIso,
+    );
+  });
+
+  // 1. /app/feed?view=stream & ?view=hot-v2
+  await page.goto(`${origin}/app/feed?view=stream`);
+  await page.getByText("Stage2 Feed V2 Hot Discussion Benchmark").waitFor();
+  await page.getByLabel("信息流视图").getByRole("button", { name: "综合热榜 (V2)" }).click();
+  await page.getByText("#1").waitFor();
+
+  // 2. /projects?view=intelligence
+  await page.goto(`${origin}/projects?view=intelligence`);
+  await page.getByLabel("选择智能监测器").waitFor();
+  await page.getByText("coverage: stored_sample").waitFor();
+  await page.getByText("docs.vllm.ai").first().waitFor();
+  await page.getByRole("button", { name: "KOL 与作者画像" }).click();
+  await page.getByText("@kernel_dev").first().click();
+  await page.getByText(/ER:/).first().waitFor();
+  await page.getByRole("button", { name: "Subreddit 四象限与热力图" }).click();
+  await page.getByRole("cell", { name: "r/localllama" }).waitFor();
+
+  // 3. /sources?tab=ops ([5] Ops console)
+  await page.goto(`${origin}/sources?tab=ops`);
+  await page.getByText("全站智能监测器总控台").waitFor();
+  await page.getByText("Stage2 vLLM Monitor").first().waitFor();
+  await page.getByText("V2 信息流引擎与阅读记录清理观测").waitFor();
+
+  // 4. Zero horizontal overflow on desktop 1440x900 and mobile 390x844
+  for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(vp);
+    for (const p of ["/app/feed?view=stream", "/projects?view=intelligence", "/sources?tab=ops"]) {
+      await page.goto(`${origin}${p}`, { waitUntil: "networkidle" });
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      assert.ok(overflow <= 2, `Horizontal overflow on ${p} at ${vp.width}px: ${overflow}px`);
+    }
+  }
+
+  assert.deepEqual(errors, []);
+});

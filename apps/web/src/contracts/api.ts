@@ -873,3 +873,286 @@ export function normalizeSourceJob(raw: Record<string, unknown>): SourceJob {
 export type {
   DocCategory, DocKind, DocStatus, DocSummary, DocDetail, DocInput, DocPatch,
 } from '../../../../packages/contracts/src/product-docs.js';
+
+export type FeedMode = 'foryou' | 'hot' | 'following' | 'explore';
+export type FeedCardLayout = 'hero_media' | 'quote_social' | 'discussion_thread' | 'link_preview' | 'compact_signal';
+export type FeedEventType =
+  | 'impression'
+  | 'dwell'
+  | 'open'
+  | 'bookmark'
+  | 'useful'
+  | 'dismiss'
+  | 'mute_source'
+  | 'mute_topic'
+  | 'mute_author';
+
+export interface FeedCardDto {
+  id: string;
+  platform: Platform;
+  cardLayout: FeedCardLayout;
+  headline: string;
+  tldr: string | null;
+  url: string | null;
+  media: Array<{
+    type: 'image' | 'video' | 'audio' | 'link';
+    url: string;
+    previewUrl: string | null;
+    domain: string | null;
+  }>;
+  discussion: {
+    score: number | null;
+    comments: number | null;
+    views: number | null;
+    likes: number | null;
+    reposts: number | null;
+    upvoteRatio: number | null;
+    unifiedHeat: number;
+    heatVelocity: 'surging' | 'rising' | 'steady';
+  };
+  author: {
+    handle: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+    verified: boolean;
+    followersCount: number | null;
+  } | null;
+  source: {
+    id: string;
+    label: string;
+    community: string | null;
+    flair: string | null;
+    lane: string;
+  };
+  topCommentsPreview: Array<{ author: string; text: string; score: number | null }>;
+  tags: string[];
+  intentTag: 'discussion' | 'question' | 'comparison' | 'pain' | 'launch' | 'news' | null;
+  publishedAt: string | null;
+  reason: { channel: 'affinity' | 'hot' | 'explore' | 'rising' | 'following'; label: string };
+  viewerState: { bookmarked: boolean; useful: boolean };
+}
+
+export interface FeedStreamResponseDto {
+  mode: FeedMode;
+  personalized: boolean;
+  items: FeedCardDto[];
+  meta: {
+    candidateCount: number;
+    unseenRemaining: number;
+    exploreRatio: number;
+    channelMix: Record<string, number>;
+  };
+}
+
+export interface FeedHotResponseDto {
+  window: string;
+  from: string;
+  to: string;
+  totalCount: number;
+  nextOffset: number | null;
+  items: Array<{
+    rank: number;
+    card: FeedCardDto;
+    sparkline: number[];
+    corroborationCount: number;
+  }>;
+}
+
+export interface FeedPreferencesDto {
+  exploreRatio: number;
+  followedTopics: string[];
+  mutedSources: string[];
+  mutedKeywords: string[];
+  mutedAuthors: string[];
+  includeNewsLane: boolean;
+  updatedAt: string | null;
+}
+
+export interface FeedAdminSummaryDto {
+  preferencesUsers: number;
+  seenTotal: number;
+  seenStale14d: number;
+  seenDistinctUsers: number;
+  affinityRows: number;
+  eventsLast7d: number;
+  staleEvents30d: number;
+  eventBreakdown: Array<{ eventType: string; count7d: number }>;
+  activeFeedLanes: Record<string, number>;
+}
+
+export interface PeriodDeltaDto {
+  current: number;
+  previous: number | null;
+  delta: number | null;
+  deltaPct: number | null;
+  status: 'up' | 'down' | 'flat' | 'new' | 'unknown';
+}
+
+export interface MonitorPostRowDto {
+  id: string;
+  platform: Platform;
+  kind: string;
+  externalId: string;
+  title: string | null;
+  cleanExcerpt: string | null;
+  url: string | null;
+  publishedAt: string | null;
+  authorHandle: string | null;
+  authorDisplayName: string | null;
+  authorAvatarUrl: string | null;
+  authorVerified: boolean;
+  authorFollowers: number | null;
+  communityName: string | null;
+  flair: string | null;
+  externalDomain: string | null;
+  intentTag: string | null;
+  hashtags: string[];
+  hasMedia: boolean;
+  primaryMediaUrl: string | null;
+  metricScore: number | null;
+  metricComments: number | null;
+  metricViews: number | null;
+  metricLikes: number | null;
+  metricReposts: number | null;
+  metricBookmarks: number | null;
+  upvoteRatio: number | null;
+  engagementScore: number;
+  discussionRatio: number;
+  velocityScore: number;
+  engagementRate?: { rate: number | null; basis: 'by_views' | 'by_followers' | 'unavailable' };
+}
+
+export interface AuthorDirectoryRowDto {
+  platform: Platform;
+  handle: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  bio: string | null;
+  location: string | null;
+  verified: boolean;
+  followersCount: number | null;
+  followingCount: number | null;
+  statusesCount: number | null;
+  postCount: number;
+  avgEngagement: number;
+  avgComments: number;
+  totalLikesOrScore: number;
+  totalViews: number;
+  totalComments: number;
+  totalReposts: number;
+  totalBookmarks: number;
+  topCommunities: string[];
+  lastSeenAt: string;
+}
+
+export interface CommunityMatrixRowDto {
+  subreddit: string;
+  subscribers: number | null;
+  postCount: number;
+  uniqueAuthors: number;
+  avgScore: number;
+  avgComments: number;
+  avgDiscussionRatio: number;
+  p90Engagement: number;
+  totalScore: number;
+  totalComments: number;
+  latestPostAt: string | null;
+}
+
+export interface MonitorOverviewResponseDto {
+  monitor: IntelMonitorDto;
+  window: { from: string; to: string; days: number; bucket: '6h' | '1d' };
+  kpis: {
+    posts: PeriodDeltaDto;
+    comments: PeriodDeltaDto;
+    totalEngagement: PeriodDeltaDto;
+    views: PeriodDeltaDto;
+    avgEngagementRate: number | null;
+    discussionDepth: number;
+  };
+  timeline: Array<{
+    bucketAt: string;
+    platform: string;
+    postCount: number;
+    commentCount: number;
+    sumScore: number;
+    sumComments: number;
+    sumViews: number;
+    sumLikes: number;
+  }>;
+  shareOfVoice: Array<{ label: string; role: string; mentions: number; engagement: number; volumeShare: number; weightedShare: number }>;
+  intentDistribution: Array<{ intent: string; count: number }>;
+  geoCitedDomains: Array<{ domain: string; count: number; totalEngagement: number }>;
+  cooccurringTerms: Array<{ term: string; count: number }>;
+  topAuthors: AuthorDirectoryRowDto[];
+  communities: CommunityMatrixRowDto[];
+  coverage: {
+    model: 'stored_sample';
+    sampleSize: number;
+    activeSources: number;
+    totalSources: number;
+    failedSources: number;
+    lastSuccessAt: string | null;
+  };
+}
+
+export interface MonitorPostsResponseDto {
+  totalCount: number;
+  nextOffset: number | null;
+  items: MonitorPostRowDto[];
+}
+
+export interface AuthorProfileResponseDto {
+  profile: AuthorDirectoryRowDto;
+  er: { rate: number | null; basis: 'by_views' | 'by_followers' | 'unavailable' };
+  timeline: Array<{ bucketAt: string; platform: string; postCount: number; sumScore: number; sumComments: number; sumViews: number; sumLikes: number }>;
+  topPosts: MonitorPostRowDto[];
+}
+
+export interface CommunityDeepDiveResponseDto {
+  subreddit: string;
+  summary: CommunityMatrixRowDto;
+  trend: Array<{ bucketAt: string; platform: string; postCount: number; sumScore: number; sumComments: number }>;
+  flairs: Array<{ flair: string; count: number; avgScore: number }>;
+  postingHeatmap: Array<{ dow: number; hour: number; count: number; avgEngagement: number }>;
+  topAuthors: AuthorDirectoryRowDto[];
+  topPosts: MonitorPostRowDto[];
+}
+
+export interface IntelligenceOpsSummaryDto {
+  monitors: Array<{
+    id: string;
+    name: string;
+    kind: 'keyword' | 'author_list' | 'community_bundle';
+    ownerUserId: string;
+    ownerEmail: string | null;
+    ownerRole: string | null;
+    projectId: string | null;
+    enabled: boolean;
+    pausedReason: string | null;
+    scheduleIntervalHours: number;
+    dailyItemBudget: number;
+    lastDispatchedAt: string | null;
+    nextDueAt: string | null;
+    revision: number;
+    requestsToday: number;
+    resourcesToday: number;
+    sourceCount: number;
+  }>;
+  rollups: {
+    totalBuckets: number;
+    buckets6h: number;
+    buckets1d: number;
+    distinctMonitors: number;
+    latestUpdatedAt: string | null;
+  };
+  automation: {
+    dailySocialItemCeiling: number;
+    autoHydrationEnabled: boolean;
+    socialResourcesReservedToday: number;
+    hydrateQueuedOrRunning: number;
+    hydrateSucceededToday: number;
+    hydrateFailedToday: number;
+    scheduledJobsToday: number;
+  };
+}

@@ -19,6 +19,7 @@ import {
 import { ReaderDrawer } from '../components/stories/ReaderDrawer';
 import type { ReaderPreview } from '../components/stories/readerTypes';
 import { StoryMicrocharts } from '../components/stories/StoryMicrocharts';
+import { FeedV2View } from '../components/feed/FeedV2View';
 import type {
   Actor,
   SourceTier,
@@ -79,18 +80,22 @@ export function StoriesPage({
   basePath = '/app/feed',
   onNavigate,
   onOpenAuth,
+  onOpenContentDetail,
 }: {
   actor: Actor | null;
   initialSearchString?: string;
   basePath?: string;
   onNavigate: (path: string) => void;
   onOpenAuth: (tab?: 'login' | 'register', reason?: string) => void;
+  onOpenContentDetail?: (contentId: string) => void;
 }) {
   const { lang, t } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
 
   const sp = useMemo(() => new URLSearchParams(initialSearchString), [initialSearchString]);
   const rawView = sp.get('view');
+  const v2Mode: 'stream' | 'hot-v2' | null =
+    rawView === 'stream' || rawView === 'hot-v2' ? rawView : null;
   const view: StoryView = rawView === 'hot' || rawView === 'digest' ? rawView : 'latest';
   const date = view === 'digest' ? sp.get('date') : null;
   const sourceGroup = sp.get('sourceGroup') ?? '';
@@ -122,16 +127,19 @@ export function StoriesPage({
     [publicSources, sourceId],
   );
 
-  const storiesQuery = useInfiniteStoriesQuery({
-    view,
-    ...(date ? { date } : {}),
-    limit: 25,
-    ...(view === 'latest' ? { diverse: true } : {}),
-    ...(sourceGroup ? { sourceGroup } : {}),
-    ...(tier ? { tier } : {}),
-    ...(language ? { language } : {}),
-    ...(sourceId ? { sourceId } : {}),
-  });
+  const storiesQuery = useInfiniteStoriesQuery(
+    {
+      view,
+      ...(date ? { date } : {}),
+      limit: 25,
+      ...(view === 'latest' ? { diverse: true } : {}),
+      ...(sourceGroup ? { sourceGroup } : {}),
+      ...(tier ? { tier } : {}),
+      ...(language ? { language } : {}),
+      ...(sourceId ? { sourceId } : {}),
+    },
+    !v2Mode,
+  );
 
   const pages = useMemo(() => storiesQuery.data?.pages ?? [], [storiesQuery.data?.pages]);
   const stories = useMemo(() => pages.flatMap((p) => p.items), [pages]);
@@ -170,7 +178,7 @@ export function StoriesPage({
     [basePath, initialSearchString, onNavigate],
   );
 
-  const setView = (nextView: StoryView, nextDate?: string | null) => {
+  const setView = (nextView: StoryView | 'stream' | 'hot-v2', nextDate?: string | null) => {
     pushSearch((next) => {
       if (nextView === 'latest') next.delete('view');
       else next.set('view', nextView);
@@ -246,12 +254,20 @@ export function StoriesPage({
   const activeGroupLabel = sourceGroup
     ? SOURCE_GROUPS[sourceGroup as SourceGroupKey]?.[lang] ?? sourceGroup
     : null;
-  const heading = activeGroupLabel
-    ? activeGroupLabel
-    : lang === 'zh'
-      ? VIEW_META[view].titleZh
-      : VIEW_META[view].titleEn;
-  const subHeading = lang === 'zh' ? VIEW_META[view].subZh : VIEW_META[view].subEn;
+  const heading = v2Mode === 'stream'
+    ? t('Discovery Feed V2', '破茧探索信息流 (V2)')
+    : v2Mode === 'hot-v2'
+      ? t('Cross-Platform Hot Board (V2)', '跨平台综合热榜 (V2)')
+      : activeGroupLabel
+        ? activeGroupLabel
+        : lang === 'zh'
+          ? VIEW_META[view].titleZh
+          : VIEW_META[view].titleEn;
+  const subHeading = v2Mode === 'stream'
+    ? t('Multi-pool anti-filter-bubble feed powered by /v1/feed/stream & /v1/feed/preferences.', '由 /v1/feed/stream 与用户偏好驱动的四池破茧多布局卡片流。')
+    : v2Mode === 'hot-v2'
+      ? t('Normalized cross-platform heat ranking with real observation sparklines and multi-source corroboration.', '跨平台归一化热度排行 · 真实观测火花线与多源共振。')
+      : lang === 'zh' ? VIEW_META[view].subZh : VIEW_META[view].subEn;
 
   return (
     <div className="ds-page story-page">
@@ -259,10 +275,12 @@ export function StoriesPage({
         <div>
           <div className="page-title-row">
             <h1 className="page-title">{heading}</h1>
-            <span className="tag tag--line tabular-nums">
-              {totalCount.toLocaleString()} {t('stories', '条报道')}
-            </span>
-            {activeSource && (
+            {!v2Mode && (
+              <span className="tag tag--line tabular-nums">
+                {totalCount.toLocaleString()} {t('stories', '条报道')}
+              </span>
+            )}
+            {activeSource && !v2Mode && (
               <span className="tag tag--lilac" style={{ gap: 5 }}>
                 <span>{activeSource.label}</span>
                 <button
@@ -313,28 +331,42 @@ export function StoriesPage({
         <nav className="seg ink" aria-label="信息流视图">
           <button
             type="button"
-            className={view === 'latest' ? 'on' : ''}
+            className={!v2Mode && view === 'latest' ? 'on' : ''}
             onClick={() => setView('latest')}
           >
             {t('Top Stories', '精选信息流')}
           </button>
           <button
             type="button"
-            className={view === 'hot' ? 'on' : ''}
+            className={!v2Mode && view === 'hot' ? 'on' : ''}
             onClick={() => setView('hot')}
           >
             {t('48h Hot', '48h 热度榜')}
           </button>
           <button
             type="button"
-            className={view === 'digest' ? 'on' : ''}
+            className={!v2Mode && view === 'digest' ? 'on' : ''}
             onClick={() => setView('digest')}
           >
             {t('08:00 Digest', '08:00 日报')}
           </button>
+          <button
+            type="button"
+            className={v2Mode === 'stream' ? 'on' : ''}
+            onClick={() => setView('stream')}
+          >
+            {t('For You Stream (V2)', '破茧探索 (V2)')}
+          </button>
+          <button
+            type="button"
+            className={v2Mode === 'hot-v2' ? 'on' : ''}
+            onClick={() => setView('hot-v2')}
+          >
+            {t('Hot Board (V2)', '综合热榜 (V2)')}
+          </button>
         </nav>
 
-        {view === 'digest' && (
+        {!v2Mode && view === 'digest' && (
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <button
               type="button"
@@ -368,6 +400,8 @@ export function StoriesPage({
           </div>
         )}
 
+        {!v2Mode && (
+          <>
         <div className="seg" role="group" aria-label={t('Authority tier', '来源等级')}>
           {([
             ['', t('All Tiers', '全部等级')],
@@ -421,8 +455,19 @@ export function StoriesPage({
             {t('Reset filters', '重置筛选')}
           </button>
         )}
+          </>
+        )}
       </div>
 
+      {v2Mode ? (
+        <FeedV2View
+          actor={actor}
+          modeView={v2Mode}
+          onOpenAuth={onOpenAuth}
+          onOpenDetail={onOpenContentDetail}
+        />
+      ) : (
+        <>
       {/* Topic Channel Strip with /v1/public/sources groupCounts */}
       <nav className="story-channels" aria-label="主题频道">
         <button
@@ -694,6 +739,8 @@ export function StoriesPage({
           }
           onClose={() => setReader(null)}
         />
+      )}
+        </>
       )}
     </div>
   );

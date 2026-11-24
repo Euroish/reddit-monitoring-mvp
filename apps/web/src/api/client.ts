@@ -6,7 +6,21 @@ import {
   ApiError,
   type ApiErrorEnvelope,
   type AuditEventDto,
+  type AuthorDirectoryRowDto,
+  type AuthorProfileResponseDto,
   type CapabilitiesResponse,
+  type CommunityDeepDiveResponseDto,
+  type CommunityMatrixRowDto,
+  type FeedAdminSummaryDto,
+  type FeedEventType,
+  type FeedHotResponseDto,
+  type FeedMode,
+  type FeedPreferencesDto,
+  type FeedStreamResponseDto,
+  type IntelligenceOpsSummaryDto,
+  type MonitorOverviewResponseDto,
+  type MonitorPostsResponseDto,
+  type Platform,
   type CollectionSource,
   type ContentFacets,
   type ContentFacetsQuery,
@@ -848,6 +862,176 @@ export const apiClient = {
 
   async deleteDoc(id: string): Promise<{ deleted: boolean }> {
     return liveFetch(`/docs/${id}`, { method: 'DELETE' });
+  },
+
+  async getFeedStream(params: {
+    mode?: FeedMode;
+    topic?: string;
+    platform?: Platform;
+    language?: string;
+    includeNews?: boolean;
+    limit?: number;
+    excludeIds?: string[];
+  }): Promise<FeedStreamResponseDto> {
+    const qs = new URLSearchParams();
+    if (params.mode) qs.set('mode', params.mode);
+    if (params.topic) qs.set('topic', params.topic);
+    if (params.platform) qs.set('platform', params.platform);
+    if (params.language) qs.set('language', params.language);
+    if (params.includeNews !== undefined) qs.set('includeNews', String(params.includeNews));
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.excludeIds?.length) qs.set('excludeIds', params.excludeIds.slice(0, 120).join(','));
+    const q = qs.toString();
+    return liveFetch(`/feed/stream${q ? `?${q}` : ''}`);
+  },
+
+  async getFeedHot(params: {
+    window?: '6h' | '24h' | '48h' | '7d';
+    platform?: Platform;
+    topic?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<FeedHotResponseDto> {
+    const qs = new URLSearchParams();
+    if (params.window) qs.set('window', params.window);
+    if (params.platform) qs.set('platform', params.platform);
+    if (params.topic) qs.set('topic', params.topic);
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset !== undefined) qs.set('offset', String(params.offset));
+    const q = qs.toString();
+    return liveFetch(`/feed/hot${q ? `?${q}` : ''}`);
+  },
+
+  async recordFeedEvents(events: Array<{
+    contentId: string;
+    eventType: FeedEventType;
+    dwellMs?: number;
+    meta?: Record<string, string>;
+  }>): Promise<{ accepted: number }> {
+    return liveFetch('/feed/events', {
+      method: 'POST',
+      body: JSON.stringify({ events }),
+    });
+  },
+
+  async getFeedPreferences(): Promise<FeedPreferencesDto> {
+    return liveFetch('/feed/preferences');
+  },
+
+  async updateFeedPreferences(patch: Partial<Pick<FeedPreferencesDto,
+    'exploreRatio' | 'followedTopics' | 'mutedSources' | 'mutedKeywords' | 'mutedAuthors' | 'includeNewsLane'
+  >>): Promise<FeedPreferencesDto> {
+    return liveFetch('/feed/preferences', {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  },
+
+  async resetFeedPreferences(): Promise<{ reset: true }> {
+    return liveFetch('/feed/preferences/reset', { method: 'POST', body: '{}' });
+  },
+
+  async getFeedAdminSummary(): Promise<FeedAdminSummaryDto> {
+    return liveFetch('/feed/admin/summary');
+  },
+
+  async pruneFeedAdmin(): Promise<{ deletedSeen: number; deletedEvents: number }> {
+    return liveFetch('/feed/admin/prune', { method: 'POST', body: '{}' });
+  },
+
+  async getMonitorOverview(monitorId: string, params?: { days?: number; bucket?: '6h' | '1d' }): Promise<MonitorOverviewResponseDto> {
+    const qs = new URLSearchParams();
+    if (params?.days) qs.set('days', String(params.days));
+    if (params?.bucket) qs.set('bucket', params.bucket);
+    const q = qs.toString();
+    return liveFetch(`/intelligence/monitors/${encodeURIComponent(monitorId)}/overview${q ? `?${q}` : ''}`);
+  },
+
+  async getMonitorPosts(monitorId: string, params?: {
+    sort?: 'heat' | 'score' | 'comments' | 'views' | 'newest';
+    platform?: Platform;
+    intent?: string;
+    community?: string;
+    author?: string;
+    domain?: string;
+    days?: number;
+    limit?: number;
+    offset?: number;
+  }): Promise<MonitorPostsResponseDto> {
+    const qs = new URLSearchParams();
+    if (params?.sort) qs.set('sort', params.sort);
+    if (params?.platform) qs.set('platform', params.platform);
+    if (params?.intent) qs.set('intent', params.intent);
+    if (params?.community) qs.set('community', params.community);
+    if (params?.author) qs.set('author', params.author);
+    if (params?.domain) qs.set('domain', params.domain);
+    if (params?.days) qs.set('days', String(params.days));
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.offset !== undefined) qs.set('offset', String(params.offset));
+    const q = qs.toString();
+    return liveFetch(`/intelligence/monitors/${encodeURIComponent(monitorId)}/posts${q ? `?${q}` : ''}`);
+  },
+
+  async getTrackedAuthors(params?: {
+    platform?: 'reddit' | 'x';
+    monitorId?: string;
+    search?: string;
+    sort?: 'followers' | 'engagement' | 'posts';
+    limit?: number;
+  }): Promise<{ items: AuthorDirectoryRowDto[] }> {
+    const qs = new URLSearchParams();
+    if (params?.platform) qs.set('platform', params.platform);
+    if (params?.monitorId) qs.set('monitorId', params.monitorId);
+    if (params?.search) qs.set('search', params.search);
+    if (params?.sort) qs.set('sort', params.sort);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const q = qs.toString();
+    return liveFetch(`/intelligence/authors${q ? `?${q}` : ''}`);
+  },
+
+  async getAuthorProfile(platform: 'reddit' | 'x', handle: string, params?: { days?: number; monitorId?: string }): Promise<AuthorProfileResponseDto> {
+    const qs = new URLSearchParams();
+    if (params?.days) qs.set('days', String(params.days));
+    if (params?.monitorId) qs.set('monitorId', params.monitorId);
+    const q = qs.toString();
+    return liveFetch(`/intelligence/authors/${platform}/${encodeURIComponent(handle)}${q ? `?${q}` : ''}`);
+  },
+
+  async getMonitoredCommunities(params?: {
+    monitorId?: string;
+    days?: number;
+    sort?: 'heat' | 'posts' | 'comments';
+    limit?: number;
+  }): Promise<{ items: CommunityMatrixRowDto[] }> {
+    const qs = new URLSearchParams();
+    if (params?.monitorId) qs.set('monitorId', params.monitorId);
+    if (params?.days) qs.set('days', String(params.days));
+    if (params?.sort) qs.set('sort', params.sort);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const q = qs.toString();
+    return liveFetch(`/intelligence/communities${q ? `?${q}` : ''}`);
+  },
+
+  async getCommunityDeepDive(subreddit: string, params?: { days?: number; monitorId?: string }): Promise<CommunityDeepDiveResponseDto> {
+    const qs = new URLSearchParams();
+    if (params?.days) qs.set('days', String(params.days));
+    if (params?.monitorId) qs.set('monitorId', params.monitorId);
+    const q = qs.toString();
+    return liveFetch(`/intelligence/communities/${encodeURIComponent(subreddit)}${q ? `?${q}` : ''}`);
+  },
+
+  async getIntelligenceOpsSummary(): Promise<IntelligenceOpsSummaryDto> {
+    return liveFetch('/intelligence/admin/ops-summary');
+  },
+
+  async reconcileAdminMonitor(
+    id: string,
+    payload: { action: 'pause' | 'resume' | 'refresh_rollups'; revision: number },
+  ): Promise<{ updated: boolean; action: string; revision: number; updatedBuckets: number }> {
+    return liveFetch(`/intelligence/admin/monitors/${encodeURIComponent(id)}/reconcile`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 };
 

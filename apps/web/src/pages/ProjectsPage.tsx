@@ -47,6 +47,7 @@ import { Table } from '../components/ui/table';
 import { KpiSparkChart } from '../components/charts/KpiSparkChart';
 import { useChartColors } from '../components/charts/chartUtils';
 import { CrossPlatformAnalyticsPanel } from '../components/CrossPlatformAnalyticsPanel';
+import { IntelligenceAnalyticsView } from '../components/projects/IntelligenceAnalyticsView';
 import { ProjectCollectView } from '../components/ProjectCollectView';
 import '../styles/collection.css';
 import {
@@ -321,8 +322,8 @@ function resolveProjectActiveView(
   urlView: string,
   canWrite: boolean,
   selectedProject: Project | undefined,
-): 'list' | 'collect' | 'jobs' | 'my-jobs' | 'batches' | 'overview' {
-  if (urlView === 'list' || urlView === 'collect' || urlView === 'jobs' || urlView === 'my-jobs' || urlView === 'batches' || urlView === 'overview') {
+): 'list' | 'collect' | 'jobs' | 'my-jobs' | 'batches' | 'overview' | 'intelligence' {
+  if (urlView === 'list' || urlView === 'collect' || urlView === 'jobs' || urlView === 'my-jobs' || urlView === 'batches' || urlView === 'overview' || urlView === 'intelligence') {
     return urlView;
   }
   if (canWrite && selectedProject && selectedProject.dataset_mode === 'batch' && (selectedProject.enabled_batch_count ?? 0) === 0) {
@@ -798,7 +799,9 @@ export function ProjectsPage({
                   ? t('Collection Jobs', '采集任务')
                   : activeView === 'batches'
                     ? t('Data Batches', '数据批次')
-                    : t('Project Overview', '项目总览')}
+                    : activeView === 'intelligence'
+                      ? t('Intelligence Insights (V2)', '智能监测洞察 (V2)')
+                      : t('Project Overview', '项目总览')}
             </b>
           </>
         )}
@@ -879,6 +882,17 @@ export function ProjectsPage({
               </div>
             )}
           </div>
+
+          {activeView === 'overview' && monitors.length > 0 && selectedProject && (
+            <button
+              type="button"
+              className="ds-btn ds-btn--ghost"
+              onClick={() => go(`/projects?view=intelligence&projectId=${encodeURIComponent(selectedProject.id)}`)}
+            >
+              <Sparkles size={13} />
+              <span>{t('Intelligence V2', '智能洞察 V2')}</span>
+            </button>
+          )}
 
           {activeView === 'overview' && <ProjectEvidenceExport
             isAdmin={isAdmin}
@@ -991,6 +1005,14 @@ export function ProjectsPage({
         <ProjectJobsView key={selectedProject.id} project={selectedProject} jobId={searchParams.get('jobId') ?? undefined} onNavigate={go} />
       ) : activeView === 'batches' && selectedProject ? (
         <ProjectBatchesView key={selectedProject.id} project={selectedProject} batchId={searchParams.get('batchId') ?? undefined} allProjects={projects} onNavigate={go} />
+      ) : activeView === 'intelligence' ? (
+        <IntelligenceAnalyticsView
+          monitors={monitors}
+          projectId={selectedProject?.id}
+          initialMonitorId={searchParams.get('monitorId') ?? undefined}
+          onNavigate={go}
+          onOpenContentDetail={onOpenContentDetail}
+        />
       ) : (
         <>
           {selectedProject && overview && <section className="project-summary" aria-label={t('Project totals', '项目全范围数据')}>
@@ -1036,6 +1058,7 @@ export function ProjectsPage({
               project={selectedProject}
               quota={quotasSummaryQuery.data}
               monitors={monitors}
+              onOpenAnalytics={(monitorId) => go(`/projects?view=intelligence&projectId=${encodeURIComponent(selectedProject.id)}&monitorId=${encodeURIComponent(monitorId)}`)}
             />
           )}
 

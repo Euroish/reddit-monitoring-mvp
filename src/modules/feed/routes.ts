@@ -8,7 +8,8 @@ import {
 import type { ContentVisibilityResolver } from "../content/index";
 import { fail } from "../../shared/errors";
 import {
-  getFeedPreferences, isAuthenticatedUser, readFeedHotBoard, readFeedStream,
+  getFeedAdminSummary,
+  getFeedPreferences, isAuthenticatedUser, pruneFeedArtifacts, readFeedHotBoard, readFeedStream,
   recordFeedEvents, resetFeedProfile, updateFeedPreferences,
 } from "./sql";
 
@@ -46,4 +47,10 @@ export async function feedRoutes(
     (request) => updateFeedPreferences(pool, request.actor!, request.body));
   api.post("/v1/feed/preferences/reset", { config: viewerWrite },
     (request) => resetFeedProfile(pool, request.actor!));
+  api.get("/v1/feed/admin/summary",
+    { config: { auth: { access: "admin", browserOnly: true } } },
+    () => getFeedAdminSummary(pool));
+  api.post("/v1/feed/admin/prune",
+    { config: { auth: { access: "admin_mfa", browserOnly: true } } },
+    () => pruneFeedArtifacts(pool));
 }
