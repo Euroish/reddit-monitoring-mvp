@@ -203,6 +203,7 @@ export async function estimateMonitorCollection(
   input: {
     sourceCount: number;
     dailyItemBudget: number;
+    monitorUsedToday?: number;
     limitPerSource: number;
     includeComments: boolean;
     maxCommentsPerPost: number;
@@ -213,6 +214,7 @@ export async function estimateMonitorCollection(
     getGlobalSocialBudget(pool),
   ]);
   const resourcesToday = usage.reduce((sum, u) => sum + u.resourcesToday, 0);
+  const monitorResourcesToday = Math.max(0, input.monitorUsedToday ?? 0);
   const perSourceMultiplier = input.includeComments ? 1 + input.maxCommentsPerPost : 1;
   const estimatedRequests = input.sourceCount;
   const estimatedMaxItems = input.sourceCount * input.limitPerSource * perSourceMultiplier;
@@ -221,10 +223,12 @@ export async function estimateMonitorCollection(
     estimatedRequests,
     estimatedMaxItems,
     monitorDailyBudget: input.dailyItemBudget,
+    monitorResourcesToday,
+    remainingMonitorDailyBudget: Math.max(0, input.dailyItemBudget - monitorResourcesToday),
     systemDailyCeiling: globalBudget.dailySocialItemCeiling,
     systemResourcesToday: resourcesToday,
     remainingSystemDailyBudget: Math.max(0, globalBudget.dailySocialItemCeiling - resourcesToday),
-    exceedsMonitorBudget: estimatedMaxItems > input.dailyItemBudget,
+    exceedsMonitorBudget: monitorResourcesToday + estimatedMaxItems > input.dailyItemBudget,
     exceedsSystemCeiling: resourcesToday + estimatedMaxItems > globalBudget.dailySocialItemCeiling,
     providers: usage,
   };

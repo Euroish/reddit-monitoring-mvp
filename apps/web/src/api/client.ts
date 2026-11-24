@@ -48,6 +48,31 @@ import {
   normalizeSourceJob,
 } from '../contracts/api';
 
+function countCsvDataRows(csvText: string): number {
+  let rows = 0;
+  let inQuotes = false;
+  let hasContent = false;
+  for (let i = 0; i < csvText.length; i += 1) {
+    const ch = csvText[i];
+    if (ch === '"') {
+      if (inQuotes && csvText[i + 1] === '"') {
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      hasContent = true;
+    } else if (!inQuotes && (ch === '\n' || ch === '\r')) {
+      if (ch === '\r' && csvText[i + 1] === '\n') i += 1;
+      if (hasContent) rows += 1;
+      hasContent = false;
+    } else {
+      hasContent = true;
+    }
+  }
+  if (hasContent) rows += 1;
+  return Math.max(0, rows - 1);
+}
+
 function buildQueryParams(params: Record<string, unknown>): string {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -279,7 +304,15 @@ export const apiClient = {
 
   async exportContent(
     params: ListQuery & { format?: 'json' | 'csv'; maxRows?: number },
-  ): Promise<{ format: 'json' | 'csv'; filename: string; text: string; jsonResult?: ExportJsonResult }> {
+  ): Promise<{
+    format: 'json' | 'csv';
+    filename: string;
+    text: string;
+    exportedCount: number;
+    truncated: boolean;
+    maybeTruncated: boolean;
+    jsonResult?: ExportJsonResult;
+  }> {
     const qs = buildQueryParams(params as Record<string, unknown>);
     const res = await fetch(`/api/v1/content/export${qs}`, { credentials: 'same-origin' });
     if (!res.ok) {
@@ -303,6 +336,7 @@ export const apiClient = {
     }
     const text = await res.text();
     const format = params.format || 'json';
+    const maxRows = params.maxRows ?? 10000;
     if (format === 'json') {
       let jsonResult: ExportJsonResult;
       try {
@@ -323,9 +357,19 @@ export const apiClient = {
           retryable: true,
         });
       }
-      return { format: 'json', filename: 'content.json', text, jsonResult };
+      return {
+        format: 'json',
+        filename: 'content.json',
+        text,
+        exportedCount: jsonResult.result.exportedCount,
+        truncated: jsonResult.result.truncated,
+        maybeTruncated: jsonResult.result.truncated,
+        jsonResult,
+      };
     }
-    return { format: 'csv', filename: 'content.csv', text };
+    const exportedCount = countCsvDataRows(text);
+    const maybeTruncated = exportedCount >= maxRows;
+    return { format: 'csv', filename: 'content.csv', text, exportedCount, truncated: false, maybeTruncated };
   },
 
   async getSources(): Promise<{ sources: CollectionSource[]; capabilities: CapabilitiesResponse['providers'] }> {
@@ -348,6 +392,19 @@ export const apiClient = {
     return liveFetch('/sources/' + id, {
       method: 'PATCH',
       body: JSON.stringify(input),
+    });
+  },
+
+  async batchUpdateSources(payload: {
+    ids: string[];
+    feedLane?: 'discussion' | 'release' | 'monitor_only' | 'news';
+    qualityGrade?: string | null;
+    state?: 'active' | 'paused' | 'archived';
+    tier?: 'T1' | 'T1_5' | 'T2';
+  }): Promise<{ updatedCount: number; ids: string[] }> {
+    return liveFetch('/sources/batch-update', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     });
   },
 

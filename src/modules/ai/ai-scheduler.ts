@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import type { AiCredentialVault } from "./ai-credentials";
 import { archiveLowValueCandidates, runOfficialEventDiscovery } from "./ai-discovery";
 import { syncRegistrySourceByCode, type SyncFetcher } from "./ai-sync";
 
@@ -6,8 +7,9 @@ export { saveArtificialAnalysisSnapshots } from "./ai-sync";
 
 export async function runDueAiSyncSources(
   pool: Pool,
-  options: { fetcher?: SyncFetcher; includeArtificialAnalysis?: boolean } = {},
+  options: { fetcher?: SyncFetcher; includeArtificialAnalysis?: boolean; aiVault?: AiCredentialVault } = {},
 ): Promise<{ executed: string[]; failed: Array<{ code: string; error: string }> }> {
+  await options.aiVault?.ensureLoaded();
   const dueRes = await pool.query<{ id: string; code: string; kind: string; sync_interval_seconds: number }>(
     `SELECT id, code, kind, sync_interval_seconds
      FROM ai_registry_source
@@ -19,7 +21,8 @@ export async function runDueAiSyncSources(
 
   const executed: string[] = [];
   const failed: Array<{ code: string; error: string }> = [];
-  const hasAaKey = options.includeArtificialAnalysis ?? Boolean(process.env.ARTIFICIAL_ANALYSIS_API_KEY?.trim());
+  const hasAaKey = options.includeArtificialAnalysis
+    ?? (options.aiVault ? options.aiVault.resolve("artificial_analysis").configured : Boolean(process.env.ARTIFICIAL_ANALYSIS_API_KEY?.trim()));
 
   for (const src of dueRes.rows) {
     if (src.kind === "epoch") continue;
@@ -27,7 +30,7 @@ export async function runDueAiSyncSources(
 
     try {
       if (src.kind === "official_feed") {
-        await runOfficialEventDiscovery(pool);
+        await runOfficialEventDiscovery(pool, { aiVault: options.aiVault });
         await archiveLowValueCandidates(pool, 24);
         await pool.query(
           `UPDATE ai_registry_source
@@ -45,6 +48,7 @@ export async function runDueAiSyncSources(
         await syncRegistrySourceByCode(pool, src.code, {
           triggerKind: "scheduled",
           fetcher: options.fetcher,
+          aiVault: options.aiVault,
         });
       }
       executed.push(src.code);
@@ -56,14 +60,14 @@ export async function runDueAiSyncSources(
   return { executed, failed };
 }
 
-export function startAiSyncScheduler(pool: Pool): () => void {
+export function startAiSyncScheduler(pool: Pool, aiVault?: AiCredentialVault): () => void {
   if (process.env.AI_SYNC_ENABLED !== "true") return () => {};
   let running = false;
   const tick = async () => {
     if (running) return;
     running = true;
     try {
-      await runDueAiSyncSources(pool);
+      await runDueAiSyncSources(pool, { aiVault });
     } catch (error) {
       // Per-source failures are recorded in ai_registry_source and ai_ops_alert; log unexpected tick-level faults.
       console.warn("[ai-scheduler] tick failed:", error instanceof Error ? error.message : String(error));

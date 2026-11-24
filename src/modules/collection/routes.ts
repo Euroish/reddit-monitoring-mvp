@@ -13,6 +13,7 @@ import {
   Ingest,
   PublicSourceDirectory,
   Source,
+  SourceBatchUpdateBody,
   SourceFetchPolicy,
   SourceInput,
   SourceListQuery,
@@ -31,7 +32,7 @@ import { batchRoutes, recordCommittedBatch, type RequireWritableProject } from "
 import { planRoutes } from "./plans";
 import { sourceImportRoute } from "./import";
 import { enqueueCollectionForSource } from "./managed";
-import { assertSource, audit, insertSource, listPublicSources, listSources, lockSource, removeOrArchiveSource } from "./sql";
+import { assertSource, audit, insertSource, listPublicSources, listSources, lockSource, removeOrArchiveSource, sourceSelect } from "./sql";
 
 const PatchSourceBody = Type.Object(
   {
@@ -301,6 +302,54 @@ export async function collectionRoutes(
       schema: { params: ParamsId, body: PatchSourceBody },
     },
     (request) => transaction(pool, (client) => applySourcePatch(client, request.actor!, request.params.id, request.body, providers)),
+  );
+  api.post(
+    "/v1/sources/batch-update",
+    {
+      config: { auth: { access: "admin_mfa", browserOnly: true } },
+      schema: { body: SourceBatchUpdateBody },
+    },
+    (request) => transaction(pool, async (client) => {
+      const { ids, feedLane, qualityGrade, state, tier } = request.body;
+      if (feedLane === undefined && qualityGrade === undefined && state === undefined && tier === undefined) {
+        fail(422, "At least one update field (feedLane, qualityGrade, state, or tier) is required");
+      }
+      for (const id of ids) assertSource(request.actor!, id);
+      const { rows } = await client.query(
+        `${sourceSelect} WHERE cs.id=ANY($1::uuid[]) ORDER BY cs.id FOR UPDATE OF cs`,
+        [ids],
+      );
+      if (rows.length !== ids.length) fail(404, "One or more sources were not found");
+      for (const source of rows) {
+        if (["arctic_shift", "twitterapi_io"].includes(source.primary_provider) && state === "active") {
+          fail(409, `Retired provider source (${source.label}) cannot be reactivated`);
+        }
+        validateDomainLane(source.platform, feedLane ?? source.feed_lane);
+      }
+      await client.query(
+        `UPDATE collection_source
+         SET feed_lane=COALESCE($2,feed_lane),
+             quality_grade=CASE WHEN $3::boolean THEN $4 ELSE quality_grade END,
+             state=COALESCE($5,state),
+             tier=COALESCE($6,tier),
+             schedule=CASE WHEN $5 IS NOT NULL AND $5<>'active'
+               THEN jsonb_set(COALESCE(schedule,'{}'::jsonb),'{enabled}','false'::jsonb,true)
+               ELSE schedule END,
+             next_due_at=CASE WHEN $5 IS NOT NULL AND $5<>'active' THEN NULL ELSE next_due_at END,
+             revision=revision+1,
+             updated_at=NOW()
+         WHERE id=ANY($1::uuid[])`,
+        [ids, feedLane ?? null, qualityGrade !== undefined, qualityGrade ?? null, state ?? null, tier ?? null],
+      );
+      if (state && state !== "active") {
+        await client.query(
+          "UPDATE source_collection_job SET status='cancelled',finished_at=NOW(),lease_token=NULL,lease_until=NULL WHERE collection_source_id=ANY($1::uuid[]) AND status IN ('queued','retrying') AND provider_state='{}'",
+          [ids],
+        );
+      }
+      await audit(client, request.actor!, "source.batch_update", ids.join(","));
+      return { updatedCount: rows.length, ids };
+    }),
   );
   api.delete(
     "/v1/sources/:id",

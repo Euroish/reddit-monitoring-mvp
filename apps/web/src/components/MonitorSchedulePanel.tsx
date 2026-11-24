@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { CalendarClock, Pause, Play, Plus, Trash2 } from 'lucide-react';
+import { CalendarClock, Edit3, Pause, Play, Plus, Trash2 } from 'lucide-react';
 import {
   formatApiError,
   useCreateMonitorMutation,
@@ -8,6 +8,11 @@ import {
 } from '../api/hooks';
 import type { Actor, IntelMonitorDto, Project, QuotasSummaryResponse } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
+
+function formatMonitorTime(iso?: string | null) {
+  if (!iso || !Number.isFinite(Date.parse(iso))) return '—';
+  return `${iso.slice(0, 16).replace('T', ' ')} UTC`;
+}
 
 export function MonitorSchedulePanel({
   actor,
@@ -32,11 +37,15 @@ export function MonitorSchedulePanel({
   const deleteMut = useDeleteMonitorMutation();
 
   const [creating, setCreating] = useState(false);
+  const [kind, setKind] = useState<'keyword' | 'author_list' | 'community_bundle'>('keyword');
   const [name, setName] = useState(`${project.name} schedule`);
   const [platform, setPlatform] = useState<'reddit' | 'x'>('reddit');
-  const [keywordsRaw, setKeywordsRaw] = useState('');
+  const [targetsRaw, setTargetsRaw] = useState('');
   const [intervalHours, setIntervalHours] = useState(Math.max(24, minHours));
   const [dailyBudget, setDailyBudget] = useState(200);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editInterval, setEditInterval] = useState(24);
+  const [editBudget, setEditBudget] = useState(200);
   const [error, setError] = useState('');
 
   const boundMonitors = monitors.filter(
@@ -47,23 +56,51 @@ export function MonitorSchedulePanel({
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     setError('');
-    const keywords = keywordsRaw.split(',').map((s) => s.trim()).filter(Boolean);
-    if (!keywords.length) {
-      setError(t('Enter at least one keyword.', '请至少填写一个监控关键词。'));
+    const items = targetsRaw.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
+    if (!items.length) {
+      setError(t('Enter at least one monitor target.', '请至少填写一个监控目标。'));
       return;
     }
+    const config: IntelMonitorDto['config'] = kind === 'keyword'
+      ? { platforms: [platform], keywords: items }
+      : kind === 'author_list'
+        ? {
+            platforms: [platform],
+            handles: items.map((h) => ({ platform, handle: h.replace(/^@/, '') })),
+          }
+        : {
+            platforms: ['reddit'],
+            subreddits: items.map((s) => s.replace(/^r\//i, '')),
+          };
     try {
       await createMut.mutateAsync({
-        kind: 'keyword',
+        kind,
         name: name.trim() || `${project.name} Auto`,
-        config: { platforms: [platform], keywords },
+        config,
         scheduleIntervalHours: intervalHours,
         dailyItemBudget: dailyBudget,
         enabled: true,
         projectId: project.id,
       });
       setCreating(false);
-      setKeywordsRaw('');
+      setTargetsRaw('');
+    } catch (err) {
+      setError(formatApiError(err));
+    }
+  }
+
+  async function handleSaveEdit(m: IntelMonitorDto) {
+    setError('');
+    try {
+      await updateMut.mutateAsync({
+        id: m.id,
+        payload: {
+          revision: m.revision,
+          scheduleIntervalHours: editInterval,
+          dailyItemBudget: editBudget,
+        },
+      });
+      setEditingId(null);
     } catch (err) {
       setError(formatApiError(err));
     }
@@ -106,17 +143,50 @@ export function MonitorSchedulePanel({
                 <input className="wb-input" value={name} maxLength={120} required onChange={(e) => setName(e.target.value)} />
               </label>
               <label className="wb-field">
+                {t('Monitor Type', '监测类型')}
+                <select
+                  className="wb-select"
+                  value={kind}
+                  onChange={(e) => {
+                    const nextKind = e.target.value as typeof kind;
+                    setKind(nextKind);
+                    if (nextKind === 'community_bundle') setPlatform('reddit');
+                  }}
+                >
+                  <option value="keyword">{t('Keyword search', '关键词监测')}</option>
+                  <option value="author_list">{t('Author watchlist', '作者追踪名单')}</option>
+                  <option value="community_bundle">{t('Reddit community bundle', 'Reddit 社区组合（含热点深挖）')}</option>
+                </select>
+              </label>
+            </div>
+            <div className="wb-grid-2">
+              <label className="wb-field">
                 {t('Platform', '监测平台')}
-                <select className="wb-select" value={platform} onChange={(e) => setPlatform(e.target.value as 'reddit' | 'x')}>
+                <select
+                  className="wb-select"
+                  value={kind === 'community_bundle' ? 'reddit' : platform}
+                  disabled={kind === 'community_bundle'}
+                  onChange={(e) => setPlatform(e.target.value as 'reddit' | 'x')}
+                >
                   <option value="reddit">Reddit (kaix)</option>
                   <option value="x">X (twitterapis)</option>
                 </select>
               </label>
+              <label className="wb-field">
+                {kind === 'keyword'
+                  ? t('Keywords (comma separated)', '监测关键词（逗号分隔）')
+                  : kind === 'author_list'
+                    ? t('Account handles (comma separated)', '作者账号句柄（逗号分隔）')
+                    : t('Subreddits (comma separated)', 'Subreddit 版块（逗号分隔）')}
+                <input
+                  className="wb-input"
+                  value={targetsRaw}
+                  required
+                  placeholder={kind === 'keyword' ? 'local llm, inference' : kind === 'author_list' ? 'karpathy, sama' : 'LocalLLaMA, MachineLearning'}
+                  onChange={(e) => setTargetsRaw(e.target.value)}
+                />
+              </label>
             </div>
-            <label className="wb-field">
-              {t('Keywords (comma separated)', '监测关键词（逗号分隔）')}
-              <input className="wb-input" value={keywordsRaw} required placeholder="local llm, inference" onChange={(e) => setKeywordsRaw(e.target.value)} />
-            </label>
             <div className="wb-grid-2">
               <label className="wb-field">
                 {t(`Interval hours (${minHours}..168)`, `调度周期（${minHours}..168 小时）`)}
@@ -140,37 +210,74 @@ export function MonitorSchedulePanel({
         ) : (
           <div style={{ display: 'grid', gap: 8 }}>
             {boundMonitors.map((m) => (
-              <div key={m.id} className="job-row" style={{ alignItems: 'center', gap: 10 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <b style={{ fontSize: 12.5 }}>{m.name}</b>
-                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                    {t(`Every ${m.scheduleIntervalHours}h · Daily budget ${m.dailyItemBudget}`, `每 ${m.scheduleIntervalHours} 小时执行 · 日预算 ${m.dailyItemBudget} 条`)}
-                    {m.pausedReason && ` · ${t(`Paused (${m.pausedReason})`, `已自动暂停（${m.pausedReason}）`)}`}
+              <div key={m.id} style={{ display: 'grid', gap: 8 }}>
+                <div className="job-row" style={{ alignItems: 'center', gap: 10 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <b style={{ fontSize: 12.5 }}>{m.name}</b>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                      {m.kind} · {t(`Every ${m.scheduleIntervalHours}h · Daily budget ${m.dailyItemBudget}`, `每 ${m.scheduleIntervalHours} 小时 · 日预算 ${m.dailyItemBudget} 条`)}
+                      {m.pausedReason && ` · ${t(`Paused (${m.pausedReason})`, `已自动暂停（${m.pausedReason}）`)}`}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>
+                      {t('Last dispatched', '上次调度')}: {formatMonitorTime(m.lastDispatchedAt)} · {t('Next due', '下次计划')}: {formatMonitorTime(m.nextDueAt)} · {t('Last success', '最近成功')}: {formatMonitorTime(m.lastSuccessAt)}
+                    </div>
                   </div>
+                  <span className={`chip-state ${m.enabled ? 'active' : 'paused'}`}>
+                    {m.enabled ? t('Active', '运行中') : t('Paused', '已暂停')}
+                  </span>
+                  {canEditProject && (
+                    <>
+                      <button
+                        type="button"
+                        className="ds-btn ds-btn--ghost"
+                        onClick={() => {
+                          if (editingId === m.id) {
+                            setEditingId(null);
+                          } else {
+                            setEditingId(m.id);
+                            setEditInterval(m.scheduleIntervalHours);
+                            setEditBudget(m.dailyItemBudget);
+                          }
+                        }}
+                      >
+                        <Edit3 size={12} />
+                        <span>{t('Edit', '编辑')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="ds-btn ds-btn--ghost"
+                        disabled={updateMut.isPending}
+                        onClick={() => updateMut.mutate({ id: m.id, payload: { enabled: !m.enabled, revision: m.revision } })}
+                      >
+                        {m.enabled ? <Pause size={12} /> : <Play size={12} />}
+                        <span>{m.enabled ? t('Pause', '暂停') : t('Resume', '启用')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="ds-btn ds-btn--danger"
+                        disabled={deleteMut.isPending}
+                        onClick={() => deleteMut.mutate({ id: m.id, revision: m.revision })}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </>
+                  )}
                 </div>
-                <span className={`chip-state ${m.enabled ? 'active' : 'paused'}`}>
-                  {m.enabled ? t('Active', '运行中') : t('Paused', '已暂停')}
-                </span>
-                {canEditProject && (
-                  <>
-                    <button
-                      type="button"
-                      className="ds-btn ds-btn--ghost"
-                      disabled={updateMut.isPending}
-                      onClick={() => updateMut.mutate({ id: m.id, payload: { enabled: !m.enabled, revision: m.revision } })}
-                    >
-                      {m.enabled ? <Pause size={12} /> : <Play size={12} />}
-                      <span>{m.enabled ? t('Pause', '暂停') : t('Resume', '启用')}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="ds-btn ds-btn--danger"
-                      disabled={deleteMut.isPending}
-                      onClick={() => deleteMut.mutate({ id: m.id, revision: m.revision })}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </>
+                {editingId === m.id && (
+                  <div className="wb-grid-2" style={{ padding: 10, border: '1px solid var(--line)', borderRadius: 6, background: 'var(--paper)' }}>
+                    <label className="wb-field">
+                      {t(`Interval hours (${minHours}..168)`, `调度周期（${minHours}..168 小时）`)}
+                      <input type="number" className="wb-input" min={minHours} max={168} value={editInterval} onChange={(e) => setEditInterval(Number(e.target.value))} />
+                    </label>
+                    <label className="wb-field">
+                      {t('Daily item budget (20..20000)', '每日条目预算上限')}
+                      <input type="number" className="wb-input" min={20} max={20000} value={editBudget} onChange={(e) => setEditBudget(Number(e.target.value))} />
+                    </label>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button type="button" className="ds-btn" disabled={updateMut.isPending} onClick={() => void handleSaveEdit(m)}>{t('Save changes', '保存参数')}</button>
+                      <button type="button" className="ds-btn ds-btn--ghost" onClick={() => setEditingId(null)}>{t('Cancel', '取消')}</button>
+                    </div>
+                  </div>
                 )}
               </div>
             ))}

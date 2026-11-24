@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   ExternalLink,
-  EyeOff,
   RefreshCw,
   ShieldAlert,
   Trash2,
@@ -13,13 +12,14 @@ import {
   type AiCandidateItem,
   useAiAdminMutations,
   useAiAdminRankingsQuery,
-  useAiEventsQuery,
   useAiOpsAuditQuery,
   useAiOpsSummaryQuery,
   useAiQueueQuery,
   useAiVendorsQuery,
 } from '../api/ai-client';
-import { formatApiError } from '../api/hooks';
+import { formatApiError, isMfaRequiredError } from '../api/hooks';
+import { InlineMfaStepUp } from '../components/InlineMfaStepUp';
+import { AiEventsAdminPanel } from '../components/ai/AiEventsAdminPanel';
 import { AiSourceOperations } from '../components/ai/AiSourceOperations';
 import type { Actor } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
@@ -52,6 +52,18 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
   const [activeId, setActiveId] = useState<string | null>(null);
   const [editingRevision, setEditingRevision] = useState(1);
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [pendingMfaAction, setPendingMfaAction] = useState<(() => Promise<void>) | null>(null);
+
+  const runWithMfa = async (fn: () => Promise<void>) => {
+    setFeedback(null);
+    try {
+      await fn();
+      setPendingMfaAction(null);
+    } catch (err) {
+      if (isMfaRequiredError(err)) setPendingMfaAction(() => fn);
+      else setFeedback({ kind: 'err', text: formatApiError(err) });
+    }
+  };
 
   // Publish / edit form state
   const [formVendorId, setFormVendorId] = useState('');
@@ -73,7 +85,6 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
     { status: statusFilter || undefined, vendor: vendorFilter || undefined },
     isAdmin && tab === 'queue',
   );
-  const eventsQ = useAiEventsQuery({ limit: 60 }, isAdmin && tab === 'published');
   const mutations = useAiAdminMutations();
 
   const vendors = vendorsQ.data?.items ?? [];
@@ -250,16 +261,6 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
     }
   };
 
-  const handleUnpublish = async (eventId: string) => {
-    setFeedback(null);
-    try {
-      await mutations.unpublish.mutateAsync({ id: eventId, reason: 'Unpublished from admin queue' });
-      setFeedback({ kind: 'ok', text: t('Event unpublished and removed from public /ai.', '事件已撤回，已立即从公开 /ai 隐藏。') });
-    } catch (e) {
-      setFeedback({ kind: 'err', text: formatApiError(e) });
-    }
-  };
-
   return (
     <div className="ds-page collection-page">
       <div className="crumb">
@@ -340,6 +341,17 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
           <span>{feedback.text}</span>
         </div>
       )}
+      {pendingMfaAction && (
+        <div style={{ marginBottom: 14 }}>
+          <InlineMfaStepUp
+            onVerified={async () => {
+              await pendingMfaAction();
+              setPendingMfaAction(null);
+            }}
+            onCancel={() => setPendingMfaAction(null)}
+          />
+        </div>
+      )}
 
       {tab === 'ops' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -407,7 +419,15 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
                     <div style={{ fontSize: 13 }}>
                       <strong>[{a.severity}]</strong> {a.sourceCode ? `${a.sourceCode}: ` : ''}{a.message}
                     </div>
-                    <button type="button" className="ds-btn ds-btn--ghost" onClick={() => mutations.resolveAlert.mutate(a.id)}>
+                    <button
+                      type="button"
+                      className="ds-btn ds-btn--ghost"
+                      disabled={mutations.resolveAlert.isPending}
+                      onClick={() => void runWithMfa(async () => {
+                        await mutations.resolveAlert.mutateAsync(a.id);
+                        setFeedback({ kind: 'ok', text: t('Alert resolved.', '故障告警已关闭。') });
+                      })}
+                    >
                       {t('Resolve', '标记已处理')}
                     </button>
                   </div>
@@ -429,7 +449,14 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
                     <button
                       type="button"
                       className={`ds-btn ${v.autoPublishEnabled ? '' : 'ds-btn--ghost'}`}
-                      onClick={() => mutations.setVendorAutoPublish.mutate({ id: v.id, enabled: !v.autoPublishEnabled })}
+                      disabled={mutations.setVendorAutoPublish.isPending}
+                      onClick={() => void runWithMfa(async () => {
+                        await mutations.setVendorAutoPublish.mutateAsync({ id: v.id, enabled: !v.autoPublishEnabled });
+                        setFeedback({
+                          kind: 'ok',
+                          text: t(`Auto-publish updated for ${v.name}.`, `${v.name} 自动发布策略已更新。`),
+                        });
+                      })}
                     >
                       {v.autoPublishEnabled ? t('Auto ON', '已开启自动') : t('Shadow Only', '仅影子评估')}
                     </button>
@@ -454,7 +481,11 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
                         <button
                           type="button"
                           className="ds-btn ds-btn--ghost"
-                          onClick={() => mutations.rollback.mutate({ id: item.eventId!, reason: 'Admin rollback from ops audit' })}
+                          disabled={mutations.rollback.isPending}
+                          onClick={() => void runWithMfa(async () => {
+                            await mutations.rollback.mutateAsync({ id: item.eventId!, reason: 'Admin rollback from ops audit' });
+                            setFeedback({ kind: 'ok', text: t('Published event rolled back.', '已撤回该自动发布事件。') });
+                          })}
                         >
                           {t('Rollback', '一键撤回')}
                         </button>
@@ -714,47 +745,9 @@ export function AiReviewQueuePage({ actor, onNavigate }: AiReviewQueuePageProps)
         </div>
       )}
 
-      {tab === 'published' && (
-        <div className="ds-card" style={{ padding: 16 }}>
-          {(eventsQ.data?.items ?? []).length === 0 ? (
-            <p style={{ color: 'var(--muted)', fontSize: 13 }}>{t('No published events yet.', '暂无已发布事件。')}</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {(eventsQ.data?.items ?? []).map((ev) => (
-                <div
-                  key={ev.id}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 12,
-                    padding: '10px 12px',
-                    borderRadius: 10,
-                    border: '1px solid var(--line)',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                      {ev.vendorName} · {ev.eventDate} ({ev.datePrecision}) · {ev.eventType}
-                    </div>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>{ev.title}</div>
-                  </div>
-                  <button
-                    type="button"
-                    className="ds-btn ds-btn--ghost"
-                    onClick={() => handleUnpublish(ev.id)}
-                    disabled={mutations.unpublish.isPending}
-                  >
-                    <EyeOff size={14} /> {t('Unpublish', '撤回')}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {tab === 'published' && <AiEventsAdminPanel vendors={vendors} />}
 
-      {tab === 'sources' && <AiSourceOperations vendors={vendors} onDiscovery={() => setTab('ops')} />}
+      {tab === 'sources' && <AiSourceOperations vendors={vendors} onDiscovery={() => setTab('ops')} onNavigate={onNavigate} />}
     </div>
   );
 }

@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { formatApiError, useContentListQuery, useProjectsQuery, useSourceJobsQuery } from '../api/hooks';
 import { Skeleton } from './ui/skeleton';
-import type { CollectionSource } from '../contracts/api';
+import { formatContentAuthor, type CollectionSource } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
 
 export function ResearchSourceProjects({ sourceId }: { sourceId: string }) {
@@ -23,9 +24,15 @@ export function ResearchSourceProjects({ sourceId }: { sourceId: string }) {
 export function FeedSourcePreview({ source }: { source: CollectionSource }) {
   const { t, lang } = useI18n();
   const sourceId = source.id;
-  const query = useContentListQuery({ sourceId, limit: 5 });
+  const query = useContentListQuery({ sourceId, limit: 8 });
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   return <section className="source-domain-section">
-    <h3>{t('Recently stored stories', '最近入库资讯')}</h3>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <h3 style={{ margin: 0 }}>{t('Recently stored stories', '最近入库资讯')}</h3>
+      <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+        {source.feedLane}{source.qualityGrade ? ` · Grade ${source.qualityGrade}` : ''} · {source.coverage === 'partial' ? t('Partial/snapshot coverage', '部分/快照覆盖') : t('Coverage unknown', '覆盖口径未知')}
+      </span>
+    </div>
     {source.health.lastNotModified && <p>{t('Last check found no changes.', '最近检查发现内容未更新。')}</p>}
     {!source.health.lastNotModified && source.health.lastStatus === 'succeeded' && source.health.lastFetchedCount === 0 &&
       <p>{t('Last fetch succeeded with no new items.', '最近抓取成功，暂无新内容。')}</p>}
@@ -33,11 +40,44 @@ export function FeedSourcePreview({ source }: { source: CollectionSource }) {
     {query.isPending && <div role="status"><span>{t('Loading stories…', '正在加载资讯…')}</span><Skeleton className="source-story-placeholder" /></div>}
     {query.isError && <p role="alert">{formatApiError(query.error)}</p>}
     {query.data?.items.length === 0 && <p>{source.deliveryMode === 'pull' ? t('No stories stored yet. Preview the subscription or run a fetch.', '暂无入库资讯。可先预览订阅或执行一次抓取。') : t('No stories stored yet. They will appear here after an external delivery.', '暂无入库资讯，收到外部推送后会在这里显示。')}</p>}
-    {query.data && query.data.items.length > 0 && <ul className="source-story-list">{query.data.items.map(item => <li key={item.id}>
-      <strong>{item.title || item.text?.slice(0, 120) || t('Untitled', '无标题')}</strong>
-      {(item.publishedAt ?? item.firstFetchedAt) && <time dateTime={item.publishedAt ?? item.firstFetchedAt}>{new Date(item.publishedAt ?? item.firstFetchedAt).toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en')}</time>}
-    </li>)}</ul>}
-    <a href={'/content?sourceId=' + sourceId}>{t('View all stored content', '查看全部入库内容')}</a>
+    {query.data && query.data.items.length > 0 && <ul className="source-story-list">{query.data.items.map(item => {
+      const isExpanded = expandedId === item.id;
+      const dt = item.publishedAt ?? item.firstFetchedAt;
+      const snippet = (item.text ?? '').trim();
+      const authorLabel = formatContentAuthor(item.author);
+      return (
+        <li key={item.id} style={{ display: 'grid', gap: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+            <strong style={{ fontSize: 13 }}>{item.title || snippet.slice(0, 120) || t('Untitled', '无标题')}</strong>
+            {dt && <time style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }} dateTime={dt}>{new Date(dt).toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en')}</time>}
+          </div>
+          {snippet && (
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>
+              {isExpanded ? snippet : `${snippet.slice(0, 180)}${snippet.length > 180 ? '…' : ''}`}
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 11, color: 'var(--muted)' }}>
+            <span>{item.kind}</span>
+            <span className="state-chip">{item.textState}</span>
+            {authorLabel && <span>{authorLabel}</span>}
+            {item.language && <span>{item.language}</span>}
+            {snippet.length > 180 && (
+              <button
+                type="button"
+                className="collection-text-button"
+                onClick={() => setExpandedId(isExpanded ? null : item.id)}
+              >
+                {isExpanded ? t('Collapse excerpt', '收起正文') : t('Read inline', '展开正文')}
+              </button>
+            )}
+            {item.url && /^https?:\/\//i.test(item.url) && (
+              <a href={item.url} target="_blank" rel="noreferrer">{t('Open original', '访问原文')}</a>
+            )}
+          </div>
+        </li>
+      );
+    })}</ul>}
+    <a href={'/content?sourceId=' + sourceId}>{t('View all stored content in repository', '在内容库中查看全部入库内容')}</a>
   </section>;
 }
 

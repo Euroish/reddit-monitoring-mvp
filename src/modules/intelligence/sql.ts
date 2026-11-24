@@ -303,16 +303,46 @@ export async function deleteMonitor(pool: Pool, actor: Actor, id: string, revisi
   });
 }
 
+async function readMonitorResourcesUsedToday(db: Pool | PoolClient, monitorId: string): Promise<number> {
+  const { rows: [usage] } = await db.query<{ used: number }>(
+    `SELECT COALESCE(resources_reserved, 0)::int AS used FROM intel_monitor_usage
+     WHERE monitor_id=$1 AND day=(NOW() AT TIME ZONE 'UTC')::date`,
+    [monitorId],
+  );
+  return usage?.used ?? 0;
+}
+
+async function recordMonitorUsage(
+  client: PoolClient,
+  monitorId: string,
+  requests: number,
+  resources: number,
+) {
+  if (requests <= 0 && resources <= 0) return;
+  await client.query(
+    `INSERT INTO intel_monitor_usage(monitor_id, day, requests, resources_reserved)
+     VALUES($1, (NOW() AT TIME ZONE 'UTC')::date, $2, $3)
+     ON CONFLICT (monitor_id, day) DO UPDATE SET
+       requests=intel_monitor_usage.requests+$2,
+       resources_reserved=intel_monitor_usage.resources_reserved+$3`,
+    [monitorId, requests, resources],
+  );
+}
+
 export async function estimateMonitorRun(
   pool: Pool,
   actor: Actor,
   id: string,
   body: Static<typeof MonitorCollectBody>,
 ) {
-  const { monitor, sourceIds } = await loadMonitor(pool, actor, id);
+  const [{ monitor, sourceIds }, monitorUsedToday] = await Promise.all([
+    loadMonitor(pool, actor, id),
+    readMonitorResourcesUsedToday(pool, id),
+  ]);
   return estimateMonitorCollection(pool, {
     sourceCount: sourceIds.length,
     dailyItemBudget: monitor.dailyItemBudget,
+    monitorUsedToday,
     limitPerSource: body.limitPerSource ?? 50,
     includeComments: Boolean(body.includeComments),
     maxCommentsPerPost: body.maxCommentsPerPost ?? 15,
@@ -327,14 +357,19 @@ export async function triggerMonitorCollect(
   idempotencyKey: string,
   body: Static<typeof MonitorCollectBody>,
 ) {
-  const { monitor, sourceIds } = await loadMonitor(pool, actor, id);
+  const [{ monitor, sourceIds }, initialUsedToday] = await Promise.all([
+    loadMonitor(pool, actor, id),
+    readMonitorResourcesUsedToday(pool, id),
+  ]);
   if (!sourceIds.length) fail(422, "Monitor has no linked collection sources");
   const limit = body.limitPerSource ?? 50;
   const includeComments = Boolean(body.includeComments);
   const maxCommentsPerPost = body.maxCommentsPerPost ?? 15;
+  const perSourceMultiplier = includeComments ? 1 + maxCommentsPerPost : 1;
   const estimate = await estimateMonitorCollection(pool, {
     sourceCount: sourceIds.length,
     dailyItemBudget: monitor.dailyItemBudget,
+    monitorUsedToday: initialUsedToday,
     limitPerSource: limit,
     includeComments,
     maxCommentsPerPost,
@@ -349,11 +384,12 @@ export async function triggerMonitorCollect(
   const outcome = await transaction(pool, async (client) => {
     const current = await selectMonitor(client, actor, id, true);
     if (current.revision !== monitor.revision) fail(409, "Monitor changed; reload before collecting");
+    const lockedUsedToday = await readMonitorResourcesUsedToday(client, id);
     const rejectCreate = !current.enabled
       ? { statusCode: 409, message: "Monitor is disabled; enable it before collecting" }
       : undefined;
     const jobIds: string[] = [];
-    let anyCreated = false;
+    let createdCount = 0;
     for (const sourceId of sourceIds) {
       const res = await enqueueCollectionForSource(client, actor, providers, {
         sourceId,
@@ -367,15 +403,24 @@ export async function triggerMonitorCollect(
         rejectCreate,
       });
       jobIds.push(res.jobId);
-      if (res.created) anyCreated = true;
+      if (res.created) createdCount += 1;
     }
+    const anyCreated = createdCount > 0;
+    const newlyReserved = createdCount * limit * perSourceMultiplier;
     // Replays must remain retrievable after quotas change. New jobs and their
-    // personal reservations roll back together if the monitor budget rejects.
-    if (anyCreated && estimate.exceedsMonitorBudget) {
-      fail(422, `Estimated collection (${estimate.estimatedMaxItems}) exceeds monitor daily budget (${monitor.dailyItemBudget})`);
+    // personal/monitor reservations roll back together if the budget rejects.
+    const dailyBudget = Number(current.daily_item_budget);
+    if (anyCreated && lockedUsedToday + newlyReserved > dailyBudget) {
+      fail(
+        422,
+        `Estimated collection (${lockedUsedToday + newlyReserved} today with this run) exceeds monitor daily budget (${dailyBudget})`,
+      );
     }
     if (anyCreated && estimate.exceedsSystemCeiling) {
       fail(429, `Estimated collection would exceed ${estimate.systemDailyCeiling}/day system social ceiling`);
+    }
+    if (anyCreated) {
+      await recordMonitorUsage(client, id, createdCount, newlyReserved);
     }
     return { jobIds, anyCreated };
   });
@@ -497,12 +542,8 @@ export async function authorizeScheduledSourceDispatch(
     }
     const isDue = !m.next_due_at || m.next_due_at.getTime() <= Date.now();
     if (!isDue) continue;
-    const { rows: [usage] } = await client.query<{ used: number }>(
-      `SELECT COALESCE(resources_reserved, 0)::int AS used FROM intel_monitor_usage
-       WHERE monitor_id=$1 AND day=(NOW() AT TIME ZONE 'UTC')::date`,
-      [m.id],
-    );
-    if ((usage?.used ?? 0) + info.resources > m.daily_item_budget) {
+    const used = await readMonitorResourcesUsedToday(client, m.id);
+    if (used + info.resources > m.daily_item_budget) {
       deferredIds.push(m.id);
       continue;
     }
@@ -527,14 +568,7 @@ export async function authorizeScheduledSourceDispatch(
 
   if (duePaying.length > 0) {
     for (const m of duePaying) {
-      await client.query(
-        `INSERT INTO intel_monitor_usage(monitor_id, day, requests, resources_reserved)
-         VALUES($1, (NOW() AT TIME ZONE 'UTC')::date, 1, $2)
-         ON CONFLICT (monitor_id, day) DO UPDATE SET
-           requests=intel_monitor_usage.requests+1,
-           resources_reserved=intel_monitor_usage.resources_reserved+$2`,
-        [m.id, info.resources],
-      );
+      await recordMonitorUsage(client, m.id, 1, info.resources);
       await client.query(
         `UPDATE intel_monitor SET last_dispatched_at=NOW(),
            next_due_at=NOW() + make_interval(hours => schedule_interval_hours)

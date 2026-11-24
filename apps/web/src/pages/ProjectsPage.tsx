@@ -60,6 +60,7 @@ import {
   type Actor,
   ApiError,
   type ContentKind,
+  type ListQuery,
   type Platform,
   type Project,
   type ProjectInput,
@@ -118,16 +119,19 @@ function downloadTextFile(filename: string, text: string, mime: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function ProjectEvidenceExport({ isAdmin, quota, ready, content, projectId }: {
+function ProjectEvidenceExport({ isAdmin, quota, ready, content, projectId, activeFilter }: {
   isAdmin: boolean;
   quota: ReturnType<typeof useQuotasSummaryQuery>;
   ready: boolean;
   content: PublicContent[];
   projectId?: string;
+  activeFilter?: ListQuery;
 }) {
   const { t } = useI18n();
   const [checking, setChecking] = useState(false);
   const [exportErr, setExportErr] = useState('');
+  const [exportNotice, setExportNotice] = useState<{ kind: 'info' | 'warn'; text: string } | null>(null);
+  const [exportMaxRows, setExportMaxRows] = useState<10000 | 50000>(50000);
   const allowed = isAdmin || (quota.isSuccess && quota.data.effectivePolicy.exportEnabled === true);
   const notice = allowed ? '' : quota.isError
     ? t('Could not verify export permission.', '暂时无法核实导出权限。')
@@ -148,21 +152,48 @@ function ProjectEvidenceExport({ isAdmin, quota, ready, content, projectId }: {
 
   async function downloadSample() {
     setExportErr('');
+    setExportNotice(null);
     if (await ensureAllowed()) downloadEvidenceCsv(content, projectId);
   }
 
-  async function downloadFull(format: 'csv' | 'json') {
+  async function downloadExport(format: 'csv' | 'json') {
     if (!projectId) return;
     setExportErr('');
+    setExportNotice(null);
     if (!(await ensureAllowed())) return;
     setChecking(true);
     try {
-      const res = await apiClient.exportContent({ projectId, format, maxRows: 10000 });
+      const res = await apiClient.exportContent({ ...activeFilter, projectId, format, maxRows: exportMaxRows });
       downloadTextFile(
-        `siftline-${projectId.slice(0, 8)}-full.${format}`,
+        `siftline-${projectId.slice(0, 8)}-export-${res.exportedCount}.${format}`,
         res.text,
         format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8',
       );
+      if (res.truncated) {
+        setExportNotice({
+          kind: 'warn',
+          text: t(
+            `Export truncated at ${res.exportedCount} items (limit ${exportMaxRows}). Additional matching rows exist on the server.`,
+            `本次导出已在第 ${res.exportedCount} 条（上限 ${exportMaxRows} 条）处截断，仍有更多匹配记录未导出。`,
+          ),
+        });
+      } else if (res.maybeTruncated) {
+        setExportNotice({
+          kind: 'warn',
+          text: t(
+            `CSV reached the ${exportMaxRows}-row export cap (${res.exportedCount} rows). Use JSON export or narrow your date/filter range to confirm completeness.`,
+            `CSV 导出已达到 ${exportMaxRows} 行上限（共 ${res.exportedCount} 行），请缩小筛选时间范围或改用 JSON 导出以确认是否完整。`,
+          ),
+        });
+      } else {
+        setExportNotice({
+          kind: 'info',
+          text: t(
+            `Exported ${res.exportedCount} items for the current project filter.`,
+            `已按当前项目筛选条件导出 ${res.exportedCount} 条完整记录。`,
+          ),
+        });
+      }
     } catch (err) {
       setExportErr(formatApiError(err));
     } finally {
@@ -178,19 +209,37 @@ function ProjectEvidenceExport({ isAdmin, quota, ready, content, projectId }: {
     </button>
     {projectId && (
       <>
-        <button type="button" className="ds-btn ds-btn--ghost" onClick={() => void downloadFull('csv')}
+        <select
+          className="wb-input"
+          aria-label={t('Export row cap', '导出行数上限')}
+          value={exportMaxRows}
+          onChange={(e) => setExportMaxRows(Number(e.target.value) === 10000 ? 10000 : 50000)}
+          style={{ width: 'auto', height: 30, fontSize: 11, padding: '0 8px' }}
+        >
+          <option value={50000}>{t('Up to 50k rows', '最多 50,000 条')}</option>
+          <option value={10000}>{t('Up to 10k rows', '最多 10,000 条')}</option>
+        </select>
+        <button type="button" className="ds-btn ds-btn--ghost" onClick={() => void downloadExport('csv')}
           disabled={!ready || !allowed || checking}>
           <Download size={13} />
-          <span>{t('Full Export (CSV)', '完整项目导出 (CSV)')}</span>
+          <span>{t('Filtered Export (CSV)', '按筛选导出 (CSV)')}</span>
         </button>
-        <button type="button" className="ds-btn ds-btn--ghost" onClick={() => void downloadFull('json')}
+        <button type="button" className="ds-btn ds-btn--ghost" onClick={() => void downloadExport('json')}
           disabled={!ready || !allowed || checking}>
           <Download size={13} />
-          <span>{t('Full Export (JSON)', '完整项目导出 (JSON)')}</span>
+          <span>{t('Filtered Export (JSON)', '按筛选导出 (JSON)')}</span>
         </button>
       </>
     )}
     {notice && <small id="project-export-notice" role="status">{notice}</small>}
+    {exportNotice && (
+      <small
+        role={exportNotice.kind === 'warn' ? 'alert' : 'status'}
+        style={{ color: exportNotice.kind === 'warn' ? '#b45309' : 'var(--muted)' }}
+      >
+        {exportNotice.text}
+      </small>
+    )}
     {exportErr && <small role="alert" style={{ color: '#a8462f' }}>{exportErr}</small>}
   </>;
 }
@@ -420,7 +469,6 @@ export function ProjectsPage({
   const searchParams = new URLSearchParams(initialSearchString);
   const urlProjectId = searchParams.get('projectId') || '';
   const urlView = searchParams.get('view') || '';
-  const activeSection = searchParams.get('section') || '';
   const openNewFromUrl = searchParams.get('new') === '1';
   const requestedSourceId = searchParams.get('sourceId');
   const requestedSource = researchSources.find(source => source.id === requestedSourceId);
@@ -534,18 +582,6 @@ export function ProjectsPage({
     setFormAnyTerms, setFormAllTerms, setFormExclusions, setFormScope, setFormSignal,
     setFormPlatform, setFormKind, setFormThreadAware, setFormIncludePush, setFormRevision,
     setFormError, setConflict409]);
-
-  useEffect(() => {
-    if (!activeSection) return;
-    const idMap: Record<string, string> = {
-      platform: 'card-platform',
-      attribution: 'card-attribution',
-    };
-    const el = document.getElementById(idMap[activeSection]);
-    if (el) {
-      setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
-    }
-  }, [activeSection, overview]);
 
   const didHandleUrlNew = useRef(false);
   useEffect(() => {
@@ -850,6 +886,15 @@ export function ProjectsPage({
             ready={contentQuery.isSuccess}
             content={filteredContent}
             projectId={selectedProject?.id}
+            activeFilter={{
+              from: windowFrom,
+              to: windowTo,
+              threadAware,
+              kind: filterKind === 'all' ? undefined : filterKind,
+              platform: filterPlatforms.size === 1 ? [...filterPlatforms][0] : undefined,
+              deliveryMode: selectedProject?.dataset_mode === 'source_filter' && !selectedProject.include_push_in_trends
+                ? 'pull' : undefined,
+            }}
           />}
 
           {selectedProject && (

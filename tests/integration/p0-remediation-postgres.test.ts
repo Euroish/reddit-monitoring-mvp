@@ -226,4 +226,68 @@ test("P0 foundations: domain/lane consistency, MFA on budget writes, configurabl
   const srcAfter = await db.pool.query("SELECT schedule, next_due_at FROM collection_source WHERE id=$1", [srcId]);
   assert.equal(srcAfter.rows[0].schedule.enabled, false);
   assert.equal(srcAfter.rows[0].next_due_at, null);
+
+  // Non-scheduled unmanaged monitor_only research source still appears in legacy-sources audit (AUD-04)
+  const legacyAfter = await app.inject({
+    method: "GET",
+    url: "/v1/intelligence/admin/legacy-sources",
+    headers: { cookie: ownerCookie },
+  });
+  assert.equal(legacyAfter.statusCode, 200);
+  const unscheduledLegacy = legacyAfter.json().items.find((i: { id: string }) => i.id === srcId);
+  assert.ok(unscheduledLegacy);
+  assert.equal(unscheduledLegacy.classification, "unclassified");
+  assert.equal(unscheduledLegacy.scheduleEnabled, false);
+
+  // 5. AUD-05: Archived feed recovery & batch-update + qualityGrade filter
+  const feedRes = await app.inject({
+    method: "POST",
+    url: "/v1/sources",
+    headers: { cookie: ownerCookie, origin: ORIGIN },
+    payload: {
+      platform: "web",
+      primaryProvider: "feed",
+      deliveryMode: "pull",
+      contentKind: "article",
+      feedLane: "news",
+      label: "061 Archived Feed",
+      target: { type: "feed", url: "https://example.test/archived.xml" },
+    },
+  });
+  assert.equal(feedRes.statusCode, 200, feedRes.body);
+  const feedId = feedRes.json().source.id as string;
+
+  const archiveBatch = await app.inject({
+    method: "POST",
+    url: "/v1/sources/batch-update",
+    headers: { cookie: ownerCookie, origin: ORIGIN },
+    payload: { ids: [feedId], state: "archived", feedLane: "news" },
+  });
+  assert.equal(archiveBatch.statusCode, 200, archiveBatch.body);
+
+  const invalidBatch = await app.inject({
+    method: "POST",
+    url: "/v1/sources/batch-update",
+    headers: { cookie: ownerCookie, origin: ORIGIN },
+    payload: { ids: [feedId], feedLane: "monitor_only" },
+  });
+  assert.equal(invalidBatch.statusCode, 422);
+
+  const batchOk = await app.inject({
+    method: "POST",
+    url: "/v1/sources/batch-update",
+    headers: { cookie: ownerCookie, origin: ORIGIN },
+    payload: { ids: [feedId], state: "active", feedLane: "release", qualityGrade: "S" },
+  });
+  assert.equal(batchOk.statusCode, 200, batchOk.body);
+  assert.equal(batchOk.json().updatedCount, 1);
+
+  const gradedList = await app.inject({
+    method: "GET",
+    url: "/v1/sources?qualityGrade=S",
+    headers: { cookie: ownerCookie },
+  });
+  assert.equal(gradedList.statusCode, 200);
+  assert.ok(gradedList.json().sources.some((s: { id: string; feedLane: string; qualityGrade: string }) =>
+    s.id === feedId && s.feedLane === "release" && s.qualityGrade === "S"));
 });

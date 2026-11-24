@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, Shield, Sliders, Users } from 'lucide-react';
 import {
   formatApiError,
@@ -89,6 +89,9 @@ function buildOverrideLabels(
   if (override.maxLookbackDays != null) labels.push(t('Lookback limit', '历史回溯上限') + ' · ' + limitText(override.maxLookbackDays, 'days', '天'));
   if (typeof override.allowProviderChoice === 'boolean') labels.push(override.allowProviderChoice ? t('Allow provider choice', '允许选择渠道') : t('Block provider choice', '禁止选择渠道'));
   if (typeof override.exportEnabled === 'boolean') labels.push(override.exportEnabled ? t('Allow export', '允许导出') : t('Block export', '禁止导出'));
+  if (typeof override.allowAutoSchedule === 'boolean') labels.push(override.allowAutoSchedule ? t('Allow auto-schedule', '允许自动调度') : t('Block auto-schedule', '禁止自动调度'));
+  if (override.maxScheduledTasks != null) labels.push(t('Max schedules', '自动调度上限') + ' · ' + limitText(override.maxScheduledTasks, 'tasks', '个'));
+  if (override.minScheduleIntervalHours != null) labels.push(t('Min interval', '最短调度间隔') + ' · ' + limitText(override.minScheduleIntervalHours, 'hours', '小时'));
   if (override.allowedProviders) labels.push(override.allowedProviders.join(', ') || t('No providers', '无可用渠道'));
   if (override.allowedSourceIds !== undefined) labels.push(scopeCount(override.allowedSourceIds));
   return labels;
@@ -108,6 +111,7 @@ export function QuotasManagementView({
   sources,
   onEditBudget,
   forcePersonalView = false,
+  initialUserId,
   onNavigate,
 }: {
   actor: Actor;
@@ -118,6 +122,7 @@ export function QuotasManagementView({
   providers: SourceCapability[];
   onEditBudget: (b: ProviderBudget) => void;
   forcePersonalView?: boolean;
+  initialUserId?: string;
   onNavigate?: (path: string) => void;
 }) {
   const { lang, t } = useI18n();
@@ -213,6 +218,18 @@ export function QuotasManagementView({
     setUErr(null);
     setUMfaNeeded(false);
   };
+
+  const handledInitialUser = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!initialUserId || handledInitialUser.current === initialUserId) return;
+    const match = summary?.users?.find((u) => u.id === initialUserId);
+    if (!match) return;
+    handledInitialUser.current = initialUserId;
+    const timer = setTimeout(() => {
+      openUserEditor(match);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [initialUserId, summary?.users]);
 
   const saveUserOverride = async (clear = false) => {
     if (!editUser) return;

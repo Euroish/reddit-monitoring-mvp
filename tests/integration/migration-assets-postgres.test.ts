@@ -121,6 +121,7 @@ test("PG16 upgrades applied 058 to the immutable batch migrations and safely rer
     "061_content_enrichment_and_source_lanes.sql", "062_feed_personalization_and_seen.sql",
     "063_social_intelligence_monitors_and_rollups.sql", "064_feed_positive_event_idempotency.sql",
     "065_monitor_managed_sources.sql", "066_p0_p1_remediation.sql",
+    "067_stage1_ai_credentials.sql",
   ]);
   assert.deepEqual(await runMigrations({ pool: db.pool }), []);
   const after = await db.pool.query("SELECT filename,checksum FROM schema_migration ORDER BY filename");
@@ -172,6 +173,7 @@ test("PG16 upgrades main 060 to V2 without changing historical checksums or batc
     "061_content_enrichment_and_source_lanes.sql", "062_feed_personalization_and_seen.sql",
     "063_social_intelligence_monitors_and_rollups.sql", "064_feed_positive_event_idempotency.sql",
     "065_monitor_managed_sources.sql", "066_p0_p1_remediation.sql",
+    "067_stage1_ai_credentials.sql",
   ]);
   assert.deepEqual(await snapshot(), existing);
   assert.equal((await db.pool.query("SELECT visibility FROM monitor_project WHERE id=$1", [projectId])).rows[0].visibility, "shared");

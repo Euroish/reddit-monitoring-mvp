@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
+import { canonicalEventKey } from "./ai-event-identity";
 import { isOfficialVendorUrl } from "./ai-registry";
 
 function isSafeHttpUrl(url: string): boolean {
@@ -231,4 +232,164 @@ export async function unpublishAiEvent(pool: Pool, eventId: string) {
   );
   if (!res.rows[0]) fail(404, "AI release event not found");
   return res.rows[0];
+}
+
+export async function listAdminAiEvents(
+  pool: Pool,
+  query: {
+    vendor?: string;
+    eventType?: string;
+    eventStatus?: string;
+    visibility?: string;
+    q?: string;
+    limit?: number;
+    offset?: number;
+  },
+) {
+  const params: unknown[] = [];
+  const where: string[] = [];
+  if (query.visibility && query.visibility !== "all") {
+    params.push(query.visibility);
+    where.push(`e.publication_status = $${params.length}`);
+  }
+  if (query.vendor?.trim()) {
+    params.push(query.vendor.trim());
+    where.push(`v.slug = $${params.length}`);
+  }
+  if (query.eventType) {
+    params.push(query.eventType);
+    where.push(`e.event_type = $${params.length}`);
+  }
+  if (query.eventStatus) {
+    params.push(query.eventStatus);
+    where.push(`e.event_status = $${params.length}`);
+  }
+  if (query.q?.trim()) {
+    params.push(`%${query.q.trim()}%`);
+    where.push(`(e.title ILIKE $${params.length} OR COALESCE(e.summary_zh,'') ILIKE $${params.length} OR COALESCE(e.summary_en,'') ILIKE $${params.length} OR COALESCE(m.official_name,'') ILIKE $${params.length})`);
+  }
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const limit = Math.min(100, Math.max(1, query.limit ?? 30));
+  const offset = Math.max(0, query.offset ?? 0);
+
+  const countRes = await pool.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+     FROM ai_release_event e
+     JOIN ai_vendor v ON v.id = e.vendor_id
+     LEFT JOIN ai_model m ON m.id = e.model_id
+     ${whereSql}`,
+    params,
+  );
+  const totalCount = Number(countRes.rows[0]?.count ?? "0");
+  params.push(limit, offset);
+  const res = await pool.query(
+    `SELECT e.id, e.vendor_id AS "vendorId", v.slug AS "vendorSlug", v.name AS "vendorName",
+            e.model_id AS "modelId", m.slug AS "modelSlug", m.official_name AS "modelName",
+            e.event_type AS "eventType", e.event_status AS "eventStatus",
+            e.publication_status AS visibility, e.title,
+            e.event_date::text AS "eventDate", e.date_precision AS "datePrecision",
+            e.official_announced_on::text AS "officialAnnouncedOn",
+            e.available_from::text AS "availableFrom",
+            e.effective_on::text AS "effectiveOn",
+            e.summary_zh AS "summaryZh", e.summary_en AS "summaryEn",
+            e.key_changes AS "keyChanges", e.source_tier AS "sourceTier",
+            e.verified_at AS "verifiedAt", e.revision,
+            (SELECT ref.url FROM ai_event_reference ref WHERE ref.event_id = e.id ORDER BY ref.is_primary DESC, ref.id ASC LIMIT 1) AS "primaryReferenceUrl",
+            e.updated_at AS "updatedAt"
+     FROM ai_release_event e
+     JOIN ai_vendor v ON v.id = e.vendor_id
+     LEFT JOIN ai_model m ON m.id = e.model_id
+     ${whereSql}
+     ORDER BY e.event_date DESC, e.created_at DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params,
+  );
+  return { items: res.rows, totalCount };
+}
+
+export async function createAdminAiEvent(
+  pool: Pool,
+  body: {
+    vendorId: string;
+    modelId?: string | null;
+    eventType: string;
+    eventStatus?: string;
+    publicationStatus?: "published" | "unpublished";
+    title: string;
+    eventDate: string;
+    datePrecision?: "day" | "month";
+    officialAnnouncedOn?: string | null;
+    availableFrom?: string | null;
+    effectiveOn?: string | null;
+    summaryZh?: string | null;
+    summaryEn?: string | null;
+    keyChanges?: string[];
+    sourceTier?: "official" | "historical_verified" | "manual_verified";
+    primaryReferenceUrl?: string | null;
+    primaryReferenceTitle?: string | null;
+  },
+) {
+  if (body.primaryReferenceUrl && !isSafeHttpUrl(body.primaryReferenceUrl)) {
+    fail(422, "Reference URL must be a valid HTTP/HTTPS link");
+  }
+  return transaction(pool, async (client) => {
+    const vRes = await client.query<{ id: string; slug: string }>(
+      "SELECT id, slug FROM ai_vendor WHERE id = $1::uuid",
+      [body.vendorId],
+    );
+    if (!vRes.rows[0]) fail(404, "AI vendor not found");
+    const eventKey = canonicalEventKey({
+      vendorSlug: vRes.rows[0].slug,
+      eventType: body.eventType,
+      modelNameOrTitle: body.title.trim(),
+      date: body.eventDate,
+    });
+    const evRes = await client.query<{ id: string }>(
+      `INSERT INTO ai_release_event (
+         vendor_id, model_id, event_type, event_status, publication_status,
+         title, event_date, date_precision, official_announced_on, available_from, effective_on,
+         summary_zh, summary_en, key_changes, source_tier, dedupe_key
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8,$9::date,$10::date,$11::date,$12,$13,$14::jsonb,$15,$16)
+       RETURNING id`,
+      [
+        body.vendorId,
+        body.modelId ?? null,
+        body.eventType,
+        body.eventStatus ?? "released",
+        body.publicationStatus ?? "published",
+        body.title.trim(),
+        body.eventDate,
+        body.datePrecision ?? "day",
+        body.officialAnnouncedOn ?? body.eventDate,
+        body.availableFrom ?? null,
+        body.effectiveOn ?? null,
+        body.summaryZh?.trim() || null,
+        body.summaryEn?.trim() || null,
+        JSON.stringify(body.keyChanges?.map((k) => k.trim()).filter(Boolean) ?? []),
+        body.sourceTier ?? "manual_verified",
+        eventKey,
+      ],
+    );
+    const id = evRes.rows[0].id;
+    if (body.primaryReferenceUrl?.trim()) {
+      await client.query(
+        `INSERT INTO ai_event_reference (event_id, title, url, source_kind, is_primary, verified_at)
+         VALUES ($1, $2, $3, 'official', TRUE, NOW())`,
+        [id, body.primaryReferenceTitle?.trim() || body.title.trim(), body.primaryReferenceUrl.trim()],
+      );
+    }
+    return { id, visibility: body.publicationStatus ?? "published" };
+  });
+}
+
+export async function deleteAdminAiEvent(pool: Pool, eventId: string) {
+  return transaction(pool, async (client) => {
+    await client.query(
+      "UPDATE ai_event_candidate SET published_event_id = NULL WHERE published_event_id = $1::uuid",
+      [eventId],
+    );
+    const res = await client.query("DELETE FROM ai_release_event WHERE id = $1::uuid", [eventId]);
+    if (!res.rowCount) fail(404, "AI release event not found");
+    return { id: eventId, deleted: true };
+  });
 }

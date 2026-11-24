@@ -334,6 +334,24 @@ export function useUpdateSourceMutation() {
   });
 }
 
+export function useBatchUpdateSourcesMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      ids: string[];
+      feedLane?: 'discussion' | 'release' | 'monitor_only' | 'news';
+      qualityGrade?: string | null;
+      state?: 'active' | 'paused' | 'archived';
+      tier?: 'T1' | 'T1_5' | 'T2';
+    }) => apiClient.batchUpdateSources(payload),
+    onSuccess: () => Promise.all([
+      qc.invalidateQueries({ queryKey: ['sources'] }),
+      qc.invalidateQueries({ queryKey: ['projects'] }),
+      qc.invalidateQueries({ queryKey: ['overview'] }),
+    ]),
+  });
+}
+
 export function useUnblockSourceMutation() {
   const qc = useQueryClient();
   return useMutation({
