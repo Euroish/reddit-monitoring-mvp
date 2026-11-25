@@ -294,10 +294,12 @@ test("Phase 1: §5.12 B dataset deduplication invariant & L1 overview + empty se
     { batchId: batchB1, contentId: "c5" },
   ];
 
+  let l1AggQueryCount = 0;
+
   // Minimal SQL interpreter for our research + project queries against the in-memory fixture
   const handleQuery = async (sqlText: string, params: unknown[] = []) => {
     const sql = sqlText.replace(/\s+/g, " ").trim();
-    if (sql.startsWith("BEGIN") || sql.startsWith("COMMIT") || sql.startsWith("ROLLBACK") || sql.startsWith("SET LOCAL")) {
+    if (sql.startsWith("BEGIN") || sql.startsWith("COMMIT") || sql.startsWith("ROLLBACK") || sql.startsWith("SET LOCAL") || sql.startsWith("SET TRANSACTION")) {
       return { rows: [], rowCount: 0 };
     }
     if (sql.includes("FROM monitor_project p")) {
@@ -358,51 +360,17 @@ test("Phase 1: §5.12 B dataset deduplication invariant & L1 overview + empty se
       [batchB1, { targetKey: "search:keyword b", targetLabel: "Keyword B", targetType: "search" }],
     ]);
 
-    if (sql.includes("AS overlap_count") && sql.includes("AS anchor_count")) {
+    if (sql.includes("AS scale_row") && sql.includes("AS trend_rows")) {
+      assert.match(sql, /dedup_content AS MATERIALIZED \(/);
+      assert.match(sql, /scoped_memberships AS MATERIALIZED \(/);
+      l1AggQueryCount += 1;
+
       const targetCountsByContent = new Map<string, Set<string>>();
+      const byTarget = new Map<string, { target_key: string; target_label: string; target_type: string; platforms: Set<string>; ids: Set<string>; posts: Set<string>; comments: Set<string> }>();
       for (const link of activeLinks) {
         const tInfo = batchTargetMap.get(link.batchId)!;
         if (!targetCountsByContent.has(link.contentId)) targetCountsByContent.set(link.contentId, new Set());
         targetCountsByContent.get(link.contentId)!.add(tInfo.targetKey);
-      }
-      const overlapCount = [...targetCountsByContent.values()].filter((s) => s.size > 1).length;
-      return {
-        rows: [{
-          total_count: activeItems.length,
-          anchor_count: activeItems.filter((i) => i.kind === "post").length,
-          posts_count: activeItems.filter((i) => i.kind === "post").length,
-          comments_count: activeItems.filter((i) => i.kind === "comment").length,
-          articles_count: 0,
-          sources_count: new Set(activeItems.map((i) => i.source_id)).size,
-          communities_count: new Set(activeItems.map((i) => i.community_name).filter(Boolean)).size,
-          authors_count: new Set(activeItems.map((i) => i.author_handle)).size,
-          reported_comments_sum: String(activeItems.filter((i) => i.kind !== "comment").reduce((acc, i) => acc + i.metric_comments, 0)),
-          undated_count: 0,
-          overlap_count: overlapCount,
-        }],
-        rowCount: 1,
-      };
-    }
-    if (sql.includes("AS bucket_utc")) {
-      const byDayPlat = new Map<string, { bucket_utc: Date; platform: string; total_cnt: number; posts_cnt: number; comments_cnt: number; articles_cnt: number }>();
-      for (const item of activeItems) {
-        const day = item.created_at_source.slice(0, 10) + "T00:00:00.000Z";
-        const key = `${day}|${item.platform}`;
-        const cur = byDayPlat.get(key) ?? { bucket_utc: new Date(day), platform: item.platform, total_cnt: 0, posts_cnt: 0, comments_cnt: 0, articles_cnt: 0 };
-        cur.total_cnt += 1;
-        if (item.kind === "post") cur.posts_cnt += 1;
-        if (item.kind === "comment") cur.comments_cnt += 1;
-        byDayPlat.set(key, cur);
-      }
-      return { rows: [...byDayPlat.values()], rowCount: byDayPlat.size };
-    }
-    if (sql.includes("FROM per_target")) {
-      const byTarget = new Map<string, { target_key: string; target_label: string; target_type: string; platforms: Set<string>; ids: Set<string>; posts: Set<string>; comments: Set<string> }>();
-      const targetsPerContent = new Map<string, Set<string>>();
-      for (const link of activeLinks) {
-        const tInfo = batchTargetMap.get(link.batchId)!;
-        if (!targetsPerContent.has(link.contentId)) targetsPerContent.set(link.contentId, new Set());
-        targetsPerContent.get(link.contentId)!.add(tInfo.targetKey);
         const cur = byTarget.get(tInfo.targetKey) ?? { target_key: tInfo.targetKey, target_label: tInfo.targetLabel, target_type: tInfo.targetType, platforms: new Set(), ids: new Set(), posts: new Set(), comments: new Set() };
         cur.ids.add(link.contentId);
         const item = datasetItems.find((d) => d.id === link.contentId)!;
@@ -411,92 +379,87 @@ test("Phase 1: §5.12 B dataset deduplication invariant & L1 overview + empty se
         if (item.kind === "comment") cur.comments.add(link.contentId);
         byTarget.set(tInfo.targetKey, cur);
       }
-      const rows = [...byTarget.values()].map((entry) => ({
-        target_key: entry.target_key,
-        target_label: entry.target_label,
-        target_type: entry.target_type,
-        platforms: [...entry.platforms].sort(),
-        content_count: entry.ids.size,
-        posts_count: entry.posts.size,
-        comments_count: entry.comments.size,
-        articles_count: 0,
-        exclusive_count: [...entry.ids].filter((cid) => (targetsPerContent.get(cid)?.size ?? 0) === 1).length,
-      }));
-      return { rows, rowCount: rows.length };
-    }
-    if (sql.includes("COUNT(*) FILTER (WHERE kind = 'article')::int AS articles_count FROM dedup_content GROUP BY platform")) {
+      const overlapCount = [...targetCountsByContent.values()].filter((s) => s.size > 1).length;
+
+      const byDayPlat = new Map<string, { bucket_utc: string; platform: string; total_cnt: number; posts_cnt: number; comments_cnt: number; articles_cnt: number }>();
+      for (const item of activeItems) {
+        const day = item.created_at_source.slice(0, 10) + "T00:00:00.000Z";
+        const key = `${day}|${item.platform}`;
+        const cur = byDayPlat.get(key) ?? { bucket_utc: day, platform: item.platform, total_cnt: 0, posts_cnt: 0, comments_cnt: 0, articles_cnt: 0 };
+        cur.total_cnt += 1;
+        if (item.kind === "post") cur.posts_cnt += 1;
+        if (item.kind === "comment") cur.comments_cnt += 1;
+        byDayPlat.set(key, cur);
+      }
+
       const byPlat = new Map<string, typeof activeItems[number][]>();
       for (const i of activeItems) {
         if (!byPlat.has(i.platform)) byPlat.set(i.platform, []);
         byPlat.get(i.platform)!.push(i);
       }
-      return {
-        rows: [...byPlat.entries()].map(([platform, list]) => ({
-          platform,
-          content_count: list.length,
-          posts_count: list.filter((i) => i.kind === "post").length,
-          comments_count: list.filter((i) => i.kind === "comment").length,
-          articles_count: 0,
-        })),
-        rowCount: byPlat.size,
-      };
-    }
-    if (sql.includes("AS avg_disc FROM dedup_content GROUP BY platform")) {
-      const byPlat = new Map<string, typeof activeItems[number][]>();
-      for (const i of activeItems) {
-        if (!byPlat.has(i.platform)) byPlat.set(i.platform, []);
-        byPlat.get(i.platform)!.push(i);
-      }
-      return {
-        rows: [...byPlat.entries()].map(([platform, list]) => {
-          const posts = list.filter((i) => i.kind !== "comment");
-          return {
-            platform,
-            sample_count: list.length,
-            post_count: posts.length,
-            sum_score: String(posts.reduce((a, i) => a + i.metric_score, 0)),
-            sum_likes: String(posts.reduce((a, i) => a + i.metric_likes, 0)),
-            sum_comments: String(posts.reduce((a, i) => a + i.metric_comments, 0)),
-            collected_comments: list.filter((i) => i.kind === "comment").length,
-            sum_views: String(posts.reduce((a, i) => a + i.metric_views, 0)),
-            sum_reposts: String(posts.reduce((a, i) => a + i.metric_reposts, 0)),
-            avg_eng: posts.length ? posts.reduce((a, i) => a + i.engagement_score, 0) / posts.length : 0,
-            avg_disc: 0.2,
-          };
-        }),
-        rowCount: byPlat.size,
-      };
-    }
-    if (sql.includes("AS total_count FROM dedup_content GROUP BY platform")) {
-      const byPlat = new Map<string, typeof activeItems[number][]>();
-      for (const i of activeItems) {
-        if (!byPlat.has(i.platform)) byPlat.set(i.platform, []);
-        byPlat.get(i.platform)!.push(i);
-      }
-      return {
-        rows: [...byPlat.entries()].map(([platform, list]) => ({
-          platform,
-          posts_count: list.filter((i) => i.kind === "post").length,
-          comments_count: list.filter((i) => i.kind === "comment").length,
-          articles_count: 0,
-          total_count: list.length,
-        })),
-        rowCount: byPlat.size,
-      };
-    }
-    if (sql.includes("FROM dedup_content WHERE community_name IS NOT NULL")) {
-      const list = activeItems.filter((i) => i.community_name === "r/LocalLLaMA");
-      return list.length ? { rows: [{ community_name: "r/LocalLLaMA", platform: "reddit", content_count: list.length, posts_count: list.filter((i) => i.kind === "post").length, comments_count: list.filter((i) => i.kind === "comment").length, avg_eng: 20 }], rowCount: 1 } : { rows: [], rowCount: 0 };
-    }
-    if (sql.includes("FROM scoped_memberships sm JOIN collection_source cs")) {
-      const rows = [srcA, srcB].map((sid) => {
+
+      const commList = activeItems.filter((i) => i.community_name === "r/LocalLLaMA");
+      const sourceRows = [srcA, srcB].map((sid) => {
         const list = activeItems.filter((i) => i.source_id === sid);
         return list.length ? { source_id: sid, source_label: sid === srcA ? "Keyword A" : "Keyword B", platform: sid === srcA ? "reddit" : "x", content_count: list.length, posts_count: list.filter((i) => i.kind === "post").length, comments_count: list.filter((i) => i.kind === "comment").length, avg_eng: 15 } : null;
       }).filter(Boolean);
-      return { rows, rowCount: rows.length };
-    }
-    if (sql.includes("FROM dedup_content dc LEFT JOIN labels_agg")) {
-      return { rows: activeItems.map((i) => ({ ...i, created_at_source: new Date(i.created_at_source), metric_views: String(i.metric_views), intent_tag: null, target_labels: [] })), rowCount: activeItems.length };
+
+      return {
+        rows: [{
+          scale_row: {
+            total_count: activeItems.length,
+            anchor_count: activeItems.filter((i) => i.kind === "post").length,
+            posts_count: activeItems.filter((i) => i.kind === "post").length,
+            comments_count: activeItems.filter((i) => i.kind === "comment").length,
+            articles_count: 0,
+            sources_count: new Set(activeItems.map((i) => i.source_id)).size,
+            communities_count: new Set(activeItems.map((i) => i.community_name).filter(Boolean)).size,
+            authors_count: new Set(activeItems.map((i) => i.author_handle)).size,
+            reported_comments_sum: String(activeItems.filter((i) => i.kind !== "comment").reduce((acc, i) => acc + i.metric_comments, 0)),
+            undated_count: 0,
+            overlap_count: overlapCount,
+          },
+          trend_rows: [...byDayPlat.values()],
+          keyword_rows: [...byTarget.values()].map((entry) => ({
+            target_key: entry.target_key,
+            target_label: entry.target_label,
+            target_type: entry.target_type,
+            platforms: [...entry.platforms].sort(),
+            content_count: entry.ids.size,
+            posts_count: entry.posts.size,
+            comments_count: entry.comments.size,
+            articles_count: 0,
+            exclusive_count: [...entry.ids].filter((cid) => (targetCountsByContent.get(cid)?.size ?? 0) === 1).length,
+          })),
+          platform_rows: [...byPlat.entries()].map(([platform, list]) => ({
+            platform,
+            content_count: list.length,
+            posts_count: list.filter((i) => i.kind === "post").length,
+            comments_count: list.filter((i) => i.kind === "comment").length,
+            articles_count: 0,
+          })),
+          community_rows: commList.length ? [{ community_name: "r/LocalLLaMA", platform: "reddit", content_count: commList.length, posts_count: commList.filter((i) => i.kind === "post").length, comments_count: commList.filter((i) => i.kind === "comment").length, avg_eng: 20 }] : [],
+          source_rows: sourceRows,
+          engagement_rows: [...byPlat.entries()].map(([platform, list]) => {
+            const posts = list.filter((i) => i.kind !== "comment");
+            return {
+              platform,
+              sample_count: list.length,
+              post_count: posts.length,
+              sum_score: String(posts.reduce((a, i) => a + i.metric_score, 0)),
+              sum_likes: String(posts.reduce((a, i) => a + i.metric_likes, 0)),
+              sum_comments: String(posts.reduce((a, i) => a + i.metric_comments, 0)),
+              collected_comments: list.filter((i) => i.kind === "comment").length,
+              sum_views: String(posts.reduce((a, i) => a + i.metric_views, 0)),
+              sum_reposts: String(posts.reduce((a, i) => a + i.metric_reposts, 0)),
+              avg_eng: posts.length ? posts.reduce((a, i) => a + i.engagement_score, 0) / posts.length : 0,
+              avg_disc: 0.2,
+            };
+          }),
+          top_rows: activeItems.map((i) => ({ ...i, created_at_source: i.created_at_source, metric_views: String(i.metric_views), intent_tag: null, target_labels: [] })),
+        }],
+        rowCount: 1,
+      };
     }
     return { rows: [], rowCount: 0 };
   };
@@ -516,6 +479,7 @@ test("Phase 1: §5.12 B dataset deduplication invariant & L1 overview + empty se
     batchIds: [batchA1, batchA2, batchB1],
     lang: "zh",
   });
+  assert.equal(l1AggQueryCount, 1, "L1 overview must run as a single materialized SQL query");
   assert.equal(fullL1.analyses.scale.data.deduplicatedContentCount, 5);
   assert.equal(fullL1.analyses.scale.data.postsCount, 3);
   assert.equal(fullL1.analyses.scale.data.commentsCount, 2);
