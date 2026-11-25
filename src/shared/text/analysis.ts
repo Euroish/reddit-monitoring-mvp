@@ -1,7 +1,11 @@
+import stemmer from "wink-porter2-stemmer";
+import { stripHtmlToPlainText } from "./html";
+
 /**
  * Shared lightweight bilingual (EN + ZH + mixed) text preprocessing, phrase normalization,
+ * Node 24 Intl.Segmenter CJK word segmentation, English inflectional lemmatization & Porter2 stemming,
  * n-gram/TF-IDF extraction, co-occurrence scoring, sparse NMF solver, and anomaly detection.
- * Leaf module under src/shared/ with zero database, HTTP, or heavy external NLP dependencies.
+ * Leaf module under src/shared/ with zero database, HTTP, or native C++ dependencies.
  */
 
 const EN_STOPWORDS = new Set([
@@ -39,15 +43,18 @@ const ZH_SINGLE_STOP = new Set([
   "呀", "哦", "嘛", "啦", "个", "种", "次", "条", "篇", "年", "月", "日", "中", "大", "小", "多", "少",
 ]);
 
-// Curated CJK technical / research lexicon for clean tokenization in mixed prompts
+// Curated CJK technical / research lexicon for clean tokenization in mixed prompts (also supplements ICU Intl.Segmenter gaps)
 const ZH_DOMAIN_LEXICON = new Set([
   "大模型", "人工智能", "深度学习", "机器学习", "自然语言", "向量数据库", "推理速度", "上下文", "提示词",
-  "知识库", "工作流", "智能体", "开源模型", "闭源模型", "代码生成", "编程助手", "算力成本", "推理成本",
+  "知识库", "工作流", "智能体", "多智能体", "开源模型", "闭源模型", "代码生成", "编程助手", "算力成本", "推理成本",
   "本地部署", "私有部署", "多模态", "微调", "基准测试", "幻觉", "性价比", "延迟", "吞吐量", "准确率",
   "稳定性", "兼容性", "用户体验", "自动化", "并发", "数据库", "前端", "后端", "架构", "性能", "安全",
   "隐私", "定价", "收费", "免费", "订阅", "限流", "故障", "崩溃", "报错", "卡顿", "升级", "迁移", "替代",
   "对比", "评测", "推荐", "避坑", "真实", "反馈", "评论", "社区", "热度", "趋势", "情感", "正面", "负面",
   "具身智能", "世界模型", "推理模型", "强化学习", "量子计算", "机器人", "芯片", "半导体", "自动驾驶",
+  "开源", "闭源", "模型", "推理", "训练", "优化", "量化", "蒸馏", "部署", "编译", "基准", "测试",
+  "指标", "框架", "工具", "算法", "插件", "缓存", "响应", "内存", "显存", "算力", "接口", "源码",
+  "文档", "协同", "对齐", "合规", "成本", "效率", "体验", "口碑", "涨价", "降价", "付费", "权重",
 ]);
 
 // Curated multi-word technical phrases preserved as cohesive tokens in editorial / tech insights
@@ -150,36 +157,15 @@ const BOILERPLATE_STRIP_PATTERNS: readonly RegExp[] = [
   /阅读原文|查看详情|点击关注|转发抽奖|立即订阅/gu,
 ];
 
-function decodeCommonEntities(raw: string): string {
-  return raw
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;|&rsquo;|&lsquo;/gi, "'")
-    .replace(/&ldquo;|&rdquo;/gi, '"')
-    .replace(/&mdash;|&ndash;/gi, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&#(\d+);/g, (_m, n) => {
-      const code = Number.parseInt(n, 10);
-      return Number.isFinite(code) && code > 31 && code < 0x10ffff ? String.fromCodePoint(code) : " ";
-    })
-    .replace(/&#x([0-9a-f]+);/gi, (_m, hex) => {
-      const code = Number.parseInt(hex, 16);
-      return Number.isFinite(code) && code > 31 && code < 0x10ffff ? String.fromCodePoint(code) : " ";
-    });
-}
-
 export function cleanTextForAnalysis(raw: string | null | undefined, stripBoilerplate = false): string {
   if (!raw) return "";
-  let text = decodeCommonEntities(raw)
+  let text = stripHtmlToPlainText(raw)
     // Convert markdown links [label](url) -> label
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/gi, " $1 ")
     // Strip raw URLs
     .replace(/https?:\/\/[^\s)>\]"']+/gi, " ")
-    // Strip residual HTML tags & code blocks / markdown formatting punctuation
+    // Strip code blocks & markdown formatting punctuation
     .replace(/```[\s\S]*?```/g, " ")
-    .replace(/<[^>]+>/g, " ")
     .replace(/[`*_~>#|]/g, " ");
   if (stripBoilerplate) {
     for (const pat of BOILERPLATE_STRIP_PATTERNS) text = text.replace(pat, " ");
@@ -198,13 +184,39 @@ export function formatDisplayTerm(canonical: string): string {
   return canonical;
 }
 
+// Node 24 native ICU-backed Chinese word segmenter (zero native addon or dictionary file overhead)
+const zhWordSegmenter =
+  typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
+    ? new Intl.Segmenter("zh-CN", { granularity: "word" })
+    : null;
+
+function segmentPlainCjkSlice(slice: string, out: string[]): void {
+  if (!slice) return;
+  if (zhWordSegmenter) {
+    for (const seg of zhWordSegmenter.segment(slice)) {
+      if (!seg.isWordLike) continue;
+      const word = seg.segment;
+      if (ZH_STOPWORDS.has(word)) continue;
+      if (word.length === 1 && (ZH_SINGLE_STOP.has(word) || !ZH_DOMAIN_LEXICON.has(word))) continue;
+      out.push(word);
+    }
+    return;
+  }
+  if (slice.length >= 2 && !ZH_STOPWORDS.has(slice)) out.push(slice);
+}
+
+/**
+ * Segments CJK runs using curated domain compound matching + Node 24 native Intl.Segmenter.
+ */
 export function segmentCjkRun(run: string): string[] {
   const out: string[] = [];
   if (run.length <= 1) return out;
   let i = 0;
+  let plainStart = 0;
+
   while (i < run.length) {
     let matched = "";
-    for (let len = Math.min(4, run.length - i); len >= 2; len--) {
+    for (let len = Math.min(5, run.length - i); len >= 2; len--) {
       const candidate = run.slice(i, i + len);
       if (ZH_DOMAIN_LEXICON.has(candidate)) {
         matched = candidate;
@@ -212,21 +224,132 @@ export function segmentCjkRun(run: string): string[] {
       }
     }
     if (matched) {
+      if (i > plainStart) segmentPlainCjkSlice(run.slice(plainStart, i), out);
       if (!ZH_STOPWORDS.has(matched)) out.push(matched);
       i += matched.length;
+      plainStart = i;
       continue;
-    }
-    if (i + 1 < run.length) {
-      const ch0 = run[i];
-      const ch1 = run[i + 1];
-      const bi = ch0 + ch1;
-      if (!ZH_STOPWORDS.has(bi) && !ZH_SINGLE_STOP.has(ch0) && !ZH_SINGLE_STOP.has(ch1)) {
-        out.push(bi);
-      }
     }
     i += 1;
   }
+  if (plainStart < run.length) segmentPlainCjkSlice(run.slice(plainStart), out);
   return out;
+}
+
+const EN_IRREGULAR_LEMMAS: Record<string, string> = {
+  ran: "run",
+  running: "run",
+  built: "build",
+  building: "build",
+  wrote: "write",
+  written: "write",
+  writing: "write",
+  broken: "break",
+  broke: "break",
+  breaking: "break",
+  crashed: "crash",
+  crashes: "crash",
+  crashing: "crash",
+  deployed: "deploy",
+  deploying: "deploy",
+  deployments: "deployment",
+  optimized: "optimize",
+  optimizing: "optimize",
+  faster: "fast",
+  fastest: "fast",
+  slower: "slow",
+  slowest: "slow",
+  cheaper: "cheap",
+  cheapest: "cheap",
+  queries: "query",
+  capabilities: "capability",
+  latencies: "latency",
+  agencies: "agency",
+  dependencies: "dependency",
+  repositories: "repository",
+  libraries: "library",
+  summaries: "summary",
+  categories: "category",
+  stories: "story",
+  issues: "issue",
+  errors: "error",
+  bugs: "bug",
+  updates: "update",
+  updated: "update",
+  updating: "update",
+  released: "release",
+  releases: "release",
+  releasing: "release",
+  published: "publish",
+  publishing: "publish",
+  improved: "improve",
+  improves: "improve",
+  improving: "improve",
+  fixed: "fix",
+  fixes: "fix",
+  fixing: "fix",
+  failed: "fail",
+  fails: "fail",
+  failing: "fail",
+};
+
+const SILENT_E_STEMS = new Set([
+  "use", "make", "take", "give", "save", "move", "live", "love", "hate", "hope",
+  "code", "note", "rate", "scale", "share", "store", "write", "solve", "serve",
+  "merge", "parse", "route", "cache", "pause", "close", "score", "trace", "frame",
+  "release", "update", "create", "delete", "enable", "disable", "manage", "change",
+  "compare", "improve", "produce", "reduce", "replace", "require", "include", "explore",
+  "compile", "deploy", "configure", "optimize", "generate", "integrate", "evaluate",
+  "automate", "accelerate", "migrate", "summarize", "analyze", "benchmark",
+]);
+
+/**
+ * Computes Porter2 English stem via pure-JS wink-porter2-stemmer (~26 KB).
+ */
+export function stemEnglishToken(word: string): string {
+  if (!word || !/^[a-z]{3,}$/.test(word)) return word;
+  return stemmer(word);
+}
+
+/**
+ * Lightweight inflectional English lemmatizer returning human-readable base forms
+ * while preserving acronyms, version codes, and curated phrases intact.
+ */
+export function normalizeEnglishInflection(low: string): string {
+  if (low.length < 4 || !/^[a-z]+$/.test(low)) return low;
+  if (SAFE_ALIAS_MAP[low]) return SAFE_ALIAS_MAP[low];
+  if (EN_IRREGULAR_LEMMAS[low]) return EN_IRREGULAR_LEMMAS[low];
+
+  // Plural restoration
+  if (low.length > 5 && low.endsWith("ies") && !/[aeiou]ies$/.test(low)) {
+    return `${low.slice(0, -3)}y`;
+  }
+  if (low.length > 5 && /(sses|xes|zes|ches|shes)$/.test(low)) {
+    return low.slice(0, -2);
+  }
+  if (low.length > 4 && low.endsWith("s") && !/(ss|us|is|as|os|ous|ics)$/.test(low)) {
+    const singular = low.slice(0, -1);
+    if (singular.length >= 3) return singular;
+  }
+
+  // Regular -ed / -ing inflectional restoration (only if stem maintains >= 3 chars & vowel)
+  if (low.length > 5 && low.endsWith("ied")) {
+    return `${low.slice(0, -3)}y`;
+  }
+  if (low.length > 5 && low.endsWith("ed") && !/(eed|ted|ded)$/.test(low)) {
+    let base = low.slice(0, -2);
+    if (/([bcdfgptmnr])\1$/.test(base)) base = base.slice(0, -1);
+    else if (SILENT_E_STEMS.has(`${base}e`)) base = `${base}e`;
+    if (base.length >= 3 && /[aeiouy]/.test(base)) return base;
+  }
+  if (low.length > 6 && low.endsWith("ing") && !/(thing|string|bring|spring|king|ring|wing|pricing|coding)$/.test(low)) {
+    let base = low.slice(0, -3);
+    if (/([bcdfgptmnr])\1$/.test(base)) base = base.slice(0, -1);
+    else if (SILENT_E_STEMS.has(`${base}e`)) base = `${base}e`;
+    if (base.length >= 3 && /[aeiouy]/.test(base)) return base;
+  }
+
+  return low;
 }
 
 const PRESERVED_SHORT_ALNUM = new Set(["o1", "o3", "o4", "r1", "v3", "v2", "4o", "c#", "r", "x"]);
@@ -265,7 +388,10 @@ export function tokenizeClauses(raw: string | null | undefined, options: CleanTo
         let low = seg.toLowerCase().replace(/^[._-]+|[._-]+$/g, "");
         if (!low) continue;
         if (/^\d+$/.test(low)) continue;
-        if (options.preserveTechPhrases && SAFE_ALIAS_MAP[low]) {
+        if (EN_STOPWORDS.has(low)) continue;
+        if (low.length >= 4 && !low.includes("_") && /^[a-z]+$/.test(low)) {
+          low = normalizeEnglishInflection(low);
+        } else if (options.preserveTechPhrases && SAFE_ALIAS_MAP[low]) {
           low = SAFE_ALIAS_MAP[low];
         }
         if (EN_STOPWORDS.has(low)) continue;
@@ -291,6 +417,34 @@ export interface TermFrequencyItem {
   avgScore?: number;
 }
 
+/**
+ * Maps English surface variants (`>= 5` chars) that share a Porter2 stem within the corpus
+ * to the cleanest canonical form (shortest readable word, tie-broken by highest df).
+ */
+export function buildStemCanonicalMap(dfMap: ReadonlyMap<string, number>): Map<string, string> {
+  const byStem = new Map<string, string[]>();
+  for (const term of dfMap.keys()) {
+    if (!/^[a-z]{5,}$/.test(term)) continue;
+    const st = stemEnglishToken(term);
+    const list = byStem.get(st);
+    if (list) list.push(term);
+    else byStem.set(st, [term]);
+  }
+  const canonical = new Map<string, string>();
+  for (const group of byStem.values()) {
+    if (group.length < 2) continue;
+    group.sort(
+      (a, b) =>
+        a.length - b.length ||
+        (dfMap.get(b) ?? 0) - (dfMap.get(a) ?? 0) ||
+        a.localeCompare(b),
+    );
+    const winner = group[0];
+    for (const term of group) canonical.set(term, winner);
+  }
+  return canonical;
+}
+
 export function extractNgrams(
   docs: readonly { tokens?: string[]; clauses: string[][] }[],
   n: 1 | 2 | 3,
@@ -299,10 +453,10 @@ export function extractNgrams(
   const totalDocs = docs.length;
   if (totalDocs === 0) return [];
   const tfMap = new Map<string, number>();
-  const dfMap = new Map<string, number>();
+  const docSetsMap = new Map<string, Set<number>>();
 
-  for (const doc of docs) {
-    const seenInDoc = new Set<string>();
+  for (let docIdx = 0; docIdx < docs.length; docIdx++) {
+    const doc = docs[docIdx];
     for (const clause of doc.clauses) {
       if (clause.length < n) continue;
       for (let i = 0; i <= clause.length - n; i++) {
@@ -310,20 +464,51 @@ export function extractNgrams(
         if (n >= 2 && new Set(slice).size === 1) continue;
         const gram = slice.some((s) => /[\u4e00-\u9fff]/.test(s)) ? slice.join(" / ") : slice.join(" ");
         tfMap.set(gram, (tfMap.get(gram) ?? 0) + 1);
-        if (!seenInDoc.has(gram)) {
-          seenInDoc.add(gram);
-          dfMap.set(gram, (dfMap.get(gram) ?? 0) + 1);
+        let set = docSetsMap.get(gram);
+        if (!set) {
+          set = new Set<number>();
+          docSetsMap.set(gram, set);
         }
+        set.add(docIdx);
       }
     }
   }
 
-  return [...dfMap.entries()]
-    .map(([term, docCount]) => ({
+  if (n === 1) {
+    const rawDf = new Map([...docSetsMap.entries()].map(([k, s]) => [k, s.size]));
+    const canonMap = buildStemCanonicalMap(rawDf);
+    if (canonMap.size > 0) {
+      const mergedTf = new Map<string, number>();
+      const mergedDocs = new Map<string, Set<number>>();
+      for (const [term, set] of docSetsMap.entries()) {
+        const target = canonMap.get(term) ?? term;
+        mergedTf.set(target, (mergedTf.get(target) ?? 0) + (tfMap.get(term) ?? set.size));
+        let dest = mergedDocs.get(target);
+        if (!dest) {
+          dest = new Set<number>();
+          mergedDocs.set(target, dest);
+        }
+        for (const idx of set) dest.add(idx);
+      }
+      return [...mergedDocs.entries()]
+        .map(([term, set]) => ({
+          term,
+          termCount: mergedTf.get(term) ?? set.size,
+          docCount: set.size,
+          sharePct: Number(((set.size / totalDocs) * 100).toFixed(1)),
+        }))
+        .filter((item) => item.docCount >= 1)
+        .sort((a, b) => b.docCount - a.docCount || b.termCount - a.termCount || a.term.localeCompare(b.term))
+        .slice(0, topN);
+    }
+  }
+
+  return [...docSetsMap.entries()]
+    .map(([term, set]) => ({
       term,
-      termCount: tfMap.get(term) ?? docCount,
-      docCount,
-      sharePct: Number(((docCount / totalDocs) * 100).toFixed(1)),
+      termCount: tfMap.get(term) ?? set.size,
+      docCount: set.size,
+      sharePct: Number(((set.size / totalDocs) * 100).toFixed(1)),
     }))
     .filter((item) => (n === 1 ? item.docCount >= 1 : item.docCount >= (totalDocs >= 10 ? 2 : 1)))
     .sort((a, b) => b.docCount - a.docCount || b.termCount - a.termCount || a.term.localeCompare(b.term))
@@ -336,28 +521,43 @@ export function extractTfIdfKeywords(
 ): TermFrequencyItem[] {
   const totalDocs = docs.length;
   if (totalDocs === 0) return [];
-  const dfMap = new Map<string, number>();
-  const tfTotal = new Map<string, number>();
+  const rawDfMap = new Map<string, number>();
   const docTokenCounts: Array<Map<string, number>> = [];
 
   for (const doc of docs) {
     const counts = new Map<string, number>();
     for (const clause of doc.clauses) {
-      for (const tok of clause) {
-        counts.set(tok, (counts.get(tok) ?? 0) + 1);
-        tfTotal.set(tok, (tfTotal.get(tok) ?? 0) + 1);
-      }
+      for (const tok of clause) counts.set(tok, (counts.get(tok) ?? 0) + 1);
     }
-    for (const tok of counts.keys()) {
-      dfMap.set(tok, (dfMap.get(tok) ?? 0) + 1);
-    }
+    for (const tok of counts.keys()) rawDfMap.set(tok, (rawDfMap.get(tok) ?? 0) + 1);
     docTokenCounts.push(counts);
   }
 
+  const canonMap = buildStemCanonicalMap(rawDfMap);
+  const dfSets = new Map<string, Set<number>>();
+  const tfTotal = new Map<string, number>();
+  const normalizedDocs: Array<Map<string, number>> = [];
+
+  for (let docIdx = 0; docIdx < docTokenCounts.length; docIdx++) {
+    const merged = new Map<string, number>();
+    for (const [tok, tf] of docTokenCounts[docIdx].entries()) {
+      const target = canonMap.get(tok) ?? tok;
+      merged.set(target, (merged.get(target) ?? 0) + tf);
+      tfTotal.set(target, (tfTotal.get(target) ?? 0) + tf);
+      let s = dfSets.get(target);
+      if (!s) {
+        s = new Set<number>();
+        dfSets.set(target, s);
+      }
+      s.add(docIdx);
+    }
+    normalizedDocs.push(merged);
+  }
+
   const scoreSum = new Map<string, number>();
-  for (const counts of docTokenCounts) {
+  for (const counts of normalizedDocs) {
     for (const [tok, tf] of counts.entries()) {
-      const df = dfMap.get(tok) ?? 1;
+      const df = dfSets.get(tok)?.size ?? 1;
       const idf = Math.log((totalDocs + 1) / (df + 1)) + 1;
       const tfidf = (1 + Math.log(tf)) * idf;
       scoreSum.set(tok, (scoreSum.get(tok) ?? 0) + tfidf);
@@ -366,7 +566,7 @@ export function extractTfIdfKeywords(
 
   return [...scoreSum.entries()]
     .map(([term, totalScore]) => {
-      const docCount = dfMap.get(term) ?? 1;
+      const docCount = dfSets.get(term)?.size ?? 1;
       return {
         term,
         termCount: tfTotal.get(term) ?? docCount,

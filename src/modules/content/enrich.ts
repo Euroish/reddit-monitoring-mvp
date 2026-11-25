@@ -1,6 +1,8 @@
 import type { Pool, PoolClient } from "pg";
 import type { ContentCardLayout, ContentIntentTag } from "../../../packages/contracts/src/content";
 import type { CollectedContent } from "../../connectors/shared/content-provider.interface";
+import { stripHtmlToPlainText } from "../../shared/text/html";
+import { scoreBilingualSentiment } from "../../shared/text/sentiment";
 
 export interface EnrichedContentFields {
   authorHandle: string | null;
@@ -59,12 +61,12 @@ const floatMetric = (metrics: Record<string, number | null>, key: string): numbe
 
 export function normalizeCleanText(raw: string | null): string | null {
   if (!raw) return null;
-  const cleaned = raw
+  const plain = stripHtmlToPlainText(raw);
+  const cleaned = plain
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`([^`]*)`/g, "$1")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/<[^>]+>/g, " ")
     .replace(/https?:\/\/\S+/g, " ")
     .replace(/^[#>*\-\s]+/gm, "")
     .replace(/\s+/g, " ")
@@ -126,6 +128,10 @@ export function classifyIntent(title: string | null, text: string | null, platfo
   }
   if (/\?$|^(?:how|what|why|which|anyone|recommend|looking for|is there)\b|\b(?:how do you|best way to|worth it)\b|求助|请问|推荐|怎么选/.test(sample.trim())) {
     return { tag: "question", confidence: 0.72 };
+  }
+  const sentiment = scoreBilingualSentiment(sample);
+  if (sentiment.label === "negative" && sentiment.score <= -0.35) {
+    return { tag: "pain", confidence: 0.68 };
   }
   return platform === "web" ? { tag: "news", confidence: 0.6 } : { tag: "discussion", confidence: 0.65 };
 }

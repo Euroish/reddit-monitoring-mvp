@@ -1,5 +1,10 @@
 import type { StoryEvidence, StoryInsights, StoryInsightsQuery } from "../../../packages/contracts/src/content-stories";
-import { formatDisplayTerm, solveSparseNmf, computeTermCooccurrence } from "../../shared/text/analysis";
+import {
+  buildStemCanonicalMap,
+  computeTermCooccurrence,
+  formatDisplayTerm,
+  solveSparseNmf,
+} from "../../shared/text/analysis";
 import type { readStoryWindow } from "./stories";
 
 const HOUR_MS = 3_600_000;
@@ -148,13 +153,30 @@ export function computeStoryInsights(
         ? { status: "degraded", reason: lang === "zh" ? "仅覆盖 1 个活跃时段，时间分布区分度较低" : "Only 1 active time bucket" }
         : { status: "ok" };
 
-  // 3. L1 Hot Keywords (document frequency across deduplicated events)
-  const df = new Map<string, number>();
+  // 3. L1 Hot Keywords (document frequency across deduplicated events with stem coalescing)
+  const rawDf = new Map<string, number>();
   for (const r of records) {
-    for (const tok of r.tokenSet) df.set(tok, (df.get(tok) ?? 0) + 1);
+    for (const tok of r.tokenSet) rawDf.set(tok, (rawDf.get(tok) ?? 0) + 1);
+  }
+  const stemCanon = buildStemCanonicalMap(rawDf);
+  const dfSets = new Map<string, Set<number>>();
+  for (let i = 0; i < records.length; i++) {
+    const canonicalSet = new Set<string>();
+    for (const tok of records[i].tokenSet) {
+      const target = stemCanon.get(tok) ?? tok;
+      canonicalSet.add(target);
+      let set = dfSets.get(target);
+      if (!set) {
+        set = new Set<number>();
+        dfSets.set(target, set);
+      }
+      set.add(i);
+    }
+    records[i].tokenSet = canonicalSet;
   }
   const minKeywordDf = analyzedCount >= 12 ? 2 : 1;
-  const keywordItems = [...df.entries()]
+  const keywordItems = [...dfSets.entries()]
+    .map(([term, set]) => [term, set.size] as const)
     .filter(([, cnt]) => cnt >= minKeywordDf)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, 8)

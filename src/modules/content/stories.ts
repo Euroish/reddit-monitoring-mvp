@@ -4,7 +4,7 @@ import type { StoryEvidence, StoryFeed, StoryQuery } from "../../../packages/con
 import type { Actor } from "../../../packages/contracts/src/access";
 import type { ContentAuthor } from "../../../packages/contracts/src/content";
 import { fail } from "../../shared/errors";
-import { cleanTextForAnalysis, tokenizeText } from "../../shared/text/analysis";
+import { cleanTextForAnalysis, stemEnglishToken, tokenizeText } from "../../shared/text/analysis";
 import { detectLanguage } from "../../shared/text/language";
 import { compileContentFilter, contentSourceTables, type ContentVisibilityResolver } from "./search";
 import { groupStories, type StoryTitle } from "./story-groups";
@@ -28,6 +28,7 @@ export interface StoryInsightMeta {
   participatingSourceIds: string[];
   textForAnalysis: string;
   tokenSet: Set<string>;
+  stemSet?: Set<string>;
   hasComparableSource: boolean;
 }
 export interface StoryDrilldownFilter {
@@ -371,6 +372,7 @@ export async function readStoryWindow(
       participatingSourceIds: [...new Set(active.flatMap((it) => it.discoveries.map((d) => d.source_id)))],
       textForAnalysis: cleanText,
       tokenSet: new Set(tokens),
+      stemSet: new Set(tokens.map(stemEnglishToken)),
       hasComparableSource: active.some((it) => it.discoveries.some((d) => d.comparable)),
     });
     return [story];
@@ -420,10 +422,12 @@ export function selectStoryFeed(
         if (drilldown.term) {
           const needle = drilldown.term.trim().toLowerCase();
           const needleAlias = needle.replace(/[\s-]+/g, "_");
+          const needleStem = stemEnglishToken(needle);
           if (meta) {
             if (
               !meta.tokenSet.has(needle) &&
               !meta.tokenSet.has(needleAlias) &&
+              !meta.stemSet?.has(needleStem) &&
               !meta.textForAnalysis.toLowerCase().includes(needle)
             ) {
               return false;

@@ -3,7 +3,12 @@ import type {
   L3TopicItem,
   L3TopicSummary,
 } from "../../../packages/contracts/src/research";
-import { cleanTextForAnalysis, tokenizeClauses } from "./text-analysis";
+import {
+  cleanTextForAnalysis,
+  scoreBilingualSentiment,
+  SENTIMENT_ALGO_VERSION,
+  tokenizeClauses,
+} from "./text-analysis";
 
 export interface L3SourceDocument {
   id: string;
@@ -23,122 +28,8 @@ export interface L3ItemAssignment {
   topicScore?: number | null;
 }
 
-export const SENTIMENT_ALGO_VERSION = "lexicon_bilingual_v1";
+export { SENTIMENT_ALGO_VERSION };
 export const TOPIC_ALGO_VERSION = "nmf_tfidf_v1";
-
-const EN_POSITIVE = new Set([
-  "great", "good", "excellent", "amazing", "awesome", "love", "loved", "loving", "best", "better",
-  "fast", "faster", "fastest", "reliable", "clean", "helpful", "impressive", "accurate", "smooth",
-  "recommend", "recommended", "worth", "fantastic", "solid", "intuitive", "productive", "works",
-  "working", "resolved", "fixed", "win", "winning", "cheap", "cheaper", "affordable", "efficient",
-  "superb", "brilliant", "delighted", "happy", "satisfied", "favorite", "favourite", "genius",
-  "breakthrough", "seamless", "stable", "powerful", "clear", "easy", "upgrade", "upgraded",
-]);
-
-const EN_NEGATIVE = new Set([
-  "bad", "worse", "worst", "terrible", "horrible", "awful", "hate", "hated", "broken", "bug", "bugs",
-  "buggy", "crash", "crashed", "crashes", "crashing", "slow", "slower", "slowest", "expensive",
-  "overpriced", "useless", "garbage", "trash", "annoying", "frustrating", "disappointed", "disappointing",
-  "fail", "failed", "failing", "fails", "failure", "error", "errors", "issue", "issues", "problem",
-  "problems", "hallucinate", "hallucination", "hallucinations", "lag", "laggy", "freeze", "frozen",
-  "unusable", "scam", "waste", "regression", "downgrade", "pain", "painful", "confusing", "blocked",
-  "outage", "down", "unstable", "inaccurate", "wrong", "poor", "sucks", "dead",
-]);
-
-const EN_NEGATORS = new Set([
-  "not", "no", "never", "dont", "don't", "didnt", "didn't", "doesnt", "doesn't", "cant", "can't",
-  "cannot", "isnt", "isn't", "wasnt", "wasn't", "wont", "won't", "without", "hardly", "barely",
-]);
-
-const EN_INTENSIFIERS = new Set([
-  "very", "extremely", "super", "really", "so", "incredibly", "totally", "completely", "highly", "much",
-]);
-
-const ZH_POSITIVE = new Set([
-  "好用", "喜欢", "推荐", "优秀", "出色", "惊艳", "流畅", "稳定", "精准", "准确", "高效", "强大",
-  "值得", "真香", "给力", "丝滑", "满意", "性价比", "突破", "提升", "解决", "成功", "省钱", "便宜",
-  "清晰", "方便", "完美", "支持", "厉害", "赞", "牛", "稳", "快",
-]);
-
-const ZH_NEGATIVE = new Set([
-  "难用", "垃圾", "失望", "报错", "崩溃", "卡顿", "缓慢", "太慢", "昂贵", "好贵", "智障", "幻觉",
-  "避坑", "翻车", "故障", "失败", "无效", "退订", "后悔", "糟糕", "恶心", "限制", "限流", "降智",
-  "拉胯", "不稳定", "不准", "错误", "问题", "bug", "崩溃", "差劲", "敷衍", "烦", "贵", "慢",
-  "崩", "坑",
-]);
-
-const ZH_NEGATORS = ["不", "没", "没有", "未", "非", "别", "难以", "不太", "毫不"];
-const ZH_INTENSIFIERS = ["非常", "特别", "极其", "太", "超级", "相当", "十分", "很", "超"];
-
-function scoreTextSentiment(raw: string): {
-  label: "positive" | "neutral" | "negative" | "unclassified";
-  score: number;
-} {
-  const cleaned = cleanTextForAnalysis(raw);
-  if (!cleaned) return { label: "unclassified", score: 0 };
-
-  let totalScore = 0;
-  let hits = 0;
-
-  // 1. English word scoring with 2-token negation/intensifier window
-  const enTokens = cleaned
-    .toLowerCase()
-    .replace(/[^a-z0-9'\s-]+/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-
-  for (let i = 0; i < enTokens.length; i++) {
-    const w = enTokens[i];
-    const pol = EN_POSITIVE.has(w) ? 1 : EN_NEGATIVE.has(w) ? -1 : 0;
-    if (pol === 0) continue;
-    hits++;
-    let mult = 1;
-    for (let look = Math.max(0, i - 2); look < i; look++) {
-      if (EN_NEGATORS.has(enTokens[look])) mult *= -1;
-      else if (EN_INTENSIFIERS.has(enTokens[look])) mult *= 1.4;
-    }
-    totalScore += pol * mult;
-  }
-
-  // 2. Chinese lexicon match with preceding negation/intensifier prefix inspection
-  const zhSpans = cleaned.match(/[\u4e00-\u9fff]+/g) ?? [];
-  for (const span of zhSpans) {
-    for (const term of ZH_POSITIVE) {
-      let idx = span.indexOf(term);
-      while (idx !== -1) {
-        hits++;
-        const prefix = span.slice(Math.max(0, idx - 3), idx);
-        let mult = 1;
-        if (ZH_NEGATORS.some((neg) => prefix.endsWith(neg))) mult *= -1;
-        if (ZH_INTENSIFIERS.some((it) => prefix.includes(it))) mult *= 1.4;
-        totalScore += 1 * mult;
-        idx = span.indexOf(term, idx + term.length);
-      }
-    }
-    for (const term of ZH_NEGATIVE) {
-      let idx = span.indexOf(term);
-      while (idx !== -1) {
-        hits++;
-        const prefix = span.slice(Math.max(0, idx - 3), idx);
-        let mult = 1;
-        if (ZH_NEGATORS.some((neg) => prefix.endsWith(neg))) mult *= -1;
-        if (ZH_INTENSIFIERS.some((it) => prefix.includes(it))) mult *= 1.4;
-        totalScore += -1 * mult;
-        idx = span.indexOf(term, idx + term.length);
-      }
-    }
-  }
-
-  if (hits === 0) {
-    return { label: "unclassified", score: 0 };
-  }
-
-  const normalized = Math.max(-1, Math.min(1, totalScore / Math.max(1, Math.sqrt(hits) * 1.6)));
-  const rounded = Number(normalized.toFixed(4));
-  if (rounded >= 0.15) return { label: "positive", score: rounded };
-  if (rounded <= -0.15) return { label: "negative", score: rounded };
-  return { label: "neutral", score: rounded };
-}
 
 function yieldTick(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -168,7 +59,7 @@ export async function runSentimentAnalysisTask(
     }
     const doc = docs[i];
     const combined = [doc.title, doc.text].filter(Boolean).join(" ");
-    const res = scoreTextSentiment(combined);
+    const res = scoreBilingualSentiment(combined);
     countsMap[res.label] += 1;
     assignments.push({
       contentId: doc.id,
