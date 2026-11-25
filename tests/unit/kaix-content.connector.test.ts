@@ -120,6 +120,43 @@ test("paid kaix run persists identifiers, polls without another POST and keeps n
   assert.equal(f.requests[0].input!.maxItems, 300);
 });
 
+test("kaix still enforces the exact window and both engagement thresholds on new/all results", async () => {
+  const from = "2026-08-27T13:05:27.817Z";
+  const to = "2026-11-25T13:05:27.817Z";
+  const post = (id: string, date: string, score = 50, numComments = 10) => ({
+    ...root,
+    id,
+    fullName: `t3_${id}`,
+    createdUtc: Date.parse(date) / 1000,
+    score,
+    numComments,
+  });
+  const f = fixture([receipt("SUCCEEDED"), [
+    post("atstart", from),
+    post("before", "2026-08-27T13:05:26.817Z", 100, 100),
+    post("atend", to, 100, 100),
+    post("lowscore", "2026-09-01T00:00:00Z", 49, 100),
+    post("fewcomments", "2026-10-01T00:00:00Z", 100, 9),
+    post("recent", "2026-11-25T13:05:26.817Z"),
+  ]]);
+  const page = await f.connector.collectPage({
+    source: sourceFixture({ target: { type: "search", query: "tiktok", minLikes: 50, minComments: 10 } }),
+    from,
+    to,
+    limit: 5000,
+    checkpoint: null,
+    includeComments: false,
+    execution: f.execution(),
+  });
+
+  assert.equal(f.requests[0].input?.sort, "new");
+  assert.equal(f.requests[0].input?.time, "all");
+  assert.deepEqual(page.items.map((item) => item.externalId), ["t3_atstart", "t3_recent"]);
+  assert.equal(page.coverage, "partial");
+  assert.equal(page.nextCheckpoint, null);
+  assert.equal(f.requests.filter((request) => request.input).length, 1);
+});
+
 test("kaix root/comment hydration retains old context, long IDs and deletion markers", async () => {
   const reply = {
     ...comment,

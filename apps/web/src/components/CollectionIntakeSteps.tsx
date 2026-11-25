@@ -680,7 +680,7 @@ function ChannelFilterOptions({
               className={`intake-pill ${!range.queryHints.timeRange ? 'is-active' : ''}`}
               onClick={() => setHint('timeRange', undefined)}
             >
-              {t('Match date window', '自动匹配采集窗口')}
+              {t('No period override', '不指定上游时段')}
             </button>
             {(['day', 'week', 'month', 'year'] as const).map((opt) => (
               <button
@@ -806,14 +806,17 @@ export function IntakeScopeStep({
     if (val === undefined || val === '' || val === false) delete next[k];
     setRange({ ...range, queryHints: next });
   };
+  const canUseMonthlyTop = limits.maxDays >= 30 && targets.every(({ result }) => {
+    const filters = result.fieldPolicy.supportedFilters;
+    return filters?.supportsTimeRange && filters.sortOptions.includes('top');
+  });
   const researchPresets = [
     {
       id: 'pulse',
       label: t('Hot Pulse (7d)', '热点速览（7 天）'),
-      desc: t('Latest posts, fast live recall', '最新排序，近 7 天召回最全'),
+      desc: t('Sample recent posts from the last 7 days', '采集近 7 天的近期帖子样本'),
       days: Math.min(7, limits.maxDays),
       limit: Math.min(500, maximum),
-      sort: undefined as QueryHintsValue['sort'],
     },
     {
       id: 'insight',
@@ -821,15 +824,15 @@ export function IntakeScopeStep({
       desc: t('High-signal monthly posts, hydrate top threads after', '30 天高互动主帖，入库后再对热帖补抓评论'),
       days: Math.min(30, limits.maxDays),
       limit: Math.min(1500, maximum),
-      sort: (sf?.sortOptions.includes('top') ? 'top' : undefined) as QueryHintsValue['sort'],
+      sort: sf?.sortOptions.includes('top') ? 'top' as const : undefined,
+      timeRange: canUseMonthlyTop ? 'month' as const : undefined,
     },
     {
       id: 'trend',
       label: t('Quarterly Trend (90d)', '跨季趋势（90 天）'),
-      desc: t('Auto-sliced on X / top-weighted on Reddit', 'X 自动按周切片，Reddit 自动匹配高互动年窗'),
+      desc: t('X queries are sliced by week; Reddit returns a bounded, recent-first sample', 'X 按周切片查询；Reddit 优先采集近期帖子，不保证覆盖整个窗口'),
       days: Math.min(90, limits.maxDays),
       limit: Math.min(2000, maximum),
-      sort: undefined as QueryHintsValue['sort'],
     },
   ].filter((p) => p.days >= 1 && p.limit >= 1);
 
@@ -854,7 +857,8 @@ export function IntakeScopeStep({
             </div>
             <div className="intake-pill-group">
               {researchPresets.map((preset) => {
-                const active = range.days === preset.days && range.limit === preset.limit && !range.comments;
+                const active = range.days === preset.days && range.limit === preset.limit && !range.comments &&
+                  range.queryHints.sort === preset.sort && range.queryHints.timeRange === preset.timeRange;
                 return (
                   <button
                     key={preset.id}
@@ -865,7 +869,8 @@ export function IntakeScopeStep({
                       const nextHints = { ...range.queryHints };
                       if (preset.sort) nextHints.sort = preset.sort;
                       else delete nextHints.sort;
-                      delete nextHints.timeRange;
+                      if (preset.timeRange) nextHints.timeRange = preset.timeRange;
+                      else delete nextHints.timeRange;
                       setRange({
                         ...range,
                         days: preset.days,
