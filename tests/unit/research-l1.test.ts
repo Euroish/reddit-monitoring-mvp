@@ -351,7 +351,9 @@ test("Phase 1: §5.12 B dataset deduplication invariant & L1 overview + empty se
         (p): p is string[] =>
           Array.isArray(p) && p.length > 0 && p.every((v) => v === batchA1 || v === batchA2 || v === batchB1),
       ) ?? [batchA1, batchA2, batchB1];
-    const activeLinks = batchLinks.filter((l) => selectedBatches.includes(l.batchId));
+    const activeLinks = batchLinks.filter((l) => sql.includes("AS scale_row")
+      ? (params[0] as string[]).includes(l.contentId)
+      : selectedBatches.includes(l.batchId));
     const dedupIds = [...new Set(activeLinks.map((l) => l.contentId))];
     const activeItems = datasetItems.filter((item) => dedupIds.includes(item.id));
     const batchTargetMap = new Map<string, { targetKey: string; targetLabel: string; targetType: string }>([
@@ -360,9 +362,18 @@ test("Phase 1: §5.12 B dataset deduplication invariant & L1 overview + empty se
       [batchB1, { targetKey: "search:keyword b", targetLabel: "Keyword B", targetType: "search" }],
     ]);
 
+    if (sql.includes("SELECT rm.content_id, rm.target_key")) {
+      return { rows: activeLinks.map((l) => {
+        const target = batchTargetMap.get(l.batchId)!;
+        return { content_id: l.contentId, target_key: target.targetKey, target_label: target.targetLabel,
+          target_type: target.targetType, source_id: l.batchId === batchB1 ? srcB : srcA };
+      }), rowCount: activeLinks.length };
+    }
     if (sql.includes("AS scale_row") && sql.includes("AS trend_rows")) {
       assert.match(sql, /dedup_content AS MATERIALIZED \(/);
-      assert.match(sql, /scoped_memberships AS MATERIALIZED \(/);
+      assert.match(sql, /scoped_memberships AS \( SELECT \* FROM UNNEST/);
+      assert.deepEqual(params[0], [...new Set(params[1] as string[])]);
+      assert.doesNotMatch(sql.split("anchors AS")[0], /body_text|clean_excerpt/);
       l1AggQueryCount += 1;
 
       const targetCountsByContent = new Map<string, Set<string>>();
@@ -475,11 +486,13 @@ test("Phase 1: §5.12 B dataset deduplication invariant & L1 overview + empty se
   } as unknown as Pool;
 
   // 1. Full §5.12 B dataset (A1 + A2 + B1)
-  const fullL1 = await runL1ResearchOverview(pool, adminActor, projectId, {
+  const run = () => runL1ResearchOverview(pool, adminActor, projectId, {
     batchIds: [batchA1, batchA2, batchB1],
     lang: "zh",
   });
-  assert.equal(l1AggQueryCount, 1, "L1 overview must run as a single materialized SQL query");
+  const [fullL1, coalesced] = await Promise.all([run(), run()]);
+  assert.strictEqual(fullL1, coalesced);
+  assert.equal(l1AggQueryCount, 1, "concurrent L1 requests must share a single aggregation");
   assert.equal(fullL1.analyses.scale.data.deduplicatedContentCount, 5);
   assert.equal(fullL1.analyses.scale.data.postsCount, 3);
   assert.equal(fullL1.analyses.scale.data.commentsCount, 2);

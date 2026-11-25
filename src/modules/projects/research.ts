@@ -27,11 +27,12 @@ import {
   interpretTrend,
   type InterpretLang,
 } from "./research-interpret";
-import { buildScopedSql, resolveResearchContext, type ResolvedResearchContext } from "./research-scope";
+import { loadResearchAggregationScope, resolveResearchContext, type ResolvedResearchContext } from "./research-scope";
 
 const METHOD_VERSION = "1.0.0";
 const L1_CACHE_MAX = 64;
 const L1_CACHE_TTL_MS = 60_000;
+const l1InFlight = new Map<string, Promise<L1OverviewResponse>>();
 const l1Cache = new Map<string, { expiresAt: number; value: L1OverviewResponse }>();
 
 function cacheKeyForL1(
@@ -41,7 +42,7 @@ function cacheKeyForL1(
   scope: NormalizedAnalysisScope,
   lang: InterpretLang,
 ): string {
-  const actorKey = `${actor.role}:${actor.userId ?? ""}:${(actor.allowedSourceIds ?? []).join(",")}`;
+  const actorKey = [actor.role, actor.userId ?? null, actor.allowedSourceIds];
   return createHash("sha256")
     .update(JSON.stringify([actorKey, projectId, dataVersion, scope, lang]))
     .digest("hex");
@@ -174,8 +175,8 @@ async function queryL1OverviewData(
   ctx: ResolvedResearchContext,
   lang: InterpretLang,
 ): Promise<L1OverviewResponse> {
-  await client.query("SET LOCAL statement_timeout = '10000'");
-  const { cteSql, values } = buildScopedSql(actor, ctx);
+  await client.query("SET LOCAL statement_timeout = '8000'");
+  const { cteSql, values } = await loadResearchAggregationScope(client, actor, ctx);
   const { project, dataVersion, scope } = ctx;
   const tsExpr = scope.timeBasis === "collected" ? "dc.first_seen_at" : "dc.created_at_source";
   const bucketStep =
@@ -278,14 +279,16 @@ async function queryL1OverviewData(
      anchors AS (
        SELECT COALESCE(root.id, dc.id) AS anchor_id
        FROM dedup_content dc
+       JOIN content c ON c.id = dc.id
        LEFT JOIN LATERAL (
-         SELECT value FROM jsonb_array_elements(dc.content_references) r(value)
+         SELECT value FROM jsonb_array_elements(c.content_references) r(value)
          WHERE value->>'relation' = 'thread_root' LIMIT 1
        ) ref ON true
-       LEFT JOIN dedup_content root
-         ON root.platform_id = dc.platform_id
+       LEFT JOIN content root
+         ON root.source_id = dc.platform_id
         AND root.kind = ref.value->>'kind'
         AND root.external_id = ref.value->>'externalId'
+        AND root.id = ANY($1::uuid[])
      ),
      target_deg AS (
        SELECT content_id, COUNT(DISTINCT target_key)::int AS deg
@@ -400,7 +403,7 @@ async function queryL1OverviewData(
      ),
      top_base AS (
        SELECT
-         dc.id, dc.platform, dc.kind, dc.external_id, dc.title, dc.clean_excerpt, dc.url,
+         dc.id, dc.platform, dc.kind, dc.external_id,
          dc.author_handle, dc.community_name,
          to_char(dc.created_at_source AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at_source,
          dc.metric_score, dc.metric_likes, dc.metric_comments, dc.metric_views::text AS metric_views, dc.metric_reposts,
@@ -417,9 +420,10 @@ async function queryL1OverviewData(
      ),
      top_agg AS (
        SELECT
-         tb.*,
+         tb.*, c.title, c.clean_excerpt, COALESCE(c.permalink, c.url) AS url,
          COALESCE(tl.target_labels, ARRAY[]::text[]) AS target_labels
        FROM top_base tb
+       JOIN content c ON c.id = tb.id
        LEFT JOIN top_labels tl ON tl.content_id = tb.id
      )
      SELECT
@@ -772,10 +776,16 @@ export async function runL1ResearchOverview(
   const cached = readL1Cache(key);
   if (cached) return cached;
 
-  const result = await transaction(pool, async (client) => {
-    await client.query("SET TRANSACTION READ ONLY");
+  const pending = l1InFlight.get(key);
+  if (pending) return pending;
+
+  const calculation = transaction(pool, async (client) => {
+    await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
     return queryL1OverviewData(client, actor, ctx, lang);
-  });
-  writeL1Cache(key, result);
-  return result;
+  }).then((result) => {
+    writeL1Cache(key, result);
+    return result;
+  }).finally(() => l1InFlight.delete(key));
+  l1InFlight.set(key, calculation);
+  return calculation;
 }

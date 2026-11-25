@@ -198,6 +198,17 @@ test("PG16 research workbench: scope, L1 deduplication, L2 Jaccard + cache, and 
   assert.equal(l2Second.statusCode, 200);
   assert.equal((l2Second.json() as { cacheStatus: string }).cacheStatus, "hit");
 
+  const byBatch = await app.inject({
+    method: "POST",
+    url: `/v1/projects/${projectId}/research/l2`,
+    headers: ownerHeaders,
+    payload: { lang: "zh", compareMode: "batch" },
+  });
+  assert.equal(byBatch.statusCode, 200, byBatch.body);
+  const batchCells = (byBatch.json() as typeof l2FirstJson).analyses.overlapMatrix.data.cells;
+  assert.equal(batchCells.length, 9);
+  assert.ok(batchCells.some((cell) => cell.rowLabel !== cell.colLabel && cell.jaccardPct === 25));
+
   // L3 Sentiment task queue -> poll to completion -> inspect evidence -> delete
   const taskCreate = await app.inject({
     method: "POST",

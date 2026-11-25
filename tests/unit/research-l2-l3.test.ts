@@ -169,6 +169,9 @@ test("Phase 2: runL2ResearchComparison enforces Jaccard overlap math (20% on §5
     enabled_batch_ids: [batchA1, batchA2, batchB1],
   });
 
+  let l2ScopeQueryCount = 0;
+  let l2AggQueryCount = 0;
+  let failNextComparison = false;
   const handleQuery = async (sqlText: string, _params: unknown[] = []) => {
     const sql = sqlText.replace(/\s+/g, " ").trim();
     if (sql.startsWith("BEGIN") || sql.startsWith("COMMIT") || sql.startsWith("ROLLBACK") || sql.startsWith("SET ")) {
@@ -213,38 +216,39 @@ test("Phase 2: runL2ResearchComparison enforces Jaccard overlap math (20% on §5
     if (sql.includes("MAX(GREATEST") || sql.includes("latest_discovery_at")) {
       return { rows: [{ latest_at: "2026-11-23T08:05:00.000Z" }], rowCount: 1 };
     }
-    if (sql.includes("MIN(") && sql.includes("MAX(") && sql.includes("AS undated_count")) {
-      return { rows: [{ total_count: 5, undated_count: 0, min_ts: new Date("2026-11-20T10:00:00Z"), max_ts: new Date("2026-11-23T08:00:00Z") }], rowCount: 1 };
+    if (sql.includes("SELECT rm.content_id, rm.target_key")) {
+      l2ScopeQueryCount++;
+      return { rows: [], rowCount: 0 };
     }
-    if (sql.includes("AS exclusive_count") && sql.includes("FROM object_memberships om")) {
-      return {
-        rows: [
+    if (sql.includes("AS text_docs")) {
+      assert.match(sql, /sampled_content AS MATERIALIZED/);
+      assert.match(sql, /JOIN content c ON c.id = dc.id/);
+      l2AggQueryCount++;
+      if (failNextComparison) {
+        failNextComparison = false;
+        throw Object.assign(new Error("statement timeout"), { code: "57014" });
+      }
+      return { rows: [{
+        total: [{ total_count: 5, undated_count: 0 }],
+        object_stats: [
           { obj_key: "search:keyword a", obj_label: "Keyword A", obj_type: "search", content_count: 4, posts_count: 3, comments_count: 1, exclusive_count: 3, avg_eng: 30, reported_comments_sum: "18" },
           { obj_key: "search:keyword b", obj_label: "Keyword B", obj_type: "search", content_count: 2, posts_count: 1, comments_count: 1, exclusive_count: 1, avg_eng: 27, reported_comments_sum: "12" },
         ],
-        rowCount: 2,
-      };
-    }
-    if (sql.includes("AS inter_cnt FROM object_memberships a")) {
-      return {
-        rows: [
+        object_trends: [],
+        object_platforms: [],
+        object_communities: [],
+        overlaps: [
           { row_key: "search:keyword a", col_key: "search:keyword a", inter_cnt: 4 },
           { row_key: "search:keyword a", col_key: "search:keyword b", inter_cnt: 1 },
           { row_key: "search:keyword b", col_key: "search:keyword a", inter_cnt: 1 },
           { row_key: "search:keyword b", col_key: "search:keyword b", inter_cnt: 2 },
         ],
-        rowCount: 4,
-      };
-    }
-    if (sql.includes("AS obj_keys FROM dedup_content dc")) {
-      return {
-        rows: [
+        text_docs: JSON.stringify([
           { id: "c1", title: "Cursor agent comparison", body_text: "fast workflow reliability", clean_excerpt: "fast workflow", ts_utc: new Date("2026-11-20T10:00:00Z"), engagement_score: 52, obj_keys: ["search:keyword a", "search:keyword b"] },
           { id: "c2", title: "Cursor pricing feedback", body_text: "expensive plan", clean_excerpt: "expensive", ts_utc: new Date("2026-11-21T10:00:00Z"), engagement_score: 24, obj_keys: ["search:keyword a"] },
           { id: "c5", title: "Windsurf comment", body_text: "cascade speed", clean_excerpt: "cascade speed", ts_utc: new Date("2026-11-23T08:00:00Z"), engagement_score: 2, obj_keys: ["search:keyword b"] },
-        ],
-        rowCount: 3,
-      };
+        ]),
+      }], rowCount: 1 };
     }
     return { rows: [], rowCount: 0 };
   };
@@ -252,11 +256,17 @@ test("Phase 2: runL2ResearchComparison enforces Jaccard overlap math (20% on §5
   const client = { query: handleQuery, release: () => undefined } as unknown as PoolClient;
   const pool = { query: handleQuery, connect: async () => client } as unknown as Pool;
 
-  const first = await runL2ResearchComparison(pool, adminActor, projectId, {
+  const run = () => runL2ResearchComparison(pool, adminActor, projectId, {
     batchIds: [batchA1, batchA2, batchB1],
     lang: "zh",
   });
+  failNextComparison = true;
+  await assert.rejects(run(), { code: "57014" });
+  const [first, shared] = await Promise.all([run(), run()]);
+  assert.strictEqual(first, shared);
   assert.equal(first.cacheStatus, "miss");
+  assert.equal(first.sampledCount, 3);
+  assert.deepEqual([l2ScopeQueryCount, l2AggQueryCount], [2, 2]);
 
   const cellAB = first.analyses.overlapMatrix.data.cells.find(
     (c) => c.rowKey === "search:keyword a" && c.colKey === "search:keyword b",

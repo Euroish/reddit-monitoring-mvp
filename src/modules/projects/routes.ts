@@ -148,6 +148,7 @@ export async function projectRoutes(app: FastifyInstance, pool: Pool, providers:
   api.post(
     "/v1/projects/:id/research/l1",
     {
+      handlerTimeout: 25_000,
       config: { auth: { access: "authenticated", browserOnly: true } },
       schema: { params: ParamsId, body: AnalysisScopeInput },
     },
