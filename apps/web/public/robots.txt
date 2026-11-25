@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /projects
+Disallow: /sources
+Disallow: /workspace
+Disallow: /settings
+Disallow: /admin/
+Disallow: /healthz
+Disallow: /readyz
+
+Sitemap: https://redditanalyse.online/sitemap.xml
