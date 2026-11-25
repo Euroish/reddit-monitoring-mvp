@@ -40,6 +40,9 @@ const SettingsPage = lazy(() =>
 const AiReviewQueuePage = lazy(() =>
   import('./pages/AiReviewQueuePage').then((m) => ({ default: m.AiReviewQueuePage })),
 );
+const AssistantPage = lazy(() =>
+  import('./pages/AssistantPage').then((m) => ({ default: m.AssistantPage })),
+);
 
 type AppRoute = PublicRoute | '/guide' | WorkbenchRoute;
 
@@ -51,6 +54,7 @@ const WORKBENCH_ROUTES: WorkbenchRoute[] = [
   '/content',
   '/sources',
   '/workspace',
+  '/assistant',
   '/settings',
   '/admin/queue',
 ];
@@ -604,6 +608,10 @@ function isPublicSitePath(pathname: string): boolean {
                   }}
                   onNavigate={navigate}
                 />
+              )}
+
+              {workbenchRoute === '/assistant' && (
+                <AssistantPage />
               )}
 
               {workbenchRoute === '/settings' && actor && (
