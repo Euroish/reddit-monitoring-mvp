@@ -18,6 +18,10 @@ export {
   detectBucketAnomalies,
   extractNgrams,
   extractTfIdfKeywords,
+  normalizeEnglishInflection,
+  scoreBilingualSentiment,
+  stemEnglishToken,
+  stripHtmlToPlainText,
   tokenizeClauses,
   tokenizeText,
 } from "./text-analysis";

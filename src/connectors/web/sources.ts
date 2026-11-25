@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { load } from "cheerio";
 import Parser from "rss-parser";
-import sanitize from "sanitize-html";
 import type { JsonValue } from "../../../packages/contracts/src/source-content";
 import { SourceTarget } from "../../../packages/contracts/src/collection";
 import type { webBoards } from "../../../packages/contracts/src/web-boards";
 import { stableUuidFromString } from "../../shared/ids/stable-id";
+import { stripHtmlToPlainText } from "../../shared/text/html";
 import { detectLanguage, detectWebChannel } from "../../shared/text/language";
 import { fail } from "../../shared/errors";
 import { ContentProviderError, type CollectedContent, type CollectedPage, type ContentProvider } from "../shared/content-provider.interface";
@@ -36,7 +36,7 @@ const parser = new Parser<Record<string, never>, {
     ],
   },
 });
-const clean = (value: string) => load(`<span>${sanitize(value, { allowedTags: [], allowedAttributes: {} })}</span>`)("span").text().trim();
+const clean = (value: string) => stripHtmlToPlainText(value);
 
 function article(input: {
   provider: "feed" | "newsnow";

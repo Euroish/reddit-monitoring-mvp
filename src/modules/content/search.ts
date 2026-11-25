@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from "pg";
 import type { Actor } from "../../../packages/contracts/src/access";
 import type { Filter } from "../../../packages/contracts/src/content";
 import { fail } from "../../shared/errors";
+import { stripHtmlToPlainText } from "../../shared/text/html";
 
 export interface BatchMembership {
   contains: (bind: (value: unknown) => string, column: "c.id" | "d.content_id" | "o.content_id") => string;
@@ -40,8 +41,8 @@ export function publicSearchDocument(
   text: string | null,
   indexedAt: string,
 ) {
-  const normalizedTitle = normalizePublicSearchText(title ?? "");
-  const rawBody = normalizePublicSearchText(text ?? "");
+  const normalizedTitle = normalizePublicSearchText(stripHtmlToPlainText(title ?? ""));
+  const rawBody = normalizePublicSearchText(stripHtmlToPlainText(text ?? ""));
   const normalizedText =
     rawBody.length <= MAX_INDEXED_BODY_CHARS
       ? rawBody
