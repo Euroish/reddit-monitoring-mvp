@@ -190,7 +190,7 @@ export async function jobRoutes(app: FastifyInstance, pool: Pool, listProjectBat
               const targetType = job.operation === "hydrate" ? "post" : source.target.type;
               const demand = refresh
                 ? { provider: job.provider, limit: pageSize, resources: pageSize }
-                : viewerCollectionDemand(job.provider, targetType, pageSize, job.request_json ?? {});
+                : viewerCollectionDemand(job.provider, targetType, pageSize, job.request_json ?? {}, job.max_pages === 1);
               await admitViewerCollection(client, request.actor!, { sourceId: source.id, ...demand });
             }
             await client.query(

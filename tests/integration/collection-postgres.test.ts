@@ -11,6 +11,93 @@ import { webSource } from "../../src/connectors/web/sources";
 import { testDatabase } from "../helpers/database";
 
 const origin = "http://workbench.test";
+
+test("PG16 stages share one batch, reserve per Run, and do not replay an uncertain hydration", async (t) => {
+  const db = await testDatabase();
+  t.after(db.close);
+  await bootstrapOwner(db.pool, "fixture-password-123", "owner@example.test");
+  await db.pool.query(`UPDATE source_provider_budget SET enabled=true, daily_requests=30,
+    monthly_requests=30, daily_resources=20000, monthly_resources=20000 WHERE provider='kaix'`);
+  let jobId = "";
+  let failHydration = false;
+  const inputs: Array<{ mode: string; subreddit?: string; maxItems?: number; postUrls?: string[] }> = [];
+  const to = new Date();
+  const post = (id: string, ageDays: number, numComments = 0) => ({
+    type: "post", id, subreddit: "fixture", createdUtc: to.getTime() / 1000 - ageDays * 86400,
+    title: "Fixture", numComments,
+  });
+  const seed = Array.from({ length: 250 }, (_, i) => post(`seed${i}`, 1, i === 0 ? 1 : 0));
+  const older = post("older", 45, 5);
+  const connector = new KaixContentConnector({ networkEnabled: true, apiToken: "synthetic-token" }, async (_, init) => {
+    if (init?.method === "POST") {
+      const { rows: [row] } = await db.pool.query("SELECT provider_state,request_count,provider_run_id FROM source_collection_job WHERE id=$1", [jobId]);
+      assert.deepEqual(row.provider_state, { phase: "starting" });
+      assert.equal(row.provider_run_id, null);
+      assert.equal(row.request_count, inputs.length % 3 + 1);
+      const input = JSON.parse(String(init.body));
+      inputs.push(input);
+      if (failHydration && input.mode === "post") throw new Error("ambiguous paid POST fixture");
+      return Response.json({ data: { id: `run${inputs.length}`, defaultDatasetId: "fixtureDataset", status: "SUCCEEDED" } });
+    }
+    const input = inputs.at(-1)!;
+    if (input.mode === "post") return Response.json([older, seed[0], ...input.postUrls!.map((id, i) => ({
+      type: "comment", id: `reply${i}`, subreddit: "fixture", createdUtc: to.getTime() / 1000 - 86400,
+      linkId: id, parentId: id, body: "Fixture reply",
+    }))]);
+    return Response.json(input.subreddit ? [older] : seed);
+  });
+  const app = await buildApp({ pool: db.pool, sessionSecret: "staged-fixture-".repeat(3), origin, secureCookies: false, providers: [connector] });
+  t.after(() => app.close());
+  const login = await app.inject({ method: "POST", url: "/v1/auth/login", headers: { origin },
+    payload: { email: "owner@example.test", password: "fixture-password-123" } });
+  const headers = { cookie: login.headers["set-cookie"]!.toString().split(";")[0], origin };
+  const scope = { from: new Date(to.getTime() - 90 * 86400000).toISOString(), to: to.toISOString(),
+    limit: 251, includeComments: true, maxCommentsPerPost: 2 };
+  const createJob = async (query: string) => {
+    const source = await app.inject({ method: "POST", url: "/v1/sources", headers,
+      payload: { platform: "reddit", primaryProvider: "kaix", deliveryMode: "pull", label: query,
+        target: { type: "search", query }, contentKind: "post" } });
+    assert.equal(source.statusCode, 200, source.body);
+    const sourceId = source.json().source.id;
+    const preview = await app.inject({ method: "POST", url: "/v1/research/collection-plans/preview", headers,
+      payload: { ...scope, sourceId } });
+    assert.equal(preview.statusCode, 200, preview.body);
+    assert.deepEqual(preview.json().estimate, { requests: 8, systemResources: 1659, personalResources: 1651 });
+    const collected = await app.inject({ method: "POST", url: `/v1/sources/${sourceId}/collect`,
+      headers: { ...headers, "idempotency-key": randomUUID() }, payload: scope });
+    assert.equal(collected.statusCode, 200, collected.body);
+    jobId = collected.json().jobId;
+  };
+  const job = async () => (await db.pool.query("SELECT * FROM source_collection_job WHERE id=$1", [jobId])).rows[0];
+  await createJob("Staged success");
+  assert.equal((await job()).max_pages, 8);
+  for (const phase of ["fanout", "hydrate_comments"]) {
+    assert.equal(await workOnce(db.pool, [connector]), true);
+    const state = await job();
+    assert.equal(state.status, "queued");
+    assert.equal(state.checkpoint.phase, phase);
+    assert.deepEqual(state.provider_state, {});
+    assert.equal(state.page_request_attempts, 0);
+  }
+  assert.equal((await job()).records_processed, scope.limit);
+  assert.equal(await workOnce(db.pool, [connector]), true);
+  assert.equal((await job()).status, "succeeded");
+  assert.equal((await job()).records_processed, 253);
+  assert.equal((await job()).coverage, "partial");
+  assert.deepEqual(inputs.map(input => input.maxItems ?? input.postUrls), [251, 1, ["t3_older", "t3_seed0"]]);
+  assert.deepEqual((await db.pool.query("SELECT item_count FROM collection_batch WHERE job_id=$1", [jobId])).rows, [{ item_count: 253 }]);
+  assert.deepEqual((await db.pool.query("SELECT requests,resources_reserved FROM source_provider_usage WHERE provider='kaix'")).rows,
+    [{ requests: 3, resources_reserved: 261 }]);
+
+  failHydration = true;
+  await createJob("Staged interruption");
+  for (let i = 0; i < 3; i++) assert.equal(await workOnce(db.pool, [connector]), true);
+  assert.equal((await job()).status, "failed");
+  assert.equal((await job()).provider_state.phase, "unknown");
+  assert.equal((await job()).pages_committed, 2);
+  assert.equal(await workOnce(db.pool, [connector]), false);
+  assert.equal(inputs.length, 6);
+});
 test("PG16 paid state resumes after interruption, fences unknown starts, budgets, cancellation and stale leases", async (t) => {
   const db = await testDatabase();
   t.after(db.close);
@@ -166,6 +253,8 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
     );
   const first = await create("OpenAI OR Anthropic"),
     jobId = await enqueue(first);
+  // Rollout compatibility: an already-enqueued max_pages=1 job kept its inline Actor input.
+  await db.pool.query("UPDATE source_collection_job SET max_pages=1 WHERE id=$1", [jobId]);
   const missingFallback = await app.inject({
     method: "POST", url: `/v1/sources/${first}/collect`,
     headers: { ...headers, "idempotency-key": randomUUID() },

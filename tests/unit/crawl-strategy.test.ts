@@ -116,6 +116,7 @@ test("Kaix defaults to new/all for bounded samples, independent of window length
     target: CollectionSource["target"],
     from: string,
     to: string,
+    checkpoint: JsonValue | null = null,
   ): Promise<Record<string, unknown>> => {
     let sent: Record<string, unknown> = {};
     const connector = new KaixContentConnector(
@@ -134,7 +135,7 @@ test("Kaix defaults to new/all for bounded samples, independent of window length
       from,
       to,
       limit: 500,
-      checkpoint: null,
+      checkpoint,
       execution: { state, saveState: async (v) => { state = v; } },
     });
     return sent;
@@ -163,5 +164,10 @@ test("Kaix defaults to new/all for bounded samples, independent of window length
     const input = await captureInput({ ...search, ...hints }, from, to);
     assert.equal(input.sort, sort);
     assert.equal(input.time, time);
+    const fanout = { phase: "fanout", subreddits: ["videos"], subIndex: 0, seenPostIds: ["t3_fixture"], candidates: [] };
+    const supplemental = await captureInput({ ...search, ...hints }, "2026-08-27T13:05:27.817Z", to, fanout);
+    assert.equal(supplemental.subreddit, "videos");
+    assert.equal(supplemental.sort, sort);
+    assert.equal(supplemental.time, time);
   }
 });

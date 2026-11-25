@@ -12,6 +12,8 @@ export interface CollectedContent extends Omit<
 export interface CollectedPage {
   items: CollectedContent[];
   nextCheckpoint: JsonValue | null;
+  /** The next page only enriches items already counted against the target limit. */
+  continueAfterLimit?: boolean;
   exhausted: boolean;
   coverage: "unknown" | "partial";
   warning: string | null;
@@ -37,6 +39,8 @@ export interface CollectContentPageRequest {
   };
   signal?: AbortSignal;
   preview?: boolean;
+  /** Preserve the input of jobs admitted as single runs, including already-paid runs. */
+  singleRun?: boolean;
   includeComments?: boolean;
   maxCommentsPerPost?: number;
   commentSort?: "top";

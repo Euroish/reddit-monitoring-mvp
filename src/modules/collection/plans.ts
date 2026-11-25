@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import type { Pool, QueryResultRow } from "pg";
-import { providerResourceReservation } from "../../../packages/contracts/src/collection-budget";
+import { kaixCollectionBudget, providerResourceReservation } from "../../../packages/contracts/src/collection-budget";
 import type { Actor } from "../../../packages/contracts/src/access";
 import {
   ResearchPlanCollectInput,
@@ -196,6 +196,10 @@ function estimateResources(
   targetType: string,
   body: ResearchPlanPreviewRequest,
 ) {
+  if (providerName === "kaix") {
+    const { requests, systemResources, personalResources } = kaixCollectionBudget(targetType, body.limit, body);
+    if (requests > 1) return { requests, systemResources, personalResources };
+  }
   const pageSize = providerName === "twitterapis" ? Math.min(body.limit, 20)
     : providerName === "scrapebadger" ? Math.min(body.limit, 100)
     : body.limit;

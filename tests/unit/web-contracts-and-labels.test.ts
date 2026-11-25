@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Value } from "@sinclair/typebox/value";
-import { providerResourceReservation, viewerCollectionDemand } from "../../packages/contracts/src/collection-budget";
+import { kaixCollectionBudget, providerResourceReservation, viewerCollectionDemand } from "../../packages/contracts/src/collection-budget";
 import { SourceUpdate, REDDIT_ARCHIVE_SOURCE_TAG, type CollectionSource } from "../../packages/contracts/src/source-content";
 import { collectionLimits, getRangeLimits, isRedditArchiveSource, parseManualTargets } from "../../apps/web/src/lib/collectionLimits.js";
 import type { QuotasSummaryResponse } from "../../apps/web/src/contracts/api.js";
@@ -51,7 +51,7 @@ describe("source configuration and collection controls", () => {
     assert.equal(collectionLimits(source, { ...live, enabled: false }, personal, true, false, 0).maxLimit, 0);
     assert.equal(collectionLimits(source, live, undefined, false, false, 0).maxLimit, 0);
     assert.deepEqual(collectionLimits(source, live, personal, false, true, 30), {
-      maxLimit: 5, optionalComments: true, maxComments: 4, comments: 4,
+      maxLimit: 4, optionalComments: true, maxComments: 4, comments: 4,
     });
     assert.equal(collectionLimits({ ...source, id: "another" }, live, personal, false, false, 0).maxLimit, 0);
     assert.equal(collectionLimits({ ...source, target: { type: "post", postId: "post" } }, live, personal, false, false, 0).maxLimit, 4);
@@ -111,9 +111,19 @@ it("keeps provider reservation units distinct from viewer requests and item coun
   assert.equal(viewerCollectionDemand("twitterapis", "account", 3, {}).resources, 3);
   assert.equal(providerResourceReservation({ provider: "scrapebadger", targetType: "account", pageSize: 3, requestResourceUpperBound: 100, refresh: true }), 3);
   assert.equal(providerResourceReservation({ provider: "kaix", targetType: "post", pageSize: 10 }), 11);
-  assert.equal(viewerCollectionDemand("kaix", "search", 10, { includeComments: true, maxCommentsPerPost: 2 }).resources, 30);
+  assert.equal(viewerCollectionDemand("kaix", "search", 10, { includeComments: true, maxCommentsPerPost: 2 }, true).resources, 30);
+  assert.equal(viewerCollectionDemand("kaix", "search", 10, { includeComments: true, maxCommentsPerPost: 2 }).resources, 40);
   assert.equal(providerResourceReservation({ provider: "kaix", targetType: "search", pageSize: 10, includeComments: true, maxCommentsPerPost: 2 }), 31);
   assert.equal(providerResourceReservation({ provider: "kaix", targetType: "community", pageSize: 10000, includeComments: true, maxCommentsPerPost: 100 }), 1010001);
+  assert.deepEqual(kaixCollectionBudget("search", 10000, { includeComments: true }), {
+    fanoutPages: 5, hydratePosts: 50, requests: 8, systemResources: 12058, personalResources: 12050,
+  });
+  assert.deepEqual(kaixCollectionBudget("community", 10000, { includeComments: true, maxCommentsPerPost: 100 }), {
+    fanoutPages: 0, hydratePosts: 50, requests: 3, systemResources: 15053, personalResources: 15050,
+  });
+  assert.equal(kaixCollectionBudget("search", 250, {}).requests, 1);
+  assert.equal(kaixCollectionBudget("search", 251, {}).requests, 6);
+  assert.equal(kaixCollectionBudget("account", 10000, { includeComments: true }).requests, 1);
 });
 
 it("parses multiple comma/newline communities without duplicates and unifies X/Reddit range caps", () => {

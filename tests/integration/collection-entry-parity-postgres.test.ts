@@ -103,23 +103,24 @@ test("PG16 collection entry parity: constraints, atomic rejection, and relative-
     const attempts = await Promise.all([collect(viewer, "stable-window", valid), collect(viewer, "stable-window", valid)]);
     for (const result of attempts) assert.equal(result.statusCode, 200, result.body);
     assert.deepEqual(attempts[0].json().jobIds, attempts[1].json().jobIds);
-    const before = (await db.pool.query("SELECT request_json,payload_hash FROM source_collection_job")).rows;
+    const before = (await db.pool.query("SELECT request_json,payload_hash,max_pages FROM source_collection_job")).rows;
     assert.equal(before.length, 1);
     assert.match(before[0].payload_hash, /^[a-f0-9]{64}$/);
-    assert.deepEqual((await db.pool.query("SELECT requests_reserved,resources_reserved FROM user_provider_usage")).rows,
-      [{ requests_reserved: 1, resources_reserved: 60 }]);
+    assert.equal(before[0].max_pages, 2);
+    // 20 discovery posts + 20 hydrated roots + up to 40 comments.
+    const expectedUsage = [{ requests_reserved: 1, resources_reserved: 80 }];
+    assert.deepEqual((await db.pool.query("SELECT requests_reserved,resources_reserved FROM user_provider_usage")).rows, expectedUsage);
     await db.pool.query("UPDATE plan_collection_policy SET manual_collect_enabled=false WHERE plan_tier='free'");
     await db.pool.query("INSERT INTO source_provider_usage(provider,day,requests,resources_reserved) VALUES('kaix',(NOW() AT TIME ZONE 'UTC')::date,0,100000)");
     const replay = await collect(viewer, "stable-window", valid);
     assert.equal(replay.statusCode, 200, replay.body);
     assert.deepEqual(replay.json().jobIds, attempts[0].json().jobIds);
-    assert.deepEqual((await db.pool.query("SELECT request_json,payload_hash FROM source_collection_job")).rows, before);
+    assert.deepEqual((await db.pool.query("SELECT request_json,payload_hash,max_pages FROM source_collection_job")).rows, before);
     const changed = await collect(viewer, "stable-window", { ...valid, lookbackHours: 1 });
     assert.equal(changed.statusCode, 409, changed.body);
     const otherActor = await collect(owner, "stable-window", valid);
     assert.equal(otherActor.statusCode, 409, otherActor.body);
-    assert.deepEqual((await db.pool.query("SELECT requests_reserved,resources_reserved FROM user_provider_usage")).rows,
-      [{ requests_reserved: 1, resources_reserved: 60 }]);
+    assert.deepEqual((await db.pool.query("SELECT requests_reserved,resources_reserved FROM user_provider_usage")).rows, expectedUsage);
   });
 
   await t.test("refresh replay verifies the persisted requester before returning a historical job", async () => {

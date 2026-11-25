@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { providerResourceReservation, viewerCollectionDemand } from '../../../../packages/contracts/src/collection-budget';
+import { kaixCollectionBudget, providerResourceReservation, viewerCollectionDemand } from '../../../../packages/contracts/src/collection-budget';
 import '../styles/collection.css';
 import {
   AlertTriangle,
@@ -269,9 +269,11 @@ export function SourcesPage({
   }
 
   const collectOptions = { includeComments: limits.comments !== undefined, maxCommentsPerPost: limits.comments };
+  const stagedQuote = selectedSourceCap?.provider === 'kaix' && selectedSource
+    ? kaixCollectionBudget(selectedSource.target.type, collectLimit, collectOptions) : null;
   const collectionQuote = selectedSourceCap && selectedSource && collectLimit > 0 && collectLimit <= maxAllowedLimit
     ? {
-      system: providerResourceReservation({
+      system: stagedQuote && stagedQuote.requests > 1 ? stagedQuote.systemResources : providerResourceReservation({
         ...collectOptions, provider: selectedSourceCap.provider, targetType: selectedSource.target.type,
         pageSize: collectLimit, requestResourceUpperBound: selectedSourceCap.requestResourceUpperBound,
       }),

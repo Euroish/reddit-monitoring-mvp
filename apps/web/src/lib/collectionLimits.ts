@@ -1,3 +1,4 @@
+import { viewerCollectionDemand } from '../../../../packages/contracts/src/collection-budget.js';
 import { REDDIT_ARCHIVE_SOURCE_TAG } from '../../../../packages/contracts/src/source-content.js';
 import type { CollectionSource, QuotasSummaryResponse, ResearchPlanPreviewRequest, ResearchPlanPreviewResponse, SourceCapability } from '../contracts/api.js';
 
@@ -93,7 +94,22 @@ export function collectionLimits(
   const providerLimit = provider === 'twitterapis' || provider === 'scrapebadger' || provider === 'kaix' ? 10000 : 100;
   const commentLimit = isPost && (provider === 'kaix' || provider === 'red_crawler') ? maxComments : Infinity;
   const webLimit = source?.platform === 'web' ? source.fetchPolicy.maxItems ?? Infinity : Infinity;
-  const resourceLimit = isPost && provider === 'kaix' ? Math.max(0, remaining - 1) : Math.floor(remaining / resourceFactor);
+  let resourceLimit = isPost && provider === 'kaix' ? Math.max(0, remaining - 1) : Math.floor(remaining / resourceFactor);
+  const targetType = source?.target.type;
+  if (provider === 'kaix' && (targetType === 'search' || targetType === 'community') && remaining !== Infinity) {
+    // Invert the same monotone demand as admission, including the fanout step and hydration cap.
+    let low = 0;
+    let high = providerLimit;
+    while (low < high) {
+      const limit = Math.ceil((low + high) / 2);
+      const { resources } = viewerCollectionDemand(provider, targetType, limit, {
+        includeComments: comments !== undefined, maxCommentsPerPost: comments,
+      });
+      if (resources <= remaining) low = limit;
+      else high = limit - 1;
+    }
+    resourceLimit = low;
+  }
   return {
     maxLimit: enabled && !noRequests ? Math.min(
       providerLimit, policy?.maxBatchLimit ?? Infinity, commentLimit, webLimit, resourceLimit,
