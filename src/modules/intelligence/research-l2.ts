@@ -10,7 +10,12 @@ import { loadResearchAggregationScope, resolveResearchContext, type ResolvedRese
 import { analyzeL2, type L2AnalysisJob, type L2Inputs } from "./research-l2-analysis";
 
 const L2_TEXT_SAMPLE_LIMIT = 5000;
+const L2_BODY_CHAR_LIMIT = 4000;
 const L2_CACHE_TTL_MS = 180_000;
+const L2_TOTAL_BUDGET_MS = 22_000;
+const L2_SLOT_WAIT_MS = 8_000;
+const L2_WORKER_MAX_MS = 12_000;
+const L2_WORKER_MEMORY_MB = 256;
 const l2MemCache = new Map<string, { expiresAt: number; value: L2ComparisonResponse }>();
 
 function cacheKeyForL2(
@@ -47,7 +52,7 @@ async function loadL2Inputs(
            FROM dedup_content dc
            JOIN collection_batch_item cbi ON cbi.content_id = dc.id
              AND cbi.batch_id = ANY($7::uuid[])
-           JOIN collection_batch cb ON cb.id = cbi.batch_id
+           JOIN collection_batch cb ON cb.id = cbi.batch_id AND cb.discarded_at IS NULL
          )`
       : `object_memberships AS MATERIALIZED (
            SELECT DISTINCT content_id, target_key AS obj_key, target_label AS obj_label, target_type AS obj_type
@@ -129,7 +134,7 @@ async function loadL2Inputs(
      ),
      text_docs AS (
        SELECT
-         dc.id, c.title, c.body_text, c.clean_excerpt,
+         dc.id, c.title, LEFT(c.body_text, ${L2_BODY_CHAR_LIMIT}) AS body_text, c.clean_excerpt,
          ${tsExpr} AS ts_utc,
          dc.engagement_score,
          COALESCE(do2.obj_keys, ARRAY[]::text[]) AS obj_keys
@@ -154,21 +159,74 @@ async function loadL2Inputs(
 // Bound cold computations before fetching text; identical requests share the same promise.
 const inFlight = new Map<string, Promise<L2ComparisonResponse>>();
 const MAX_COLD_COMPARISONS = 1;
+const MAX_QUEUED_COLD_COMPARISONS = 2;
 let activeColdComparisons = 0;
+const coldWaiters: Array<() => void> = [];
 
-async function runAnalysisWorker(job: L2AnalysisJob): Promise<L2ComparisonResponse> {
+async function acquireColdSlot(maxWaitMs: number): Promise<void> {
+  if (activeColdComparisons < MAX_COLD_COMPARISONS) {
+    activeColdComparisons++;
+    return;
+  }
+  if (coldWaiters.length >= MAX_QUEUED_COLD_COMPARISONS || maxWaitMs <= 0) {
+    fail(503, "Research analysis is busy");
+  }
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const wake = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      const idx = coldWaiters.indexOf(wake);
+      if (idx >= 0) coldWaiters.splice(idx, 1);
+      reject(new AppError(503, "Research analysis is busy"));
+    }, maxWaitMs);
+    coldWaiters.push(wake);
+  });
+}
+
+function releaseColdSlot(): void {
+  const next = coldWaiters.shift();
+  if (next) {
+    next();
+    return;
+  }
+  activeColdComparisons = Math.max(0, activeColdComparisons - 1);
+}
+
+async function runAnalysisWorker(job: L2AnalysisJob, timeoutMs: number): Promise<L2ComparisonResponse> {
+  const resourceLimits = {
+    maxOldGenerationSizeMb: L2_WORKER_MEMORY_MB,
+    maxYoungGenerationSizeMb: 64,
+  };
   const worker = __filename.endsWith(".ts")
     ? new Worker("require('tsx/cjs'); require(require('node:worker_threads').workerData.entry)", {
-      eval: true, workerData: { ...job, entry: join(__dirname, "research-l2-analysis.ts") },
+      eval: true,
+      workerData: { ...job, entry: join(__dirname, "research-l2-analysis.ts") },
+      resourceLimits,
     })
-    : new Worker(join(__dirname, "research-l2-analysis.js"), { workerData: job });
+    : new Worker(join(__dirname, "research-l2-analysis.js"), { workerData: job, resourceLimits });
   let deadline: ReturnType<typeof setTimeout> | undefined;
   try {
     return await new Promise<L2ComparisonResponse>((resolve, reject) => {
-      deadline = setTimeout(() => reject(new AppError(503, "Research analysis timed out")), 12_000);
+      deadline = setTimeout(() => reject(new AppError(503, "Research analysis timed out")), timeoutMs);
       worker.once("message", resolve);
-      worker.once("error", reject);
-      worker.once("exit", (code) => reject(new Error(`Research analysis worker exited before responding (${code})`)));
+      worker.once("error", (err) => {
+        const code = (err as Error & { code?: string }).code;
+        if (code === "ERR_WORKER_OUT_OF_MEMORY") {
+          reject(new AppError(503, "Research analysis memory limit exceeded"));
+          return;
+        }
+        reject(err);
+      });
+      worker.once("exit", (code) => {
+        reject(new AppError(503, `Research analysis worker exited before responding (${code})`));
+      });
     });
   } finally {
     clearTimeout(deadline);
@@ -230,8 +288,8 @@ export async function runL2ResearchComparison(
     }
 
     // Allow durable-cache hits even while a cold computation is running.
-    if (activeColdComparisons >= MAX_COLD_COMPARISONS) fail(503, "Research analysis is busy");
-    activeColdComparisons++;
+    const startedAt = Date.now();
+    await acquireColdSlot(L2_SLOT_WAIT_MS);
     try {
       // 3. Compute in read-only TX
       const jobCtx = { project: { id: ctx.project.id, name: ctx.project.name }, scope: ctx.scope, dataVersion: ctx.dataVersion };
@@ -239,7 +297,12 @@ export async function runL2ResearchComparison(
         await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
         return loadL2Inputs(client, actor, ctx, input);
       });
-      const computed = await runAnalysisWorker({ ctx: jobCtx, request: input, inputs });
+      const remainingMs = L2_TOTAL_BUDGET_MS - (Date.now() - startedAt);
+      if (remainingMs <= 1_000) fail(503, "Research analysis timed out");
+      const computed = await runAnalysisWorker(
+        { ctx: jobCtx, request: input, inputs },
+        Math.min(L2_WORKER_MAX_MS, remainingMs),
+      );
 
       if (l2MemCache.size >= 32) {
         const oldest = l2MemCache.keys().next().value;
@@ -262,7 +325,7 @@ export async function runL2ResearchComparison(
 
       return computed;
     } finally {
-      activeColdComparisons--;
+      releaseColdSlot();
     }
   }
 }

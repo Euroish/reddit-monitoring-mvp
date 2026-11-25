@@ -223,6 +223,10 @@ test("Phase 2: runL2ResearchComparison enforces Jaccard overlap math (20% on §5
     if (sql.includes("AS text_docs")) {
       assert.match(sql, /sampled_content AS MATERIALIZED/);
       assert.match(sql, /JOIN content c ON c.id = dc.id/);
+      assert.match(sql, /LEFT\(c\.body_text,\s*4000\)/);
+      if (sql.includes("cbi.batch_id = ANY($7::uuid[])")) {
+        assert.match(sql, /cb\.discarded_at IS NULL/);
+      }
       l2AggQueryCount++;
       if (failNextComparison) {
         failNextComparison = false;
@@ -289,6 +293,39 @@ test("Phase 2: runL2ResearchComparison enforces Jaccard overlap math (20% on §5
     lang: "zh",
   });
   assert.equal(third.cacheStatus, "miss");
+
+  // Distinct cold comparisons queue cleanly up to the bounded limit instead of failing immediately with 503
+  clearL2ResearchCacheForTests();
+  let releaseFirst!: () => void;
+  let blockFirstL2Query = true;
+  let notifyFirstEntered!: () => void;
+  const firstEntered = new Promise<void>((resolve) => { notifyFirstEntered = resolve; });
+  const baseQuery = handleQuery;
+  const originalClientQuery = client.query;
+  client.query = (async (text: string, params?: unknown[]) => {
+    if (typeof text === "string" && text.includes("AS text_docs") && blockFirstL2Query) {
+      blockFirstL2Query = false;
+      notifyFirstEntered();
+      await new Promise<void>((done) => { releaseFirst = done; });
+    }
+    return baseQuery(text, params);
+  }) as unknown as PoolClient["query"];
+  const q1 = runL2ResearchComparison(pool, adminActor, projectId, { batchIds: [batchA1, batchA2, batchB1], lang: "zh", compareMode: "target" });
+  await firstEntered;
+  const q2 = runL2ResearchComparison(pool, adminActor, projectId, { batchIds: [batchA1, batchA2, batchB1], lang: "zh", compareMode: "batch" });
+  const q3 = runL2ResearchComparison(pool, adminActor, projectId, { batchIds: [batchA1, batchA2, batchB1], lang: "en", compareMode: "target" });
+  // Yield one tick so q2 and q3 enter the bounded wait queue before q4 overflows it
+  await new Promise((r) => setTimeout(r, 20));
+  await assert.rejects(
+    runL2ResearchComparison(pool, adminActor, projectId, { batchIds: [batchA1, batchA2, batchB1], lang: "en", compareMode: "batch" }),
+    (err: unknown) => (err as { statusCode?: number }).statusCode === 503,
+  );
+  releaseFirst();
+  const [r1, r2, r3] = await Promise.all([q1, q2, q3]);
+  assert.equal(r1.cacheStatus, "miss");
+  assert.equal(r2.cacheStatus, "miss");
+  assert.equal(r3.cacheStatus, "miss");
+  client.query = originalClientQuery;
 
   // Route authentication guard checks
   const app = await buildApp({
