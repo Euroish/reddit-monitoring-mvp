@@ -13,7 +13,6 @@ import {
   FolderKanban,
   Globe,
   Grid,
-  Heart,
   HelpCircle,
   Key,
   Layers,
@@ -744,36 +743,6 @@ export function WorkbenchShell({
                   <Flame size={17} className="nav-ic" aria-hidden="true" />
                   <span>{t('Cross-Platform Hot (V2)', '综合热榜 (V2)')}</span>
                 </button>
-                <button
-                  type="button"
-                  className="nav-item"
-                  onClick={() => navigateAndClose('/ai')}
-                >
-                  <Sparkles size={17} className="nav-ic" aria-hidden="true" />
-                  <span>{t('AI Releases', 'AI 情报')}</span>
-                </button>
-              </div>
-
-              <div className="nav-group">
-                <p className="nav-label">{t('Website', '网站入口')}</p>
-                <button
-                  type="button"
-                  className="nav-item nav-item--external"
-                  onClick={() => navigateAndClose('/')}
-                >
-                  <Globe size={17} className="nav-ic" aria-hidden="true" />
-                  <span>{t('Public Site', '公开首页')}</span>
-                  <ExternalLink size={12} className="nav-ext" aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="nav-item nav-item--external"
-                  onClick={() => navigateAndClose('/product')}
-                >
-                  <BookOpen size={17} className="nav-ic" aria-hidden="true" />
-                  <span>{t('Product Intro', '产品介绍')}</span>
-                  <ExternalLink size={12} className="nav-ext" aria-hidden="true" />
-                </button>
               </div>
             </>
           )}
@@ -836,23 +805,15 @@ export function WorkbenchShell({
                 </button>
                 <button
                   type="button"
-                  className={`nav-item ${route === '/workspace' && currentTab === 'annotations' ? 'is-active' : ''}`}
-                  aria-current={route === '/workspace' && currentTab === 'annotations' ? 'page' : undefined}
+                  className={`nav-item ${route === '/workspace' ? 'is-active' : ''}`}
+                  aria-current={route === '/workspace' ? 'page' : undefined}
                   onClick={() => navigateAndClose('/workspace?tab=annotations')}
                 >
-                  <Heart size={17} className="nav-ic" aria-hidden="true" />
-                  <span>{t('Annotations', '批注与收藏')}</span>
-                  {annotations.length > 0 && <em className="ni-count">{annotations.length}</em>}
-                </button>
-                <button
-                  type="button"
-                  className={`nav-item ${route === '/workspace' && currentTab !== 'annotations' ? 'is-active' : ''}`}
-                  aria-current={route === '/workspace' && currentTab !== 'annotations' ? 'page' : undefined}
-                  onClick={() => navigateAndClose('/workspace?tab=queries')}
-                >
                   <Bookmark size={17} className="nav-ic" aria-hidden="true" />
-                  <span>{t('Saved Queries', '保存的查询')}</span>
-                  {savedQueries.length > 0 && <em className="ni-count">{savedQueries.length}</em>}
+                  <span>{t('My Research', '我的研究')}</span>
+                  {annotations.length + savedQueries.length > 0 && (
+                    <em className="ni-count">{annotations.length + savedQueries.length}</em>
+                  )}
                 </button>
               </div>
             </>

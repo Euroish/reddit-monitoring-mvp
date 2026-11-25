@@ -219,6 +219,8 @@ export function buildTopicsTreemapOption(
   return {
     tooltip: {
       trigger: 'item',
+      // 挂在 body 上：卡片容器（Card 的 overflow-hidden）会把浮窗裁在卡片内
+      appendTo: 'body',
       formatter: (raw: unknown) => {
         const p = raw as { dataIndex?: number; data?: { topicId?: string } };
         const entry = items.find((i) => i.topicId === p.data?.topicId);

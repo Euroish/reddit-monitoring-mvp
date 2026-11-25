@@ -704,9 +704,6 @@ export function ProjectBatchesView({
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" className="ds-btn ds-btn--ghost" onClick={() => onNavigate(`/projects?view=overview&projectId=${encodeURIComponent(project.id)}`)}>
-              <span>{t('Go to Overview', '查看项目分析')}</span>
-            </button>
             {project.can_edit && (
               <button type="button" className="ds-btn" onClick={() => onNavigate(`/projects?view=collect&projectId=${encodeURIComponent(project.id)}`)}>
                 <Plus size={13} />

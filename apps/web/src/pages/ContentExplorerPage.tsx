@@ -2,7 +2,6 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
-  BarChart3,
   Bookmark,
   BookmarkPlus,
   Download,
@@ -495,17 +494,6 @@ export function ContentExplorerPage({
         </div>
 
         <div className="page-actions" style={{ position: 'relative' }}>
-          {projectId && onNavigate && (
-            <button
-              type="button"
-              className="ds-btn ds-btn--ghost"
-              onClick={() => onNavigate(`/projects?view=overview&projectId=${encodeURIComponent(projectId)}`)}
-            >
-              <BarChart3 size={14} />
-              <span>{t('Go to Content Research', '前往内容研究')}</span>
-            </button>
-          )}
-
           <button
             type="button"
             className="ds-btn ds-btn--ghost"

@@ -56,13 +56,13 @@ export function WorkspacePage({
           {t('Research Workspace', '研究工作区')}
         </button>
         <span>/</span>
-        <b>{tab === 'annotations' ? t('Annotations', '批注与收藏') : t('Saved Queries', '保存的查询')}</b>
+        <b>{t('My Research', '我的研究')}</b>
       </div>
 
       <div className="page-head">
         <div>
           <div className="page-title-row">
-            <h1 className="page-title">{t('Personal Workspace', '个人工作区')}</h1>
+            <h1 className="page-title">{t('My Research', '我的研究')}</h1>
             <span className="tag tag--lilac">/v1/workspace/*</span>
           </div>
           <p className="page-desc">
