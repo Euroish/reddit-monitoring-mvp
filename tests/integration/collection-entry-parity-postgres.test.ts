@@ -87,11 +87,16 @@ test("PG16 collection entry parity: constraints, atomic rejection, and relative-
   });
 
   await t.test("monitor entry cannot bypass provider node limits even as owner", async () => {
-    const result = await collect(owner, "nodes", { lookbackHours: 1, limitPerSource: 100,
-      includeComments: true, maxCommentsPerPost: 20 });
-    assert.equal(result.statusCode, 422, result.body);
-    assert.match(result.json().error.message, /2000 nodes/);
-    assert.equal((await db.pool.query("SELECT 1 FROM source_collection_job")).rowCount, 0);
+    await db.pool.query("UPDATE collection_source SET primary_provider='red_crawler' WHERE id=$1", [sourceId]);
+    try {
+      const result = await collect(owner, "nodes", { lookbackHours: 1, limitPerSource: 150,
+        includeComments: true, maxCommentsPerPost: 20 });
+      assert.equal(result.statusCode, 422, result.body);
+      assert.match(result.json().error.message, /red_crawler supports one bounded search or post comment run per task/);
+      assert.equal((await db.pool.query("SELECT 1 FROM source_collection_job")).rowCount, 0);
+    } finally {
+      await db.pool.query("UPDATE collection_source SET primary_provider='kaix' WHERE id=$1", [sourceId]);
+    }
   });
 
   await t.test("concurrent replay uses client intent once, including after quota and budget changes", async () => {

@@ -186,9 +186,9 @@ export class KaixContentConnector implements ContentProvider {
     if (
       !Number.isInteger(request.limit) ||
       request.limit < 1 ||
-      request.limit > 300
+      request.limit > 10000
     )
-      throw new ContentProviderError("Kaix page size must be 1–300", false);
+      throw new ContentProviderError("Kaix page size must be 1–10000", false);
     const from = Date.parse(request.from),
       to = Date.parse(request.to);
     if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to)
@@ -207,13 +207,12 @@ export class KaixContentConnector implements ContentProvider {
       ? 1 + commentLimit
       : request.limit * (comments ? commentLimit + 1 : 1);
     if (
-      maxRows > 2000 ||
       !Number.isInteger(commentLimit) ||
       commentLimit < 1 ||
-      commentLimit > 50
+      commentLimit > 500
     )
       throw new ContentProviderError(
-        "Kaix batch exceeds 2000 rows or 50 comments per post",
+        "Kaix comments per post must be 1–500",
         false,
       );
     const input: Row = {
@@ -328,18 +327,48 @@ export class KaixContentConnector implements ContentProvider {
         false,
       );
     await request.execution!.saveState({ phase: "reading", runId, datasetId });
-    const data = await this.json(
-      new URL(
-        `https://api.apify.com/v2/datasets/${datasetId}/items?format=json&limit=${maxRows + 1}`,
-      ),
-      {},
-      request.signal,
-    );
-    if (!Array.isArray(data) || data.length > maxRows)
-      throw new ContentProviderError(
-        `Invalid kaix dataset for run ${runId}`,
-        false,
+    let data: unknown[];
+    if (maxRows <= 1000) {
+      const pageData = await this.json(
+        new URL(
+          `https://api.apify.com/v2/datasets/${datasetId}/items?format=json&limit=${maxRows + 1}`,
+        ),
+        {},
+        request.signal,
       );
+      if (!Array.isArray(pageData) || pageData.length > maxRows)
+        throw new ContentProviderError(
+          `Invalid kaix dataset for run ${runId}`,
+          false,
+        );
+      data = pageData;
+    } else {
+      data = [];
+      const chunkSize = 1000;
+      for (let offset = 0; offset <= maxRows; offset += chunkSize) {
+        const remaining = maxRows - data.length + 1;
+        const limit = Math.min(chunkSize, remaining);
+        const pageData = await this.json(
+          new URL(
+            `https://api.apify.com/v2/datasets/${datasetId}/items?format=json&offset=${offset}&limit=${limit}`,
+          ),
+          {},
+          request.signal,
+        );
+        if (!Array.isArray(pageData))
+          throw new ContentProviderError(
+            `Invalid kaix dataset for run ${runId}`,
+            false,
+          );
+        data.push(...pageData);
+        if (data.length > maxRows)
+          throw new ContentProviderError(
+            `Invalid kaix dataset for run ${runId}`,
+            false,
+          );
+        if (pageData.length < limit) break;
+      }
+    }
     const fetchedAt = this.now(),
       items: CollectedContent[] = [];
     for (const value of data) {

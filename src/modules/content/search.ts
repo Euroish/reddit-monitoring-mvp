@@ -202,12 +202,17 @@ export function filterSignature(
     .digest("hex");
 }
 
-export function decodeCursor(cursor: string, signature: string): { time: string | null; id: string } {
+export function decodeCursor(
+  cursor: string,
+  signature: string,
+): { time: string | null; id: string; eng?: number; com?: number; lik?: number } {
   try {
     const data = JSON.parse(Buffer.from(cursor, "base64url").toString());
+    const validOptInt = (v: unknown) => v === undefined || (typeof v === "number" && Number.isInteger(v));
     if (
       typeof data.signature !== "string" || !/^[a-f0-9-]{36}$/.test(data.id) ||
-      (data.time !== null && !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/.test(data.time))
+      (data.time !== null && !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/.test(data.time)) ||
+      !validOptInt(data.eng) || !validOptInt(data.com) || !validOptInt(data.lik)
     ) {
       throw Error();
     }
@@ -240,13 +245,16 @@ export function contentSelect(discovery: string, extraColumns = "", needsSearchD
     FROM ${tables}`;
 }
 
-export function pageObservations(discovery: string) {
+export function pageObservations(
+  discovery: string,
+  orderBy = "c.created_at_source DESC NULLS LAST,c.id DESC",
+) {
   const latest = latestObservations(discovery, "page c JOIN content_observation o ON o.content_id=c.id WHERE TRUE");
   return `SELECT c.*,COALESCE(o.observations,'[]'::jsonb) AS observations
     FROM page c LEFT JOIN (
       SELECT content_id,jsonb_agg(payload ORDER BY payload->>'sourceId',payload->>'provider') AS observations
       FROM (${latest}) snapshots GROUP BY content_id
-    ) o ON o.content_id=c.id ORDER BY c.created_at_source DESC NULLS LAST,c.id DESC`;
+    ) o ON o.content_id=c.id ORDER BY ${orderBy}`;
 }
 
 export function matchingNodes(compiled: ReturnType<typeof compileContentFilter>, threadAware: boolean) {

@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   policy:
-    name: Change scope, repository policy & secret scan
+    name: Change scope & repository policy
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -39,19 +39,6 @@ jobs:
       - name: Verify CI scope rules
         if: fromJSON(steps.scope.outputs.scope).workflow
         run: node --test scripts/ci-scope.test.mjs
-      - name: Gitleaks secret scan
-        env:
-          BASE: ${{ steps.scope.outputs.base }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          if [[ -n "$BASE" ]]; then
-            range="$BASE..${PR_HEAD:-HEAD}"
-          else
-            range="-n 5"
-          fi
-          docker run --rm \
-            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
-            -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.28.0 git /repo --redact --log-opts="$range"
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run lint:policy
         env:

@@ -164,11 +164,12 @@ test("PG16 provider credentials, Apify aggregation, dynamic Free/Pro policies, q
     payload: { dailyRequests: 5 },
   })).statusCode, 403);
 
+  const freePlanRev = (await db.pool.query<{ revision: number }>("SELECT revision FROM plan_collection_policy WHERE plan_tier='free'")).rows[0]!.revision;
   assert.equal((await app.inject({
     method: "PUT",
     url: "/v1/quotas/plans/free",
     headers: { cookie: ownerCookie, origin: ORIGIN },
-    payload: { manualCollectEnabled: true, allowedProviders: ["newsnow"], allowedSourceIds: null, dailyRequests: 1, dailyResources: 10, maxBatchLimit: 10, maxCommentsPerPost: 0, revision: 1 },
+    payload: { manualCollectEnabled: true, allowedProviders: ["newsnow"], allowedSourceIds: null, dailyRequests: 1, dailyResources: 10, maxBatchLimit: 10, maxCommentsPerPost: 0, revision: freePlanRev },
   })).statusCode, 200);
 
   // Free user can submit 1 authorized collect job; idempotent replay returns same job; 2nd job hits 429

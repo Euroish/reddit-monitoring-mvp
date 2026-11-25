@@ -1,24 +1,6 @@
-import { ApiError, type ResearchPlanPreviewResponse } from '../contracts/api';
+import { ApiError } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
-
-const ON_DEMAND_PROVIDER: Record<string, string> = {
-  reddit: 'kaix',
-  x: 'twitterapis',
-  bluesky: 'bluesky_appview',
-};
-
-export function getRangeLimits(result: ResearchPlanPreviewResponse, fallbackProvider?: string) {
-  const target = result.matchedSource?.target.type ?? result.resolvedTarget?.type;
-  const provider =
-    fallbackProvider ??
-    result.matchedSource?.provider ??
-    (result.resolvedTarget?.platform ? ON_DEMAND_PROVIDER[result.resolvedTarget.platform] : undefined);
-  return {
-    maxDays: result.fieldPolicy.maxLookbackDays,
-    maxItems: Math.min(result.fieldPolicy.maxBatchLimit, provider === 'twitterapis' ? 20 : provider === 'kaix' ? 300 : provider === 'red_crawler' && target === 'post' ? 50 : 100),
-    maxComments: provider === 'kaix' && target !== 'post' ? result.fieldPolicy.maxCommentsPerPost : 0,
-  };
-}
+export { getRangeLimits, parseManualTargets, type ManualTarget } from './collectionLimits';
 
 export function useIntakeError() {
   const { t } = useI18n();

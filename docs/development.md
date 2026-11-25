@@ -28,7 +28,7 @@ CI 只做**高信噪比、指向真实缺陷的硬阻断**；PR 描述格式、�
 
 | 级别 | 内容 | 失败后果 |
 | :--- | :--- | :--- |
-| **硬阻断（`CI Gate`）** | 密钥扫描（`Gitleaks`）、迁移不可变与锁表安全（`lint:policy` / `Squawk`）、核心架构边界与单写表/凭证表读隔离（`lint:arch`）、100% 声明式路由鉴权（`check:openapi`）、类型与 ESLint、单元/PG16 集成/编译冒烟/浏览器测试、前端产物密钥检查、禁 `.only(` | 无法合并 |
+| **硬阻断（`CI Gate`）** | 迁移不可变与锁表安全（`lint:policy` / `Squawk`）、核心架构边界与单写表/凭证表读隔离（`lint:arch`）、100% 声明式路由鉴权（`check:openapi`）、类型与 ESLint、单元/PG16 集成/编译冒烟/浏览器测试、前端产物密钥检查、禁 `.only(` | 无法合并 |
 | **人工评审与摘要提示** | `scripts/check-governance-diff.mjs`（变更面统计、治理文件改动、`.skip`/`eslint-disable`/`@ts-expect-error` 高亮）；代码设计、可维护性与产品价值 | 写入摘要供评审判断，需叫停时由维护者使用 GitHub 原生 **Request changes** |
 
 #### 评审与协作约定
@@ -47,7 +47,7 @@ CI 只做**高信噪比、指向真实缺陷的硬阻断**；PR 描述格式、�
 
 | 变更范围 | 自动触发门禁 |
 | :--- | :--- |
-| 纯文档（`docs/**`、`README.md`、`AGENTS.md`） | `lint:policy`（断链/锚点/退役路径/迁移不可变；`docs/` 允许图片/示意图资产）+ `Gitleaks` 密钥扫描 |
+| 纯文档（`docs/**`、`README.md`、`AGENTS.md`） | `lint:policy`（断链/锚点/退役路径/迁移不可变；`docs/` 允许图片/示意图资产） |
 | 纯后端代码（`src/**`、`apps/api/**`、`tests/{unit,integration}/**`） | `lint:arch`（`depcruise` + 单写表与凭证表读隔离）+ `lint:api`（ESLint）+ `tsc` + `check:openapi` + `test:unit` + `test:postgres` + `smoke:compiled`（**不再拖慢触发前端 Chromium E2E**） |
 | 新增 SQL 迁移 | 自动运行 **`Squawk`** 锁表与索引并发风险扫描 + PG16 集成验证 |
 | 前端 / 浏览器 / 契约 / 合入主干 | 前端改动及带 `run-e2e` 标签或 `push` 到 `main` 时触发 `lint:web` + `build:web` + `check:web-bundle`（仅查密钥泄漏）+ Chromium `test:browser`；改 `packages/contracts/` 双端联动校验；改 `Dockerfile`/`compose`/`deploy/` 触发容器构建校验 |

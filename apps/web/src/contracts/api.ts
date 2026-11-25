@@ -529,6 +529,7 @@ export interface ListQuery extends ContentFilter {
   threadAware?: boolean;
   limit?: number;
   cursor?: string;
+  sort?: 'recent' | 'engagement';
 }
 
 export interface Project {

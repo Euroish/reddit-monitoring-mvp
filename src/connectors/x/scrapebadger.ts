@@ -60,7 +60,7 @@ export function scrapeBadger(
       contentKinds: ["post"], targetTypes: ["search", "account"],
       keywordSearch: "global", observationModel: "snapshot", automaticRequestReplay: false,
       refreshByIds: true, requestResourceUpperBound: 100,
-      limitations: ["One recent-search page per task, up to 20 IDs per refresh"],
+      limitations: ["Cursor-paginated search (up to 100 tweets per page) and up to 20 IDs per refresh"],
       metrics: Object.keys(metricFields).map((key) => ({
         key, label: key.slice(2), unit: "count", cumulative: true, signed: false, contentKinds: ["post"], direction: "higher",
       })),
@@ -69,20 +69,27 @@ export function scrapeBadger(
     async collectPage(request) {
       const target = normalizeXTarget(request.source.target, request.source.contentKind);
       const from = Date.parse(request.from), to = Date.parse(request.to);
+      const limit = Math.min(request.limit, 100);
+      const cursor = request.checkpoint && typeof request.checkpoint === "object" && !Array.isArray(request.checkpoint)
+        && typeof (request.checkpoint as Record<string, unknown>).cursor === "string"
+        ? (request.checkpoint as Record<string, string>).cursor
+        : null;
       const params = new URLSearchParams({
         query: buildXSearchQuery(target, from, to),
         query_type: target.sort === "top" || target.sort === "hot" ? "Top" : "Latest",
-        count: String(request.limit),
+        count: String(limit),
+        ...(cursor ? { cursor } : {}),
       });
       const page = await read("tweets/advanced_search", params, request.source.id, request.signal);
       const items = page.items.filter((item) => {
         const time = Date.parse(item.publishedAt!);
         return time >= from && time < to;
       });
-      const truncated = items.length > request.limit || page.returned > 100;
+      const truncated = items.length > limit || page.returned > 100;
+      const hasNext = page.returned > 0 && Boolean(page.cursor) && page.cursor !== cursor;
       return {
-        items: items.slice(0, request.limit), nextCheckpoint: null, coverage: "partial",
-        exhausted: !truncated && !page.partial && !page.cursor,
+        items: items.slice(0, limit), nextCheckpoint: hasNext ? { cursor: page.cursor! } : null, coverage: "partial",
+        exhausted: !truncated && !page.partial && !hasNext,
         warning: page.partial ? "ScrapeBadger returned a partial page" : null,
         creditsUsed: page.creditsUsed,
       };
