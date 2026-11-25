@@ -15,6 +15,12 @@
     Permissions-Policy "camera=(), microphone=(), geolocation=()"
     Content-Security-Policy "frame-ancestors 'none'"
   }
+  @wwwRedirect {
+    header_regexp wwwHost Host ^www\.([^:]+)(?::\d+)?$
+  }
+  handle @wwwRedirect {
+    redir https://{re.wwwHost.1}{uri} permanent
+  }
   handle /api {
     header Cache-Control no-store
     respond 404
