@@ -107,12 +107,12 @@ async function admitJobDispatch(
 ) {
   const refresh = Array.isArray(job.request_json.externalIds);
   const hydrate = job.operation === "hydrate";
-  const resources = job.provider === "kaix" && !refresh
-    ? 1 + kaixPageScope(hydrate ? "post" : source.target.type, job.page_size, {
-        ...job.request_json, singleRun: job.purpose !== "collect" || job.max_pages === 1,
-      }, job.checkpoint).maxRows
+  const stagedKaix = job.provider === "kaix" && !refresh && !hydrate && job.purpose === "collect" && job.max_pages > 1;
+  const resources = stagedKaix
+    ? 1 + kaixPageScope(source.target.type, job.page_size, job.request_json, job.checkpoint).maxRows
     : providerResourceReservation({
-        provider: job.provider, targetType: source.target.type, pageSize: job.page_size, refresh,
+        provider: job.provider, targetType: source.target.type, pageSize: job.page_size,
+        hydration: hydrate, refresh,
         includeComments: job.request_json.includeComments, maxCommentsPerPost: job.request_json.maxCommentsPerPost,
         requestResourceUpperBound: provider.capability.requestResourceUpperBound,
       });
