@@ -51,6 +51,8 @@ export {
 export { contentRoutes, contentRoutes as registerContentModule } from "./routes";
 export {
   compileContentFilter,
+  contentSourceTables,
+  contentTables,
   matchedAnchors,
   matchingNodes,
   type ContentScope,

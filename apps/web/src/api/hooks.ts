@@ -5,8 +5,12 @@ import {
   type CredentialProviderName,
   type DocInput,
   type DocPatch,
+  type FeedEventType,
+  type FeedMode,
+  type FeedPreferencesDto,
   type ListQuery,
   type MachineScope,
+  type Platform,
   type ProjectInput,
   type PullProviderName,
   type SourceInput,
@@ -37,6 +41,14 @@ export function useStoriesQuery(query: StoryQuery, enabled = true) {
   return useQuery({
     queryKey: ['stories', query],
     queryFn: () => apiClient.getStories(query),
+    enabled,
+  });
+}
+
+export function useStoryInsightsQuery(query: import('../contracts/api').StoryInsightsQuery, enabled = true) {
+  return useQuery({
+    queryKey: ['storyInsights', query],
+    queryFn: () => apiClient.getStoryInsights(query),
     enabled,
   });
 }
@@ -278,6 +290,9 @@ export function useUpdateProjectMutation() {
       qc.invalidateQueries({ queryKey: ['projects'] });
       qc.invalidateQueries({ queryKey: ['overview'] });
       qc.invalidateQueries({ queryKey: ['content'] });
+      qc.invalidateQueries({ queryKey: ['researchScope'] });
+      qc.invalidateQueries({ queryKey: ['researchL1'] });
+      qc.invalidateQueries({ queryKey: ['researchL2'] });
     },
   });
 }
@@ -291,6 +306,9 @@ export function useDeleteProjectMutation() {
       qc.invalidateQueries({ queryKey: ['projects'] });
       qc.invalidateQueries({ queryKey: ['overview'] });
       qc.invalidateQueries({ queryKey: ['content'] });
+      qc.invalidateQueries({ queryKey: ['researchScope'] });
+      qc.invalidateQueries({ queryKey: ['researchL1'] });
+      qc.invalidateQueries({ queryKey: ['researchL2'] });
     },
   });
 }
@@ -620,8 +638,10 @@ export function useAttachProjectBatchMutation() {
     mutationFn: ({ projectId, batchId }: { projectId: string; batchId: string }) =>
       apiClient.attachProjectBatch(projectId, batchId),
     onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['batches'] });
       qc.invalidateQueries({ queryKey: ['projectBatches', vars.projectId] });
       qc.invalidateQueries({ queryKey: ['projects'] });
+      qc.invalidateQueries({ queryKey: ['researchScope'] });
       qc.invalidateQueries({ queryKey: ['overview'] });
       qc.invalidateQueries({ queryKey: ['content'] });
       qc.invalidateQueries({ queryKey: ['contentFacets'] });
@@ -703,9 +723,11 @@ export function useMoveProjectBatchMutation() {
       targetProjectId: string;
     }) => apiClient.moveProjectBatch(sourceProjectId, batchId, targetProjectId),
     onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['batches'] });
       qc.invalidateQueries({ queryKey: ['projectBatches', vars.sourceProjectId] });
       qc.invalidateQueries({ queryKey: ['projectBatches', vars.targetProjectId] });
       qc.invalidateQueries({ queryKey: ['projects'] });
+      qc.invalidateQueries({ queryKey: ['researchScope'] });
       qc.invalidateQueries({ queryKey: ['overview'] });
       qc.invalidateQueries({ queryKey: ['content'] });
     },
@@ -833,8 +855,10 @@ export function useUpdateProjectBatchStatusMutation() {
       status: 'enabled' | 'disabled' | 'removed';
     }) => apiClient.updateProjectBatchStatus(projectId, batchId, status),
     onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['batches'] });
       qc.invalidateQueries({ queryKey: ['projectBatches', vars.projectId] });
       qc.invalidateQueries({ queryKey: ['projects'] });
+      qc.invalidateQueries({ queryKey: ['researchScope'] });
       qc.invalidateQueries({ queryKey: ['overview'] });
       qc.invalidateQueries({ queryKey: ['content'] });
       qc.invalidateQueries({ queryKey: ['contentFacets'] });
@@ -968,6 +992,282 @@ export function useDeleteDocMutation() {
       invalidate();
       void qc.invalidateQueries({ queryKey: ['doc'] });
     },
+  });
+}
+
+export function useFeedStreamQuery(
+  params: {
+    mode?: FeedMode;
+    topic?: string;
+    platform?: Platform;
+    language?: string;
+    includeNews?: boolean;
+    limit?: number;
+    excludeIds?: string[];
+  },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['feedStream', params],
+    queryFn: () => apiClient.getFeedStream(params),
+    enabled,
+  });
+}
+
+export function useFeedHotQuery(
+  params: { window?: '6h' | '24h' | '48h' | '7d'; platform?: Platform; topic?: string; limit?: number; offset?: number },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['feedHot', params],
+    queryFn: () => apiClient.getFeedHot(params),
+    enabled,
+  });
+}
+
+export function useFeedPreferencesQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['feedPreferences'],
+    queryFn: () => apiClient.getFeedPreferences(),
+    enabled,
+  });
+}
+
+export function useUpdateFeedPreferencesMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: Partial<Pick<FeedPreferencesDto,
+      'exploreRatio' | 'followedTopics' | 'mutedSources' | 'mutedKeywords' | 'mutedAuthors' | 'includeNewsLane'
+    >>) => apiClient.updateFeedPreferences(patch),
+    onSuccess: (data) => {
+      qc.setQueryData(['feedPreferences'], data);
+      void qc.invalidateQueries({ queryKey: ['feedStream'] });
+    },
+  });
+}
+
+export function useResetFeedPreferencesMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.resetFeedPreferences(),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['feedPreferences'] });
+      void qc.invalidateQueries({ queryKey: ['feedStream'] });
+    },
+  });
+}
+
+export function useRecordFeedEventsMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (events: Array<{ contentId: string; eventType: FeedEventType; dwellMs?: number; meta?: Record<string, string> }>) =>
+      apiClient.recordFeedEvents(events),
+    onSuccess: (_data, events) => {
+      if (events.some((e) => e.eventType !== 'impression' && e.eventType !== 'dwell')) {
+        void qc.invalidateQueries({ queryKey: ['feedPreferences'] });
+        if (events.some((e) => e.eventType.startsWith('mute_') || e.eventType === 'dismiss')) {
+          void qc.invalidateQueries({ queryKey: ['feedStream'] });
+        }
+      }
+    },
+  });
+}
+
+export function useFeedAdminSummaryQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['feedAdminSummary'],
+    queryFn: () => apiClient.getFeedAdminSummary(),
+    enabled,
+  });
+}
+
+export function usePruneFeedAdminMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.pruneFeedAdmin(),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['feedAdminSummary'] });
+    },
+  });
+}
+
+export function useMonitorOverviewQuery(monitorId: string | undefined, days = 14, bucket?: '6h' | '1d') {
+  return useQuery({
+    queryKey: ['intelOverview', monitorId, days, bucket],
+    queryFn: () => apiClient.getMonitorOverview(monitorId!, { days, bucket }),
+    enabled: Boolean(monitorId),
+  });
+}
+
+export function useMonitorPostsQuery(
+  monitorId: string | undefined,
+  params: Parameters<typeof apiClient.getMonitorPosts>[1],
+) {
+  return useQuery({
+    queryKey: ['intelPosts', monitorId, params],
+    queryFn: () => apiClient.getMonitorPosts(monitorId!, params),
+    enabled: Boolean(monitorId),
+  });
+}
+
+export function useTrackedAuthorsQuery(params: Parameters<typeof apiClient.getTrackedAuthors>[0], enabled = true) {
+  return useQuery({
+    queryKey: ['intelAuthors', params],
+    queryFn: () => apiClient.getTrackedAuthors(params),
+    enabled,
+  });
+}
+
+export function useAuthorProfileQuery(
+  platform: 'reddit' | 'x' | undefined,
+  handle: string | undefined,
+  params?: { days?: number; monitorId?: string },
+) {
+  return useQuery({
+    queryKey: ['intelAuthorProfile', platform, handle, params],
+    queryFn: () => apiClient.getAuthorProfile(platform!, handle!, params),
+    enabled: Boolean(platform && handle),
+  });
+}
+
+export function useMonitoredCommunitiesQuery(params: Parameters<typeof apiClient.getMonitoredCommunities>[0], enabled = true) {
+  return useQuery({
+    queryKey: ['intelCommunities', params],
+    queryFn: () => apiClient.getMonitoredCommunities(params),
+    enabled,
+  });
+}
+
+export function useCommunityDeepDiveQuery(subreddit: string | undefined, params?: { days?: number; monitorId?: string }) {
+  return useQuery({
+    queryKey: ['intelCommunityDeepDive', subreddit, params],
+    queryFn: () => apiClient.getCommunityDeepDive(subreddit!, params),
+    enabled: Boolean(subreddit),
+  });
+}
+
+export function useIntelligenceOpsSummaryQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['intelOpsSummary'],
+    queryFn: () => apiClient.getIntelligenceOpsSummary(),
+    enabled,
+  });
+}
+
+export function useReconcileAdminMonitorMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, action, revision }: { id: string; action: 'pause' | 'resume' | 'refresh_rollups'; revision: number }) =>
+      apiClient.reconcileAdminMonitor(id, { action, revision }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['intelOpsSummary'] });
+      void qc.invalidateQueries({ queryKey: ['monitors'] });
+      void qc.invalidateQueries({ queryKey: ['sources'] });
+      void qc.invalidateQueries({ queryKey: ['intelOverview'] });
+    },
+  });
+}
+
+export function useResearchScopeQuery(projectId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['researchScope', projectId],
+    queryFn: () => apiClient.getProjectResearchScope(projectId!),
+    enabled: Boolean(projectId) && enabled,
+  });
+}
+
+export function useL1ResearchQuery(
+  projectId: string | undefined,
+  scope: import('../contracts/research').AnalysisScopeRequest,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['researchL1', projectId, scope],
+    queryFn: () => apiClient.runL1ResearchOverview(projectId!, scope),
+    enabled: Boolean(projectId) && enabled,
+  });
+}
+
+export function useL2ResearchQuery(
+  projectId: string | undefined,
+  request: import('../contracts/research').L2ComparisonRequest,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['researchL2', projectId, request],
+    queryFn: () => apiClient.runL2ResearchComparison(projectId!, request),
+    enabled: Boolean(projectId) && enabled,
+  });
+}
+
+export function useResearchTasksQuery(projectId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['researchTasks', projectId],
+    queryFn: () => apiClient.listResearchTasks(projectId!),
+    enabled: Boolean(projectId) && enabled,
+    refetchInterval: (query) => {
+      const tasks = query.state.data?.tasks ?? [];
+      return tasks.some((t) => t.status === 'queued' || t.status === 'running') ? 1800 : false;
+    },
+  });
+}
+
+export function useCreateResearchTaskMutation(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: import('../contracts/research').CreateResearchTaskRequest) =>
+      apiClient.createResearchTask(projectId!, payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['researchTasks', projectId] });
+    },
+  });
+}
+
+export function useCancelResearchTaskMutation(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (taskId: string) => apiClient.cancelResearchTask(projectId!, taskId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['researchTasks', projectId] });
+    },
+  });
+}
+
+export function useRetryResearchTaskMutation(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (taskId: string) => apiClient.retryResearchTask(projectId!, taskId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['researchTasks', projectId] });
+    },
+  });
+}
+
+export function useDeleteResearchTaskMutation(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (taskId: string) => apiClient.deleteResearchTask(projectId!, taskId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['researchTasks', projectId] });
+    },
+  });
+}
+
+export function useResearchTaskEvidenceQuery(
+  projectId: string | undefined,
+  taskId: string | undefined,
+  params: {
+    sentiment?: 'positive' | 'neutral' | 'negative' | 'unclassified';
+    topicIndex?: number;
+    limit?: number;
+    offset?: number;
+  },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['researchTaskEvidence', projectId, taskId, params],
+    queryFn: () => apiClient.getResearchTaskEvidence(projectId!, taskId!, params),
+    enabled: Boolean(projectId) && Boolean(taskId) && enabled,
   });
 }
 

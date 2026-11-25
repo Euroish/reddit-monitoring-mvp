@@ -17,6 +17,15 @@ import {
 import { compileContentFilter, listScopedContentIds, summarizeScopedContent } from "../content/index";
 
 type ProjectWrite = Static<typeof ProjectInput>;
+export interface ProjectDataSummary {
+  platforms: string[];
+  source_labels: string[];
+  item_count: number;
+  shared_batch_count: number;
+  private_batch_count: number;
+  latest_batch_at: string | null;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -35,6 +44,7 @@ export interface Project {
   is_shared: boolean;
   enabled_batch_count: number;
   total_batch_count: number;
+  data_summary?: ProjectDataSummary;
 }
 
 export async function listProjects(pool: Pool | PoolClient, actor: Actor, id?: string) {
@@ -58,8 +68,8 @@ export async function listProjects(pool: Pool | PoolClient, actor: Actor, id?: s
     LEFT JOIN LATERAL (
       SELECT COUNT(*) FILTER (WHERE status = 'enabled') AS enabled_batch_count,
              COUNT(*) FILTER (WHERE status <> 'removed') AS total_batch_count,
-             ARRAY_AGG(batch_id) FILTER (WHERE $6::boolean AND status <> 'removed') AS batch_ids,
-             ARRAY_AGG(batch_id) FILTER (WHERE $6::boolean AND status = 'enabled') AS enabled_batch_ids
+             ARRAY_AGG(batch_id) FILTER (WHERE status <> 'removed') AS batch_ids,
+             ARRAY_AGG(batch_id) FILTER (WHERE status = 'enabled') AS enabled_batch_ids
       FROM monitor_project_batch
       WHERE project_id = p.id
     ) b ON true
@@ -73,16 +83,52 @@ export async function listProjects(pool: Pool | PoolClient, actor: Actor, id?: s
       )
     ORDER BY p.updated_at DESC`, [
     actor.allowedSourceIds, id ?? null, isViewer, actor.userId ?? null,
-    actor.clientKind === "browser", restrictBatches,
+    actor.clientKind === "browser",
   ]);
-  const visibleIds = new Set((await loadAuthorizedBatches(pool, actor, [...new Set(rows.flatMap(row => row.batch_ids))]))
-    .map(batch => batch.batchId));
+  const authorizedBatches = await loadAuthorizedBatches(pool, actor, [...new Set(rows.flatMap(row => row.batch_ids))]);
+  const authorizedById = new Map(authorizedBatches.map(batch => [batch.batchId, batch]));
+  const boundSourceIds = [...new Set(rows.filter(r => r.dataset_mode === "source_filter").flatMap(r => r.source_ids))];
+  const sourceMetaById = new Map<string, { label: string; platform: string }>();
+  if (boundSourceIds.length > 0) {
+    const { rows: sourceRows } = await pool.query<{ id: string; label: string; platform: string }>(
+      `SELECT cs.id, cs.label, p.code AS platform
+       FROM collection_source cs
+       JOIN source p ON p.id = cs.platform_id
+       WHERE cs.id = ANY($1::uuid[])`,
+      [boundSourceIds],
+    );
+    for (const row of sourceRows) sourceMetaById.set(row.id, { label: row.label, platform: row.platform });
+  }
   return rows.map(({ batch_ids, enabled_batch_ids, ...project }) => {
-    if (!restrictBatches) return project;
+    const activeBatches = enabled_batch_ids
+      .map(bid => authorizedById.get(bid))
+      .filter((b): b is NonNullable<typeof b> => Boolean(b));
+    const data_summary: ProjectDataSummary = project.dataset_mode === "batch"
+      ? {
+          platforms: [...new Set(activeBatches.map(b => b.platform))],
+          source_labels: [...new Set(activeBatches.map(b => b.sourceLabel))].slice(0, 8),
+          item_count: activeBatches.reduce((sum, b) => sum + b.itemCount, 0),
+          shared_batch_count: activeBatches.filter(b => b.visibility === "shared").length,
+          private_batch_count: activeBatches.filter(b => b.visibility === "private").length,
+          latest_batch_at: activeBatches.reduce<string | null>(
+            (latest, b) => (!latest || b.createdAt > latest ? b.createdAt : latest),
+            null,
+          ),
+        }
+      : {
+          platforms: [...new Set(project.source_ids.map(sid => sourceMetaById.get(sid)?.platform).filter((v): v is string => Boolean(v)))],
+          source_labels: [...new Set(project.source_ids.map(sid => sourceMetaById.get(sid)?.label).filter((v): v is string => Boolean(v)))].slice(0, 8),
+          item_count: 0,
+          shared_batch_count: 0,
+          private_batch_count: 0,
+          latest_batch_at: null,
+        };
+    if (!restrictBatches) return { ...project, data_summary };
     return {
       ...project,
-      enabled_batch_count: enabled_batch_ids.filter(id => visibleIds.has(id)).length,
-      total_batch_count: batch_ids.filter(id => visibleIds.has(id)).length,
+      data_summary,
+      enabled_batch_count: enabled_batch_ids.filter(bid => authorizedById.has(bid)).length,
+      total_batch_count: batch_ids.filter(bid => authorizedById.has(bid)).length,
     };
   });
 }

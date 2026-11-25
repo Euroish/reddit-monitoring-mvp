@@ -32,6 +32,7 @@ import { InlineMfaStepUp } from '../components/InlineMfaStepUp';
 import { ProviderBudgetEditor } from '../components/ProviderBudgetEditor';
 import { CollectionJobsView } from '../components/CollectionJobsView';
 import { LegacySourcesPanel } from '../components/LegacySourcesPanel';
+import { OpsControlView } from '../components/OpsControlView';
 import { ProviderCredentialsTab } from '../components/ProviderCredentialsTab';
 import { QuotasManagementView } from '../components/QuotasManagementView';
 import { R4ArchivePanel } from '../components/R4ArchivePanel';
@@ -99,7 +100,7 @@ export function SourcesPage({
   const domainFilter: 'all' | 'research' | 'feed' =
     routeDomain === 'research' || routeDomain === 'feed' ? routeDomain : 'all';
   const tab =
-    urlTab === 'budgets' || urlTab === 'jobs' || (urlTab === 'providers' && canWrite)
+    urlTab === 'budgets' || urlTab === 'jobs' || ((urlTab === 'providers' || urlTab === 'ops') && canWrite)
       ? urlTab
       : 'sources';
   const credentialsQuery = useProviderCredentialsQuery(canWrite && (tab === 'sources' || tab === 'providers'));
@@ -111,7 +112,9 @@ export function SourcesPage({
         ? (canWrite ? t('Quotas & Plan Policies', '渠道配额与套餐策略') : t('My Collection Quota', '我的采集配额'))
         : tab === 'providers'
           ? t('Provider API Keys', '第三方采集密钥')
-          : domainFilter === 'feed'
+          : tab === 'ops'
+            ? t('Automation & Rollup Ops', '全站监测、水合与信息流运维总控')
+            : domainFilter === 'feed'
             ? t('Feed Sources', '资讯信息流源')
             : domainFilter === 'research'
               ? t('Research Sources', '研究采集源')
@@ -123,7 +126,9 @@ export function SourcesPage({
         ? t('Review request and resource limits, usage and collection permissions.', '分别查看渠道请求与资源额度、用量及 Free/Pro 套餐策略。')
         : tab === 'providers'
           ? t('Manage encrypted upstream provider credentials (Apify, TwitterAPIs, ScrapeBadger) for pull collection.', '集中管理第三方采集服务商凭证（Apify、TwitterAPIs、ScrapeBadger 等），配置后即可用于研究或资讯拉取。')
-          : domainFilter === 'research'
+          : tab === 'ops'
+            ? t('Supervise all monitor schedules, P80 hydration queues, Rollup cache health, and Feed retention cleanup.', '全局督导智能监测器、P80 自动水合状态、Rollup 聚合缓存与 V2 信息流阅读记录清理。')
+            : domainFilter === 'research'
             ? t('Register research targets, run a trial and manage the schedules that supply research projects.', '登记研究目标、试运行，管理为研究项目提供数据的定时采集。')
             : domainFilter === 'feed'
               ? t('Manage RSS, web feeds and NewsNow channels. Check stored stories and automatic updates.', '管理 RSS、网页信息流和 NewsNow 频道，查看最近入库内容和自动更新状态。')
@@ -508,6 +513,8 @@ export function SourcesPage({
           </div>}
           <ProviderCredentialsTab canManage={canWrite} />
         </div>
+      ) : tab === 'ops' ? (
+        <OpsControlView onNavigate={onNavigate} />
       ) : (
         <div className="collection-stack">
           {canWrite && !domainView && <section className="source-channel-summary" aria-label={t('Channel readiness', '渠道健康')}>

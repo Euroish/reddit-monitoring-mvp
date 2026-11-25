@@ -291,3 +291,176 @@ test("P0 foundations: domain/lane consistency, MFA on budget writes, configurabl
   assert.ok(gradedList.json().sources.some((s: { id: string; feedLane: string; qualityGrade: string }) =>
     s.id === feedId && s.feedLane === "release" && s.qualityGrade === "S"));
 });
+
+test("Stage 2 ops control: global monitor summary, pause/resume/refresh_rollups MFA, feed summary & prune", async (t) => {
+  const db = await testDatabase();
+  t.after(db.close);
+
+  const mfaKey = randomUUID().replace(/-/g, "").slice(0, 32);
+  const keyBuf = Buffer.from(mfaKey, "utf8");
+  const password = "fixture-password-123";
+  await bootstrapOwner(db.pool, password, "owner-s2@p0.test");
+  const ownerId = (await db.pool.query<{ id: string }>("SELECT id FROM app_user WHERE email='owner-s2@p0.test'")).rows[0].id;
+  const seed = Buffer.alloc(20, 9);
+  await provisionMfa(db.pool, ownerId, seed, keyBuf, Math.floor(Date.now() / 30000) - 1, false);
+
+  await db.pool.query(`
+    INSERT INTO app_user(id, email, role, status, plan_tier)
+    VALUES ('22222222-2222-4222-8222-222222222222', 'viewer-s2@p0.test', 'viewer', 'active', 'pro')
+  `);
+  await db.pool.query(`
+    INSERT INTO app_user_password(user_id, password_hash, password_algo)
+    SELECT '22222222-2222-4222-8222-222222222222', p.password_hash, p.password_algo
+    FROM app_user_password p WHERE p.user_id = $1
+  `, [ownerId]);
+
+  const kaix = new KaixContentConnector({ networkEnabled: true, apiToken: "fixture-token" });
+  const redCrawler = {
+    capability: { ...kaix.capability, provider: "red_crawler" },
+    normalizeTarget: kaix.normalizeTarget.bind(kaix),
+    collectPage: kaix.collectPage.bind(kaix),
+  };
+  const app = await buildApp({
+    pool: db.pool,
+    origin: ORIGIN,
+    sessionSecret: "stage2-ops-secret".repeat(3),
+    providers: [kaix, redCrawler],
+    mfa: { key: keyBuf, required: true },
+    secureCookies: false,
+  });
+  t.after(() => app.close());
+
+  const loginRes = await app.inject({
+    method: "POST",
+    url: "/v1/auth/login",
+    headers: { origin: ORIGIN },
+    payload: { email: "owner-s2@p0.test", password },
+  });
+  assert.equal(loginRes.statusCode, 202);
+  const { challenge } = loginRes.json<{ challenge: string }>();
+  const mfaRes = await app.inject({
+    method: "POST",
+    url: "/v1/auth/mfa/complete",
+    headers: { origin: ORIGIN },
+    payload: { challenge, code: fixtureCode(seed, Math.floor(Date.now() / 30000)) },
+  });
+  assert.equal(mfaRes.statusCode, 200);
+  const ownerCookie = mfaRes.headers["set-cookie"]!.toString().split(";")[0];
+
+  const viewerLogin = await app.inject({
+    method: "POST",
+    url: "/v1/auth/login",
+    headers: { origin: ORIGIN },
+    payload: { email: "viewer-s2@p0.test", password },
+  });
+  assert.equal(viewerLogin.statusCode, 200);
+  const viewerCookie = viewerLogin.headers["set-cookie"]!.toString().split(";")[0];
+
+  // Viewer denied on admin ops endpoints
+  for (const path of ["/v1/intelligence/admin/ops-summary", "/v1/feed/admin/summary"]) {
+    const denied = await app.inject({ method: "GET", url: path, headers: { cookie: viewerCookie } });
+    assert.equal(denied.statusCode, 403);
+  }
+
+  // Create a monitor and check ops summary
+  const monRes = await app.inject({
+    method: "POST",
+    url: "/v1/intelligence/monitors",
+    headers: { cookie: ownerCookie, origin: ORIGIN },
+    payload: {
+      kind: "keyword",
+      name: "Stage2 Ops Test Monitor",
+      config: { platforms: ["reddit"], keywords: ["siftline"] },
+      scheduleIntervalHours: 12,
+      dailyItemBudget: 150,
+      enabled: true,
+    },
+  });
+  assert.equal(monRes.statusCode, 200, monRes.body);
+  const monitor = monRes.json().monitor as { id: string; revision: number };
+
+  const opsSummary = await app.inject({
+    method: "GET",
+    url: "/v1/intelligence/admin/ops-summary",
+    headers: { cookie: ownerCookie },
+  });
+  assert.equal(opsSummary.statusCode, 200, opsSummary.body);
+  assert.ok(opsSummary.json().monitors.some((m: { id: string; enabled: boolean }) => m.id === monitor.id && m.enabled));
+
+  // Admin reconcile pause / refresh_rollups / resume + stale revision 409 + MFA enforcement
+  await db.pool.query("UPDATE app_session SET mfa_step_up_at = NOW() - interval '6 minutes' WHERE user_id = $1", [ownerId]);
+  const noMfaReconcile = await app.inject({
+    method: "POST",
+    url: `/v1/intelligence/admin/monitors/${monitor.id}/reconcile`,
+    headers: { cookie: ownerCookie, origin: ORIGIN },
+    payload: { action: "pause", revision: monitor.revision },
+  });
+  assert.equal(noMfaReconcile.statusCode, 403);
+
+  await db.pool.query("UPDATE app_session SET mfa_step_up_at = NOW() WHERE user_id = $1", [ownerId]);
+  const staleRev = await app.inject({
+    method: "POST",
+    url: `/v1/intelligence/admin/monitors/${monitor.id}/reconcile`,
+    headers: { cookie: ownerCookie, origin: ORIGIN },
+    payload: { action: "pause", revision: monitor.revision + 9 },
+  });
+  assert.equal(staleRev.statusCode, 409);
+
+  const pauseOk = await app.inject({
+    method: "POST",
+    url: `/v1/intelligence/admin/monitors/${monitor.id}/reconcile`,
+    headers: { cookie: ownerCookie, origin: ORIGIN },
+    payload: { action: "pause", revision: monitor.revision },
+  });
+  assert.equal(pauseOk.statusCode, 200);
+  const afterPauseRev = pauseOk.json().revision as number;
+  assert.equal(afterPauseRev, monitor.revision + 1);
+
+  const rebuildOk = await app.inject({
+    method: "POST",
+    url: `/v1/intelligence/admin/monitors/${monitor.id}/reconcile`,
+    headers: { cookie: ownerCookie, origin: ORIGIN },
+    payload: { action: "refresh_rollups", revision: afterPauseRev },
+  });
+  assert.equal(rebuildOk.statusCode, 200);
+  assert.equal(rebuildOk.json().updated, true);
+
+  const resumeOk = await app.inject({
+    method: "POST",
+    url: `/v1/intelligence/admin/monitors/${monitor.id}/reconcile`,
+    headers: { cookie: ownerCookie, origin: ORIGIN },
+    payload: { action: "resume", revision: afterPauseRev },
+  });
+  assert.equal(resumeOk.statusCode, 200);
+
+  // Feed summary & prune stale seen/event records (>14d / >30d)
+  const srcId = (await db.pool.query<{ collection_source_id: string }>("SELECT collection_source_id FROM intel_monitor_source WHERE monitor_id=$1 LIMIT 1", [monitor.id])).rows[0].collection_source_id;
+  await db.pool.query(`
+    INSERT INTO content(id, source_id, external_id, kind, title, first_seen_at, last_seen_at, availability)
+    VALUES ('33333333-3333-4333-8333-333333333333', '11111111-1111-1111-1111-111111111111', 't3_stale_s2', 'post', 'Stale test', NOW(), NOW(), 'available')
+  `);
+  await db.pool.query(`
+    INSERT INTO content_discovery(content_id, collection_source_id, first_fetched_at, last_fetched_at)
+    VALUES ('33333333-3333-4333-8333-333333333333', $1, NOW(), NOW())
+  `, [srcId]);
+  await db.pool.query(`
+    INSERT INTO feed_user_seen(user_id, content_id, seen_at)
+    VALUES ($1, '33333333-3333-4333-8333-333333333333', NOW() - interval '20 days')
+  `, [ownerId]);
+
+  const feedSummary = await app.inject({
+    method: "GET",
+    url: "/v1/feed/admin/summary",
+    headers: { cookie: ownerCookie },
+  });
+  assert.equal(feedSummary.statusCode, 200, feedSummary.body);
+  assert.equal(feedSummary.json().seenStale14d, 1);
+
+  const pruneRes = await app.inject({
+    method: "POST",
+    url: "/v1/feed/admin/prune",
+    headers: { cookie: ownerCookie, origin: ORIGIN },
+  });
+  assert.equal(pruneRes.statusCode, 200, pruneRes.body);
+  assert.equal(pruneRes.json().deletedSeen, 1);
+});

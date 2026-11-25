@@ -15,10 +15,17 @@ import {
   useInfiniteStoriesQuery,
   usePublicSourcesQuery,
   useSaveAnnotationMutation,
+  useStoryInsightsQuery,
 } from '../api/hooks';
+import {
+  ChannelInsightsPanel,
+  type ActiveInsightsDrilldown,
+} from '../components/stories/ChannelInsightsPanel';
+import type { CompositionDimension } from '../components/stories/insightChartOptions';
 import { ReaderDrawer } from '../components/stories/ReaderDrawer';
 import type { ReaderPreview } from '../components/stories/readerTypes';
 import { StoryMicrocharts } from '../components/stories/StoryMicrocharts';
+import { FeedV2View } from '../components/feed/FeedV2View';
 import type {
   Actor,
   SourceTier,
@@ -79,24 +86,52 @@ export function StoriesPage({
   basePath = '/app/feed',
   onNavigate,
   onOpenAuth,
+  onOpenContentDetail,
 }: {
   actor: Actor | null;
   initialSearchString?: string;
   basePath?: string;
   onNavigate: (path: string) => void;
   onOpenAuth: (tab?: 'login' | 'register', reason?: string) => void;
+  onOpenContentDetail?: (contentId: string) => void;
 }) {
   const { lang, t } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
 
   const sp = useMemo(() => new URLSearchParams(initialSearchString), [initialSearchString]);
   const rawView = sp.get('view');
+  const v2Mode: 'stream' | 'hot-v2' | null =
+    rawView === 'stream' || rawView === 'hot-v2' ? rawView : null;
   const view: StoryView = rawView === 'hot' || rawView === 'digest' ? rawView : 'latest';
   const date = view === 'digest' ? sp.get('date') : null;
   const sourceGroup = sp.get('sourceGroup') ?? '';
   const tier = (sp.get('tier') as SourceTier | '') ?? '';
   const language = sp.get('language') ?? '';
   const sourceId = sp.get('sourceId') ?? '';
+
+  const drillTerm = sp.get('storyTerm') ?? '';
+  const drillTermLabel = sp.get('storyTermLabel') ?? '';
+  const drillTopicId = sp.get('storyTopic') ?? '';
+  const drillTopicLabel = sp.get('storyTopicLabel') ?? '';
+  const drillFrom = sp.get('storyFrom') ?? '';
+  const drillTo = sp.get('storyTo') ?? '';
+  const drillBucketLabel = sp.get('storyBucketLabel') ?? '';
+  const drillTier = (sp.get('drillTier') as SourceTier | '') ?? '';
+  const drillGroup = sp.get('drillGroup') ?? '';
+  const drillLang = sp.get('drillLang') ?? '';
+  const drillSourceId = sp.get('drillSourceId') ?? '';
+  const drillDimLabel = sp.get('drillDimLabel') ?? '';
+
+  const hasDrilldown = Boolean(
+    drillTerm ||
+      drillTopicId ||
+      drillFrom ||
+      drillTo ||
+      drillTier ||
+      drillGroup ||
+      drillLang ||
+      drillSourceId,
+  );
 
   const [density, setDensity] = useState<'comfortable' | 'compact'>(loadDensity);
   const [reader, setReader] = useState<ReaderPreview | null>(null);
@@ -122,16 +157,42 @@ export function StoriesPage({
     [publicSources, sourceId],
   );
 
-  const storiesQuery = useInfiniteStoriesQuery({
-    view,
-    ...(date ? { date } : {}),
-    limit: 25,
-    ...(view === 'latest' ? { diverse: true } : {}),
-    ...(sourceGroup ? { sourceGroup } : {}),
-    ...(tier ? { tier } : {}),
-    ...(language ? { language } : {}),
-    ...(sourceId ? { sourceId } : {}),
-  });
+  const baseInsightsQuery = useMemo(
+    () => ({
+      view,
+      ...(date ? { date } : {}),
+      ...(sourceGroup ? { sourceGroup } : {}),
+      ...(tier ? { tier } : {}),
+      ...(language ? { language } : {}),
+      ...(sourceId ? { sourceId } : {}),
+      lang,
+    }),
+    [date, lang, language, sourceGroup, sourceId, tier, view],
+  );
+
+  const insightsQuery = useStoryInsightsQuery(baseInsightsQuery, !v2Mode);
+
+  const storiesQuery = useInfiniteStoriesQuery(
+    {
+      view,
+      ...(date ? { date } : {}),
+      limit: 25,
+      ...(view === 'latest' ? { diverse: true } : {}),
+      ...(sourceGroup ? { sourceGroup } : {}),
+      ...(tier ? { tier } : {}),
+      ...(language ? { language } : {}),
+      ...(sourceId ? { sourceId } : {}),
+      ...(drillTerm ? { term: drillTerm } : {}),
+      ...(drillTopicId ? { topicId: drillTopicId } : {}),
+      ...(drillFrom ? { bucketFrom: drillFrom } : {}),
+      ...(drillTo ? { bucketTo: drillTo } : {}),
+      ...(drillTier ? { insightTier: drillTier } : {}),
+      ...(drillGroup ? { insightSourceGroup: drillGroup } : {}),
+      ...(drillLang ? { insightLanguage: drillLang } : {}),
+      ...(drillSourceId ? { insightSourceId: drillSourceId } : {}),
+    },
+    !v2Mode,
+  );
 
   const pages = useMemo(() => storiesQuery.data?.pages ?? [], [storiesQuery.data?.pages]);
   const stories = useMemo(() => pages.flatMap((p) => p.items), [pages]);
@@ -170,12 +231,32 @@ export function StoriesPage({
     [basePath, initialSearchString, onNavigate],
   );
 
-  const setView = (nextView: StoryView, nextDate?: string | null) => {
+  const stripDrilldownParams = useCallback((next: URLSearchParams) => {
+    for (const key of [
+      'storyTerm',
+      'storyTermLabel',
+      'storyTopic',
+      'storyTopicLabel',
+      'storyFrom',
+      'storyTo',
+      'storyBucketLabel',
+      'drillTier',
+      'drillGroup',
+      'drillLang',
+      'drillSourceId',
+      'drillDimLabel',
+    ]) {
+      next.delete(key);
+    }
+  }, []);
+
+  const setView = (nextView: StoryView | 'stream' | 'hot-v2', nextDate?: string | null) => {
     pushSearch((next) => {
       if (nextView === 'latest') next.delete('view');
       else next.set('view', nextView);
       if (nextView === 'digest' && nextDate) next.set('date', nextDate);
       else next.delete('date');
+      stripDrilldownParams(next);
     });
   };
 
@@ -183,8 +264,109 @@ export function StoriesPage({
     pushSearch((next) => {
       if (val) next.set(key, val);
       else next.delete(key);
+      stripDrilldownParams(next);
     });
   };
+
+  const activeDrilldown: ActiveInsightsDrilldown = useMemo(
+    () => ({
+      ...(drillTerm ? { term: drillTerm } : {}),
+      ...(drillTopicId ? { topicId: drillTopicId, topicLabel: drillTopicLabel || drillTopicId } : {}),
+      ...(drillFrom ? { bucketFrom: drillFrom, bucketTo: drillTo, bucketLabel: drillBucketLabel } : {}),
+      ...(drillTier ? { insightTier: drillTier } : {}),
+      ...(drillGroup ? { insightSourceGroup: drillGroup } : {}),
+      ...(drillLang ? { insightLanguage: drillLang } : {}),
+      ...(drillSourceId ? { insightSourceId: drillSourceId } : {}),
+      ...(drillDimLabel ? { dimensionLabel: drillDimLabel } : {}),
+    }),
+    [
+      drillBucketLabel,
+      drillDimLabel,
+      drillFrom,
+      drillGroup,
+      drillLang,
+      drillSourceId,
+      drillTerm,
+      drillTier,
+      drillTo,
+      drillTopicId,
+      drillTopicLabel,
+    ],
+  );
+
+  const toggleTermDrilldown = useCallback(
+    (term: string, label: string) => {
+      pushSearch((next) => {
+        const curr = next.get('storyTerm') ?? '';
+        if (curr.toLowerCase() === term.toLowerCase()) {
+          next.delete('storyTerm');
+          next.delete('storyTermLabel');
+        } else {
+          next.set('storyTerm', term);
+          next.set('storyTermLabel', label);
+        }
+      });
+    },
+    [pushSearch],
+  );
+
+  const toggleTopicDrilldown = useCallback(
+    (topicId: string, label: string) => {
+      pushSearch((next) => {
+        if (next.get('storyTopic') === topicId) {
+          next.delete('storyTopic');
+          next.delete('storyTopicLabel');
+        } else {
+          next.set('storyTopic', topicId);
+          next.set('storyTopicLabel', label);
+        }
+      });
+    },
+    [pushSearch],
+  );
+
+  const toggleBucketDrilldown = useCallback(
+    (fromIso: string, toIso: string, label: string) => {
+      pushSearch((next) => {
+        if (next.get('storyFrom') === fromIso && next.get('storyTo') === toIso) {
+          next.delete('storyFrom');
+          next.delete('storyTo');
+          next.delete('storyBucketLabel');
+        } else {
+          next.set('storyFrom', fromIso);
+          next.set('storyTo', toIso);
+          next.set('storyBucketLabel', label);
+        }
+      });
+    },
+    [pushSearch],
+  );
+
+  const toggleCompositionDrilldown = useCallback(
+    (dim: CompositionDimension, key: string, label: string) => {
+      pushSearch((next) => {
+        const paramKey =
+          dim === 'channel'
+            ? 'drillGroup'
+            : dim === 'tier'
+              ? 'drillTier'
+              : dim === 'language'
+                ? 'drillLang'
+                : 'drillSourceId';
+        const prev = next.get(paramKey);
+        next.delete('drillGroup');
+        next.delete('drillTier');
+        next.delete('drillLang');
+        next.delete('drillSourceId');
+        next.delete('drillDimLabel');
+        if (prev !== key) {
+          next.set(paramKey, key);
+          next.set('drillDimLabel', label);
+        }
+      });
+    },
+    [pushSearch],
+  );
 
   const setDensityMode = (next: 'comfortable' | 'compact') => {
     setDensity(next);
@@ -246,12 +428,20 @@ export function StoriesPage({
   const activeGroupLabel = sourceGroup
     ? SOURCE_GROUPS[sourceGroup as SourceGroupKey]?.[lang] ?? sourceGroup
     : null;
-  const heading = activeGroupLabel
-    ? activeGroupLabel
-    : lang === 'zh'
-      ? VIEW_META[view].titleZh
-      : VIEW_META[view].titleEn;
-  const subHeading = lang === 'zh' ? VIEW_META[view].subZh : VIEW_META[view].subEn;
+  const heading = v2Mode === 'stream'
+    ? t('Discovery Feed V2', '破茧探索信息流 (V2)')
+    : v2Mode === 'hot-v2'
+      ? t('Cross-Platform Hot Board (V2)', '跨平台综合热榜 (V2)')
+      : activeGroupLabel
+        ? activeGroupLabel
+        : lang === 'zh'
+          ? VIEW_META[view].titleZh
+          : VIEW_META[view].titleEn;
+  const subHeading = v2Mode === 'stream'
+    ? t('Multi-pool anti-filter-bubble feed powered by /v1/feed/stream & /v1/feed/preferences.', '由 /v1/feed/stream 与用户偏好驱动的四池破茧多布局卡片流。')
+    : v2Mode === 'hot-v2'
+      ? t('Normalized cross-platform heat ranking with real observation sparklines and multi-source corroboration.', '跨平台归一化热度排行 · 真实观测火花线与多源共振。')
+      : lang === 'zh' ? VIEW_META[view].subZh : VIEW_META[view].subEn;
 
   return (
     <div className="ds-page story-page">
@@ -259,10 +449,12 @@ export function StoriesPage({
         <div>
           <div className="page-title-row">
             <h1 className="page-title">{heading}</h1>
-            <span className="tag tag--line tabular-nums">
-              {totalCount.toLocaleString()} {t('stories', '条报道')}
-            </span>
-            {activeSource && (
+            {!v2Mode && (
+              <span className="tag tag--line tabular-nums">
+                {totalCount.toLocaleString()} {t('stories', '条报道')}
+              </span>
+            )}
+            {activeSource && !v2Mode && (
               <span className="tag tag--lilac" style={{ gap: 5 }}>
                 <span>{activeSource.label}</span>
                 <button
@@ -300,7 +492,10 @@ export function StoriesPage({
             type="button"
             className="icon-square"
             style={{ width: 32, height: 32 }}
-            onClick={() => storiesQuery.refetch()}
+            onClick={() => {
+              void storiesQuery.refetch();
+              void insightsQuery.refetch();
+            }}
             title={t('Refresh feed', '刷新信息流')}
           >
             <RefreshCw size={13} />
@@ -313,28 +508,42 @@ export function StoriesPage({
         <nav className="seg ink" aria-label="信息流视图">
           <button
             type="button"
-            className={view === 'latest' ? 'on' : ''}
+            className={!v2Mode && view === 'latest' ? 'on' : ''}
             onClick={() => setView('latest')}
           >
             {t('Top Stories', '精选信息流')}
           </button>
           <button
             type="button"
-            className={view === 'hot' ? 'on' : ''}
+            className={!v2Mode && view === 'hot' ? 'on' : ''}
             onClick={() => setView('hot')}
           >
             {t('48h Hot', '48h 热度榜')}
           </button>
           <button
             type="button"
-            className={view === 'digest' ? 'on' : ''}
+            className={!v2Mode && view === 'digest' ? 'on' : ''}
             onClick={() => setView('digest')}
           >
             {t('08:00 Digest', '08:00 日报')}
           </button>
+          <button
+            type="button"
+            className={v2Mode === 'stream' ? 'on' : ''}
+            onClick={() => setView('stream')}
+          >
+            {t('For You Stream (V2)', '破茧探索 (V2)')}
+          </button>
+          <button
+            type="button"
+            className={v2Mode === 'hot-v2' ? 'on' : ''}
+            onClick={() => setView('hot-v2')}
+          >
+            {t('Hot Board (V2)', '综合热榜 (V2)')}
+          </button>
         </nav>
 
-        {view === 'digest' && (
+        {!v2Mode && view === 'digest' && (
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <button
               type="button"
@@ -368,6 +577,8 @@ export function StoriesPage({
           </div>
         )}
 
+        {!v2Mode && (
+          <>
         <div className="seg" role="group" aria-label={t('Authority tier', '来源等级')}>
           {([
             ['', t('All Tiers', '全部等级')],
@@ -405,7 +616,7 @@ export function StoriesPage({
           ))}
         </div>
 
-        {(sourceGroup || tier || language || sourceId) && (
+        {(sourceGroup || tier || language || sourceId || hasDrilldown) && (
           <button
             type="button"
             className="auth-link"
@@ -415,14 +626,26 @@ export function StoriesPage({
                 next.delete('tier');
                 next.delete('language');
                 next.delete('sourceId');
+                stripDrilldownParams(next);
               })
             }
           >
             {t('Reset filters', '重置筛选')}
           </button>
         )}
+          </>
+        )}
       </div>
 
+      {v2Mode ? (
+        <FeedV2View
+          actor={actor}
+          modeView={v2Mode}
+          onOpenAuth={onOpenAuth}
+          onOpenDetail={onOpenContentDetail}
+        />
+      ) : (
+        <>
       {/* Topic Channel Strip with /v1/public/sources groupCounts */}
       <nav className="story-channels" aria-label="主题频道">
         <button
@@ -448,6 +671,55 @@ export function StoriesPage({
           );
         })}
       </nav>
+
+      <ChannelInsightsPanel
+        insights={insightsQuery.data}
+        isLoading={insightsQuery.isPending}
+        isFetching={insightsQuery.isFetching}
+        error={insightsQuery.error}
+        sourceGroup={sourceGroup}
+        scopeLabel={activeGroupLabel ?? t('All Channels', '全部频道')}
+        density={density}
+        activeDrilldown={activeDrilldown}
+        onSelectTerm={toggleTermDrilldown}
+        onSelectTopic={toggleTopicDrilldown}
+        onSelectBucket={toggleBucketDrilldown}
+        onSelectComposition={toggleCompositionDrilldown}
+        onRetry={() => void insightsQuery.refetch()}
+      />
+
+      {hasDrilldown && (
+        <div className="ci-drilldown-bar" role="status">
+          <div style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+            <strong>{t('Insights Filter:', '洞察联动筛选：')}</strong>
+            {drillTerm && (
+              <span className="tag tag--lilac">{t('Term:', '关键词：')}{drillTermLabel || drillTerm}</span>
+            )}
+            {drillTopicId && (
+              <span className="tag tag--lilac">{t('Topic:', '话题：')}{drillTopicLabel || drillTopicId}</span>
+            )}
+            {drillFrom && (
+              <span className="tag tag--lilac">{t('Window:', '时段：')}{drillBucketLabel || drillFrom.slice(5, 16)}</span>
+            )}
+            {(drillGroup || drillTier || drillLang || drillSourceId) && (
+              <span className="tag tag--lilac">
+                {drillDimLabel || drillGroup || drillTier || drillLang || drillSourceId}
+              </span>
+            )}
+            <span className="ci-sample-note tabular-nums">
+              {t(`${totalCount} matching stories`, `匹配 ${totalCount} 条去重事件`)}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="ci-head-btn"
+            onClick={() => pushSearch((next) => stripDrilldownParams(next))}
+          >
+            <X size={11} />
+            <span>{t('Clear insight filter', '清除此筛选')}</span>
+          </button>
+        </div>
+      )}
 
       {statusNotice && (
         <div role="status" className="wb-alert wb-alert--info" style={{ marginBottom: 12 }}>
@@ -694,6 +966,8 @@ export function StoriesPage({
           }
           onClose={() => setReader(null)}
         />
+      )}
+        </>
       )}
     </div>
   );

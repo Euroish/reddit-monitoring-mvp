@@ -2,6 +2,47 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
 @source "../components/ui";
+@source "../components/research";
+@source "../pages/ContentExplorerPage.tsx";
+
+@custom-variant data-active (&[data-active]);
+@custom-variant data-pressed (&[data-pressed]);
+@custom-variant data-highlighted (&[data-highlighted]);
+@custom-variant data-disabled (&[data-disabled]);
+@custom-variant data-open (&[data-open]);
+@custom-variant data-closed (&[data-closed]);
+@custom-variant data-horizontal (&[data-orientation="horizontal"]);
+@custom-variant data-vertical (&[data-orientation="vertical"]);
+
+@layer base {
+  [data-research-workspace] *,
+  [data-research-workspace] *::before,
+  [data-research-workspace] *::after,
+  [data-slot="popover-content"] *,
+  [data-slot="dropdown-menu-content"] *,
+  [data-slot="card"] *,
+  [data-slot="alert"] *,
+  [data-slot="empty"] *,
+  [data-slot="tabs"] *,
+  [data-slot="toggle-group"] * {
+    border-style: solid;
+    border-width: 0;
+    border-color: var(--color-border);
+  }
+
+  [data-research-workspace] button,
+  [data-slot="popover-content"] button,
+  [data-slot="dropdown-menu-content"] button,
+  [data-slot="tabs"] button,
+  [data-slot="toggle-group"] button {
+    background-color: transparent;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    cursor: pointer;
+    appearance: none;
+  }
+}
 
 @theme inline {
   --color-background: var(--wb-canvas);

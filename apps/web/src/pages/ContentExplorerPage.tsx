@@ -1,9 +1,7 @@
-import { Alert } from '../components/ui/alert';
-import { Card } from '../components/ui/card';
-import { Input } from '../components/ui/input';
 import React, { useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowLeft,
   BarChart3,
   Bookmark,
   BookmarkPlus,
@@ -22,21 +20,27 @@ import {
   useAnnotationQuery,
   useBatchJobsQuery,
   useContentDetailQuery,
-  useContentFacetsQuery,
   useContentListQuery,
   useCreateSavedQueryMutation,
   useHydrateMutation,
   useProjectsQuery,
   usePublicSourcesQuery,
   useQuotasSummaryQuery,
+  useResearchScopeQuery,
+  useResearchTaskEvidenceQuery,
   useSaveAnnotationMutation,
   useSourcesQuery,
   useThreadQuery,
 } from '../api/hooks';
-import { EChartBox, type EChartOption } from '../components/charts/EChartBox';
 import { ObservationChart } from '../components/charts/ObservationChart';
 import { ThreadTreeView } from '../components/charts/ThreadTreeView';
-import { useChartColors } from '../components/charts/chartUtils';
+import { Alert } from '../components/ui/alert';
+import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
+import { Empty } from '../components/ui/empty';
+import { Input } from '../components/ui/input';
+import { Select } from '../components/ui/select';
+import { Skeleton } from '../components/ui/skeleton';
 import {
   type Actor,
   ApiError,
@@ -53,20 +57,31 @@ import {
 import { useI18n } from '../i18n/translations';
 import { safeHttpUrl, toSafeUtcIso, toUtcDatetimeLocal } from '../lib/sourceLabels';
 
-function StreamExportButton({ actor, onClick }: { actor: Actor | null; onClick: () => void }) {
+function ExportResultsButton({ actor, onClick }: { actor: Actor | null; onClick: () => void }) {
   const { t } = useI18n();
   const viewer = actor?.clientKind === 'browser' && actor.role === 'viewer';
   const quota = useQuotasSummaryQuery(viewer);
   const denied = viewer && quota.data?.effectivePolicy.exportEnabled === false;
   const notice = denied ? t('Export is disabled for your account.', '当前账号的导出权限已关闭。') : '';
-  return <>
-    <button type="button" className="ds-btn ds-btn--ghost" onClick={onClick}
-      disabled={denied} aria-describedby={notice ? 'stream-export-notice' : undefined}>
-      <Download size={14} />
-      <span>{t('Stream Export', '流式导出')}</span>
-    </button>
-    {notice && <small id="stream-export-notice" role="status">{notice}</small>}
-  </>;
+  return (
+    <>
+      <button
+        type="button"
+        className="ds-btn ds-btn--ghost"
+        onClick={onClick}
+        disabled={denied}
+        aria-describedby={notice ? 'stream-export-notice' : undefined}
+      >
+        <Download size={14} />
+        <span>{t('Export Results', '导出检索结果')}</span>
+      </button>
+      {notice && (
+        <small id="stream-export-notice" role="status">
+          {notice}
+        </small>
+      )}
+    </>
+  );
 }
 
 const PAIN_RE =
@@ -103,7 +118,6 @@ export function ContentExplorerPage({
   onNavigate?: (path: string) => void;
 }) {
   const { t } = useI18n();
-  const colors = useChartColors();
   const isAuthed = Boolean(actor);
   const canWrite = actor?.role === 'owner' || actor?.role === 'admin';
 
@@ -112,31 +126,71 @@ export function ContentExplorerPage({
   const publicSourcesQuery = usePublicSourcesQuery(!isAuthed);
   const projects = projectsQuery.data?.projects || [];
   const sources = isAuthed
-    ? (sourcesQuery.data?.sources || [])
+    ? sourcesQuery.data?.sources || []
     : (publicSourcesQuery.data?.sources || []).map((s) => ({ id: s.id, label: s.label }));
 
   const initialSp = useMemo(() => new URLSearchParams(initialQueryString), [initialQueryString]);
   const spView = initialSp.get('view');
+  const fromResearch = initialSp.get('fromResearch') === '1';
+  const researchLayer = initialSp.get('researchLayer') || 'l1';
+  const researchLabel = initialSp.get('researchLabel') || '';
+  const [analysisTaskId, setAnalysisTaskId] = useState(() => initialSp.get('analysisTaskId') || '');
+  const [taskSentiment, setTaskSentiment] = useState<
+    '' | 'positive' | 'neutral' | 'negative' | 'unclassified'
+  >(() => (initialSp.get('sentiment') as '' | 'positive' | 'neutral' | 'negative' | 'unclassified') || '');
+  const [taskTopicIndex, setTaskTopicIndex] = useState<number | undefined>(() => {
+    const raw = initialSp.get('topicIndex');
+    if (raw === null || raw === '') return undefined;
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= 0 ? n : undefined;
+  });
+  const [evidenceOffset, setEvidenceOffset] = useState(0);
 
   const [projectId, setProjectId] = useState(() => initialSp.get('projectId') || '');
   const [sourceId, setSourceId] = useState(() => initialSp.get('sourceId') || '');
+  const [sourceIdsParam, setSourceIdsParam] = useState<string[]>(() => initialSp.getAll('sourceIds'));
+  const [batchIdsParam, setBatchIdsParam] = useState<string[]>(() => initialSp.getAll('batchIds'));
   const [platform, setPlatform] = useState<'' | Platform>(() => (initialSp.get('platform') as Platform) || '');
   const [kind, setKind] = useState<'' | ContentKind>(() => (initialSp.get('kind') as ContentKind) || '');
+  const [community, setCommunity] = useState(() => initialSp.get('community') || '');
+  const [language, setLanguage] = useState(() => initialSp.get('language') || '');
   const [queryText, setQueryText] = useState(() => initialSp.get('query') || '');
   const [termDraft, setTermDraft] = useState('');
   const [anyTermsText, setAnyTermsText] = useState(() => initialSp.getAll('anyTerms').join(', '));
   const [allTermsText, setAllTermsText] = useState(() => initialSp.getAll('allTerms').join(', '));
   const [exclusionsText, setExclusionsText] = useState(() => initialSp.getAll('exclusions').join(', '));
-  const [searchScope, setSearchScope] = useState<SearchScope>(() => (initialSp.get('searchScope') as SearchScope) || 'title_text');
+  const [searchScope, setSearchScope] = useState<SearchScope>(
+    () => (initialSp.get('searchScope') as SearchScope) || 'title_text',
+  );
   const [signal, setSignal] = useState<'' | SignalType>(() => (initialSp.get('signal') as SignalType) || '');
+  const [timePreset, setTimePreset] = useState<'all' | '7' | '30' | '90' | 'custom'>(() =>
+    initialSp.get('from') || initialSp.get('to') ? 'custom' : 'all',
+  );
   const [fromIso, setFromIso] = useState(() => toUtcDatetimeLocal(initialSp.get('from')));
   const [toIso, setToIso] = useState(() => toUtcDatetimeLocal(initialSp.get('to')));
+  const [timeBasis, setTimeBasis] = useState<'published' | 'collected'>(() =>
+    initialSp.get('timeBasis') === 'collected' ? 'collected' : 'published',
+  );
   const [threadAware, setThreadAware] = useState<boolean>(() => {
     const ta = initialSp.get('threadAware');
     return ta === null ? true : ta === 'true';
   });
-  const [advOpen, setAdvOpen] = useState(false);
-  const [facetsOpen, setFacetsOpen] = useState(false);
+  const [advOpen, setAdvOpen] = useState(
+    Boolean(
+      initialSp.getAll('anyTerms').length ||
+        initialSp.getAll('allTerms').length ||
+        initialSp.getAll('exclusions').length ||
+        initialSp.get('community') ||
+        initialSp.get('signal') ||
+        initialSp.get('language'),
+    ),
+  );
+
+  const scopeTreeQuery = useResearchScopeQuery(projectId || undefined, Boolean(projectId) && isAuthed);
+  const projectBatches = useMemo(
+    () => scopeTreeQuery.data?.targetGroups.flatMap((g) => g.batches) ?? [],
+    [scopeTreeQuery.data],
+  );
 
   const [detailState, setDetailState] = useState<{
     id: string | null;
@@ -147,8 +201,12 @@ export function ContentExplorerPage({
   const filterKey = JSON.stringify({
     projectId,
     sourceId,
+    sourceIdsParam,
+    batchIdsParam,
     platform,
     kind,
+    community,
+    language,
     queryText,
     anyTermsText,
     allTermsText,
@@ -157,6 +215,7 @@ export function ContentExplorerPage({
     signal,
     fromIso,
     toIso,
+    timeBasis,
     threadAware,
   });
   const [cursorState, setCursorState] = useState<{ key: string; val?: string }>({ key: '' });
@@ -173,8 +232,12 @@ export function ContentExplorerPage({
     return {
       ...(projectId ? { projectId } : {}),
       ...(sourceId ? { sourceId } : {}),
+      ...(sourceIdsParam.length ? { sourceIds: sourceIdsParam } : {}),
+      ...(batchIdsParam.length ? { batchIds: batchIdsParam } : {}),
       ...(platform ? { platform } : {}),
       ...(kind ? { kind } : {}),
+      ...(community.trim() ? { community: community.trim() } : {}),
+      ...(language.trim() ? { language: language.trim() } : {}),
       ...(queryText.trim() ? { query: queryText.trim() } : {}),
       ...(anyTerms.length ? { anyTerms } : {}),
       ...(allTerms.length ? { allTerms } : {}),
@@ -183,6 +246,7 @@ export function ContentExplorerPage({
       ...(signal ? { signal } : {}),
       ...(parsedFrom ? { from: parsedFrom } : {}),
       ...(parsedTo ? { to: parsedTo } : {}),
+      ...(timeBasis !== 'published' ? { timeBasis } : {}),
       threadAware,
       limit: 25,
       ...(cursor ? { cursor } : {}),
@@ -190,8 +254,12 @@ export function ContentExplorerPage({
   }, [
     projectId,
     sourceId,
+    sourceIdsParam,
+    batchIdsParam,
     platform,
     kind,
+    community,
+    language,
     queryText,
     anyTermsText,
     allTermsText,
@@ -200,6 +268,7 @@ export function ContentExplorerPage({
     signal,
     fromIso,
     toIso,
+    timeBasis,
     threadAware,
     cursor,
   ]);
@@ -211,45 +280,24 @@ export function ContentExplorerPage({
     delete clean.cursor;
     return clean;
   }, [activeFilter]);
-  const contentQuery = useContentListQuery(activeFilter, projectId || undefined, !filterValidationMsg);
-  const [defaultFacetWindow] = useState(() => {
-    const now = Date.now();
-    return {
-      from: new Date(now - 30 * 86_400_000).toISOString(),
-      to: new Date(now + 60_000).toISOString(),
-    };
-  });
-  const { from: facetFrom = defaultFacetWindow.from, to: facetTo = defaultFacetWindow.to, ...facetScope } = threadScope;
-  const facetSpan = Date.parse(facetTo) - Date.parse(facetFrom);
-  const facetRangeInvalid = facetSpan <= 0 || facetSpan > 90 * 86_400_000;
-  const facetsQuery = useContentFacetsQuery(facetsOpen && !filterValidationMsg && !facetRangeInvalid
-    ? { ...facetScope, from: facetFrom, to: facetTo, bucket: 'day' }
-    : null);
-  const facetsChartOption: EChartOption = useMemo(() => {
-    const timeline = facetsQuery.data?.timeline ?? [];
-    const labels = timeline.map((b) => b.bucket.slice(5, 10));
-    const platforms: Array<{ key: Platform; name: string; color: string }> = [
-      { key: 'reddit', name: 'Reddit', color: colors.reddit },
-      { key: 'x', name: 'X', color: colors.x },
-      { key: 'bluesky', name: 'Bluesky', color: colors.bluesky },
-      { key: 'web', name: 'Web', color: colors.web },
-    ];
-    return {
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      legend: { bottom: 0, left: 0, itemWidth: 9, itemHeight: 9, textStyle: { fontSize: 10.5 } },
-      grid: { left: 36, right: 12, top: 14, bottom: 34 },
-      xAxis: { type: 'category', data: labels, axisLabel: { fontSize: 10, color: '#677166' } },
-      yAxis: { type: 'value', minInterval: 1, axisLabel: { fontSize: 10, color: '#677166' } },
-      series: platforms.map((p) => ({
-        name: p.name,
-        type: 'bar',
-        stack: 'total',
-        barMaxWidth: 22,
-        itemStyle: { color: p.color },
-        data: timeline.map((b) => b.byPlatform.find((x) => x.platform === p.key)?.count ?? 0),
-      })),
-    };
-  }, [facetsQuery.data, colors]);
+  const contentQuery = useContentListQuery(
+    activeFilter,
+    projectId || undefined,
+    !filterValidationMsg && !(Boolean(projectId) && Boolean(analysisTaskId) && isAuthed),
+  );
+
+  const evidenceMode = Boolean(projectId && analysisTaskId && isAuthed);
+  const evidenceQuery = useResearchTaskEvidenceQuery(
+    projectId || undefined,
+    analysisTaskId || undefined,
+    {
+      ...(taskSentiment ? { sentiment: taskSentiment } : {}),
+      ...(taskTopicIndex !== undefined ? { topicIndex: taskTopicIndex } : {}),
+      limit: 30,
+      offset: evidenceOffset,
+    },
+    evidenceMode,
+  );
 
   const cursorScopeChanged =
     contentQuery.error instanceof ApiError &&
@@ -257,6 +305,7 @@ export function ContentExplorerPage({
     contentQuery.error.code === 'cursor_scope_changed';
 
   const items = useMemo(() => contentQuery.data?.items ?? [], [contentQuery.data?.items]);
+  const evidenceItems = useMemo(() => evidenceQuery.data?.items ?? [], [evidenceQuery.data?.items]);
   const nextCursor = contentQuery.data?.nextCursor || null;
 
   const detailId =
@@ -295,12 +344,16 @@ export function ContentExplorerPage({
     }
   };
 
-  // Streaming Export
+  // Export
   const [exportOpen, setExportOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState<'json' | 'csv'>('json');
   const [maxRows, setMaxRows] = useState(10000);
   const [exporting, setExporting] = useState(false);
-  const [exportFeedback, setExportFeedback] = useState<{ message: string; nextCursor?: string | null; isError?: boolean } | null>(null);
+  const [exportFeedback, setExportFeedback] = useState<{
+    message: string;
+    nextCursor?: string | null;
+    isError?: boolean;
+  } | null>(null);
 
   const runExport = async (overrideCursor?: string) => {
     setExporting(true);
@@ -329,12 +382,12 @@ export function ContentExplorerPage({
         const r = res.jsonResult.result;
         setExportFeedback({
           message: r.truncated
-            ? t(`Exported ${r.exportedCount} rows (complete=true, truncated).`, `已校验完整导出 ${r.exportedCount} 条（result.complete=true，已截断）。`)
-            : t(`Verified complete export: ${r.exportedCount} rows (complete=true).`, `已校验并导出：共 ${r.exportedCount} 条（result.complete=true）。`),
+            ? t(`Exported ${r.exportedCount} rows (truncated).`, `已导出 ${r.exportedCount} 条结果（因行数上限已截断）。`)
+            : t(`Verified complete export: ${r.exportedCount} rows.`, `已完整导出当前检索结果：共 ${r.exportedCount} 条。`),
           nextCursor: r.truncated ? r.nextCursor : null,
         });
       } else {
-        setExportFeedback({ message: t('CSV streaming export completed.', '已完成防公式注入 CSV 流式导出。') });
+        setExportFeedback({ message: t('CSV export completed.', '已完成 CSV 结果导出。') });
       }
       setExportOpen(false);
     } catch (err) {
@@ -344,42 +397,19 @@ export function ContentExplorerPage({
     }
   };
 
-  // Batch Reddit Hydration
-  const [selectedHydrateIds, setSelectedHydrateIds] = useState<string[]>([]);
-  const [maxCommentsPerPost, setMaxCommentsPerPost] = useState(25);
-  const [hydrateJobIds, setHydrateJobIds] = useState<string[]>([]);
-  const [hydrateMsg, setHydrateMsg] = useState<string | null>(null);
-  const hydrateMut = useHydrateMutation();
-  const hydrateIdemRef = useRef<{ sig: string; key: string }>({ sig: '', key: generateUuidV4() });
-  const batchJobsQuery = useBatchJobsQuery(hydrateJobIds);
-
-  const toggleHydrateSelect = (id: string) => {
-    setSelectedHydrateIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 30 ? [...prev, id] : prev,
-    );
-  };
-
-  const handleHydrate = async () => {
-    if (!projectId || selectedHydrateIds.length === 0) return;
-    setHydrateMsg(null);
-    const sig = JSON.stringify({ projectId, ids: [...selectedHydrateIds].sort(), maxCommentsPerPost });
-    if (hydrateIdemRef.current.sig !== sig) {
-      hydrateIdemRef.current = { sig, key: generateUuidV4() };
+  const applyTimePreset = (preset: 'all' | '7' | '30' | '90' | 'custom') => {
+    setTimePreset(preset);
+    if (preset === 'all') {
+      setFromIso('');
+      setToIso('');
+    } else if (preset !== 'custom') {
+      const days = Number(preset);
+      const endMs = Math.floor(Date.now() / 86_400_000) * 86_400_000 + 86_400_000;
+      const startMs = endMs - days * 86_400_000;
+      setFromIso(new Date(startMs).toISOString().slice(0, 16));
+      setToIso(new Date(endMs).toISOString().slice(0, 16));
     }
-    try {
-      const res = await hydrateMut.mutateAsync({
-        projectId,
-        contentIds: selectedHydrateIds,
-        maxCommentsPerPost,
-        idempotencyKey: hydrateIdemRef.current.key,
-      });
-      setHydrateJobIds(res.jobIds);
-      setSelectedHydrateIds([]);
-      hydrateIdemRef.current = { sig: '', key: generateUuidV4() };
-      setHydrateMsg(t(`Dispatched ${res.jobIds.length} hydration job(s) to queue.`, `已入队 ${res.jobIds.length} 个评论水合任务。`));
-    } catch (err) {
-      setHydrateMsg(formatApiError(err));
-    }
+    setCursor(undefined);
   };
 
   const handleTermSubmit = (e: React.FormEvent) => {
@@ -392,20 +422,38 @@ export function ContentExplorerPage({
   };
 
   const resetAll = () => {
-    setProjectId('');
     setSourceId('');
+    setSourceIdsParam([]);
+    setBatchIdsParam([]);
     setPlatform('');
     setKind('');
+    setCommunity('');
+    setLanguage('');
     setQueryText('');
     setTermDraft('');
     setAnyTermsText('');
     setAllTermsText('');
     setExclusionsText('');
     setSignal('');
+    setTimePreset('all');
     setFromIso('');
     setToIso('');
+    setTimeBasis('published');
+    setAnalysisTaskId('');
+    setTaskSentiment('');
+    setTaskTopicIndex(undefined);
+    setEvidenceOffset(0);
     setCursor(undefined);
   };
+
+  const activeProject = projects.find((p) => p.id === projectId);
+  const projectHasZeroData = Boolean(
+    projectId &&
+      scopeTreeQuery.isSuccess &&
+      scopeTreeQuery.data.dateBounds.totalCount === 0,
+  );
+  const isForbiddenError =
+    contentQuery.error instanceof ApiError && contentQuery.error.status === 403;
 
   return (
     <div className="ds-page">
@@ -414,45 +462,49 @@ export function ContentExplorerPage({
           {t('Research Workspace', '研究工作区')}
         </button>
         <span>/</span>
-        {projectId && (() => {
-          const activeProj = projects.find((p) => p.id === projectId);
-          return activeProj ? (
-            <>
-              <button type="button" onClick={() => onNavigate?.(`/projects?view=overview&projectId=${encodeURIComponent(activeProj.id)}`)}>
-                {activeProj.name}
-              </button>
-              <span>/</span>
-            </>
-          ) : null;
-        })()}
-        <b>{t('Content Explorer', '内容研究')}</b>
+        {activeProject && (
+          <>
+            <button
+              type="button"
+              onClick={() => onNavigate?.(`/projects?view=overview&projectId=${encodeURIComponent(activeProject.id)}`)}
+            >
+              {activeProject.name}
+            </button>
+            <span>/</span>
+          </>
+        )}
+        <b>{t('Content Search', '内容检索')}</b>
       </div>
 
       <div className="page-head">
         <div>
           <div className="page-title-row">
-            <h1 className="page-title">{t('Content & Thread Explorer', '内容检索与讨论树')}</h1>
-            <span className="tag tag--line" style={{ height: 22, fontSize: 10 }}>
-              coverage: stored_sample · totalMatching: null
-            </span>
+            <h1 className="page-title">{t('Content Search', '内容检索与原文查阅')}</h1>
+            <Badge variant="secondary">
+              {activeProject
+                ? t(`Project scope: ${activeProject.name}`, `范围：${activeProject.name} 已采集样本`)
+                : t('Scope: All authorized samples', '范围：全部已授权样本')}
+            </Badge>
           </div>
           <p className="page-desc">
             {t(
-              'Filter stored multi-platform discussions with NFKC terms, signal patterns, cursor pagination, and thread-aware folding.',
-              '基于三段式词组、痛点信号、UTC 半开区间与讨论树感知进行高精度检索；支持 50k 流式导出与单帖多快照钻取。',
+              'Search original posts, comments, and articles; inspect full context, thread trees, annotations, and export results.',
+              '按关键词、平台、采集批次、社区与时间范围查询原始内容；支持阅读正文、查看讨论树、批注收藏与结果导出。',
             )}
           </p>
         </div>
 
         <div className="page-actions" style={{ position: 'relative' }}>
-          <button
-            type="button"
-            className={`ds-btn ${facetsOpen ? '' : 'ds-btn--ghost'}`}
-            onClick={() => setFacetsOpen((v) => !v)}
-          >
-            <BarChart3 size={14} />
-            <span>{t('Analyze Content', '分析内容')}</span>
-          </button>
+          {projectId && onNavigate && (
+            <button
+              type="button"
+              className="ds-btn ds-btn--ghost"
+              onClick={() => onNavigate(`/projects?view=overview&projectId=${encodeURIComponent(projectId)}`)}
+            >
+              <BarChart3 size={14} />
+              <span>{t('Go to Content Research', '前往内容研究')}</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -469,30 +521,37 @@ export function ContentExplorerPage({
             <span>{t('Save Query', '保存查询')}</span>
           </button>
 
-          <StreamExportButton actor={actor} onClick={() => {
-            if (!isAuthed) {
-              onOpenAuth?.('login', t('Sign in to export filtered results.', '登录后可导出筛选结果。'));
-              return;
-            }
-            setExportOpen((v) => !v);
-          }} />
+          <ExportResultsButton
+            actor={actor}
+            onClick={() => {
+              if (!isAuthed) {
+                onOpenAuth?.('login', t('Sign in to export filtered results.', '登录后可导出筛选结果。'));
+                return;
+              }
+              setExportOpen((v) => !v);
+            }}
+          />
 
           {exportOpen && (
             <div className="ds-pop" style={{ top: 'calc(100% + 6px)', right: 0, width: 295, padding: 12 }}>
               <div className="pop-hd">
-                <span>{t('Export Current Filter', '导出当前筛选口径')}</span>
+                <span>{t('Export Search Results', '导出当前检索结果')}</span>
                 <span>50k max</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5, marginBottom: 10 }}>
                 <span>{t('Format', '文件格式')}</span>
                 <div className="seg">
-                  <button type="button" className={exportFormat === 'csv' ? 'on' : ''} onClick={() => setExportFormat('csv')}>CSV</button>
-                  <button type="button" className={exportFormat === 'json' ? 'on' : ''} onClick={() => setExportFormat('json')}>JSON</button>
+                  <button type="button" className={exportFormat === 'csv' ? 'on' : ''} onClick={() => setExportFormat('csv')}>
+                    CSV
+                  </button>
+                  <button type="button" className={exportFormat === 'json' ? 'on' : ''} onClick={() => setExportFormat('json')}>
+                    JSON
+                  </button>
                 </div>
               </div>
               <div style={{ fontSize: 11.5, marginBottom: 10 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span>{t('Max Rows', '最大行数')}</span>
+                  <span>{t('Max Rows', '最大导出行数')}</span>
                   <b style={{ fontFamily: 'var(--font-mono)' }}>{maxRows.toLocaleString()}</b>
                 </div>
                 <input
@@ -512,71 +571,78 @@ export function ContentExplorerPage({
                 disabled={exporting}
                 onClick={() => runExport()}
               >
-                {exporting ? t('Exporting...', '流式导出中...') : t('Download Verified Export', '下载当前结果')}
+                {exporting ? t('Exporting...', '正在导出...') : t('Download Results', '下载当前结果')}
               </button>
             </div>
           )}
         </div>
       </div>
 
-      {facetsOpen && (
-        <Card className="ds-card" style={{ marginBottom: 14 }}>
-          <div className="ds-card-hd">
-            <div>
-              <div className="ds-card-title">
-                <BarChart3 size={14} color={colors.purple} />
-                <span>{t('Filtered Content Volume by Day & Platform', '按日与平台的内容量')}</span>
-              </div>
-              <div className="ds-card-sub">
-                {facetsQuery.data
-                  ? t(
-                      `${facetsQuery.data.count} items · ${facetsQuery.data.matchedContentCount} matched (${facetsQuery.data.coverage})`,
-                      `共 ${facetsQuery.data.count} 条内容 · 命中 ${facetsQuery.data.matchedContentCount} 条 (${facetsQuery.data.coverage})`,
-                    )
-                  : null}
-              </div>
-              <div className="ds-card-sub">
-                {facetFrom.slice(0, 10)} – {facetTo.slice(0, 10)} UTC · {t(
-                  'Dated samples only. Push data is excluded unless enabled for the project.',
-                  '仅统计有发布日期的样本。推流数据仅在专题启用推流趋势时计入。',
-                )}
-              </div>
-            </div>
-            <button type="button" className="icon-square" style={{ width: 28, height: 28 }} onClick={() => setFacetsOpen(false)}>
-              <X size={13} />
-            </button>
-          </div>
-          <div className="ds-card-bd">
-            {filterValidationMsg || facetRangeInvalid ? (
-              <div className="wb-alert wb-alert--error">
-                {filterValidationMsg || t('Select a positive date range of at most 90 days for analysis.', '分析需要大于零且不超过 90 天的日期范围。')}
-              </div>
-            ) : facetsQuery.error ? (
-              <Alert variant="destructive" className="wb-alert wb-alert--error">{formatApiError(facetsQuery.error)}</Alert>
-            ) : (facetsQuery.data?.timeline.length ?? 0) === 0 ? (
-              <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--muted)' }}>
-                {facetsQuery.isLoading
-                  ? t('Computing facets...', '正在汇总分桶…')
-                  : t('No dated content in current window.', '当前时间窗内暂无带发布日期的内容。')}
-              </div>
-            ) : (
-              <EChartBox
-                option={facetsChartOption}
-                height={210}
-                ariaLabel={t('Content volume by day and platform', '按日与平台的内容量')}
-              />
+      {/* Provenance Banner when arriving from Content Research */}
+      {fromResearch && projectId && onNavigate && (
+        <div
+          className="wb-alert wb-alert--info"
+          style={{ marginBottom: 12, justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}
+        >
+          <span>
+            {evidenceMode
+              ? t('Showing evidence matched by Deep Research task', '当前正在查看「深入研究」任务命中的证据样本')
+              : t('Filtered from Content Research', '当前条件来自「内容研究」分析下钻')}
+            {researchLabel ? `（${researchLabel}）` : ''}
+            {t(' — you can adjust filters below or return to the research view.', '，可继续微调下方条件，或返回原研究视图。')}
+          </span>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {evidenceMode && (
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={() => {
+                  setAnalysisTaskId('');
+                  setTaskSentiment('');
+                  setTaskTopicIndex(undefined);
+                  setEvidenceOffset(0);
+                }}
+              >
+                {t('Exit Task Evidence Mode', '退出任务证据视图')}
+              </Button>
             )}
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={() =>
+                onNavigate(
+                  `/projects?view=overview&projectId=${encodeURIComponent(projectId)}&layer=${encodeURIComponent(researchLayer)}`,
+                )
+              }
+            >
+              <ArrowLeft size={12} />
+              <span>{t('Back to Content Research', '返回内容研究')}</span>
+            </Button>
           </div>
-        </Card>
+        </div>
       )}
 
       {/* Inline Save Query Box */}
       {saveQueryOpen && (
         <form
           onSubmit={handleSaveQuery}
-          style={{ background: '#ffffff', border: '1px solid var(--line)', borderRadius: 7, padding: '12px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}
+          style={{
+            background: '#ffffff',
+            border: '1px solid var(--line)',
+            borderRadius: 7,
+            padding: '12px 14px',
+            marginBottom: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap',
+          }}
         >
-          <label htmlFor="save-query-name" style={{ fontSize: 12, fontWeight: 600 }}>{t('Query Name:', '查询名称')}</label>
+          <label htmlFor="save-query-name" style={{ fontSize: 12, fontWeight: 600 }}>
+            {t('Query Name:', '查询名称')}
+          </label>
           <input
             id="save-query-name"
             className="wb-input"
@@ -586,18 +652,35 @@ export function ContentExplorerPage({
             placeholder={t('e.g. FinOps Billing Pain · 30d', '例如：账单波动痛点 · 近30天')}
             required
           />
-          <button type="submit" className="ds-btn">{t('Confirm Save', '确认保存查询')}</button>
-          <button type="button" className="ds-btn ds-btn--ghost" onClick={() => setSaveQueryOpen(false)}>{t('Cancel', '取消')}</button>
+          <button type="submit" className="ds-btn">
+            {t('Confirm Save', '确认保存查询')}
+          </button>
+          <button type="button" className="ds-btn ds-btn--ghost" onClick={() => setSaveQueryOpen(false)}>
+            {t('Cancel', '取消')}
+          </button>
         </form>
       )}
 
-      {saveStatus && <div className="wb-alert wb-alert--info" style={{ marginBottom: 12 }}>{saveStatus}</div>}
-      {cursorNotice && <div className="wb-alert wb-alert--warn" style={{ marginBottom: 12 }}>{cursorNotice}</div>}
+      {saveStatus && (
+        <div className="wb-alert wb-alert--info" style={{ marginBottom: 12 }}>
+          {saveStatus}
+        </div>
+      )}
+      {cursorNotice && (
+        <div className="wb-alert wb-alert--warn" style={{ marginBottom: 12 }}>
+          {cursorNotice}
+        </div>
+      )}
       {exportFeedback && (
         <div className={`wb-alert ${exportFeedback.isError ? 'wb-alert--error' : 'wb-alert--success'}`} style={{ marginBottom: 12 }}>
           <span>{exportFeedback.message}</span>
           {exportFeedback.nextCursor && (
-            <button type="button" className="ds-btn ds-btn--ghost" style={{ height: 26, fontSize: 11 }} onClick={() => runExport(exportFeedback.nextCursor!)}>
+            <button
+              type="button"
+              className="ds-btn ds-btn--ghost"
+              style={{ height: 26, fontSize: 11 }}
+              onClick={() => runExport(exportFeedback.nextCursor!)}
+            >
               {t('Download Next Segment', '续段下载')}
             </button>
           )}
@@ -612,7 +695,13 @@ export function ContentExplorerPage({
             {queryText && (
               <span className="term-chip">
                 {queryText}
-                <button type="button" onClick={() => { setQueryText(''); setCursor(undefined); }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQueryText('');
+                    setCursor(undefined);
+                  }}
+                >
                   <X size={11} />
                 </button>
               </span>
@@ -622,112 +711,140 @@ export function ContentExplorerPage({
             className="search-input"
             value={termDraft}
             onChange={(e) => setTermDraft(e.target.value)}
-            placeholder={t('Enter search term (supports CJK bigrams & short codes like 算力 / o3)...', '输入检索词后回车（支持中文双字词与短代码如 算力 / o3）…')}
+            placeholder={t(
+              'Search keywords, phrases, or original text (press Enter)...',
+              '输入检索词、短语或原文内容后回车（支持中文双字词与短代码如 算力 / o3）…',
+            )}
           />
           <button type="submit" className="ds-btn" style={{ height: 34, padding: '0 16px' }}>
             {t('Search', '检索')}
           </button>
         </form>
 
-        {/* 4-Column DeepSeek Filter Grid */}
-        <div className="filter-grid">
-          <div className="fb-block">
-            <div className="fbb-label">
-              <span>{t('Platform', '平台')}</span>
-              <span>{platform || t('All', '全部')}</span>
+        {/* Primary Quick Filter Row (§5.10.3) */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+            gap: 10,
+            marginTop: 12,
+          }}
+        >
+          {isAuthed && (
+            <div className="wb-field">
+              <label>{t('Project', '研究项目')}</label>
+              <Select
+                value={projectId}
+                onChange={(e) => {
+                  setProjectId(e.target.value);
+                  setBatchIdsParam([]);
+                  setSourceIdsParam([]);
+                  setCursor(undefined);
+                }}
+              >
+                <option value="">{t('All Authorized Projects/Sources', '全部已授权范围')}</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
             </div>
-            <div className="pill-select">
-              {(['', 'reddit', 'x', 'bluesky', 'web'] as const).map((p) => (
-                <button
-                  key={p || 'all'}
-                  type="button"
-                  className={platform === p ? 'on' : ''}
-                  onClick={() => {
-                    setPlatform(p);
-                    setCursor(undefined);
-                  }}
-                >
-                  {p === '' ? t('All', '全部') : p === 'x' ? 'X' : p}
-                </button>
-              ))}
-            </div>
+          )}
+
+          <div className="wb-field">
+            <label>{t('Platform', '平台')}</label>
+            <Select
+              value={platform}
+              onChange={(e) => {
+                setPlatform(e.target.value as '' | Platform);
+                setCursor(undefined);
+              }}
+            >
+              <option value="">{t('All platforms', '全部平台')}</option>
+              <option value="reddit">Reddit</option>
+              <option value="x">X</option>
+              <option value="bluesky">Bluesky</option>
+              <option value="web">Web</option>
+            </Select>
           </div>
 
-          <div className="fb-block">
-            <div className="fbb-label"><span>{t('Signal', '信号')}</span></div>
-            <div className="seg ink" style={{ width: '100%' }}>
-              {([
-                ['', t('All', '全部')],
-                ['discussion', t('Thread', '讨论')],
-                ['pain', t('Pain', '痛点')],
-              ] as const).map(([v, l]) => (
-                <button
-                  key={v || 'all'}
-                  type="button"
-                  className={signal === v ? 'on' : ''}
-                  style={{ flex: 1 }}
-                  onClick={() => {
-                    setSignal(v);
-                    setCursor(undefined);
-                  }}
-                >
-                  {l}
-                </button>
-              ))}
-            </div>
-            <div style={{ fontSize: 9.5, color: 'var(--faint)', marginTop: 6 }}>
-              {t('Pain = lexicon + reply structure', '痛点 = 中英文词库命中 + 高互动结构')}
-            </div>
+          <div className="wb-field">
+            <label>{t('Content Type', '内容类型')}</label>
+            <Select
+              value={kind}
+              onChange={(e) => {
+                setKind(e.target.value as '' | ContentKind);
+                setCursor(undefined);
+              }}
+            >
+              <option value="">{t('All types', '全部类型')}</option>
+              <option value="post">{t('Posts', '帖文')}</option>
+              <option value="comment">{t('Comments', '评论')}</option>
+              <option value="article">{t('Articles', '文章')}</option>
+            </Select>
           </div>
 
-          <div className="fb-block">
-            <div className="fbb-label"><span>{t('Content Kind', '内容形态')}</span></div>
-            <div className="pill-select">
-              {(['', 'post', 'comment', 'article'] as const).map((k) => (
-                <button
-                  key={k || 'all'}
-                  type="button"
-                  className={kind === k ? 'on' : ''}
-                  onClick={() => {
-                    setKind(k);
-                    setCursor(undefined);
-                  }}
-                >
-                  {k === '' ? t('All', '全部') : k}
-                </button>
+          <div className="wb-field">
+            <label>{t('Collection Source', '采集关键词 / 来源')}</label>
+            <Select
+              value={sourceId}
+              onChange={(e) => {
+                setSourceId(e.target.value);
+                setSourceIdsParam([]);
+                setCursor(undefined);
+              }}
+            >
+              <option value="">
+                {sourceIdsParam.length > 0
+                  ? t(`Selected (${sourceIdsParam.length} sources)`, `已选 ${sourceIdsParam.length} 个来源`)
+                  : t('All sources', '全部来源')}
+              </option>
+              {sources.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
               ))}
-            </div>
+            </Select>
           </div>
 
-          <div className="fb-block">
-            <div className="fbb-label"><span>{t('Match Scope', '匹配范围')}</span></div>
-            <div className="seg" style={{ width: '100%' }}>
-              {([
-                ['title', t('Title', '标题')],
-                ['text', t('Body', '正文')],
-                ['title_text', t('Both', '两者')],
-              ] as const).map(([v, l]) => (
-                <button
-                  key={v}
-                  type="button"
-                  className={searchScope === v ? 'on' : ''}
-                  style={{ flex: 1 }}
-                  onClick={() => {
-                    setSearchScope(v);
-                    setCursor(undefined);
-                  }}
-                >
-                  {l}
-                </button>
-              ))}
+          {projectId && projectBatches.length > 0 && (
+            <div className="wb-field">
+              <label>{t('Data Batch', '数据批次')}</label>
+              <Select
+                value={batchIdsParam.length === 1 ? batchIdsParam[0] : ''}
+                onChange={(e) => {
+                  setBatchIdsParam(e.target.value ? [e.target.value] : []);
+                  setCursor(undefined);
+                }}
+              >
+                <option value="">
+                  {batchIdsParam.length > 1
+                    ? t(`Selected (${batchIdsParam.length} batches)`, `已选 ${batchIdsParam.length} 个批次`)
+                    : t('All project batches', '全部项目批次')}
+                </option>
+                {projectBatches.map((b) => (
+                  <option key={b.batchId} value={b.batchId}>
+                    {b.label} ({b.itemCount})
+                  </option>
+                ))}
+              </Select>
             </div>
-            <div style={{ fontSize: 9.5, color: 'var(--faint)', marginTop: 6 }}>
-              {t('Does not cross U+001F delimiter', '严格不跨标题/正文分隔符')}
-            </div>
+          )}
+
+          <div className="wb-field">
+            <label>{t('Time Range', '发布时间')}</label>
+            <Select value={timePreset} onChange={(e) => applyTimePreset(e.target.value as typeof timePreset)}>
+              <option value="all">{t('All time', '全部时间')}</option>
+              <option value="7">{t('Last 7 days', '近 7 天')}</option>
+              <option value="30">{t('Last 30 days', '近 30 天')}</option>
+              <option value="90">{t('Last 90 days', '近 90 天')}</option>
+              <option value="custom">{t('Custom range', '自定义日期')}</option>
+            </Select>
           </div>
         </div>
 
-        {/* Advanced Accordion Row */}
+        {/* Advanced Search Toggle Row */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, gap: 10, flexWrap: 'wrap' }}>
           <button
             type="button"
@@ -736,17 +853,17 @@ export function ContentExplorerPage({
             onClick={() => setAdvOpen((v) => !v)}
           >
             <Sliders size={13} />
-            <span>{t('Advanced Clauses, Project & UTC Window', '更多条件（项目上下文 / 三段布尔词 / UTC 时间窗）')}</span>
+            <span>{t('Advanced Search & Filters', '高级检索（标题/正文匹配 · 布尔词组 · 社区 · 痛点信号 · 讨论折叠）')}</span>
           </button>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 10.5, color: 'var(--faint)' }}>
               {threadAware
-                ? t('threadAware ON · comments fold to root', '讨论树感知已开启 · 评论命中上溯根帖')
-                : t('threadAware OFF · direct hits only', '讨论树感知已关闭')}
+                ? t('Comments fold to root post', '已开启按讨论主题折叠评论')
+                : t('Direct matching items', '按单条内容直接展示')}
             </span>
             <button type="button" className="auth-link" onClick={resetAll}>
-              {t('Reset all', '清空全部')}
+              {t('Reset all', '清空全部条件')}
             </button>
           </div>
         </div>
@@ -754,53 +871,102 @@ export function ContentExplorerPage({
         <div className={`adv-filters ${advOpen ? 'open' : ''}`}>
           <div className="adv-inner">
             <div className="adv-field">
-              <label>{t('Project & Source Scope', '限定项目与来源')}</label>
+              <label>{t('Match Position & Community', '匹配位置与社区')}</label>
               <div style={{ display: 'grid', gap: 6 }}>
-                <select
-                  className="wb-select"
-                  value={projectId}
+                <Select
+                  value={searchScope}
                   onChange={(e) => {
-                    setProjectId(e.target.value);
+                    setSearchScope(e.target.value as SearchScope);
                     setCursor(undefined);
                   }}
                 >
-                  <option value="">{t('All Authorized Sources', '全部已授权来源')}</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-                <select
-                  className="wb-select"
-                  value={sourceId}
+                  <option value="title_text">{t('Title & Body', '标题与正文')}</option>
+                  <option value="title">{t('Title only', '仅匹配标题')}</option>
+                  <option value="text">{t('Body only', '仅匹配正文')}</option>
+                </Select>
+                <Input
+                  className="wb-input"
+                  value={community}
                   onChange={(e) => {
-                    setSourceId(e.target.value);
+                    setCommunity(e.target.value);
+                    setCursor(undefined);
+                  }}
+                  placeholder={t('Community (e.g. ChatGPT)', '社区名称（如 ChatGPT / LocalLLaMA）')}
+                />
+                <Select
+                  value={signal}
+                  onChange={(e) => {
+                    setSignal(e.target.value as '' | SignalType);
                     setCursor(undefined);
                   }}
                 >
-                  <option value="">{t('Any Source', '全部来源')}</option>
-                  {sources.map((s) => (
-                    <option key={s.id} value={s.id}>{s.label}</option>
-                  ))}
-                </select>
+                  <option value="">{t('All Signals', '全部讨论信号')}</option>
+                  <option value="pain">{t('Pain Signals', '痛点与问题讨论')}</option>
+                  <option value="discussion">{t('High-Reply Threads', '高互动讨论')}</option>
+                </Select>
               </div>
             </div>
 
             <div className="adv-field">
-              <label>{t('Boolean Terms (anyTerms / allTerms / exclusions)', '布尔词组（逗号分隔）')}</label>
+              <label>{t('Boolean Clauses (comma separated)', '三段布尔词组（逗号分隔）')}</label>
               <div style={{ display: 'grid', gap: 6 }}>
-                <Input className="wb-input" value={anyTermsText} onChange={(e) => { setAnyTermsText(e.target.value); setCursor(undefined); }} placeholder="OR: pricing, billing" />
-                <Input className="wb-input" value={allTermsText} onChange={(e) => { setAllTermsText(e.target.value); setCursor(undefined); }} placeholder="AND: latency" />
-                <Input className="wb-input" value={exclusionsText} onChange={(e) => { setExclusionsText(e.target.value); setCursor(undefined); }} placeholder="NOT: hiring" />
+                <Input
+                  className="wb-input"
+                  value={anyTermsText}
+                  onChange={(e) => {
+                    setAnyTermsText(e.target.value);
+                    setCursor(undefined);
+                  }}
+                  placeholder="OR (任意命中): pricing, billing"
+                />
+                <Input
+                  className="wb-input"
+                  value={allTermsText}
+                  onChange={(e) => {
+                    setAllTermsText(e.target.value);
+                    setCursor(undefined);
+                  }}
+                  placeholder="AND (全部命中): latency"
+                />
+                <Input
+                  className="wb-input"
+                  value={exclusionsText}
+                  onChange={(e) => {
+                    setExclusionsText(e.target.value);
+                    setCursor(undefined);
+                  }}
+                  placeholder="NOT (排除词): hiring"
+                />
               </div>
             </div>
 
             <div className="adv-field">
-              <label>{t('UTC [from, to) & Structure', '时间窗 [from, to) 与讨论树开关')}</label>
+              <label>{t('Custom Dates & Thread Folding', '自定义时间范围与讨论折叠')}</label>
               <div style={{ display: 'grid', gap: 6 }}>
-                <input type="datetime-local" className="wb-input" value={fromIso} onChange={(e) => { setFromIso(e.target.value); setCursor(undefined); }} />
-                <input type="datetime-local" className="wb-input" value={toIso} onChange={(e) => { setToIso(e.target.value); setCursor(undefined); }} />
+                <input
+                  type="datetime-local"
+                  aria-label={t('Start date', '起始时间')}
+                  className="wb-input"
+                  value={fromIso}
+                  onChange={(e) => {
+                    setTimePreset('custom');
+                    setFromIso(e.target.value);
+                    setCursor(undefined);
+                  }}
+                />
+                <input
+                  type="datetime-local"
+                  aria-label={t('End date', '结束时间')}
+                  className="wb-input"
+                  value={toIso}
+                  onChange={(e) => {
+                    setTimePreset('custom');
+                    setToIso(e.target.value);
+                    setCursor(undefined);
+                  }}
+                />
                 <div className="toggle-line" style={{ padding: '4px 0' }}>
-                  <span>threadAware</span>
+                  <span>{t('Fold comments to thread root', '按讨论主题折叠评论')}</span>
                   <button
                     type="button"
                     className="ds-switch"
@@ -823,73 +989,35 @@ export function ContentExplorerPage({
         )}
       </div>
 
-      {/* Batch Reddit Hydration Bar (projectId context + write role) */}
-      {projectId && canWrite && (
-        <div
-          style={{
-            marginTop: 12,
-            padding: '10px 14px',
-            borderRadius: 7,
-            background: 'var(--wb-teal-tint, #eef6f3)',
-            border: '1px solid rgba(var(--accent2-rgb), 0.25)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: 10,
-          }}
-        >
-          <div style={{ fontSize: 12 }}>
-            <b>{t('Batch Reddit Comment Hydration', 'Reddit 批量评论水合队列')}</b>
-            <span style={{ marginLeft: 8, color: 'var(--ink-3)' }}>
-              {t(`Selected ${selectedHydrateIds.length}/30 root Reddit posts (t3_*)`, `已选择 ${selectedHydrateIds.length}/30 根 Reddit 主帖 (t3_*)`)}
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>maxCommentsPerPost:</span>
-            <input
-              type="number"
-              className="wb-input"
-              style={{ width: 64, padding: '4px 7px' }}
-              min={1}
-              max={50}
-              value={maxCommentsPerPost}
-              onChange={(e) => setMaxCommentsPerPost(Math.min(50, Math.max(1, Number(e.target.value) || 25)))}
-            />
-            <button
-              type="button"
-              className="ds-btn"
-              style={{ height: 30, fontSize: 11 }}
-              disabled={selectedHydrateIds.length === 0 || hydrateMut.isPending}
-              onClick={handleHydrate}
-            >
-              {t('Dispatch Hydrate', '派发水合')}
-            </button>
-          </div>
-          {hydrateMsg && <div style={{ width: '100%', fontSize: 11.5, fontWeight: 600 }}>{hydrateMsg}</div>}
-          {batchJobsQuery.data?.jobs && batchJobsQuery.data.jobs.length > 0 && (
-            <div style={{ width: '100%', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {batchJobsQuery.data.jobs.map((j) => (
-                <span key={j.id} className="tag tag--lilac">
-                  {j.id.slice(0, 8)} · {j.status} ({j.phase || j.provider_state.phase})
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Results Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '14px 0 8px', gap: 10 }}>
         <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-          <b style={{ color: 'var(--ink)' }}>{items.length}</b> {t('loaded rows · cursor scoped to filter hash', '条已加载结果 · 游标绑定当前筛选指纹')}
+          {evidenceMode ? (
+            <>
+              <b style={{ color: 'var(--ink)' }}>{evidenceQuery.data?.total ?? evidenceItems.length}</b>{' '}
+              {t('matched task evidence items', '条任务命中证据样本')}
+            </>
+          ) : (
+            <>
+              <b style={{ color: 'var(--ink)' }}>{items.length}</b>{' '}
+              {nextCursor
+                ? t('items loaded (more results available)', '条已加载结果（当前仅加载了部分匹配结果，可继续加载下一页）')
+                : t('matching items loaded', '条已加载匹配结果')}
+            </>
+          )}
         </div>
-        <button type="button" className="icon-square" style={{ width: 30, height: 30 }} onClick={() => contentQuery.refetch()} title={t('Refresh', '刷新列表')}>
+        <button
+          type="button"
+          className="icon-square"
+          style={{ width: 30, height: 30 }}
+          onClick={() => (evidenceMode ? void evidenceQuery.refetch() : void contentQuery.refetch())}
+          title={t('Refresh', '刷新列表')}
+        >
           <RefreshCw size={13} />
         </button>
       </div>
 
-      {/* DeepSeek Result List */}
+      {/* Results List & Distinguished Empty/Error States (§5.10.4) */}
       <div className="result-list">
         <div className="res-head">
           <span>{t('Discussion', '讨论内容')}</span>
@@ -899,48 +1027,208 @@ export function ContentExplorerPage({
           <span></span>
         </div>
 
-        {contentQuery.isError ? (
-          <Alert variant="destructive" className="wb-alert wb-alert--error">{formatApiError(contentQuery.error)}</Alert>
+        {evidenceMode ? (
+          evidenceQuery.isError ? (
+            <div style={{ padding: 16 }}>
+              <Alert variant="destructive" className="flex items-center justify-between gap-3">
+                <span>{formatApiError(evidenceQuery.error)}</span>
+                <Button type="button" variant="outline" size="xs" onClick={() => void evidenceQuery.refetch()}>
+                  <RefreshCw size={12} />
+                  <span>{t('Retry', '重试')}</span>
+                </Button>
+              </Alert>
+            </div>
+          ) : evidenceQuery.isLoading ? (
+            <div style={{ padding: 16, display: 'grid', gap: 10 }}>
+              {[0, 1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-16 rounded-lg" />
+              ))}
+            </div>
+          ) : evidenceItems.length === 0 ? (
+            <div style={{ padding: 20 }}>
+              <Empty
+                title={t('No task evidence items match this slice', '当前任务分片下没有可显示的证据样本')}
+                description={t(
+                  'Try exiting Task Evidence Mode to browse all project discussions.',
+                  '可能是权限范围变化或该分段暂无匹配条目，可点击下方退出任务证据视图恢复自由检索。',
+                )}
+                action={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setAnalysisTaskId('');
+                      setTaskSentiment('');
+                      setTaskTopicIndex(undefined);
+                      setEvidenceOffset(0);
+                    }}
+                  >
+                    {t('Exit Task Evidence Mode', '退出任务证据视图')}
+                  </Button>
+                }
+              />
+            </div>
+          ) : (
+            evidenceItems.map((item) => {
+              const primaryMetric = item.platform === 'reddit' ? (item.metricScore ?? 0) : (item.metricLikes ?? item.metricScore ?? 0);
+              return (
+                <div key={item.id} className="res-row" onClick={() => setDetailId(item.id)}>
+                  <div>
+                    <div className="res-top">
+                      <span
+                        className="tag tag--line"
+                        style={{ height: 19, fontSize: 9.5, textTransform: item.platform === 'x' ? 'uppercase' : 'capitalize' }}
+                      >
+                        {item.platform} · {item.kind === 'post' ? t('Post', '帖文') : item.kind === 'comment' ? t('Comment', '评论') : item.kind}
+                      </span>
+                      {item.sentimentLabel && (
+                        <span className="tag" style={{ height: 19, fontSize: 9.5 }}>
+                          {t('Sentiment', '情感')}: {item.sentimentLabel}
+                        </span>
+                      )}
+                      {item.topicIndex !== null && (
+                        <span className="tag" style={{ height: 19, fontSize: 9.5 }}>
+                          {t('Topic', '主题')} #{item.topicIndex + 1}
+                        </span>
+                      )}
+                    </div>
+                    <div className="res-title">{item.title || item.text?.slice(0, 96) || item.externalId}</div>
+                    {item.text && <div className="res-excerpt">{item.text}</div>}
+                    <div className="res-meta">
+                      <span>{item.authorHandle || t('Unknown author', '匿名/未知作者')}</span>
+                      {item.communityName && (
+                        <>
+                          <span>·</span>
+                          <span>{item.communityName}</span>
+                        </>
+                      )}
+                      <span>·</span>
+                      <span>
+                        {item.publishedAt
+                          ? item.publishedAt.slice(0, 16).replace('T', ' ') + ' UTC'
+                          : t('Unknown publish time', '发布时间未知')}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="res-stat">
+                    {primaryMetric.toLocaleString()}
+                    <span>{item.platform === 'reddit' ? 'score' : 'likes'}</span>
+                  </div>
+                  <div className="res-stat">
+                    {item.metricComments ?? 0}
+                    <span>{t('replies', '评论')}</span>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span className="sig neutral">{Math.round(item.engagementScore)} eng</span>
+                  </div>
+                  <button
+                    type="button"
+                    style={{
+                      border: 0,
+                      background: 'none',
+                      padding: 0,
+                      color: 'var(--faint)',
+                      cursor: 'pointer',
+                      display: 'grid',
+                      placeItems: 'center',
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDefaultDrawerTab('note');
+                      setDetailId(item.id);
+                    }}
+                    title={t('Annotate or Bookmark', '批注与收藏')}
+                  >
+                    <Star size={14} />
+                  </button>
+                </div>
+              );
+            })
+          )
+        ) : contentQuery.isError ? (
+          <div style={{ padding: 16 }}>
+            <Alert variant="destructive" className="flex items-center justify-between gap-3">
+              <span>
+                {isForbiddenError
+                  ? t('You do not have permission to access data under this scope.', '当前账号权限下暂无可访问的数据。')
+                  : `${t('Search request failed:', '检索请求失败：')}${formatApiError(contentQuery.error)}`}
+              </span>
+              <Button type="button" variant="outline" size="xs" onClick={() => void contentQuery.refetch()}>
+                <RefreshCw size={12} />
+                <span>{t('Retry', '重试')}</span>
+              </Button>
+            </Alert>
+          </div>
+        ) : contentQuery.isLoading ? (
+          <div style={{ padding: 16, display: 'grid', gap: 10 }}>
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-16 rounded-lg" />
+            ))}
+          </div>
         ) : items.length === 0 ? (
-          <div style={{ padding: '42px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>
-            {contentQuery.isLoading
-              ? t('Loading stored content stream...', '正在检索已存内容流...')
-              : t('No matching discussions found. Adjust query terms or reset filters.', '当前筛选条件下没有匹配数据。')}
+          <div style={{ padding: 20 }}>
+            {projectHasZeroData ? (
+              <Empty
+                title={t('No data collected in this project yet', '当前项目尚未采集数据')}
+                description={t(
+                  'Go to Data Ingestion to collect posts or attach existing data batches before searching.',
+                  '请先前往「数据接入」发起采集或导入已有数据批次，再进行内容检索与阅读。',
+                )}
+                action={
+                  onNavigate && projectId ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => onNavigate(`/projects?view=collect&projectId=${encodeURIComponent(projectId)}`)}
+                    >
+                      {t('Go to Data Ingestion', '前往数据接入')}
+                    </Button>
+                  ) : undefined
+                }
+              />
+            ) : (
+              <Empty
+                title={t('No matching discussions found', '当前检索条件下没有匹配内容')}
+                description={t(
+                  'Try adjusting keywords, widening the date window, or clearing filters.',
+                  '项目已有数据，但当前检索词或筛选条件未命中内容，可尝试更换词组、放宽时间范围或重置条件。',
+                )}
+                action={
+                  <Button type="button" variant="outline" size="sm" onClick={resetAll}>
+                    {t('Reset Filters', '重置检索条件')}
+                  </Button>
+                }
+              />
+            )}
           </div>
         ) : (
           items.map((item) => {
             const { score, comments } = getScoreAndComments(item);
             const isPain = PAIN_RE.test(`${item.title || ''} ${item.text || ''}`);
             const isDisc = comments >= 10;
-            const isRedditRoot = item.platform === 'reddit' && item.kind === 'post' && item.externalId.startsWith('t3_');
 
             return (
               <div key={item.id} className="res-row" onClick={() => setDetailId(item.id)}>
                 <div>
                   <div className="res-top">
-                    {projectId && canWrite && isRedditRoot && (
-                      <input
-                        type="checkbox"
-                        checked={selectedHydrateIds.includes(item.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={() => toggleHydrateSelect(item.id)}
-                        title={t('Select Reddit root t3_* for batch hydration', '勾选纳入 Reddit 批量评论水合')}
-                      />
-                    )}
-                    <span className="tag tag--line" style={{ height: 19, fontSize: 9.5, textTransform: item.platform === 'x' ? 'uppercase' : 'capitalize' }}>
-                      {item.platform} · {item.kind}
+                    <span
+                      className="tag tag--line"
+                      style={{ height: 19, fontSize: 9.5, textTransform: item.platform === 'x' ? 'uppercase' : 'capitalize' }}
+                    >
+                      {item.platform} · {item.kind === 'post' ? t('Post', '帖文') : item.kind === 'comment' ? t('Comment', '评论') : item.kind}
                     </span>
                     <span className="tag" style={{ height: 19, fontSize: 9.5 }}>
                       {item.externalId}
                     </span>
                     {item.contextMissing && (
                       <span className="tag" style={{ height: 19, fontSize: 9.5, background: '#fdf3e1', color: '#8a5a12' }}>
-                        <AlertTriangle size={10} /> contextMissing
+                        <AlertTriangle size={10} /> {t('Parent post not yet collected', '上层原帖未入库')}
                       </span>
                     )}
                     {!item.publishedAt && (
                       <span className="tag" style={{ height: 19, fontSize: 9.5, background: '#fdf0ec', color: '#8f3f2a' }}>
-                        publishedAt: null
+                        {t('Publish time unknown', '发布时间未知')}
                       </span>
                     )}
                   </div>
@@ -951,13 +1239,17 @@ export function ContentExplorerPage({
                     <span>·</span>
                     <span>{[...new Set(item.observations.map((o) => o.provider))].join(' + ')}</span>
                     <span>·</span>
-                    <span>{item.publishedAt ? item.publishedAt.slice(0, 16).replace('T', ' ') + ' UTC' : t('Unknown publish time', '发布时间未知')}</span>
+                    <span>
+                      {item.publishedAt
+                        ? item.publishedAt.slice(0, 16).replace('T', ' ') + ' UTC'
+                        : t('Unknown publish time', '发布时间未知')}
+                    </span>
                   </div>
                 </div>
 
                 <div className="res-stat">
                   {score.toLocaleString()}
-                  <span>{item.platform === 'reddit' ? 'upvotes' : 'likes'}</span>
+                  <span>{item.platform === 'reddit' ? 'score' : 'likes'}</span>
                 </div>
 
                 <div className="res-stat">
@@ -973,7 +1265,15 @@ export function ContentExplorerPage({
 
                 <button
                   type="button"
-                  style={{ border: 0, background: 'none', padding: 0, color: 'var(--faint)', cursor: 'pointer', display: 'grid', placeItems: 'center' }}
+                  style={{
+                    border: 0,
+                    background: 'none',
+                    padding: 0,
+                    color: 'var(--faint)',
+                    cursor: 'pointer',
+                    display: 'grid',
+                    placeItems: 'center',
+                  }}
                   onClick={(e) => {
                     e.stopPropagation();
                     setDefaultDrawerTab('note');
@@ -988,24 +1288,77 @@ export function ContentExplorerPage({
           })
         )}
 
-        <div style={{ padding: '11px 16px', background: '#fdfefb', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5, color: 'var(--muted)' }}>
-          <span>{nextCursor ? t('More stored items available via cursor', '仍有更多匹配样本') : t('End of stream · nextCursor: null', '已到底部 · nextCursor: null')}</span>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {cursor && (
-              <button type="button" className="ds-btn ds-btn--ghost" style={{ height: 28, fontSize: 11 }} onClick={() => setCursor(undefined)}>
-                {t('First Page', '回到首页')}
-              </button>
-            )}
-            <button
-              type="button"
-              className="ds-btn"
-              style={{ height: 28, fontSize: 11 }}
-              disabled={!nextCursor}
-              onClick={() => nextCursor && setCursor(nextCursor)}
-            >
-              {t('Load Next Page', '加载下一页')}
-            </button>
-          </div>
+        <div
+          style={{
+            padding: '11px 16px',
+            background: '#fdfefb',
+            borderTop: '1px solid var(--line)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            fontSize: 11.5,
+            color: 'var(--muted)',
+          }}
+        >
+          {evidenceMode ? (
+            <>
+              <span>
+                {t('Showing', '当前第')} {evidenceOffset + 1} -{' '}
+                {Math.min(evidenceOffset + evidenceItems.length, evidenceQuery.data?.total ?? 0)}{' '}
+                {t('of', '/')} {evidenceQuery.data?.total ?? 0}
+              </span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {evidenceOffset > 0 && (
+                  <button
+                    type="button"
+                    className="ds-btn ds-btn--ghost"
+                    style={{ height: 28, fontSize: 11 }}
+                    onClick={() => setEvidenceOffset(Math.max(0, evidenceOffset - 30))}
+                  >
+                    {t('Previous Page', '上一页')}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="ds-btn"
+                  style={{ height: 28, fontSize: 11 }}
+                  disabled={evidenceOffset + evidenceItems.length >= (evidenceQuery.data?.total ?? 0)}
+                  onClick={() => setEvidenceOffset(evidenceOffset + 30)}
+                >
+                  {t('Next Page', '下一页')}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <span>
+                {nextCursor
+                  ? t('More matching items are available on the next page', '仍有更多匹配样本，点击右侧继续加载')
+                  : t('All matching items in current scope have been loaded', '当前条件下的匹配结果已全部加载')}
+              </span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {cursor && (
+                  <button
+                    type="button"
+                    className="ds-btn ds-btn--ghost"
+                    style={{ height: 28, fontSize: 11 }}
+                    onClick={() => setCursor(undefined)}
+                  >
+                    {t('First Page', '回到第一页')}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="ds-btn"
+                  style={{ height: 28, fontSize: 11 }}
+                  disabled={!nextCursor}
+                  onClick={() => nextCursor && setCursor(nextCursor)}
+                >
+                  {t('Load Next Page', '加载下一页')}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -1014,6 +1367,8 @@ export function ContentExplorerPage({
         <ContentDetailDrawer
           key={`${detailId}:${defaultDrawerTab}`}
           actor={actor}
+          projectId={projectId || undefined}
+          canWrite={canWrite}
           contentId={detailId}
           initialTab={defaultDrawerTab}
           scopeQuery={threadScope}
@@ -1024,19 +1379,22 @@ export function ContentExplorerPage({
           }}
         />
       )}
+
       {cursorScopeChanged && (
         <div className="wb-alert wb-alert--warn" style={{ marginTop: 12, justifyContent: 'space-between' }}>
-          <span>{t('Scope changed (409 cursor_scope_changed). Reset cursor to page 1.', '过滤条件或项目版本号已变更（409），请重置游标到第一页。')}</span>
+          <span>
+            {t('Search scope changed while paging. Reset to page 1.', '筛选条件或项目数据版本已更新，请重置到第一页。')}
+          </span>
           <button
             type="button"
             className="ds-btn ds-btn--ghost"
             style={{ height: 26, fontSize: 11 }}
             onClick={() => {
               setCursor(undefined);
-              setCursorNotice(t('Cursor reset to page 1.', '已重置游标到第一页。'));
+              setCursorNotice(t('Reset to page 1.', '已回到第一页。'));
             }}
           >
-            {t('Reset Cursor', '重置第一页')}
+            {t('Reset to Page 1', '回到第一页')}
           </button>
         </div>
       )}
@@ -1046,6 +1404,8 @@ export function ContentExplorerPage({
 
 function ContentDetailDrawer({
   actor,
+  projectId,
+  canWrite,
   contentId,
   initialTab = 'overview',
   scopeQuery,
@@ -1053,6 +1413,8 @@ function ContentDetailDrawer({
   onClose,
 }: {
   actor: Actor | null;
+  projectId?: string;
+  canWrite: boolean;
   contentId: string;
   initialTab?: 'overview' | 'thread' | 'note';
   scopeQuery: ListQuery;
@@ -1063,6 +1425,11 @@ function ContentDetailDrawer({
   const detailQuery = useContentDetailQuery(contentId);
   const annQuery = useAnnotationQuery(actor ? contentId : null);
   const saveAnnMut = useSaveAnnotationMutation();
+  const hydrateMut = useHydrateMutation();
+  const [hydrateJobIds, setHydrateJobIds] = useState<string[]>([]);
+  const [hydrateMsg, setHydrateMsg] = useState<string | null>(null);
+  const hydrateIdemRef = useRef<string>(generateUuidV4());
+  const batchJobsQuery = useBatchJobsQuery(hydrateJobIds);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1098,7 +1465,7 @@ function ContentDetailDrawer({
       const res = await saveAnnMut.mutateAsync({ contentId, edit: { favorite, note, revision: annRev } });
       setRevOverride({ key: contentId, rev: res.revision });
       setAnnDraft({ key: `${contentId}:${res.revision}`, favorite, note });
-      setAnnMsg(t(`Saved cleanly · revision ${res.revision}`, `批注已保存 · 乐观锁 rev ${res.revision}`));
+      setAnnMsg(t(`Saved cleanly · revision ${res.revision}`, `批注已保存 · rev ${res.revision}`));
     } catch (err) {
       setAnnMsg(formatApiError(err));
     }
@@ -1106,6 +1473,34 @@ function ContentDetailDrawer({
 
   const item = detailQuery.data?.content;
   const { score, comments } = item ? getScoreAndComments(item) : { score: 0, comments: 0 };
+  const threadNodesCount = threadQuery.data?.nodes.length ?? 0;
+  const canHydrateThisPost = Boolean(
+    projectId &&
+      canWrite &&
+      item &&
+      item.platform === 'reddit' &&
+      item.kind === 'post' &&
+      item.externalId.startsWith('t3_'),
+  );
+  const commentsIncomplete = Boolean(item && item.kind === 'post' && comments > Math.max(0, threadNodesCount - 1));
+
+  const handleHydrateSingle = async () => {
+    if (!projectId || !item) return;
+    setHydrateMsg(null);
+    try {
+      const res = await hydrateMut.mutateAsync({
+        projectId,
+        contentIds: [item.id],
+        maxCommentsPerPost: 25,
+        idempotencyKey: hydrateIdemRef.current,
+      });
+      setHydrateJobIds(res.jobIds);
+      hydrateIdemRef.current = generateUuidV4();
+      setHydrateMsg(t(`Queued ${res.jobIds.length} comment collection job.`, `已加入评论补充采集队列（${res.jobIds.length} 个任务）。`));
+    } catch (err) {
+      setHydrateMsg(formatApiError(err));
+    }
+  };
 
   return (
     <div className="drawer-backdrop" onClick={onClose}>
@@ -1126,23 +1521,24 @@ function ContentDetailDrawer({
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, fontSize: 10.5, color: 'var(--faint)', marginTop: 6 }}>
               <span>{formatContentAuthor(item.author)}</span>
               <span>·</span>
-              <span>availability: {item.availability}</span>
-              <span>·</span>
-              <span>textState: {item.textState}</span>
-              {item.contextMissing && (
-                <span className="tag" style={{ height: 18, fontSize: 9.5, background: '#fdf3e1', color: '#8a5a12' }}>
-                  contextMissing: true
-                </span>
+              <span>{item.availability === 'available' ? t('Available', '内容可用') : item.availability}</span>
+              {commentsIncomplete && (
+                <>
+                  <span>·</span>
+                  <span className="tag" style={{ height: 18, fontSize: 9.5, background: '#fdf3e1', color: '#8a5a12' }}>
+                    {t('Comments partially collected', '部分评论尚未采集')}
+                  </span>
+                </>
               )}
             </div>
           )}
 
           <div className="tabs" style={{ marginTop: 12, borderBottom: 0 }}>
             <button type="button" aria-selected={tab === 'overview'} onClick={() => setTab('overview')}>
-              {t('Overview & Snapshots', '概览与观测曲线')}
+              {t('Overview & Snapshots', '正文与观测曲线')}
             </button>
             <button type="button" aria-selected={tab === 'thread'} onClick={() => setTab('thread')}>
-              {t('Thread Tree', '讨论树')} ({threadQuery.data?.nodes.length ?? 0})
+              {t('Thread Tree', '讨论树')} ({threadNodesCount})
             </button>
             <button type="button" aria-selected={tab === 'note'} onClick={() => setTab('note')}>
               {t('Annotation', '研究批注')} (rev {annRev})
@@ -1169,21 +1565,67 @@ function ContentDetailDrawer({
                   <span style={{ fontSize: 9, textTransform: 'uppercase', color: 'var(--faint)' }}>
                     {item.platform === 'reddit' ? 'Upvotes' : 'Likes'}
                   </span>
-                  <b style={{ display: 'block', fontSize: 18, fontFamily: 'var(--font-display)', marginTop: 2 }}>{score.toLocaleString()}</b>
+                  <b style={{ display: 'block', fontSize: 18, fontFamily: 'var(--font-display)', marginTop: 2 }}>
+                    {score.toLocaleString()}
+                  </b>
                 </div>
                 <div style={{ border: '1px solid var(--line)', borderRadius: 6, padding: '8px 10px' }}>
-                  <span style={{ fontSize: 9, textTransform: 'uppercase', color: 'var(--faint)' }}>{t('Comments', '评论数')}</span>
+                  <span style={{ fontSize: 9, textTransform: 'uppercase', color: 'var(--faint)' }}>
+                    {t('Reported Replies', '平台记录评论')}
+                  </span>
                   <b style={{ display: 'block', fontSize: 18, fontFamily: 'var(--font-display)', marginTop: 2 }}>{comments}</b>
                 </div>
                 <div style={{ border: '1px solid var(--line)', borderRadius: 6, padding: '8px 10px' }}>
-                  <span style={{ fontSize: 9, textTransform: 'uppercase', color: 'var(--faint)' }}>{t('Snapshots', '观测快照')}</span>
-                  <b style={{ display: 'block', fontSize: 18, fontFamily: 'var(--font-display)', marginTop: 2 }}>{item.observations.length}</b>
+                  <span style={{ fontSize: 9, textTransform: 'uppercase', color: 'var(--faint)' }}>
+                    {t('Snapshots', '观测快照')}
+                  </span>
+                  <b style={{ display: 'block', fontSize: 18, fontFamily: 'var(--font-display)', marginTop: 2 }}>
+                    {item.observations.length}
+                  </b>
                 </div>
               </div>
 
+              {canHydrateThisPost && (
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 6,
+                    border: '1px solid var(--line)',
+                    background: 'var(--wb-teal-tint, #eef6f3)',
+                    display: 'grid',
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>
+                      {t('Supplemental Comment Collection', '补充采集此帖评论')}
+                    </span>
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="outline"
+                      disabled={hydrateMut.isPending}
+                      onClick={handleHydrateSingle}
+                    >
+                      {hydrateMut.isPending ? t('Dispatching...', '派发中...') : t('Collect Comments', '补充采集评论')}
+                    </Button>
+                  </div>
+                  {hydrateMsg && <div style={{ fontSize: 11.5 }}>{hydrateMsg}</div>}
+                  {batchJobsQuery.data?.jobs && batchJobsQuery.data.jobs.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {batchJobsQuery.data.jobs.map((j) => (
+                        <span key={j.id} className="tag tag--lilac">
+                          {j.id.slice(0, 8)} · {j.status}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <div style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--faint)', fontWeight: 650, marginBottom: 6 }}>
-                  {t('Observation Trajectory (ECharts Split Axes)', '单内容多快照指标演变 (ECharts 分轴轨迹)')}
+                  {t('Observation Trajectory', '单内容多快照指标演变')}
                 </div>
                 <ObservationChart observations={item.observations} />
               </div>
@@ -1213,22 +1655,39 @@ function ContentDetailDrawer({
           )}
 
           {tab === 'thread' && (
-            <ThreadTreeView
-              thread={threadQuery.data}
-              view={threadView}
-              onChangeView={setThreadView}
-              loading={threadQuery.isLoading}
-            />
+            <div className="space-y-3">
+              {commentsIncomplete && (
+                <div className="wb-alert wb-alert--info" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>
+                    {t(
+                      'Some comments for this post have not been collected yet.',
+                      '当前主帖的部分评论数据尚未完整采集入库。',
+                    )}
+                  </span>
+                  {canHydrateThisPost && (
+                    <Button type="button" size="xs" variant="outline" onClick={handleHydrateSingle} disabled={hydrateMut.isPending}>
+                      {t('Collect Comments', '补充采集')}
+                    </Button>
+                  )}
+                </div>
+              )}
+              <ThreadTreeView
+                thread={threadQuery.data}
+                view={threadView}
+                onChangeView={setThreadView}
+                loading={threadQuery.isLoading}
+              />
+            </div>
           )}
 
-          {tab === 'note' && (
-            actor ? (
+          {tab === 'note' &&
+            (actor ? (
               <form onSubmit={handleSaveAnn} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 12, fontWeight: 650 }}>
-                    {t('Personal Annotation (Optimistic Lock)', '个人研究批注（乐观锁并发控制）')}
+                    {t('Personal Annotation', '个人研究批注')}
                   </span>
-                  <span className="tag tag--line">revision {annRev}</span>
+                  <span className="tag tag--line">rev {annRev}</span>
                 </div>
 
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, cursor: 'pointer' }}>
@@ -1243,11 +1702,14 @@ function ContentDetailDrawer({
                   maxLength={2000}
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
-                  placeholder={t('Write researcher insights or next actions (up to 2000 chars)...', '写下你的判断、证据出处或下一步动作（不超过 2000 字符）…')}
+                  placeholder={t(
+                    'Write researcher insights or next actions (up to 2000 chars)...',
+                    '写下你的判断、证据出处或下一步动作（不超过 2000 字符）…',
+                  )}
                 />
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--faint)' }}>
-                  <span>{t('Preserves local draft on 409 conflict', '发生乐观锁 409 冲突时自动保留本地草稿')}</span>
+                  <span>{t('Preserves local draft on version conflict', '发生版本冲突时自动保留本地草稿')}</span>
                   <span>{note.length} / 2000</span>
                 </div>
 
@@ -1277,16 +1739,11 @@ function ContentDetailDrawer({
                   <span>{t('Sign in to annotate', '登录后收藏与记录笔记')}</span>
                 </button>
               </div>
-            )
-          )}
+            ))}
         </div>
 
         <footer className="dw-ft">
-          <button
-            type="button"
-            className="ds-btn ds-btn--quiet"
-            onClick={() => setTab('note')}
-          >
+          <button type="button" className="ds-btn ds-btn--quiet" onClick={() => setTab('note')}>
             <Heart size={13} color={favorite ? '#c99b1d' : undefined} />
             <span>{favorite ? t('Bookmarked', '已收藏') : t('Bookmark', '收藏与批注')}</span>
           </button>

@@ -6,7 +6,22 @@ import {
   ApiError,
   type ApiErrorEnvelope,
   type AuditEventDto,
+  type AuthorDirectoryRowDto,
+  type AuthorProfileResponseDto,
   type CapabilitiesResponse,
+  type CommunityDeepDiveResponseDto,
+  type CommunityMatrixRowDto,
+  type FeedAdminSummaryDto,
+  type FeedEventType,
+  type FeedHotResponseDto,
+  type FeedMode,
+  type FeedPreferencesDto,
+  type FeedStreamResponseDto,
+  type IntelligenceOpsSummaryDto,
+  type MonitorOverviewResponseDto,
+  type MonitorPostsResponseDto,
+  type Platform,
+  type ContentKind,
   type CollectionSource,
   type ContentFacets,
   type ContentFacetsQuery,
@@ -218,6 +233,11 @@ export const apiClient = {
   async getStories(query: StoryQuery = {}): Promise<StoryFeed> {
     const qs = buildQueryParams({ ...query });
     return liveFetch(`/content/stories${qs}`);
+  },
+
+  async getStoryInsights(query: import('../contracts/api').StoryInsightsQuery = {}): Promise<import('../contracts/api').StoryInsights> {
+    const qs = buildQueryParams({ ...query });
+    return liveFetch(`/content/stories/insights${qs}`);
   },
 
   async getContentFacets(query: ContentFacetsQuery): Promise<ContentFacets> {
@@ -848,6 +868,293 @@ export const apiClient = {
 
   async deleteDoc(id: string): Promise<{ deleted: boolean }> {
     return liveFetch(`/docs/${id}`, { method: 'DELETE' });
+  },
+
+  async getFeedStream(params: {
+    mode?: FeedMode;
+    topic?: string;
+    platform?: Platform;
+    language?: string;
+    includeNews?: boolean;
+    limit?: number;
+    excludeIds?: string[];
+  }): Promise<FeedStreamResponseDto> {
+    const qs = new URLSearchParams();
+    if (params.mode) qs.set('mode', params.mode);
+    if (params.topic) qs.set('topic', params.topic);
+    if (params.platform) qs.set('platform', params.platform);
+    if (params.language) qs.set('language', params.language);
+    if (params.includeNews !== undefined) qs.set('includeNews', String(params.includeNews));
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.excludeIds?.length) qs.set('excludeIds', params.excludeIds.slice(0, 120).join(','));
+    const q = qs.toString();
+    return liveFetch(`/feed/stream${q ? `?${q}` : ''}`);
+  },
+
+  async getFeedHot(params: {
+    window?: '6h' | '24h' | '48h' | '7d';
+    platform?: Platform;
+    topic?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<FeedHotResponseDto> {
+    const qs = new URLSearchParams();
+    if (params.window) qs.set('window', params.window);
+    if (params.platform) qs.set('platform', params.platform);
+    if (params.topic) qs.set('topic', params.topic);
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset !== undefined) qs.set('offset', String(params.offset));
+    const q = qs.toString();
+    return liveFetch(`/feed/hot${q ? `?${q}` : ''}`);
+  },
+
+  async recordFeedEvents(events: Array<{
+    contentId: string;
+    eventType: FeedEventType;
+    dwellMs?: number;
+    meta?: Record<string, string>;
+  }>): Promise<{ accepted: number }> {
+    return liveFetch('/feed/events', {
+      method: 'POST',
+      body: JSON.stringify({ events }),
+    });
+  },
+
+  async getFeedPreferences(): Promise<FeedPreferencesDto> {
+    return liveFetch('/feed/preferences');
+  },
+
+  async updateFeedPreferences(patch: Partial<Pick<FeedPreferencesDto,
+    'exploreRatio' | 'followedTopics' | 'mutedSources' | 'mutedKeywords' | 'mutedAuthors' | 'includeNewsLane'
+  >>): Promise<FeedPreferencesDto> {
+    return liveFetch('/feed/preferences', {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  },
+
+  async resetFeedPreferences(): Promise<{ reset: true }> {
+    return liveFetch('/feed/preferences/reset', { method: 'POST', body: '{}' });
+  },
+
+  async getFeedAdminSummary(): Promise<FeedAdminSummaryDto> {
+    return liveFetch('/feed/admin/summary');
+  },
+
+  async pruneFeedAdmin(): Promise<{ deletedSeen: number; deletedEvents: number }> {
+    return liveFetch('/feed/admin/prune', { method: 'POST', body: '{}' });
+  },
+
+  async getMonitorOverview(monitorId: string, params?: { days?: number; bucket?: '6h' | '1d' }): Promise<MonitorOverviewResponseDto> {
+    const qs = new URLSearchParams();
+    if (params?.days) qs.set('days', String(params.days));
+    if (params?.bucket) qs.set('bucket', params.bucket);
+    const q = qs.toString();
+    return liveFetch(`/intelligence/monitors/${encodeURIComponent(monitorId)}/overview${q ? `?${q}` : ''}`);
+  },
+
+  async getMonitorPosts(monitorId: string, params?: {
+    sort?: 'heat' | 'score' | 'comments' | 'views' | 'newest';
+    platform?: Platform;
+    intent?: string;
+    community?: string;
+    author?: string;
+    domain?: string;
+    days?: number;
+    limit?: number;
+    offset?: number;
+  }): Promise<MonitorPostsResponseDto> {
+    const qs = new URLSearchParams();
+    if (params?.sort) qs.set('sort', params.sort);
+    if (params?.platform) qs.set('platform', params.platform);
+    if (params?.intent) qs.set('intent', params.intent);
+    if (params?.community) qs.set('community', params.community);
+    if (params?.author) qs.set('author', params.author);
+    if (params?.domain) qs.set('domain', params.domain);
+    if (params?.days) qs.set('days', String(params.days));
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.offset !== undefined) qs.set('offset', String(params.offset));
+    const q = qs.toString();
+    return liveFetch(`/intelligence/monitors/${encodeURIComponent(monitorId)}/posts${q ? `?${q}` : ''}`);
+  },
+
+  async getTrackedAuthors(params?: {
+    platform?: 'reddit' | 'x';
+    monitorId?: string;
+    search?: string;
+    sort?: 'followers' | 'engagement' | 'posts';
+    limit?: number;
+  }): Promise<{ items: AuthorDirectoryRowDto[] }> {
+    const qs = new URLSearchParams();
+    if (params?.platform) qs.set('platform', params.platform);
+    if (params?.monitorId) qs.set('monitorId', params.monitorId);
+    if (params?.search) qs.set('search', params.search);
+    if (params?.sort) qs.set('sort', params.sort);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const q = qs.toString();
+    return liveFetch(`/intelligence/authors${q ? `?${q}` : ''}`);
+  },
+
+  async getAuthorProfile(platform: 'reddit' | 'x', handle: string, params?: { days?: number; monitorId?: string }): Promise<AuthorProfileResponseDto> {
+    const qs = new URLSearchParams();
+    if (params?.days) qs.set('days', String(params.days));
+    if (params?.monitorId) qs.set('monitorId', params.monitorId);
+    const q = qs.toString();
+    return liveFetch(`/intelligence/authors/${platform}/${encodeURIComponent(handle)}${q ? `?${q}` : ''}`);
+  },
+
+  async getMonitoredCommunities(params?: {
+    monitorId?: string;
+    days?: number;
+    sort?: 'heat' | 'posts' | 'comments';
+    limit?: number;
+  }): Promise<{ items: CommunityMatrixRowDto[] }> {
+    const qs = new URLSearchParams();
+    if (params?.monitorId) qs.set('monitorId', params.monitorId);
+    if (params?.days) qs.set('days', String(params.days));
+    if (params?.sort) qs.set('sort', params.sort);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const q = qs.toString();
+    return liveFetch(`/intelligence/communities${q ? `?${q}` : ''}`);
+  },
+
+  async getCommunityDeepDive(subreddit: string, params?: { days?: number; monitorId?: string }): Promise<CommunityDeepDiveResponseDto> {
+    const qs = new URLSearchParams();
+    if (params?.days) qs.set('days', String(params.days));
+    if (params?.monitorId) qs.set('monitorId', params.monitorId);
+    const q = qs.toString();
+    return liveFetch(`/intelligence/communities/${encodeURIComponent(subreddit)}${q ? `?${q}` : ''}`);
+  },
+
+  async getIntelligenceOpsSummary(): Promise<IntelligenceOpsSummaryDto> {
+    return liveFetch('/intelligence/admin/ops-summary');
+  },
+
+  async reconcileAdminMonitor(
+    id: string,
+    payload: { action: 'pause' | 'resume' | 'refresh_rollups'; revision: number },
+  ): Promise<{ updated: boolean; action: string; revision: number; updatedBuckets: number }> {
+    return liveFetch(`/intelligence/admin/monitors/${encodeURIComponent(id)}/reconcile`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  async getProjectResearchScope(
+    projectId: string,
+  ): Promise<import('../contracts/research').ResearchScopeTreeResponse> {
+    return liveFetch(`/projects/${encodeURIComponent(projectId)}/research/scope`);
+  },
+
+  async runL1ResearchOverview(
+    projectId: string,
+    scope: import('../contracts/research').AnalysisScopeRequest = {},
+  ): Promise<import('../contracts/research').L1OverviewResponse> {
+    return liveFetch(`/projects/${encodeURIComponent(projectId)}/research/l1`, {
+      method: 'POST',
+      body: JSON.stringify(scope),
+    });
+  },
+
+  async runL2ResearchComparison(
+    projectId: string,
+    request: import('../contracts/research').L2ComparisonRequest = {},
+  ): Promise<import('../contracts/research').L2ComparisonResponse> {
+    return liveFetch(`/projects/${encodeURIComponent(projectId)}/research/l2`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  async listResearchTasks(
+    projectId: string,
+  ): Promise<{ dataVersion: string; tasks: import('../contracts/research').L3ResearchTaskRecord[] }> {
+    return liveFetch(`/projects/${encodeURIComponent(projectId)}/research/tasks`);
+  },
+
+  async createResearchTask(
+    projectId: string,
+    payload: import('../contracts/research').CreateResearchTaskRequest,
+  ): Promise<{ task: import('../contracts/research').L3ResearchTaskRecord }> {
+    return liveFetch(`/projects/${encodeURIComponent(projectId)}/research/tasks`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async cancelResearchTask(
+    projectId: string,
+    taskId: string,
+  ): Promise<{ task: import('../contracts/research').L3ResearchTaskRecord }> {
+    return liveFetch(
+      `/projects/${encodeURIComponent(projectId)}/research/tasks/${encodeURIComponent(taskId)}/cancel`,
+      { method: 'POST', body: '{}' },
+    );
+  },
+
+  async retryResearchTask(
+    projectId: string,
+    taskId: string,
+  ): Promise<{ task: import('../contracts/research').L3ResearchTaskRecord }> {
+    return liveFetch(
+      `/projects/${encodeURIComponent(projectId)}/research/tasks/${encodeURIComponent(taskId)}/retry`,
+      { method: 'POST', body: '{}' },
+    );
+  },
+
+  async deleteResearchTask(
+    projectId: string,
+    taskId: string,
+  ): Promise<{ deleted: true; taskId: string }> {
+    return liveFetch(
+      `/projects/${encodeURIComponent(projectId)}/research/tasks/${encodeURIComponent(taskId)}`,
+      { method: 'DELETE' },
+    );
+  },
+
+  async getResearchTaskEvidence(
+    projectId: string,
+    taskId: string,
+    params?: {
+      sentiment?: 'positive' | 'neutral' | 'negative' | 'unclassified';
+      topicIndex?: number;
+      limit?: number;
+      offset?: number;
+    },
+  ): Promise<{
+    task: { id: string; taskType: 'sentiment' | 'topic_modeling'; status: string; isStale: boolean; sampleCount: number };
+    total: number;
+    limit: number;
+    offset: number;
+    items: Array<{
+      id: string;
+      platform: Platform;
+      kind: ContentKind;
+      externalId: string;
+      title: string | null;
+      text: string | null;
+      url: string | null;
+      authorHandle: string | null;
+      communityName: string | null;
+      publishedAt: string | null;
+      metricScore: number | null;
+      metricLikes: number | null;
+      metricComments: number | null;
+      engagementScore: number;
+      sentimentLabel: string | null;
+      sentimentScore: number | null;
+      topicIndex: number | null;
+      topicScore: number | null;
+    }>;
+  }> {
+    const qs = new URLSearchParams();
+    if (params?.sentiment) qs.set('sentiment', params.sentiment);
+    if (params?.topicIndex !== undefined) qs.set('topicIndex', String(params.topicIndex));
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.offset) qs.set('offset', String(params.offset));
+    const q = qs.toString();
+    return liveFetch(
+      `/projects/${encodeURIComponent(projectId)}/research/tasks/${encodeURIComponent(taskId)}/evidence${q ? `?${q}` : ''}`,
+    );
   },
 };
 

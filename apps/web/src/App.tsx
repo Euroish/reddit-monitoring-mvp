@@ -500,6 +500,10 @@ function isPublicSitePath(pathname: string): boolean {
                   initialSearchString={loc.search}
                   onNavigate={navigate}
                   onOpenAuth={(tab, reason) => openAuth(tab, reason, currentFullPath)}
+                  onOpenContentDetail={(contentId) => {
+                    setContentDetailId(contentId);
+                    navigate('/content');
+                  }}
                 />
               )}
 

@@ -1,7 +1,8 @@
 import React, { Suspense, lazy } from 'react';
-import type { EChartsCoreOption } from 'echarts/core';
+import type { ECharts, EChartsCoreOption } from 'echarts/core';
 
 export type EChartOption = EChartsCoreOption;
+export type EChartInstance = ECharts;
 
 const LazyEChartCanvas = lazy(() => import('./EChartCanvas'));
 
@@ -12,6 +13,7 @@ export interface EChartBoxProps {
   style?: React.CSSProperties;
   ariaLabel?: string;
   onEvents?: Record<string, (params: unknown) => void>;
+  onChartReady?: (chart: ECharts | null) => void;
 }
 
 /**

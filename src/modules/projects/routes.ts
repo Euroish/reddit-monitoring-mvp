@@ -12,11 +12,14 @@ import {
   ProjectInput,
   ProjectPublishInput,
 } from "../../../packages/contracts/src/projects";
+import { AnalysisScopeInput } from "../../../packages/contracts/src/research";
 import type { ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { notifyChannel } from "../../platform/pg-notify";
 import { fail } from "../../shared/errors";
 import { transaction } from "../../storage/db";
 import { enqueueHydrationForScope, loadAuthorizedBatches } from "../collection/index";
+import { runL1ResearchOverview } from "./research";
+import { getProjectResearchScopeTree } from "./research-scope";
 import {
   deleteProject,
   forkProject,
@@ -136,5 +139,18 @@ export async function projectRoutes(app: FastifyInstance, pool: Pool, providers:
     },
     (request) =>
       moveBatchBetweenProjects(pool, request.actor!, request.params.id, request.params.batchId, request.body.targetProjectId),
+  );
+  api.get(
+    "/v1/projects/:id/research/scope",
+    { config: readAuth, schema: { params: ParamsId } },
+    (request) => getProjectResearchScopeTree(pool, request.actor!, request.params.id),
+  );
+  api.post(
+    "/v1/projects/:id/research/l1",
+    {
+      config: { auth: { access: "authenticated", browserOnly: true } },
+      schema: { params: ParamsId, body: AnalysisScopeInput },
+    },
+    (request) => runL1ResearchOverview(pool, request.actor!, request.params.id, request.body),
   );
 }
