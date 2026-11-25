@@ -807,7 +807,7 @@ export function WorkbenchShell({
                   type="button"
                   className={`nav-item ${route === '/workspace' ? 'is-active' : ''}`}
                   aria-current={route === '/workspace' ? 'page' : undefined}
-                  onClick={() => navigateAndClose('/workspace?tab=annotations')}
+                  onClick={() => navigateAndClose('/workspace')}
                 >
                   <Bookmark size={17} className="nav-ic" aria-hidden="true" />
                   <span>{t('My Research', '我的研究')}</span>
