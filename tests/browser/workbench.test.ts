@@ -1225,9 +1225,9 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await page.getByText("已保存查询至个人工作区。").waitFor();
 
   // 9. Personal Workspace verification
-  await nav.getByRole("button", { name: /保存的查询/ }).click();
+  await nav.getByRole("button", { name: /我的研究/ }).click();
   await page.getByText("常用研究查询").waitFor();
-  await nav.getByRole("button", { name: /批注与收藏/ }).click();
+  await page.getByRole("button", { name: /批注与收藏/ }).click();
   await page.getByText("保留这条研究判断").waitFor();
 
   // 10. Settings -> Mint a source-scoped R4 ingest key
@@ -1294,7 +1294,7 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
     { width: 390, height: 844 },
   ];
   await page.locator(".rail").getByRole("button", { name: "资讯信息流", exact: true }).click();
-  await nav.getByRole("button", { name: "公开首页" }).click();
+  await page.locator(".rail").getByRole("button", { name: "返回公开信息首页" }).click();
   await page.getByRole("heading", { name: "重要变化，先一步发现。" }).waitFor();
   for (const viewport of viewports) {
     await page.setViewportSize(viewport);
@@ -1332,7 +1332,7 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
 
   // 13. Navigate back to PublicSiteShell from Workbench & Switch Account clears session
   await page.setViewportSize({ width: 1440, height: 900 });
-  await nav.getByRole("button", { name: "公开首页" }).click();
+  await page.locator(".rail").getByRole("button", { name: "返回公开信息首页" }).click();
   await page.getByRole("button", { name: "切换账号" }).click();
   const switchDialog = page.getByRole("dialog", { name: /SIFTLINE/ });
   await switchDialog.getByText(/已退出当前会话/).waitFor();
