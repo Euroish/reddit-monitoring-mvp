@@ -167,11 +167,12 @@ async function executeQueuedTask(entry: {
          GROUP BY content_id
        )
        SELECT
-         dc.id, dc.platform, dc.title, dc.body_text, dc.clean_excerpt,
+         dc.id, dc.platform, c.title, c.body_text, c.clean_excerpt,
          ${tsExpr} AS ts_utc,
          dc.engagement_score,
          COALESCE(dt.target_pairs, '[]'::jsonb) AS target_pairs
        FROM dedup_content dc
+       JOIN content c ON c.id = dc.id
        LEFT JOIN doc_targets dt ON dt.content_id = dc.id
        ORDER BY dc.engagement_score DESC, COALESCE(dc.created_at_source, dc.first_seen_at) DESC
        LIMIT $${values.length + 1}`,

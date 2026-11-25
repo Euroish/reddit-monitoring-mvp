@@ -70,6 +70,7 @@ const PUBLIC_GUEST_ACTOR: Actor = {
 };
 
 function mapErrorStatus(code?: string, statusCode?: number) {
+  if (code === "FST_ERR_HANDLER_TIMEOUT") return 503;
   if (statusCode !== undefined) return statusCode;
   if (code === "23505" || code === "23503") return 409;
   if (["57014", "55P03", "53300", "08006", "57P01"].includes(code ?? "")) return 503;
@@ -147,7 +148,8 @@ export async function buildApp(options: {
     forceCloseConnections: "idle",
     keepAliveTimeout: 5000,
     requestTimeout: 30_000,
-    connectionTimeout: 10_000,
+    // Request reception is bounded separately; do not reset an active handler's socket.
+    connectionTimeout: 0,
     bodyLimit: 16 * 1024 * 1024,
     trustProxy: proxyAddress
       ? (address, hop) => hop === 0 && proxies.check(address, isIP(address) === 6 ? "ipv6" : "ipv4")
@@ -203,7 +205,7 @@ export async function buildApp(options: {
     const message =
       statusCode === 500
         ? "Internal server error"
-        : failure.statusCode !== undefined
+        : failure.statusCode !== undefined && failure.code !== "FST_ERR_HANDLER_TIMEOUT"
           ? failure.message
           : statusCode === 409
             ? "Resource conflict"

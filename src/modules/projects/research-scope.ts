@@ -365,6 +365,7 @@ export function buildScopedSql(
   ctx: ResolvedResearchContext,
 ): {
   cteSql: string;
+  membershipSql: string;
   values: unknown[];
 } {
   const { project, scope, effectiveBatchMappings, effectiveSourceMappings, useBatchMappings } = ctx;
@@ -446,6 +447,11 @@ export function buildScopedSql(
   const tables = compiled.needsSearchDocument ? contentTables : contentSourceTables;
   const includeUndatedClause = scope.includeUndated ? "" : ` AND ${scope.timeBasis === "collected" ? "c.first_seen_at" : "c.created_at_source"} IS NOT NULL`;
 
+  const membershipSql = `WITH ${membershipCte}
+    SELECT rm.content_id, rm.target_key, rm.target_label, rm.target_type, rm.source_id
+    FROM ${tables}
+    JOIN raw_memberships rm ON rm.content_id = c.id
+    WHERE c.availability = 'available' AND (${compiled.text})${includeUndatedClause}`;
   const cteSql = `WITH ${membershipCte},
     dedup_content AS MATERIALIZED (
       SELECT DISTINCT ON (c.id)
@@ -453,10 +459,6 @@ export function buildScopedSql(
         c.source_id AS platform_id,
         c.kind,
         c.external_id,
-        c.title,
-        c.body_text,
-        c.clean_excerpt,
-        COALESCE(c.permalink, c.url) AS url,
         c.language,
         c.author_handle,
         c.community_name,
@@ -472,7 +474,6 @@ export function buildScopedSql(
         c.metric_bookmarks,
         c.engagement_score,
         c.discussion_ratio,
-        c.content_references,
         p.code AS platform
       FROM ${tables}
       JOIN raw_memberships rm ON rm.content_id = c.id
@@ -485,7 +486,33 @@ export function buildScopedSql(
       JOIN dedup_content dc ON dc.id = rm.content_id
     )`;
 
-  return { cteSql, values };
+  return { cteSql, membershipSql, values };
+}
+
+/** Resolve visibility once, then bind the actual scope cardinality for the PG16 planner.
+ * Call inside a repeatable-read, read-only transaction so both statements see the same content.
+ */
+export async function loadResearchAggregationScope(client: PoolClient, actor: Actor, ctx: ResolvedResearchContext) {
+  const scope = buildScopedSql(actor, ctx);
+  const { rows } = await client.query<{
+    content_id: string; target_key: string; target_label: string; target_type: string; source_id: string;
+  }>(scope.membershipSql, scope.values);
+  const contentIds = [...new Set(rows.map((r) => r.content_id))];
+  return {
+    values: [contentIds, rows.map((r) => r.content_id), rows.map((r) => r.target_key),
+      rows.map((r) => r.target_label), rows.map((r) => r.target_type), rows.map((r) => r.source_id)],
+    cteSql: `WITH scoped_memberships AS (
+      SELECT * FROM UNNEST($2::uuid[], $3::text[], $4::text[], $5::text[], $6::uuid[])
+      AS sm(content_id, target_key, target_label, target_type, source_id)
+    ), dedup_content AS MATERIALIZED (
+      SELECT c.id, c.source_id AS platform_id, c.kind, c.external_id, c.author_handle,
+        c.community_name, c.intent_tag, c.created_at_source, c.first_seen_at, c.metric_score,
+        c.metric_comments, c.metric_views, c.metric_likes, c.metric_reposts,
+        c.engagement_score, c.discussion_ratio, p.code AS platform
+      FROM ${contentSourceTables}
+      WHERE c.id = ANY($1::uuid[])
+    )`,
+  };
 }
 
 export async function getProjectResearchScopeTree(

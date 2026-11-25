@@ -188,6 +188,8 @@ npm run db:restore -- --file output/backups/<unique-name>.dump --target info_wor
 
 > 切记在部署前于隔离恢复库演练新迁移、前后端冒烟及回退兼容性；生产切换后核对两个容器镜像的 `org.opencontainers.image.revision` 与 `/readyz`。
 
+研究工作台 L1/L2 的 SQL 需有语句预算（聚合事务内 8 秒/条），路由有独立的 25 秒 handler 预算；不能使用更短的 HTTP socket 空闲计时器来充当业务超时。对尚未开始发送响应的请求，数据库取消或 handler 超时应经统一错误处理返回带 `requestId` 的结构化 503，而不是上游 EOF。回归入口：`tests/unit/research-http-timeout.test.ts`。
+
 **生产只读巡检命令与 SQL**：
 
 ```sh

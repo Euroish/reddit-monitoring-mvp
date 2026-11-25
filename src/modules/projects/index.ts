@@ -5,6 +5,7 @@ export {
   buildScopedSql,
   deriveTargetIdentity,
   getProjectResearchScopeTree,
+  loadResearchAggregationScope,
   resolveResearchContext,
   type ResolvedResearchContext,
 } from "./research-scope";

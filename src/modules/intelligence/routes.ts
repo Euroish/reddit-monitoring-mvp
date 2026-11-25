@@ -122,7 +122,7 @@ export async function intelligenceRoutes(
   const browserAuth = { auth: { access: "authenticated" as const, browserOnly: true as const } };
 
   api.post("/v1/projects/:id/research/l2",
-    { config: browserAuth, schema: { params: ParamsId, body: L2ComparisonInput } },
+    { handlerTimeout: 25_000, config: browserAuth, schema: { params: ParamsId, body: L2ComparisonInput } },
     (request) => runL2ResearchComparison(pool, request.actor!, request.params.id, request.body));
 
   api.get("/v1/projects/:id/research/tasks",
