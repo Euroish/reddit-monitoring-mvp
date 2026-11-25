@@ -69,6 +69,34 @@ export function LogoProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+export function AssistantBubbleIcon({
+  size = 22,
+  strokeWidth = 1.75,
+  className,
+}: {
+  size?: number;
+  strokeWidth?: number;
+  className?: string;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M13 3H7a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h1l4 3v-3h5a4 4 0 0 0 4-4v-3" />
+      <path d="m17 2 1.5 4.5L23 8l-4.5 1.5L17 14l-1.5-4.5L11 8l4.5-1.5L17 2Z" />
+    </svg>
+  );
+}
+
 export function SiftlineLogo({
   size = 28,
   showWordmark = true,

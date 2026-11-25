@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Check, ChevronDown, X } from 'lucide-react';
+import { Check, ChevronDown, FolderKanban, X } from 'lucide-react';
 import { Dialog, DialogClose, DialogContent, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
@@ -96,14 +96,14 @@ export function ProjectSwitcher({
         className="proj-switch"
         aria-label={selected ? t(`Switch project · ${selected.name}`, `切换项目 · ${selected.name}`) : t('Select research project', '选择研究项目')}
       >
-        <span className="ps-avatar" aria-hidden="true">
-          {initials(selected?.name ?? 'SL')}
+        <span className="ps-icon-box" aria-hidden="true">
+          <FolderKanban size={17} strokeWidth={1.8} />
         </span>
         <span className="ps-txt">
           <b>{selected?.name ?? t('Select research project', '选择研究项目')}</b>
           <small>{selected ? triggerSummary(selected) : t('Create or select a project', '新建或选择一个项目')}</small>
         </span>
-        <ChevronDown size={14} aria-hidden="true" />
+        <ChevronDown size={15} className="ps-chevron" aria-hidden="true" />
       </DialogTrigger>
 
       <DialogContent
