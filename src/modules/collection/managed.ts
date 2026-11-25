@@ -7,6 +7,7 @@ import type { ContentProvider } from "../../connectors/shared/content-provider.i
 import { fail } from "../../shared/errors";
 import { canonical } from "../content/index";
 import { collectionRequestRestriction, isCollectionBudgetDisabled, queryHintsRestriction, validateSource } from "./config";
+import { kaixCollectionBudget } from "../../../packages/contracts/src/collection-budget";
 import { admitViewerCollection, loadEffectivePolicyForUser, viewerCollectionDemand } from "./policy";
 import { audit, insertSource, lockSource, sourceFromRow } from "./sql";
 
@@ -128,6 +129,7 @@ export async function enqueueCollectionForSource(
     : body.limit;
   const maxPages = providerName === "twitterapis" ? Math.min(500, Math.ceil(body.limit / 20))
     : providerName === "scrapebadger" ? Math.min(500, Math.ceil(body.limit / 100))
+    : providerName === "kaix" ? kaixCollectionBudget(source.target.type, body.limit, body).requests
     : 1;
   await admitViewerCollection(client, actor, {
     sourceId: source.id, from: body.from, to: body.to, useFallback: body.useFallback,

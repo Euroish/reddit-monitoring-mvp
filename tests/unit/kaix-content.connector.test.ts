@@ -87,6 +87,95 @@ const receipt = (status: string) => ({
   data: { id: "fixtureRun", defaultDatasetId: "fixtureDataset", status },
 });
 
+const post = (id: string, overrides: Partial<typeof root> & { score?: number; numComments?: number } = {}) =>
+  ({ ...root, id, fullName: `t3_${id}`, score: 10, numComments: 0, ...overrides });
+const bounds = { from: "2026-08-18T12:00:00.000Z", to: now };
+
+test("small search jobs without comments (and account jobs) stay single-run", async () => {
+  for (const source of [
+    sourceFixture(),
+    sourceFixture({ target: { type: "account", account: "alice" } }),
+  ]) {
+    const f = fixture([receipt("SUCCEEDED"), [{ ...root, author: "alice" }]]);
+    const page = await f.connector.collectPage({
+      ...bounds, source, limit: 250, checkpoint: null, execution: f.execution(),
+    });
+    assert.equal(page.nextCheckpoint, null);
+    assert.equal(page.items.length, 1);
+    assert.equal(f.requests.filter(({ input }) => input).length, 1);
+  }
+});
+
+test("staged search ranks in-window communities, adds older unique posts, then hydrates only qualified threads", async () => {
+  const a = post("alpha", { numComments: 3 });
+  const b = post("beta");
+  const c = post("gamma", { subreddit: "another", numComments: 9 });
+  const old = post("older", { createdUtc: Date.parse("2026-08-25T00:00:00Z") / 1000, numComments: 20 });
+  const tooOld = post("out", { createdUtc: Date.parse("2026-08-01T00:00:00Z") / 1000, numComments: 100 });
+  const low = post("low", { score: 4, numComments: 100 });
+  const reply = { ...comment, linkId: old.fullName, parentId: old.fullName };
+  const request = { ...bounds, source: sourceFixture({ target: { type: "search", query: "tiktok", minLikes: 5 } }),
+    limit: 251, includeComments: true, maxCommentsPerPost: 2 };
+  const page = async (rows: unknown[], checkpoint: JsonValue | null) => {
+    const f = fixture([receipt("SUCCEEDED"), rows]);
+    const result = await f.connector.collectPage({
+      ...request, checkpoint: JSON.parse(JSON.stringify(checkpoint)), execution: f.execution(),
+    });
+    return { ...result, input: f.requests[0].input! };
+  };
+  const seed = await page([a, b, a, c, { ...tooOld, subreddit: "outside" }, { ...low, subreddit: "filtered" }], null);
+  assert.deepEqual(seed.items.map(({ externalId }) => externalId), [a.fullName, b.fullName, c.fullName]);
+  assert.deepEqual([seed.input.sort, seed.input.time, seed.input.includeComments], ["new", "all", false]);
+  assert.deepEqual(seed.nextCheckpoint, { phase: "fanout", subreddits: ["fixture", "another"], subIndex: 0,
+    seenPostIds: [a.fullName, b.fullName, c.fullName], candidates: [{ id: c.fullName, count: 9 }, { id: a.fullName, count: 3 }] });
+  const fanout = await page([a, old, old, tooOld, low], seed.nextCheckpoint);
+  assert.deepEqual([fanout.input.mode, fanout.input.keyword, fanout.input.subreddit, fanout.input.sort,
+    fanout.input.time, fanout.input.maxItems, fanout.input.includeComments], ["search", "tiktok", "fixture", "top", "year", 248, false]);
+  assert.deepEqual(fanout.items.map(({ externalId }) => externalId), [old.fullName]);
+  const last = await page([c], fanout.nextCheckpoint);
+  assert.equal(last.input.subreddit, "another");
+  assert.equal(last.input.maxItems, 247);
+  assert.deepEqual(last.items, []);
+  assert.deepEqual(last.nextCheckpoint, {
+    phase: "hydrate_comments", postIds: [old.fullName, c.fullName, a.fullName], missingComments: false,
+  });
+  assert.equal(last.continueAfterLimit, true);
+  await assert.rejects(() => page([reply, { ...comment, linkId: "t3_elsewhere" }], last.nextCheckpoint), /different post/);
+  await assert.rejects(() => page([b], last.nextCheckpoint), /different post/);
+  const hydration = await page([old, reply, reply], last.nextCheckpoint);
+  assert.deepEqual(hydration.input.postUrls, [old.fullName, c.fullName, a.fullName]);
+  assert.deepEqual([hydration.input.mode, hydration.input.commentSort, hydration.input.maxCommentsPerPost,
+    hydration.input.includeComments], ["post", "top", 2, true]);
+  assert.deepEqual(hydration.items.map(({ externalId }) => externalId), [reply.fullName]);
+  assert.equal(hydration.nextCheckpoint, null);
+  assert.equal(hydration.coverage, "partial");
+  assert.match(hydration.warning ?? "", /no comment records/);
+});
+
+test("community hydration caps and batches highest-comment posts; rejects malformed checkpoints before POST", async () => {
+  const posts = Array.from({ length: 55 }, (_, i) => post(`id${i}`, { numComments: i }));
+  const f = fixture([receipt("SUCCEEDED"), posts, receipt("SUCCEEDED"), [], receipt("SUCCEEDED"), []]);
+  const request = { ...bounds, source: sourceFixture({ target: { type: "community", community: "fixture" } }),
+    limit: posts.length, includeComments: true };
+  const run = (checkpoint: JsonValue | null) => f.connector.collectPage({
+    ...request, checkpoint, execution: { ...f.execution(), state: { phase: "starting" } },
+  });
+  await assert.rejects(() => run({ phase: "hydrate_comments", postIds: ["t3_valid", "t3_valid"], missingComments: false }),
+    /Invalid Kaix continuation/);
+  assert.equal(f.requests.length, 0);
+  const seed = await run(null);
+  assert.equal(seed.items.length, request.limit);
+  const first = await run(seed.nextCheckpoint);
+  const last = await run(first.nextCheckpoint);
+  const paid = f.requests.flatMap(({ input }) => input ? [input] : []);
+  const ids = posts.slice(5).reverse().map(p => p.fullName);
+  assert.deepEqual(paid.map(input => input.mode), ["subreddit", "post", "post"]);
+  assert.deepEqual(paid[1].postUrls, ids.slice(0, 25));
+  assert.deepEqual(paid[2].postUrls, ids.slice(25));
+  assert.equal(first.continueAfterLimit, true);
+  assert.equal(last.nextCheckpoint, null);
+});
+
 test("paid kaix run persists identifiers, polls without another POST and keeps native OR matches", async () => {
   const f = fixture([receipt("RUNNING"), receipt("SUCCEEDED"), [root]]);
   const request = {
@@ -118,6 +207,46 @@ test("paid kaix run persists identifiers, polls without another POST and keeps n
   for (const field of ["memory", "timeout", "maxTotalChargeUsd"])
     assert.equal(f.requests[0].url.searchParams.has(field), false);
   assert.equal(f.requests[0].input!.maxItems, 300);
+});
+
+test("kaix still enforces the exact window and both engagement thresholds on new/all results", async () => {
+  const from = "2026-08-27T13:05:27.817Z";
+  const to = "2026-11-25T13:05:27.817Z";
+  const post = (id: string, date: string, score = 50, numComments = 10) => ({
+    ...root,
+    id,
+    fullName: `t3_${id}`,
+    createdUtc: Date.parse(date) / 1000,
+    score,
+    numComments,
+  });
+  const f = fixture([receipt("SUCCEEDED"), [
+    post("atstart", from),
+    post("before", "2026-08-27T13:05:26.817Z", 100, 100),
+    post("atend", to, 100, 100),
+    post("lowscore", "2026-09-01T00:00:00Z", 49, 100),
+    post("fewcomments", "2026-10-01T00:00:00Z", 100, 9),
+    post("recent", "2026-11-25T13:05:26.817Z"),
+  ]]);
+  const page = await f.connector.collectPage({
+    source: sourceFixture({ target: { type: "search", query: "tiktok", minLikes: 50, minComments: 10 } }),
+    from,
+    to,
+    limit: 5000,
+    checkpoint: null,
+    includeComments: false,
+    execution: f.execution(),
+  });
+
+  assert.equal(f.requests[0].input?.sort, "new");
+  assert.equal(f.requests[0].input?.time, "all");
+  assert.deepEqual(page.items.map((item) => item.externalId), ["t3_atstart", "t3_recent"]);
+  assert.equal(page.coverage, "partial");
+  assert.deepEqual(page.nextCheckpoint, {
+    phase: "fanout", subreddits: ["fixture"], subIndex: 0,
+    seenPostIds: ["t3_atstart", "t3_recent"], candidates: [],
+  });
+  assert.equal(f.requests.filter((request) => request.input).length, 1);
 });
 
 test("kaix root/comment hydration retains old context, long IDs and deletion markers", async () => {
@@ -161,7 +290,7 @@ test("kaix root/comment hydration retains old context, long IDs and deletion mar
   ]);
 });
 
-test("precise discovery can include comments; sparse dataset rereads retain stable evidence", async () => {
+test("legacy single-run discovery can include comments; sparse dataset rereads retain stable evidence", async () => {
   const f = fixture([receipt("SUCCEEDED"), [root, comment]]),
     source = sourceFixture();
   const request = {
@@ -170,6 +299,7 @@ test("precise discovery can include comments; sparse dataset rereads retain stab
     to: now,
     limit: 25,
     checkpoint: null,
+    singleRun: true,
     includeComments: true,
     maxCommentsPerPost: 15,
   };

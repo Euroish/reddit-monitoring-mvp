@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { chromium } from "playwright";
+import { chromium, type Response as BrowserResponse } from "playwright";
 import { buildApp } from "../../apps/api/src/app";
 import { BlueskyAppViewContentConnector } from "../../src/connectors/bluesky/bluesky-appview-content.connector";
 import { webSource } from "../../src/connectors/web/sources";
@@ -337,6 +337,80 @@ test("browser: source operations by domain, scheduling, paid block and role boun
     target: { type: "feed", url: "https://example.test/feed.xml" }, label: "Forbidden preview",
   })).status(), 403);
   assert.equal((await page.request.get(origin + "/api/v1/sources/credentials")).status(), 403);
+});
+
+test("browser: mixed-target Deep Insight sends only supported per-source hints", async (t) => {
+  const db = await testDatabase();
+  t.after(db.close);
+  const password = "fixture-password-123";
+  await bootstrapOwner(db.pool, password, "owner@example.test");
+  await db.pool.query(`WITH viewer AS (
+    INSERT INTO app_user(id,email,role,status,plan_tier)
+    VALUES(gen_random_uuid(),'mixed@example.test','viewer','active','pro') RETURNING id
+  ) INSERT INTO app_user_password(user_id,password_hash,password_algo)
+    SELECT viewer.id,p.password_hash,p.password_algo FROM viewer
+    CROSS JOIN app_user_password p JOIN app_user u ON u.id=p.user_id AND u.email='owner@example.test'`);
+  const unexpectedFetch = async () => assert.fail("Intake preview must not fetch from the provider");
+  const feedUrl = "https://fixture.example/rss";
+  const providers = [
+    new KaixContentConnector({ networkEnabled: true, apiToken: "synthetic-browser-fixture" }, unexpectedFetch),
+    twitterApis({ SOURCE_NETWORK_ENABLED: "true" }, unexpectedFetch, () => "synthetic-browser-fixture"),
+    webSource("feed", { SOURCE_NETWORK_ENABLED: "true", FEED_ALLOWED_URLS: feedUrl }, unexpectedFetch),
+  ];
+  const port = await freePort();
+  const origin = `http://127.0.0.1:${port}`;
+  const app = await buildApp({ pool: db.pool, providers, origin, secureCookies: false,
+    sessionSecret: "mixed-intake-fixture-".repeat(3) });
+  const address = await app.listen({ host: "127.0.0.1", port: 0 });
+  t.after(() => app.close());
+  await launchVite(t, address, port, origin);
+  const browser = await chromium.launch({ executablePath: resolveChromiumPath(), args: ["--no-sandbox"] });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const post = (path: string, data: object) => page.request.post(origin + "/api/v1" + path, { data, headers: { origin } });
+  assert.ok((await post("/auth/login", { email: "owner@example.test", password })).ok());
+  const ids = [];
+  for (const source of [
+    { platform: "reddit", primaryProvider: "kaix", contentKind: "post", label: "Reddit fixture", target: { type: "search", query: "fixture" } },
+    { platform: "x", primaryProvider: "twitterapis", contentKind: "post", label: "X fixture", target: { type: "search", query: "fixture" } },
+    { platform: "web", primaryProvider: "feed", contentKind: "article", label: "Web fixture", target: { type: "feed", url: feedUrl } },
+  ]) {
+    const response = await post("/sources", { ...source, deliveryMode: "pull" });
+    assert.ok(response.ok(), await response.text());
+    ids.push((await response.json()).source.id as string);
+  }
+  // Web normally lives in Feed. Expose it to the research picker in this fixture
+  // to exercise the unsupported-sort API policy with a real Web provider.
+  await db.pool.query("UPDATE collection_source SET usage_domain='research' WHERE id=$1", [ids[2]]);
+  await db.pool.query(`UPDATE source_provider_budget SET enabled=true,daily_requests=100,monthly_requests=100,
+    daily_resources=20000,monthly_resources=20000 WHERE provider IN ('kaix','twitterapis','feed')`);
+  await db.pool.query(`UPDATE plan_collection_policy SET manual_collect_enabled=true,allowed_providers='{kaix,twitterapis,feed}',
+    allowed_source_ids=$1,max_lookback_days=90,max_batch_limit=500,daily_requests=10,daily_resources=10000 WHERE plan_tier='pro'`, [ids]);
+  assert.ok((await post("/auth/logout", {})).ok());
+  assert.ok((await post("/auth/login", { email: "mixed@example.test", password })).ok());
+  const project = await post("/projects", { name: "Mixed hints", datasetMode: "batch", visibility: "private", sourceIds: [], filter: {} });
+  assert.ok(project.ok(), await project.text());
+  const { id } = await project.json();
+  for (const [index, label, expected] of [[1, "X fixture", { sort: "top" }], [2, "Web fixture", undefined]] as const) {
+    await page.goto(origin + `/projects?view=collect&projectId=${id}`);
+    // Put the non-Reddit source first to catch accidental dependence on the primary target policy.
+    await page.getByRole("checkbox", { name: new RegExp(label) }).check();
+    await page.getByRole("checkbox", { name: /Reddit fixture/ }).check();
+    await page.getByRole("button", { name: /继续设置采集范围/ }).click();
+    await page.getByRole("button", { name: /深度洞察/ }).click();
+    const waitForScope = (sourceId: string): Promise<BrowserResponse> => page.waitForResponse(response => {
+      if (!response.url().endsWith("/research/collection-plans/preview")) return false;
+      const body = response.request().postDataJSON();
+      return body.sourceId === sourceId && Date.parse(body.to) - Date.parse(body.from) === 30 * 86400000;
+    });
+    const results: Promise<[BrowserResponse, BrowserResponse]> = Promise.all([waitForScope(ids[0]), waitForScope(ids[index])]);
+    await page.getByRole("button", { name: "下一步：核对预计消耗" }).click();
+    const [reddit, other] = await results;
+    assert.deepEqual(reddit.request().postDataJSON().queryHints, { sort: "top", timeRange: "month" });
+    assert.deepEqual(other.request().postDataJSON().queryHints, expected);
+    for (const response of [reddit, other]) assert.equal((await response.json()).executable, true, await response.text());
+    await page.getByRole("button", { name: "确认开始采集" }).waitFor();
+  }
 });
 
 test("browser: project switching and guided intake with real project and role boundaries", async (t) => {

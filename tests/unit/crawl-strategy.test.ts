@@ -111,11 +111,12 @@ test("twitterApis auto-slices >7d windows across 7-day sub-queries via checkpoin
   assert.notEqual(seenQueries[1], seenQueries[2]);
 });
 
-test("KaixContentConnector picks window-aware default sort/time while honoring explicit overrides", async () => {
+test("Kaix defaults to new/all for bounded samples, independent of window length or end", async () => {
   const captureInput = async (
     target: CollectionSource["target"],
     from: string,
     to: string,
+    checkpoint: JsonValue | null = null,
   ): Promise<Record<string, unknown>> => {
     let sent: Record<string, unknown> = {};
     const connector = new KaixContentConnector(
@@ -134,30 +135,39 @@ test("KaixContentConnector picks window-aware default sort/time while honoring e
       from,
       to,
       limit: 500,
-      checkpoint: null,
+      checkpoint,
       execution: { state, saveState: async (v) => { state = v; } },
     });
     return sent;
   };
 
-  const to = "2026-11-25T00:00:00.000Z";
-  const in7d = await captureInput({ type: "search", query: "tiktok" }, "2026-11-18T00:00:00.000Z", to);
-  assert.equal(in7d.sort, "new");
-  assert.equal(in7d.time, "week");
+  const search = { type: "search", query: "tiktok" } as const;
+  const to = "2026-11-25T13:05:27.817Z";
+  for (const [target, from, end] of [
+    [search, "2026-11-18T13:05:27.817Z", to],
+    [search, "2026-10-26T13:05:27.817Z", to],
+    [search, "2026-08-27T13:05:27.817Z", to],
+    [search, "2026-09-01T13:05:27.817Z", "2026-09-08T13:05:27.817Z"],
+    [{ type: "community", community: "videos", query: "tiktok" }, "2026-08-27T13:05:27.817Z", to],
+  ] as const) {
+    const input = await captureInput(target, from, end);
+    assert.equal(input.sort, "new");
+    assert.equal(input.time, "all");
+  }
 
-  const in30d = await captureInput({ type: "search", query: "tiktok" }, "2026-10-26T00:00:00.000Z", to);
-  assert.equal(in30d.sort, "top");
-  assert.equal(in30d.time, "month");
-
-  const in90d = await captureInput({ type: "search", query: "tiktok" }, "2026-08-27T00:00:00.000Z", to);
-  assert.equal(in90d.sort, "top");
-  assert.equal(in90d.time, "year");
-
-  const explicit = await captureInput(
-    { type: "search", query: "tiktok", sort: "new", timeRange: "all" },
-    "2026-08-27T00:00:00.000Z",
-    to,
-  );
-  assert.equal(explicit.sort, "new");
-  assert.equal(explicit.time, "all");
+  const from = "2026-10-26T13:05:27.817Z";
+  for (const [hints, sort, time] of [
+    [{ sort: "top", timeRange: "month" }, "top", "month"],
+    [{ sort: "relevance" }, "relevance", "all"],
+    [{ timeRange: "week" }, "new", "week"],
+  ] as const) {
+    const input = await captureInput({ ...search, ...hints }, from, to);
+    assert.equal(input.sort, sort);
+    assert.equal(input.time, time);
+    const fanout = { phase: "fanout", subreddits: ["videos"], subIndex: 0, seenPostIds: ["t3_fixture"], candidates: [] };
+    const supplemental = await captureInput({ ...search, ...hints }, "2026-08-27T13:05:27.817Z", to, fanout);
+    assert.equal(supplemental.subreddit, "videos");
+    assert.equal(supplemental.sort, sort);
+    assert.equal(supplemental.time, time);
+  }
 });

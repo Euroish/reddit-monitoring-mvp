@@ -680,7 +680,7 @@ function ChannelFilterOptions({
               className={`intake-pill ${!range.queryHints.timeRange ? 'is-active' : ''}`}
               onClick={() => setHint('timeRange', undefined)}
             >
-              {t('Match date window', '自动匹配采集窗口')}
+              {t('No period override', '不指定上游时段')}
             </button>
             {(['day', 'week', 'month', 'year'] as const).map((opt) => (
               <button
@@ -806,30 +806,31 @@ export function IntakeScopeStep({
     if (val === undefined || val === '' || val === false) delete next[k];
     setRange({ ...range, queryHints: next });
   };
+  const topFilters = targets.map(({ result }) => result.fieldPolicy.supportedFilters)
+    .filter((filters) => filters?.sortOptions.includes('top'));
   const researchPresets = [
     {
       id: 'pulse',
       label: t('Hot Pulse (7d)', '热点速览（7 天）'),
-      desc: t('Latest posts, fast live recall', '最新排序，近 7 天召回最全'),
+      desc: t('Sample recent posts from the last 7 days', '采集近 7 天的近期帖子样本'),
       days: Math.min(7, limits.maxDays),
       limit: Math.min(500, maximum),
-      sort: undefined as QueryHintsValue['sort'],
     },
     {
       id: 'insight',
       label: t('Deep Insight (30d · Recommended)', '深度洞察（30 天 · 推荐）'),
-      desc: t('High-signal monthly posts, hydrate top threads after', '30 天高互动主帖，入库后再对热帖补抓评论'),
+      desc: t('Prioritize popular posts where sorting is supported', '支持热度排序的对象优先采集高互动主帖'),
       days: Math.min(30, limits.maxDays),
       limit: Math.min(1500, maximum),
-      sort: (sf?.sortOptions.includes('top') ? 'top' : undefined) as QueryHintsValue['sort'],
+      sort: topFilters.length ? 'top' as const : undefined,
+      timeRange: topFilters.some((filters) => filters?.supportsTimeRange) ? 'month' as const : undefined,
     },
     {
       id: 'trend',
       label: t('Quarterly Trend (90d)', '跨季趋势（90 天）'),
-      desc: t('Auto-sliced on X / top-weighted on Reddit', 'X 自动按周切片，Reddit 自动匹配高互动年窗'),
+      desc: t('X queries are sliced by week; larger Reddit keyword searches can sample more communities', 'X 按周切片查询；Reddit 大配额关键词搜索可补采相关社区，仍不保证覆盖整个窗口'),
       days: Math.min(90, limits.maxDays),
       limit: Math.min(2000, maximum),
-      sort: undefined as QueryHintsValue['sort'],
     },
   ].filter((p) => p.days >= 1 && p.limit >= 1);
 
@@ -854,7 +855,8 @@ export function IntakeScopeStep({
             </div>
             <div className="intake-pill-group">
               {researchPresets.map((preset) => {
-                const active = range.days === preset.days && range.limit === preset.limit && !range.comments;
+                const active = range.days === preset.days && range.limit === preset.limit && !range.comments &&
+                  range.queryHints.sort === preset.sort && range.queryHints.timeRange === preset.timeRange;
                 return (
                   <button
                     key={preset.id}
@@ -865,7 +867,8 @@ export function IntakeScopeStep({
                       const nextHints = { ...range.queryHints };
                       if (preset.sort) nextHints.sort = preset.sort;
                       else delete nextHints.sort;
-                      delete nextHints.timeRange;
+                      if (preset.timeRange) nextHints.timeRange = preset.timeRange;
+                      else delete nextHints.timeRange;
                       setRange({
                         ...range,
                         days: preset.days,
@@ -882,8 +885,8 @@ export function IntakeScopeStep({
             </div>
             <p className="collection-hint">
               {t(
-                'Collect posts first, then hydrate comments on top threads to avoid hitting daily social budget ceilings.',
-                '建议先只抓主帖，入库后再对高互动热帖按需补抓评论，避免主帖×评论数触发全局日预算排队。',
+                'Presets collect posts only. You can add comments below when supported.',
+                '预设默认只采集主帖。当前对象支持时，可在下方开启评论补采。',
               )}
             </p>
           </div>
@@ -954,9 +957,12 @@ export function IntakeScopeStep({
                   onCheckedChange={(comments) => setRange({ ...range, comments })}
                 />
                 <span>
-                  {t('Also collect post comments', '同时抓取主帖评论')}
+                  {t('Also collect post comments', '补采主帖评论')}
                   <small className="collection-hint" style={{ marginLeft: 8 }}>
-                    {t('(increases collection unit usage)', '（会按评论条数相应增加额度消耗）')}
+                    {t(
+                      'For Reddit community and keyword searches, up to 50 in-window posts with the most comments are hydrated in batches.',
+                      'Reddit 社区和关键词搜索先筛选入窗主帖，再按评论数选最多 50 篇有评论的帖子分批补采。',
+                    )}
                   </small>
                 </span>
               </label>

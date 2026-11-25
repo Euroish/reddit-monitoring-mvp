@@ -3,6 +3,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type { Actor } from "../../../packages/contracts/src/access";
 import type { JsonValue } from "../../../packages/contracts/src/common";
+import { kaixPageScope } from "../../connectors/reddit/kaix-pages";
 import { providerResourceReservation } from "../../../packages/contracts/src/collection-budget";
 import { ContentProviderError, type CollectedPage, type ContentProvider } from "../../connectors/shared/content-provider.interface";
 import { createPgNotifier } from "../../platform/pg-notify";
@@ -104,14 +105,17 @@ async function admitJobDispatch(
   token: string,
   hooks: WorkerHooks = {},
 ) {
-  const resources = providerResourceReservation({
-    provider: job.provider, targetType: source.target.type, pageSize: job.page_size,
-    hydration: job.operation === "hydrate", refresh: Array.isArray(job.request_json.externalIds),
-    includeComments: job.request_json.includeComments, maxCommentsPerPost: job.request_json.maxCommentsPerPost,
-    requestResourceUpperBound: provider.capability.requestResourceUpperBound,
-  });
   const refresh = Array.isArray(job.request_json.externalIds);
   const hydrate = job.operation === "hydrate";
+  const stagedKaix = job.provider === "kaix" && !refresh && !hydrate && job.purpose === "collect" && job.max_pages > 1;
+  const resources = stagedKaix
+    ? 1 + kaixPageScope(source.target.type, job.page_size, job.request_json, job.checkpoint).maxRows
+    : providerResourceReservation({
+        provider: job.provider, targetType: source.target.type, pageSize: job.page_size,
+        hydration: hydrate, refresh,
+        includeComments: job.request_json.includeComments, maxCommentsPerPost: job.request_json.maxCommentsPerPost,
+        requestResourceUpperBound: provider.capability.requestResourceUpperBound,
+      });
   return transaction(pool, async (client) => {
     const currentSource = await lockSource(client, workerActor, source.id, false);
     if (currentSource.state !== "active" || currentSource.automatic_collection_blocked ||
@@ -300,7 +304,7 @@ async function commitCollectedPage(
     job.pages_committed + 1 < job.max_pages &&
     (scheduled
       ? Boolean(finishingSource.schedule.enabled)
-      : job.purpose === "collect" && job.records_processed + page.items.length < targetLimit);
+      : job.purpose === "collect" && (page.continueAfterLimit || job.records_processed + page.items.length < targetLimit));
   const summary = page.warning || page.creditsUsed !== undefined
     ? { warning: page.warning ?? undefined, creditsUsed: page.creditsUsed }
     : null;
@@ -502,6 +506,7 @@ async function fetchProviderPage(
         to: job.to_at.toISOString(),
         limit: job.page_size,
         checkpoint,
+        singleRun: job.provider === "kaix" && (job.purpose !== "collect" || job.max_pages === 1),
         httpEtag: source.http_etag ?? null,
         httpLastModified: source.http_last_modified ?? null,
         signal,
@@ -590,7 +595,9 @@ export async function workOnce(
     if (onSourceContentCommitted && (dirty || source.target.type === "community")) {
       await Promise.resolve().then(() => onSourceContentCommitted(source.id, {
         changed: dirty,
-        hydration: job.operation === "hydrate",
+        // Explicit staged hydration owns comment fetching for this job.
+        hydration: job.operation === "hydrate" ||
+          (job.provider === "kaix" && job.purpose === "collect" && job.max_pages > 1 && job.request_json.includeComments === true),
       })).catch(() => {});
     }
   } catch (error) {

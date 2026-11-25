@@ -87,7 +87,16 @@ function buildScopePreviewRequest(
   allowFallback: boolean,
   now: number,
 ): ResearchPlanPreviewRequest {
-  const hints = Object.keys(range.queryHints).length ? range.queryHints : undefined;
+  const { sort, timeRange, minLikes, minComments, excludeReposts, language } = range.queryHints;
+  const filters = target.result.fieldPolicy.supportedFilters;
+  const hints = {
+    ...(sort && filters?.sortOptions.includes(sort) ? { sort } : {}),
+    ...(timeRange && filters?.supportsTimeRange ? { timeRange } : {}),
+    ...(minLikes !== undefined && filters?.supportsMinLikes ? { minLikes } : {}),
+    ...(minComments !== undefined && filters?.supportsMinComments ? { minComments } : {}),
+    ...(excludeReposts !== undefined && filters?.supportsExcludeReposts ? { excludeReposts } : {}),
+    ...(language && filters?.supportsLanguage ? { language } : {}),
+  };
   const common = {
     projectId,
     from: new Date(now - range.days * dayMs).toISOString(),
@@ -95,7 +104,7 @@ function buildScopePreviewRequest(
     limit: range.limit,
     includeComments: range.comments,
     maxCommentsPerPost: range.comments ? range.commentLimit : undefined,
-    queryHints: hints,
+    queryHints: Object.keys(hints).length ? hints : undefined,
   };
   if (target.result.matchedSource) {
     return { ...common, sourceId: target.result.matchedSource.id, useFallback: allowFallback ? range.fallback : false };

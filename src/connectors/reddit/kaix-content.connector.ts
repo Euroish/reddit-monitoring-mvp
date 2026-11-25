@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import type { ContentReference } from "../../../packages/contracts/src/content";
-import { PublicContentKind } from "../../../packages/contracts/src/common";
+import { type JsonValue, type PublicContentKind } from "../../../packages/contracts/src/common";
 import { SourceCapability, SourceTarget } from "../../../packages/contracts/src/collection";
+import { KAIX_FANOUT_COMMUNITIES } from "../../../packages/contracts/src/collection-budget";
+import { kaixCommunityName, kaixPageScope } from "./kaix-pages";
 import { stableUuidFromString } from "../../shared/ids/stable-id";
 import type { KaixConfig } from "./kaix.config";
 import { buildRedditDetails, extractRedditMedia } from "./reddit-fields";
@@ -13,7 +15,7 @@ import {
 } from "../shared/content-provider.interface";
 
 const WARNING =
-  "Bounded kaix sample; no continuation cursor. New sorting may fall back to relevance. Local date filtering does not establish complete coverage; native upstream query semantics are retained. Comment-only targets are accounts or individual posts.";
+  "Bounded Kaix sample; no upstream continuation cursor. New sorting may fall back to relevance. Local date filtering does not establish complete coverage; native upstream query semantics are retained. Comment-only targets are accounts or individual posts.";
 type Row = Record<string, unknown>;
 const object = (v: unknown): Row | null =>
   v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Row) : null;
@@ -34,7 +36,7 @@ function httpUrl(v: unknown): string | null {
   }
 }
 
-/** One bounded Actor run per collection operation. Never automatically resubmit an ambiguous paid POST. */
+/** One bounded Actor run per checkpoint. Never automatically resubmit an ambiguous paid POST. */
 export class KaixContentConnector implements ContentProvider {
   readonly capability: SourceCapability;
   constructor(
@@ -178,11 +180,6 @@ export class KaixContentConnector implements ContentProvider {
       request.source.primaryProvider !== "kaix"
     )
       throw new ContentProviderError("Unsupported kaix source", false);
-    if (request.checkpoint !== null)
-      throw new ContentProviderError(
-        "Kaix does not support continuation checkpoints",
-        false,
-      );
     if (
       !Number.isInteger(request.limit) ||
       request.limit < 1 ||
@@ -198,49 +195,32 @@ export class KaixContentConnector implements ContentProvider {
       request.source.contentKind,
     );
     request.signal?.throwIfAborted();
-    const thread = target.type === "post";
-    const comments = thread || (request.includeComments ?? false);
-    const commentLimit = thread
-      ? Math.min(request.limit, request.maxCommentsPerPost ?? 50)
-      : request.maxCommentsPerPost ?? 15;
-    const maxRows = thread
-      ? 1 + commentLimit
-      : request.limit * (comments ? commentLimit + 1 : 1);
-    if (
-      !Number.isInteger(commentLimit) ||
-      commentLimit < 1 ||
-      commentLimit > 500
-    )
-      throw new ContentProviderError(
-        "Kaix comments per post must be 1–500",
-        false,
-      );
-    const spanDays = (to - from) / 86_400_000;
-    const isKeywordSearch =
-      target.type === "search" || (target.type === "community" && Boolean(target.query));
-    const defaultTime =
-      spanDays <= 1.1 ? "day"
-      : spanDays <= 7.1 ? "week"
-      : spanDays <= 31.1 ? "month"
-      : spanDays <= 366 ? "year"
-      : "all";
-    const defaultSort = isKeywordSearch && spanDays > 7.1 ? "top" : "new";
+    const { stage, batchIds, maxItems, comments, commentLimit, maxRows, fanoutPages, hydratePosts } =
+      kaixPageScope(target.type, request.limit, request, request.checkpoint);
+    const threadIds = new Set(target.type === "post" ? [`t3_${target.postId}`] : batchIds);
+    const fanoutSub = stage?.phase === "fanout" ? stage.subreddits[stage.subIndex] : undefined;
+    const community = fanoutSub ?? (target.type === "community" ? target.community : undefined);
+    const sort = "sort" in target ? target.sort : undefined;
+    const time = "timeRange" in target ? target.timeRange : undefined;
+    // Only supplemental community runs use the long-window alternate ordering.
+    // It can surface older high-signal hits without replacing the recent seed.
+    const complementary = fanoutSub && to - from > 31 * 86_400_000 && !sort && !time;
     const input: Row = {
       depth: "detailed",
       includeNsfw: true,
       includeComments: comments,
       maxCommentsPerPost: commentLimit,
-      ...(thread
-        ? { commentSort: request.commentSort ?? "top" }
+      ...(threadIds.size
+        ? { mode: "post", postUrls: [...threadIds], commentSort: request.commentSort ?? "top" }
         : {
-            sort: ("sort" in target && target.sort) || defaultSort,
-            time: ("timeRange" in target && target.timeRange) || defaultTime,
-            maxItems: request.limit,
+            sort: sort ?? (complementary ? "top" : "new"),
+            time: time ?? (complementary ? "year" : "all"),
+            maxItems,
           }),
     };
-    if (target.type === "search")
-      Object.assign(input, { mode: "search", keyword: target.query });
-    else if (target.type === "community")
+    if (!threadIds.size && target.type === "search")
+      Object.assign(input, { mode: "search", keyword: target.query, ...(fanoutSub ? { subreddit: fanoutSub } : {}) });
+    else if (!threadIds.size && target.type === "community")
       Object.assign(
         input,
         target.query
@@ -257,11 +237,6 @@ export class KaixContentConnector implements ContentProvider {
         username: target.account,
         userContent:
           request.source.contentKind === "comment" ? "comments" : "submitted",
-      });
-    else if (target.type === "post")
-      Object.assign(input, {
-        mode: "post",
-        postUrls: [`t3_${target.postId}`],
       });
     const start = new URL(
       "https://api.apify.com/v2/acts/kaix~reddit-scraper/runs",
@@ -379,8 +354,11 @@ export class KaixContentConnector implements ContentProvider {
         if (pageData.length < limit) break;
       }
     }
-    const fetchedAt = this.now(),
-      items: CollectedContent[] = [];
+    const fetchedAt = this.now();
+    const items: CollectedContent[] = [];
+    const seen = new Set(stage?.phase === "fanout" ? stage.seenPostIds : []);
+    const commentThreads = new Set<string>();
+    const staged = fanoutPages > 0 || hydratePosts > 0;
     for (const value of data) {
       const row = object(value);
       if (!row || !["post", "comment"].includes(String(row.type)))
@@ -393,34 +371,32 @@ export class KaixContentConnector implements ContentProvider {
         throw new ContentProviderError("Unexpected kaix content kind", false);
       const item = this.normalize(row, request, fetchedAt, runId);
       if (
-        target.type === "community" &&
+        community &&
         item.platformDetails.platform === "reddit" &&
-        item.platformDetails.community.toLowerCase() !== target.community
+        item.platformDetails.community.toLowerCase() !== community
       )
-        throw new ContentProviderError(
-          "Kaix returned a different community",
-          false,
-        );
+        throw new ContentProviderError("Kaix returned a different community", false);
       if (
         item.kind === request.source.contentKind &&
         target.type === "account" &&
         item.author?.handle?.toLowerCase() !== target.account
       )
         continue;
-      if (
-        target.type === "post" &&
-        (item.kind === "post"
-          ? item.externalId !== `t3_${target.postId}`
-          : !item.references.some(
-              (ref) =>
-                ref.relation === "thread_root" &&
-                ref.externalId === `t3_${target.postId}`,
-            ))
-      )
-        throw new ContentProviderError(
-          "Kaix returned comments for a different post",
-          false,
-        );
+      if (threadIds.size) {
+        const root = item.kind === "post" ? item.externalId
+          : item.references.find((ref) => ref.relation === "thread_root")?.externalId;
+        if (!root || !threadIds.has(root))
+          throw new ContentProviderError("Kaix returned comments for a different post", false);
+        if (item.kind === "comment") commentThreads.add(root);
+        // Roots already passed discovery and were committed in a prior page.
+        if (stage?.phase === "hydrate_comments") {
+          if (item.kind === "comment" && !seen.has(item.externalId)) {
+            seen.add(item.externalId);
+            items.push(item);
+          }
+          continue;
+        }
+      }
       if (
         item.kind === request.source.contentKind &&
         target.type !== "post" &&
@@ -437,20 +413,52 @@ export class KaixContentConnector implements ContentProvider {
       if (item.kind === "post" && minComments !== undefined && (item.observation.metrics["reddit.num_comments"] ?? 0) < minComments) {
         continue;
       }
+      if (staged) {
+        if (seen.has(item.externalId) || seen.size >= request.limit) continue;
+        seen.add(item.externalId);
+      }
       items.push(item);
     }
     const returnedItems = data.filter(row => object(row)?.type === request.source.contentKind).length;
     const reportedComments = items.some(item =>
       item.kind === "post" && (item.observation.metrics["reddit.num_comments"] ?? 0) > 0,
     );
-    const missingComments = comments && reportedComments && !items.some(item => item.kind === "comment");
+    let missingComments = comments && reportedComments && !items.some(item => item.kind === "comment");
+    let nextCheckpoint: JsonValue = null;
+    if (stage?.phase === "hydrate_comments") {
+      missingComments = stage.missingComments || batchIds.some(id => !commentThreads.has(id));
+      const postIds = stage.postIds.slice(batchIds.length);
+      if (postIds.length) nextCheckpoint = { phase: "hydrate_comments", postIds, missingComments };
+    } else if (staged) {
+      const candidates = stage?.phase === "fanout" ? [...stage.candidates] : [];
+      const density = new Map<string, number>();
+      for (const item of items) {
+        const count = item.observation.metrics["reddit.num_comments"] ?? 0;
+        if (hydratePosts && count > 0) candidates.push({ id: item.externalId, count });
+        if (fanoutPages && !stage && item.platformDetails.platform === "reddit") {
+          const sub = item.platformDetails.community.toLowerCase();
+          if (kaixCommunityName.test(sub)) density.set(sub, (density.get(sub) ?? 0) + 1);
+        }
+      }
+      candidates.sort((a, b) => b.count - a.count || a.id.localeCompare(b.id));
+      candidates.length = Math.min(candidates.length, hydratePosts);
+      const subreddits = stage?.subreddits ??
+        [...density].sort(([a, n], [b, m]) => m - n || a.localeCompare(b)).slice(0, KAIX_FANOUT_COMMUNITIES).map(([sub]) => sub);
+      const subIndex = stage ? stage.subIndex + 1 : 0;
+      if (seen.size < request.limit && subIndex < subreddits.length)
+        nextCheckpoint = { phase: "fanout", subreddits, subIndex, seenPostIds: [...seen], candidates };
+      else if (candidates.length)
+        nextCheckpoint = { phase: "hydrate_comments", postIds: candidates.map(({ id }) => id), missingComments: false };
+    }
     return {
       items,
-      nextCheckpoint: null,
-      exhausted: !missingComments && (thread || returnedItems < request.limit),
+      nextCheckpoint,
+      continueAfterLimit: nextCheckpoint?.phase === "hydrate_comments",
+      // A bounded staged sample cannot certify exhaustion of the search window.
+      exhausted: !staged && !missingComments && (target.type === "post" || returnedItems < request.limit),
       coverage: "partial" as const,
       warning: missingComments
-        ? "Kaix returned posts with a positive comment count but no comment records. Check the Actor run before retrying."
+        ? "Kaix returned no comment records for one or more requested threads. Check the Actor run before retrying."
         : WARNING,
     };
   }
