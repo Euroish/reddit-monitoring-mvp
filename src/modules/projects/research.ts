@@ -183,8 +183,8 @@ async function queryL1OverviewData(
       ? `date_trunc('day', ${tsExpr} AT TIME ZONE 'UTC') + floor(extract(hour from (${tsExpr} AT TIME ZONE 'UTC'))::int / 6) * interval '6 hours'`
       : `date_trunc('day', ${tsExpr} AT TIME ZONE 'UTC')`;
 
-  const [scaleRes, trendRes, kwRes, platRes, commRes, srcRes, kindRes, engRes, topRes] = await Promise.all([
-    client.query<{
+  const { rows: [agg] } = await client.query<{
+    scale_row: {
       total_count: number;
       anchor_count: number;
       posts_count: number;
@@ -196,25 +196,103 @@ async function queryL1OverviewData(
       reported_comments_sum: string;
       undated_count: number;
       overlap_count: number;
-    }>(
-      `${cteSql},
-       anchors AS (
-         SELECT COALESCE(root.id, dc.id) AS anchor_id
-         FROM dedup_content dc
-         LEFT JOIN LATERAL (
-           SELECT value FROM jsonb_array_elements(dc.content_references) r(value)
-           WHERE value->>'relation' = 'thread_root' LIMIT 1
-         ) ref ON true
-         LEFT JOIN dedup_content root
-           ON root.platform_id = dc.platform_id
-          AND root.kind = ref.value->>'kind'
-          AND root.external_id = ref.value->>'externalId'
-       ),
-       target_counts AS (
-         SELECT content_id, COUNT(DISTINCT target_key)::int AS target_cnt
-         FROM scoped_memberships
-         GROUP BY content_id
-       )
+    };
+    trend_rows: Array<{
+      bucket_utc: string | Date;
+      platform: ContentPlatform;
+      total_cnt: number;
+      posts_cnt: number;
+      comments_cnt: number;
+      articles_cnt: number;
+    }>;
+    keyword_rows: Array<{
+      target_key: string;
+      target_label: string;
+      target_type: string;
+      platforms: ContentPlatform[];
+      content_count: number;
+      posts_count: number;
+      comments_count: number;
+      articles_count: number;
+      exclusive_count: number;
+    }>;
+    platform_rows: Array<{
+      platform: ContentPlatform;
+      content_count: number;
+      posts_count: number;
+      comments_count: number;
+      articles_count: number;
+    }>;
+    community_rows: Array<{
+      community_name: string;
+      platform: ContentPlatform;
+      content_count: number;
+      posts_count: number;
+      comments_count: number;
+      avg_eng: number;
+    }>;
+    source_rows: Array<{
+      source_id: string;
+      source_label: string;
+      platform: ContentPlatform;
+      content_count: number;
+      posts_count: number;
+      comments_count: number;
+      avg_eng: number;
+    }>;
+    engagement_rows: Array<{
+      platform: ContentPlatform;
+      sample_count: number;
+      post_count: number;
+      sum_score: string;
+      sum_likes: string;
+      sum_comments: string;
+      collected_comments: number;
+      sum_views: string | null;
+      sum_reposts: string | null;
+      avg_eng: number;
+      avg_disc: number;
+    }>;
+    top_rows: Array<{
+      id: string;
+      platform: ContentPlatform;
+      kind: "post" | "comment" | "article";
+      external_id: string;
+      title: string | null;
+      clean_excerpt: string | null;
+      url: string | null;
+      author_handle: string | null;
+      community_name: string | null;
+      created_at_source: string | Date | null;
+      metric_score: number | null;
+      metric_likes: number | null;
+      metric_comments: number | null;
+      metric_views: string | null;
+      metric_reposts: number | null;
+      engagement_score: number;
+      intent_tag: string | null;
+      target_labels: string[];
+    }>;
+  }>(
+    `${cteSql},
+     anchors AS (
+       SELECT COALESCE(root.id, dc.id) AS anchor_id
+       FROM dedup_content dc
+       LEFT JOIN LATERAL (
+         SELECT value FROM jsonb_array_elements(dc.content_references) r(value)
+         WHERE value->>'relation' = 'thread_root' LIMIT 1
+       ) ref ON true
+       LEFT JOIN dedup_content root
+         ON root.platform_id = dc.platform_id
+        AND root.kind = ref.value->>'kind'
+        AND root.external_id = ref.value->>'externalId'
+     ),
+     target_deg AS (
+       SELECT content_id, COUNT(DISTINCT target_key)::int AS deg
+       FROM scoped_memberships
+       GROUP BY content_id
+     ),
+     scale_agg AS (
        SELECT
          (SELECT COUNT(*)::int FROM dedup_content) AS total_count,
          (SELECT COUNT(DISTINCT anchor_id)::int FROM anchors) AS anchor_count,
@@ -226,20 +304,11 @@ async function queryL1OverviewData(
          (SELECT COUNT(DISTINCT author_handle) FILTER (WHERE author_handle IS NOT NULL)::int FROM dedup_content) AS authors_count,
          (SELECT COALESCE(SUM(metric_comments) FILTER (WHERE kind <> 'comment'), 0)::text FROM dedup_content) AS reported_comments_sum,
          (SELECT COUNT(*) FILTER (WHERE ${tsExpr} IS NULL)::int FROM dedup_content dc) AS undated_count,
-         (SELECT COUNT(*) FILTER (WHERE target_cnt > 1)::int FROM target_counts) AS overlap_count`,
-      values,
-    ),
-    client.query<{
-      bucket_utc: Date;
-      platform: ContentPlatform;
-      total_cnt: number;
-      posts_cnt: number;
-      comments_cnt: number;
-      articles_cnt: number;
-    }>(
-      `${cteSql}
+         (SELECT COUNT(*) FILTER (WHERE deg > 1)::int FROM target_deg) AS overlap_count
+     ),
+     trend_agg AS (
        SELECT
-         ${bucketStep} AS bucket_utc,
+         to_char(${bucketStep}, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS bucket_utc,
          dc.platform,
          COUNT(*)::int AS total_cnt,
          COUNT(*) FILTER (WHERE dc.kind = 'post')::int AS posts_cnt,
@@ -248,32 +317,15 @@ async function queryL1OverviewData(
        FROM dedup_content dc
        WHERE ${tsExpr} IS NOT NULL
        GROUP BY 1, 2
-       ORDER BY 1 ASC, 2 ASC`,
-      values,
-    ),
-    client.query<{
-      target_key: string;
-      target_label: string;
-      target_type: string;
-      platforms: ContentPlatform[];
-      content_count: number;
-      posts_count: number;
-      comments_count: number;
-      articles_count: number;
-      exclusive_count: number;
-    }>(
-      `${cteSql},
-       target_deg AS (
-         SELECT content_id, COUNT(DISTINCT target_key)::int AS deg
-         FROM scoped_memberships
-         GROUP BY content_id
-       ),
-       per_target AS (
-         SELECT DISTINCT sm.target_key, sm.target_label, sm.target_type, dc.id, dc.kind, dc.platform, td.deg
-         FROM scoped_memberships sm
-         JOIN dedup_content dc ON dc.id = sm.content_id
-         JOIN target_deg td ON td.content_id = dc.id
-       )
+       ORDER BY 1 ASC, 2 ASC
+     ),
+     per_target AS (
+       SELECT DISTINCT sm.target_key, sm.target_label, sm.target_type, dc.id, dc.kind, dc.platform, td.deg
+       FROM scoped_memberships sm
+       JOIN dedup_content dc ON dc.id = sm.content_id
+       JOIN target_deg td ON td.content_id = dc.id
+     ),
+     kw_agg AS (
        SELECT
          target_key,
          MIN(target_label) AS target_label,
@@ -286,17 +338,9 @@ async function queryL1OverviewData(
          COUNT(DISTINCT id) FILTER (WHERE deg = 1)::int AS exclusive_count
        FROM per_target
        GROUP BY target_key
-       ORDER BY content_count DESC, target_label ASC`,
-      values,
-    ),
-    client.query<{
-      platform: ContentPlatform;
-      content_count: number;
-      posts_count: number;
-      comments_count: number;
-      articles_count: number;
-    }>(
-      `${cteSql}
+       ORDER BY content_count DESC, target_label ASC
+     ),
+     plat_agg AS (
        SELECT
          platform,
          COUNT(*)::int AS content_count,
@@ -305,18 +349,9 @@ async function queryL1OverviewData(
          COUNT(*) FILTER (WHERE kind = 'article')::int AS articles_count
        FROM dedup_content
        GROUP BY platform
-       ORDER BY content_count DESC, platform ASC`,
-      values,
-    ),
-    client.query<{
-      community_name: string;
-      platform: ContentPlatform;
-      content_count: number;
-      posts_count: number;
-      comments_count: number;
-      avg_eng: number;
-    }>(
-      `${cteSql}
+       ORDER BY content_count DESC, platform ASC
+     ),
+     comm_agg AS (
        SELECT
          community_name,
          MIN(platform) AS platform,
@@ -328,19 +363,9 @@ async function queryL1OverviewData(
        WHERE community_name IS NOT NULL
        GROUP BY community_name
        ORDER BY content_count DESC, community_name ASC
-       LIMIT 30`,
-      values,
-    ),
-    client.query<{
-      source_id: string;
-      source_label: string;
-      platform: ContentPlatform;
-      content_count: number;
-      posts_count: number;
-      comments_count: number;
-      avg_eng: number;
-    }>(
-      `${cteSql}
+       LIMIT 30
+     ),
+     src_agg AS (
        SELECT
          cs.id AS source_id,
          cs.label AS source_label,
@@ -354,42 +379,9 @@ async function queryL1OverviewData(
        JOIN dedup_content dc ON dc.id = sm.content_id
        GROUP BY cs.id, cs.label
        ORDER BY content_count DESC, cs.label ASC
-       LIMIT 30`,
-      values,
-    ),
-    client.query<{
-      platform: ContentPlatform;
-      posts_count: number;
-      comments_count: number;
-      articles_count: number;
-      total_count: number;
-    }>(
-      `${cteSql}
-       SELECT
-         platform,
-         COUNT(*) FILTER (WHERE kind = 'post')::int AS posts_count,
-         COUNT(*) FILTER (WHERE kind = 'comment')::int AS comments_count,
-         COUNT(*) FILTER (WHERE kind = 'article')::int AS articles_count,
-         COUNT(*)::int AS total_count
-       FROM dedup_content
-       GROUP BY platform
-       ORDER BY total_count DESC, platform ASC`,
-      values,
-    ),
-    client.query<{
-      platform: ContentPlatform;
-      sample_count: number;
-      post_count: number;
-      sum_score: string;
-      sum_likes: string;
-      sum_comments: string;
-      collected_comments: number;
-      sum_views: string | null;
-      sum_reposts: string | null;
-      avg_eng: number;
-      avg_disc: number;
-    }>(
-      `${cteSql}
+       LIMIT 30
+     ),
+     eng_agg AS (
        SELECT
          platform,
          COUNT(*)::int AS sample_count,
@@ -404,50 +396,61 @@ async function queryL1OverviewData(
          COALESCE(AVG(discussion_ratio) FILTER (WHERE kind <> 'comment'), 0)::float8 AS avg_disc
        FROM dedup_content
        GROUP BY platform
-       ORDER BY sample_count DESC, platform ASC`,
-      values,
-    ),
-    client.query<{
-      id: string;
-      platform: ContentPlatform;
-      kind: "post" | "comment" | "article";
-      external_id: string;
-      title: string | null;
-      clean_excerpt: string | null;
-      url: string | null;
-      author_handle: string | null;
-      community_name: string | null;
-      created_at_source: Date | null;
-      metric_score: number | null;
-      metric_likes: number | null;
-      metric_comments: number | null;
-      metric_views: string | null;
-      metric_reposts: number | null;
-      engagement_score: number;
-      intent_tag: string | null;
-      target_labels: string[];
-    }>(
-      `${cteSql},
-       labels_agg AS (
-         SELECT content_id, ARRAY_AGG(DISTINCT target_label ORDER BY target_label) AS target_labels
-         FROM scoped_memberships
-         GROUP BY content_id
-       )
+       ORDER BY sample_count DESC, platform ASC
+     ),
+     top_base AS (
        SELECT
          dc.id, dc.platform, dc.kind, dc.external_id, dc.title, dc.clean_excerpt, dc.url,
-         dc.author_handle, dc.community_name, dc.created_at_source,
-         dc.metric_score, dc.metric_likes, dc.metric_comments, dc.metric_views::text, dc.metric_reposts,
-         dc.engagement_score, dc.intent_tag,
-         COALESCE(la.target_labels, ARRAY[]::text[]) AS target_labels
+         dc.author_handle, dc.community_name,
+         to_char(dc.created_at_source AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at_source,
+         dc.metric_score, dc.metric_likes, dc.metric_comments, dc.metric_views::text AS metric_views, dc.metric_reposts,
+         dc.engagement_score, dc.intent_tag
        FROM dedup_content dc
-       LEFT JOIN labels_agg la ON la.content_id = dc.id
        ORDER BY (dc.kind <> 'comment') DESC, dc.engagement_score DESC, COALESCE(dc.created_at_source, dc.first_seen_at) DESC
-       LIMIT 20`,
-      values,
-    ),
-  ]);
+       LIMIT 20
+     ),
+     top_labels AS (
+       SELECT sm.content_id, ARRAY_AGG(DISTINCT sm.target_label ORDER BY sm.target_label) AS target_labels
+       FROM scoped_memberships sm
+       WHERE sm.content_id IN (SELECT id FROM top_base)
+       GROUP BY sm.content_id
+     ),
+     top_agg AS (
+       SELECT
+         tb.*,
+         COALESCE(tl.target_labels, ARRAY[]::text[]) AS target_labels
+       FROM top_base tb
+       LEFT JOIN top_labels tl ON tl.content_id = tb.id
+     )
+     SELECT
+       (SELECT row_to_json(scale_agg) FROM scale_agg) AS scale_row,
+       COALESCE((SELECT json_agg(trend_agg) FROM trend_agg), '[]'::json) AS trend_rows,
+       COALESCE((SELECT json_agg(kw_agg) FROM kw_agg), '[]'::json) AS keyword_rows,
+       COALESCE((SELECT json_agg(plat_agg) FROM plat_agg), '[]'::json) AS platform_rows,
+       COALESCE((SELECT json_agg(comm_agg) FROM comm_agg), '[]'::json) AS community_rows,
+       COALESCE((SELECT json_agg(src_agg) FROM src_agg), '[]'::json) AS source_rows,
+       COALESCE((SELECT json_agg(eng_agg) FROM eng_agg), '[]'::json) AS engagement_rows,
+       COALESCE((SELECT json_agg(top_agg) FROM top_agg), '[]'::json) AS top_rows`,
+    values,
+  );
 
-  const sRow = scaleRes.rows[0];
+  const sRow = agg?.scale_row;
+  const trendRes = { rows: agg?.trend_rows ?? [] };
+  const kwRes = { rows: agg?.keyword_rows ?? [] };
+  const platRes = { rows: agg?.platform_rows ?? [] };
+  const commRes = { rows: agg?.community_rows ?? [] };
+  const srcRes = { rows: agg?.source_rows ?? [] };
+  const kindRes = {
+    rows: (agg?.platform_rows ?? []).map((r) => ({
+      platform: r.platform,
+      posts_count: r.posts_count,
+      comments_count: r.comments_count,
+      articles_count: r.articles_count,
+      total_count: r.content_count,
+    })),
+  };
+  const engRes = { rows: agg?.engagement_rows ?? [] };
+  const topRes = { rows: agg?.top_rows ?? [] };
   const dedupTotal = sRow?.total_count ?? 0;
   const undatedCount = sRow?.undated_count ?? 0;
   const datedCount = Math.max(0, dedupTotal - undatedCount);
@@ -484,7 +487,7 @@ async function queryL1OverviewData(
   // Assemble trend points grouped by UTC bucket
   const trendMap = new Map<string, L1TrendPoint>();
   for (const r of trendRes.rows) {
-    const bucketKey = r.bucket_utc.toISOString();
+    const bucketKey = typeof r.bucket_utc === "string" ? new Date(r.bucket_utc).toISOString() : r.bucket_utc.toISOString();
     let pt = trendMap.get(bucketKey);
     if (!pt) {
       pt = { bucket: bucketKey, totalCount: 0, postsCount: 0, commentsCount: 0, articlesCount: 0, byPlatform: [] };
@@ -594,7 +597,7 @@ async function queryL1OverviewData(
     url: r.url,
     authorHandle: r.author_handle,
     communityName: r.community_name,
-    publishedAt: r.created_at_source?.toISOString() ?? null,
+    publishedAt: typeof r.created_at_source === "string" ? new Date(r.created_at_source).toISOString() : (r.created_at_source?.toISOString() ?? null),
     metricScore: r.metric_score,
     metricLikes: r.metric_likes,
     metricComments: r.metric_comments,

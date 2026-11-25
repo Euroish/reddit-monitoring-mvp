@@ -215,6 +215,16 @@ export class KaixContentConnector implements ContentProvider {
         "Kaix comments per post must be 1–500",
         false,
       );
+    const spanDays = (to - from) / 86_400_000;
+    const isKeywordSearch =
+      target.type === "search" || (target.type === "community" && Boolean(target.query));
+    const defaultTime =
+      spanDays <= 1.1 ? "day"
+      : spanDays <= 7.1 ? "week"
+      : spanDays <= 31.1 ? "month"
+      : spanDays <= 366 ? "year"
+      : "all";
+    const defaultSort = isKeywordSearch && spanDays > 7.1 ? "top" : "new";
     const input: Row = {
       depth: "detailed",
       includeNsfw: true,
@@ -223,8 +233,8 @@ export class KaixContentConnector implements ContentProvider {
       ...(thread
         ? { commentSort: request.commentSort ?? "top" }
         : {
-            sort: ("sort" in target && target.sort) || "new",
-            time: ("timeRange" in target && target.timeRange) || "all",
+            sort: ("sort" in target && target.sort) || defaultSort,
+            time: ("timeRange" in target && target.timeRange) || defaultTime,
             maxItems: request.limit,
           }),
     };

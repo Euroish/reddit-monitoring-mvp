@@ -447,7 +447,7 @@ export function buildScopedSql(
   const includeUndatedClause = scope.includeUndated ? "" : ` AND ${scope.timeBasis === "collected" ? "c.first_seen_at" : "c.created_at_source"} IS NOT NULL`;
 
   const cteSql = `WITH ${membershipCte},
-    dedup_content AS (
+    dedup_content AS MATERIALIZED (
       SELECT DISTINCT ON (c.id)
         c.id,
         c.source_id AS platform_id,
@@ -479,7 +479,7 @@ export function buildScopedSql(
       WHERE c.availability = 'available' AND (${compiled.text})${includeUndatedClause}
       ORDER BY c.id
     ),
-    scoped_memberships AS (
+    scoped_memberships AS MATERIALIZED (
       SELECT rm.content_id, rm.target_key, rm.target_label, rm.target_type, rm.source_id
       FROM raw_memberships rm
       JOIN dedup_content dc ON dc.id = rm.content_id

@@ -7,6 +7,7 @@ import { fail } from "../../shared/errors";
 import {
   ContentProviderError,
   type CollectedContent,
+  type CollectedPage,
   type CollectContentPageRequest,
   type ContentProvider,
 } from "../shared/content-provider.interface";
@@ -248,21 +249,73 @@ function isTweetInScope(
   return Boolean(handle && allowedHandles.has(handle));
 }
 
+const X_TIME_SLICE_MS = 7 * 86_400_000;
+
+export function buildXTimeSlices(fromMs: number, toMs: number): Array<{ from: number; to: number }> {
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs) return [];
+  if (toMs - fromMs <= X_TIME_SLICE_MS) return [{ from: fromMs, to: toMs }];
+  const slices: Array<{ from: number; to: number }> = [];
+  for (let end = toMs; end > fromMs; end -= X_TIME_SLICE_MS) {
+    slices.push({ from: Math.max(fromMs, end - X_TIME_SLICE_MS), to: end });
+  }
+  return slices;
+}
+
 function formatXPage(
   matched: CollectedContent[],
   rawCount: number,
   limit: number,
   cursor: string | null,
   body: Record<string, unknown>,
-) {
+  sliceState?: { sliceIndex: number; sliceCount: number; slicePage: number; maxPagesPerSlice: number },
+): CollectedPage {
   const next = string(body.next_cursor);
   const truncated = rawCount > 20 || matched.length > limit;
   const partial = body.partial === true;
-  const hasNext = rawCount > 0 && next !== null && next !== cursor && body.has_more !== false;
+  const hasNextInSlice = rawCount > 0 && next !== null && next !== cursor && body.has_more !== false;
+
+  if (sliceState && sliceState.sliceCount > 1) {
+    const canContinueSlice = !truncated && !partial && hasNextInSlice && sliceState.slicePage + 1 < sliceState.maxPagesPerSlice;
+    if (canContinueSlice) {
+      return {
+        items: matched.slice(0, limit),
+        nextCheckpoint: {
+          sliceIndex: sliceState.sliceIndex,
+          slicePage: sliceState.slicePage + 1,
+          cursor: next,
+        },
+        exhausted: false,
+        coverage: "partial" as const,
+        warning: null,
+      };
+    }
+    const hasMoreSlices = !partial && sliceState.sliceIndex + 1 < sliceState.sliceCount;
+    if (hasMoreSlices) {
+      return {
+        items: matched.slice(0, limit),
+        nextCheckpoint: {
+          sliceIndex: sliceState.sliceIndex + 1,
+          slicePage: 0,
+          cursor: null,
+        },
+        exhausted: false,
+        coverage: "partial" as const,
+        warning: null,
+      };
+    }
+    return {
+      items: matched.slice(0, limit),
+      nextCheckpoint: null,
+      exhausted: !partial && !truncated && !hasNextInSlice,
+      coverage: "partial" as const,
+      warning: partial ? "TwitterAPIs returned a partial page" : null,
+    };
+  }
+
   return {
     items: matched.slice(0, limit),
-    nextCheckpoint: !truncated && !partial && hasNext ? { cursor: next } : null,
-    exhausted: !partial && !truncated && !hasNext,
+    nextCheckpoint: !truncated && !partial && hasNextInSlice ? { cursor: next } : null,
+    exhausted: !partial && !truncated && !hasNextInSlice,
     coverage: "partial" as const,
     warning: partial ? "TwitterAPIs returned a partial page" : null,
   };
@@ -284,7 +337,7 @@ export function twitterApis(
     },
     contentKinds: ["post"], targetTypes: ["account", "search"], keywordSearch: "global",
     observationModel: "snapshot", automaticRequestReplay: false, refreshByIds: false,
-    requestResourceUpperBound: 20, limitations: ["Up to 20 posts per page; recent search coverage"],
+    requestResourceUpperBound: 20, limitations: ["Up to 20 posts per page; auto-slices windows > 7d into 7-day buckets"],
     metrics: Object.keys(metricFields).map((metric) => ({
       key: metric, label: metric.slice(2), unit: "count", cumulative: true,
       signed: false, contentKinds: ["post"], direction: "higher",
@@ -298,10 +351,19 @@ export function twitterApis(
       const target = normalizeXTarget(request.source.target, request.source.contentKind);
       const url = new URL("https://api.twitterapis.com/twitter/tweet/advanced_search");
       const from = Date.parse(request.from), to = Date.parse(request.to);
-      url.searchParams.set("query", buildXSearchQuery(target, from, to));
+      const cp = object(request.checkpoint);
+      const slices = buildXTimeSlices(from, to);
+      const sliceCount = slices.length;
+      const rawSliceIndex = typeof cp.sliceIndex === "number" && Number.isInteger(cp.sliceIndex) ? cp.sliceIndex : 0;
+      const sliceIndex = Math.max(0, Math.min(rawSliceIndex, Math.max(0, sliceCount - 1)));
+      const slicePage = typeof cp.slicePage === "number" && Number.isInteger(cp.slicePage) && cp.slicePage >= 0 ? cp.slicePage : 0;
+      const activeSlice = slices[sliceIndex] ?? { from, to };
+      const maxPagesPerSlice = sliceCount > 1 ? Math.max(5, Math.min(25, Math.ceil(100 / sliceCount))) : 0;
+
+      url.searchParams.set("query", buildXSearchQuery(target, activeSlice.from, activeSlice.to));
       url.searchParams.set("product", target.sort === "top" || target.sort === "hot" ? "Top" : "Latest");
       const limit = Math.min(request.limit, 20);
-      const cursor = string(object(request.checkpoint).cursor);
+      const cursor = string(cp.cursor);
       if (cursor) url.searchParams.set("cursor", cursor);
       const timeoutSignal = AbortSignal.timeout(timeout);
       const signal = request.signal ? AbortSignal.any([request.signal, timeoutSignal]) : timeoutSignal;
@@ -319,7 +381,14 @@ export function twitterApis(
         ? new Set((target.accounts?.length ? target.accounts : [target.account]).map((h) => h.toLowerCase()))
         : null;
       const matched = tweets.filter((tweet) => isTweetInScope(tweet, from, to, allowedHandles));
-      return formatXPage(matched, body.tweets.length, limit, cursor, body);
+      return formatXPage(
+        matched,
+        body.tweets.length,
+        limit,
+        cursor,
+        body,
+        sliceCount > 1 ? { sliceIndex, sliceCount, slicePage, maxPagesPerSlice } : undefined,
+      );
     },
   };
 }

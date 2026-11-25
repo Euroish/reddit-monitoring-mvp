@@ -806,6 +806,32 @@ export function IntakeScopeStep({
     if (val === undefined || val === '' || val === false) delete next[k];
     setRange({ ...range, queryHints: next });
   };
+  const researchPresets = [
+    {
+      id: 'pulse',
+      label: t('Hot Pulse (7d)', '热点速览（7 天）'),
+      desc: t('Latest posts, fast live recall', '最新排序，近 7 天召回最全'),
+      days: Math.min(7, limits.maxDays),
+      limit: Math.min(500, maximum),
+      sort: undefined as QueryHintsValue['sort'],
+    },
+    {
+      id: 'insight',
+      label: t('Deep Insight (30d · Recommended)', '深度洞察（30 天 · 推荐）'),
+      desc: t('High-signal monthly posts, hydrate top threads after', '30 天高互动主帖，入库后再对热帖补抓评论'),
+      days: Math.min(30, limits.maxDays),
+      limit: Math.min(1500, maximum),
+      sort: (sf?.sortOptions.includes('top') ? 'top' : undefined) as QueryHintsValue['sort'],
+    },
+    {
+      id: 'trend',
+      label: t('Quarterly Trend (90d)', '跨季趋势（90 天）'),
+      desc: t('Auto-sliced on X / top-weighted on Reddit', 'X 自动按周切片，Reddit 自动匹配高互动年窗'),
+      days: Math.min(90, limits.maxDays),
+      limit: Math.min(2000, maximum),
+      sort: undefined as QueryHintsValue['sort'],
+    },
+  ].filter((p) => p.days >= 1 && p.limit >= 1);
 
   return (
     <>
@@ -821,6 +847,47 @@ export function IntakeScopeStep({
 
       <form onSubmit={onContinue} className="intake-step-form">
         <fieldset className="intake-fields" disabled={pending}>
+          {/* Recommended Research Presets */}
+          <div className="intake-section-block">
+            <div className="intake-field-label">
+              {t('Recommended research presets', '推荐分析预设（一键配置）')}
+            </div>
+            <div className="intake-pill-group">
+              {researchPresets.map((preset) => {
+                const active = range.days === preset.days && range.limit === preset.limit && !range.comments;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    title={preset.desc}
+                    className={`intake-pill ${active ? 'is-active' : ''}`}
+                    onClick={() => {
+                      const nextHints = { ...range.queryHints };
+                      if (preset.sort) nextHints.sort = preset.sort;
+                      else delete nextHints.sort;
+                      delete nextHints.timeRange;
+                      setRange({
+                        ...range,
+                        days: preset.days,
+                        limit: preset.limit,
+                        comments: false,
+                        queryHints: nextHints,
+                      });
+                    }}
+                  >
+                    {preset.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="collection-hint">
+              {t(
+                'Collect posts first, then hydrate comments on top threads to avoid hitting daily social budget ceilings.',
+                '建议先只抓主帖，入库后再对高互动热帖按需补抓评论，避免主帖×评论数触发全局日预算排队。',
+              )}
+            </p>
+          </div>
+
           {/* Time Range Pills (Zero dropdown) */}
           <div className="intake-section-block">
             <div className="intake-field-label">
