@@ -489,11 +489,27 @@ export function ProjectsPage({
   const threadAware = selectedProject?.thread_aware ?? true;
 
   const contentQuery = useContentListQuery({
-    limit: 100, threadAware, from: windowFrom, to: windowTo,
+    limit: 100, sort: 'engagement', threadAware, from: windowFrom, to: windowTo,
     deliveryMode: selectedProject?.dataset_mode === 'source_filter' && !selectedProject.include_push_in_trends
       ? 'pull' : undefined,
   }, selectedProject?.id, activeView === 'overview' && Boolean(selectedProject?.id));
-  const rawItems = useMemo(() => contentQuery.data?.items ?? [], [contentQuery.data?.items]);
+  const rawItems = useMemo(() => {
+    const items = contentQuery.data?.items ?? [];
+    const engagementOf = (item: PublicContent) => {
+      const m = item.observations[item.observations.length - 1]?.metrics || {};
+      const comments = Number(m['reddit.num_comments'] ?? m['x.replies'] ?? m['bluesky.replies'] ?? 0) || 0;
+      const likes = Number(m['reddit.score'] ?? m['x.likes'] ?? m['bluesky.likes'] ?? 0) || 0;
+      return { comments, likes, total: comments + likes };
+    };
+    return [...items].sort((a, b) => {
+      const ea = engagementOf(a);
+      const eb = engagementOf(b);
+      return eb.total - ea.total
+        || eb.comments - ea.comments
+        || eb.likes - ea.likes
+        || (b.publishedAt || '').localeCompare(a.publishedAt || '');
+    });
+  }, [contentQuery.data?.items]);
 
   const [openFilterPop, setOpenFilterPop] = useState<'platforms' | 'signal' | 'kind' | 'share' | null>(null);
   const [shareCopied, setShareCopied] = useState(false);

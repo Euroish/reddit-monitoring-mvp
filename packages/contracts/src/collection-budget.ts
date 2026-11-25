@@ -38,5 +38,5 @@ export function providerResourceReservation(input: CollectionOptions & {
     return 1 + Math.min(pageSize, input.maxCommentsPerPost ?? 50);
   }
   if (provider === "twitterapis" || provider === "scrapebadger") return input.requestResourceUpperBound ?? 20;
-  return Math.min(2000, pageSize * (input.includeComments ? (input.maxCommentsPerPost ?? 15) + 1 : 1) + 1);
+  return pageSize * (input.includeComments ? (input.maxCommentsPerPost ?? 15) + 1 : 1) + 1;
 }

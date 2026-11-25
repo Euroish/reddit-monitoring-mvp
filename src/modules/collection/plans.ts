@@ -61,8 +61,8 @@ function buildFieldPolicy(
     canUseFallback: !isViewer || effective.allowProviderChoice,
     canIncludeComments: !isViewer || effective.maxCommentsPerPost > 0,
     maxLookbackDays: isViewer ? effective.maxLookbackDays : 365,
-    maxBatchLimit: isViewer ? effective.maxBatchLimit : 300,
-    maxCommentsPerPost: isViewer ? effective.maxCommentsPerPost : 50,
+    maxBatchLimit: isViewer ? effective.maxBatchLimit : 10000,
+    maxCommentsPerPost: isViewer ? effective.maxCommentsPerPost : 500,
     supportedFilters: providerFilterCapabilities(providerName ?? "", targetType ?? ""),
   };
 }
@@ -196,8 +196,13 @@ function estimateResources(
   targetType: string,
   body: ResearchPlanPreviewRequest,
 ) {
-  const pageSize = providerName === "twitterapis" ? Math.min(body.limit, 20) : body.limit;
-  const systemResources = provider
+  const pageSize = providerName === "twitterapis" ? Math.min(body.limit, 20)
+    : providerName === "scrapebadger" ? Math.min(body.limit, 100)
+    : body.limit;
+  const maxPages = providerName === "twitterapis" ? Math.min(500, Math.ceil(body.limit / 20))
+    : providerName === "scrapebadger" ? Math.min(500, Math.ceil(body.limit / 100))
+    : 1;
+  const perPageSystem = provider
     ? providerResourceReservation({
         provider: providerName,
         targetType,
@@ -207,11 +212,12 @@ function estimateResources(
         requestResourceUpperBound: provider.capability.requestResourceUpperBound,
       })
     : pageSize;
-  const personalResources = viewerCollectionDemand(providerName, targetType, pageSize, {
+  const systemResources = perPageSystem * maxPages;
+  const personalResources = viewerCollectionDemand(providerName, targetType, body.limit, {
     includeComments: body.includeComments,
     maxCommentsPerPost: body.maxCommentsPerPost,
   }).resources;
-  return { requests: 1, systemResources, personalResources };
+  return { requests: maxPages, systemResources, personalResources };
 }
 
 async function previewMatchedSource(

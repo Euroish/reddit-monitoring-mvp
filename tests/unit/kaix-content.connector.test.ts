@@ -243,20 +243,20 @@ test("ambiguous paid failures never retry and invalid bounds or missing durable 
   await assert.rejects(
     f.connector.collectPage({
       ...request,
-      limit: 301,
+      limit: 10001,
       execution: f.execution(),
     }),
-    /1–300/,
+    /1–10000/,
   );
   await assert.rejects(
     f.connector.collectPage({
       ...request,
       limit: 100,
       includeComments: true,
-      maxCommentsPerPost: 50,
+      maxCommentsPerPost: 501,
       execution: f.execution(),
     }),
-    /2000/,
+    /1–500/,
   );
   assert.equal(f.requests.length, 0);
   assert.throws(

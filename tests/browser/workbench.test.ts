@@ -1041,7 +1041,7 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   await page.locator(".collection-panel-header").getByText("example", { exact: true }).waitFor();
   await page.getByLabel("查找来源", { exact: true }).fill("X UI fixture");
   await page.getByRole("heading", { name: "手动采集" }).waitFor();
-  assert.equal(await page.getByLabel("采集上限").getAttribute("max"), "20");
+  assert.equal(await page.getByLabel("采集上限").getAttribute("max"), "10000");
   assert.equal(await page.getByLabel("同时采集评论").count(), 0);
   await page.getByText(/首次渠道执行 · 1 次请求 \/ 20 单位预留资源/).waitFor();
   const submitCollection = page.getByRole("button", { name: "提交采集任务" });

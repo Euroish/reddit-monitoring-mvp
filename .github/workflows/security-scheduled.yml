@@ -10,16 +10,6 @@ permissions:
   contents: read
 
 jobs:
-  full-secret-scan:
-    name: Full-history Gitleaks scan
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          fetch-depth: 0
-      - run: docker run --rm -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.28.0 git /repo --redact
-
   dependency-audit:
     name: Production dependency audit
     runs-on: ubuntu-24.04

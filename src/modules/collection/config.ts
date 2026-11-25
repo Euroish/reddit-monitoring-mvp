@@ -82,14 +82,12 @@ export function collectionRequestRestriction(
   target: string,
   input: { limit: number; includeComments?: boolean; maxCommentsPerPost?: number },
 ): string | undefined {
-  if (provider === "kaix" && target !== "post" &&
-      input.limit * (input.includeComments ? (input.maxCommentsPerPost ?? 15) + 1 : 1) > 2000)
-    return "Requested batch exceeds 2000 nodes";
+  if (provider === "kaix" && (input.limit > 10000 || (input.maxCommentsPerPost !== undefined && input.maxCommentsPerPost > 500)))
+    return "Kaix supports up to 10000 posts and 500 comments per post per task";
   if (provider === "bluesky_appview" && (input.limit > 100 || input.includeComments))
     return "Bluesky supports at most 100 authored posts per request";
-  if ((provider === "twitterapis" && input.includeComments) ||
-      (provider === "scrapebadger" && (input.limit > 100 || input.includeComments)))
-    return "X collection exceeds the provider page limit or requests comments";
+  if ((provider === "twitterapis" || provider === "scrapebadger") && (input.limit > 10000 || input.includeComments))
+    return "X collection supports up to 10000 items per task and does not collect comments";
   if (provider === "red_crawler" && (input.limit > (target === "post" ? 50 : 100) || (input.includeComments && target !== "post")))
     return "red_crawler supports one bounded search or post comment run per task";
   if (platform === "web" && (input.limit > 100 || input.includeComments))

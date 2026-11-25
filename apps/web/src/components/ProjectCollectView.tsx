@@ -30,6 +30,7 @@ import {
   type CollectionRange,
   type IntakeTarget,
   type ManualTarget,
+  type ResolvedIntakeTarget,
 } from './CollectionIntakeSteps';
 
 const planLifetimeMs = 5 * 60_000;
@@ -39,8 +40,8 @@ const initialRange: CollectionRange = { days: 7, limit: 20, comments: false, com
 
 type Flow =
   | { step: 'target' }
-  | { step: 'scope'; target: ResearchPlanPreviewResponse }
-  | { step: 'review'; target: ResearchPlanPreviewResponse; estimate: CollectionEstimate };
+  | { step: 'scope'; targets: ResolvedIntakeTarget[] }
+  | { step: 'review'; targets: ResolvedIntakeTarget[]; estimates: CollectionEstimate[] };
 
 function readDraft(params: string): ManualTarget {
   const sp = new URLSearchParams(params);
@@ -58,7 +59,12 @@ function buildAdminRegistrationPath(
   draft: ManualTarget,
 ): string | undefined {
   if (!isAdmin || restriction?.resolutionStatus !== 'needs_admin_source') return undefined;
-  const val = draft.targetValue.trim();
+  const rawTokens = draft.targetValue.split(/[\n,，]+/).map((part) => part.trim()).filter(Boolean);
+  const resolved = restriction.resolvedTarget?.value;
+  const matchedRaw = resolved
+    ? rawTokens.find((token) => token.replace(/^(?:r\/|@)/i, '').toLowerCase() === resolved.toLowerCase())
+    : undefined;
+  const val = matchedRaw ?? (rawTokens.length === 1 ? rawTokens[0] : resolved) ?? draft.targetValue.trim();
   if (!val) return undefined;
   return (
     '/sources?' +
@@ -67,8 +73,8 @@ function buildAdminRegistrationPath(
       domain: 'research',
       new: '1',
       returnProjectId: projectId,
-      targetPlatform: draft.platform,
-      targetType: draft.targetType,
+      targetPlatform: restriction.resolvedTarget?.platform ?? draft.platform,
+      targetType: restriction.resolvedTarget?.type ?? draft.targetType,
       targetValue: val,
     })
   );
@@ -76,9 +82,9 @@ function buildAdminRegistrationPath(
 
 function buildScopePreviewRequest(
   projectId: string,
-  target: ResearchPlanPreviewResponse,
-  draft: ManualTarget,
+  target: ResolvedIntakeTarget,
   range: CollectionRange,
+  allowFallback: boolean,
   now: number,
 ): ResearchPlanPreviewRequest {
   const hints = Object.keys(range.queryHints).length ? range.queryHints : undefined;
@@ -91,9 +97,18 @@ function buildScopePreviewRequest(
     maxCommentsPerPost: range.comments ? range.commentLimit : undefined,
     queryHints: hints,
   };
-  return target.matchedSource
-    ? { ...common, sourceId: target.matchedSource.id, useFallback: range.fallback }
-    : { ...common, platform: draft.platform, targetType: draft.targetType, targetValue: draft.targetValue.trim() };
+  if (target.result.matchedSource) {
+    return { ...common, sourceId: target.result.matchedSource.id, useFallback: allowFallback ? range.fallback : false };
+  }
+  if ('sourceId' in target.input) {
+    return { ...common, sourceId: target.input.sourceId, useFallback: allowFallback ? range.fallback : false };
+  }
+  return {
+    ...common,
+    platform: target.input.platform,
+    targetType: target.input.targetType,
+    targetValue: target.input.targetValue.trim(),
+  };
 }
 
 export function ProjectCollectView({
@@ -112,7 +127,10 @@ export function ProjectCollectView({
   const { t } = useI18n();
   const readableError = useIntakeError();
   const [draft, setDraft] = useState(() => readDraft(initialSearch));
-  const [sourceId, setSourceId] = useState(() => new URLSearchParams(initialSearch).get('sourceId') ?? undefined);
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>(() => {
+    const id = new URLSearchParams(initialSearch).get('sourceId');
+    return id ? [id] : [];
+  });
   const [flow, setFlow] = useState<Flow>({ step: 'target' });
   const [range, setRange] = useState<CollectionRange>(initialRange);
   const [restriction, setRestriction] = useState<ResearchPlanPreviewResponse>();
@@ -121,6 +139,7 @@ export function ProjectCollectView({
   const mounted = useRef(true);
   const heading = useRef<HTMLElement>(null);
   const submitting = useRef(false);
+  const submittedJobIds = useRef(new Map<string, string>());
 
   const isAdmin = actor.clientKind === 'browser' && actor.role !== 'viewer';
   const writable = actor.clientKind === 'browser' && Boolean(project.can_edit ?? isAdmin);
@@ -170,39 +189,51 @@ export function ProjectCollectView({
     setConfirmed(false);
     collect.reset();
     collectPlan.reset();
+    submittedJobIds.current.clear();
     setFlow({ step: 'target' });
     heading.current?.focus();
   }
 
-  async function checkTarget(target: IntakeTarget) {
-    if (!canModify || !canStart || preview.isPending) return;
+  async function checkTargets(targets: IntakeTarget[]) {
+    if (!canModify || !canStart || preview.isPending || !targets.length) return;
     setError('');
     setRestriction(undefined);
     const now = Date.now();
     try {
-      const result = await preview.mutateAsync({
-        projectId: project.id,
-        ...target,
-        from: new Date(now - dayMs).toISOString(),
-        to: new Date(now).toISOString(),
-        limit: 1,
-      });
+      const results = await Promise.all(
+        targets.map((target) =>
+          preview.mutateAsync({
+            projectId: project.id,
+            ...target,
+            from: new Date(now - dayMs).toISOString(),
+            to: new Date(now).toISOString(),
+            limit: 1,
+          }),
+        ),
+      );
       if (!mounted.current) return;
-      if (!result.executable || (!result.matchedSource && result.resolutionStatus !== 'on_demand_available')) {
-        setRestriction(result);
+      const blocked = results.find(
+        (result) => !result.executable || (!result.matchedSource && result.resolutionStatus !== 'on_demand_available'),
+      );
+      if (blocked) {
+        setRestriction(blocked);
         return;
       }
-      setSourceId(result.matchedSource?.id);
-      const limits = getRangeLimits(result);
+      const resolved: ResolvedIntakeTarget[] = targets.map((input, index) => ({ input, result: results[index]! }));
+      setSelectedSourceIds(resolved.flatMap((item) => (item.result.matchedSource ? [item.result.matchedSource.id] : [])));
+      const allLimits = resolved.map((item) => getRangeLimits(item.result));
+      const maxDays = Math.min(...allLimits.map((item) => item.maxDays));
+      const maxItems = Math.min(...allLimits.map((item) => item.maxItems));
+      const maxComments = Math.min(...allLimits.map((item) => item.maxComments));
       setRange((current) => ({
         ...current,
-        days: Math.min(current.days, limits.maxDays),
-        limit: Math.min(current.limit, limits.maxItems),
-        comments: current.comments && limits.maxComments > 0,
-        commentLimit: Math.min(current.commentLimit, Math.max(1, limits.maxComments)),
+        days: Math.min(current.days, maxDays),
+        limit: Math.min(current.limit, maxItems),
+        comments: current.comments && maxComments > 0,
+        commentLimit: Math.min(current.commentLimit, Math.max(1, maxComments)),
         fallback: false,
       }));
-      setFlow({ step: 'scope', target: result });
+      setFlow({ step: 'scope', targets: resolved });
     } catch (err) {
       setError(readableError(err));
     }
@@ -210,27 +241,33 @@ export function ProjectCollectView({
 
   async function estimate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canModify || flow.step !== 'scope' || preview.isPending) return;
-    if (!flow.target.matchedSource && flow.target.resolutionStatus !== 'on_demand_available') return;
+    if (!canModify || flow.step !== 'scope' || preview.isPending || !flow.targets.length) return;
     setError('');
     setRestriction(undefined);
     const now = Date.now();
-    const request = buildScopePreviewRequest(project.id, flow.target, draft, range, now);
+    const allowFallback = flow.targets.length === 1;
+    const requests = flow.targets.map((target) => buildScopePreviewRequest(project.id, target, range, allowFallback, now));
     try {
-      const result = await preview.mutateAsync(request);
+      const results = await Promise.all(requests.map((request) => preview.mutateAsync(request)));
       if (!mounted.current) return;
-      if (!result.executable || (!result.matchedSource && result.resolutionStatus !== 'on_demand_available')) {
-        setRestriction(result);
+      const blocked = results.find(
+        (result) => !result.executable || (!result.matchedSource && result.resolutionStatus !== 'on_demand_available'),
+      );
+      if (blocked) {
+        setRestriction(blocked);
         return;
       }
       collect.reset();
       collectPlan.reset();
+      submittedJobIds.current.clear();
       setConfirmed(false);
-      setFlow({
-        step: 'review',
-        target: flow.target,
-        estimate: { request, result, key: generateUuidV4(), expiresAt: now + planLifetimeMs },
-      });
+      const estimates: CollectionEstimate[] = requests.map((request, index) => ({
+        request,
+        result: results[index]!,
+        key: generateUuidV4(),
+        expiresAt: now + planLifetimeMs,
+      }));
+      setFlow({ step: 'review', targets: flow.targets, estimates });
     } catch (err) {
       setError(readableError(err));
     }
@@ -238,28 +275,43 @@ export function ProjectCollectView({
 
   async function confirm() {
     if (!canModify || flow.step !== 'review' || !confirmed || submitting.current) return;
-    const { estimate: prepared, target } = flow;
-    if (Date.now() >= prepared.expiresAt && !collect.isError && !collectPlan.isError) {
-      setFlow({ step: 'scope', target });
+    const { estimates, targets } = flow;
+    const firstEstimate = estimates[0];
+    if (!firstEstimate) return;
+    if (Date.now() >= firstEstimate.expiresAt && !collect.isError && !collectPlan.isError && submittedJobIds.current.size === 0) {
+      setFlow({ step: 'scope', targets });
       setError(t('The estimate expired. Check the estimated usage again.', '估算已过期，请重新核对预计消耗。'));
       setConfirmed(false);
       return;
     }
-    const { from, to, limit, includeComments, maxCommentsPerPost, useFallback, projectId, queryHints } = prepared.request;
     submitting.current = true;
     setError('');
     try {
-      const result = prepared.request.sourceId
-        ? await collect.mutateAsync({
-            sourceId: prepared.request.sourceId,
-            idempotencyKey: prepared.key,
-            payload: { from, to, limit, includeComments, maxCommentsPerPost, useFallback, projectId, queryHints },
-          })
-        : await collectPlan.mutateAsync({
-            payload: { ...prepared.request, projectId: project.id },
-            idempotencyKey: prepared.key,
-          });
-      if (mounted.current) onNavigate(path('jobs') + '&jobId=' + encodeURIComponent(result.jobId));
+      const jobIds: string[] = [];
+      for (const prepared of estimates) {
+        const existingJobId = submittedJobIds.current.get(prepared.key);
+        if (existingJobId) {
+          jobIds.push(existingJobId);
+          continue;
+        }
+        const { from, to, limit, includeComments, maxCommentsPerPost, useFallback, projectId, queryHints } = prepared.request;
+        const result = prepared.request.sourceId
+          ? await collect.mutateAsync({
+              sourceId: prepared.request.sourceId,
+              idempotencyKey: prepared.key,
+              payload: { from, to, limit, includeComments, maxCommentsPerPost, useFallback, projectId, queryHints },
+            })
+          : await collectPlan.mutateAsync({
+              payload: { ...prepared.request, projectId: project.id },
+              idempotencyKey: prepared.key,
+            });
+        submittedJobIds.current.set(prepared.key, result.jobId);
+        jobIds.push(result.jobId);
+      }
+      if (mounted.current) {
+        const suffix = jobIds.length === 1 ? '&jobId=' + encodeURIComponent(jobIds[0]!) : '';
+        onNavigate(path('jobs') + suffix);
+      }
     } catch (err) {
       setError(readableError(err, true));
     } finally {
@@ -379,9 +431,9 @@ export function ProjectCollectView({
                     setRestriction(undefined);
                     setError('');
                   }}
-                  selectedSourceId={sourceId}
+                  selectedSourceIds={selectedSourceIds}
                   pending={preview.isPending}
-                  onSelect={(target) => void checkTarget(target)}
+                  onSelect={(targets) => void checkTargets(targets)}
                 />
                 {jobs.isSuccess && ((history?.length ?? 0) > 0 || activeJobs.length > 0) && (
                   <div className="intake-recent">
@@ -401,8 +453,8 @@ export function ProjectCollectView({
 
             {flow.step === 'scope' && !restriction && (
               <IntakeScopeStep
-                result={flow.target}
-                source={sources.find((source) => source.id === sourceId)}
+                targets={flow.targets}
+                sources={sources}
                 range={range}
                 setRange={setRange}
                 pending={preview.isPending}
@@ -425,7 +477,7 @@ export function ProjectCollectView({
 
             {flow.step === 'review' && !restriction && (
               <IntakeReviewStep
-                estimate={flow.estimate}
+                estimates={flow.estimates}
                 isAdmin={isAdmin}
                 confirmed={confirmed}
                 setConfirmed={setConfirmed}
@@ -435,7 +487,7 @@ export function ProjectCollectView({
                   if (collect.isPending || collectPlan.isPending) return;
                   setError('');
                   setConfirmed(false);
-                  setFlow({ step: 'scope', target: flow.target });
+                  setFlow({ step: 'scope', targets: flow.targets });
                 }}
               />
             )}

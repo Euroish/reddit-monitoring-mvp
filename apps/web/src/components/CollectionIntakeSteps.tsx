@@ -12,15 +12,12 @@ import {
   type ResearchPlanPreviewRequest,
   type ResearchPlanPreviewResponse,
 } from '../contracts/api';
-import { getRangeLimits } from '../lib/researchIntake';
+import { getRangeLimits, parseManualTargets, type ManualTarget } from '../lib/researchIntake';
 import { useI18n } from '../i18n/translations';
 
-export type ManualTarget = {
-  platform: NonNullable<ResearchPlanPreviewRequest['platform']>;
-  targetType: NonNullable<ResearchPlanPreviewRequest['targetType']>;
-  targetValue: string;
-};
+export type { ManualTarget };
 export type IntakeTarget = { sourceId: string } | ManualTarget;
+export type ResolvedIntakeTarget = { input: IntakeTarget; result: ResearchPlanPreviewResponse };
 export type CollectionRange = {
   days: number;
   limit: number;
@@ -308,7 +305,7 @@ export function IntakeTargetStep({
   restrictedSources,
   draft,
   setDraft,
-  selectedSourceId,
+  selectedSourceIds,
   pending,
   onSelect,
 }: {
@@ -316,13 +313,13 @@ export function IntakeTargetStep({
   restrictedSources?: CollectionSource[];
   draft: ManualTarget;
   setDraft: (value: ManualTarget) => void;
-  selectedSourceId: string | undefined;
+  selectedSourceIds: string[];
   pending: boolean;
-  onSelect: (target: IntakeTarget) => void;
+  onSelect: (targets: IntakeTarget[]) => void;
 }) {
   const { t, lang } = useI18n();
   const [search, setSearch] = useState('');
-  const [sourceId, setSourceId] = useState(selectedSourceId ?? '');
+  const [sourceIds, setSourceIds] = useState<string[]>(selectedSourceIds);
 
   // Only when Ops policy explicitly locked the account to a source whitelist (`allowedSourceIds !== null`),
   // render the allowlisted target picker. Otherwise everyone gets the unified self-service collection form.
@@ -332,14 +329,17 @@ export function IntakeTargetStep({
       [source.label, formatSourceTarget(source.target), PLATFORM_META[source.platform as PlatformKey]?.name ?? source.platform]
         .some((value) => value.toLocaleLowerCase().includes(needle)),
     );
+    const validSelectedIds = sourceIds.filter((id) => restrictedSources.some((s) => s.id === id));
+    const toggleSource = (id: string) =>
+      setSourceIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
     return (
       <>
         <div>
           <h2>{t('Choose from allowed targets', '选择授权采集对象')}</h2>
           <p>
             {t(
-              'Your account quota policy restricts new collections to specific approved targets.',
-              '当前账号受运维配额策略限制，仅可从以下授权白名单对象中发起单次新采集。',
+              'Your account quota policy restricts new collections to specific approved targets. Select one or more to collect into this project.',
+              '当前账号受运维配额策略限制，仅可从以下授权白名单对象中发起采集（支持多选一并采集到本项目）。',
             )}
           </p>
         </div>
@@ -347,8 +347,8 @@ export function IntakeTargetStep({
           className="intake-step-form"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!pending && restrictedSources.some((s) => s.id === sourceId)) {
-              onSelect({ sourceId });
+            if (!pending && validSelectedIds.length > 0) {
+              onSelect(validSelectedIds.map((sourceId) => ({ sourceId })));
             }
           }}
         >
@@ -372,11 +372,11 @@ export function IntakeTargetStep({
             {visible.map((source) => (
               <label key={source.id} className="intake-target-row">
                 <input
-                  type="radio"
+                  type="checkbox"
                   name="intake-source"
                   value={source.id}
-                  checked={sourceId === source.id}
-                  onChange={() => setSourceId(source.id)}
+                  checked={sourceIds.includes(source.id)}
+                  onChange={() => toggleSource(source.id)}
                 />
                 <span>
                   <strong>{source.label}</strong>
@@ -388,8 +388,12 @@ export function IntakeTargetStep({
             ))}
           </div>
           <div className="intake-actions">
-            <Button type="submit" disabled={pending || !sourceId} className="intake-primary">
-              {pending ? t('Checking availability…', '正在检查可用性…') : t('Continue to scope', '继续设置采集范围')}
+            <Button type="submit" disabled={pending || validSelectedIds.length === 0} className="intake-primary">
+              {pending
+                ? t('Checking availability…', '正在检查可用性…')
+                : validSelectedIds.length > 1
+                  ? t(`Continue to scope (${validSelectedIds.length})`, `继续设置采集范围（已选 ${validSelectedIds.length} 个）`)
+                  : t('Continue to scope', '继续设置采集范围')}
               <ArrowRight size={16} />
             </Button>
           </div>
@@ -400,7 +404,32 @@ export function IntakeTargetStep({
 
   const guide = getTargetGuide(draft.platform, draft.targetType);
   const rawValue = draft.targetValue.trim();
-  const validation = rawValue ? guide.validate(rawValue) : { valid: false };
+  const parsedMulti = draft.targetType !== 'search' && /[\n,，]/.test(rawValue)
+    ? parseManualTargets(draft)
+    : null;
+  const validation = !rawValue
+    ? { valid: false }
+    : parsedMulti
+      ? (() => {
+          if (!parsedMulti.valid) {
+            return {
+              valid: false,
+              reasonEn: 'Separate up to 20 valid communities or accounts with commas.',
+              reasonZh: '请用逗号分隔合法的社区或账号（单次最多 20 个）。',
+            };
+          }
+          for (const item of parsedMulti.targets) {
+            const check = guide.validate(item.targetValue);
+            if (!check.valid) return check;
+          }
+          return { valid: true };
+        })()
+      : guide.validate(rawValue);
+  const resolvedManualTargets: ManualTarget[] = parsedMulti?.valid
+    ? parsedMulti.targets
+    : validation.valid
+      ? [{ ...draft, targetValue: rawValue }]
+      : [];
   const isPlatformPermitted = (p: PlatformKey) =>
     !allowedProviders || allowedProviders.includes(PLATFORM_META[p].provider);
 
@@ -410,8 +439,8 @@ export function IntakeTargetStep({
         <h2>{t('1. Define what new data to collect', '1. 定义要新采集的研究目标')}</h2>
         <p>
           {t(
-            'Pick a platform, choose a target mode, and enter the exact community, account, or keywords to collect fresh data.',
-            '选择目标平台与采集模式后填写精确目标内容，系统将预检可行性与预计额度消耗；已有数据复用或共享数据引入请前往「数据批次」。',
+            'Pick a platform, choose a target mode, and enter one or more communities, accounts, or keywords to collect fresh data into this project.',
+            '选择目标平台与采集模式后填写目标内容（社区/账号支持逗号分隔多选，一并采集到当前项目）；已有数据复用或共享数据引入请前往「数据批次」。',
           )}
         </p>
       </div>
@@ -420,8 +449,8 @@ export function IntakeTargetStep({
         className="intake-step-form"
         onSubmit={(event) => {
           event.preventDefault();
-          if (pending || !validation.valid) return;
-          onSelect({ ...draft, targetValue: rawValue });
+          if (pending || !validation.valid || resolvedManualTargets.length === 0) return;
+          onSelect(resolvedManualTargets);
         }}
       >
         <fieldset className="intake-fields" disabled={pending}>
@@ -568,7 +597,11 @@ export function IntakeTargetStep({
 
         <div className="intake-actions">
           <Button type="submit" disabled={pending || !validation.valid || !isPlatformPermitted(draft.platform)} className="intake-primary">
-            {pending ? t('Checking availability…', '正在检查可用性…') : t('Check target & set scope', '检查目标并设置范围')}
+            {pending
+              ? t('Checking availability…', '正在检查可用性…')
+              : resolvedManualTargets.length > 1
+                ? t(`Check ${resolvedManualTargets.length} targets & set scope`, `检查这 ${resolvedManualTargets.length} 个目标并设置范围`)
+                : t('Check target & set scope', '检查目标并设置范围')}
             <ArrowRight size={16} />
           </Button>
         </div>
@@ -718,17 +751,26 @@ function ChannelFilterOptions({
   );
 }
 
+function formatPreviewTargetLabel(result: ResearchPlanPreviewResponse): string {
+  return (
+    result.matchedSource?.label ??
+    (result.resolvedTarget
+      ? `${PLATFORM_META[result.resolvedTarget.platform as PlatformKey]?.name ?? result.resolvedTarget.platform}: ${result.resolvedTarget.value}`
+      : '')
+  );
+}
+
 export function IntakeScopeStep({
-  result,
-  source,
+  targets,
+  sources,
   range,
   setRange,
   pending,
   onContinue,
   onBack,
 }: {
-  result: ResearchPlanPreviewResponse;
-  source?: CollectionSource;
+  targets: ResolvedIntakeTarget[];
+  sources: CollectionSource[];
   range: CollectionRange;
   setRange: (range: CollectionRange) => void;
   pending: boolean;
@@ -736,16 +778,29 @@ export function IntakeScopeStep({
   onBack: () => void;
 }) {
   const { t } = useI18n();
-  const limits = getRangeLimits(result, range.fallback ? source?.fallbackProvider ?? undefined : undefined);
-  const maximum = Math.min(limits.maxItems, range.comments ? Math.floor(2000 / (range.commentLimit + 1)) : limits.maxItems);
+  const primary = targets[0]!.result;
+  const primarySource =
+    targets.length === 1 && primary.matchedSource
+      ? sources.find((source) => source.id === primary.matchedSource!.id)
+      : undefined;
+  const perTargetLimits = targets.map((item) => {
+    const matched = item.result.matchedSource ? sources.find((s) => s.id === item.result.matchedSource!.id) : undefined;
+    return getRangeLimits(item.result, range.fallback ? matched?.fallbackProvider ?? undefined : undefined);
+  });
+  const limits = {
+    maxDays: Math.min(...perTargetLimits.map((l) => l.maxDays)),
+    maxItems: Math.min(...perTargetLimits.map((l) => l.maxItems)),
+    maxComments: Math.min(...perTargetLimits.map((l) => l.maxComments)),
+  };
+  const maximum = limits.maxItems;
   const dayChoices = [...new Set([1, 3, 7, 30, 90, limits.maxDays].filter((n) => n > 0 && n <= limits.maxDays))];
-  const itemPresets = [...new Set([10, 20, 50, 100, maximum].filter((n) => n >= 1 && n <= maximum))];
+  const itemPresets = [...new Set([20, 100, 500, 2000, maximum].filter((n) => n >= 1 && n <= maximum))];
+  const labels = targets.map((item) => formatPreviewTargetLabel(item.result));
   const targetDisplay =
-    result.matchedSource?.label ??
-    (result.resolvedTarget
-      ? `${PLATFORM_META[result.resolvedTarget.platform as PlatformKey]?.name ?? result.resolvedTarget.platform}: ${result.resolvedTarget.value}`
-      : '');
-  const sf = result.fieldPolicy.supportedFilters;
+    labels.length === 1
+      ? labels[0]
+      : t(`${labels.length} targets (${labels.join(', ')})`, `${labels.length} 个对象（${labels.join('、')}）`);
+  const sf = primary.fieldPolicy.supportedFilters;
   const setHint = <K extends keyof QueryHintsValue>(k: K, val: QueryHintsValue[K]) => {
     const next = { ...range.queryHints, [k]: val };
     if (val === undefined || val === '' || val === false) delete next[k];
@@ -758,7 +813,7 @@ export function IntakeScopeStep({
         <h2>{t('2. Set the collection scope', '2. 设置本次采集范围与过滤条件')}</h2>
         <p>
           {t('Target:', '当前采集目标：')} <strong>{targetDisplay}</strong>
-          {result.resolutionStatus === 'on_demand_available' && (
+          {targets.some((item) => item.result.resolutionStatus === 'on_demand_available') && (
             <small className="collection-hint"> · {t('On-demand research target', '按需实时检索目标')}</small>
           )}
         </p>
@@ -829,13 +884,7 @@ export function IntakeScopeStep({
               <label className="intake-check">
                 <Checkbox
                   checked={range.comments}
-                  onCheckedChange={(comments) =>
-                    setRange({
-                      ...range,
-                      comments,
-                      limit: Math.min(range.limit, Math.floor(2000 / (range.commentLimit + 1))),
-                    })
-                  }
+                  onCheckedChange={(comments) => setRange({ ...range, comments })}
                 />
                 <span>
                   {t('Also collect post comments', '同时抓取主帖评论')}
@@ -853,14 +902,7 @@ export function IntakeScopeStep({
                     min={1}
                     max={limits.maxComments}
                     value={range.commentLimit}
-                    onChange={(event) => {
-                      const commentLimit = Number(event.target.value);
-                      setRange({
-                        ...range,
-                        commentLimit,
-                        limit: Math.min(range.limit, Math.floor(2000 / (commentLimit + 1))),
-                      });
-                    }}
+                    onChange={(event) => setRange({ ...range, commentLimit: Number(event.target.value) })}
                   />
                 </label>
               )}
@@ -871,17 +913,17 @@ export function IntakeScopeStep({
           <ChannelFilterOptions sf={sf} range={range} setHint={setHint} />
 
           {/* Optional Fallback Service */}
-          {result.fieldPolicy.canUseFallback && source?.fallbackProvider && (
+          {targets.length === 1 && primary.fieldPolicy.canUseFallback && primarySource?.fallbackProvider && (
             <label className="intake-check">
               <Checkbox
                 checked={range.fallback}
                 onCheckedChange={(fallback) => {
-                  const next = getRangeLimits(result, fallback ? source.fallbackProvider ?? undefined : undefined);
+                  const next = getRangeLimits(primary, fallback ? primarySource.fallbackProvider ?? undefined : undefined);
                   setRange({ ...range, fallback, comments: false, limit: Math.min(range.limit, next.maxItems) });
                 }}
               />
               <span>
-                {t('Use backup collection channel', '改用备用采集通道')} ({source.fallbackProvider})
+                {t('Use backup collection channel', '改用备用采集通道')} ({primarySource.fallbackProvider})
               </span>
             </label>
           )}
@@ -902,7 +944,7 @@ export function IntakeScopeStep({
 }
 
 export function IntakeReviewStep({
-  estimate,
+  estimates,
   confirmed,
   setConfirmed,
   pending,
@@ -910,7 +952,7 @@ export function IntakeReviewStep({
   onConfirm,
   onBack,
 }: {
-  estimate: CollectionEstimate;
+  estimates: CollectionEstimate[];
   isAdmin: boolean;
   confirmed: boolean;
   setConfirmed: (value: boolean) => void;
@@ -919,13 +961,20 @@ export function IntakeReviewStep({
   onBack: () => void;
 }) {
   const { t } = useI18n();
-  const { request, result } = estimate;
-  const units = isAdmin ? result.estimate.systemResources : result.estimate.personalResources;
+  const first = estimates[0]!;
+  const { request } = first;
+  const totalRequests = estimates.reduce((sum, item) => sum + item.result.estimate.requests, 0);
+  const totalUnits = estimates.reduce(
+    (sum, item) => sum + (isAdmin ? item.result.estimate.systemResources : item.result.estimate.personalResources),
+    0,
+  );
+  const labels = estimates.map((item) => formatPreviewTargetLabel(item.result));
   const targetLabel =
-    result.matchedSource?.label ??
-    (result.resolvedTarget
-      ? `${PLATFORM_META[result.resolvedTarget.platform as PlatformKey]?.name ?? result.resolvedTarget.platform}: ${result.resolvedTarget.value}`
-      : '');
+    labels.length === 1
+      ? labels[0]
+      : t(`${labels.length} targets: ${labels.join(', ')}`, `共 ${labels.length} 个对象：${labels.join('、')}`);
+  const totalExisting = estimates.reduce((sum, item) => sum + item.result.coverage.existingItemCount, 0);
+  const anyUnknownCoverage = estimates.some((item) => item.result.coverage.status === 'unknown');
   return (
     <>
       <div>
@@ -945,25 +994,28 @@ export function IntakeReviewStep({
         <div>
           <dt>{t('Collection scope', '采集范围')}</dt>
           <dd>
-            {request.from.slice(0, 10)} – {request.to.slice(0, 10)} UTC · {t(`up to ${request.limit} items`, `最多 ${request.limit} 条`)} ·{' '}
-            {request.includeComments ? t('with comments', '包含评论') : t('without comments', '不含评论')}
+            {request.from.slice(0, 10)} – {request.to.slice(0, 10)} UTC ·{' '}
+            {estimates.length > 1
+              ? t(`up to ${request.limit} items each`, `每个最多 ${request.limit} 条`)
+              : t(`up to ${request.limit} items`, `最多 ${request.limit} 条`)}{' '}
+            · {request.includeComments ? t('with comments', '包含评论') : t('without comments', '不含评论')}
           </dd>
         </div>
         <div>
           <dt>{t('Estimated usage', '预计额度消耗')}</dt>
           <dd>
             {t(
-              `${result.estimate.requests} external request(s) · ${units} collection units`,
-              `${result.estimate.requests} 次外部请求 · ${units} 采集额度`,
+              `${totalRequests} external request(s) · ${totalUnits} collection units`,
+              `${totalRequests} 次外部请求 · ${totalUnits} 采集额度`,
             )}
           </dd>
         </div>
       </dl>
-      {result.coverage.status === 'unknown' && (
+      {anyUnknownCoverage && (
         <p className="collection-hint">
           {t(
-            `${result.coverage.existingItemCount} samples from this source already exist in the system. To reuse existing or shared batches without spending quota, check "Data Batches".`,
-            `库中该目标在该时间段已有 ${result.coverage.existingItemCount} 条样本；若需直接复用已有批次或共享数据（零消耗），可前往「数据批次」页面引入。`,
+            `${totalExisting} samples from this source already exist in the system. To reuse existing or shared batches without spending quota, check "Data Batches".`,
+            `库中该目标在该时间段已有 ${totalExisting} 条样本；若需直接复用已有批次或共享数据（零消耗），可前往「数据批次」页面引入。`,
           )}
         </p>
       )}

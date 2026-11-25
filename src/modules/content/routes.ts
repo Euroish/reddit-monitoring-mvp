@@ -52,10 +52,17 @@ const ListResponse = {
   }),
 };
 
+const RECENT_ORDER_BY = "c.created_at_source DESC NULLS LAST,c.id DESC";
+const ENGAGEMENT_COMMENTS_SQL = "COALESCE(c.metric_comments,0)";
+const ENGAGEMENT_LIKES_SQL = "COALESCE(c.metric_likes,c.metric_score,0)";
+const ENGAGEMENT_TOTAL_SQL = `(${ENGAGEMENT_COMMENTS_SQL}+${ENGAGEMENT_LIKES_SQL})`;
+const ENGAGEMENT_ORDER_BY = `${ENGAGEMENT_TOTAL_SQL} DESC,${ENGAGEMENT_COMMENTS_SQL} DESC,${ENGAGEMENT_LIKES_SQL} DESC,${RECENT_ORDER_BY}`;
+
 function buildContentSeekClause(
   cursor: string | undefined,
   signature: string,
   feed: boolean,
+  sort: "recent" | "engagement",
   values: unknown[],
 ): string {
   const base = feed ? " AND c.created_at_source IS NOT NULL" : "";
@@ -63,12 +70,27 @@ function buildContentSeekClause(
   const after = decodeCursor(cursor, signature);
   values.push(after.id);
   const id = `$${values.length}`;
+  let timeTie: string;
   if (after.time === null) {
-    return `${base} AND c.created_at_source IS NULL AND c.id<${id}::uuid`;
+    timeTie = `c.created_at_source IS NULL AND c.id<${id}::uuid`;
+  } else {
+    values.push(after.time);
+    const time = `$${values.length}`;
+    timeTie = `((c.created_at_source,c.id)<(${time}::timestamptz,${id}::uuid) OR c.created_at_source IS NULL)`;
   }
-  values.push(after.time);
-  const time = `$${values.length}`;
-  return `${base} AND ((c.created_at_source,c.id)<(${time}::timestamptz,${id}::uuid) OR c.created_at_source IS NULL)`;
+  if (sort !== "engagement") {
+    return `${base} AND ${timeTie}`;
+  }
+  if (after.eng === undefined || after.com === undefined || after.lik === undefined) {
+    fail(422, "Invalid cursor");
+  }
+  values.push(after.eng, after.com, after.lik);
+  const eng = `$${values.length - 2}`;
+  const com = `$${values.length - 1}`;
+  const lik = `$${values.length}`;
+  const tuple = `(${ENGAGEMENT_TOTAL_SQL},${ENGAGEMENT_COMMENTS_SQL},${ENGAGEMENT_LIKES_SQL})`;
+  const bound = `(${eng}::int,${com}::int,${lik}::int)`;
+  return `${base} AND (${tuple}<${bound} OR (${tuple}=${bound} AND ${timeTie}))`;
 }
 
 async function listContent(
@@ -80,7 +102,7 @@ async function listContent(
   resolveProjectScope?: ContentScopeResolver,
   resolveContentVisibility?: ContentVisibilityResolver,
 ) {
-  const { limit = 50, cursor, projectId: queryProjectId, ...filter } = query;
+  const { limit = 50, cursor, sort = "recent", projectId: queryProjectId, ...filter } = query;
   const projectId = pathProjectId ?? queryProjectId;
   const project = projectId
     ? await (resolveProjectScope ?? (() => fail(500, "Project scope resolver is unavailable")))(pool, actor, projectId)
@@ -95,29 +117,40 @@ async function listContent(
   );
   const match = matchedAnchors(compiled, filter.threadAware ?? project?.thread_aware ?? false);
   const signature =
-    filterSignature(actor, filter, project && { id: project.id, revision: project.revision }) + (feed ? ":feed" : "");
-  const seek = buildContentSeekClause(cursor, signature, feed, compiled.values);
+    filterSignature(actor, filter, project && { id: project.id, revision: project.revision }) +
+    (feed ? ":feed" : "") +
+    (sort === "engagement" ? ":engagement" : "");
+  const seek = buildContentSeekClause(cursor, signature, feed, sort, compiled.values);
+  const orderBy = sort === "engagement" ? ENGAGEMENT_ORDER_BY : RECENT_ORDER_BY;
   compiled.values.push(limit + 1);
   const tables = compiled.needsSearchDocument ? contentTables : contentSourceTables;
   const rows = (
     await pool.query(
       `${match.cte ? `${match.cte},` : "WITH"} page AS MATERIALIZED (
         SELECT ${contentColumns}${match.columns} FROM ${tables} ${match.joins} WHERE ${match.where}${seek}
-        ORDER BY c.created_at_source DESC NULLS LAST,c.id DESC LIMIT $${compiled.values.length}
-      ) ${pageObservations(match.columns ? compiled.visible : compiled.discovery)}`,
+        ORDER BY ${orderBy} LIMIT $${compiled.values.length}
+      ) ${pageObservations(match.columns ? compiled.visible : compiled.discovery, orderBy)}`,
       compiled.values,
     )
   ).rows;
   const page = rows.slice(0, limit);
   const last = page.at(-1);
+  const lastCom = Number(last?.metric_comments ?? 0);
+  const lastLik = Number(last?.metric_likes ?? last?.metric_score ?? 0);
   return {
     items: page.map(contentFromRow),
     nextCursor:
       rows.length > limit && last
-        ? Buffer.from(JSON.stringify({ signature, id: last.id, time: last.cursor_time })).toString("base64url")
+        ? Buffer.from(
+            JSON.stringify(
+              sort === "engagement"
+                ? { signature, id: last.id, time: last.cursor_time, eng: lastCom + lastLik, com: lastCom, lik: lastLik }
+                : { signature, id: last.id, time: last.cursor_time },
+            ),
+          ).toString("base64url")
         : null,
     totalMatching: null,
-    resolvedFilter: { ...filter, projectId },
+    resolvedFilter: { ...filter, projectId, ...(sort === "engagement" ? { sort } : {}) },
     coverage: "stored_sample" as const,
   };
 }

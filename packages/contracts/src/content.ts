@@ -191,6 +191,7 @@ export const ListQuery = strictMerge([
   Type.Object({
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
     cursor: Type.Optional(Type.String({ maxLength: 4096 })),
+    sort: Type.Optional(Type.Union([Type.Literal("recent"), Type.Literal("engagement")])),
   }),
 ]);
 export const ContentFacetsQuery = strictMerge([
