@@ -1,3 +1,5 @@
+import type { ChannelScope } from '../../../../packages/contracts/src/common.js';
+export type { ChannelScope } from '../../../../packages/contracts/src/common.js';
 import type { ResearchCollectionRestriction, UserQuotaOverride as QuotaOverrideDto } from '../../../../packages/contracts/src/collection.js';
 export type { QueryHintsValue, ResearchPlanCollectRequest, ResearchPlanPreviewRequest, ResearchCollectionRestriction, UserQuotaOverride as QuotaOverrideDto } from '../../../../packages/contracts/src/collection.js';
 import type { SourceCapability, SourceTarget } from '../../../../packages/contracts/src/source-content.js';
@@ -86,6 +88,7 @@ export interface StoryQuery {
   offset?: number;
   sourceId?: string;
   platform?: Platform;
+  channelScope?: ChannelScope;
   sourceGroup?: string;
   tier?: SourceTier;
   language?: string;

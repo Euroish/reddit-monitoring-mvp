@@ -62,6 +62,12 @@ export class ContentProviderError extends Error {
     public readonly retryable: boolean,
     public readonly retryAfterSeconds = 30,
     public readonly httpStatus?: number,
+    public readonly startOutcome?: {
+      /** Only an explicit upstream capacity rejection permits a paid start retry. */
+      confirmedPreStartRejection?: boolean;
+      /** False only for an explicitly recognized rejection, not for HTTP status alone. */
+      outcomeUnknown?: boolean;
+    },
   ) {
     super(message);
   }

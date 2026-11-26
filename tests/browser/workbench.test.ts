@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { chromium, type Response as BrowserResponse } from "playwright";
+import { chromium, type Locator, type Response as BrowserResponse } from "playwright";
 import { buildApp } from "../../apps/api/src/app";
 import { BlueskyAppViewContentConnector } from "../../src/connectors/bluesky/bluesky-appview-content.connector";
 import { webSource } from "../../src/connectors/web/sources";
@@ -765,48 +765,74 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   t.after(db.close);
   await bootstrapOwner(db.pool, "fixture-password-123", "owner@localhost");
 
-  // Seed multi-source story (T1 / T1_5 / T2) so anonymous visitors immediately see live stories on /
-  const { rows: storySources } = await db.pool.query<{ id: string; platform_id: string }>(`
+  // Three independent Web publishers corroborate the same story in the default Info domain.
+  const { rows: storySources } = await db.pool.query<{ id: string; platform_id: string; feed_url: string }>(`
     INSERT INTO collection_source(
       id, platform_id, primary_provider, label, target, content_kind,
-      delivery_mode, tier, source_group, locale, created_at, updated_at
+      delivery_mode, usage_domain, tier, source_group, locale, created_at, updated_at
     )
-    SELECT gen_random_uuid(), id, 'kaix', label,
-           jsonb_build_object('type', 'search', 'query', label),
-           'post', 'pull', tier, 'ai-firsthand', 'zh', now(), now()
+    SELECT gen_random_uuid(), id, 'feed', label,
+           jsonb_build_object('type', 'feed', 'url', 'https://' || publisher || '/rss'),
+           'article', 'pull', 'feed', tier, 'ai-firsthand', 'zh', now(), now()
     FROM source CROSS JOIN (
-      VALUES ('研发团队', 'T1'), ('开发者社区', 'T1_5'), ('行业媒体', 'T2')
-    ) fixture(label, tier)
-    WHERE code = 'reddit'
+      VALUES ('研发团队', 'T1', 'lab.example'), ('开发者社区', 'T1_5', 'developers.example'),
+             ('行业媒体', 'T2', 'industry.example')
+    ) fixture(label, tier, publisher)
+    WHERE code = 'web'
+    RETURNING id, platform_id, target->>'url' AS feed_url
+  `);
+  const { rows: [socialSource] } = await db.pool.query<{ id: string; platform_id: string }>(`
+    INSERT INTO collection_source(id, platform_id, primary_provider, label, target, content_kind, delivery_mode, created_at, updated_at)
+    SELECT gen_random_uuid(), id, 'kaix', 'Workbench Social Fixture',
+           '{"type":"search","query":"workbench-social"}'::jsonb, 'post', 'pull', now(), now()
+    FROM source WHERE code='reddit'
     RETURNING id, platform_id
   `);
   const fetchedAt = new Date(Date.now() - 60_000).toISOString();
   const storyTitle = "研发团队发布多语言检索工具";
+  const socialTitle = "工作台社媒样本：社区讨论与反馈";
   await transaction(db.pool, async (client) => {
     for (const [index, source] of storySources.entries()) {
+      const url = new URL("/multilingual-search", source.feed_url);
       const story = batchItem(source.id, {
-        externalId: `t3_uistory${index}`,
+        platform: "web",
+        kind: "article",
+        externalId: url.href,
         title: storyTitle,
         language: "zh",
         text: "新版工具支持中文短词检索，并公开了用于复现结果的评估样本。",
-        url: "https://example.com/multilingual-search",
+        url: url.href,
         publishedAt: new Date(Date.now() - [28, 9, 2][index] * 3600_000).toISOString(),
         fetchedAt,
+        platformDetails: { platform: "web", publisher: url.hostname, canonicalUrl: url.href, feedUrl: source.feed_url },
+        observation: {
+          sourceId: source.id, provider: "feed", sourceObservedAt: null, fetchedAt,
+          timeBasis: "provider_snapshot", maturity: "unknown", metrics: {}, evidenceKey: "workbench-info-story",
+        },
       });
-      story.observation.fetchedAt = fetchedAt;
       await commitContentBatch(
         client,
-        {
-          id: source.id,
-          platformId: source.platform_id,
-          platform: "reddit",
-          provider: "kaix",
-          contentKinds: ["post"],
-        },
+        { id: source.id, platformId: source.platform_id, platform: "web", provider: "feed", contentKinds: ["article"] },
         prepareContentBatch([story]),
         fetchedAt,
       );
     }
+    const post = batchItem(socialSource.id, {
+      externalId: "t3_workbenchsocial",
+      title: socialTitle,
+      text: "独立的 Reddit 样本，只应出现在社媒信息流。",
+      url: "https://www.reddit.com/r/fixture/comments/workbenchsocial/",
+      language: "zh",
+      publishedAt: new Date(Date.now() - 3600_000).toISOString(),
+      fetchedAt,
+    });
+    post.observation.fetchedAt = fetchedAt;
+    await commitContentBatch(
+      client,
+      { id: socialSource.id, platformId: socialSource.platform_id, platform: "reddit", provider: "kaix", contentKinds: ["post"] },
+      prepareContentBatch([post]),
+      fetchedAt,
+    );
   });
 
   const port = await freePort();
@@ -941,11 +967,20 @@ test("browser: open-access stories, reader drawer, /product, anonymous content/f
   assert.equal(new URL(page.url()).pathname, "/app/feed");
   assert.equal(new URL(page.url()).searchParams.get("view"), "hot");
   await page.getByRole("article").filter({ hasText: storyTitle }).first().waitFor();
+  assert.equal(await page.getByText(socialTitle, { exact: true }).count(), 0);
   const nav = page.getByLabel("工作台导航");
   await nav.getByRole("button", { name: "08:00 日报" }).click();
-  assert.ok(page.url().includes("/app/feed?view=digest"));
+  const digestUrl = new URL(page.url());
+  assert.equal(digestUrl.pathname, "/app/feed");
+  assert.equal(digestUrl.searchParams.get("view"), "digest");
   await page.getByRole("button", { name: "前一日" }).click();
   assert.ok(page.url().includes("date="));
+  await page.goto(`${origin}/?view=digest`);
+  await page.waitForURL("**/app/feed?view=digest");
+
+  await page.goto(`${origin}/app/feed?scope=social&view=latest`);
+  await page.getByRole("article").filter({ hasText: socialTitle }).waitFor();
+  assert.equal(await page.getByText(storyTitle, { exact: true }).count(), 0);
 
   // 5. Anonymous Content Explorer + Content Facets (/v1/content/facets)
   await page.goto(`${origin}/content`);
@@ -1701,7 +1736,7 @@ test("browser: Stage 2 V2 feed stream/hot, Semrush intelligence analytics & Ops 
   await page.getByRole("button", { name: "登录工作台" }).click();
   await page.getByRole("button", { name: "新建研究项目" }).waitFor();
 
-  // Seed 1 public feed source + 1 article and 1 keyword intelligence monitor with sample discussion post via API + batch
+  // Seed one public Reddit feed post and one keyword monitor evidence post via API + batch.
   const cookies = await page.context().cookies();
   const sess = cookies.find((c) => c.name === "app_session")!;
   const cookieHeader = `app_session=${sess.value}`;
@@ -1801,16 +1836,46 @@ test("browser: Stage 2 V2 feed stream/hot, Semrush intelligence analytics & Ops 
     );
   });
 
-  // 1. /app/feed?view=stream & ?view=hot-v2
-  await page.goto(`${origin}/app/feed?view=stream`);
-  await page.getByText("Stage2 Feed V2 Hot Discussion Benchmark").waitFor();
-  await page.getByLabel("信息流视图").getByRole("button", { name: "综合热榜 (V2)" }).click();
-  await page.getByText("#1").waitFor();
+  const assertInlineReader = async (trigger: Locator, body: string) => {
+    const before = page.url();
+    assert.ok(new URL(before).search, "Exercise an entry route with query parameters");
+    await Promise.all([
+      page.waitForResponse((response) =>
+        /\/api\/v1\/content\/[0-9a-f-]{36}$/.test(new URL(response.url()).pathname) && response.ok(),
+      ),
+      trigger.click(),
+    ]);
+    const drawer = page.getByRole("dialog", { name: "内容阅读详情" });
+    await drawer.getByText(body, { exact: true }).waitFor();
+    await drawer.getByRole("button", { name: "完整详情与讨论树", exact: true }).waitFor();
+    assert.equal(page.url(), before, "Opening the inline reader must preserve the full URL");
+    await page.keyboard.press("Escape");
+    await drawer.waitFor({ state: "detached" });
+    assert.equal(page.url(), before);
+    assert.equal(await trigger.evaluate((button) => button === document.activeElement), true);
+  };
 
-  // 2. /projects?view=intelligence
+  // 1. Legacy V2 URL opens Social; the stream card reads inline before switching domains.
+  await page.goto(`${origin}/app/feed?view=stream`);
+  const feedTitle = "Stage2 Feed V2 Hot Discussion Benchmark";
+  await assertInlineReader(
+    page.getByRole("button", { name: feedTitle, exact: true }),
+    "Comparing quantized inference memory bandwidth and discussion velocity. https://github.com/vllm-project/vllm",
+  );
+  await page.getByLabel("信息流视图").getByRole("button", { name: "社媒热榜" }).click();
+  await page.getByText("#1").waitFor();
+  await page.getByLabel("内容板块").getByRole("button", { name: "信息流资讯" }).click();
+  await page.getByText("当前筛选条件下暂无事件报道。", { exact: true }).waitFor();
+  assert.equal(await page.getByText(feedTitle, { exact: true }).count(), 0);
+
+  // 2. /projects?view=intelligence — clicking a real analysis evidence post reads inline too.
   await page.goto(`${origin}/projects?view=intelligence`);
   await page.getByLabel("选择智能监测器").waitFor();
   await page.getByText("coverage: stored_sample").waitFor();
+  await assertInlineReader(
+    page.getByRole("button", { name: "vLLM throughput beats TGI on Hopper GPUs", exact: true }),
+    "vllm continuous batching outperforms tgi under high concurrency. https://docs.vllm.ai/en/latest/",
+  );
   await page.getByText("docs.vllm.ai").first().waitFor();
   await page.getByRole("button", { name: "KOL 与作者画像" }).click();
   await page.getByText("@kernel_dev").first().click();

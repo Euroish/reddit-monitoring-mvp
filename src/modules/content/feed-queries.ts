@@ -3,7 +3,7 @@ import { groupStories } from "./story-groups";
 import type { BatchMembership } from "./search";
 import type { Pool, PoolClient } from "pg";
 import type { Actor } from "../../../packages/contracts/src/access";
-import type { ContentPlatform } from "../../../packages/contracts/src/common";
+import type { ChannelScope, ContentPlatform } from "../../../packages/contracts/src/common";
 import type { ContentCardLayout, ContentIntentTag } from "../../../packages/contracts/src/content";
 
 export interface FeedCandidateRow {
@@ -151,6 +151,7 @@ export async function queryFeedCandidates(
     limit: number;
     topic?: string;
     platform?: ContentPlatform;
+    channelScope?: ChannelScope;
     language?: string;
     includeNews: boolean;
     excludeContentIds?: string[];
@@ -185,6 +186,11 @@ export async function queryFeedCandidates(
   const visSql = input.visibility
     ? ` AND ${input.visibility.contains((v) => `$${values.push(v)}`, "d.content_id")}`
     : "";
+  const scopeSql = input.channelScope === "info"
+    ? " AND s.code = 'web'"
+    : input.channelScope === "social"
+      ? " AND s.code = ANY(ARRAY['reddit','x','bluesky']::text[])"
+      : "";
 
   const { rows } = await pool.query(
     `WITH visible AS (
@@ -244,7 +250,7 @@ export async function queryFeedCandidates(
          AND ($7::text[] = '{}' OR NOT EXISTS (SELECT 1 FROM UNNEST($7::text[]) AS pat WHERE LOWER(COALESCE(c.title, '') || ' ' || COALESCE(c.clean_excerpt, '')) LIKE pat ESCAPE '\\'))
          AND ($8::text IS NULL OR cs.source_group = $8)
          AND ($9::text IS NULL OR s.code = $9)
-         AND ($10::text IS NULL OR c.language = $10)${visSql}
+         AND ($10::text IS NULL OR c.language = $10)${scopeSql}${visSql}
        ORDER BY c.id, (CASE cs.tier WHEN 'T1' THEN 3 WHEN 'T1_5' THEN 2 ELSE 1 END) DESC, cs.id
      )
      SELECT v.*,

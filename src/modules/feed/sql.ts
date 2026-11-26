@@ -131,7 +131,7 @@ export async function readFeedStream(
     queryFeedCandidates(pool, actor, {
       lookbackHours: mode === "explore" ? 120 : 72,
       limit: Math.max(160, limit * 8),
-      topic: query.topic, platform: query.platform, language: query.language,
+      topic: query.topic, platform: query.platform, channelScope: query.channelScope, language: query.language,
       includeNews: query.includeNews ?? state.includeNewsLane,
       excludeContentIds: mergedExclude,
       mutedSourceIds: state.mutedSources, mutedAuthors: state.mutedAuthors, mutedKeywords: state.mutedKeywords,
@@ -181,6 +181,7 @@ export async function readFeedHotBoard(
       limit: 300,
       topic: query.topic,
       platform: query.platform,
+      channelScope: query.channelScope,
       includeNews: false,
       visibility: publicVisibility,
     }),

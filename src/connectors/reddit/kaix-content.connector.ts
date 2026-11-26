@@ -22,6 +22,32 @@ const object = (v: unknown): Row | null =>
 const text = (v: unknown): string | null => (typeof v === "string" ? v : null);
 const number = (v: unknown): number | null =>
   typeof v === "number" && Number.isFinite(v) ? v : null;
+async function apify402Type(body: ReadableStream<Uint8Array> | null): Promise<unknown> {
+  if (!body) return undefined;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  try {
+    reader = body.getReader();
+    const buffer = Buffer.alloc(4096);
+    let bytes = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        const parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, bytes)));
+        return parsed?.error?.type;
+      }
+      // Without EOF we cannot trust a JSON-looking prefix at the limit.
+      if (bytes + value.byteLength >= buffer.length) return undefined;
+      buffer.set(value, bytes);
+      bytes += value.byteLength;
+    }
+  } catch {
+    return undefined;
+  } finally {
+    void reader?.cancel().catch(() => {});
+    reader?.releaseLock();
+  }
+}
+
 function httpUrl(v: unknown): string | null {
   if (typeof v !== "string") return null;
   try {
@@ -276,6 +302,7 @@ export class KaixContentConnector implements ContentProvider {
             { method: "POST", body: JSON.stringify(input) },
             request.signal,
             65_000,
+            true,
           ),
         )?.data,
       );
@@ -468,6 +495,7 @@ export class KaixContentConnector implements ContentProvider {
     init: RequestInit,
     parent?: AbortSignal,
     timeoutMs = 20_000,
+    isRunStart = false,
   ): Promise<unknown> {
     const signal = parent
       ? AbortSignal.any([parent, AbortSignal.timeout(timeoutMs)])
@@ -484,7 +512,29 @@ export class KaixContentConnector implements ContentProvider {
         },
       });
       if (!response.ok) {
-        await response.body?.cancel();
+        if (isRunStart && response.status === 402) {
+          const errType = await apify402Type(response.body);
+          if (errType === "actor-memory-limit-exceeded") {
+            throw new ContentProviderError(
+              "Apify concurrent memory limit reached (actor-memory-limit-exceeded)",
+              true,
+              25,
+              402,
+              { confirmedPreStartRejection: true },
+            );
+          }
+          const billingRejected = errType === "monthly-usage-exceeded";
+          throw new ContentProviderError(
+            billingRejected
+              ? "Apify HTTP 402 (monthly-usage-exceeded); check provider billing"
+              : "Apify HTTP 402; paid start outcome unconfirmed, inspect provider console",
+            false,
+            30,
+            402,
+            { outcomeUnknown: !billingRejected },
+          );
+        }
+        void response.body?.cancel().catch(() => {});
         throw new ContentProviderError(
           `Apify HTTP ${response.status}; check console before Retry (paid run may exist)`,
           false,

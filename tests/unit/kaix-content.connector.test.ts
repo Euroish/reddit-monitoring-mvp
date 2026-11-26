@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { randomUUID } from "node:crypto";
+import { createServer, type RequestListener } from "node:http";
+import { ContentProviderError } from "../../src/connectors/shared/content-provider.interface";
 import { KaixContentConnector } from "../../src/connectors/reddit/kaix-content.connector";
 import { resolveKaixConfig } from "../../src/connectors/reddit/kaix.config";
+import { classifyJobFailure, providerMaxConcurrentRuns } from "../../src/modules/collection/worker";
 import type {
   CollectionSource,
   JsonValue,
@@ -393,4 +396,243 @@ test("ambiguous paid failures never retry and invalid bounds or missing durable 
     () => resolveKaixConfig({ APIFY_API_TOKEN: "bad\nsecret" }),
     /header/,
   );
+});
+
+test("kaix classifies 402 actor-memory-limit-exceeded as retryable capacity start rejection and preserves INV-003 for 502/other 402", async () => {
+  const mkResponse = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+  const capConnector = new KaixContentConnector(
+    { networkEnabled: true, apiToken: "fixture-token" },
+    async () =>
+      mkResponse(402, {
+        error: { type: "actor-memory-limit-exceeded", message: "Exceeds concurrent memory limit of 8192 MB." },
+      }),
+  );
+
+  let capError: unknown;
+  await assert.rejects(
+    capConnector.collectPage({
+      source: sourceFixture(),
+      from: "2026-11-14T00:00:00Z",
+      to: now,
+      limit: 25,
+      checkpoint: null,
+      execution: { state: { phase: "starting" }, saveState: async () => undefined },
+    }),
+    (err) => {
+      capError = err;
+      return true;
+    },
+  );
+  assert.ok(capError instanceof ContentProviderError);
+  assert.equal(capError.retryable, true);
+  assert.equal(capError.startOutcome?.confirmedPreStartRejection, true);
+  assert.doesNotMatch(capError.message, /8192/);
+  assert.equal(capError.httpStatus, 402);
+  assert.match(capError.message, /actor-memory-limit-exceeded/);
+
+  const mockSource = { state: "active", primary_provider: "kaix", platform: "reddit", schedule: { enabled: false } };
+  const capPlan = classifyJobFailure(
+    [capConnector],
+    { provider: "kaix", purpose: "collect", pages_committed: 0, page_request_attempts: 1 },
+    mockSource,
+    capConnector,
+    "starting",
+    false,
+    capError,
+  );
+  assert.equal(capPlan.retryStart, true);
+  assert.equal(capPlan.unknown, false);
+
+  const exhaustedPlan = classifyJobFailure(
+    [capConnector],
+    { provider: "kaix", purpose: "collect", pages_committed: 0, page_request_attempts: 6 },
+    mockSource,
+    capConnector,
+    "starting",
+    false,
+    capError,
+  );
+  assert.equal(exhaustedPlan.retryStart, false);
+  assert.equal(exhaustedPlan.unknown, false);
+
+  const billingConnector = new KaixContentConnector(
+    { networkEnabled: true, apiToken: "fixture-token" },
+    async () => mkResponse(402, { error: { type: "monthly-usage-exceeded", message: "Monthly spend limit reached" } }),
+  );
+  await assert.rejects(
+    billingConnector.collectPage({
+      source: sourceFixture(),
+      from: "2026-11-14T00:00:00Z",
+      to: now,
+      limit: 25,
+      checkpoint: null,
+      execution: { state: { phase: "starting" }, saveState: async () => undefined },
+    }),
+    (err: unknown) =>
+      err instanceof ContentProviderError &&
+      err.retryable === false &&
+      err.httpStatus === 402 &&
+      /monthly-usage-exceeded/.test(err.message) &&
+      err.startOutcome?.outcomeUnknown === false &&
+      !err.message.includes("Monthly spend limit reached") &&
+      !classifyJobFailure([], { page_request_attempts: 1 }, mockSource, billingConnector, "starting", false, err).unknown,
+  );
+
+  const gatewayConnector = new KaixContentConnector(
+    { networkEnabled: true, apiToken: "fixture-token" },
+    async () => new Response("bad gateway", { status: 502 }),
+  );
+  let gwError: unknown;
+  await assert.rejects(
+    gatewayConnector.collectPage({
+      source: sourceFixture(),
+      from: "2026-11-14T00:00:00Z",
+      to: now,
+      limit: 25,
+      checkpoint: null,
+      execution: { state: { phase: "starting" }, saveState: async () => undefined },
+    }),
+    (err) => {
+      gwError = err;
+      return true;
+    },
+  );
+  const gwPlan = classifyJobFailure(
+    [gatewayConnector],
+    { provider: "kaix", purpose: "collect", pages_committed: 0, page_request_attempts: 1 },
+    mockSource,
+    gatewayConnector,
+    "starting",
+    false,
+    gwError,
+  );
+  assert.equal(gwPlan.retryStart, false);
+  assert.equal(gwPlan.unknown, true);
+});
+
+test("Apify concurrency uses the same strictly parsed integer limit for both providers", () => {
+  const previous = process.env.KAIX_MAX_CONCURRENT_JOBS;
+  try {
+    for (const [value, expected] of [["", 2], ["2.5", 2], ["3e0", 2], ["NaN", 2], ["0", 1], ["40", 6], ["3", 3]] as const) {
+      process.env.KAIX_MAX_CONCURRENT_JOBS = value;
+      assert.equal(providerMaxConcurrentRuns("kaix"), expected);
+      assert.equal(providerMaxConcurrentRuns("red_crawler"), expected);
+      assert.equal(providerMaxConcurrentRuns("feed"), null);
+    }
+  } finally {
+    if (previous === undefined) delete process.env.KAIX_MAX_CONCURRENT_JOBS;
+    else process.env.KAIX_MAX_CONCURRENT_JOBS = previous;
+  }
+});
+
+const capacityBody = JSON.stringify({ error: { type: "actor-memory-limit-exceeded", message: "private upstream details" } });
+
+function bounded402(chunks: Array<string | Error>) {
+  let pulls = 0;
+  let cancelled = false;
+  const response = new Response(new ReadableStream<Uint8Array>({
+    pull(controller) {
+      const chunk = chunks[pulls++];
+      if (chunk instanceof Error) controller.error(chunk);
+      else if (chunk === undefined) controller.close();
+      else controller.enqueue(Buffer.from(chunk));
+    },
+    cancel() { cancelled = true; },
+  }, { highWaterMark: 0 }), { status: 402 });
+  return { response, get pulls() { return pulls; }, get cancelled() { return cancelled; } };
+}
+
+test("unconfirmed paid 402s are unknown, including interrupted and oversized streams", async () => {
+  const oversized = bounded402([capacityBody.padEnd(4096 * 2), "must not read"]);
+  const atLimit = bounded402([capacityBody.padEnd(4096), "must not read"]);
+  const broken = bounded402([capacityBody, Error("private stream failure")]);
+  for (const response of [
+    oversized.response, atLimit.response, broken.response,
+    new Response("actor-memory-limit-exceeded", { status: 402 }),
+    Response.json({ error: { message: "actor-memory-limit-exceeded" } }, { status: 402 }),
+    Response.json({ error: { type: "actor-memory-limit-exceeded " } }, { status: 402 }),
+    Response.json({ error: { type: "private unsupported code" } }, { status: 402 }),
+  ]) {
+    const f = fixture([response]);
+    await assert.rejects(f.connector.collectPage({
+      ...bounds, source: sourceFixture(), limit: 25, checkpoint: null, execution: f.execution(),
+    }), (error: unknown) => {
+      assert.ok(error instanceof ContentProviderError);
+      assert.equal(error.httpStatus, 402);
+      assert.equal(error.startOutcome?.outcomeUnknown, true);
+      assert.doesNotMatch(error.message, /private|actor-memory-limit-exceeded/);
+      const plan = classifyJobFailure([], { page_request_attempts: 1 }, {}, f.connector, "starting", false, error);
+      assert.equal(plan.retryStart, false);
+      assert.equal(plan.unknown, true);
+      return true;
+    });
+    assert.equal(f.requests.length, 1);
+  }
+  for (const stream of [oversized, atLimit]) {
+    assert.equal(stream.pulls, 1);
+    assert.equal(stream.cancelled, true);
+  }
+  assert.equal(broken.pulls, 2);
+  const f = fixture([]);
+  const unconfirmed = new ContentProviderError("Generic transient 402", true, 25, 402);
+  const plan = classifyJobFailure([], { page_request_attempts: 1 }, {}, f.connector, "starting", false, unconfirmed);
+  assert.equal(plan.retryStart, false);
+  assert.equal(plan.unknown, true);
+});
+
+test("a GET 402 with the capacity code does not replay either the read or paid start", async () => {
+  const f = fixture([new Response(capacityBody, { status: 402 })]);
+  const execution = { ...f.execution(), state: { phase: "reading", runId: "fixtureRun" } };
+  await assert.rejects(f.connector.collectPage({
+    ...bounds, source: sourceFixture(), limit: 25, checkpoint: null, execution,
+  }), (error: unknown) => {
+    assert.ok(error instanceof ContentProviderError);
+    assert.equal(error.httpStatus, 402);
+    assert.equal(error.startOutcome, undefined);
+    const plan = classifyJobFailure([], { page_request_attempts: 1 }, {}, f.connector, "reading", true, error);
+    assert.equal(plan.retryRead, false);
+    assert.equal(plan.retryStart, false);
+    assert.equal(plan.unknown, false);
+    return true;
+  });
+  assert.deepEqual(f.requests.map(({ url, input }) => [url.pathname, input]), [["/v2/actor-runs/fixtureRun", undefined]]);
+});
+
+test("Relay exposes only the whitelisted 402 code for allowed actor starts", async (t) => {
+  const relayModule = "../../deploy/apify-relay.mjs";
+  const { handleApifyRelay } = await import(relayModule);
+  const oversized = bounded402([capacityBody.padEnd(4097), "must not read"]);
+  const broken = bounded402([capacityBody, Error("private stream failure")]);
+  const responses = [
+    bounded402([capacityBody.slice(0, 20), capacityBody.slice(20)]).response,
+    new Response(capacityBody, { status: 402 }),
+    new Response(capacityBody, { status: 502 }),
+    Response.json({ error: { type: "monthly-usage-exceeded" } }, { status: 402 }),
+    oversized.response, broken.response, new Response(null, { status: 402 }),
+  ];
+  const handler: RequestListener = (request, response) => handleApifyRelay(request, response, "127.0.0.1", {
+    fetcher: async () => responses.shift(),
+    readToken: async () => "apify_api_synthetic_fixture_token",
+  });
+  const server = createServer(handler);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const call = async (method: string, path: string) => {
+    const response = await fetch(`http://127.0.0.1:${address.port}${path}`, { method });
+    return [response.status, await response.text()];
+  };
+  const start = "/v2/acts/kaix~reddit-scraper/runs";
+  assert.deepEqual(await call("POST", "/v1/acts/kaix~reddit-scraper/runs"), [403, "{}"]);
+  assert.deepEqual(await call("POST", "/v2/actor-runs/fake"), [403, "{}"]);
+  assert.deepEqual(await call("POST", start), [402, '{"error":{"type":"actor-memory-limit-exceeded"}}']);
+  assert.deepEqual(await call("GET", "/v2/actor-runs/fake"), [402, "{}"]);
+  assert.deepEqual(await call("POST", start), [502, "{}"]);
+  for (let i = 0; i < 4; i++) assert.deepEqual(await call("POST", start), [402, "{}"]);
+  assert.deepEqual(responses, []);
+  assert.equal(oversized.pulls, 1);
+  assert.equal(oversized.cancelled, true);
 });

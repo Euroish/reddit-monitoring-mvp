@@ -41,6 +41,10 @@
 
 ### 4.1 信息流与热榜（`/v1/feed/*` · 5 路径 / 6 操作）
 
+**内容分域（PR #54 候选契约）**：`GET /v1/content/stories`、`GET /v1/content/stories/insights`、`GET /v1/feed/stream` 和 `GET /v1/feed/hot` 均接受 `channelScope=info|social|all`。`info` 仅含 `web`，`social` 仅含 `reddit`、`x`、`bluesky`；省略参数或传 `all` 均保留原有跨域混排规则。`platform` 与 `channelScope` 取交集，不匹配时不返回该平台内容。
+
+故事及洞察接口在 `social` 域默认不排除 `social-trends` 来源组，显式传入 `includeTrends=false` 时排除；`info` 与 `all` 保留原有故事过滤规则。V2 推荐流与热榜不接受 `includeTrends`，社媒趋势条目按现有候选规则（含分发 lane 与可见性）参与筛选。
+
 - **`GET /v1/feed/stream`（`public_read` + `read`）**：Query 支持 `mode=foryou|hot|following|explore`、`topic`、`platform`、`language`、`includeNews`、`limit`（`1..40`）、`excludeIds`、`seed`。直出标准化 `FeedCard`（含 `cardLayout`、`headline`、`clean_excerpt`/`tldr`、`media`、`discussion`、`author`、`source`、`topCommentsPreview`、`intentTag`、`reason`、`viewerState`），匿名用户自动切入非个性化高价值混排。
 - **`GET /v1/feed/hot`（`public_read` + `read`）**：跨平台 `unifiedHeat`（0..100 百分位归一化）排行榜，支持 `window=6h|24h|48h|7d`、`platform`、`topic`、`limit`（`1..60`）、`offset`。`sparkline` 取过去 48 小时每 6 小时段内最新的真实互动快照，以时间升序返回互动分，允许空数组或单点。`corroborationCount` 为当前候选集内同一故事聚簇的独立信源数。
 - **`POST /v1/feed/events`（`authenticated` 浏览器）**：批量上报最多 50 条曝光与行为事件（`impression|dwell|open|bookmark|useful|dismiss|mute_*`），事务更新已读防重与 14 天半衰期兴趣权重（`[-2.0, +2.0]` 钳位）。同一用户对同一内容的 `bookmark` 和 `useful` 各生效一次，`accepted` 返回实际新入库的事件数。

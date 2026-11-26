@@ -23,6 +23,7 @@ import {
 } from '../../api/hooks';
 import type {
   Actor,
+  ChannelScope,
   FeedCardDto,
   FeedEventType,
   FeedMode,
@@ -34,6 +35,7 @@ import { formatRelativeTime, safeHttpUrl } from '../../lib/sourceLabels';
 interface FeedV2ViewProps {
   actor: Actor | null;
   modeView: 'stream' | 'hot-v2';
+  channelScope?: ChannelScope;
   onOpenAuth: (tab?: 'login' | 'register', reason?: string) => void;
   onOpenDetail?: (contentId: string) => void;
 }
@@ -316,7 +318,7 @@ function FeedCardItem({
   );
 }
 
-export function FeedV2View({ actor, modeView, onOpenAuth, onOpenDetail }: FeedV2ViewProps) {
+export function FeedV2View({ actor, modeView, channelScope = 'social', onOpenAuth, onOpenDetail }: FeedV2ViewProps) {
   const { t } = useI18n();
   const authenticated = Boolean(actor && actor.clientKind === 'browser');
 
@@ -330,11 +332,16 @@ export function FeedV2View({ actor, modeView, onOpenAuth, onOpenDetail }: FeedV2
   const [muteKeywordInput, setMuteKeywordInput] = useState('');
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
+  const effectivePlatform: '' | Platform =
+    channelScope === 'info' ? '' : channelScope === 'social' && platform === 'web' ? '' : platform;
+  const effectiveIncludeNews = channelScope === 'social' ? false : includeNews;
+
   const streamQ = useFeedStreamQuery(
     {
       mode: streamMode,
-      platform: platform || undefined,
-      includeNews,
+      platform: effectivePlatform || undefined,
+      channelScope,
+      includeNews: effectiveIncludeNews,
       limit: 20,
       excludeIds: excludeIds.length ? excludeIds : undefined,
     },
@@ -343,7 +350,8 @@ export function FeedV2View({ actor, modeView, onOpenAuth, onOpenDetail }: FeedV2
   const hotQ = useFeedHotQuery(
     {
       window: hotWindow,
-      platform: platform || undefined,
+      platform: effectivePlatform || undefined,
+      channelScope,
       limit: 25,
       offset: hotOffset,
     },
@@ -481,30 +489,34 @@ export function FeedV2View({ actor, modeView, onOpenAuth, onOpenDetail }: FeedV2
           )}
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <select
-              className="wb-select"
-              aria-label={t('Platform filter', '平台筛选')}
-              value={platform}
-              onChange={(e) => { setHotOffset(0); setExcludeIds([]); setPlatform(e.target.value as '' | Platform); }}
-              style={{ minWidth: 110 }}
-            >
-              <option value="">{t('All platforms', '全平台')}</option>
-              <option value="reddit">Reddit</option>
-              <option value="x">X</option>
-              <option value="bluesky">Bluesky</option>
-              <option value="web">Web / Feed</option>
-            </select>
+            {channelScope !== 'info' && (
+              <select
+                className="wb-select"
+                aria-label={t('Platform filter', '平台筛选')}
+                value={effectivePlatform}
+                onChange={(e) => { setHotOffset(0); setExcludeIds([]); setPlatform(e.target.value as '' | Platform); }}
+                style={{ minWidth: 110 }}
+              >
+                <option value="">{channelScope === 'social' ? t('All social platforms', '全部社媒') : t('All platforms', '全平台')}</option>
+                <option value="reddit">Reddit</option>
+                <option value="x">X</option>
+                <option value="bluesky">Bluesky</option>
+                {channelScope === 'all' && <option value="web">Web / Feed</option>}
+              </select>
+            )}
 
             {modeView === 'stream' && (
               <>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={includeNews}
-                    onChange={(e) => { setExcludeIds([]); setIncludeNews(e.target.checked); }}
-                  />
-                  <span>{t('Include News lane', '含 news 渠道')}</span>
-                </label>
+                {channelScope !== 'social' && (
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={effectiveIncludeNews}
+                      onChange={(e) => { setExcludeIds([]); setIncludeNews(e.target.checked); }}
+                    />
+                    <span>{t('Include News lane', '含 news 渠道')}</span>
+                  </label>
+                )}
                 <button
                   type="button"
                   className={`ds-btn ${prefsOpen ? '' : 'ds-btn--ghost'}`}

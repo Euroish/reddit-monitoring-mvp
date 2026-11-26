@@ -230,6 +230,13 @@ export function WorkbenchShell({
   const searchParams = new URLSearchParams(currentSearch);
   const currentTab = searchParams.get('tab') || '';
   const currentView = searchParams.get('view') || '';
+  const rawScope = searchParams.get('scope');
+  const currentScope: 'info' | 'social' =
+    rawScope === 'social' || rawScope === 'info'
+      ? rawScope
+      : currentView === 'stream' || currentView === 'hot-v2'
+        ? 'social'
+        : 'info';
   const currentDomainParam = searchParams.get('domain') || '';
   const urlProjectId = searchParams.get('projectId') || '';
 
@@ -258,6 +265,7 @@ export function WorkbenchShell({
   // Global keyboard shortcuts matching DeepSeek app.js (Ctrl+K, Esc, [ to toggle sidebar)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       const target = e.target as HTMLElement | null;
       const typing = target && /INPUT|TEXTAREA|SELECT/.test(target.tagName);
 
@@ -351,8 +359,8 @@ export function WorkbenchShell({
       { group: t('Feed', '信息流'), label: t("Today's Stories", '完整信息流 · 今日精选'), kbd: 'G H', run: () => navigateAndClose('/app/feed') },
       { group: t('Feed', '信息流'), label: t('48h Momentum', '48 小时热度'), kbd: 'G T', run: () => navigateAndClose('/app/feed?view=hot') },
       { group: t('Feed', '信息流'), label: t('08:00 Daily Digest', '08:00 日报'), kbd: 'G D', run: () => navigateAndClose('/app/feed?view=digest') },
-      { group: t('Feed', '信息流'), label: t('For You Stream (V2)', '破茧探索信息流 (V2)'), kbd: 'G F', run: () => navigateAndClose('/app/feed?view=stream') },
-      { group: t('Feed', '信息流'), label: t('Cross-Platform Hot (V2)', '跨平台综合热榜 (V2)'), kbd: 'G X', run: () => navigateAndClose('/app/feed?view=hot-v2') },
+      { group: t('Social Media', '社媒动态'), label: t('Social For You', '社媒推荐流'), kbd: 'G F', run: () => navigateAndClose('/app/feed?scope=social&view=stream') },
+      { group: t('Social Media', '社媒动态'), label: t('Social Hot Board', '社媒热榜'), kbd: 'G X', run: () => navigateAndClose('/app/feed?scope=social&view=hot-v2') },
       { group: t('Feed', '信息流'), label: t('Product Overview', '产品介绍'), kbd: 'G P', run: () => navigateAndClose('/product') },
       { group: t('Feed', '信息流'), label: t('Product Docs', '产品文档'), kbd: 'G ?', run: () => navigateAndClose('/docs') },
       { group: t('Feed', '信息流'), label: t('Product Guide', '产品使用说明'), kbd: 'G U', run: () => navigateAndClose('/guide') },
@@ -697,51 +705,73 @@ export function WorkbenchShell({
           {activeDomain === 'feed' && (
             <>
               <div className="nav-group">
-                <p className="nav-label">{t('Information Feed', '资讯阅读')}</p>
+                <p className="nav-label">{t('Info Stream', '信息流资讯')}</p>
                 <button
                   type="button"
-                  className={`nav-item ${route === '/app/feed' && (!currentView || currentView === 'latest') ? 'is-active' : ''}`}
-                  aria-current={route === '/app/feed' && (!currentView || currentView === 'latest') ? 'page' : undefined}
-                  onClick={() => navigateAndClose('/app/feed')}
+                  className={`nav-item ${route === '/app/feed' && currentScope === 'info' && (!currentView || currentView === 'latest') ? 'is-active' : ''}`}
+                  aria-current={route === '/app/feed' && currentScope === 'info' && (!currentView || currentView === 'latest') ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/app/feed?scope=info')}
                 >
                   <BookOpen size={17} className="nav-ic" aria-hidden="true" />
                   <span>{t("Today's Stories", '今日精选')}</span>
                 </button>
                 <button
                   type="button"
-                  className={`nav-item ${route === '/app/feed' && currentView === 'hot' ? 'is-active' : ''}`}
-                  aria-current={route === '/app/feed' && currentView === 'hot' ? 'page' : undefined}
-                  onClick={() => navigateAndClose('/app/feed?view=hot')}
+                  className={`nav-item ${route === '/app/feed' && currentScope === 'info' && currentView === 'hot' ? 'is-active' : ''}`}
+                  aria-current={route === '/app/feed' && currentScope === 'info' && currentView === 'hot' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/app/feed?scope=info&view=hot')}
                 >
                   <Flame size={17} className="nav-ic" aria-hidden="true" />
                   <span>{t('48h Momentum', '48 小时热榜')}</span>
                 </button>
                 <button
                   type="button"
-                  className={`nav-item ${route === '/app/feed' && currentView === 'digest' ? 'is-active' : ''}`}
-                  aria-current={route === '/app/feed' && currentView === 'digest' ? 'page' : undefined}
-                  onClick={() => navigateAndClose('/app/feed?view=digest')}
+                  className={`nav-item ${route === '/app/feed' && currentScope === 'info' && currentView === 'digest' ? 'is-active' : ''}`}
+                  aria-current={route === '/app/feed' && currentScope === 'info' && currentView === 'digest' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/app/feed?scope=info&view=digest')}
                 >
                   <Calendar size={17} className="nav-ic" aria-hidden="true" />
                   <span>{t('08:00 Digest', '08:00 日报')}</span>
                 </button>
                 <button
                   type="button"
-                  className={`nav-item ${route === '/app/feed' && currentView === 'stream' ? 'is-active' : ''}`}
-                  aria-current={route === '/app/feed' && currentView === 'stream' ? 'page' : undefined}
-                  onClick={() => navigateAndClose('/app/feed?view=stream')}
+                  className={`nav-item ${route === '/app/feed' && currentScope === 'info' && currentView === 'stream' ? 'is-active' : ''}`}
+                  aria-current={route === '/app/feed' && currentScope === 'info' && currentView === 'stream' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/app/feed?scope=info&view=stream')}
                 >
                   <Sparkles size={17} className="nav-ic" aria-hidden="true" />
-                  <span>{t('For You Stream (V2)', '破茧探索 (V2)')}</span>
+                  <span>{t('Info Discovery Stream', '资讯探索流')}</span>
+                </button>
+              </div>
+
+              <div className="nav-group">
+                <p className="nav-label">{t('Social Media', '社媒动态')}</p>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/app/feed' && currentScope === 'social' && currentView === 'stream' ? 'is-active' : ''}`}
+                  aria-current={route === '/app/feed' && currentScope === 'social' && currentView === 'stream' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/app/feed?scope=social&view=stream')}
+                >
+                  <Sparkles size={17} className="nav-ic" aria-hidden="true" />
+                  <span>{t('Social For You', '社媒推荐流')}</span>
                 </button>
                 <button
                   type="button"
-                  className={`nav-item ${route === '/app/feed' && currentView === 'hot-v2' ? 'is-active' : ''}`}
-                  aria-current={route === '/app/feed' && currentView === 'hot-v2' ? 'page' : undefined}
-                  onClick={() => navigateAndClose('/app/feed?view=hot-v2')}
+                  className={`nav-item ${route === '/app/feed' && currentScope === 'social' && currentView === 'hot-v2' ? 'is-active' : ''}`}
+                  aria-current={route === '/app/feed' && currentScope === 'social' && currentView === 'hot-v2' ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/app/feed?scope=social&view=hot-v2')}
                 >
                   <Flame size={17} className="nav-ic" aria-hidden="true" />
-                  <span>{t('Cross-Platform Hot (V2)', '综合热榜 (V2)')}</span>
+                  <span>{t('Social Hot Board', '社媒热榜')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`nav-item ${route === '/app/feed' && currentScope === 'social' && (!currentView || currentView === 'latest') ? 'is-active' : ''}`}
+                  aria-current={route === '/app/feed' && currentScope === 'social' && (!currentView || currentView === 'latest') ? 'page' : undefined}
+                  onClick={() => navigateAndClose('/app/feed?scope=social&view=latest')}
+                >
+                  <BookOpen size={17} className="nav-ic" aria-hidden="true" />
+                  <span>{t('Social Curated & Insights', '社媒精选与洞察')}</span>
                 </button>
               </div>
             </>
