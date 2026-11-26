@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
+import type { Static } from "@sinclair/typebox";
 import { buildApp } from "../../apps/api/src/app";
+import type { FeedCardDto, FeedHotResponse, FeedStreamResponse } from "../../packages/contracts/src/feed";
 import { bootstrapOwner } from "../../src/modules/access/index";
 import { KaixContentConnector } from "../../src/connectors/reddit/kaix-content.connector";
 import { redCrawler } from "../../src/connectors/reddit/red-crawler";
@@ -16,7 +18,89 @@ import type { CollectedContent, ContentProvider } from "../../src/connectors/sha
 import { workOnce } from "../../src/modules/collection/worker";
 import { hydrateHotCommunityPost } from "../../src/modules/intelligence/index";
 import { transaction } from "../../src/storage/db";
+import { batchItem } from "../helpers/content-batch-fixtures";
 import { testDatabase } from "../helpers/database";
+
+test("PG16 feed stream and hot preserve lane selection across channel scopes", async (t) => {
+  const db = await testDatabase();
+  t.after(db.close);
+  const app = await buildApp({
+    pool: db.pool, origin: "http://v2.test", publicRead: true, sessionSecret: "feed-scope-fixture".repeat(3),
+  });
+  t.after(() => app.close());
+  const now = Date.now();
+  const fetchedAt = new Date(now - 60_000).toISOString();
+  const publishedAt = new Date(now - 3_600_000).toISOString();
+  const webUrl = "https://science.example/glacier";
+  const xId = "123456789";
+  const fixtures = [
+    { lane: "release", group: "science", provider: "feed", content: {
+      platform: "web", kind: "article", externalId: webUrl, title: "Glacier sediment survey", url: webUrl,
+      platformDetails: { platform: "web", publisher: "science.example", canonicalUrl: webUrl, feedUrl: null },
+    } },
+    { lane: "discussion", group: "astronomy", provider: "kaix", content: {
+      platform: "reddit", kind: "post", externalId: "t3_abc123", title: "Telescope mirror calibration",
+      url: "https://www.reddit.com/r/astronomy/comments/abc123/",
+    } },
+    { lane: "release", group: "social-trends", provider: "twitterapis", content: {
+      platform: "x", kind: "post", externalId: xId, title: "Coastal flood warning", url: `https://x.com/i/status/${xId}`,
+      platformDetails: { platform: "x", conversationId: xId, isReply: false, isRepost: false, isQuote: false, sensitive: false },
+    } },
+    { lane: "news", group: "social-trends", provider: "kaix", content: {
+      platform: "reddit", kind: "post", externalId: "t3_def456", title: "Rail depot expansion",
+      url: "https://www.reddit.com/r/transit/comments/def456/",
+    } },
+  ] as const satisfies ReadonlyArray<{
+    lane: string; group: string; provider: CollectedContent["observation"]["provider"];
+    content: Pick<CollectedContent, "platform" | "kind" | "externalId" | "title" | "url"> &
+      Partial<Pick<CollectedContent, "platformDetails">>;
+  }>;
+  await transaction(db.pool, async client => {
+    for (const { lane, group, provider, content } of fixtures) {
+      const { platform, kind, title } = content;
+      const { rows: [source] } = await client.query<{ id: string; platform_id: string }>(
+        `INSERT INTO collection_source(id,platform_id,primary_provider,label,target,content_kind,delivery_mode,source_group,feed_lane,created_at,updated_at)
+         SELECT gen_random_uuid(),id,$2,$3,jsonb_build_object('type','search','query',$3::text),$4,'pull',$5,$6,$7,$7 FROM source WHERE code=$1
+         RETURNING id,platform_id`, [platform, provider, title, kind, group, lane, fetchedAt],
+      );
+      const item = batchItem(source.id, { ...content, text: title, publishedAt, fetchedAt });
+      item.observation = { ...item.observation, provider, fetchedAt, sourceObservedAt: null, metrics: {} };
+      await commitContentBatch(client,
+        { id: source.id, platformId: source.platform_id, platform, provider, contentKinds: [kind] },
+        prepareContentBatch([item]), fetchedAt);
+    }
+  });
+
+  const cards = (items: FeedCardDto[]) => items.map(card => `${card.platform}:${card.source.lane}:${card.headline}`).sort();
+  const web = "web:release:Glacier sediment survey";
+  const reddit = "reddit:discussion:Telescope mirror calibration";
+  const trends = "x:release:Coastal flood warning";
+  const assertStream = async (query: string, expected: string[]) => {
+    const res = await app.inject({ url: `/v1/feed/stream?limit=10&seed=channel-scope${query}` });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.deepEqual(cards(res.json<Static<typeof FeedStreamResponse>>().items), expected);
+  };
+  const assertHot = async (query: string, expected: string[]) => {
+    const res = await app.inject({ url: `/v1/feed/hot?window=24h&limit=10${query}` });
+    assert.equal(res.statusCode, 200, res.body);
+    const body = res.json<Static<typeof FeedHotResponse>>();
+    assert.equal(body.totalCount, expected.length);
+    assert.deepEqual(cards(body.items.map(item => item.card)), expected);
+  };
+  for (const query of ["", "&channelScope=all"]) {
+    await assertStream(query, [reddit, web, trends]);
+    await assertHot(query, [reddit, web, trends]);
+  }
+  // Alternate scope on each endpoint while the pool-wide feed baselines are warm.
+  for (let i = 0; i < 2; i++) {
+    await assertStream("&channelScope=info", [web]);
+    await assertHot("&channelScope=social", [reddit, trends]);
+    await assertStream("&channelScope=social", [reddit, trends]);
+    await assertHot("&channelScope=info", [web]);
+  }
+  await assertStream("&channelScope=social&includeNews=false", [reddit, trends]);
+  await assertStream("&channelScope=social&includeNews=true", [reddit, "reddit:news:Rail depot expansion", trends]);
+});
 
 function makeRedditBatchItem(
   sourceId: string,

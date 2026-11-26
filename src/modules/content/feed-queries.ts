@@ -161,11 +161,7 @@ export async function queryFeedCandidates(
     visibility?: BatchMembership;
   },
 ): Promise<FeedCandidateRow[]> {
-  const lanes = input.channelScope === "social"
-    ? ["discussion"]
-    : input.includeNews
-      ? ["discussion", "release", "news"]
-      : ["discussion", "release"];
+  const lanes = input.includeNews ? ["discussion", "release", "news"] : ["discussion", "release"];
   const excludeIds = input.excludeContentIds ?? [];
   const mutedSources = input.mutedSourceIds ?? [];
   const mutedAuthors = input.mutedAuthors ?? [];

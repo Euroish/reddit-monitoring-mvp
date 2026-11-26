@@ -106,13 +106,10 @@ export function PublicInfoHomePage({
     view: 'hot',
     channelScope: homeScope,
     limit: HOME_HOT_DISPLAY_LIMIT + 1,
+    ...(homeScope === 'social' && socialPlatform ? { platform: socialPlatform } : {}),
   });
 
-  const digestQuery = useStoriesQuery({
-    view: 'digest',
-    channelScope: 'info',
-    limit: 5,
-  });
+  const digestQuery = useStoriesQuery({ view: 'digest', channelScope: 'info', limit: 5 }, homeScope === 'info');
 
   const aiEventsQuery = useAiEventsQuery({ limit: 4 }, true);
 
@@ -182,6 +179,15 @@ export function PublicInfoHomePage({
       }),
     [picksQuery.data?.pages, featuredSelection?.story, hotItems, selectedGroup],
   );
+
+  const fullFeedParams = new URLSearchParams({ scope: homeScope });
+  if (homeScope === 'social') {
+    fullFeedParams.set('view', 'latest');
+    if (socialPlatform) fullFeedParams.set('platform', socialPlatform);
+  } else if (selectedGroup) {
+    fullFeedParams.set('sourceGroup', selectedGroup);
+  }
+  const fullFeedPath = `/app/feed?${fullFeedParams}`;
 
   const activeGroupLabel = selectedGroup
     ? SOURCE_GROUPS[selectedGroup as SourceGroupKey]?.[lang] ?? selectedGroup
@@ -288,6 +294,7 @@ export function PublicInfoHomePage({
               loading={hotQuery.isPending}
               error={hotQuery.isError ? formatApiError(hotQuery.error) : null}
               channelScope={homeScope}
+              socialPlatform={socialPlatform}
               onOpenReader={openStoryReader}
               onNavigate={onNavigate}
               onRetry={() => void hotQuery.refetch()}
@@ -441,14 +448,16 @@ export function PublicInfoHomePage({
             onNavigate={onNavigate}
           />
 
-          <DailyBriefPreview
-            feed={digestQuery.data}
-            loading={digestQuery.isPending}
-            error={digestQuery.isError ? formatApiError(digestQuery.error) : null}
-            onOpenReader={openStoryReader}
-            onNavigate={onNavigate}
-            onRetry={() => void digestQuery.refetch()}
-          />
+          {homeScope === 'info' && (
+            <DailyBriefPreview
+              feed={digestQuery.data}
+              loading={digestQuery.isPending}
+              error={digestQuery.isError ? formatApiError(digestQuery.error) : null}
+              onOpenReader={openStoryReader}
+              onNavigate={onNavigate}
+              onRetry={() => void digestQuery.refetch()}
+            />
+          )}
         </div>
 
         {/* 4. More Picks (Continuation of Same Paginated Feed) */}
@@ -469,17 +478,9 @@ export function PublicInfoHomePage({
               <button
                 type="button"
                 className="sh-inline-link"
-                onClick={() =>
-                  onNavigate(
-                    homeScope === 'social'
-                      ? '/app/feed?scope=social&view=stream'
-                      : selectedGroup
-                        ? `/app/feed?scope=info&sourceGroup=${encodeURIComponent(selectedGroup)}`
-                        : '/app/feed?scope=info',
-                  )
-                }
+                onClick={() => onNavigate(fullFeedPath)}
               >
-                <span>{homeScope === 'social' ? t('Full Social Feed', '浏览完整社媒流') : t('Full Feed', '浏览完整信息流')}</span>
+                <span>{homeScope === 'social' ? t('Browse Social Curated Feed', '浏览完整社媒精选流') : t('Full Feed', '浏览完整信息流')}</span>
                 <ArrowRight size={13} aria-hidden="true" />
               </button>
             </div>
@@ -506,8 +507,8 @@ export function PublicInfoHomePage({
                 picksQuery.isFetchNextPageError ? formatApiError(picksQuery.error) : null
               }
               visibleCount={feedSections.allVisible.length}
-              selectedGroup={selectedGroup}
               channelScope={homeScope}
+              fullFeedPath={fullFeedPath}
               onLoadMore={() => void picksQuery.fetchNextPage()}
               onNavigate={onNavigate}
             />
@@ -521,8 +522,8 @@ export function PublicInfoHomePage({
             isFetchingNextPage={false}
             fetchNextError={null}
             visibleCount={feedSections.allVisible.length}
-            selectedGroup={selectedGroup}
             channelScope={homeScope}
+            fullFeedPath={fullFeedPath}
             onLoadMore={() => void picksQuery.fetchNextPage()}
             onNavigate={onNavigate}
           />

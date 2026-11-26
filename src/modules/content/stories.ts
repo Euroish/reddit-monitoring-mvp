@@ -276,9 +276,10 @@ export async function readStoryWindow(
       ? "AND p.code=ANY(ARRAY['reddit','x','bluesky']::text[])"
       : "";
   const language = query.language ? `AND c.language=$${values.push(query.language)}` : "";
-  const excludeTrends = !query.sourceGroup && !query.sourceId && !query.includeTrends && view !== "digest"
-    ? "AND COALESCE(cs.source_group, '') <> 'social-trends'"
-    : "";
+  const hideTrends = query.channelScope === "social"
+    ? query.includeTrends === false
+    : !query.sourceGroup && !query.sourceId && !query.includeTrends && view !== "digest";
+  const excludeTrends = hideTrends ? "AND COALESCE(cs.source_group, '') <> 'social-trends'" : "";
   const activeOnly = query.sourceId ? "" : "AND cs.state='active'";
   const { rows } = await pool.query<Row>(`
     WITH candidates AS MATERIALIZED (

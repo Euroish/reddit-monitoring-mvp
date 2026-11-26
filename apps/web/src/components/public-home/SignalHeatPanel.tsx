@@ -13,6 +13,7 @@ interface SignalHeatPanelProps {
   loading: boolean;
   error: string | null;
   channelScope?: 'info' | 'social';
+  socialPlatform?: '' | 'reddit' | 'x' | 'bluesky';
   onOpenReader: (story: StoryItem) => void;
   onNavigate: (path: string) => void;
   onRetry: () => void;
@@ -80,6 +81,7 @@ export function SignalHeatPanel({
   loading,
   error,
   channelScope = 'info',
+  socialPlatform = '',
   onOpenReader,
   onNavigate,
   onRetry,
@@ -87,14 +89,15 @@ export function SignalHeatPanel({
   const { lang, t } = useI18n();
   const visible = items.slice(0, HOME_HOT_DISPLAY_LIMIT);
   const headingText = channelScope === 'social'
-    ? t('48h Social Buzz', '48小时社媒热议')
+    ? t('48h Social Momentum', '48 小时社媒热度')
     : t('48h Momentum', '48小时热度');
-  const subText = channelScope === 'social'
-    ? t('Ranked by social engagement & recency', '基于社媒讨论活跃度与时间衰减的近期热度')
-    : t('Ranked by multi-source density & recency decay', '基于多源报道密度与时间衰减的近期热度');
-  const hotTarget = channelScope === 'social'
-    ? '/app/feed?scope=social&view=hot-v2'
-    : '/app/feed?scope=info&view=hot';
+  const subText = t(
+    'Ranked by independent-source coverage, source tier weights, and time decay',
+    '按独立来源覆盖、来源等级权重与时间衰减排序',
+  );
+  const hotParams = new URLSearchParams({ scope: channelScope, view: 'hot' });
+  if (channelScope === 'social' && socialPlatform) hotParams.set('platform', socialPlatform);
+  const hotTarget = `/app/feed?${hotParams}`;
 
   return (
     <section className="sh-heat-panel" aria-labelledby="sh-heat-heading">

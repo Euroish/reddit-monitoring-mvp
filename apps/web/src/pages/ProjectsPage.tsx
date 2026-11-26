@@ -433,6 +433,7 @@ export function ProjectsPage({
   initialSearchString = '',
   onNavigate,
   onDrilldown,
+  onOpenContentDetail,
 }: ProjectsPageProps) {
   const { t } = useI18n();
   const isAdmin = actor.role === 'owner' || actor.role === 'admin';
@@ -1167,6 +1168,7 @@ export function ProjectsPage({
           actor={actor}
           onOpenAuth={() => {}}
           onSelectRelated={(ev) => handleOpenInlineDetail(ev.id)}
+          onOpenFullDetail={onOpenContentDetail}
           onClose={() => setReaderPreview(null)}
         />
       )}

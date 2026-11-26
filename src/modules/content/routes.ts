@@ -163,7 +163,7 @@ function storyCacheKey(query: Static<typeof StoryQuery>) {
     query.channelScope ?? "",
     query.tier ?? "",
     query.language ?? "",
-    query.includeTrends ? "1" : "0",
+    query.includeTrends === undefined ? "" : query.includeTrends ? "1" : "0",
     query.date ?? "",
   ].join("|");
 }

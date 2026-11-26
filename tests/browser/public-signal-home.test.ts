@@ -127,17 +127,23 @@ test("browser: editorial signal home (/), pagination, channels, reader, search, 
       const src = sources[i % sources.length];
       const hoursAgo = i < 4 ? 1 + i * 2 : 10 + i * 3;
       const pubIso = new Date(now - hoursAgo * 3600_000).toISOString();
+      const url = `https://example.org/signal-home-story-${i + 1}`;
       const item = batchItem(src.id, {
-        externalId: `web_sighome${i}`,
+        externalId: url,
+        platform: "web",
         kind: "article",
         title: `信号测试报道 ${i + 1}：跨源可追溯情报样本`,
         language: src.lang,
         text: `第 ${i + 1} 条测试报道正文，验证编辑式首页阅读抽屉与连续分页。`,
-        url: `https://example.org/signal-home-story-${i + 1}`,
+        url,
         publishedAt: pubIso,
         fetchedAt: pubIso,
+        platformDetails: { platform: "web", publisher: "example.org", canonicalUrl: url, feedUrl: `https://example.org/rss/${src.key}` },
+        observation: {
+          sourceId: src.id, provider: "feed", sourceObservedAt: null, fetchedAt: pubIso,
+          timeBasis: "provider_snapshot", maturity: "unknown", metrics: {}, evidenceKey: `signal-home-${i}`,
+        },
       });
-      item.observation.fetchedAt = pubIso;
       await commitContentBatch(
         client,
         { id: src.id, platformId: src.platform_id, platform: "web", provider: "feed", contentKinds: ["article"] },
@@ -149,11 +155,11 @@ test("browser: editorial signal home (/), pagination, channels, reader, search, 
     for (let i = 0; i < 2; i++) {
       const pubIso = new Date(now - (2 + i) * 3600_000).toISOString();
       const socialItem = batchItem(socialSrc.id, {
-        externalId: `t3_sighome_social_${i}`,
+        externalId: `t3_sighomesocial${i}`,
         title: `社媒样本讨论 ${i + 1}：Reddit 社区真实反馈`,
         language: "zh",
         text: `第 ${i + 1} 条 Reddit 社媒帖子，应在社媒动态板块展示，不混入资讯信息流。`,
-        url: `https://www.reddit.com/r/test/comments/sighome${i}/`,
+        url: `https://www.reddit.com/r/fixture/comments/sighomesocial${i}/`,
         publishedAt: pubIso,
         fetchedAt: pubIso,
       });
@@ -209,19 +215,26 @@ test("browser: editorial signal home (/), pagination, channels, reader, search, 
   await page.getByRole("heading", { name: "48小时热度" }).waitFor();
   await page.getByRole("heading", { name: "今日精选" }).waitFor();
   await page.getByRole("heading", { name: "AI 产品动态" }).waitFor();
-  await page.getByRole("heading", { name: "08:00 每日简报" }).waitFor();
+  const dailyBrief = page.getByRole("heading", { name: "08:00 每日简报", exact: true });
+  await dailyBrief.waitFor();
   await page.getByRole("heading", { name: "更多精选" }).waitFor();
   assert.equal(await page.locator(".sh-feature-band").count(), 1);
-  assert.equal(await page.getByText(/社媒样本讨论 1/).count(), 0, "Info stream must exclude Reddit posts");
+  const socialStories = page.getByText(/社媒样本讨论 \d+：/);
+  const webStories = page.getByText(/信号测试报道 \d+：/);
+  await webStories.first().waitFor();
+  assert.equal(await socialStories.count(), 0, "Info stream must exclude Reddit posts");
   assert.deepEqual(badStatus, []);
 
   // Domain separation: Social tab displays Reddit posts and excludes Web articles
   const domainBar = page.getByLabel("内容展示板块");
   await domainBar.getByRole("button", { name: /社媒动态/ }).click();
   await page.getByText(/社媒样本讨论 1：Reddit 社区真实反馈/).first().waitFor();
-  assert.equal(await page.getByText(/信号测试报道 1：/).count(), 0, "Social feed must exclude Web articles");
+  assert.equal(await webStories.count(), 0, "Social feed must exclude Web articles");
+  assert.equal(await dailyBrief.count(), 0, "The daily brief is Info-only");
   await domainBar.getByRole("button", { name: "资讯信息流" }).click();
-  await page.getByText(/信号测试报道 1：/).first().waitFor();
+  await webStories.first().waitFor();
+  await dailyBrief.waitFor();
+  assert.equal(await socialStories.count(), 0, "Switching back to Info must not retain Reddit posts");
 
   // HOME-03: Load more pagination + transient failure retry preserves existing items
   const initialRowCount = await page.locator(".sh-story-row").count();
@@ -264,12 +277,13 @@ test("browser: editorial signal home (/), pagination, channels, reader, search, 
 
   // HOME-05: Search submits to /content with query & platform
   await page.getByLabel("检索公开内容").fill("信号测试");
-  await page.getByLabel("按平台筛选").selectOption("reddit");
+  await page.getByLabel("按平台筛选").selectOption("web");
   await page.getByRole("button", { name: "立即检索" }).click();
   await page.waitForURL("**/content?*");
   const contentUrl = new URL(page.url());
   assert.equal(contentUrl.searchParams.get("query"), "信号测试");
-  assert.equal(contentUrl.searchParams.get("platform"), "reddit");
+  assert.equal(contentUrl.searchParams.get("platform"), "web");
+  await page.getByText("信号测试报道 1：跨源可追溯情报样本", { exact: true }).waitFor();
   await page.goBack();
   await page.waitForURL(`${origin}/`);
 

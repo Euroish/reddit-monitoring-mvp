@@ -29,6 +29,7 @@ import { FeedV2View } from '../components/feed/FeedV2View';
 import type {
   Actor,
   SourceTier,
+  StoryInsightsQuery,
   StoryView,
 } from '../contracts/api';
 import { useI18n } from '../i18n/translations';
@@ -59,8 +60,8 @@ const VIEW_META: Record<StoryView, { titleZh: string; titleEn: string; subZh: st
   hot: {
     titleZh: '48 小时热度',
     titleEn: '48h Momentum',
-    subZh: '按 48 小时多源报道密度与时间衰减排序 · 零虚构基线',
-    subEn: 'Ranked by 48h multi-source coverage density and recency',
+    subZh: '按近 48 小时独立来源覆盖、来源等级权重与时间衰减排序',
+    subEn: 'Ranked by 48h independent-source coverage, source tier weights, and time decay',
   },
   digest: {
     titleZh: '08:00 日报',
@@ -86,11 +87,12 @@ export function StoriesPage({
   basePath = '/app/feed',
   onNavigate,
   onOpenAuth,
+  onOpenContentDetail,
 }: {
   actor: Actor | null;
   initialSearchString?: string;
   basePath?: string;
-  onNavigate: (path: string) => void;
+  onNavigate: (path: string, options?: { replace?: boolean }) => void;
   onOpenAuth: (tab?: 'login' | 'register', reason?: string) => void;
   onOpenContentDetail?: (contentId: string) => void;
 }) {
@@ -101,10 +103,11 @@ export function StoriesPage({
   const rawView = sp.get('view');
   const v2Mode: 'stream' | 'hot-v2' | null =
     rawView === 'stream' || rawView === 'hot-v2' ? rawView : null;
-  const view: StoryView = rawView === 'hot' || rawView === 'digest' ? rawView : 'latest';
   const rawScope = sp.get('scope');
   const scope: 'info' | 'social' =
     rawScope === 'social' || rawScope === 'info' ? rawScope : v2Mode !== null ? 'social' : 'info';
+  const invalidSocialDigest = scope === 'social' && rawView === 'digest';
+  const view: StoryView = rawView === 'hot' || (rawView === 'digest' && !invalidSocialDigest) ? rawView : 'latest';
   const rawPlatform = sp.get('platform');
   const socialPlatform: '' | 'reddit' | 'x' | 'bluesky' =
     scope === 'social' && (rawPlatform === 'reddit' || rawPlatform === 'x' || rawPlatform === 'bluesky')
@@ -115,6 +118,15 @@ export function StoriesPage({
   const tier = scope === 'info' ? ((sp.get('tier') as SourceTier | '') ?? '') : '';
   const language = sp.get('language') ?? '';
   const sourceId = sp.get('sourceId') ?? '';
+  const channelScope = !sp.has('scope') && !v2Mode && sourceId ? 'all' : scope;
+
+  useEffect(() => {
+    if (!invalidSocialDigest) return;
+    const next = new URLSearchParams(sp);
+    next.set('view', 'latest');
+    next.delete('date');
+    onNavigate(`${basePath}?${next}`, { replace: true });
+  }, [basePath, invalidSocialDigest, onNavigate, sp]);
 
   const drillTerm = sp.get('storyTerm') ?? '';
   const drillTermLabel = sp.get('storyTermLabel') ?? '';
@@ -178,10 +190,10 @@ export function StoriesPage({
     [publicSources, sourceId],
   );
 
-  const baseInsightsQuery = useMemo(
+  const baseInsightsQuery = useMemo<StoryInsightsQuery>(
     () => ({
       view,
-      channelScope: scope,
+      channelScope,
       ...(socialPlatform ? { platform: socialPlatform } : {}),
       ...(date ? { date } : {}),
       ...(sourceGroup ? { sourceGroup } : {}),
@@ -190,7 +202,7 @@ export function StoriesPage({
       ...(sourceId ? { sourceId } : {}),
       lang,
     }),
-    [date, lang, language, scope, socialPlatform, sourceGroup, sourceId, tier, view],
+    [channelScope, date, lang, language, socialPlatform, sourceGroup, sourceId, tier, view],
   );
 
   const insightsQuery = useStoryInsightsQuery(baseInsightsQuery, !v2Mode);
@@ -198,7 +210,7 @@ export function StoriesPage({
   const storiesQuery = useInfiniteStoriesQuery(
     {
       view,
-      channelScope: scope,
+      channelScope,
       ...(socialPlatform ? { platform: socialPlatform } : {}),
       ...(date ? { date } : {}),
       limit: 25,
@@ -276,6 +288,7 @@ export function StoriesPage({
   }, []);
 
   const setScope = (nextScope: 'info' | 'social') => {
+    if (nextScope === scope) return;
     pushSearch((next) => {
       next.set('scope', nextScope);
       next.delete('date');
@@ -295,7 +308,7 @@ export function StoriesPage({
 
   const setView = (nextView: StoryView | 'stream' | 'hot-v2', nextDate?: string | null) => {
     pushSearch((next) => {
-      next.set('scope', scope);
+      if (channelScope !== 'all' || nextView === 'stream' || nextView === 'hot-v2') next.set('scope', scope);
       if (nextView === 'latest' && scope === 'info') next.delete('view');
       else next.set('view', nextView);
       if (nextView === 'digest' && nextDate) next.set('date', nextDate);
@@ -477,13 +490,15 @@ export function StoriesPage({
       ? t('Social For You Stream', '社媒推荐流')
       : v2Mode === 'hot-v2'
         ? t('Social Hot Board', '社媒热榜')
-        : socialPlatform === 'reddit'
-          ? 'Reddit'
-          : socialPlatform === 'x'
-            ? 'X'
-            : socialPlatform === 'bluesky'
-              ? 'Bluesky'
-              : t('Social Curated & Insights', '社媒精选与洞察')
+        : view === 'hot'
+          ? t('48h Social Momentum', '48 小时社媒热度榜')
+          : socialPlatform === 'reddit'
+            ? 'Reddit'
+            : socialPlatform === 'x'
+              ? 'X'
+              : socialPlatform === 'bluesky'
+                ? 'Bluesky'
+                : t('Social Curated & Insights', '社媒精选与洞察')
     : v2Mode === 'stream'
       ? t('Info Discovery Stream (V2)', '资讯探索流 (V2)')
       : v2Mode === 'hot-v2'
@@ -494,7 +509,9 @@ export function StoriesPage({
             ? VIEW_META[view].titleZh
             : VIEW_META[view].titleEn;
   const subHeading = scope === 'social'
-    ? t('Social media posts & discussions from Reddit / X, isolated from news feeds.', 'Reddit / X 等社媒平台讨论与热点动态，与资讯信息流独立展示。')
+    ? !v2Mode && view === 'hot'
+      ? t(VIEW_META.hot.subEn, VIEW_META.hot.subZh)
+      : t('Social media posts & discussions from Reddit / X, isolated from news feeds.', 'Reddit / X 等社媒平台讨论与热点动态，与资讯信息流独立展示。')
     : v2Mode === 'stream'
       ? t('Curated web/RSS discovery stream powered by /v1/feed/stream.', '基于订阅源的资讯流混排探索，与社媒内容分离展示。')
       : v2Mode === 'hot-v2'
@@ -566,6 +583,7 @@ export function StoriesPage({
         <div className="seg" role="group" aria-label={t('Content domain', '内容板块')}>
           <button
             type="button"
+            aria-pressed={scope === 'info'}
             className={scope === 'info' ? 'on' : ''}
             onClick={() => setScope('info')}
           >
@@ -573,6 +591,7 @@ export function StoriesPage({
           </button>
           <button
             type="button"
+            aria-pressed={scope === 'social'}
             className={scope === 'social' ? 'on' : ''}
             onClick={() => setScope('social')}
           >
@@ -634,6 +653,13 @@ export function StoriesPage({
                 onClick={() => setView('latest')}
               >
                 {t('Social Curated & Insights', '社媒精选与洞察')}
+              </button>
+              <button
+                type="button"
+                className={!v2Mode && view === 'hot' ? 'on' : ''}
+                onClick={() => setView('hot')}
+              >
+                {t('48h Social Momentum', '48 小时社媒热度榜')}
               </button>
             </>
           )}
@@ -738,6 +764,7 @@ export function StoriesPage({
 
       {v2Mode ? (
         <FeedV2View
+          key={`${scope}-${v2Mode}`}
           actor={actor}
           modeView={v2Mode}
           channelScope={scope}
@@ -795,6 +822,7 @@ export function StoriesPage({
               <button
                 key={plat || 'all'}
                 type="button"
+                aria-pressed={active}
                 className={`story-ch-pill ${active ? 'on' : ''}`}
                 onClick={() => setFilterParam('platform', plat && active ? '' : plat)}
               >
@@ -1106,6 +1134,7 @@ export function StoriesPage({
               platform: rel.platform,
             })
           }
+          onOpenFullDetail={onOpenContentDetail}
           onClose={() => setReader(null)}
         />
       )}

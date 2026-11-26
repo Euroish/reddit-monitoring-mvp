@@ -265,6 +265,7 @@ export function WorkbenchShell({
   // Global keyboard shortcuts matching DeepSeek app.js (Ctrl+K, Esc, [ to toggle sidebar)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       const target = e.target as HTMLElement | null;
       const typing = target && /INPUT|TEXTAREA|SELECT/.test(target.tagName);
 
@@ -358,8 +359,8 @@ export function WorkbenchShell({
       { group: t('Feed', '信息流'), label: t("Today's Stories", '完整信息流 · 今日精选'), kbd: 'G H', run: () => navigateAndClose('/app/feed') },
       { group: t('Feed', '信息流'), label: t('48h Momentum', '48 小时热度'), kbd: 'G T', run: () => navigateAndClose('/app/feed?view=hot') },
       { group: t('Feed', '信息流'), label: t('08:00 Daily Digest', '08:00 日报'), kbd: 'G D', run: () => navigateAndClose('/app/feed?view=digest') },
-      { group: t('Feed', '信息流'), label: t('For You Stream (V2)', '破茧探索信息流 (V2)'), kbd: 'G F', run: () => navigateAndClose('/app/feed?view=stream') },
-      { group: t('Feed', '信息流'), label: t('Cross-Platform Hot (V2)', '跨平台综合热榜 (V2)'), kbd: 'G X', run: () => navigateAndClose('/app/feed?view=hot-v2') },
+      { group: t('Social Media', '社媒动态'), label: t('Social For You', '社媒推荐流'), kbd: 'G F', run: () => navigateAndClose('/app/feed?scope=social&view=stream') },
+      { group: t('Social Media', '社媒动态'), label: t('Social Hot Board', '社媒热榜'), kbd: 'G X', run: () => navigateAndClose('/app/feed?scope=social&view=hot-v2') },
       { group: t('Feed', '信息流'), label: t('Product Overview', '产品介绍'), kbd: 'G P', run: () => navigateAndClose('/product') },
       { group: t('Feed', '信息流'), label: t('Product Docs', '产品文档'), kbd: 'G ?', run: () => navigateAndClose('/docs') },
       { group: t('Feed', '信息流'), label: t('Product Guide', '产品使用说明'), kbd: 'G U', run: () => navigateAndClose('/guide') },

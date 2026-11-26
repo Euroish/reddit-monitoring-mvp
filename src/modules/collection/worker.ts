@@ -21,10 +21,32 @@ const hostCooldownMs = 1500;
 const cleanupIntervalMs = 3600_000;
 const jobLeaseSeconds = 180; // Allow the supported 120s provider timeout plus local work.
 const maxIdleWaitMs = 15_000;
+const maxReadRetries = 12;
+const apifyProviders = "('kaix','red_crawler')";
+const occupiedApifySlots = `FROM source_collection_job act
+  WHERE act.provider IN ${apifyProviders}
+    AND act.status IN ('queued','retrying','running')
+    AND (act.provider_state->>'runId' IS NOT NULL
+      OR COALESCE(act.provider_state->>'phase','') IN ('running','reading')
+      OR (act.status='running' AND act.lease_until>NOW()))`;
 
 export function providerMaxConcurrentRuns(provider: string): number | null {
   if (provider !== "kaix" && provider !== "red_crawler") return null;
-  return Math.min(6, Math.max(1, Number(process.env.KAIX_MAX_CONCURRENT_JOBS ?? 2) || 2));
+  const raw = process.env.KAIX_MAX_CONCURRENT_JOBS?.trim();
+  const configured = raw && /^[+-]?\d+$/.test(raw) ? Number(raw) : NaN;
+  return Number.isInteger(configured) ? Math.min(6, Math.max(1, configured)) : 2;
+}
+
+async function lockApifySlots(client: PoolClient) {
+  await client.query(`SELECT provider FROM source_provider_budget WHERE provider IN ${apifyProviders} ORDER BY provider FOR UPDATE`);
+}
+
+async function apifySlotsFull(client: PoolClient, jobId: string, maxConcurrent: number) {
+  const { rows: [row] } = await client.query<{ full: boolean }>(
+    `SELECT COUNT(*) >= $2 AS full ${occupiedApifySlots} AND act.id<>$1`,
+    [jobId, maxConcurrent],
+  );
+  return row.full;
 }
 
 function pruneCooldownHosts(hostCooldown?: Map<string, number>) {
@@ -43,14 +65,18 @@ async function claimNextJob(pool: Pool, cooledHosts: string[], hostCooldown?: Ma
   return transaction(pool, async (client) => {
     const candidate = (
       await client.query(
-        `SELECT cs.id,head.id AS job_id FROM collection_source cs
+        `SELECT cs.id,head.id AS job_id,head.provider,head.provider_state FROM collection_source cs
         JOIN (
           SELECT DISTINCT ON (j.collection_source_id) j.collection_source_id,j.id,j.status,j.provider,j.provider_state,j.next_run_at,j.lease_until
           FROM source_collection_job j WHERE j.status IN ('queued','retrying','running')
           ORDER BY j.collection_source_id,
-            (j.status='running' OR COALESCE(j.provider_state->>'phase' IN ('starting','running','reading'),FALSE)) DESC,j.created_at,j.id
+            (j.status='running' OR j.provider_state->>'runId' IS NOT NULL
+              OR COALESCE(j.provider_state->>'phase' IN ('starting','running','reading'),FALSE)) DESC,j.created_at,j.id
         ) head ON head.collection_source_id=cs.id AND head.next_run_at<=NOW() AND (head.status<>'running' OR head.lease_until<NOW())
-        WHERE cs.state='active' AND cs.delivery_mode='pull' AND NOT cs.automatic_collection_blocked
+        WHERE (cs.state='active' OR (cs.state='paused'
+            AND COALESCE(head.provider_state->>'phase','') IN ('running','reading')
+            AND head.provider_state->>'runId' IS NOT NULL))
+          AND cs.delivery_mode='pull' AND NOT cs.automatic_collection_blocked
           AND (cs.primary_provider<>'feed' OR (
             NOT (split_part(cs.target->>'url','/',3)=ANY($1::text[]))
             AND NOT EXISTS (
@@ -59,24 +85,25 @@ async function claimNextJob(pool: Pool, cooledHosts: string[], hostCooldown?: Ma
                 AND split_part(peer.target->>'url','/',3)=split_part(cs.target->>'url','/',3))
           ))
           AND (
-            head.provider NOT IN ('kaix','red_crawler')
+            head.provider NOT IN ${apifyProviders}
+            OR head.provider_state->>'runId' IS NOT NULL
             OR COALESCE(head.provider_state->>'phase','') IN ('running','reading')
-            OR (
-              SELECT COUNT(*)
-              FROM source_collection_job act
-              WHERE act.provider=head.provider
-                AND (
-                  (act.status='running' AND act.lease_until>NOW())
-                  OR (act.status IN ('queued','retrying') AND COALESCE(act.provider_state->>'phase','') IN ('running','reading'))
-                )
-            ) < $2
+            OR (SELECT COUNT(*) ${occupiedApifySlots}) < $2
           )
         ORDER BY head.next_run_at,cs.id FOR UPDATE OF cs SKIP LOCKED LIMIT 1`,
         [cooledHosts, kaixMaxConcurrent],
       )
     ).rows[0];
     if (!candidate) return null;
-    const source = await lockSource(client, workerActor, candidate.id);
+    const source = await lockSource(client, workerActor, candidate.id, false);
+    const maxConcurrent = providerMaxConcurrentRuns(candidate.provider);
+    if (maxConcurrent !== null && !candidate.provider_state.runId &&
+        !["running", "reading"].includes(candidate.provider_state.phase)) {
+      // Recheck before creating a lease: simultaneous candidate reads can
+      // overclaim. Lock budget rows before the queued job, as budget updates do.
+      await lockApifySlots(client);
+      if (await apifySlotsFull(client, candidate.job_id, maxConcurrent)) return null;
+    }
     const job = (
       await client.query(
         `SELECT * FROM source_collection_job WHERE id=$1 AND next_run_at<=NOW()
@@ -162,20 +189,12 @@ async function admitJobDispatch(
     }
     const socialProvider = budgetedSocialProviders.includes(job.provider);
     if (socialProvider) await lockSocialDispatchBudget(client);
-    await client.query("SELECT 1 FROM source_provider_budget WHERE provider=$1 FOR UPDATE", [job.provider]);
     const maxConcurrent = providerMaxConcurrentRuns(job.provider);
-    if (maxConcurrent !== null && !job.provider_state?.runId) {
-      const { rows: [{ active_count }] } = await client.query<{ active_count: number }>(
-        `SELECT COUNT(*)::int AS active_count
-         FROM source_collection_job
-         WHERE provider = $1 AND id <> $2
-           AND (
-             (status = 'running' AND lease_until > NOW())
-             OR (status IN ('queued', 'retrying') AND COALESCE(provider_state->>'phase', '') IN ('running', 'reading'))
-           )`,
-        [job.provider, job.id],
-      );
-      if (active_count >= maxConcurrent) {
+    if (maxConcurrent === null) {
+      await client.query("SELECT 1 FROM source_provider_budget WHERE provider=$1 FOR UPDATE", [job.provider]);
+    } else {
+      await lockApifySlots(client);
+      if (await apifySlotsFull(client, job.id, maxConcurrent)) {
         await client.query(
           `UPDATE source_collection_job
            SET status='queued', next_run_at=NOW() + interval '15 seconds',
@@ -203,7 +222,8 @@ async function admitJobDispatch(
     if (deferred.rowCount) return false;
     // This hook debits monitor/viewer usage and advances due times. Run it only
     // after system/provider budgets admit dispatch, in the same transaction.
-    if (job.purpose === "scheduled" && hooks.authorizeScheduledSourceDispatch) {
+    let monitorAuthorized = Boolean(job.provider_state?.monitorAuthorized);
+    if (job.purpose === "scheduled" && !monitorAuthorized && hooks.authorizeScheduledSourceDispatch) {
       const auth = await hooks.authorizeScheduledSourceDispatch(client, {
         sourceId: source.id,
         provider: job.provider,
@@ -227,12 +247,14 @@ async function admitJobDispatch(
         }
         return false;
       }
+      monitorAuthorized = true;
     }
+    const startingState = { phase: "starting", ...(monitorAuthorized ? { monitorAuthorized } : {}) };
     const updated = await client.query(
-      `UPDATE source_collection_job SET provider_state='{"phase":"starting"}',error=NULL,
+      `UPDATE source_collection_job SET provider_state=$4,error=NULL,
         request_count=request_count+1,page_request_attempts=page_request_attempts+1,lease_until=NOW()+make_interval(secs=>$3)
        WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id`,
-      [job.id, token, jobLeaseSeconds],
+      [job.id, token, jobLeaseSeconds, startingState],
     );
     if (!updated.rowCount) fail(409, "Collection lease lost");
     await client.query(
@@ -244,7 +266,7 @@ async function admitJobDispatch(
     );
     await client.query("UPDATE source_provider_budget SET last_request_at=NOW() WHERE provider=$1", [job.provider]);
     await recordUserExecutedRequest(client, job.id, job.provider);
-    return true;
+    return startingState;
   });
 }
 
@@ -433,24 +455,27 @@ export function classifyJobFailure(
   hasRunId: boolean,
   error: unknown,
 ) {
-  const httpStatus = error instanceof ContentProviderError ? error.httpStatus : undefined;
-  const hasRun = (phase === "running" || phase === "reading") && hasRunId;
+  const providerError = error instanceof ContentProviderError ? error : undefined;
+  const httpStatus = providerError?.httpStatus;
   const transient = isTransientCollectionError(error);
-  const retryRejectedCapacity =
-    phase === "starting" &&
-    !hasRunId &&
-    httpStatus === 402 &&
-    transient &&
-    job.page_request_attempts < 6;
-  const retryStart =
-    (provider?.capability.automaticRequestReplay !== false && transient && job.page_request_attempts < 3) ||
-    retryRejectedCapacity;
-  const retryRead = hasRun && (transient || httpStatus === 429 || (httpStatus ?? 0) >= 500);
-  const rejected = httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500 && httpStatus !== 408;
+  const confirmedCapacity = httpStatus === 402 && providerError?.startOutcome?.confirmedPreStartRejection === true;
+  const rejected = httpStatus === 402
+    ? confirmedCapacity || providerError?.startOutcome?.outcomeUnknown === false
+    : httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500 && httpStatus !== 408;
   const uncharged = rejected || (job.provider === "scrapebadger" && (httpStatus ?? 0) >= 500);
+  const paidStart = provider?.capability.automaticRequestReplay === false && phase === "starting" && !hasRunId;
+  const unknown = phase === "unknown" || (paidStart && !uncharged);
+  const retryRejectedCapacity = !unknown && phase === "starting" && !hasRunId &&
+    confirmedCapacity && transient && job.page_request_attempts < 6;
+  const retryStart = !unknown && !hasRunId && (retryRejectedCapacity ||
+    (httpStatus !== 402 && provider?.capability.automaticRequestReplay !== false && transient && job.page_request_attempts < 3));
+  const canRetryRead = !unknown && hasRunId && (phase === "running" || phase === "reading") &&
+    httpStatus !== 402 && (transient || httpStatus === 429 || (httpStatus ?? 0) >= 500);
+  const readRetries = Number(job.provider_state?.readRetries ?? 0);
+  const readRetryExhausted = canRetryRead && readRetries >= maxReadRetries;
+  const retryRead = canRetryRead && !readRetryExhausted;
   const fallback = findFallbackProvider(providers, job, failedSource, phase, hasRunId, httpStatus);
-  const unknown = phase === "unknown" || (provider?.capability.automaticRequestReplay === false && phase === "starting" && !uncharged);
-  return { retryStart, retryRead, fallback, unknown };
+  return { retryStart, retryRejectedCapacity, retryRead, readRetryExhausted, fallback, unknown };
 }
 
 async function handleJobError(
@@ -471,21 +496,30 @@ async function handleJobError(
     ])
   ).rows[0];
   if (!current) return;
-  if (signal?.aborted) {
+  const state = current.provider_state;
+  const phase = state.phase as string;
+  const hasRunId = Boolean(state.runId);
+  // A shutdown cannot turn an unresolved paid POST into a fresh attempt.
+  if (signal?.aborted && phase !== "unknown" &&
+      !(phase === "starting" && !hasRunId && provider?.capability.automaticRequestReplay === false)) {
     await client.query(
       "UPDATE source_collection_job SET status='queued',next_run_at=NOW(),lease_token=NULL,lease_until=NULL,error=NULL WHERE id=$1 AND lease_token=$2",
       [job.id, token],
     );
     return;
   }
-  const phase = current.provider_state.phase as string;
-  const plan = classifyJobFailure(providers, job, failedSource, provider, phase, Boolean(current.provider_state.runId), error);
+  const plan = classifyJobFailure(providers, { ...job, provider_state: state }, failedSource, provider, phase, hasRunId, error);
   if (plan.retryStart || plan.retryRead) {
-    const retryAfter = error instanceof ContentProviderError ? error.retryAfterSeconds : 30;
+    const retryAfter = plan.retryRejectedCapacity
+      ? Math.min(175, 25 * 2 ** (job.page_request_attempts - 1)) + Math.random() * 5
+      : error instanceof ContentProviderError ? error.retryAfterSeconds : 30;
+    const retryState = plan.retryRead
+      ? { ...state, readRetries: Number(state.readRetries ?? 0) + 1 }
+      : plan.retryRejectedCapacity && state.monitorAuthorized === true ? { monitorAuthorized: true } : {};
     await client.query(
-      `UPDATE source_collection_job SET status='retrying',provider_state=CASE WHEN $4 THEN provider_state ELSE '{}' END,next_run_at=now()+make_interval(secs => $3),
+      `UPDATE source_collection_job SET status='retrying',provider_state=$4,next_run_at=now()+make_interval(secs => $3),
         lease_token=NULL,lease_until=NULL,request_duration_ms=request_duration_ms+$5 WHERE id=$1 AND lease_token=$2`,
-      [job.id, token, retryAfter, plan.retryRead, elapsedMs],
+      [job.id, token, retryAfter, retryState, elapsedMs],
     );
     return;
   }
@@ -499,7 +533,8 @@ async function handleJobError(
     return;
   }
   const errorMessage = error instanceof Error ? error.message : "Collection failed";
-  const nextPhase = plan.unknown ? "unknown" : phase === "running" || phase === "reading" ? phase : "failed";
+  const nextPhase = plan.unknown ? "unknown" : plan.readRetryExhausted ? "reading"
+    : phase === "running" || phase === "reading" ? phase : "failed";
   await client.query(
     `UPDATE source_collection_job SET status='failed',error=$3,provider_state=provider_state||$4::jsonb,
       finished_at=NOW(),lease_token=NULL,lease_until=NULL,request_duration_ms=request_duration_ms+$5
@@ -608,22 +643,26 @@ export async function workOnce(
   const saveState = async (state: JsonValue) =>
     transaction(pool, async (client) => {
       await lockSource(client, workerActor, source.id, false);
+      const readRetries = job.provider_state.readRetries;
+      const nextState = readRetries !== undefined && state && typeof state === "object" && !Array.isArray(state)
+        ? { ...state, readRetries }
+        : state;
       const updated = await client.query(
         "UPDATE source_collection_job SET provider_state=$3,provider_run_id=$3::jsonb->>'runId',lease_until=NOW()+make_interval(secs=>$4) WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id",
-        [job.id, token, state, jobLeaseSeconds],
+        [job.id, token, nextState, jobLeaseSeconds],
       );
       if (!updated.rowCount) fail(409, "Collection lease lost");
-      job.provider_state = state;
+      job.provider_state = nextState;
     });
   let elapsedMs = 0;
   const feedHost = job.provider === "feed" ? new URL(source.target.url).hostname : null;
   try {
     assertProviderReadyForJob(job, provider);
     const phase = job.provider_state.phase;
-    if (!phase || (phase === "starting" && provider.capability.automaticRequestReplay !== false)) {
-      const admitted = await admitJobDispatch(pool, job as Parameters<typeof admitJobDispatch>[1], source, provider, token, hooks);
-      if (!admitted) return true;
-      job.provider_state = { phase: "starting" };
+    if (!job.provider_state.runId && (!phase || (phase === "starting" && provider.capability.automaticRequestReplay !== false))) {
+      const startingState = await admitJobDispatch(pool, job as Parameters<typeof admitJobDispatch>[1], source, provider, token, hooks);
+      if (!startingState) return true;
+      job.provider_state = startingState;
       job.page_request_attempts++;
     }
     const reqStart = performance.now();

@@ -165,6 +165,8 @@ AI_SYNC_ENABLED=false
 ```
 
 - **渠道约束**：`WORKER_CONCURRENCY` 范围 `[1, 12]`（默认 `6` + `1500ms` 同域冷却）；`twitterapis` 单页自动钳制 `<= 20`；`scrapebadger` `POST /v1/sources/:id/refresh` 支持 `1..20` ID 批刷；`kaix` 水合每次限 `<= 30` 根帖 × `50` 评论。若使用私有独立 Apify 转发网关（[deploy/apify-relay.compose.yml](../deploy/apify-relay.compose.yml)），将 `APIFY_RELAY_ORIGIN` 指向内网转发容器并在主应用留空 `APIFY_API_TOKEN`。
+- **Apify 并发（PR #54 候选配置）**：Worker 的 `KAIX_MAX_CONCURRENT_JOBS` 默认 `2`，有效范围为整数 `1..6`。未设置或非整数字面量使用默认值，越界整数钳制到范围内。`kaix` 和 `red_crawler` 共用这一个 Apify 并发池，不是每渠道各自的上限。
+- **Apify Relay 错误边界（PR #54 候选变更）**：仅对白名单内启动 Actor Run 的 `POST`，Relay 才从上游 `402` 的完整合法 JSON（小于 4 KiB）提取并透传已知容量拒绝码 `actor-memory-limit-exceeded`。其他 `402` 仅保留 HTTP 状态并返回 `{}`；不透传上游错误正文或消息。`GET` 的 `402` 不适用此例外，无法确认未启动的付费请求仍不得自动重放。
 
 ### 5.2 边缘代理、Tunnel 与宿主机防护
 

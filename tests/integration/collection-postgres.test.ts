@@ -7,6 +7,7 @@ import { startWorker, workOnce } from "../../src/modules/collection/worker";
 import { KaixContentConnector } from "../../src/connectors/reddit/kaix-content.connector";
 import { BlueskyAppViewContentConnector } from "../../src/connectors/bluesky/bluesky-appview-content.connector";
 import { scheduleDueSourcesOnce } from "../../src/modules/collection/schedule";
+import { authorizeScheduledSourceDispatch } from "../../src/modules/intelligence/index";
 import { webSource } from "../../src/connectors/web/sources";
 import { testDatabase } from "../helpers/database";
 
@@ -694,4 +695,183 @@ test("PG16 paid state resumes after interruption, fences unknown starts, budgets
     }
   });
 
+});
+
+test("PG16 Apify slot accounting, authorized capacity retries, and read-only recovery", async (t) => {
+  const previous = process.env.KAIX_MAX_CONCURRENT_JOBS;
+  process.env.KAIX_MAX_CONCURRENT_JOBS = "2";
+  t.after(() => {
+    if (previous === undefined) delete process.env.KAIX_MAX_CONCURRENT_JOBS;
+    else process.env.KAIX_MAX_CONCURRENT_JOBS = previous;
+  });
+  const db = await testDatabase();
+  t.after(db.close);
+  await bootstrapOwner(db.pool, "fixture-password-123", "owner@example.test");
+  await db.pool.query(`UPDATE source_provider_budget SET enabled=true, daily_requests=40, monthly_requests=40,
+    daily_resources=2000, monthly_resources=2000, minimum_interval_ms=0 WHERE provider IN ('kaix','feed')`);
+
+  const starts: string[] = [];
+  const polls: string[] = [];
+  let startFailure: (() => Response) | undefined;
+  let failReads = false;
+  const receipt = (id: string, status: string) => Response.json({ data: { id, status, defaultDatasetId: "fixtureDataset" } });
+  const kaix = new KaixContentConnector({ networkEnabled: true, apiToken: "synthetic-token" }, async (input, init) => {
+    if (init?.method === "POST") {
+      starts.push(JSON.parse(String(init.body)).keyword);
+      return startFailure?.() ?? receipt(`run${starts.length}`, "RUNNING");
+    }
+    const path = new URL(String(input)).pathname;
+    if (path.startsWith("/v2/actor-runs/")) {
+      const id = path.split("/").at(-1)!;
+      polls.push(id);
+      return receipt(id, "SUCCEEDED");
+    }
+    return failReads ? new Response(null, { status: 502 }) : Response.json([]);
+  });
+  const feedUrl = "https://pool.example.test/rss";
+  let feedChecks = 0;
+  const feed = webSource("feed", { SOURCE_NETWORK_ENABLED: "true", FEED_ALLOWED_URLS: feedUrl }, async () => {
+    feedChecks++;
+    return { status: 200, body: `<rss version="2.0"><channel><title>Pool feed</title>
+      <item><title>Independent feed</title><link>https://pool.example.test/item</link>
+      <pubDate>${new Date(Date.now() - 60_000).toUTCString()}</pubDate></item></channel></rss>` };
+  });
+  const providers = [kaix, feed];
+  const app = await buildApp({ pool: db.pool, sessionSecret: "pool-fixture-".repeat(3), origin, secureCookies: false, providers });
+  t.after(() => app.close());
+  const login = await app.inject({ method: "POST", url: "/v1/auth/login", headers: { origin },
+    payload: { email: "owner@example.test", password: "fixture-password-123" } });
+  assert.equal(login.statusCode, 200, login.body);
+  const headers = { cookie: login.headers["set-cookie"]!.toString().split(";")[0], origin };
+  const createSource = async (label: string, { scheduled = false, isFeed = false } = {}) => {
+    const response = await app.inject({ method: "POST", url: "/v1/sources", headers, payload: {
+      label, deliveryMode: "pull",
+      ...(isFeed ? { platform: "web", primaryProvider: "feed", contentKind: "article", target: { type: "feed", url: feedUrl } }
+        : { platform: "reddit", primaryProvider: "kaix", contentKind: "post", target: { type: "search", query: label } }),
+      ...(scheduled ? { schedule: { enabled: true, cadenceSeconds: 3600, pageSize: 5 } } : {}),
+    } });
+    assert.equal(response.statusCode, 200, response.body);
+    return response.json().source.id as string;
+  };
+  const enqueue = async (sourceId: string) => {
+    const result = await app.inject({ method: "POST", url: `/v1/sources/${sourceId}/collect`,
+      headers: { ...headers, "idempotency-key": randomUUID() }, payload: {
+        from: new Date(Date.now() - 3_600_000).toISOString(), to: new Date().toISOString(), limit: 5,
+      } });
+    assert.equal(result.statusCode, 200, result.body);
+    return result.json().jobId as string;
+  };
+  const job = async (id: string) => (await db.pool.query(`SELECT j.*,cs.automatic_collection_blocked,
+    EXTRACT(EPOCH FROM next_run_at - NOW())::float8 AS wait_seconds
+    FROM source_collection_job j JOIN collection_source cs ON cs.id=j.collection_source_id WHERE j.id=$1`, [id])).rows[0];
+  const wake = (id: string) => db.pool.query("UPDATE source_collection_job SET next_run_at=NOW() WHERE id=$1", [id]);
+  const tick = () => workOnce(db.pool, providers, undefined, undefined, { authorizeScheduledSourceDispatch });
+
+  await t.test("three Kaix jobs and a feed compete; overdue remote runs occupy the shared pool until GET reconciliation", async () => {
+    const kaixIds = [];
+    for (let i = 0; i < 3; i++) kaixIds.push(await enqueue(await createSource(`Slot ${i}`)));
+    const feedId = await enqueue(await createSource("Independent feed", { isFeed: true }));
+    await Promise.all(Array.from({ length: 4 }, tick));
+    assert.equal(starts.length, 2);
+    assert.equal(feedChecks, 1);
+    assert.equal((await job(feedId)).status, "succeeded");
+    const jobs = await Promise.all(kaixIds.map(job));
+    const occupied = jobs.filter((row) => row.provider_run_id);
+    const waiting = jobs.find((row) => !row.provider_run_id);
+    assert.equal(occupied.length, 2);
+    assert.equal(waiting.status, "queued");
+    assert.equal(waiting.request_count, 0);
+    const [expired, peer] = occupied;
+    await db.pool.query(`UPDATE source_collection_job SET status='running',lease_token=$2,
+      lease_until=NOW()-interval '1 second', next_run_at=NOW()+interval '1 day' WHERE id=$1`, [expired.id, randomUUID()]);
+    // An already-paid peer from the other actor consumes a slot in the same account.
+    await db.pool.query("UPDATE source_collection_job SET provider='red_crawler',next_run_at=NOW()+interval '1 day' WHERE id=$1", [peer.id]);
+    assert.equal(await tick(), false);
+    assert.equal(starts.length, 2);
+    await db.pool.query("UPDATE collection_source SET state='paused' WHERE id=$1", [expired.collection_source_id]);
+    await wake(expired.id);
+    assert.equal(await tick(), true);
+    assert.deepEqual(polls, [expired.provider_run_id]);
+    assert.equal((await job(expired.id)).status, "succeeded");
+    assert.equal(starts.length, 2, "paused source only reconciles its existing run");
+    assert.equal(await tick(), true);
+    assert.equal(starts.length, 3);
+    await db.pool.query("UPDATE source_collection_job SET provider='kaix' WHERE id=$1", [peer.id]);
+    for (const id of [peer.id, waiting.id]) {
+      await wake(id);
+      assert.equal(await tick(), true);
+      assert.equal((await job(id)).status, "succeeded");
+    }
+  });
+
+  await t.test("scheduled capacity 402 backs off, charges the monitor once, and stops after six POSTs", async () => {
+    const sourceId = await createSource("Scheduled capacity", { scheduled: true });
+    const monitorId = randomUUID();
+    await db.pool.query(`INSERT INTO intel_monitor(id,owner_user_id,kind,name,next_due_at)
+      SELECT $1,id,'keyword','Capacity fixture',NOW()-interval '1 minute' FROM app_user WHERE email='owner@example.test'`, [monitorId]);
+    await db.pool.query("INSERT INTO intel_monitor_source(monitor_id,collection_source_id) VALUES ($1,$2)", [monitorId, sourceId]);
+    assert.equal((await scheduleDueSourcesOnce(db.pool, [kaix])).enqueuedCount, 1);
+    const { rows: [{ id }] } = await db.pool.query("SELECT id FROM source_collection_job WHERE collection_source_id=$1", [sourceId]);
+    startFailure = () => Response.json({ error: { type: "actor-memory-limit-exceeded" } }, { status: 402 });
+    const before = starts.length;
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      assert.equal(await tick(), true);
+      const row = await job(id);
+      assert.equal(row.request_count, attempt);
+      assert.equal(row.page_request_attempts, attempt);
+      assert.equal(row.automatic_collection_blocked, false);
+      assert.equal(row.status, attempt < 6 ? "retrying" : "failed");
+      if (attempt < 6) {
+        assert.deepEqual(row.provider_state, { monitorAuthorized: true });
+        const base = Math.min(175, 25 * 2 ** (attempt - 1));
+        assert.ok(row.wait_seconds > base - 5 && row.wait_seconds <= base + 5, `unexpected backoff: ${row.wait_seconds}`);
+        await wake(id);
+      }
+    }
+    assert.equal(await tick(), false);
+    assert.equal(starts.length - before, 6);
+    const { rows: [monitor] } = await db.pool.query(`SELECT u.requests,m.next_due_at>NOW() AS advanced
+      FROM intel_monitor m JOIN intel_monitor_usage u ON u.monitor_id=m.id WHERE m.id=$1`, [monitorId]);
+    assert.deepEqual(monitor, { requests: 1, advanced: true });
+  });
+
+  await t.test("ordinary 402 and gateway failures never replay, and a broken 402 opens the source circuit", async () => {
+    for (const [label, expected, response] of [
+      ["Billing 402", "failed", () => Response.json({ error: { type: "monthly-usage-exceeded" } }, { status: 402 })],
+      ["Opaque 402", "unknown", () => Response.json({}, { status: 402 })],
+      ["Gateway 502", "unknown", () => new Response(null, { status: 502 })],
+      ["Broken 402", "unknown", () => new Response(new ReadableStream({ start(controller) { controller.error(Error("fixture")); } }), { status: 402 })],
+    ] as const) {
+      const id = await enqueue(await createSource(label));
+      startFailure = response;
+      const before = starts.length;
+      assert.equal(await tick(), true);
+      const row = await job(id);
+      assert.equal(row.status, "failed");
+      assert.equal(row.provider_state.phase, expected);
+      assert.equal(row.automatic_collection_blocked, expected === "unknown");
+      assert.equal(await tick(), false);
+      assert.equal(starts.length - before, 1);
+    }
+  });
+
+  await t.test("read retries survive state saves and terminate while retaining the paid run ID", async () => {
+    startFailure = undefined;
+    failReads = true;
+    const id = await enqueue(await createSource("Bounded GET retries"));
+    const before = starts.length;
+    assert.equal(await tick(), true);
+    const runId = (await job(id)).provider_run_id;
+    assert.ok(runId);
+    for (let retry = 1; retry <= 13; retry++) {
+      await wake(id);
+      assert.equal(await tick(), true);
+      const row = await job(id);
+      assert.equal(row.status, retry <= 12 ? "retrying" : "failed");
+      assert.deepEqual(row.provider_state, { phase: "reading", runId, datasetId: "fixtureDataset", readRetries: Math.min(retry, 12) });
+      assert.equal(row.provider_run_id, runId);
+    }
+    assert.equal(await tick(), false);
+    assert.equal(starts.length - before, 1);
+  });
 });

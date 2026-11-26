@@ -1,3 +1,5 @@
+import type { ChannelScope } from '../../../../packages/contracts/src/common.js';
+export type { ChannelScope } from '../../../../packages/contracts/src/common.js';
 import type { ResearchCollectionRestriction, UserQuotaOverride as QuotaOverrideDto } from '../../../../packages/contracts/src/collection.js';
 export type { QueryHintsValue, ResearchPlanCollectRequest, ResearchPlanPreviewRequest, ResearchCollectionRestriction, UserQuotaOverride as QuotaOverrideDto } from '../../../../packages/contracts/src/collection.js';
 import type { SourceCapability, SourceTarget } from '../../../../packages/contracts/src/source-content.js';
@@ -75,7 +77,6 @@ export class ApiError extends Error {
 export type PlanTier = 'free' | 'pro';
 export type SourceTier = 'T1' | 'T1_5' | 'T2';
 export type StoryView = 'latest' | 'hot' | 'digest';
-export type ChannelScope = 'info' | 'social' | 'all';
 export type CredentialProviderName = 'apify' | 'twitterapis' | 'scrapebadger';
 
 export type { StoryInsights, StoryInsightsQuery } from '../../../../packages/contracts/src/content-stories.js';

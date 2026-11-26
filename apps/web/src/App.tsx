@@ -173,11 +173,17 @@ export function App() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  const navigate = useCallback((pathWithQuery: string) => {
-    window.history.pushState(null, '', pathWithQuery);
+  const navigate = useCallback((pathWithQuery: string, options?: { replace?: boolean }) => {
+    if (options?.replace) window.history.replaceState(null, '', pathWithQuery);
+    else window.history.pushState(null, '', pathWithQuery);
     setLoc(parseLocation());
-    window.scrollTo({ top: 0, behavior: 'auto' });
+    if (!options?.replace) window.scrollTo({ top: 0, behavior: 'auto' });
   }, []);
+
+  const openContentDetail = useCallback((contentId: string) => {
+    setContentDetailId(contentId);
+    navigate('/content');
+  }, [navigate]);
 
   const openAuth = useCallback(
     (tab: 'login' | 'register' = 'login', reason?: string, pendingTarget?: string) => {
@@ -503,6 +509,7 @@ function isPublicSitePath(pathname: string): boolean {
                   basePath="/app/feed"
                   initialSearchString={loc.search}
                   onNavigate={navigate}
+                  onOpenContentDetail={openContentDetail}
                   onOpenAuth={(tab, reason) => openAuth(tab, reason, currentFullPath)}
                 />
               )}
@@ -575,6 +582,7 @@ function isPublicSitePath(pathname: string): boolean {
                   onSelectProjectId={setSelectedProjectId}
                   initialSearchString={loc.search}
                   onNavigate={navigate}
+                  onOpenContentDetail={openContentDetail}
                   onDrilldown={(projectId, extraQs) => {
                     const sp = new URLSearchParams(extraQs || '');
                     if (projectId) sp.set('projectId', projectId);
@@ -594,10 +602,7 @@ function isPublicSitePath(pathname: string): boolean {
                 <WorkspacePage
                   initialQueryString={loc.search}
                   onRunSavedQuery={(qs) => navigate(`/content${qs ? `?${qs}` : ''}`)}
-                  onOpenContentDetail={(cid) => {
-                    setContentDetailId(cid);
-                    navigate('/content');
-                  }}
+                  onOpenContentDetail={openContentDetail}
                   onNavigate={navigate}
                 />
               )}

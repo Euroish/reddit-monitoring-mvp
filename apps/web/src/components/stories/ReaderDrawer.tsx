@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Bookmark, MessageSquare, X } from 'lucide-react';
 import {
   formatApiError,
@@ -26,16 +26,19 @@ export function ReaderDrawer({
   actor,
   onOpenAuth,
   onSelectRelated,
+  onOpenFullDetail,
   onClose,
 }: {
   preview: ReaderPreview;
   actor: Actor | null;
   onOpenAuth: (tab?: 'login' | 'register', reason?: string) => void;
   onSelectRelated: (item: StoryEvidence) => void;
+  onOpenFullDetail?: (contentId: string) => void;
   onClose: () => void;
 }) {
   const { t } = useI18n();
   const drawerRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
   const detailQuery = useContentDetailQuery(preview.id);
   const annQuery = useAnnotationQuery(actor ? preview.id : null);
   const saveAnnMut = useSaveAnnotationMutation();
@@ -50,21 +53,58 @@ export function ReaderDrawer({
   const note = draft?.key === serverKey ? draft.note : (serverAnn?.note ?? '');
   const revision = revOverride?.key === preview.id ? revOverride.rev : (serverAnn?.revision ?? 0);
 
-  useEffect(() => {
-    const prev = document.activeElement as HTMLElement | null;
-    drawerRef.current?.querySelector<HTMLButtonElement>('button[data-drawer-close]')?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      if (document.querySelector('.auth-overlay')) return;
-      event.preventDefault();
-      onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      prev?.focus();
-    };
+  useLayoutEffect(() => {
+    onCloseRef.current = onClose;
   }, [onClose]);
+
+  useLayoutEffect(() => {
+    const drawer = drawerRef.current;
+    if (!drawer) return;
+    const previousFocus = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    const focusClose = () => drawer.querySelector<HTMLButtonElement>('[data-drawer-close]')?.focus();
+    const authModalOpen = () => document.querySelector('.auth-overlay [aria-modal="true"]') !== null;
+
+    document.body.style.overflow = 'hidden';
+    focusClose();
+
+    const onFocus = (event: FocusEvent) => {
+      if (!authModalOpen() && event.target instanceof Node && !drawer.contains(event.target)) {
+        focusClose();
+      }
+    };
+
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.key !== 'Escape' && event.key !== 'Tab') || authModalOpen()) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onCloseRef.current();
+        return;
+      }
+
+      const stops = Array.from(drawer.querySelectorAll<HTMLElement>(
+        'a[href], button, input, select, textarea, [tabindex]',
+      )).filter((el) => el.tabIndex >= 0 && !el.matches(':disabled') &&
+        el.getClientRects().length > 0 && getComputedStyle(el).visibility === 'visible');
+      const activeIndex = stops.findIndex((el) => el === document.activeElement);
+      const boundaryIndex = event.shiftKey ? 0 : stops.length - 1;
+      if (activeIndex === -1 || activeIndex === boundaryIndex) {
+        event.preventDefault();
+        (stops[event.shiftKey ? stops.length - 1 : 0] ?? drawer).focus();
+      }
+    };
+    document.addEventListener('focusin', onFocus);
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('focusin', onFocus);
+      document.removeEventListener('keydown', onKey, true);
+      document.body.style.overflow = previousOverflow;
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+        previousFocus.focus({ preventScroll: true });
+      }
+    };
+  }, []);
 
   const full: PublicContent | undefined = detailQuery.data?.content;
   const title = decodeHtmlEntities(
@@ -119,7 +159,8 @@ export function ReaderDrawer({
         className="drawer-panel"
         role="dialog"
         aria-modal="true"
-        aria-label="内容阅读详情"
+        aria-label={t('Content reader', '内容阅读详情')}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="dw-hd">
@@ -169,6 +210,20 @@ export function ReaderDrawer({
               {formatExactTime(publishedAt)} · {formatRelativeTime(publishedAt)}
             </time>
           </div>
+          {onOpenFullDetail && (
+            <button
+              type="button"
+              className="ds-btn ds-btn--ghost"
+              style={{ marginTop: 10 }}
+              onClick={() => {
+                onClose();
+                onOpenFullDetail(preview.id);
+              }}
+            >
+              <MessageSquare size={13} aria-hidden="true" />
+              <span>{t('Full Detail & Thread', '完整详情与讨论树')}</span>
+            </button>
+          )}
         </header>
 
         <div className="dw-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

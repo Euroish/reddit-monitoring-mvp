@@ -6,8 +6,8 @@ interface FeedContinuationProps {
   isFetchingNextPage: boolean;
   fetchNextError: string | null;
   visibleCount: number;
-  selectedGroup: string;
-  channelScope?: 'info' | 'social';
+  channelScope: 'info' | 'social';
+  fullFeedPath: string;
   onLoadMore: () => void;
   onNavigate: (path: string) => void;
 }
@@ -17,18 +17,15 @@ export function FeedContinuation({
   isFetchingNextPage,
   fetchNextError,
   visibleCount,
-  selectedGroup,
-  channelScope = 'info',
+  channelScope,
+  fullFeedPath,
   onLoadMore,
   onNavigate,
 }: FeedContinuationProps) {
   const { t } = useI18n();
-  const fullFeedPath =
-    channelScope === 'social'
-      ? '/app/feed?scope=social&view=stream'
-      : selectedGroup
-        ? `/app/feed?scope=info&sourceGroup=${encodeURIComponent(selectedGroup)}`
-        : '/app/feed?scope=info';
+  const fullFeedLabel = channelScope === 'social'
+    ? t('Open Social Curated Feed & Filters', '打开社媒精选流与筛选')
+    : t('Open full feed & filters', '打开完整信息流与筛选');
 
   return (
     <div className="sh-continuation">
@@ -71,7 +68,7 @@ export function FeedContinuation({
             onClick={() => onNavigate(fullFeedPath)}
           >
             <BookOpen size={13} aria-hidden="true" />
-            <span>{t('Open full feed & filters', '打开完整信息流与筛选')}</span>
+            <span>{fullFeedLabel}</span>
             <ArrowRight size={12} aria-hidden="true" />
           </button>
         </div>
@@ -90,7 +87,7 @@ export function FeedContinuation({
               onClick={() => onNavigate(fullFeedPath)}
             >
               <BookOpen size={13} aria-hidden="true" />
-              <span>{t('Full Feed (/app/feed)', '进入完整信息流')}</span>
+              <span>{fullFeedLabel}</span>
             </button>
             <button
               type="button"

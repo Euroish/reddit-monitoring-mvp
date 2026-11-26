@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildApp } from "../../apps/api/src/app";
+import type { StoryFeed, StoryInsights } from "../../packages/contracts/src/content-stories";
+import type { CollectedContent } from "../../src/connectors/shared/content-provider.interface";
 import { webSource } from "../../src/connectors/web/sources";
 import { bootstrapOwner } from "../../src/modules/access/sql";
 import { scheduleDueSourcesOnce } from "../../src/modules/collection/schedule";
@@ -383,6 +385,73 @@ test("stories support pagination, diversity mixing, 7d latest window, social-tre
   assert.deepEqual(titlesOf(byTrendsSource), ["Viral celebrity gossip headline"]);
 });
 
+
+test("PG16 stories and insights isolate info/social and preserve the legacy mixed window", async t => {
+  const db = await testDatabase();
+  t.after(db.close);
+  const app = await buildApp({
+    pool: db.pool, origin: "http://stories.test", publicRead: true, sessionSecret: "stories-scope-secret".repeat(3),
+  });
+  t.after(() => app.close());
+  const now = Date.now();
+  t.mock.method(Date, "now", () => now); // Keep all requests in one story cache slot.
+  const fetchedAt = new Date(now - 60_000).toISOString();
+  const publishedAt = new Date(now - 3_600_000).toISOString();
+  const fixtures = [
+    { platform: "web", provider: "feed", kind: "article", group: "science", title: "Glacier sediment survey", url: "https://science.example/glacier", externalId: "https://science.example/glacier",
+      details: { platform: "web", publisher: "science.example", canonicalUrl: "https://science.example/glacier", feedUrl: null } },
+    { platform: "reddit", provider: "kaix", kind: "post", group: "astronomy", title: "Telescope mirror calibration", url: "https://www.reddit.com/r/astronomy/comments/abc123/", externalId: "t3_abc123",
+      details: { platform: "reddit", community: "astronomy", flair: null, nsfw: false } },
+    { platform: "x", provider: "twitterapis", kind: "post", group: "social-trends", title: "Coastal flood warning", url: "https://x.com/i/status/123456789", externalId: "123456789",
+      details: { platform: "x", conversationId: "123456789", isReply: false, isRepost: false, isQuote: false, sensitive: false } },
+  ] as const satisfies ReadonlyArray<{
+    platform: CollectedContent["platform"]; provider: CollectedContent["observation"]["provider"];
+    kind: CollectedContent["kind"]; group: string; title: string; url: string; externalId: string; details: CollectedContent["platformDetails"];
+  }>;
+  await transaction(db.pool, async client => {
+    for (const { platform, provider, kind, group, title, url, externalId, details } of fixtures) {
+      const { rows: [source] } = await client.query<{ id: string; platform_id: string }>(
+        `INSERT INTO collection_source(id,platform_id,primary_provider,label,target,content_kind,delivery_mode,source_group,created_at,updated_at)
+         SELECT gen_random_uuid(),id,$2,$3,jsonb_build_object('type','search','query',$3::text),$4,'pull',$5,$6,$6 FROM source WHERE code=$1
+         RETURNING id,platform_id`, [platform, provider, title, kind, group, fetchedAt],
+      );
+      const item = batchItem(source.id, {
+        platform, kind, externalId, title, text: title, url, publishedAt, fetchedAt, platformDetails: details,
+      });
+      item.observation = { ...item.observation, provider, fetchedAt, sourceObservedAt: null, metrics: {} };
+      await commitContentBatch(client,
+        { id: source.id, platformId: source.platform_id, platform, provider, contentKinds: [kind] },
+        prepareContentBatch([item]), fetchedAt);
+    }
+  });
+
+  const assertStories = async (query: string, platforms: string[]) => {
+    const res = await app.inject({ url: `/v1/content/stories${query}` });
+    assert.equal(res.statusCode, 200, res.body);
+    const body = res.json<StoryFeed>();
+    assert.equal(body.totalCount, platforms.length);
+    assert.deepEqual(body.items.flatMap(item => [item.representative, ...item.related]).map(item => item.platform).sort(), platforms);
+  };
+  const assertInsights = async (query: string, groups: string[]) => {
+    const res = await app.inject({ url: `/v1/content/stories/insights${query}` });
+    assert.equal(res.statusCode, 200, res.body);
+    const body = res.json<StoryInsights>();
+    assert.equal(body.sample.analyzedCount, groups.length);
+    assert.deepEqual(body.composition.byChannel.map(channel => channel.key).sort(), groups);
+  };
+  for (const query of ["", "?channelScope=all"]) {
+    await assertStories(query, ["reddit", "web"]);
+    await assertInsights(query, ["astronomy", "science"]);
+  }
+  for (let i = 0; i < 2; i++) {
+    await assertStories("?channelScope=info", ["web"]);
+    await assertInsights("?channelScope=social", ["astronomy", "social-trends"]);
+    await assertStories("?channelScope=social", ["reddit", "x"]);
+    await assertInsights("?channelScope=info", ["science"]);
+  }
+  await assertStories("?channelScope=social&includeTrends=false", ["reddit"]);
+  await assertInsights("?channelScope=social&includeTrends=false", ["astronomy"]);
+});
 
 test("story ranking rejects an oversized discovery window before grouping", async () => {
   const actor = { allowedSourceIds: null } as Parameters<typeof readStoryWindow>[1];

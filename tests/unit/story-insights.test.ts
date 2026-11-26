@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Pool } from "pg";
 import { buildApp } from "../../apps/api/src/app";
-import type { StoryFeed } from "../../packages/contracts/src/content-stories";
+import type { StoryFeed, StoryInsights } from "../../packages/contracts/src/content-stories";
 import { computeStoryInsights } from "../../src/modules/content/story-insights";
 import { readStoryWindow, selectStoryFeed, type StoryInsightMeta } from "../../src/modules/content/stories";
 import { evaluateChannelInsights } from "../../apps/web/src/components/stories/insightsPolicy";
@@ -230,9 +230,11 @@ test("Channel Insights performance: 600-story synthetic window completes well un
   assert.ok(elapsedMs < 1500, `Expected < 1500ms, got ${elapsedMs.toFixed(1)}ms`);
 });
 
-test("Channel Insights HTTP route enforces public_read visibility & preserves base insights during story drilldown", async () => {
-  let capturedSql: string[] = [];
-  const baseTime = new Date(Date.now() - 2 * 3_600_000);
+test("Channel Insights HTTP routes enforce visibility, preserve base insights and isolate channel scopes", async (t) => {
+  const storyWhereClauses: string[] = [];
+  const now = Date.now();
+  t.mock.method(Date, "now", () => now);
+  const baseTime = new Date(now - 2 * 3_600_000);
   const sampleRows = Array.from({ length: 8 }, (_, idx) => ({
     id: `00000000-0000-0000-0000-00000000010${idx}`,
     platform: "web",
@@ -254,14 +256,26 @@ test("Channel Insights HTTP route enforces public_read visibility & preserves ba
     event_at: new Date(baseTime.getTime() - idx * 300_000),
   }));
 
+  sampleRows.push(
+    { ...sampleRows[0], id: "00000000-0000-0000-0000-000000000108", platform: "reddit", title: "Telescope mirror calibration", url: "https://www.reddit.com/r/astronomy/comments/123/", source_id: "11111111-1111-1111-1111-111111111102", source_group: "astronomy" },
+    { ...sampleRows[0], id: "00000000-0000-0000-0000-000000000109", platform: "x", title: "Coastal flood warning", url: "https://x.com/i/status/456", source_id: "11111111-1111-1111-1111-111111111103", source_group: "social-trends" },
+  );
+  const infoPredicate = "AND p.code='web'";
+  const socialPredicate = "AND p.code=ANY(ARRAY['reddit','x','bluesky']::text[])";
+  const excludeTrendsPredicate = "AND COALESCE(cs.source_group, '') <> 'social-trends'";
   const pool = {
     async query(sql: string) {
       const normalized = sql.replace(/\s+/g, " ").trim();
-      capturedSql.push(normalized);
-      if (normalized.includes("FROM candidates k") && normalized.includes("JOIN collection_source cs")) {
-        return { rows: sampleRows, rowCount: sampleRows.length };
-      }
-      return { rows: [], rowCount: 0 };
+      // Start at the discovery join to avoid matching the SELECT CASE or CTE predicates.
+      const where = normalized.match(/JOIN collection_source cs ON cs.id=d.collection_source_id WHERE (.*?) ORDER BY event_at/)?.[1];
+      if (!where) return { rows: [], rowCount: 0 };
+      storyWhereClauses.push(where);
+      const rows = sampleRows.filter(row =>
+        (!where.includes(infoPredicate) || row.platform === "web") &&
+        (!where.includes(socialPredicate) || ["reddit", "x", "bluesky"].includes(row.platform)) &&
+        (!where.includes(excludeTrendsPredicate) || row.source_group !== "social-trends"),
+      );
+      return { rows, rowCount: rows.length };
     },
     async connect() {
       return {
@@ -279,17 +293,16 @@ test("Channel Insights HTTP route enforces public_read visibility & preserves ba
   });
 
   try {
-    capturedSql = [];
     const insightsRes = await app.inject({
       method: "GET",
       url: "/v1/content/stories/insights?view=latest&lang=zh",
     });
     assert.equal(insightsRes.statusCode, 200);
     const body = insightsRes.json();
-    assert.equal(body.sample.analyzedCount, 8);
+    assert.equal(body.sample.analyzedCount, 9);
     assert.equal(body.sample.coverage, "stored_sample");
     assert.ok(
-      capturedSql.some((s) => s.includes("FROM candidates k") && (s.includes("owner_entity_id") || s.includes("usage_domain"))),
+      storyWhereClauses.some((where) => where.includes("cbi.content_id=d.content_id") && where.includes("cb.visibility='private'")),
       "Public route strictly enforces contentVisibility scope filter",
     );
 
@@ -306,30 +319,47 @@ test("Channel Insights HTTP route enforces public_read visibility & preserves ba
       method: "GET",
       url: "/v1/content/stories/insights?view=latest&lang=zh",
     });
-    assert.equal(insightsAfter.json().sample.analyzedCount, 8);
+    assert.equal(insightsAfter.json().sample.analyzedCount, 9);
 
-    // channelScope=info & channelScope=social enforce SQL platform partitioning without colliding in cache
-    capturedSql = [];
-    const infoRes = await app.inject({
-      method: "GET",
-      url: "/v1/content/stories?view=latest&channelScope=info",
-    });
-    assert.equal(infoRes.statusCode, 200);
-    assert.ok(
-      capturedSql.some((s) => s.includes("p.code='web'")),
-      "channelScope=info must restrict story SQL to web platform",
-    );
+    const readFeed = async (query: string) => {
+      const res = await app.inject({ url: `/v1/content/stories?${query}` });
+      assert.equal(res.statusCode, 200, res.body);
+      return res.json<StoryFeed>();
+    };
+    const readInsights = async (query: string) => {
+      const res = await app.inject({ url: `/v1/content/stories/insights?${query}` });
+      assert.equal(res.statusCode, 200, res.body);
+      return res.json<StoryInsights>();
+    };
+    const platforms = (feed: StoryFeed) => feed.items.map(item => item.representative.platform).sort();
+    const channels = (insights: StoryInsights) => insights.composition.byChannel.map(channel => channel.key).sort();
 
-    capturedSql = [];
-    const socialRes = await app.inject({
-      method: "GET",
-      url: "/v1/content/stories?view=latest&channelScope=social",
-    });
-    assert.equal(socialRes.statusCode, 200);
-    assert.ok(
-      capturedSql.some((s) => s.includes("ARRAY['reddit','x','bluesky']::text[]")),
-      "channelScope=social must restrict story SQL to social platforms",
-    );
+    const info = await readInsights("channelScope=info");
+    assert.ok(storyWhereClauses.at(-1)?.includes(infoPredicate), "info must filter in WHERE");
+    assert.equal(info.sample.analyzedCount, 8);
+    assert.deepEqual(channels(info), ["ai-firsthand", "dev-infra"]);
+
+    const social = await readFeed("channelScope=social");
+    assert.ok(storyWhereClauses.at(-1)?.includes(socialPredicate), "social must filter in WHERE");
+    assert.ok(!storyWhereClauses.at(-1)?.includes(excludeTrendsPredicate));
+    assert.deepEqual(platforms(social), ["reddit", "x"]);
+    assert.deepEqual(platforms(await readFeed("channelScope=info")), Array(8).fill("web"));
+    const socialInsights = await readInsights("channelScope=social");
+    assert.equal(socialInsights.sample.analyzedCount, 2);
+    assert.deepEqual(channels(socialInsights), ["astronomy", "social-trends"]);
+    assert.deepEqual(await readInsights("channelScope=info"), info);
+
+    const uncached = await readStoryWindow(pool, { allowedSourceIds: null } as Parameters<typeof readStoryWindow>[1], {
+      channelScope: "social", includeTrends: false,
+    }, now);
+    assert.ok(storyWhereClauses.at(-1)?.includes(excludeTrendsPredicate));
+    assert.deepEqual(uncached.latest.map(item => item.representative.platform), ["reddit"]);
+
+    // The default social window is already warm; false must not reuse it.
+    const withoutTrends = await readFeed("channelScope=social&includeTrends=false");
+    assert.deepEqual(platforms(withoutTrends), ["reddit"], "Explicit false must not reuse the default social cache entry");
+    assert.deepEqual(channels(await readInsights("channelScope=social&includeTrends=false")), ["astronomy"]);
+    assert.deepEqual(await readFeed("channelScope=social"), social);
   } finally {
     await app.close();
   }
