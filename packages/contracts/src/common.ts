@@ -27,6 +27,13 @@ export const Platform = Type.Union([
   Type.Literal("web"),
 ]);
 
+export const ChannelScope = Type.Union([
+  Type.Literal("info"),
+  Type.Literal("social"),
+  Type.Literal("all"),
+]);
+export type ChannelScope = Static<typeof ChannelScope>;
+
 export const Kind = Type.Union([
   Type.Literal("post"),
   Type.Literal("comment"),

@@ -25,8 +25,8 @@ export function DailyBriefPreview({
   const items = feed?.items ?? [];
   const badge = formatDigestWindowBadge(feed, lang);
   const archiveTarget = badge?.dateIso
-    ? `/app/feed?view=digest&date=${encodeURIComponent(badge.dateIso)}`
-    : '/app/feed?view=digest';
+    ? `/app/feed?scope=info&view=digest&date=${encodeURIComponent(badge.dateIso)}`
+    : '/app/feed?scope=info&view=digest';
 
   return (
     <section className="sh-feature-card sh-feature-card--brief" aria-labelledby="sh-brief-heading">

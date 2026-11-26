@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { randomUUID } from "node:crypto";
+import { ContentProviderError } from "../../src/connectors/shared/content-provider.interface";
 import { KaixContentConnector } from "../../src/connectors/reddit/kaix-content.connector";
 import { resolveKaixConfig } from "../../src/connectors/reddit/kaix.config";
+import { classifyJobFailure, providerMaxConcurrentRuns } from "../../src/modules/collection/worker";
 import type {
   CollectionSource,
   JsonValue,
@@ -393,4 +395,115 @@ test("ambiguous paid failures never retry and invalid bounds or missing durable 
     () => resolveKaixConfig({ APIFY_API_TOKEN: "bad\nsecret" }),
     /header/,
   );
+});
+
+test("kaix classifies 402 actor-memory-limit-exceeded as retryable capacity start rejection and preserves INV-003 for 502/other 402", async () => {
+  const mkResponse = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+  const capConnector = new KaixContentConnector(
+    { networkEnabled: true, apiToken: "fixture-token" },
+    async () =>
+      mkResponse(402, {
+        error: { type: "actor-memory-limit-exceeded", message: "Exceeds concurrent memory limit of 8192 MB." },
+      }),
+  );
+
+  let capError: unknown;
+  await assert.rejects(
+    capConnector.collectPage({
+      source: sourceFixture(),
+      from: "2026-11-14T00:00:00Z",
+      to: now,
+      limit: 25,
+      checkpoint: null,
+      execution: { state: { phase: "starting" }, saveState: async () => undefined },
+    }),
+    (err) => {
+      capError = err;
+      return true;
+    },
+  );
+  assert.ok(capError instanceof ContentProviderError);
+  assert.equal(capError.retryable, true);
+  assert.equal(capError.httpStatus, 402);
+  assert.match(capError.message, /actor-memory-limit-exceeded/);
+
+  const mockSource = { state: "active", primary_provider: "kaix", platform: "reddit", schedule: { enabled: false } };
+  const capPlan = classifyJobFailure(
+    [capConnector],
+    { provider: "kaix", purpose: "collect", pages_committed: 0, page_request_attempts: 1 },
+    mockSource,
+    capConnector,
+    "starting",
+    false,
+    capError,
+  );
+  assert.equal(capPlan.retryStart, true);
+  assert.equal(capPlan.unknown, false);
+
+  const exhaustedPlan = classifyJobFailure(
+    [capConnector],
+    { provider: "kaix", purpose: "collect", pages_committed: 0, page_request_attempts: 6 },
+    mockSource,
+    capConnector,
+    "starting",
+    false,
+    capError,
+  );
+  assert.equal(exhaustedPlan.retryStart, false);
+  assert.equal(exhaustedPlan.unknown, false);
+
+  const billingConnector = new KaixContentConnector(
+    { networkEnabled: true, apiToken: "fixture-token" },
+    async () => mkResponse(402, { error: { type: "monthly-usage-exceeded", message: "Monthly spend limit reached" } }),
+  );
+  await assert.rejects(
+    billingConnector.collectPage({
+      source: sourceFixture(),
+      from: "2026-11-14T00:00:00Z",
+      to: now,
+      limit: 25,
+      checkpoint: null,
+      execution: { state: { phase: "starting" }, saveState: async () => undefined },
+    }),
+    (err: unknown) =>
+      err instanceof ContentProviderError &&
+      err.retryable === false &&
+      err.httpStatus === 402 &&
+      /monthly-usage-exceeded/.test(err.message),
+  );
+
+  const gatewayConnector = new KaixContentConnector(
+    { networkEnabled: true, apiToken: "fixture-token" },
+    async () => new Response("bad gateway", { status: 502 }),
+  );
+  let gwError: unknown;
+  await assert.rejects(
+    gatewayConnector.collectPage({
+      source: sourceFixture(),
+      from: "2026-11-14T00:00:00Z",
+      to: now,
+      limit: 25,
+      checkpoint: null,
+      execution: { state: { phase: "starting" }, saveState: async () => undefined },
+    }),
+    (err) => {
+      gwError = err;
+      return true;
+    },
+  );
+  const gwPlan = classifyJobFailure(
+    [gatewayConnector],
+    { provider: "kaix", purpose: "collect", pages_committed: 0, page_request_attempts: 1 },
+    mockSource,
+    gatewayConnector,
+    "starting",
+    false,
+    gwError,
+  );
+  assert.equal(gwPlan.retryStart, false);
+  assert.equal(gwPlan.unknown, true);
+  assert.equal(providerMaxConcurrentRuns("kaix"), 2);
+  assert.equal(providerMaxConcurrentRuns("feed"), null);
 });

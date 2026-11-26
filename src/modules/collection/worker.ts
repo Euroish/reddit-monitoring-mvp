@@ -22,6 +22,11 @@ const cleanupIntervalMs = 3600_000;
 const jobLeaseSeconds = 180; // Allow the supported 120s provider timeout plus local work.
 const maxIdleWaitMs = 15_000;
 
+export function providerMaxConcurrentRuns(provider: string): number | null {
+  if (provider !== "kaix" && provider !== "red_crawler") return null;
+  return Math.min(6, Math.max(1, Number(process.env.KAIX_MAX_CONCURRENT_JOBS ?? 2) || 2));
+}
+
 function pruneCooldownHosts(hostCooldown?: Map<string, number>) {
   const cooledHosts: string[] = [];
   if (!hostCooldown) return cooledHosts;
@@ -34,12 +39,13 @@ function pruneCooldownHosts(hostCooldown?: Map<string, number>) {
 }
 
 async function claimNextJob(pool: Pool, cooledHosts: string[], hostCooldown?: Map<string, number>) {
+  const kaixMaxConcurrent = providerMaxConcurrentRuns("kaix") ?? 6;
   return transaction(pool, async (client) => {
     const candidate = (
       await client.query(
         `SELECT cs.id,head.id AS job_id FROM collection_source cs
         JOIN (
-          SELECT DISTINCT ON (j.collection_source_id) j.collection_source_id,j.id,j.status,j.next_run_at,j.lease_until
+          SELECT DISTINCT ON (j.collection_source_id) j.collection_source_id,j.id,j.status,j.provider,j.provider_state,j.next_run_at,j.lease_until
           FROM source_collection_job j WHERE j.status IN ('queued','retrying','running')
           ORDER BY j.collection_source_id,
             (j.status='running' OR COALESCE(j.provider_state->>'phase' IN ('starting','running','reading'),FALSE)) DESC,j.created_at,j.id
@@ -52,8 +58,21 @@ async function claimNextJob(pool: Pool, cooledHosts: string[], hostCooldown?: Ma
               WHERE j.provider='feed' AND j.status='running' AND j.lease_until>now() AND peer.id<>cs.id
                 AND split_part(peer.target->>'url','/',3)=split_part(cs.target->>'url','/',3))
           ))
+          AND (
+            head.provider NOT IN ('kaix','red_crawler')
+            OR COALESCE(head.provider_state->>'phase','') IN ('running','reading')
+            OR (
+              SELECT COUNT(*)
+              FROM source_collection_job act
+              WHERE act.provider=head.provider
+                AND (
+                  (act.status='running' AND act.lease_until>NOW())
+                  OR (act.status IN ('queued','retrying') AND COALESCE(act.provider_state->>'phase','') IN ('running','reading'))
+                )
+            ) < $2
+          )
         ORDER BY head.next_run_at,cs.id FOR UPDATE OF cs SKIP LOCKED LIMIT 1`,
-        [cooledHosts],
+        [cooledHosts, kaixMaxConcurrent],
       )
     ).rows[0];
     if (!candidate) return null;
@@ -144,6 +163,31 @@ async function admitJobDispatch(
     const socialProvider = budgetedSocialProviders.includes(job.provider);
     if (socialProvider) await lockSocialDispatchBudget(client);
     await client.query("SELECT 1 FROM source_provider_budget WHERE provider=$1 FOR UPDATE", [job.provider]);
+    const maxConcurrent = providerMaxConcurrentRuns(job.provider);
+    if (maxConcurrent !== null && !job.provider_state?.runId) {
+      const { rows: [{ active_count }] } = await client.query<{ active_count: number }>(
+        `SELECT COUNT(*)::int AS active_count
+         FROM source_collection_job
+         WHERE provider = $1 AND id <> $2
+           AND (
+             (status = 'running' AND lease_until > NOW())
+             OR (status IN ('queued', 'retrying') AND COALESCE(provider_state->>'phase', '') IN ('running', 'reading'))
+           )`,
+        [job.provider, job.id],
+      );
+      if (active_count >= maxConcurrent) {
+        await client.query(
+          `UPDATE source_collection_job
+           SET status='queued', next_run_at=NOW() + interval '15 seconds',
+               lease_token=NULL, lease_until=NULL,
+               attempts=GREATEST(0, attempts-1),
+               error='Waiting for provider concurrency slot'
+           WHERE id=$1 AND lease_token=$2`,
+          [job.id, token],
+        );
+        return false;
+      }
+    }
     if (job.request_json.autoMonitorId) {
       if (await cancelHydrationOutsideBudget(client, job.id, token, resources)) return false;
     } else if (socialProvider && await deferSocialCollectionOutsideBudget(client, job.id, token, resources)) {
@@ -380,7 +424,7 @@ function findFallbackProvider(
   );
 }
 
-function classifyJobFailure(
+export function classifyJobFailure(
   providers: ContentProvider[],
   job: QueryResultRow,
   failedSource: QueryResultRow,
@@ -392,7 +436,15 @@ function classifyJobFailure(
   const httpStatus = error instanceof ContentProviderError ? error.httpStatus : undefined;
   const hasRun = (phase === "running" || phase === "reading") && hasRunId;
   const transient = isTransientCollectionError(error);
-  const retryStart = provider?.capability.automaticRequestReplay !== false && transient && job.page_request_attempts < 3;
+  const retryRejectedCapacity =
+    phase === "starting" &&
+    !hasRunId &&
+    httpStatus === 402 &&
+    transient &&
+    job.page_request_attempts < 6;
+  const retryStart =
+    (provider?.capability.automaticRequestReplay !== false && transient && job.page_request_attempts < 3) ||
+    retryRejectedCapacity;
   const retryRead = hasRun && (transient || httpStatus === 429 || (httpStatus ?? 0) >= 500);
   const rejected = httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500 && httpStatus !== 408;
   const uncharged = rejected || (job.provider === "scrapebadger" && (httpStatus ?? 0) >= 500);
@@ -520,7 +572,8 @@ async function fetchProviderPage(
 function assertProviderReadyForJob(job: QueryResultRow, provider: ContentProvider | undefined): asserts provider is ContentProvider {
   if (!provider?.capability.enabled) fail(422, "Provider is disabled");
   const phase = job.provider_state.phase;
-  if (job.page_request_attempts >= 3 && phase !== "running" && phase !== "reading") {
+  const maxAttempts = providerMaxConcurrentRuns(provider.capability.provider) !== null ? 6 : 3;
+  if (job.page_request_attempts >= maxAttempts && phase !== "running" && phase !== "reading") {
     fail(409, "Page request attempt limit reached");
   }
   if (phase === "unknown" || (phase === "starting" && !job.provider_state.runId && provider.capability.automaticRequestReplay === false)) {

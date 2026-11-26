@@ -874,6 +874,7 @@ export const apiClient = {
     mode?: FeedMode;
     topic?: string;
     platform?: Platform;
+    channelScope?: import('../contracts/api').ChannelScope;
     language?: string;
     includeNews?: boolean;
     limit?: number;
@@ -883,6 +884,7 @@ export const apiClient = {
     if (params.mode) qs.set('mode', params.mode);
     if (params.topic) qs.set('topic', params.topic);
     if (params.platform) qs.set('platform', params.platform);
+    if (params.channelScope) qs.set('channelScope', params.channelScope);
     if (params.language) qs.set('language', params.language);
     if (params.includeNews !== undefined) qs.set('includeNews', String(params.includeNews));
     if (params.limit) qs.set('limit', String(params.limit));
@@ -894,6 +896,7 @@ export const apiClient = {
   async getFeedHot(params: {
     window?: '6h' | '24h' | '48h' | '7d';
     platform?: Platform;
+    channelScope?: import('../contracts/api').ChannelScope;
     topic?: string;
     limit?: number;
     offset?: number;
@@ -901,6 +904,7 @@ export const apiClient = {
     const qs = new URLSearchParams();
     if (params.window) qs.set('window', params.window);
     if (params.platform) qs.set('platform', params.platform);
+    if (params.channelScope) qs.set('channelScope', params.channelScope);
     if (params.topic) qs.set('topic', params.topic);
     if (params.limit) qs.set('limit', String(params.limit));
     if (params.offset !== undefined) qs.set('offset', String(params.offset));

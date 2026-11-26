@@ -67,7 +67,11 @@ export function ReaderDrawer({
   }, [onClose]);
 
   const full: PublicContent | undefined = detailQuery.data?.content;
-  const title = decodeHtmlEntities(full?.title || preview.title || '无标题内容');
+  const title = decodeHtmlEntities(
+    full?.title ||
+      preview.title ||
+      (detailQuery.isPending ? t('Loading article...', '正在加载内容…') : t('Untitled content', '无标题内容')),
+  );
   const sourceUrl = safeHttpUrl(full?.url ?? preview.url);
   const publishedAt = full?.publishedAt ?? preview.publishedAt ?? preview.discoveredAt ?? null;
   const author = full?.author?.displayName ?? full?.author?.handle ?? preview.author ?? null;

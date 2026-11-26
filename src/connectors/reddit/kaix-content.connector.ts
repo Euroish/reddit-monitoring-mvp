@@ -276,6 +276,7 @@ export class KaixContentConnector implements ContentProvider {
             { method: "POST", body: JSON.stringify(input) },
             request.signal,
             65_000,
+            true,
           ),
         )?.data,
       );
@@ -468,6 +469,7 @@ export class KaixContentConnector implements ContentProvider {
     init: RequestInit,
     parent?: AbortSignal,
     timeoutMs = 20_000,
+    isRunStart = false,
   ): Promise<unknown> {
     const signal = parent
       ? AbortSignal.any([parent, AbortSignal.timeout(timeoutMs)])
@@ -484,6 +486,35 @@ export class KaixContentConnector implements ContentProvider {
         },
       });
       if (!response.ok) {
+        if (response.status === 402) {
+          const rawErr = (await response.text().catch(() => "")).slice(0, 4096);
+          let errType = "";
+          let errMsg = "";
+          try {
+            const parsed = JSON.parse(rawErr) as { error?: { type?: unknown; message?: unknown } };
+            if (typeof parsed?.error?.type === "string") errType = parsed.error.type.trim();
+            if (typeof parsed?.error?.message === "string") {
+              errMsg = parsed.error.message.replace(/\s+/g, " ").trim().slice(0, 160);
+            }
+          } catch {
+            // Non-JSON 402 response
+          }
+          if (isRunStart && errType === "actor-memory-limit-exceeded") {
+            throw new ContentProviderError(
+              "Apify concurrent memory limit reached (actor-memory-limit-exceeded); queued for retry",
+              true,
+              25,
+              402,
+            );
+          }
+          const detail = errType ? ` (${errType}${errMsg ? `: ${errMsg}` : ""})` : "";
+          throw new ContentProviderError(
+            `Apify HTTP 402${detail}; check console before Retry (paid run may exist)`,
+            false,
+            30,
+            402,
+          );
+        }
         await response.body?.cancel();
         throw new ContentProviderError(
           `Apify HTTP ${response.status}; check console before Retry (paid run may exist)`,

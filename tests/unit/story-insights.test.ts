@@ -307,6 +307,29 @@ test("Channel Insights HTTP route enforces public_read visibility & preserves ba
       url: "/v1/content/stories/insights?view=latest&lang=zh",
     });
     assert.equal(insightsAfter.json().sample.analyzedCount, 8);
+
+    // channelScope=info & channelScope=social enforce SQL platform partitioning without colliding in cache
+    capturedSql = [];
+    const infoRes = await app.inject({
+      method: "GET",
+      url: "/v1/content/stories?view=latest&channelScope=info",
+    });
+    assert.equal(infoRes.statusCode, 200);
+    assert.ok(
+      capturedSql.some((s) => s.includes("p.code='web'")),
+      "channelScope=info must restrict story SQL to web platform",
+    );
+
+    capturedSql = [];
+    const socialRes = await app.inject({
+      method: "GET",
+      url: "/v1/content/stories?view=latest&channelScope=social",
+    });
+    assert.equal(socialRes.statusCode, 200);
+    assert.ok(
+      capturedSql.some((s) => s.includes("ARRAY['reddit','x','bluesky']::text[]")),
+      "channelScope=social must restrict story SQL to social platforms",
+    );
   } finally {
     await app.close();
   }

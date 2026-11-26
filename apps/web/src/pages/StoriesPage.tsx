@@ -86,7 +86,6 @@ export function StoriesPage({
   basePath = '/app/feed',
   onNavigate,
   onOpenAuth,
-  onOpenContentDetail,
 }: {
   actor: Actor | null;
   initialSearchString?: string;
@@ -103,9 +102,17 @@ export function StoriesPage({
   const v2Mode: 'stream' | 'hot-v2' | null =
     rawView === 'stream' || rawView === 'hot-v2' ? rawView : null;
   const view: StoryView = rawView === 'hot' || rawView === 'digest' ? rawView : 'latest';
-  const date = view === 'digest' ? sp.get('date') : null;
-  const sourceGroup = sp.get('sourceGroup') ?? '';
-  const tier = (sp.get('tier') as SourceTier | '') ?? '';
+  const rawScope = sp.get('scope');
+  const scope: 'info' | 'social' =
+    rawScope === 'social' || rawScope === 'info' ? rawScope : v2Mode !== null ? 'social' : 'info';
+  const rawPlatform = sp.get('platform');
+  const socialPlatform: '' | 'reddit' | 'x' | 'bluesky' =
+    scope === 'social' && (rawPlatform === 'reddit' || rawPlatform === 'x' || rawPlatform === 'bluesky')
+      ? rawPlatform
+      : '';
+  const date = scope === 'info' && view === 'digest' ? sp.get('date') : null;
+  const sourceGroup = scope === 'info' ? sp.get('sourceGroup') ?? '' : '';
+  const tier = scope === 'info' ? ((sp.get('tier') as SourceTier | '') ?? '') : '';
   const language = sp.get('language') ?? '';
   const sourceId = sp.get('sourceId') ?? '';
 
@@ -148,10 +155,24 @@ export function StoriesPage({
     () => publicSourcesQuery.data?.sources ?? [],
     [publicSourcesQuery.data?.sources],
   );
-  const groupCounts = useMemo(
-    () => publicSourcesQuery.data?.groupCounts ?? {},
-    [publicSourcesQuery.data?.groupCounts],
-  );
+  const infoGroupCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const s of publicSources) {
+      if (s.platform === 'web' && s.sourceGroup) {
+        counts[s.sourceGroup] = (counts[s.sourceGroup] ?? 0) + s.count48h;
+      }
+    }
+    return counts;
+  }, [publicSources]);
+  const socialPlatformCounts = useMemo(() => {
+    const counts: Record<'reddit' | 'x' | 'bluesky', number> = { reddit: 0, x: 0, bluesky: 0 };
+    for (const s of publicSources) {
+      if (s.platform === 'reddit' || s.platform === 'x' || s.platform === 'bluesky') {
+        counts[s.platform] += s.count48h;
+      }
+    }
+    return counts;
+  }, [publicSources]);
   const activeSource = useMemo(
     () => (sourceId ? publicSources.find((s) => s.id === sourceId) : undefined),
     [publicSources, sourceId],
@@ -160,6 +181,8 @@ export function StoriesPage({
   const baseInsightsQuery = useMemo(
     () => ({
       view,
+      channelScope: scope,
+      ...(socialPlatform ? { platform: socialPlatform } : {}),
       ...(date ? { date } : {}),
       ...(sourceGroup ? { sourceGroup } : {}),
       ...(tier ? { tier } : {}),
@@ -167,7 +190,7 @@ export function StoriesPage({
       ...(sourceId ? { sourceId } : {}),
       lang,
     }),
-    [date, lang, language, sourceGroup, sourceId, tier, view],
+    [date, lang, language, scope, socialPlatform, sourceGroup, sourceId, tier, view],
   );
 
   const insightsQuery = useStoryInsightsQuery(baseInsightsQuery, !v2Mode);
@@ -175,6 +198,8 @@ export function StoriesPage({
   const storiesQuery = useInfiniteStoriesQuery(
     {
       view,
+      channelScope: scope,
+      ...(socialPlatform ? { platform: socialPlatform } : {}),
       ...(date ? { date } : {}),
       limit: 25,
       ...(view === 'latest' ? { diverse: true } : {}),
@@ -250,9 +275,28 @@ export function StoriesPage({
     }
   }, []);
 
+  const setScope = (nextScope: 'info' | 'social') => {
+    pushSearch((next) => {
+      next.set('scope', nextScope);
+      next.delete('date');
+      next.delete('sourceId');
+      stripDrilldownParams(next);
+      if (nextScope === 'info') {
+        next.delete('platform');
+        if (next.get('view') === 'hot-v2') next.set('view', 'hot');
+      } else {
+        next.delete('sourceGroup');
+        next.delete('tier');
+        const cur = next.get('view');
+        if (!cur || cur === 'digest' || cur === 'hot') next.set('view', 'stream');
+      }
+    });
+  };
+
   const setView = (nextView: StoryView | 'stream' | 'hot-v2', nextDate?: string | null) => {
     pushSearch((next) => {
-      if (nextView === 'latest') next.delete('view');
+      next.set('scope', scope);
+      if (nextView === 'latest' && scope === 'info') next.delete('view');
       else next.set('view', nextView);
       if (nextView === 'digest' && nextDate) next.set('date', nextDate);
       else next.delete('date');
@@ -260,7 +304,7 @@ export function StoriesPage({
     });
   };
 
-  const setFilterParam = (key: 'sourceGroup' | 'tier' | 'language' | 'sourceId', val: string) => {
+  const setFilterParam = (key: 'sourceGroup' | 'tier' | 'language' | 'sourceId' | 'platform', val: string) => {
     pushSearch((next) => {
       if (val) next.set(key, val);
       else next.delete(key);
@@ -428,20 +472,34 @@ export function StoriesPage({
   const activeGroupLabel = sourceGroup
     ? SOURCE_GROUPS[sourceGroup as SourceGroupKey]?.[lang] ?? sourceGroup
     : null;
-  const heading = v2Mode === 'stream'
-    ? t('Discovery Feed V2', '破茧探索信息流 (V2)')
-    : v2Mode === 'hot-v2'
-      ? t('Cross-Platform Hot Board (V2)', '跨平台综合热榜 (V2)')
-      : activeGroupLabel
-        ? activeGroupLabel
-        : lang === 'zh'
-          ? VIEW_META[view].titleZh
-          : VIEW_META[view].titleEn;
-  const subHeading = v2Mode === 'stream'
-    ? t('Multi-pool anti-filter-bubble feed powered by /v1/feed/stream & /v1/feed/preferences.', '由 /v1/feed/stream 与用户偏好驱动的四池破茧多布局卡片流。')
-    : v2Mode === 'hot-v2'
-      ? t('Normalized cross-platform heat ranking with real observation sparklines and multi-source corroboration.', '跨平台归一化热度排行 · 真实观测火花线与多源共振。')
-      : lang === 'zh' ? VIEW_META[view].subZh : VIEW_META[view].subEn;
+  const heading = scope === 'social'
+    ? v2Mode === 'stream'
+      ? t('Social For You Stream', '社媒推荐流')
+      : v2Mode === 'hot-v2'
+        ? t('Social Hot Board', '社媒热榜')
+        : socialPlatform === 'reddit'
+          ? 'Reddit'
+          : socialPlatform === 'x'
+            ? 'X'
+            : socialPlatform === 'bluesky'
+              ? 'Bluesky'
+              : t('Social Curated & Insights', '社媒精选与洞察')
+    : v2Mode === 'stream'
+      ? t('Info Discovery Stream (V2)', '资讯探索流 (V2)')
+      : v2Mode === 'hot-v2'
+        ? t('Info Hot Board (V2)', '资讯综合热榜 (V2)')
+        : activeGroupLabel
+          ? activeGroupLabel
+          : lang === 'zh'
+            ? VIEW_META[view].titleZh
+            : VIEW_META[view].titleEn;
+  const subHeading = scope === 'social'
+    ? t('Social media posts & discussions from Reddit / X, isolated from news feeds.', 'Reddit / X 等社媒平台讨论与热点动态，与资讯信息流独立展示。')
+    : v2Mode === 'stream'
+      ? t('Curated web/RSS discovery stream powered by /v1/feed/stream.', '基于订阅源的资讯流混排探索，与社媒内容分离展示。')
+      : v2Mode === 'hot-v2'
+        ? t('Normalized heat ranking for curated web/RSS feeds.', '资讯信息流近期热度排行。')
+        : lang === 'zh' ? VIEW_META[view].subZh : VIEW_META[view].subEn;
 
   return (
     <div className="ds-page story-page">
@@ -503,44 +561,82 @@ export function StoriesPage({
         </div>
       </div>
 
-      {/* View Switcher & Digest Day Navigation */}
+      {/* Domain & View Switcher + Digest Day Navigation */}
       <div className="story-toolbar">
+        <div className="seg" role="group" aria-label={t('Content domain', '内容板块')}>
+          <button
+            type="button"
+            className={scope === 'info' ? 'on' : ''}
+            onClick={() => setScope('info')}
+          >
+            {t('Info Stream', '信息流资讯')}
+          </button>
+          <button
+            type="button"
+            className={scope === 'social' ? 'on' : ''}
+            onClick={() => setScope('social')}
+          >
+            {t('Social Media', '社媒动态')}
+          </button>
+        </div>
+
         <nav className="seg ink" aria-label="信息流视图">
-          <button
-            type="button"
-            className={!v2Mode && view === 'latest' ? 'on' : ''}
-            onClick={() => setView('latest')}
-          >
-            {t('Top Stories', '精选信息流')}
-          </button>
-          <button
-            type="button"
-            className={!v2Mode && view === 'hot' ? 'on' : ''}
-            onClick={() => setView('hot')}
-          >
-            {t('48h Hot', '48h 热度榜')}
-          </button>
-          <button
-            type="button"
-            className={!v2Mode && view === 'digest' ? 'on' : ''}
-            onClick={() => setView('digest')}
-          >
-            {t('08:00 Digest', '08:00 日报')}
-          </button>
-          <button
-            type="button"
-            className={v2Mode === 'stream' ? 'on' : ''}
-            onClick={() => setView('stream')}
-          >
-            {t('For You Stream (V2)', '破茧探索 (V2)')}
-          </button>
-          <button
-            type="button"
-            className={v2Mode === 'hot-v2' ? 'on' : ''}
-            onClick={() => setView('hot-v2')}
-          >
-            {t('Hot Board (V2)', '综合热榜 (V2)')}
-          </button>
+          {scope === 'info' ? (
+            <>
+              <button
+                type="button"
+                className={!v2Mode && view === 'latest' ? 'on' : ''}
+                onClick={() => setView('latest')}
+              >
+                {t('Top Stories', '精选信息流')}
+              </button>
+              <button
+                type="button"
+                className={!v2Mode && view === 'hot' ? 'on' : ''}
+                onClick={() => setView('hot')}
+              >
+                {t('48h Hot', '48h 热度榜')}
+              </button>
+              <button
+                type="button"
+                className={!v2Mode && view === 'digest' ? 'on' : ''}
+                onClick={() => setView('digest')}
+              >
+                {t('08:00 Digest', '08:00 日报')}
+              </button>
+              <button
+                type="button"
+                className={v2Mode === 'stream' ? 'on' : ''}
+                onClick={() => setView('stream')}
+              >
+                {t('Info Stream (V2)', '资讯探索流 (V2)')}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={v2Mode === 'stream' ? 'on' : ''}
+                onClick={() => setView('stream')}
+              >
+                {t('Social For You', '社媒推荐流')}
+              </button>
+              <button
+                type="button"
+                className={v2Mode === 'hot-v2' ? 'on' : ''}
+                onClick={() => setView('hot-v2')}
+              >
+                {t('Social Hot Board', '社媒热榜')}
+              </button>
+              <button
+                type="button"
+                className={!v2Mode && view === 'latest' ? 'on' : ''}
+                onClick={() => setView('latest')}
+              >
+                {t('Social Curated & Insights', '社媒精选与洞察')}
+              </button>
+            </>
+          )}
         </nav>
 
         {!v2Mode && view === 'digest' && (
@@ -579,24 +675,26 @@ export function StoriesPage({
 
         {!v2Mode && (
           <>
-        <div className="seg" role="group" aria-label={t('Authority tier', '来源等级')}>
-          {([
-            ['', t('All Tiers', '全部等级')],
-            ['T1', 'T1'],
-            ['T1_5', 'T1.5'],
-            ['T2', 'T2'],
-          ] as const).map(([val, label]) => (
-            <button
-              key={val || 'all'}
-              type="button"
-              aria-pressed={tier === val}
-              className={tier === val ? 'on' : ''}
-              onClick={() => setFilterParam('tier', val)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {scope === 'info' && (
+          <div className="seg" role="group" aria-label={t('Authority tier', '来源等级')}>
+            {([
+              ['', t('All Tiers', '全部等级')],
+              ['T1', 'T1'],
+              ['T1_5', 'T1.5'],
+              ['T2', 'T2'],
+            ] as const).map(([val, label]) => (
+              <button
+                key={val || 'all'}
+                type="button"
+                aria-pressed={tier === val}
+                className={tier === val ? 'on' : ''}
+                onClick={() => setFilterParam('tier', val)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="seg" role="group" aria-label={t('Language', '内容语言')}>
           {([
@@ -616,7 +714,7 @@ export function StoriesPage({
           ))}
         </div>
 
-        {(sourceGroup || tier || language || sourceId || hasDrilldown) && (
+        {(sourceGroup || tier || language || sourceId || socialPlatform || hasDrilldown) && (
           <button
             type="button"
             className="auth-link"
@@ -626,6 +724,7 @@ export function StoriesPage({
                 next.delete('tier');
                 next.delete('language');
                 next.delete('sourceId');
+                next.delete('platform');
                 stripDrilldownParams(next);
               })
             }
@@ -641,36 +740,71 @@ export function StoriesPage({
         <FeedV2View
           actor={actor}
           modeView={v2Mode}
+          channelScope={scope}
           onOpenAuth={onOpenAuth}
-          onOpenDetail={onOpenContentDetail}
+          onOpenDetail={(contentId) =>
+            setReader({
+              id: contentId,
+              title: '',
+              url: null,
+              author: null,
+              sourceLabel: '',
+              publishedAt: null,
+              thumbnail: null,
+              platform: '',
+            })
+          }
         />
       ) : (
         <>
-      {/* Topic Channel Strip with /v1/public/sources groupCounts */}
-      <nav className="story-channels" aria-label="主题频道">
-        <button
-          type="button"
-          className={`story-ch-pill ${!sourceGroup ? 'on' : ''}`}
-          onClick={() => setFilterParam('sourceGroup', '')}
-        >
-          <span>{t('All Channels', '全部频道')}</span>
-        </button>
-        {(Object.keys(SOURCE_GROUPS) as SourceGroupKey[]).map((key) => {
-          const count = groupCounts[key] ?? 0;
-          const active = sourceGroup === key;
-          return (
-            <button
-              key={key}
-              type="button"
-              className={`story-ch-pill ${active ? 'on' : ''}`}
-              onClick={() => setFilterParam('sourceGroup', active ? '' : key)}
-            >
-              <span>{SOURCE_GROUPS[key][lang]}</span>
-              {count > 0 && <em className="tabular-nums">{count}</em>}
-            </button>
-          );
-        })}
-      </nav>
+      {scope === 'info' ? (
+        <nav className="story-channels" aria-label="主题频道">
+          <button
+            type="button"
+            className={`story-ch-pill ${!sourceGroup ? 'on' : ''}`}
+            onClick={() => setFilterParam('sourceGroup', '')}
+          >
+            <span>{t('All Channels', '全部频道')}</span>
+          </button>
+          {(Object.keys(SOURCE_GROUPS) as SourceGroupKey[]).map((key) => {
+            const count = infoGroupCounts[key] ?? 0;
+            const active = sourceGroup === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                className={`story-ch-pill ${active ? 'on' : ''}`}
+                onClick={() => setFilterParam('sourceGroup', active ? '' : key)}
+              >
+                <span>{SOURCE_GROUPS[key][lang]}</span>
+                {count > 0 && <em className="tabular-nums">{count}</em>}
+              </button>
+            );
+          })}
+        </nav>
+      ) : (
+        <nav className="story-channels" aria-label={t('Social platforms', '社媒平台')}>
+          {([
+            ['', t('All Social', '全部社媒'), socialPlatformCounts.reddit + socialPlatformCounts.x + socialPlatformCounts.bluesky],
+            ['reddit', 'Reddit', socialPlatformCounts.reddit],
+            ['x', 'X', socialPlatformCounts.x],
+            ['bluesky', 'Bluesky', socialPlatformCounts.bluesky],
+          ] as const).map(([plat, label, count]) => {
+            const active = socialPlatform === plat;
+            return (
+              <button
+                key={plat || 'all'}
+                type="button"
+                className={`story-ch-pill ${active ? 'on' : ''}`}
+                onClick={() => setFilterParam('platform', plat && active ? '' : plat)}
+              >
+                <span>{label}</span>
+                {count > 0 && <em className="tabular-nums">{count}</em>}
+              </button>
+            );
+          })}
+        </nav>
+      )}
 
       <ChannelInsightsPanel
         insights={insightsQuery.data}
@@ -678,7 +812,13 @@ export function StoriesPage({
         isFetching={insightsQuery.isFetching}
         error={insightsQuery.error}
         sourceGroup={sourceGroup}
-        scopeLabel={activeGroupLabel ?? t('All Channels', '全部频道')}
+        scopeLabel={
+          scope === 'social'
+            ? socialPlatform
+              ? socialPlatform.toUpperCase()
+              : t('All Social', '全部社媒')
+            : activeGroupLabel ?? t('All Channels', '全部频道')
+        }
         density={density}
         activeDrilldown={activeDrilldown}
         onSelectTerm={toggleTermDrilldown}
@@ -944,6 +1084,8 @@ export function StoriesPage({
           </button>
         </div>
       )}
+        </>
+      )}
 
       {reader && (
         <ReaderDrawer
@@ -966,8 +1108,6 @@ export function StoriesPage({
           }
           onClose={() => setReader(null)}
         />
-      )}
-        </>
       )}
     </div>
   );

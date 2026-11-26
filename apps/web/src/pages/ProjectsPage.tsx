@@ -33,6 +33,8 @@ import { Badge } from '../components/ui/badge';
 import { IntelligenceAnalyticsView } from '../components/projects/IntelligenceAnalyticsView';
 import { ContentResearchWorkspace } from '../components/research/ContentResearchWorkspace';
 import { ProjectCollectView } from '../components/ProjectCollectView';
+import { ReaderDrawer } from '../components/stories/ReaderDrawer';
+import type { ReaderPreview } from '../components/stories/readerTypes';
 import '../styles/collection.css';
 import {
   ProjectBatchesView,
@@ -63,7 +65,7 @@ interface ProjectsPageProps {
   initialSearchString?: string;
   onNavigate?: (path: string) => void;
   onDrilldown: (projectId: string, extraQs?: string) => void;
-  onOpenContentDetail: (contentId: string) => void;
+  onOpenContentDetail?: (contentId: string) => void;
 }
 
 function downloadEvidenceCsv(content: PublicContent[], projectId?: string) {
@@ -431,11 +433,23 @@ export function ProjectsPage({
   initialSearchString = '',
   onNavigate,
   onDrilldown,
-  onOpenContentDetail,
 }: ProjectsPageProps) {
   const { t } = useI18n();
   const isAdmin = actor.role === 'owner' || actor.role === 'admin';
   const canCreateProject = actor.clientKind === 'browser';
+  const [readerPreview, setReaderPreview] = useState<ReaderPreview | null>(null);
+  const handleOpenInlineDetail = useCallback((contentId: string) => {
+    setReaderPreview({
+      id: contentId,
+      title: '',
+      url: null,
+      author: null,
+      sourceLabel: '',
+      publishedAt: null,
+      thumbnail: null,
+      platform: '',
+    });
+  }, []);
 
   const projectsQuery = useProjectsQuery(true);
   const sourcesQuery = useSourcesQuery(true);
@@ -972,7 +986,7 @@ export function ProjectsPage({
           projectId={selectedProject?.id}
           initialMonitorId={searchParams.get('monitorId') ?? undefined}
           onNavigate={go}
-          onOpenContentDetail={onOpenContentDetail}
+          onOpenContentDetail={handleOpenInlineDetail}
         />
       ) : (
         <>
@@ -1008,7 +1022,7 @@ export function ProjectsPage({
                     : 'l1'
               }
               exportDisabled={exportDisabled}
-              onOpenContentDetail={onOpenContentDetail}
+              onOpenContentDetail={handleOpenInlineDetail}
               onNavigate={go}
             />
           )}
@@ -1145,6 +1159,16 @@ export function ProjectsPage({
             </form>
           </div>
         </div>
+      )}
+
+      {readerPreview && (
+        <ReaderDrawer
+          preview={readerPreview}
+          actor={actor}
+          onOpenAuth={() => {}}
+          onSelectRelated={(ev) => handleOpenInlineDetail(ev.id)}
+          onClose={() => setReaderPreview(null)}
+        />
       )}
     </div>
   );

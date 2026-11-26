@@ -1801,11 +1801,13 @@ test("browser: Stage 2 V2 feed stream/hot, Semrush intelligence analytics & Ops 
     );
   });
 
-  // 1. /app/feed?view=stream & ?view=hot-v2
+  // 1. /app/feed?view=stream & ?view=hot-v2 (Social Media domain separation)
   await page.goto(`${origin}/app/feed?view=stream`);
   await page.getByText("Stage2 Feed V2 Hot Discussion Benchmark").waitFor();
-  await page.getByLabel("信息流视图").getByRole("button", { name: "综合热榜 (V2)" }).click();
+  await page.getByLabel("信息流视图").getByRole("button", { name: "社媒热榜" }).click();
   await page.getByText("#1").waitFor();
+  await page.getByLabel("内容板块").getByRole("button", { name: "信息流资讯" }).click();
+  assert.equal(await page.getByText("Stage2 Feed V2 Hot Discussion Benchmark").count(), 0);
 
   // 2. /projects?view=intelligence
   await page.goto(`${origin}/projects?view=intelligence`);

@@ -1000,6 +1000,7 @@ export function useFeedStreamQuery(
     mode?: FeedMode;
     topic?: string;
     platform?: Platform;
+    channelScope?: import('../contracts/api').ChannelScope;
     language?: string;
     includeNews?: boolean;
     limit?: number;
@@ -1015,7 +1016,14 @@ export function useFeedStreamQuery(
 }
 
 export function useFeedHotQuery(
-  params: { window?: '6h' | '24h' | '48h' | '7d'; platform?: Platform; topic?: string; limit?: number; offset?: number },
+  params: {
+    window?: '6h' | '24h' | '48h' | '7d';
+    platform?: Platform;
+    channelScope?: import('../contracts/api').ChannelScope;
+    topic?: string;
+    limit?: number;
+    offset?: number;
+  },
   enabled = true,
 ) {
   return useQuery({

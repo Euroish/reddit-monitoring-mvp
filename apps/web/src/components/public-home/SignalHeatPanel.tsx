@@ -12,6 +12,7 @@ interface SignalHeatPanelProps {
   items: StoryItem[];
   loading: boolean;
   error: string | null;
+  channelScope?: 'info' | 'social';
   onOpenReader: (story: StoryItem) => void;
   onNavigate: (path: string) => void;
   onRetry: () => void;
@@ -78,32 +79,40 @@ export function SignalHeatPanel({
   items,
   loading,
   error,
+  channelScope = 'info',
   onOpenReader,
   onNavigate,
   onRetry,
 }: SignalHeatPanelProps) {
   const { lang, t } = useI18n();
   const visible = items.slice(0, HOME_HOT_DISPLAY_LIMIT);
+  const headingText = channelScope === 'social'
+    ? t('48h Social Buzz', '48小时社媒热议')
+    : t('48h Momentum', '48小时热度');
+  const subText = channelScope === 'social'
+    ? t('Ranked by social engagement & recency', '基于社媒讨论活跃度与时间衰减的近期热度')
+    : t('Ranked by multi-source density & recency decay', '基于多源报道密度与时间衰减的近期热度');
+  const hotTarget = channelScope === 'social'
+    ? '/app/feed?scope=social&view=hot-v2'
+    : '/app/feed?scope=info&view=hot';
 
   return (
     <section className="sh-heat-panel" aria-labelledby="sh-heat-heading">
       <div className="sh-heat-hd">
         <div className="sh-heat-title-wrap">
           <Flame size={16} className="sh-heat-icon" aria-hidden="true" />
-          <h2 id="sh-heat-heading">{t('48h Momentum', '48小时热度')}</h2>
+          <h2 id="sh-heat-heading">{headingText}</h2>
         </div>
         <button
           type="button"
           className="sh-inline-link"
-          onClick={() => onNavigate('/app/feed?view=hot')}
+          onClick={() => onNavigate(hotTarget)}
         >
           <span>{t('Full list', '完整榜单')}</span>
           <ArrowRight size={12} aria-hidden="true" />
         </button>
       </div>
-      <p className="sh-heat-sub">
-        {t('Ranked by multi-source density & recency decay', '基于多源报道密度与时间衰减的近期热度')}
-      </p>
+      <p className="sh-heat-sub">{subText}</p>
 
       {loading && (
         <div className="sh-heat-state" aria-busy="true">

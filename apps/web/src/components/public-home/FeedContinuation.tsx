@@ -7,6 +7,7 @@ interface FeedContinuationProps {
   fetchNextError: string | null;
   visibleCount: number;
   selectedGroup: string;
+  channelScope?: 'info' | 'social';
   onLoadMore: () => void;
   onNavigate: (path: string) => void;
 }
@@ -17,13 +18,17 @@ export function FeedContinuation({
   fetchNextError,
   visibleCount,
   selectedGroup,
+  channelScope = 'info',
   onLoadMore,
   onNavigate,
 }: FeedContinuationProps) {
   const { t } = useI18n();
-  const fullFeedPath = selectedGroup
-    ? `/app/feed?sourceGroup=${encodeURIComponent(selectedGroup)}`
-    : '/app/feed';
+  const fullFeedPath =
+    channelScope === 'social'
+      ? '/app/feed?scope=social&view=stream'
+      : selectedGroup
+        ? `/app/feed?scope=info&sourceGroup=${encodeURIComponent(selectedGroup)}`
+        : '/app/feed?scope=info';
 
   return (
     <div className="sh-continuation">

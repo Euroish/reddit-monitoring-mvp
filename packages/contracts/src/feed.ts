@@ -1,6 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import {
-  DateTime, Id, NullableText, Platform, SourceGroupPattern, SourceLocalePattern,
+  ChannelScope, DateTime, Id, NullableText, Platform, SourceGroupPattern, SourceLocalePattern,
 } from "./common";
 import { CardLayout, IntentTag } from "./content";
 
@@ -93,6 +93,7 @@ export const FeedStreamQuery = Type.Object({
   mode: Type.Optional(FeedMode),
   topic: Type.Optional(Type.String({ pattern: SourceGroupPattern })),
   platform: Type.Optional(Platform),
+  channelScope: Type.Optional(ChannelScope),
   language: Type.Optional(Type.String({ pattern: SourceLocalePattern })),
   includeNews: Type.Optional(Type.Boolean()),
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 40 })),
@@ -115,6 +116,7 @@ export const FeedStreamResponse = Type.Object({
 export const FeedHotQuery = Type.Object({
   window: Type.Optional(Type.Union([Type.Literal("6h"), Type.Literal("24h"), Type.Literal("48h"), Type.Literal("7d")])),
   platform: Type.Optional(Platform),
+  channelScope: Type.Optional(ChannelScope),
   topic: Type.Optional(Type.String({ pattern: SourceGroupPattern })),
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 60 })),
   offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 300 })),

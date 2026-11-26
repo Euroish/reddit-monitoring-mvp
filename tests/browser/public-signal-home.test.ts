@@ -96,19 +96,31 @@ test("browser: editorial signal home (/), pagination, channels, reader, search, 
     const { rows } = await db.pool.query<{ id: string; platform_id: string }>(
       `INSERT INTO collection_source(
         id, platform_id, primary_provider, label, target, content_kind,
-        delivery_mode, tier, source_group, locale, created_at, updated_at
+        delivery_mode, usage_domain, feed_lane, tier, source_group, locale, created_at, updated_at
       )
-      SELECT gen_random_uuid(), id, 'kaix', $1::text,
-             jsonb_build_object('type', 'search', 'query', $1::text),
-             'post', 'pull', $2::text, $3::text, $4::text, now(), now()
-      FROM source WHERE code = 'reddit'
+      SELECT gen_random_uuid(), id, 'feed', $1::text,
+             jsonb_build_object('type', 'feed', 'url', 'https://example.org/rss/' || $3::text),
+             'article', 'pull', 'feed', 'discussion', $2::text, $3::text, $4::text, now(), now()
+      FROM source WHERE code = 'web'
       RETURNING id, platform_id`,
       [g.label, g.tier, g.key, g.lang],
     );
     sources.push({ ...rows[0], key: g.key, lang: g.lang });
   }
 
-  // Seed 24 stories so page 1 (18) + page 2 (remaining 6) exercises real nextOffset pagination
+  const { rows: [socialSrc] } = await db.pool.query<{ id: string; platform_id: string }>(
+    `INSERT INTO collection_source(
+      id, platform_id, primary_provider, label, target, content_kind,
+      delivery_mode, usage_domain, feed_lane, tier, locale, created_at, updated_at
+    )
+    SELECT gen_random_uuid(), id, 'kaix', 'Reddit Social Feed',
+           jsonb_build_object('type', 'search', 'query', 'signal-home'),
+           'post', 'pull', 'research', 'discussion', 'T2', 'zh', now(), now()
+    FROM source WHERE code = 'reddit'
+    RETURNING id, platform_id`,
+  );
+
+  // Seed 24 web stories + 2 reddit social posts so default Info tab and Social tab stay strictly separated
   const now = Date.now();
   await transaction(db.pool, async (client) => {
     for (let i = 0; i < 24; i++) {
@@ -116,7 +128,8 @@ test("browser: editorial signal home (/), pagination, channels, reader, search, 
       const hoursAgo = i < 4 ? 1 + i * 2 : 10 + i * 3;
       const pubIso = new Date(now - hoursAgo * 3600_000).toISOString();
       const item = batchItem(src.id, {
-        externalId: `t3_sighome${i}`,
+        externalId: `web_sighome${i}`,
+        kind: "article",
         title: `信号测试报道 ${i + 1}：跨源可追溯情报样本`,
         language: src.lang,
         text: `第 ${i + 1} 条测试报道正文，验证编辑式首页阅读抽屉与连续分页。`,
@@ -127,8 +140,28 @@ test("browser: editorial signal home (/), pagination, channels, reader, search, 
       item.observation.fetchedAt = pubIso;
       await commitContentBatch(
         client,
-        { id: src.id, platformId: src.platform_id, platform: "reddit", provider: "kaix", contentKinds: ["post"] },
+        { id: src.id, platformId: src.platform_id, platform: "web", provider: "feed", contentKinds: ["article"] },
         prepareContentBatch([item]),
+        pubIso,
+      );
+    }
+
+    for (let i = 0; i < 2; i++) {
+      const pubIso = new Date(now - (2 + i) * 3600_000).toISOString();
+      const socialItem = batchItem(socialSrc.id, {
+        externalId: `t3_sighome_social_${i}`,
+        title: `社媒样本讨论 ${i + 1}：Reddit 社区真实反馈`,
+        language: "zh",
+        text: `第 ${i + 1} 条 Reddit 社媒帖子，应在社媒动态板块展示，不混入资讯信息流。`,
+        url: `https://www.reddit.com/r/test/comments/sighome${i}/`,
+        publishedAt: pubIso,
+        fetchedAt: pubIso,
+      });
+      socialItem.observation.fetchedAt = pubIso;
+      await commitContentBatch(
+        client,
+        { id: socialSrc.id, platformId: socialSrc.platform_id, platform: "reddit", provider: "kaix", contentKinds: ["post"] },
+        prepareContentBatch([socialItem]),
         pubIso,
       );
     }
@@ -179,7 +212,16 @@ test("browser: editorial signal home (/), pagination, channels, reader, search, 
   await page.getByRole("heading", { name: "08:00 每日简报" }).waitFor();
   await page.getByRole("heading", { name: "更多精选" }).waitFor();
   assert.equal(await page.locator(".sh-feature-band").count(), 1);
+  assert.equal(await page.getByText(/社媒样本讨论 1/).count(), 0, "Info stream must exclude Reddit posts");
   assert.deepEqual(badStatus, []);
+
+  // Domain separation: Social tab displays Reddit posts and excludes Web articles
+  const domainBar = page.getByLabel("内容展示板块");
+  await domainBar.getByRole("button", { name: /社媒动态/ }).click();
+  await page.getByText(/社媒样本讨论 1：Reddit 社区真实反馈/).first().waitFor();
+  assert.equal(await page.getByText(/信号测试报道 1：/).count(), 0, "Social feed must exclude Web articles");
+  await domainBar.getByRole("button", { name: "资讯信息流" }).click();
+  await page.getByText(/信号测试报道 1：/).first().waitFor();
 
   // HOME-03: Load more pagination + transient failure retry preserves existing items
   const initialRowCount = await page.locator(".sh-story-row").count();

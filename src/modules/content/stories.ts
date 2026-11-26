@@ -270,6 +270,11 @@ export async function readStoryWindow(
   const start = `$${values.push(new Date(lookback))}`;
   const end = `$${values.push(toDate)}`;
   const platform = query.platform ? `AND p.code=$${values.push(query.platform)}` : "";
+  const scopeSql = query.channelScope === "info"
+    ? "AND p.code='web'"
+    : query.channelScope === "social"
+      ? "AND p.code=ANY(ARRAY['reddit','x','bluesky']::text[])"
+      : "";
   const language = query.language ? `AND c.language=$${values.push(query.language)}` : "";
   const excludeTrends = !query.sourceGroup && !query.sourceId && !query.includeTrends && view !== "digest"
     ? "AND COALESCE(cs.source_group, '') <> 'social-trends'"
@@ -302,7 +307,7 @@ export async function readStoryWindow(
     JOIN content_discovery d ON d.content_id=c.id JOIN collection_source cs ON cs.id=d.collection_source_id
     WHERE ${discovery} ${excludeTrends} ${activeOnly} AND COALESCE(c.created_at_source,d.first_fetched_at) >= ${start}
       AND d.first_fetched_at < ${end} AND c.kind<>'comment' AND c.availability NOT IN ('removed','deleted')
-      AND COALESCE(NULLIF(btrim(c.title),''),NULLIF(btrim(left(c.body_text,240)),'')) IS NOT NULL ${platform} ${language}
+      AND COALESCE(NULLIF(btrim(c.title),''),NULLIF(btrim(left(c.body_text,240)),'')) IS NOT NULL ${platform} ${scopeSql} ${language}
     ORDER BY event_at,c.id,cs.tier,cs.id LIMIT $${values.push(MAX_STORY_DISCOVERIES + 1)}`, values);
   if (rows.length > MAX_STORY_DISCOVERIES)
     fail(503, "Story window is too large to rank; narrow by source or channel");

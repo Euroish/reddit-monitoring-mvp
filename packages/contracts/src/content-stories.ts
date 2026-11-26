@@ -1,6 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import {
-  DateTime, Id, Platform, SourceGroupPattern, SourceLocalePattern, SourceTier,
+  ChannelScope, DateTime, Id, Platform, SourceGroupPattern, SourceLocalePattern, SourceTier,
 } from "./common";
 
 const View = Type.Union([Type.Literal("latest"), Type.Literal("hot"), Type.Literal("digest")]);
@@ -13,6 +13,7 @@ export const StoryQuery = Type.Object({
   offset: Type.Optional(Type.Integer({ minimum: 0, maximum: MAX_STORY_OFFSET })),
   sourceId: Type.Optional(Id),
   platform: Type.Optional(Platform),
+  channelScope: Type.Optional(ChannelScope),
   sourceGroup: Type.Optional(Type.String({ pattern: SourceGroupPattern })),
   tier: Type.Optional(SourceTier),
   language: Type.Optional(Type.String({ pattern: SourceLocalePattern })),
@@ -34,6 +35,7 @@ export const StoryInsightsQuery = Type.Object({
   date: Type.Optional(Type.String({ format: "date" })),
   sourceId: Type.Optional(Id),
   platform: Type.Optional(Platform),
+  channelScope: Type.Optional(ChannelScope),
   sourceGroup: Type.Optional(Type.String({ pattern: SourceGroupPattern })),
   tier: Type.Optional(SourceTier),
   language: Type.Optional(Type.String({ pattern: SourceLocalePattern })),

@@ -75,6 +75,7 @@ export class ApiError extends Error {
 export type PlanTier = 'free' | 'pro';
 export type SourceTier = 'T1' | 'T1_5' | 'T2';
 export type StoryView = 'latest' | 'hot' | 'digest';
+export type ChannelScope = 'info' | 'social' | 'all';
 export type CredentialProviderName = 'apify' | 'twitterapis' | 'scrapebadger';
 
 export type { StoryInsights, StoryInsightsQuery } from '../../../../packages/contracts/src/content-stories.js';
@@ -86,6 +87,7 @@ export interface StoryQuery {
   offset?: number;
   sourceId?: string;
   platform?: Platform;
+  channelScope?: ChannelScope;
   sourceGroup?: string;
   tier?: SourceTier;
   language?: string;
