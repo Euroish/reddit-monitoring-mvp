@@ -47,7 +47,6 @@
 | [architecture.md](architecture.md) | 4 GB 运行拓扑、模块化领域边界、单写表与凭证表隔离、检索、L1–L3/R4 隔离与安全底线 |
 | [invariants.md](invariants.md) | `INV-001`..`INV-010` 核心工程不变量与门禁索引 |
 | [contracts.md](contracts.md) | Domain 对象、认证授权、采集/查询/导出规则与 `check:openapi` 全量路由清册 |
-| [design.md](design.md) | 现有 UI 基线与 Frontend V2 信息架构/交互视觉规范 |
 | [status.md](status.md) | 生产最近已知基线、主干已合入代码、在途质量修复与未收口事项 |
 | [development.md](development.md) | 分支协作、CI 门禁、本地验证、Docker 部署与生产运维手册 |
 | [backend-v2-blueprint.md](plans/backend-v2-blueprint.md) | 已批准 Backend V2 产品与架构完整设计规格 |

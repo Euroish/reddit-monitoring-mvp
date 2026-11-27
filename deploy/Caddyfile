@@ -50,9 +50,7 @@
     reverse_proxy {$API_UPSTREAM:app:3000}
   }
   handle {
-    root * /srv
-    header Cache-Control no-cache
-    try_files {path} /index.html
-    file_server
+    header Cache-Control no-store
+    respond 404
   }
 }

@@ -30,17 +30,6 @@ jobs:
             exit 0
           fi
           exit "$status"
-      - name: Audit web production dependencies (high+)
-        shell: bash
-        run: |
-          set +e
-          npm --prefix apps/web audit --package-lock-only --omit=dev --audit-level=high 2>&1 | tee web-audit.log
-          status=${PIPESTATUS[0]}
-          if [ "$status" -ne 0 ] && grep -qE "EAI_AGAIN|ETIMEDOUT|ECONNRESET|ECONNREFUSED|50[0-9]" web-audit.log; then
-            echo "::warning::npm web audit registry unreachable; skipping transient error."
-            exit 0
-          fi
-          exit "$status"
 
   docker-runtime-audit:
     name: Weekly Docker multi-stage build check

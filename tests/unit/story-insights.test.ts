@@ -5,7 +5,6 @@ import { buildApp } from "../../apps/api/src/app";
 import type { StoryFeed, StoryInsights } from "../../packages/contracts/src/content-stories";
 import { computeStoryInsights } from "../../src/modules/content/story-insights";
 import { readStoryWindow, selectStoryFeed, type StoryInsightMeta } from "../../src/modules/content/stories";
-import { evaluateChannelInsights } from "../../apps/web/src/components/stories/insightsPolicy";
 import { cleanTextForAnalysis, tokenizeText } from "../../src/shared/text/analysis";
 
 type StoryWindow = Awaited<ReturnType<typeof readStoryWindow>>;
@@ -169,37 +168,6 @@ test("Channel Insights: low-sample degradation hides/degrades safely without fab
   assert.equal(insights.panels.composition.status, "hidden");
   assert.equal(insights.panels.topics.status, "hidden");
   assert.equal(insights.risingTerms.mode, "hidden");
-
-  const plan = evaluateChannelInsights(insights, "science");
-  assert.ok(plan.primary.length <= 3);
-  assert.ok(plan.hidden.some((h) => h.id === "topics"));
-});
-
-test("Channel Insights policy: caps primary cards at 3 and enforces channel priority order", () => {
-  const fromMs = Date.UTC(2026, 10, 18, 0, 0, 0);
-  const toMs = Date.UTC(2026, 10, 25, 0, 0, 0);
-  const day = 86_400_000;
-  const docs = Array.from({ length: 16 }, (_, idx) => ({
-    key: `p-${idx}`,
-    title: idx < 8
-      ? `Kubernetes infrastructure storage patch ${idx}`
-      : `AI Agent open source robotics world model release ${idx}`,
-    sourceGroup: idx % 2 === 0 ? "ai-firsthand" : "tech-media",
-    tier: (idx % 2 === 0 ? "T1" : "T1_5") as "T1" | "T1_5",
-    language: idx % 3 === 0 ? "zh" : "en",
-    eventTimeMs: fromMs + ((idx * 0.4) % 6.8) * day,
-  }));
-  const win = buildSyntheticWindow(docs, "latest", fromMs, toMs);
-  const { insights } = computeStoryInsights(win, { view: "latest", lang: "zh" }, toMs);
-
-  const aiPlan = evaluateChannelInsights(insights, "ai-firsthand");
-  assert.ok(aiPlan.primary.length <= 3);
-  assert.equal(aiPlan.primary[0].id, "risingTerms");
-  assert.equal(aiPlan.primary.length + aiPlan.more.length + aiPlan.hidden.length, 5);
-
-  const techPlan = evaluateChannelInsights(insights, "tech-media");
-  assert.ok(techPlan.primary.length <= 3);
-  assert.equal(techPlan.primary[0].id, "topics");
 });
 
 test("Channel Insights performance: 600-story synthetic window completes well under 1500ms", () => {

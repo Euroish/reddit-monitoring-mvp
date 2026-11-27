@@ -20,7 +20,6 @@
 | [系统架构与边界](docs/architecture.md) | 4 GB 运行拓扑、模块架构、表所有权、检索、L1–L3/R4 隔离与 SSRF/资源边界 |
 | [核心不变量台账](docs/invariants.md) | `INV-001`..`INV-010` 强制门禁与自动化回归测试映射 |
 | [数据与 API 契约](docs/contracts.md) | 领域模型、认证/MFA/Scope、采集幂等、`feed`/`intelligence` 契约与全量路由清单 |
-| [前端 V2 交互规范](docs/design.md) | 现有 UI 基线与面向 `/v1/feed/*`、`/v1/intelligence/*` 的 Frontend V2 重构设计 |
 | [Backend V2 蓝图](docs/plans/backend-v2-blueprint.md) | 已批准的 Backend V2 产品与架构总设计 |
 
 ## 3. 核心工程红线（MUST / MUST NOT）

@@ -45,7 +45,7 @@ module.exports = {
     {
       name: "modules-no-app-entry",
       severity: "error",
-      comment: "Domain modules must not import from apps/api or apps/web entrypoints.",
+      comment: "Domain modules must not import from apps/api entrypoints.",
       from: { path: "^src/modules/" },
       to: { path: "^apps/" },
     },
@@ -108,17 +108,10 @@ module.exports = {
         path: "^node_modules/(prisma|@prisma/client|typeorm|drizzle-orm|bullmq|ioredis|playwright|puppeteer)(/|$)",
       },
     },
-    {
-      name: "web-no-backend-imports",
-      severity: "error",
-      comment: "Frontend may import shared packages/contracts only, never backend src/ or apps/api/.",
-      from: { path: "^apps/web/src/" },
-      to: { path: "^(src|apps/api)/" },
-    },
   ],
   options: {
     doNotFollow: {
-      path: ["node_modules", "dist", "apps/web/dist", "output", "plugins"],
+      path: ["node_modules", "dist", "output", "plugins"],
     },
     tsPreCompilationDeps: true,
     tsConfig: {

@@ -79,31 +79,3 @@ test("repository policy allows flexible docs assets/modules while enforcing link
     assert.match(invalid.stderr, error);
   }
 });
-
-test("web bundle guard permits charts/ECharts on any page while rejecting leaked server secrets", (t) => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "monitor-web-bundle-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  const put = (file: string, body: string) => {
-    mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
-    writeFileSync(path.join(root, file), body);
-  };
-  const run = () =>
-    spawnSync(process.execPath, [path.resolve("scripts/check-web-bundle.mjs"), root], {
-      cwd: process.cwd(),
-      encoding: "utf8",
-    });
-
-  put(
-    "apps/web/dist/index.html",
-    `<!doctype html><link rel="modulepreload" href="/assets/charts-def456.js"><script type="module" src="/assets/index-abc123.js"></script>`,
-  );
-  put("apps/web/dist/assets/index-abc123.js", `import "./charts-def456.js"; console.log("clean");`);
-  put("apps/web/dist/assets/charts-def456.js", `console.log("echarts allowed");`);
-  const ok = run();
-  assert.equal(ok.status, 0, ok.stderr);
-
-  put("apps/web/dist/assets/index-abc123.js", `const leaked = "VITE_APIFY_API_TOKEN";`);
-  const bad = run();
-  assert.equal(bad.status, 1, bad.stdout);
-  assert.match(bad.stderr, /forbidden server secret identifier/);
-});

@@ -2,8 +2,6 @@ FROM node:24-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
-COPY apps/web/package.json apps/web/package-lock.json ./apps/web/
-RUN npm --prefix apps/web ci --ignore-scripts
 COPY . .
 RUN npm run build
 
@@ -17,5 +15,4 @@ USER node
 CMD ["sh", "-c", "node dist/src/storage/schema/run-migrations.js && node dist/src/modules/ai/ai-history-cli.js apply --dataset ${AI_HISTORY_DATASET:-v1} --trigger startup && exec node dist/apps/api/src/server.js"]
 
 FROM caddy:2-alpine AS proxy
-COPY --from=build /app/apps/web/dist /srv
 COPY deploy/Caddyfile /etc/caddy/Caddyfile

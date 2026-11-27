@@ -2,9 +2,9 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-export function verificationScope(files, { event, full = false, forceBrowser = false, release: _release = false }) {
+export function verificationScope(files, { event, full = false, release: _release = false }) {
   const scope = {
-    api: false, web: false, postgres: false, browser: forceBrowser,
+    api: false, postgres: false,
     docker: event === "workflow_dispatch", workflow: false,
   };
   const areas = new Set();
@@ -16,11 +16,6 @@ export function verificationScope(files, { event, full = false, forceBrowser = f
       areas.add("shared");
     } else if (/^(Dockerfile|\.dockerignore|docker-compose\.yml|scripts\/verify-container-build\.sh)$|^deploy\//.test(file)) {
       scope.docker = true;
-    } else if (file.startsWith("tests/browser/")) {
-      scope.browser = true;
-      scope.api = true; // Root typecheck includes browser test sources.
-    } else if (file.startsWith("apps/web/") || file === "scripts/check-web-bundle.mjs") {
-      areas.add("web");
     } else if (/^(src|apps\/api|data|tests)\//.test(file) ||
                /^(eslint\.config\.mjs|\.dependency-cruiser\.cjs)$/.test(file)) {
       areas.add("api");
@@ -29,15 +24,13 @@ export function verificationScope(files, { event, full = false, forceBrowser = f
     }
   }
 
-  if (full || (event === "push" && (areas.size || scope.browser || scope.docker))) {
-    scope.api = scope.web = scope.postgres = scope.browser = true;
-  } else if (areas.has("shared")) {
-    scope.api = scope.web = scope.postgres = true;
+  if (full || (event === "push" && (areas.size || scope.docker))) {
+    scope.api = scope.postgres = true;
+  } else if (areas.has("shared") || areas.has("api")) {
+    scope.api = scope.postgres = true;
   }
-  if (areas.has("api")) scope.api = scope.postgres = true;
-  if (areas.has("web")) scope.web = scope.browser = true;
   if (full) scope.workflow = true;
-  return { ...scope, project: scope.api || scope.web || scope.postgres || scope.browser };
+  return { ...scope, project: scope.api || scope.postgres };
 }
 
 function git(...args) {
@@ -55,7 +48,7 @@ function main() {
   if (hasBase) git("merge-base", "--is-ancestor", base, "HEAD");
   const files = hasBase ? git("diff", "--name-only", "--no-renames", "-z", base, "HEAD").split("\0").filter(Boolean) : [];
   const scope = verificationScope(files, {
-    event, full: !hasBase, release, forceBrowser: pr?.labels.some(({ name }) => name === "run-e2e"),
+    event, full: !hasBase, release,
   });
   const output = JSON.stringify(scope);
   console.log(output);

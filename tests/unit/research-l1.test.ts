@@ -3,11 +3,6 @@ import test from "node:test";
 import type { Pool, PoolClient } from "pg";
 import type { Actor } from "../../packages/contracts/src/access";
 import { buildApp } from "../../apps/api/src/app";
-import {
-  buildAnalysisCsv,
-  buildAnalysisTxt,
-  safeCsvCell,
-} from "../../apps/web/src/lib/researchExport";
 import { compileContentFilter } from "../../src/modules/content/search";
 import {
   interpretEngagement,
@@ -194,59 +189,6 @@ test("Phase 1: rule-based chart interpretations handle empty, single, tie, zero-
     "zh",
   );
   assert.match(zeroDenomEngagement.summaryText, /累计 Score 0/);
-});
-
-test("Phase 1: researchExport CSV escapes formula injection and embeds UTF-8 BOM & provenance metadata", () => {
-  assert.equal(safeCsvCell("=CMD('calc')"), "\"'=CMD('calc')\"");
-  assert.equal(safeCsvCell("+1+1"), "\"'+1+1\"");
-  assert.equal(safeCsvCell("-risk"), "\"'-risk\"");
-  assert.equal(safeCsvCell("@SUM(A1)"), "\"'@SUM(A1)\"");
-
-  const csv = buildAnalysisCsv(
-    {
-      projectName: "Cursor Research",
-      analysisId: "L1-03",
-      analysisTitle: "关键词分布",
-      methodVersion: "1.0.0",
-      dataVersion: "v-123",
-      keywords: ["Cursor", "Windsurf"],
-      batchesCount: 3,
-      timeRangeLabel: "2026-11-01 ~ 2026-11-24",
-      coverageLabel: "项目已采集样本",
-      methodologyNote: "COUNT(DISTINCT c.id) with membership bridge",
-      generatedAt: "2026-11-24T12:00:00.000Z",
-    },
-    [
-      { key: "targetLabel", label: "关键词" },
-      { key: "count", label: "条数" },
-    ],
-    [{ targetLabel: "=evil", count: 4 }],
-  );
-  assert.ok(csv.startsWith("\uFEFF"), "CSV must start with UTF-8 BOM for Excel compatibility");
-  assert.match(csv, /L1-03/);
-  assert.match(csv, /'=evil/);
-
-  const txt = buildAnalysisTxt(
-    {
-      projectName: "Cursor Research",
-      analysisId: "L1-03",
-      analysisTitle: "关键词分布",
-      methodVersion: "1.0.0",
-      dataVersion: "v-123",
-      keywords: ["Cursor"],
-      batchesCount: 1,
-      timeRangeLabel: "All",
-      coverageLabel: "Stored",
-      methodologyNote: "Distinct count",
-      generatedAt: "2026-11-24T12:00:00.000Z",
-    },
-    "Summary line",
-    ["Bullet 1", "Bullet 2"],
-    [{ key: "a", label: "A" }],
-    [{ a: "1" }],
-  );
-  assert.match(txt, /SIFTLINE 研究分析导出报告/);
-  assert.match(txt, /Bullet 1/);
 });
 
 test("Phase 1: §5.12 B dataset deduplication invariant & L1 overview + empty selection + route RBAC", async (t) => {

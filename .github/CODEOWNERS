@@ -15,11 +15,8 @@
 /deploy/ @Euroish @HikariVerse
 /package.json @Euroish @HikariVerse
 /package-lock.json @Euroish @HikariVerse
-/apps/web/package.json @Euroish @HikariVerse
-/apps/web/package-lock.json @Euroish @HikariVerse
 /.dependency-cruiser.cjs @Euroish @HikariVerse
 /eslint.config.mjs @Euroish @HikariVerse
-/apps/web/eslint.config.js @Euroish @HikariVerse
 /scripts/check-*.mjs @Euroish @HikariVerse
 /scripts/check-*.ts @Euroish @HikariVerse
 /scripts/ci-scope*.mjs @Euroish @HikariVerse

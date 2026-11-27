@@ -64,14 +64,14 @@ jobs:
           docker run --rm --network none -v "$lint_dir:/repo:ro" -w /repo ghcr.io/sbdchd/squawk:2.9.0 "${migrations[@]}"
 
   project:
-    name: API, Web & runtime verification
+    name: API & runtime verification
     needs: policy
     if: fromJSON(needs.policy.outputs.scope).project
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     services:
       postgres:
-        image: ${{ (fromJSON(needs.policy.outputs.scope).postgres || fromJSON(needs.policy.outputs.scope).browser) && 'postgres:16-alpine' || '' }}
+        image: ${{ fromJSON(needs.policy.outputs.scope).postgres && 'postgres:16-alpine' || '' }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: ci_fixture_only
@@ -96,12 +96,10 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            apps/web/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Dependency and SQL ownership boundaries
-        if: fromJSON(needs.policy.outputs.scope).api || fromJSON(needs.policy.outputs.scope).web
+        if: fromJSON(needs.policy.outputs.scope).api
         run: npm run lint:arch
       - name: API lint, types, contracts and unit tests
         if: fromJSON(needs.policy.outputs.scope).api
@@ -110,54 +108,13 @@ jobs:
           npx tsc --noEmit
           npm run check:openapi
           npm run test:unit
-      - run: npm --prefix apps/web ci --ignore-scripts --no-audit --no-fund
-        if: fromJSON(needs.policy.outputs.scope).web || fromJSON(needs.policy.outputs.scope).browser
-      - run: npm run lint:web
-        if: fromJSON(needs.policy.outputs.scope).web
-      - name: Typecheck and build Web, then verify the bundle boundary
-        if: fromJSON(needs.policy.outputs.scope).web || fromJSON(needs.policy.outputs.scope).browser
-        run: |
-          npm run build:web
-          npm run check:web-bundle
       - run: npm run build:api
-        if: fromJSON(needs.policy.outputs.scope).postgres || fromJSON(needs.policy.outputs.scope).browser
+        if: fromJSON(needs.policy.outputs.scope).postgres
       - name: PostgreSQL integration and compiled startup
         if: fromJSON(needs.policy.outputs.scope).postgres
         run: |
           npm run test:postgres
           npm run smoke:compiled
-      - name: Resolve Playwright version
-        id: pw
-        if: fromJSON(needs.policy.outputs.scope).browser
-        run: echo "version=$(node -p "require('./node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
-      - name: Cache Playwright Chromium
-        id: pw-cache
-        if: fromJSON(needs.policy.outputs.scope).browser
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
-      - name: Install Chromium (cache miss)
-        if: fromJSON(needs.policy.outputs.scope).browser && steps.pw-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium
-      - name: Install Chromium system libs (cache hit)
-        if: fromJSON(needs.policy.outputs.scope).browser && steps.pw-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium
-      - name: Browser journeys against compiled runtime
-        if: fromJSON(needs.policy.outputs.scope).browser
-        env:
-          CAPTURE_SOURCE_OPS: '1'
-          CAPTURE_PROJECT_INTAKE: '1'
-        run: npm run test:browser
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: '!cancelled() && fromJSON(needs.policy.outputs.scope).browser'
-        with:
-          name: core-browser-evidence
-          if-no-files-found: ignore
-          path: |
-            output/validation/kernel/
-            output/validation/source-operations/
-            output/validation/project-intake/
 
   workflow:
     name: GitHub Actions workflow lint

@@ -1,6 +1,6 @@
 # SIFTLINE
 
-面向研究者与产品团队的**高价值讨论信息流**与 **Semrush 级社媒/GEO 智能监测平台**。全仓围绕 **Fastify 5 + TypeBox + PostgreSQL 16 + React 19** 构建，在单机 **4 GB RAM / 60 GB Disk** 预算内坚持零 ORM、零 Redis/BullMQ、零 Python/Chromium 主线运行。
+面向研究者与产品团队的**高价值讨论信息流**与 **Semrush 级社媒/GEO 智能监测平台**（纯后端分支）。全仓围绕 **Fastify 5 + TypeBox + PostgreSQL 16** 构建，在单机 **4 GB RAM / 60 GB Disk** 预算内坚持零 ORM、零 Redis/BullMQ、零 Python/Chromium 主线运行。
 
 ## 核心能力与研发路线
 
@@ -13,7 +13,7 @@
 环境要求 **Node 24+** 与 **PostgreSQL 16**：
 
 ```sh
-npm ci --ignore-scripts && npm --prefix apps/web ci --ignore-scripts
+npm ci --ignore-scripts
 npm run lint:policy && npm run lint:api && npm run lint:arch
 npm run typecheck && npm run check:openapi && npm run test:unit
 ```
@@ -28,8 +28,7 @@ npm run typecheck && npm run check:openapi && npm run test:unit
 | [系统架构与边界](docs/architecture.md) | 4 GB 运行拓扑、模块化领域边界、单写表与凭证隔离、L1–L3/R4 与安全边界 |
 | [核心不变量台账](docs/invariants.md) | `INV-001`..`INV-010` 不可破坏约束与自动化 CI 门禁映射 |
 | [数据与 API 契约](docs/contracts.md) | 领域语义、鉴权/会话/MFA 契约、幂等导出、V2 BFF 摘要与 `check:openapi` 实测清单 |
-| [前端 V2 交互与视觉规范](docs/design.md) | 已部署界面盘点与 Frontend V2 重构蓝图（B1 信息流卡片 × B2 Semrush 监测台） |
-| [当前状态与缺口台账](docs/status.md) | 生产基线、`main` 主干、已完成修复项与 Stage 2 Frontend V2 演进路线 |
+| [当前状态与缺口台账](docs/status.md) | 生产基线、`main` 主干、已完成修复项与后端演进路线 |
 | [开发与运维手册](docs/development.md) | 单主干协作、CI 路径分流、本地验证、Docker/Caddy/Tunnel、备份恢复与巡检 SQL |
 | [Backend V2 演进蓝图](docs/plans/backend-v2-blueprint.md) | 已审批的 Backend V2 数据底座、推荐算法、Semrush 监测与 5 切片交付规格 |
 | [Agent 协作与工程红线](AGENTS.md) | AI 与协作者开工必读红线、真源索引与 PR 质量原则 |
